@@ -313,12 +313,13 @@ void test_this()
         "  function f\n"
         "    this slot 0\n"
         "    reference this local slot 0\n");
-    // `super.m` from an arrow captures the home object and `this`.
+    // `super.m` from an arrow captures the home object and `this`. (The
+    // class's own scope is program code's, so by name.)
     CHECK_EQ(scopes("class C { m() { return () => super.m(); } }"),
         "program dynamic materializes env 1\n"
         "  class C captured slot 0\n"
-        "  class-name\n"
-        "    class C slot 0\n"
+        "  class-name dynamic materializes env 1\n"
+        "    class C captured slot 0\n"
         "    function m materializes env 2\n"
         "      this captured slot 0\n"
         "      home-object captured slot 1\n"
@@ -419,7 +420,7 @@ void test_eval()
         "    reference b dynamic\n"
         "    body dynamic materializes env 1\n"
         "      let b captured slot 0\n");
-    // Eval code resolves nothing: its own top scope is by name too.
+    // Eval code resolves nothing: its top scope and its blocks are by name.
     js::ParseOptions eval_code;
     eval_code.eval = true;
     CHECK_EQ(scopes("var a; let b; a; b; c; { let d; d; }", eval_code),
@@ -429,29 +430,28 @@ void test_eval()
         "  reference a dynamic\n"
         "  reference b dynamic\n"
         "  reference c dynamic\n"
-        "  reference d local slot 0\n"
-        "  block\n"
-        "    let d slot 0\n");
+        "  reference d dynamic\n"
+        "  block dynamic materializes env 1\n"
+        "    let d captured slot 0\n");
 }
 
 void test_with()
 {
-    // Inside a with, a name not declared inside it is looked up by name;
-    // outside, the function's bindings resolve, all captured, since the
-    // lookups by name need them in environments.
+    // A with makes its function dynamic as a direct eval does: the prologue
+    // and every lookup stay by name, all its bindings captured.
     CHECK_EQ(scopes("function f(o) { var a; with (o) { a; b; let c; c; } return a; }"),
         "program dynamic materializes env 1\n"
         "  function f captured slot 0\n"
-        "  function f materializes env 2\n"
+        "  function f dynamic materializes env 2\n"
         "    parameter o captured slot 0\n"
         "    var a captured slot 1\n"
-        "    reference o scoped hops 0 slot 0\n"
+        "    reference o dynamic\n"
         "    reference a dynamic\n"
         "    reference b dynamic\n"
-        "    reference c scoped hops 0 slot 0\n"
-        "    reference a scoped hops 0 slot 1\n"
+        "    reference c dynamic\n"
+        "    reference a dynamic\n"
         "    with dynamic materializes\n"
-        "      block materializes env 1\n"
+        "      block dynamic materializes env 1\n"
         "        let c captured slot 0\n");
     // A with in an inner function captures the outer binding it may reach
     // by name, and leaves the outer function static.
@@ -463,9 +463,9 @@ void test_with()
         "    let x captured slot 0\n"
         "    let y slot 1\n"
         "    reference y local slot 1\n"
-        "    function g materializes env 1\n"
+        "    function g dynamic materializes env 1\n"
         "      parameter o captured slot 0\n"
-        "      reference o scoped hops 0 slot 0\n"
+        "      reference o dynamic\n"
         "      reference x dynamic\n"
         "      with dynamic materializes\n");
 }
@@ -533,21 +533,40 @@ void test_block_scopes()
 void test_own_names()
 {
     // A class's name inside its body is the class scope's binding.
+    CHECK_EQ(scopes("function f() { class C { m() { return C; } } }"),
+        "program dynamic materializes env 1\n"
+        "  function f captured slot 0\n"
+        "  function f\n"
+        "    class C slot 0\n"
+        "    class-name materializes env 1\n"
+        "      class C captured slot 0\n"
+        "      function m\n"
+        "        reference C scoped hops 0 slot 0\n");
+    // A named function expression reads its own name from the scope around it.
+    CHECK_EQ(scopes("function f() { var g = function h() { return h; }; }"),
+        "program dynamic materializes env 1\n"
+        "  function f captured slot 0\n"
+        "  function f\n"
+        "    var g slot 0\n"
+        "    function-name materializes env 1\n"
+        "      function-name h captured slot 0\n"
+        "      function h\n"
+        "        reference h scoped hops 0 slot 0\n");
+    // In program code both scopes are made by name, and read by name.
     CHECK_EQ(scopes("class C { m() { return C; } }"),
         "program dynamic materializes env 1\n"
         "  class C captured slot 0\n"
-        "  class-name materializes env 1\n"
+        "  class-name dynamic materializes env 1\n"
         "    class C captured slot 0\n"
         "    function m\n"
-        "      reference C scoped hops 0 slot 0\n");
-    // A named function expression reads its own name from the scope around it.
+        "      reference C dynamic\n");
     CHECK_EQ(scopes("var g = function h() { return h; };"),
         "program dynamic materializes env 1\n"
         "  var g captured slot 0\n"
-        "  function-name materializes env 1\n"
+        "  function-name dynamic materializes env 1\n"
         "    function-name h captured slot 0\n"
         "    function h\n"
-        "      reference h scoped hops 0 slot 0\n");
+        "      reference h dynamic\n");
     // new Function's `anonymous` binds nothing, and nothing outside it resolves.
     js::ParseError error;
     std::unique_ptr<js::Program> const program = js::Parser::parse_function_constructor(
@@ -646,14 +665,35 @@ void test_nodes()
     CHECK(block->scope->materializes);
     auto const* with = static_cast<js::WithStatement const*>(f->body[2]);
     CHECK(with->scope != nullptr && with->scope->kind == js::ScopeInfo::Kind::With);
+    // The with makes the function dynamic: even outside it, by name.
     auto const* read_x = static_cast<js::Identifier const*>(static_cast<js::ExpressionStatement const*>(block->body[2])->expression);
-    CHECK_EQ(read_x->resolution, js::Resolution::Scoped);
-    CHECK_EQ(read_x->hops, 1u);
-    CHECK(read_x->scope == f->scope);
+    CHECK_EQ(read_x->resolution, js::Resolution::Dynamic);
     auto const* with_x = static_cast<js::Identifier const*>(static_cast<js::ExpressionStatement const*>(with->body)->expression);
     CHECK_EQ(with_x->resolution, js::Resolution::Dynamic);
     // Registers: none left once the with captured everything.
     CHECK_EQ(f->register_count, 0u);
+    CHECK(f->body_scope == f->scope);
+    CHECK_EQ(f->scopes.size(), 3u); // the function, the block, the with
+
+    // Without the with: the block materializes for y, and x, which an arrow
+    // also captures, is one materialized scope out.
+    std::unique_ptr<js::Program> const plain
+        = parse_program("function g(a = 0) { let x = 1; { let y; () => y; x; } () => x; }", {}, error);
+    CHECK(plain != nullptr);
+    if (!plain)
+        return;
+    js::FunctionNode const* g = static_cast<js::FunctionDeclaration const*>(plain->body[0])->function;
+    CHECK(!g->dynamic);
+    CHECK(g->body_scope != g->scope); // split by the default
+    CHECK(g->body_scope->parent == g->scope);
+    auto const* inner = static_cast<js::BlockStatement const*>(g->body[1]);
+    CHECK(inner->scope->materializes);
+    auto const* plain_x = static_cast<js::Identifier const*>(static_cast<js::ExpressionStatement const*>(inner->body[2])->expression);
+    CHECK_EQ(plain_x->resolution, js::Resolution::Scoped);
+    CHECK_EQ(plain_x->hops, 1u);
+    CHECK(plain_x->scope == g->body_scope);
+    CHECK_EQ(g->scopes.size(), 3u); // the function, its body, the block
+    CHECK_EQ(g->register_count, 1u); // the parameter
 }
 
 int sweep(char const* directory)

@@ -1134,6 +1134,16 @@ public:
     Binding& declare_import(JsString* name, ModuleRecord* module, JsString* import_name);
     bool remove(JsString* name); // deletable bindings only
     std::vector<Binding> const& bindings() const { return m_bindings; }
+    // A scope's environment as the compiler laid it out: every binding at
+    // once, in slot order, so that code reaches one by its index without a
+    // search while a lookup by name (eval code, a with) still finds it.
+    // Only an environment made this way is read by slot, and nothing is
+    // ever removed from one (a removal is an eval's var, which lands in an
+    // environment made by name).
+    void assign_bindings(std::span<Binding const> bindings);
+    std::size_t binding_count() const { return m_bindings.size(); }
+    Binding& binding_at(std::size_t slot) { return m_bindings[slot]; }
+    Binding const& binding_at(std::size_t slot) const { return m_bindings[slot]; }
 
     // A function environment binds `this`; an arrow's does not, and a
     // lookup walks outward past it. A derived class constructor's binds
@@ -1176,12 +1186,15 @@ private:
     // would every declaration, which looks for its name first. The index
     // names each binding by its place; it is made the first time a scope
     // that large is searched, kept up as bindings are declared, and made
-    // again after one is removed.
+    // again after one is removed. It covers the first m_indexed bindings;
+    // a nameless one (a function's this, new.target and home object, laid
+    // out by slot) is covered without an entry.
     static constexpr std::size_t indexed_from = 12;
     std::size_t place_of(JsString const* name) const; // m_bindings.size() for none
 
     std::vector<Binding> m_bindings;
     mutable std::unordered_map<JsString const*, std::uint32_t> m_index;
+    mutable std::uint32_t m_indexed = 0;
     Environment* m_outer;
     Object* m_object;
     Value m_this;

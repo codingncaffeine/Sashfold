@@ -59,14 +59,15 @@ void Frame::trace(Tracer& tracer)
     }
     for (Environment* env : envs)
         tracer.visit(env);
-    for (Value const& value : arguments)
-        tracer.visit(value);
     for (ClassBuilder* builder : builders)
         tracer.visit(builder);
     tracer.visit(field_key);
     tracer.visit(variable);
     tracer.visit(function);
     tracer.visit(private_environment);
+    tracer.visit(this_value);
+    tracer.visit(new_target);
+    tracer.visit(function_env);
     tracer.visit(result);
     tracer.visit(resume_value);
 }
@@ -166,7 +167,7 @@ bool Interpreter::Impl::run_parameter_block(FunctionNode const& node, Environmen
     {
         Heap::NoCollect const guard(heap());
         frame = take_frame(*code, binding_context);
-        frame->arguments.assign(arguments.begin(), arguments.end());
+        frame->incoming = arguments;
     }
     RunStatus const status = vm_run(*frame);
     give_back(*frame);
@@ -198,6 +199,100 @@ std::optional<Value> Interpreter::Impl::run_compiled_node(FunctionNode const& no
         return std::nullopt;
     if (status != RunStatus::Completed)
         return self.throw_syntax_error("a plain function body suspended");
+    return result;
+}
+
+// [[Call]] and [[Construct]] of a function compiled with its bindings
+// resolved: PrepareForOrdinaryCall and OrdinaryCallBindThis here (`this`
+// and new.target onto the frame, a base constructor's fields defined
+// first), FunctionDeclarationInstantiation as the body's own first
+// instructions, then the body. The caller rooted the function, `this` and
+// the arguments; the frame reads the arguments where they are until its
+// prologue is done.
+std::optional<Value> Interpreter::Impl::run_resolved_function(ScriptFunction& function, CodeBlock const& code, Value const& this_argument,
+    std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key, PromiseCapability const* async_capability,
+    RealmRecord* caller_realm)
+{
+    FunctionNode const& node = function.node();
+    Roots const roots(self);
+    Value this_value = Value::undefined();
+    if (!node.is_arrow) {
+        if (node.is_derived_constructor) {
+            // A derived constructor's `this` waits for super() (§10.2.1.1).
+            this_value = Value::empty();
+        } else {
+            // OrdinaryCallBindThis: sloppy code sees its realm's global
+            // `this` for a nullish `this` and a wrapper for a primitive one.
+            this_value = this_argument;
+            if (!node.is_strict) {
+                if (this_value.is_nullish()) {
+                    this_value = Value::object(self.global_this());
+                } else if (!this_value.is_object()) {
+                    std::optional<Object*> const boxed = self.to_object(this_value);
+                    if (!boxed)
+                        return std::nullopt;
+                    this_value = Value::object(*boxed);
+                    self.root(this_value);
+                }
+            }
+        }
+        // A base class constructor defines its fields on the fresh
+        // instance before anything else runs (§10.2.2 step 6.b).
+        if (node.is_class_constructor && !node.is_derived_constructor && new_target != nullptr && this_argument.is_object()) {
+            if (!initialize_instance_elements(*this_argument.as_object(), function))
+                return std::nullopt;
+        }
+    }
+
+    Context const cx { function.scope(), function.scope(), node.program, &function, node.is_strict, function.private_environment() };
+    bool const suspends = node.is_generator || async_capability != nullptr;
+    Frame* frame = nullptr;
+    {
+        Heap::NoCollect const guard(heap());
+        // A body that can suspend keeps a frame of its own; a plain one
+        // takes a pooled frame back after its return.
+        frame = suspends ? new_frame(code, cx) : take_frame(code, cx);
+        frame->incoming = arguments;
+        frame->this_value = this_value;
+        frame->new_target = new_target;
+        if (field_key != nullptr)
+            frame->field_key = key_to_value(heap(), *field_key);
+    }
+    // A generator's prologue runs now and its body at the first next()
+    // (§15.5.2, §15.6.2 for the async kind); an async function's body runs
+    // to its first await (§15.8.4).
+    if (node.is_generator)
+        return node.is_async ? start_async_generator(function, cx, frame) : start_generator(function, cx, frame);
+    if (async_capability != nullptr)
+        return start_async(node, cx, *async_capability, frame);
+
+    RunStatus const status = vm_run(*frame);
+    Value const result = frame->result.is_empty() ? Value::undefined() : frame->result;
+    self.root(result);
+    // The `this` super() bound, read before the frame is given back.
+    Value bound_this = frame->this_value;
+    if (frame->function_env != nullptr)
+        bound_this = frame->function_env->this_initialized() ? frame->function_env->this_value() : Value::empty();
+    self.root(bound_this);
+    give_back(*frame);
+    if (status == RunStatus::Threw)
+        return std::nullopt;
+    if (status != RunStatus::Completed)
+        return self.throw_syntax_error("a plain function body suspended");
+    // [[Construct]] of a derived class (§10.2.2 steps 9–12), back in the
+    // caller's context: an object returned is the result, anything else but
+    // undefined a TypeError, and undefined yields the `this` that super()
+    // bound — each error made in the caller's realm.
+    if (new_target != nullptr && node.is_derived_constructor) {
+        if (result.is_object())
+            return result;
+        RealmScope const caller(self, caller_realm);
+        if (!result.is_undefined())
+            return self.throw_type_error("Derived constructors may only return object or undefined");
+        if (bound_this.is_empty())
+            return self.throw_reference_error("Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+        return bound_this;
+    }
     return result;
 }
 
@@ -244,13 +339,16 @@ void Interpreter::Impl::give_back(Frame& frame)
     frame.registers.clear();
     frame.refs.clear();
     frame.envs.clear();
-    frame.arguments.clear();
+    frame.incoming = {};
     frame.builders.clear();
     frame.field_key = Value();
     frame.variable = nullptr;
     frame.function = nullptr;
     frame.program = nullptr;
     frame.private_environment = nullptr;
+    frame.this_value = Value();
+    frame.new_target = nullptr;
+    frame.function_env = nullptr;
     frame.result = Value::empty();
     frame.resume_kind = ResumeKind::Normal;
     frame.resume_value = Value();
@@ -371,6 +469,55 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
         return perform_eval(arguments[0].as_string()->view(), frame.envs.back(), frame.strict, Value::empty(), true, frame.private_environment,
             frame.program);
     };
+    // Resolved bindings. The environment `hops` out from the current one:
+    // the parser counted the scopes that materialize, which are exactly the
+    // environments on the chain, so the walk needs no names; a slot past
+    // the end would be a compiler's fault, reported rather than read.
+    auto scoped_environment = [&](std::uint32_t hops) -> Environment* {
+        Environment* env = frame.envs.back();
+        for (std::uint32_t i = 0; i < hops && env != nullptr; ++i)
+            env = env->outer();
+        return env;
+    };
+    auto scoped_binding = [&](std::uint32_t hops, std::uint32_t slot) -> Environment::Binding* {
+        Environment* env = scoped_environment(hops);
+        if (env == nullptr || slot >= env->binding_count()) {
+            self.throw_type_error("internal: a resolved binding outside its environment");
+            return nullptr;
+        }
+        return &env->binding_at(slot);
+    };
+    auto dead_zone = [&](JsString* name) {
+        self.throw_reference_error("Cannot access '" + (name ? name->to_utf8() : std::string()) + "' before initialization");
+    };
+    auto register_name = [&](std::uint32_t reg) -> JsString* {
+        return reg < code.register_names.size() ? code.register_names[reg] : nullptr;
+    };
+    // PutValue to a register: its dead zone first, then a const's TypeError.
+    auto write_local = [&](std::uint32_t reg, bool immutable, Value const& value) -> bool {
+        Value& held = frame.registers[reg];
+        if (held.is_empty()) {
+            dead_zone(register_name(reg));
+            return false;
+        }
+        if (immutable) {
+            self.throw_type_error("Assignment to constant variable.");
+            return false;
+        }
+        held = value;
+        return true;
+    };
+    // `this` of the running plain function: its own environment's when it
+    // has one, else the frame's; the hole is a derived constructor's before
+    // super().
+    auto frame_this = [&]() -> std::optional<Value> {
+        Value value = frame.this_value;
+        if (frame.function_env != nullptr)
+            value = frame.function_env->this_initialized() ? frame.function_env->this_value() : Value::empty();
+        if (value.is_empty())
+            return self.throw_reference_error("Must call super constructor in derived class before accessing 'this' or returning from derived constructor");
+        return value;
+    };
     auto call_with = [&](Instruction const& ins, Value const& callee, Value const& this_value, Args arguments, bool eval) -> std::optional<Value> {
         if (eval && callee.is_object() && callee.as_object() == self.intrinsics().eval)
             return direct_eval(arguments);
@@ -470,9 +617,15 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             frame.envs.pop_back();
             break;
         case Opcode::CopyIterationEnv: {
-            // CreatePerIterationEnvironment (§14.7.4.4).
+            // CreatePerIterationEnvironment (§14.7.4.4); a resolved head's
+            // environment is copied whole, slot for slot.
             Environment* previous = frame.envs.back();
             Environment* copy = new_environment(previous->outer());
+            if (ins.flags & 1) {
+                copy->assign_bindings(previous->bindings());
+                frame.envs.back() = copy;
+                break;
+            }
             for (JsString* name : code.name_lists[ins.a]) {
                 Environment::Binding const* binding = previous->find(name);
                 copy->declare(name, binding ? binding->value : Value::undefined(), true, binding ? binding->initialized : true);
@@ -488,15 +641,109 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             frame.stack.pop_back();
             break;
         case Opcode::LoadArgument:
-            frame.push(ins.a < frame.arguments.size() ? frame.arguments[ins.a] : Value::undefined());
+            frame.push(ins.a < frame.incoming.size() ? frame.incoming[ins.a] : Value::undefined());
             break;
         case Opcode::RestArguments: {
-            std::span<Value const> const rest = ins.a < frame.arguments.size()
-                ? std::span<Value const>(frame.arguments).subspan(ins.a)
-                : std::span<Value const>();
+            std::span<Value const> const rest = ins.a < frame.incoming.size() ? frame.incoming.subspan(ins.a) : std::span<Value const>();
             frame.push(Value::object(self.new_array(rest)));
             break;
         }
+
+        // ---- resolved bindings
+        case Opcode::GetLocal: {
+            Value const value = frame.registers[ins.a];
+            if (value.is_empty()) {
+                dead_zone(register_name(ins.a));
+                ok = false;
+                break;
+            }
+            frame.push(value);
+            break;
+        }
+        case Opcode::SetLocal:
+            if (!write_local(ins.a, (ins.flags & 1) != 0, frame.top()))
+                ok = false;
+            break;
+        case Opcode::GetScoped: {
+            Environment::Binding const* binding = scoped_binding(ins.a, ins.b);
+            if (binding == nullptr) {
+                ok = false;
+                break;
+            }
+            if (!binding->initialized) {
+                dead_zone(binding->name);
+                ok = false;
+                break;
+            }
+            Value const value = binding->value;
+            frame.push(value);
+            break;
+        }
+        case Opcode::SetScoped: {
+            Environment::Binding* binding = scoped_binding(ins.a, ins.b);
+            if (binding == nullptr || !set_mutable_binding(*binding, frame.top(), frame.strict))
+                ok = false;
+            break;
+        }
+        case Opcode::InitScoped: {
+            Environment::Binding* binding = scoped_binding(ins.a, ins.b);
+            if (binding == nullptr) {
+                ok = false;
+                break;
+            }
+            binding->value = frame.top();
+            binding->initialized = true;
+            frame.stack.pop_back();
+            break;
+        }
+        case Opcode::PushEnv: {
+            // A scope that materializes: its environment with every binding
+            // laid out at once. The function's own also holds what the
+            // chain is searched for by arrows and eval code: the function,
+            // `this` (none yet in a derived constructor) and new.target.
+            Environment* env = new_environment(frame.envs.back());
+            env->assign_bindings(code.environments[ins.a].bindings);
+            if (ins.flags & 1) {
+                env->set_function(frame.function);
+                if (frame.function != nullptr && !frame.function->node().is_arrow) {
+                    if (frame.this_value.is_empty())
+                        env->set_this_uninitialized();
+                    else
+                        env->set_this(frame.this_value);
+                    env->set_new_target(frame.new_target);
+                }
+                frame.function_env = env;
+            }
+            if (ins.flags & 2)
+                env->set_var_scope();
+            frame.envs.push_back(env);
+            break;
+        }
+        case Opcode::MakeArguments: {
+            bool const mapped = (ins.flags & 1) != 0;
+            Object* arguments_object = make_arguments_object(*frame.function, mapped ? frame.function_env : nullptr, frame.incoming, mapped);
+            frame.push(Value::object(arguments_object));
+            break;
+        }
+        case Opcode::LoadThis: {
+            std::optional<Value> const value = frame_this();
+            if (!value) {
+                ok = false;
+                break;
+            }
+            frame.push(*value);
+            break;
+        }
+        case Opcode::LoadNewTarget:
+            frame.push(frame.new_target ? Value::object(frame.new_target) : Value::undefined());
+            break;
+        case Opcode::Suspend:
+            // FunctionDeclarationInstantiation done at the call (§15.5.2);
+            // the arguments are the caller's and are not kept past it.
+            frame.incoming = {};
+            frame.result = Value::empty();
+            frame.resume_pending = true;
+            return RunStatus::Yielded;
         case Opcode::AnnexBCopy: {
             // B.3.2.1 step 2.b: a sloppy block-level function's current value
             // to the var binding the parser hoisted for it.
@@ -534,6 +781,28 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
         case Opcode::RefName:
             frame.refs.push_back(resolve(code.names[ins.a], frame.envs.back()));
             break;
+        case Opcode::RefLocal: {
+            Reference reference;
+            reference.kind = Reference::Kind::Local;
+            reference.slot = ins.a;
+            reference.immutable = (ins.flags & 1) != 0;
+            frame.refs.push_back(reference);
+            break;
+        }
+        case Opcode::RefScoped: {
+            Environment* env = scoped_environment(ins.a);
+            if (env == nullptr || ins.b >= env->binding_count()) {
+                self.throw_type_error("internal: a resolved binding outside its environment");
+                ok = false;
+                break;
+            }
+            Reference reference;
+            reference.kind = Reference::Kind::Scoped;
+            reference.environment = env;
+            reference.slot = ins.b;
+            frame.refs.push_back(reference);
+            break;
+        }
         case Opcode::RefMember: {
             Reference reference;
             if (!member_reference(frame.peek(1), frame.peek(0), reference)) {
@@ -550,8 +819,16 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             frame.stack.pop_back();
             break;
         case Opcode::RefSuper: {
-            Context const cx = frame_context(frame);
-            std::optional<Reference> reference = super_reference(cx, &frame.top(), nullptr);
+            // Flag 1: in the method itself, whose frame has `this` and the
+            // function with its home object.
+            std::optional<Reference> reference;
+            if (ins.flags & 1) {
+                std::optional<Value> const this_value = frame_this();
+                if (this_value)
+                    reference = super_reference_of(*this_value, frame.function ? frame.function->home_object() : nullptr, &frame.top(), nullptr);
+            } else {
+                reference = super_reference(frame_context(frame), &frame.top(), nullptr);
+            }
             if (!reference) {
                 ok = false;
                 break;
@@ -561,8 +838,14 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             break;
         }
         case Opcode::RefSuperNamed: {
-            Context const cx = frame_context(frame);
-            std::optional<Reference> reference = super_reference(cx, nullptr, code.names[ins.a]);
+            std::optional<Reference> reference;
+            if (ins.flags & 1) {
+                std::optional<Value> const this_value = frame_this();
+                if (this_value)
+                    reference = super_reference_of(*this_value, frame.function ? frame.function->home_object() : nullptr, nullptr, code.names[ins.a]);
+            } else {
+                reference = super_reference(frame_context(frame), nullptr, code.names[ins.a]);
+            }
             if (!reference) {
                 ok = false;
                 break;
@@ -590,6 +873,16 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             break;
         }
         case Opcode::RefGet: {
+            if (Reference const& reference = frame.refs.back(); reference.kind == Reference::Kind::Local) {
+                Value const value = frame.registers[reference.slot];
+                if (value.is_empty()) {
+                    dead_zone(register_name(reference.slot));
+                    ok = false;
+                    break;
+                }
+                frame.push(value);
+                break;
+            }
             Context const cx = frame_context(frame);
             std::optional<Value> const value = get_value(frame.refs.back(), cx);
             if (!value) {
@@ -601,8 +894,11 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
         }
         case Opcode::RefPut:
         case Opcode::RefPutKeep: {
-            Context const cx = frame_context(frame);
-            if (!put_value(frame.refs.back(), frame.top(), cx)) {
+            Reference& reference = frame.refs.back();
+            bool const stored = reference.kind == Reference::Kind::Local
+                ? write_local(reference.slot, reference.immutable, frame.top())
+                : put_value(reference, frame.top(), frame_context(frame));
+            if (!stored) {
                 ok = false;
                 break;
             }
@@ -967,8 +1263,25 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 arguments = Args(frame.stack.data() + size - ins.a, ins.a);
                 consumed = ins.a;
             }
-            Context cx = frame_context(frame);
-            std::optional<Value> const result = super_call(cx, arguments);
+            std::optional<Value> result;
+            if (code.slots && frame.function != nullptr && !frame.function->node().is_arrow && frame.function_env == nullptr) {
+                // A derived constructor with no environment of its own
+                // keeps `this` on its frame: super() binds it there
+                // (§13.3.7.1 steps 6–7 with the frame as the this binding).
+                result = super_construct(*frame.function, frame.new_target, arguments);
+                if (result && !frame.this_value.is_empty()) {
+                    self.throw_reference_error("Super constructor may only be called once");
+                    result.reset();
+                }
+                if (result) {
+                    frame.this_value = *result;
+                    if (!initialize_instance_elements(*result->as_object(), *frame.function))
+                        result.reset();
+                }
+            } else {
+                Context cx = frame_context(frame);
+                result = super_call(cx, arguments);
+            }
             if (!result) {
                 ok = false;
                 break;
@@ -1146,7 +1459,7 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 name_key = &key;
             }
             Context cx = frame_context(frame);
-            std::optional<Value> const value = make_closure(*code.functions[ins.a], cx, name_key);
+            std::optional<Value> const value = make_closure(*code.functions[ins.a], cx, name_key, (ins.flags & 1) == 0);
             if (!value) {
                 ok = false;
                 break;
@@ -1173,7 +1486,8 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 key = h.key(code.names[ins.b]);
                 name_key = &key;
             }
-            ClassBuilder* builder = class_scope(*code.classes[ins.a], frame.envs.back(), frame.private_environment, frame.strict, name_key);
+            ClassBuilder* builder
+                = class_scope(*code.classes[ins.a], frame.envs.back(), frame.private_environment, frame.strict, name_key, (ins.flags & 1) == 0);
             if (dynamic)
                 frame.stack.pop_back();
             frame.builders.push_back(builder);
@@ -1464,8 +1778,28 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
 // did that), the generator object is made with the function's own
 // `prototype` — or the intrinsic when that is not an object — and
 // nothing of the body runs until the first next().
-std::optional<Value> Interpreter::Impl::start_generator(ScriptFunction& function, Context const& cx)
+std::optional<Value> Interpreter::Impl::start_generator(ScriptFunction& function, Context const& cx, Frame* prepared)
 {
+    if (prepared != nullptr) {
+        // The prologue runs first (EvaluateGeneratorBody step 1), to the
+        // Suspend that ends it; the object is made with the intrinsic
+        // prototype at once, so the frame is held from here, and given the
+        // function's own `prototype` after (step 2 may run a getter).
+        if (vm_run(*prepared) != RunStatus::Yielded)
+            return std::nullopt;
+        Roots const roots(self);
+        GeneratorObject* generator = nullptr;
+        {
+            Heap::NoCollect const guard(heap());
+            generator = heap().allocate<GeneratorObject>(self.intrinsics().generator_prototype, prepared);
+        }
+        self.root(Value::object(generator));
+        std::optional<Object*> const prototype = self.get_prototype_from_constructor(&function, &Intrinsics::generator_prototype);
+        if (!prototype)
+            return std::nullopt;
+        generator->set_prototype(*prototype);
+        return Value::object(generator);
+    }
     CodeBlock const* code = compiled_body(function.node());
     if (code == nullptr)
         return std::nullopt;
@@ -1576,19 +1910,21 @@ std::optional<Value> Interpreter::Impl::call_async_function(ScriptFunction& func
 
 // AsyncFunctionStart (§27.7.5.1) and AsyncBlockStart (§27.7.5.2): the body
 // runs to its first await, its end or a throw.
-std::optional<Value> Interpreter::Impl::start_async(FunctionNode const& node, Context const& cx, PromiseCapability const& capability)
+std::optional<Value> Interpreter::Impl::start_async(FunctionNode const& node, Context const& cx, PromiseCapability const& capability, Frame* prepared)
 {
-    CodeBlock const* code = compiled_body(node);
+    CodeBlock const* code = prepared ? prepared->code : compiled_body(node);
     if (code == nullptr)
         return std::nullopt;
     Roots const roots(self);
     AsyncContextObject* context = nullptr;
     {
         Heap::NoCollect const guard(heap());
-        Frame* frame = new_frame(*code, cx);
+        Frame* frame = prepared ? prepared : new_frame(*code, cx);
         context = heap().allocate<AsyncContextObject>(nullptr, frame, capability.promise, capability.resolve, capability.reject);
     }
     self.root(Value::object(context));
+    // A prologue of the body's own runs in this first step, before the
+    // first await.
     async_step(*context);
     return capability.promise;
 }
@@ -1607,6 +1943,9 @@ void Interpreter::Impl::async_step(AsyncContextObject& context)
     RealmScope const realm_scope(self, frame->function ? frame->function->realm() : nullptr, RealmScope::Code::Script);
     while (true) {
         RunStatus const status = vm_run(*frame);
+        // The call's arguments were for its prologue, which has run: they
+        // are the caller's, and the caller has returned by the next step.
+        frame->incoming = {};
         if (status == RunStatus::Completed || status == RunStatus::Yielded) {
             Value const result = frame->result;
             self.root(result);
@@ -1672,9 +2011,26 @@ void Interpreter::Impl::async_step(AsyncContextObject& context)
 
 // ---- async generators (§27.6) ------------------------------------------------
 
-std::optional<Value> Interpreter::Impl::start_async_generator(ScriptFunction& function, Context const& cx)
+std::optional<Value> Interpreter::Impl::start_async_generator(ScriptFunction& function, Context const& cx, Frame* prepared)
 {
-    // §27.6.3.2 AsyncGeneratorStart: the frame waits for the first request.
+    // §27.6.3.2 AsyncGeneratorStart: the frame waits for the first request,
+    // once a prologue of the body's own has run to its Suspend.
+    if (prepared != nullptr) {
+        if (vm_run(*prepared) != RunStatus::Yielded)
+            return std::nullopt;
+        Roots const roots(self);
+        AsyncGeneratorObject* generator = nullptr;
+        {
+            Heap::NoCollect const guard(heap());
+            generator = heap().allocate<AsyncGeneratorObject>(self.intrinsics().async_generator_prototype, prepared);
+        }
+        self.root(Value::object(generator));
+        std::optional<Object*> const prototype = self.get_prototype_from_constructor(&function, &Intrinsics::async_generator_prototype);
+        if (!prototype)
+            return std::nullopt;
+        generator->set_prototype(*prototype);
+        return Value::object(generator);
+    }
     CodeBlock const* code = compiled_body(function.node());
     if (code == nullptr)
         return std::nullopt;

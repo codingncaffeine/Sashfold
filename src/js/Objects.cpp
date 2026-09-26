@@ -1178,14 +1178,26 @@ std::size_t Environment::place_of(JsString const* name) const
         }
         return count;
     }
-    if (m_index.size() != count) {
+    if (m_indexed != count) {
         m_index.clear();
         m_index.reserve(count * 2);
-        for (std::size_t i = 0; i < count; ++i)
-            m_index.emplace(m_bindings[i].name, static_cast<std::uint32_t>(i));
+        for (std::size_t i = 0; i < count; ++i) {
+            if (m_bindings[i].name)
+                m_index.emplace(m_bindings[i].name, static_cast<std::uint32_t>(i));
+        }
+        m_indexed = static_cast<std::uint32_t>(count);
     }
     auto const found = m_index.find(name);
     return found == m_index.end() ? count : found->second;
+}
+
+void Environment::assign_bindings(std::span<Binding const> bindings)
+{
+    m_bindings.assign(bindings.begin(), bindings.end());
+    m_index.clear();
+    m_indexed = 0;
+    if (Heap* owner = heap())
+        owner->grew(bindings.size() * sizeof(Binding));
 }
 
 Environment::Binding* Environment::find(JsString* name)
@@ -1206,9 +1218,11 @@ Environment::Binding& Environment::declare(JsString* name, Value initial, bool m
         return *existing;
     // An index that is up to date stays so; one that is not is made again
     // by the next search.
-    bool const indexed = m_index.size() == m_bindings.size() && !m_index.empty();
-    if (indexed)
+    bool const indexed = m_indexed == m_bindings.size() && m_indexed != 0;
+    if (indexed) {
         m_index.emplace(name, static_cast<std::uint32_t>(m_bindings.size()));
+        ++m_indexed;
+    }
     Binding& binding = m_bindings.emplace_back();
     if (Heap* owner = heap())
         owner->grew(sizeof(Binding) + (indexed ? sizeof(void*) * 4 : 0));
@@ -1240,6 +1254,7 @@ bool Environment::remove(JsString* name)
         // wanted. Emptied rather than left, since a declaration that follows
         // would bring the counts level again with the places still wrong.
         m_index.clear();
+        m_indexed = 0;
         return true;
     }
     return false;

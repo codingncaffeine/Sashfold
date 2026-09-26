@@ -49,10 +49,13 @@ namespace {
 
 // A mapped arguments object (§10.4.4): the indices that correspond to
 // formal parameters read and write the parameters' bindings, until a
-// delete or a redefinition unmaps them.
+// delete or a redefinition unmaps them. Parameter i of a list that can be
+// mapped (simple, no duplicates) is binding i of the function's
+// environment, whether that was declared by name or laid out by slot, so
+// the object aliases the binding by its place.
 class ArgumentsObject : public Object {
 public:
-    ArgumentsObject(Object* prototype, Environment* environment, std::vector<JsString*> mapped)
+    ArgumentsObject(Object* prototype, Environment* environment, std::vector<std::uint8_t> mapped)
         : Object(prototype, Class::Arguments)
         , m_environment(environment)
         , m_mapped(std::move(mapped))
@@ -63,7 +66,7 @@ public:
     {
         // §10.4.4.1: the ordinary descriptor with the live parameter value.
         std::optional<PropertyDescriptor> desc = Object::get_own_property(key);
-        if (desc && mapped_name(key))
+        if (desc && is_mapped(key))
             desc->value = binding_value(key);
         return desc;
     }
@@ -72,13 +75,13 @@ public:
     {
         // §10.4.4.2: a value written through the descriptor reaches the
         // parameter; an accessor, or writable going false, ends the mapping.
-        JsString* name = mapped_name(key);
+        bool const mapped = is_mapped(key);
         PropertyDescriptor new_desc = desc;
-        if (name && desc.is_data() && !desc.value && desc.writable && !*desc.writable)
+        if (mapped && desc.is_data() && !desc.value && desc.writable && !*desc.writable)
             new_desc.value = binding_value(key);
         if (!Object::define_own_property(key, new_desc))
             return false;
-        if (name) {
+        if (mapped) {
             if (desc.is_accessor()) {
                 unmap(key);
             } else {
@@ -94,7 +97,7 @@ public:
     std::optional<Value> get(Interpreter& interpreter, PropertyKey const& key, Value const& receiver) override
     {
         // §10.4.4.3.
-        if (mapped_name(key))
+        if (is_mapped(key))
             return binding_value(key);
         return Object::get(interpreter, key, receiver);
     }
@@ -103,7 +106,7 @@ public:
     {
         // §10.4.4.4: a write through this object itself lands on the
         // parameter as well as on the property.
-        if (receiver.is_object() && receiver.as_object() == this && mapped_name(key))
+        if (receiver.is_object() && receiver.as_object() == this && is_mapped(key))
             set_binding_value(key, value);
         return Object::set(interpreter, key, value, receiver);
     }
@@ -112,7 +115,7 @@ public:
     {
         // §10.4.4.5.
         bool const deleted = Object::delete_property(key);
-        if (deleted && mapped_name(key))
+        if (deleted && is_mapped(key))
             unmap(key);
         return deleted;
     }
@@ -124,26 +127,16 @@ public:
     }
 
 private:
-    JsString* mapped_name(PropertyKey const& key) const
+    bool is_mapped(PropertyKey const& key) const
     {
-        if (!key.is_index() || key.as_index() >= m_mapped.size())
-            return nullptr;
-        return m_mapped[key.as_index()];
+        return key.is_index() && key.as_index() < m_mapped.size() && m_mapped[key.as_index()] != 0;
     }
-    Value binding_value(PropertyKey const& key) const
-    {
-        Environment::Binding const* binding = m_environment->find(mapped_name(key));
-        return binding ? binding->value : Value::undefined();
-    }
-    void set_binding_value(PropertyKey const& key, Value const& value)
-    {
-        if (Environment::Binding* binding = m_environment->find(mapped_name(key)))
-            binding->value = value;
-    }
-    void unmap(PropertyKey const& key) { m_mapped[key.as_index()] = nullptr; }
+    Value binding_value(PropertyKey const& key) const { return m_environment->binding_at(key.as_index()).value; }
+    void set_binding_value(PropertyKey const& key, Value const& value) { m_environment->binding_at(key.as_index()).value = value; }
+    void unmap(PropertyKey const& key) { m_mapped[key.as_index()] = 0; }
 
     Environment* m_environment;
-    std::vector<JsString*> m_mapped;
+    std::vector<std::uint8_t> m_mapped;
 };
 
 // Where the C++ stack stands, for the budget check: the frame address of
@@ -327,6 +320,15 @@ std::optional<Value> Interpreter::Impl::get_value(Reference& reference, Context 
         if (self.has_exception())
             return std::nullopt;
         return self.throw_reference_error(reference.name->to_utf8() + " is not defined");
+    case Reference::Kind::Scoped: {
+        Environment::Binding const& binding = reference.environment->binding_at(reference.slot);
+        if (!binding.initialized)
+            return self.throw_reference_error("Cannot access '" + (binding.name ? binding.name->to_utf8() : std::string()) + "' before initialization");
+        return binding.value;
+    }
+    case Reference::Kind::Local:
+        // A register is the running frame's: the machine reads it itself.
+        return self.throw_type_error("internal: a register read outside its frame");
     case Reference::Kind::Binding: {
         Environment::Binding const* binding = reference.environment->find(reference.name);
         if (binding == nullptr)
@@ -382,6 +384,24 @@ std::optional<Value> Interpreter::Impl::get_value(Reference& reference, Context 
 }
 
 
+bool Interpreter::Impl::set_mutable_binding(Environment::Binding& binding, Value const& value, bool strict)
+{
+    if (!binding.initialized) {
+        self.throw_reference_error("Cannot access '" + (binding.name ? binding.name->to_utf8() : std::string()) + "' before initialization");
+        return false;
+    }
+    if (!binding.mutable_) {
+        if (binding.strict || strict) {
+            self.throw_type_error("Assignment to constant variable.");
+            return false;
+        }
+        return true;
+    }
+    binding.value = value;
+    return true;
+}
+
+
 // PutValue (§6.2.5.6).
 bool Interpreter::Impl::put_value(Reference& reference, Value const& value, Context const& cx)
 {
@@ -411,20 +431,13 @@ bool Interpreter::Impl::put_value(Reference& reference, Value const& value, Cont
             reference.environment->declare(reference.name, value, true, true, true);
             return true;
         }
-        if (!binding->initialized) {
-            self.throw_reference_error("Cannot access '" + reference.name->to_utf8() + "' before initialization");
-            return false;
-        }
-        if (!binding->mutable_) {
-            if (binding->strict || cx.strict) {
-                self.throw_type_error("Assignment to constant variable.");
-                return false;
-            }
-            return true;
-        }
-        binding->value = value;
-        return true;
+        return set_mutable_binding(*binding, value, cx.strict);
     }
+    case Reference::Kind::Scoped:
+        return set_mutable_binding(reference.environment->binding_at(reference.slot), value, cx.strict);
+    case Reference::Kind::Local:
+        self.throw_type_error("internal: a register written outside its frame");
+        return false;
     case Reference::Kind::ObjectEnvironment: {
         // §9.1.1.2.5.
         Object* object = reference.environment->object();
@@ -510,11 +523,11 @@ void Interpreter::Impl::set_function_name(Object& function, PropertyKey const& k
 // environment of its own between the closure and its scope; generator
 // and async function expressions too (§15.5.5, §15.8.5). A method's
 // name is its key, not a binding.
-std::optional<Value> Interpreter::Impl::make_closure(FunctionNode const& node, Context& cx, PropertyKey const* name_key)
+std::optional<Value> Interpreter::Impl::make_closure(FunctionNode const& node, Context& cx, PropertyKey const* name_key, bool own_name_environment)
 {
     Heap::NoCollect const guard(heap());
     Environment* scope = cx.lexical;
-    if (!node.is_arrow && !node.is_method && node.name != nullptr) {
+    if (own_name_environment && !node.is_arrow && !node.is_method && node.name != nullptr) {
         scope = new_environment(cx.lexical);
         Environment::Binding& binding = scope->declare(node.name, Value::undefined(), false, true);
         binding.strict = false;
@@ -538,11 +551,13 @@ Object* Interpreter::Impl::make_arguments_object(ScriptFunction& function, Envir
     FunctionNode const& node = function.node();
     Object* object = nullptr;
     if (mapped) {
-        // Only a simple list is mapped, so every parameter is a name.
-        std::vector<JsString*> names(std::min(node.parameters.size(), arguments.size()), nullptr);
-        for (std::size_t i = 0; i < names.size(); ++i)
-            names[i] = node.parameters[i].name;
-        object = heap().allocate<ArgumentsObject>(self.intrinsics().object_prototype, environment, std::move(names));
+        // Only a simple list without duplicates is mapped, so parameter i
+        // is binding i of the function's environment; the names are checked
+        // all the same, and one that is not where it should be stays unmapped.
+        std::vector<std::uint8_t> places(std::min(node.parameters.size(), arguments.size()), 0);
+        for (std::size_t i = 0; i < places.size(); ++i)
+            places[i] = i < environment->binding_count() && environment->binding_at(i).name == node.parameters[i].name ? 1 : 0;
+        object = heap().allocate<ArgumentsObject>(self.intrinsics().object_prototype, environment, std::move(places));
     } else {
         object = heap().allocate<Object>(self.intrinsics().object_prototype, Object::Class::Arguments);
     }
@@ -587,6 +602,41 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
     for (Value const& argument : arguments)
         self.root(argument);
 
+    // A function the parser resolved, with no direct eval and no with: the
+    // prologue is the body's own bytecode.
+    if (node.scope != nullptr && !node.dynamic) {
+        CodeBlock const* code = compiled_body(node);
+        if (code == nullptr)
+            return std::nullopt;
+        return run_resolved_function(function, *code, this_argument, arguments, new_target, field_key, async_capability, caller_realm);
+    }
+
+    // A default constructor (§15.7.14 step 14) runs no code of its own: a
+    // base class's defines the instance's fields, a derived class's hands
+    // its arguments to the parent and binds what that makes, with no
+    // environment for either.
+    if (node.is_default_constructor) {
+        if (!node.is_derived_constructor) {
+            if (new_target != nullptr && this_argument.is_object() && !initialize_instance_elements(*this_argument.as_object(), function))
+                return std::nullopt;
+            return Value::undefined();
+        }
+        Object* parent = function.prototype();
+        Value const parent_value = parent ? Value::object(parent) : Value::undefined();
+        if (!Interpreter::is_constructor(parent_value))
+            return self.throw_type_error("Super constructor " + self.describe(parent_value) + " of anonymous class is not a constructor");
+        std::optional<Value> const result = self.construct(parent_value, arguments, new_target);
+        if (!result)
+            return std::nullopt;
+        self.root(*result);
+        if (!initialize_instance_elements(*result->as_object(), function))
+            return std::nullopt;
+        return new_target != nullptr ? *result : Value::undefined();
+    }
+
+    // A function with a direct eval or a with (or one the parser did not
+    // resolve): the prologue here, by name, since eval code and a with find
+    // every binding by its name.
     Environment* variable = new_environment(function.scope());
     variable->set_function(&function);
     ContextScope scope(*this, Context { variable, variable, node.program, &function, node.is_strict, function.private_environment() });
@@ -739,32 +789,12 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
     if (async_capability != nullptr)
         return start_async(node, cx, *async_capability);
 
-    // The body. A field initializer is its expression, named after
-    // the field when it is an anonymous function; a default derived
-    // constructor hands its arguments to the parent class.
-    std::optional<Value> value;
-    if (node.is_default_constructor) {
-        if (node.is_derived_constructor) {
-            Object* parent = function.prototype();
-            Value const parent_value = parent ? Value::object(parent) : Value::undefined();
-            if (!Interpreter::is_constructor(parent_value))
-                return self.throw_type_error("Super constructor " + self.describe(parent_value) + " of anonymous class is not a constructor");
-            std::optional<Value> const result = self.construct(parent_value, arguments, new_target);
-            if (!result)
-                return std::nullopt;
-            variable->set_this(*result);
-            if (!initialize_instance_elements(*result->as_object(), function))
-                return std::nullopt;
-        }
-        value = Value::undefined();
-    } else {
-        // The body compiled and run on the bytecode machine, on the
-        // environments this call's prologue made; a field initializer's
-        // key rides on the frame, to name an anonymous function after.
-        value = run_compiled_body(function, cx, field_key);
-        if (!value)
-            return std::nullopt;
-    }
+    // The body compiled and run on the bytecode machine, on the
+    // environments this call's prologue made; a field initializer's key
+    // rides on the frame, to name an anonymous function after.
+    std::optional<Value> const value = run_compiled_body(function, cx, field_key);
+    if (!value)
+        return std::nullopt;
     // [[Construct]] of a derived class (§10.2.2 steps 9–12), back in the
     // caller's context: an object returned is the result, anything else but
     // undefined a TypeError, and undefined yields the `this` that super()
@@ -806,14 +836,19 @@ std::optional<Reference> Interpreter::Impl::super_reference(Context const& cx, V
     std::optional<Value> const this_value = resolve_this(cx.lexical);
     if (!this_value)
         return std::nullopt;
+    return super_reference_of(*this_value, home_object_of(cx), key_value, name);
+}
+
+
+std::optional<Reference> Interpreter::Impl::super_reference_of(Value const& this_value, Object* home, Value const* key_value, JsString* name)
+{
     Roots const roots(self);
-    self.root(*this_value);
-    Object* home = home_object_of(cx);
+    self.root(this_value);
     if (home == nullptr)
         return self.throw_syntax_error("'super' keyword unexpected here");
     Reference reference;
     reference.kind = Reference::Kind::Super;
-    reference.this_value = *this_value;
+    reference.this_value = this_value;
     Object* base = home->prototype();
     reference.base = base ? Value::object(base) : Value::null();
     if (key_value) {
@@ -839,16 +874,8 @@ std::optional<Value> Interpreter::Impl::super_call(Context& cx, std::span<Value 
     if (this_env == nullptr || this_env->function() == nullptr)
         return self.throw_syntax_error("'super' keyword unexpected here");
     auto* active = static_cast<ScriptFunction*>(this_env->function());
-    Object* new_target = this_env->new_target();
     Roots const roots(self);
-    Object* parent = active->prototype();
-    Value const parent_value = parent ? Value::object(parent) : Value::undefined();
-    self.root(parent_value);
-    if (!Interpreter::is_constructor(parent_value))
-        return self.throw_type_error("Super constructor " + self.describe(parent_value) + " of anonymous class is not a constructor");
-    if (new_target == nullptr)
-        return self.throw_syntax_error("'super' keyword unexpected here");
-    std::optional<Value> const result = self.construct(parent_value, arguments, new_target);
+    std::optional<Value> const result = super_construct(*active, this_env->new_target(), arguments);
     if (!result)
         return std::nullopt;
     self.root(*result);
@@ -858,6 +885,22 @@ std::optional<Value> Interpreter::Impl::super_call(Context& cx, std::span<Value 
     if (!initialize_instance_elements(*result->as_object(), *active))
         return std::nullopt;
     return *result;
+}
+
+
+// SuperCall (§13.3.7.1) steps 1–5: the parent constructor, checked, then
+// constructed with the running constructor's new.target.
+std::optional<Value> Interpreter::Impl::super_construct(ScriptFunction& active, Object* new_target, std::span<Value const> arguments)
+{
+    Roots const roots(self);
+    Object* parent = active.prototype();
+    Value const parent_value = parent ? Value::object(parent) : Value::undefined();
+    self.root(parent_value);
+    if (!Interpreter::is_constructor(parent_value))
+        return self.throw_type_error("Super constructor " + self.describe(parent_value) + " of anonymous class is not a constructor");
+    if (new_target == nullptr)
+        return self.throw_syntax_error("'super' keyword unexpected here");
+    return self.construct(parent_value, arguments, new_target);
 }
 
 
@@ -1057,13 +1100,14 @@ ScriptFunction* Interpreter::Impl::new_class_constructor(FunctionNode const& nod
 // uninitialized, strict from here to the end; the private names come
 // only with the heritage settled, since the heritage sees the outer ones.
 ClassBuilder* Interpreter::Impl::class_scope(ClassNode const& node, Environment* outer, PrivateEnvironment* outer_private,
-    bool outer_strict, PropertyKey const* name_key)
+    bool outer_strict, PropertyKey const* name_key, bool make_environment)
 {
     Heap::NoCollect const guard(heap());
     ClassBuilder* builder = heap().allocate<ClassBuilder>();
     builder->node = &node;
-    builder->class_env = new_environment(outer);
-    if (node.name)
+    builder->owns_class_env = make_environment;
+    builder->class_env = make_environment ? new_environment(outer) : outer;
+    if (node.name && make_environment)
         builder->class_env->declare(node.name, Value::undefined(), false, false);
     builder->outer_private = outer_private;
     builder->private_env = outer_private;
@@ -1261,7 +1305,7 @@ std::optional<Value> Interpreter::Impl::class_finish(ClassBuilder& builder)
     Roots const roots(self);
     ClassNode const& node = *builder.node;
     ScriptFunction* const constructor = builder.constructor;
-    if (node.name) {
+    if (node.name && builder.owns_class_env) {
         Environment::Binding* binding = builder.class_env->find(node.name);
         binding->value = Value::object(constructor);
         binding->initialized = true;
@@ -1752,6 +1796,10 @@ std::optional<Value> Interpreter::Impl::delete_reference(Reference& reference, C
     case Reference::Kind::Value:
     case Reference::Kind::Unresolvable:
         return Value::boolean(true);
+    case Reference::Kind::Local:
+    case Reference::Kind::Scoped:
+        // A declared binding (§9.1.1.1.7 DeleteBinding: not deletable).
+        return Value::boolean(false);
     case Reference::Kind::Super:
         // §13.5.1.2 step 5.a: a super reference cannot be deleted.
         return self.throw_reference_error("Unsupported reference to 'super'");

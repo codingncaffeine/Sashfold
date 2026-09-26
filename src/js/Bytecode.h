@@ -13,6 +13,7 @@
 // the code block's pools, a jump target, a register, a count.
 
 #include "js/Ast.h"
+#include "js/Object.h"
 #include "js/Value.h"
 
 #include <cstdint>
@@ -36,8 +37,16 @@ namespace sashfold::js {
     X(PushWithEnv, -1) X(PopEnv, 0) X(CopyIterationEnv, 0) /* a: name list */                                      \
     X(InitializeBinding, -1) /* a: name */ X(AnnexBCopy, 0) /* a: name */ X(ResolveThis, 1) X(NewTarget, 1)        \
     X(LoadArgument, 1) /* a: index; the call's argument or undefined */ X(RestArguments, 1) /* a: index */          \
+    /* bindings resolved when parsed: a register of the frame (the hole is the dead zone), or an environment */    \
+    /* `hops` out from the current one at `slot`; the Set forms keep the value */                                  \
+    X(GetLocal, 1) /* a: register */ X(SetLocal, 0) /* a: register; flags 1: immutable */                          \
+    X(GetScoped, 1) /* a: hops; b: slot */ X(SetScoped, 0) /* a: hops; b: slot */ X(InitScoped, -1) /* a, b */      \
+    X(PushEnv, 0) /* a: environment shape; flags 1: the function's own, 2: a var scope */                          \
+    X(MakeArguments, 1) /* flags 1: mapped */ X(LoadThis, 1) X(LoadNewTarget, 1) /* the frame's, for a plain function */ \
+    X(Suspend, 1) /* a generator's prologue done: back to the caller until the first next(), whose value it pushes */ \
     /* references (the reference stack is accounted separately) */                                                 \
-    X(RefName, 0) /* a: name */ X(RefMember, -2) X(RefMemberNamed, -1) /* a: name */                                \
+    X(RefName, 0) /* a: name */ X(RefLocal, 0) /* a: register; flags 1: immutable */ X(RefScoped, 0) /* a, b */    \
+    X(RefMember, -2) X(RefMemberNamed, -1) /* a: name */                                                           \
     X(RefSuper, -1) X(RefSuperNamed, 0) /* a: name */ X(RefPrivate, -1) /* a: name */                               \
     X(RefGet, 1) X(RefPut, -1) X(RefPutKeep, 0) X(RefThis, 1) X(RefDrop, 0) X(RefDelete, 1)                          \
     X(GetName, 1) /* a: name */ X(TypeofName, 1) /* a: name */ X(GetMemberNamed, 0) /* a: name */ X(GetMember, -1)  \
@@ -156,6 +165,19 @@ struct CodeBlock {
     std::vector<Declarations const*> declarations;
     std::vector<std::vector<JsString*>> name_lists;
     std::vector<Expression const*> nodes; // for messages: "x is not a function"
+    // A body compiled with its bindings resolved (every function but one
+    // with a direct eval or a with, and program code): the first registers
+    // are the bindings that live there, named here for the messages, and
+    // each scope that materializes is an environment laid out once, its
+    // bindings in slot order with the names and the dead zones they start
+    // with, which PushEnv copies. The names are atoms and need no tracing.
+    bool slots = false;
+    std::vector<JsString*> register_names;
+    struct EnvironmentShape {
+        ScopeInfo const* scope = nullptr;
+        std::vector<Environment::Binding> bindings;
+    };
+    std::vector<EnvironmentShape> environments;
     // Where in the source each statement's instructions begin, in the order
     // they were emitted: the first instruction of the statement and the
     // statement's position. A stack's lines are read from it, so an error

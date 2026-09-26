@@ -50,6 +50,26 @@ public:
         m_code->strict = node.is_strict;
         m_code->is_generator = node.is_generator;
         m_code->is_async = node.is_async;
+        // A function the parser resolved and that has no direct eval and
+        // no with: its bindings are registers and environment slots, the
+        // registers first in the frame's file and the compiler's own after.
+        // Anything else (a function with either, program code, a module's
+        // body) is compiled by name, as its environments are made by name.
+        if (node.scope != nullptr && !node.dynamic) {
+            m_slots = true;
+            m_code->slots = true;
+            m_code->register_count = node.register_count;
+            m_code->register_names.assign(node.register_count, nullptr);
+            m_register_immutable.assign(node.register_count, false);
+            for (ScopeInfo const* scope : node.scopes) {
+                for (ScopeInfo::Binding const& binding : scope->bindings) {
+                    if (binding.captured || binding.slot >= node.register_count)
+                        continue;
+                    m_code->register_names[binding.slot] = binding.name;
+                    m_register_immutable[binding.slot] = is_immutable(*scope, binding);
+                }
+            }
+        }
     }
 
     // A script's or an eval's body: its completion value (§8.4) is what
@@ -73,26 +93,7 @@ public:
     {
         m_code->is_generator = false;
         m_code->is_async = false;
-        std::uint32_t index = 0;
-        for (Parameter const& parameter : m_node.parameters) {
-            emit(parameter.is_rest ? Opcode::RestArguments : Opcode::LoadArgument, index);
-            ++index;
-            if (parameter.initializer) {
-                Label given;
-                emit(Opcode::Dup);
-                jump(Opcode::JumpIfNotUndefined, given);
-                emit(Opcode::Pop);
-                if (parameter.name)
-                    compile_named_value(parameter.initializer, parameter.name);
-                else
-                    compile_expression(parameter.initializer);
-                bind(given);
-            }
-            if (parameter.pattern)
-                compile_pattern(parameter.pattern, BindMode::Initialize);
-            else
-                emit(Opcode::InitializeBinding, name(parameter.name));
-        }
+        compile_formals();
         emit(Opcode::PushUndefined);
         emit(Opcode::Return);
         if (!m_error.empty()) {
@@ -105,6 +106,8 @@ public:
 
     std::unique_ptr<CodeBlock> compile(std::string* error)
     {
+        if (m_slots)
+            compile_prologue();
         if (m_node.expression_body) {
             if (m_node.is_field_initializer && is_anonymous_function_definition(m_node.expression_body)) {
                 // A field's anonymous function is named after the field
@@ -219,6 +222,8 @@ private:
     {
         switch (op) {
         case Opcode::RefName:
+        case Opcode::RefLocal:
+        case Opcode::RefScoped:
         case Opcode::RefMember:
         case Opcode::RefMemberNamed:
         case Opcode::RefSuper:
@@ -321,7 +326,9 @@ private:
 
     std::uint32_t env_depth() const
     {
-        std::uint32_t depth = 0;
+        // The function's own environments, pushed by the prologue, stay
+        // for the whole body.
+        std::uint32_t depth = m_base_envs;
         for (Scope const& scope : m_scopes)
             depth += scope.owns_env ? 1 : 0;
         return depth;
@@ -348,10 +355,26 @@ private:
     void compile_class(ClassNode const& node, std::uint32_t name_index, bool dynamic_name)
     {
         std::uint32_t const index = class_node(&node);
+        // Resolved code makes the class's scope an environment only when it
+        // materializes (a function inside reads the name); otherwise the
+        // class's functions close over what is current here, and a named
+        // class keeps its own name in a register, in its dead zone until
+        // the class is made (the heritage and the computed keys may read it).
+        ScopeInfo const* const own = m_slots ? node.scope : nullptr;
+        bool const without_environment = m_slots && (own == nullptr || !own->materializes);
+        ScopeInfo::Binding const* const name_register
+            = own != nullptr && !own->materializes && !own->bindings.empty() ? &own->bindings.front() : nullptr;
+        if (name_register) {
+            emit(Opcode::PushEmpty);
+            emit(Opcode::StoreReg, name_register->slot);
+        }
+        std::uint8_t const flags = without_environment ? 1 : 0;
         if (dynamic_name)
-            emit(Opcode::ClassScopeNamedDyn, index);
+            emit(Opcode::ClassScopeNamedDyn, index, 0, flags);
         else
-            emit(Opcode::ClassScope, index, name_index);
+            emit(Opcode::ClassScope, index, name_index, flags);
+        if (own)
+            m_chain.push_back(own);
         Scope scope { Scope::Kind::Block };
         scope.owns_env = true;
         push_scope(scope);
@@ -374,6 +397,349 @@ private:
         --m_class_depth;
         pop_scope();
         emit(Opcode::ClassFinish);
+        if (own)
+            m_chain.pop_back();
+        if (name_register) {
+            emit(Opcode::Dup);
+            emit(Opcode::StoreReg, name_register->slot);
+        }
+    }
+
+    // ---- bindings ---------------------------------------------------------
+
+    // Where a binding lives, as the code at this point reaches it: by name
+    // (through the environments at run time), in a register of the frame,
+    // or `hops` materialized scopes out at an environment slot.
+    struct Slot {
+        enum class Kind : std::uint8_t { Name, Local, Scoped };
+        Kind kind = Kind::Name;
+        std::uint32_t a = 0; // the register, or the hops
+        std::uint32_t b = 0; // the slot
+        bool immutable = false; // a register holding a const or a class's own name
+    };
+
+    static bool is_immutable(ScopeInfo const& scope, ScopeInfo::Binding const& binding)
+    {
+        return binding.kind == ScopeInfo::Binding::Kind::Const
+            || (binding.kind == ScopeInfo::Binding::Kind::Class && scope.kind == ScopeInfo::Kind::ClassName);
+    }
+
+    // A reference as the parser resolved it.
+    Slot slot_of(Identifier const& identifier) const
+    {
+        if (!m_slots)
+            return {};
+        if (identifier.resolution == Resolution::Local && identifier.slot < m_register_immutable.size())
+            return Slot { Slot::Kind::Local, identifier.slot, 0, m_register_immutable[identifier.slot] };
+        if (identifier.resolution == Resolution::Scoped)
+            return Slot { Slot::Kind::Scoped, identifier.hops, identifier.slot, false };
+        return {};
+    }
+
+    // A name a declaration binds, found in the scopes this code stands in:
+    // the innermost that declares it, which is what a lookup by name at run
+    // time would find, since no with and no eval comes between here.
+    Slot slot_named(JsString* binding_name)
+    {
+        if (!m_slots || binding_name == nullptr)
+            return {};
+        std::uint32_t hops = 0;
+        for (auto it = m_chain.rbegin(); it != m_chain.rend(); ++it) {
+            ScopeInfo const& scope = **it;
+            if (ScopeInfo::Binding const* binding = find_binding(scope, binding_name))
+                return slot_in(scope, *binding, hops);
+            hops += scope.materializes ? 1 : 0;
+        }
+        return {};
+    }
+
+    static Slot slot_in(ScopeInfo const& scope, ScopeInfo::Binding const& binding, std::uint32_t hops)
+    {
+        if (binding.captured)
+            return Slot { Slot::Kind::Scoped, hops, binding.slot, false };
+        return Slot { Slot::Kind::Local, binding.slot, 0, is_immutable(scope, binding) };
+    }
+
+    ScopeInfo::Binding const* find_binding(ScopeInfo const& scope, JsString* binding_name)
+    {
+        // A big scope (a bundle's outermost function has thousands of
+        // names) is searched through an index made the first time; a small
+        // one by walking it.
+        if (scope.bindings.size() <= 16) {
+            for (ScopeInfo::Binding const& binding : scope.bindings) {
+                if (binding.name == binding_name)
+                    return &binding;
+            }
+            return nullptr;
+        }
+        auto [entry, made] = m_binding_index.try_emplace(&scope);
+        if (made) {
+            entry->second.reserve(scope.bindings.size());
+            for (std::size_t i = 0; i < scope.bindings.size(); ++i) {
+                if (scope.bindings[i].name)
+                    entry->second.emplace(scope.bindings[i].name, static_cast<std::uint32_t>(i));
+            }
+        }
+        auto const found = entry->second.find(binding_name);
+        return found == entry->second.end() ? nullptr : &scope.bindings[found->second];
+    }
+
+    void emit_load(Slot const& slot, JsString* binding_name)
+    {
+        switch (slot.kind) {
+        case Slot::Kind::Local:
+            emit(Opcode::GetLocal, slot.a);
+            return;
+        case Slot::Kind::Scoped:
+            emit(Opcode::GetScoped, slot.a, slot.b);
+            return;
+        case Slot::Kind::Name:
+            emit(Opcode::GetName, name(binding_name));
+            return;
+        }
+    }
+
+    // PutValue to a resolved binding, the value kept on the stack.
+    void emit_assign(Slot const& slot)
+    {
+        if (slot.kind == Slot::Kind::Local)
+            emit(Opcode::SetLocal, slot.a, 0, slot.immutable ? 1 : 0);
+        else
+            emit(Opcode::SetScoped, slot.a, slot.b);
+    }
+
+    // InitializeReferencedBinding: the value popped into the binding.
+    void emit_initialize(Slot const& slot, JsString* binding_name)
+    {
+        switch (slot.kind) {
+        case Slot::Kind::Local:
+            emit(Opcode::StoreReg, slot.a);
+            return;
+        case Slot::Kind::Scoped:
+            emit(Opcode::InitScoped, slot.a, slot.b);
+            return;
+        case Slot::Kind::Name:
+            emit(Opcode::InitializeBinding, name(binding_name));
+            return;
+        }
+    }
+
+    void emit_reference(Slot const& slot, JsString* binding_name)
+    {
+        switch (slot.kind) {
+        case Slot::Kind::Local:
+            emit(Opcode::RefLocal, slot.a, 0, slot.immutable ? 1 : 0);
+            return;
+        case Slot::Kind::Scoped:
+            emit(Opcode::RefScoped, slot.a, slot.b);
+            return;
+        case Slot::Kind::Name:
+            emit(Opcode::RefName, name(binding_name));
+            return;
+        }
+    }
+
+    // A scope's environment laid out once: its captured bindings in slot
+    // order, each with its name and the state it starts in — a let, const,
+    // class or catch parameter in its dead zone, a parameter too when the
+    // list is not simple (a default may read a later one), a const and a
+    // class's own name immutable.
+    std::uint32_t environment_shape(ScopeInfo const* scope)
+    {
+        if (auto const found = m_shape_index.find(scope); found != m_shape_index.end())
+            return found->second;
+        using Kind = ScopeInfo::Binding::Kind;
+        CodeBlock::EnvironmentShape shape;
+        shape.scope = scope;
+        shape.bindings.reserve(scope->environment_size);
+        bool const parameters_wait = scope->function != nullptr && !scope->function->has_simple_parameter_list;
+        for (ScopeInfo::Binding const& binding : scope->bindings) {
+            if (!binding.captured)
+                continue;
+            Environment::Binding laid {};
+            laid.name = binding.name;
+            laid.value = Value::undefined();
+            switch (binding.kind) {
+            case Kind::Parameter:
+                laid.initialized = !parameters_wait;
+                break;
+            case Kind::Let:
+            case Kind::CatchParameter:
+                laid.initialized = false;
+                break;
+            case Kind::Const:
+                laid.initialized = false;
+                laid.mutable_ = false;
+                break;
+            case Kind::Class:
+                laid.initialized = false;
+                laid.mutable_ = scope->kind != ScopeInfo::Kind::ClassName;
+                break;
+            case Kind::FunctionName:
+                laid.mutable_ = false;
+                laid.strict = false;
+                break;
+            case Kind::Import:
+                laid.mutable_ = false;
+                break;
+            case Kind::Var:
+            case Kind::Function:
+            case Kind::This:
+            case Kind::NewTarget:
+            case Kind::HomeObject:
+            case Kind::Arguments:
+                break;
+            }
+            shape.bindings.push_back(laid);
+        }
+        m_code->environments.push_back(std::move(shape));
+        auto const index = static_cast<std::uint32_t>(m_code->environments.size() - 1);
+        m_shape_index.emplace(scope, index);
+        return index;
+    }
+
+    // A scope entered: its environment pushed when it materializes, owned
+    // by a control scope so that every way out pops it.
+    bool enter_scope(ScopeInfo const* scope)
+    {
+        m_chain.push_back(scope);
+        if (!scope->materializes)
+            return false;
+        emit(Opcode::PushEnv, environment_shape(scope));
+        Scope owned { Scope::Kind::Block };
+        owned.owns_env = true;
+        push_scope(owned);
+        return true;
+    }
+
+    void leave_scope(bool pushed)
+    {
+        if (pushed) {
+            pop_scope();
+            emit(Opcode::PopEnv);
+        }
+        m_chain.pop_back();
+    }
+
+    // The dead zone in registers: a let, const or class there starts as the
+    // hole each time its scope is entered — and, with `patterns`, so do the
+    // parameters of a list that is not simple and a catch parameter bound
+    // by a pattern, whose defaults may read a later name.
+    void emit_holes(ScopeInfo const* scope, bool patterns = false)
+    {
+        using Kind = ScopeInfo::Binding::Kind;
+        for (ScopeInfo::Binding const& binding : scope->bindings) {
+            if (binding.captured)
+                continue;
+            bool const lexical = binding.kind == Kind::Let || binding.kind == Kind::Const || binding.kind == Kind::Class;
+            bool const bound_by_pattern = patterns && (binding.kind == Kind::Parameter || binding.kind == Kind::CatchParameter);
+            if (!lexical && !bound_by_pattern)
+                continue;
+            emit(Opcode::PushEmpty);
+            emit(Opcode::StoreReg, binding.slot);
+        }
+    }
+
+    // Function declarations instantiated where their scope begins
+    // (§10.2.11 step 36, §14.2.3), each closing over what is current here.
+    void instantiate_functions(std::vector<FunctionDeclaration const*> const& functions)
+    {
+        for (FunctionDeclaration const* declaration : functions) {
+            JsString* const function_name = declaration->function->name;
+            if (function_name == nullptr)
+                continue;
+            emit(Opcode::MakeClosure, function(declaration->function), None, 1);
+            emit_initialize(slot_named(function_name), function_name);
+        }
+    }
+
+    // The formal parameters bound in order (IteratorBindingInitialization,
+    // §10.2.11 steps 24–26): for each, the argument by index or the rest of
+    // them, the default in the argument's place when it is undefined —
+    // named after the parameter when it is an anonymous function — then
+    // the name or the pattern initialized.
+    void compile_formals()
+    {
+        std::uint32_t index = 0;
+        for (Parameter const& parameter : m_node.parameters) {
+            emit(parameter.is_rest ? Opcode::RestArguments : Opcode::LoadArgument, index);
+            ++index;
+            if (parameter.initializer) {
+                Label given;
+                emit(Opcode::Dup);
+                jump(Opcode::JumpIfNotUndefined, given);
+                emit(Opcode::Pop);
+                if (parameter.name)
+                    compile_named_value(parameter.initializer, parameter.name);
+                else
+                    compile_expression(parameter.initializer);
+                bind(given);
+            }
+            if (parameter.pattern)
+                compile_pattern(parameter.pattern, BindMode::Initialize);
+            else
+                emit_initialize(slot_named(parameter.name), parameter.name);
+        }
+    }
+
+    // FunctionDeclarationInstantiation (§10.2.11) as the body's first
+    // instructions: the function's environment when its scope materializes,
+    // the arguments object, the parameters (each argument into its register
+    // or slot, or a list that is not simple bound in order with its
+    // defaults), the body's own scope when the parameters have expressions
+    // (a var named like a parameter starting with its value), the hoisted
+    // functions, and the top-level lexicals in their dead zone. A generator
+    // then goes back to its caller, to run on at its first next().
+    void compile_prologue()
+    {
+        FunctionNode const& fn = m_node;
+        ScopeInfo const* const function_scope = fn.scope;
+        ScopeInfo const* const body_scope = fn.body_scope ? fn.body_scope : fn.scope;
+        m_chain.push_back(function_scope);
+        if (function_scope->materializes) {
+            emit(Opcode::PushEnv, environment_shape(function_scope), 0, 1);
+            ++m_base_envs;
+        }
+        if (!fn.has_simple_parameter_list)
+            emit_holes(function_scope, true);
+        for (ScopeInfo::Binding const& binding : function_scope->bindings) {
+            if (binding.kind != ScopeInfo::Binding::Kind::Arguments)
+                continue;
+            bool const mapped = !fn.is_strict && fn.has_simple_parameter_list && !fn.has_duplicate_parameters;
+            emit(Opcode::MakeArguments, 0, 0, mapped ? 1 : 0);
+            emit_initialize(slot_in(*function_scope, binding, 0), binding.name);
+        }
+        if (fn.has_simple_parameter_list) {
+            for (std::size_t i = 0; i < fn.parameters.size(); ++i) {
+                emit(Opcode::LoadArgument, static_cast<std::uint32_t>(i));
+                emit_initialize(slot_named(fn.parameters[i].name), fn.parameters[i].name);
+            }
+        } else {
+            compile_formals();
+        }
+        if (body_scope != function_scope) {
+            m_chain.push_back(body_scope);
+            if (body_scope->materializes) {
+                emit(Opcode::PushEnv, environment_shape(body_scope), 0, 2);
+                ++m_base_envs;
+            }
+            std::uint32_t const out = body_scope->materializes ? 1 : 0;
+            for (ScopeInfo::Binding const& binding : body_scope->bindings) {
+                if (binding.kind != ScopeInfo::Binding::Kind::Var || binding.name == nullptr)
+                    continue;
+                ScopeInfo::Binding const* parameter = find_binding(*function_scope, binding.name);
+                if (parameter == nullptr)
+                    continue;
+                emit_load(slot_in(*function_scope, *parameter, out), binding.name);
+                emit_initialize(slot_in(*body_scope, binding, 0), binding.name);
+            }
+        }
+        instantiate_functions(fn.declarations.functions);
+        emit_holes(body_scope);
+        if (fn.is_generator) {
+            emit(Opcode::Suspend);
+            emit(Opcode::Pop);
+        }
     }
 
     // ---- pools ------------------------------------------------------------
@@ -624,8 +990,25 @@ private:
             return;
         case NodeType::FunctionDeclaration: {
             auto const& declaration = *static_cast<FunctionDeclaration const*>(statement);
-            if (declaration.annex_b_hoisted)
+            if (!declaration.annex_b_hoisted)
+                return;
+            if (!m_slots) {
                 emit(Opcode::AnnexBCopy, name(declaration.function->name));
+                return;
+            }
+            // B.3.2.1 step 2.b resolved: the block's binding (the innermost
+            // of the name) copied to the function's var of it.
+            JsString* const function_name = declaration.function->name;
+            ScopeInfo const* const var_scope = m_node.body_scope ? m_node.body_scope : m_node.scope;
+            ScopeInfo::Binding const* var_binding = find_binding(*var_scope, function_name);
+            if (var_binding == nullptr)
+                return;
+            std::uint32_t hops = 0;
+            for (auto it = m_chain.rbegin(); it != m_chain.rend() && *it != var_scope; ++it)
+                hops += (*it)->materializes ? 1 : 0;
+            emit_load(slot_named(function_name), function_name);
+            emit_assign(slot_in(*var_scope, *var_binding, hops));
+            emit(Opcode::Pop);
             return;
         }
         case NodeType::ClassDeclaration: {
@@ -635,7 +1018,8 @@ private:
             // has it.
             bool const anonymous = declaration.node->name == nullptr;
             compile_class(*declaration.node, anonymous ? name(m_heap.atom(u"default")) : None, false);
-            emit(Opcode::InitializeBinding, name(anonymous ? m_heap.atom(u"*default*") : declaration.node->name));
+            JsString* const binding_name = anonymous ? m_heap.atom(u"*default*") : declaration.node->name;
+            emit_initialize(slot_named(binding_name), binding_name);
             return;
         }
         case NodeType::ImportDeclaration:
@@ -764,6 +1148,21 @@ private:
 
     void compile_block(BlockStatement const& block)
     {
+        if (m_slots) {
+            // Resolved: an environment only when the block's scope
+            // materializes; its lexicals in their dead zone either way, its
+            // functions made on entry (§14.2.3).
+            if (block.scope == nullptr) {
+                compile_statements(block.body);
+                return;
+            }
+            bool const pushed = enter_scope(block.scope);
+            emit_holes(block.scope);
+            instantiate_functions(block.declarations.functions);
+            compile_statements(block.body);
+            leave_scope(pushed);
+            return;
+        }
         // §14.2.2: a block with declarations gets an environment of its own.
         bool const env = !block.declarations.lexicals.empty() || !block.declarations.functions.empty();
         if (!env) {
@@ -793,9 +1192,17 @@ private:
             }
             if (is_var) {
                 // §14.3.2.1: a var with an initializer assigns through a
-                // reference resolved first, so a `with` in scope can catch it.
+                // reference resolved first, so a `with` in scope can catch it
+                // (resolved code has none, so the store comes after).
                 if (!declarator.init)
                     continue;
+                Slot const slot = slot_named(declarator.name);
+                if (slot.kind != Slot::Kind::Name) {
+                    compile_named_value(declarator.init, declarator.name);
+                    emit_assign(slot);
+                    emit(Opcode::Pop);
+                    continue;
+                }
                 emit(Opcode::RefName, name(declarator.name));
                 compile_named_value(declarator.init, declarator.name);
                 emit(Opcode::RefPut);
@@ -805,7 +1212,7 @@ private:
                 compile_named_value(declarator.init, declarator.name);
             else
                 emit(Opcode::PushUndefined);
-            emit(Opcode::InitializeBinding, name(declarator.name));
+            emit_initialize(slot_named(declarator.name), declarator.name);
         }
     }
 
@@ -862,17 +1269,34 @@ private:
         // closures keep their iteration's values.
         bool const lexical = !loop.declarations.lexicals.empty();
         std::vector<JsString*> per_iteration;
-        if (lexical) {
+        for (auto const& [name_atom, is_const] : loop.declarations.lexicals) {
+            if (!is_const)
+                per_iteration.push_back(name_atom);
+        }
+        // Resolved: the head's scope is an environment only when it
+        // materializes (a closure captures a variable), and only then is it
+        // copied per iteration, every slot at once; registers need no copy.
+        bool const resolved_head = m_slots && loop.scope != nullptr;
+        bool head_pushed = false;
+        bool copy_all = false;
+        std::uint32_t copies = None;
+        if (resolved_head) {
+            head_pushed = enter_scope(loop.scope);
+            emit_holes(loop.scope);
+            copy_all = head_pushed && !per_iteration.empty();
+        } else if (lexical) {
             emit(Opcode::PushBlockEnv, declarations(&loop.declarations));
-            for (auto const& [name_atom, is_const] : loop.declarations.lexicals) {
-                if (!is_const)
-                    per_iteration.push_back(name_atom);
-            }
             Scope scope { Scope::Kind::Block };
             scope.owns_env = true;
             push_scope(scope);
+            copies = per_iteration.empty() ? None : name_list(per_iteration);
         }
-        std::uint32_t const copies = per_iteration.empty() ? None : name_list(per_iteration);
+        auto const emit_copy = [&] {
+            if (copy_all)
+                emit(Opcode::CopyIterationEnv, 0, 0, 1);
+            else if (copies != None)
+                emit(Opcode::CopyIterationEnv, copies);
+        };
         if (loop.init) {
             // The head's expression is no statement of the loop's: it
             // leaves the completion value alone (§14.7.4.2 starts V at
@@ -882,8 +1306,7 @@ private:
             compile_statement(loop.init, {});
             m_track_completion = tracking;
         }
-        if (copies != None)
-            emit(Opcode::CopyIterationEnv, copies);
+        emit_copy();
         Label top;
         Label end;
         Label next;
@@ -896,8 +1319,7 @@ private:
         compile_statement(loop.body, {});
         pop_scope();
         bind(next);
-        if (copies != None)
-            emit(Opcode::CopyIterationEnv, copies);
+        emit_copy();
         if (loop.update) {
             compile_expression(loop.update);
             emit(Opcode::Pop);
@@ -905,7 +1327,9 @@ private:
         emit(Opcode::Step);
         jump(Opcode::Jump, top);
         bind(end);
-        if (lexical) {
+        if (resolved_head) {
+            leave_scope(head_pushed);
+        } else if (lexical) {
             pop_scope();
             emit(Opcode::PopEnv);
         }
@@ -915,11 +1339,31 @@ private:
     // steps 6.g–6.i), with the value on the stack: a let/const gets a
     // fresh environment for the body — pushed here as a Block scope the
     // caller pops after the body; a var or an expression assigns through a
-    // reference; a pattern destructures.
-    bool compile_loop_head_binding(VariableDeclaration const* declaration, Expression const* target)
+    // reference; a pattern destructures. Resolved code enters the head's
+    // scope here, an environment only when it materializes (the names then
+    // start in their dead zone, and so do registers under a pattern).
+    struct HeadScope {
+        bool resolved = false; // the head's scope is on the chain
+        bool pushed = false; // an environment to pop after the body
+    };
+    HeadScope compile_loop_head_binding(VariableDeclaration const* declaration, Expression const* target, ScopeInfo const* head_scope)
     {
         if (declaration && declaration->kind != VariableDeclaration::Kind::Var) {
             VariableDeclarator const& declarator = declaration->declarations[0];
+            if (m_slots) {
+                HeadScope head;
+                if (head_scope) {
+                    head.resolved = true;
+                    head.pushed = enter_scope(head_scope);
+                    if (declarator.pattern)
+                        emit_holes(head_scope);
+                }
+                if (declarator.pattern)
+                    compile_pattern(declarator.pattern, BindMode::Initialize);
+                else
+                    emit_initialize(slot_named(declarator.name), declarator.name);
+                return head;
+            }
             std::vector<JsString*> names;
             Interpreter::Impl::collect_bound_names(declarator.name, declarator.pattern, names);
             emit(Opcode::PushNamesEnv, name_list(names), declaration->kind == VariableDeclaration::Kind::Const ? 0u : 1u);
@@ -930,25 +1374,60 @@ private:
                 compile_pattern(declarator.pattern, BindMode::Initialize);
             else
                 emit(Opcode::InitializeBinding, name(declarator.name));
-            return true;
+            return HeadScope { false, true };
         }
         if (declaration) {
             VariableDeclarator const& declarator = declaration->declarations[0];
             if (declarator.pattern) {
                 compile_pattern(declarator.pattern, BindMode::VarAssign);
+            } else if (Slot const slot = slot_named(declarator.name); slot.kind != Slot::Kind::Name) {
+                emit_assign(slot);
+                emit(Opcode::Pop);
             } else {
                 emit(Opcode::RefName, name(declarator.name));
                 emit(Opcode::RefPut);
             }
-            return false;
+            return {};
         }
         if (is_pattern(target)) {
             compile_pattern(target, BindMode::Assign);
-            return false;
+            return {};
         }
         compile_reference(target);
         emit(Opcode::RefPut);
-        return false;
+        return {};
+    }
+
+    void leave_loop_head(HeadScope const& head)
+    {
+        if (head.resolved) {
+            leave_scope(head.pushed);
+        } else if (head.pushed) {
+            pop_scope();
+            emit(Opcode::PopEnv);
+        }
+    }
+
+    // The head's names in their dead zone around its own expression
+    // (§14.7.5.6): an environment of them by name, or, resolved, the head's
+    // scope entered as it is (its registers holes). Returns what
+    // leave_loop_head undoes.
+    HeadScope enter_loop_head_expression(VariableDeclaration const* declaration, ScopeInfo const* head_scope)
+    {
+        if (!declaration || declaration->kind == VariableDeclaration::Kind::Var)
+            return {};
+        if (m_slots) {
+            if (!head_scope)
+                return {};
+            HeadScope head { true, enter_scope(head_scope) };
+            emit_holes(head_scope);
+            return head;
+        }
+        emit(Opcode::PushNamesEnv, name_list(head_names(declaration)), 1);
+        Scope scope { Scope::Kind::Block };
+        scope.owns_env = true;
+        push_scope(scope);
+        return HeadScope { false, true };
     }
 
     // The names a let/const head declares, in their dead zone around the
@@ -963,21 +1442,12 @@ private:
 
     void compile_for_in(ForInStatement const& loop, std::vector<JsString*> labels)
     {
-        bool const lexical = loop.declaration && loop.declaration->kind != VariableDeclaration::Kind::Var;
         // B.3.5: `for (var x = 1 in o)` assigns the initializer first.
         if (loop.declaration && loop.declaration->kind == VariableDeclaration::Kind::Var && loop.declaration->declarations[0].init)
             compile_declaration(*loop.declaration);
-        if (lexical) {
-            emit(Opcode::PushNamesEnv, name_list(head_names(loop.declaration)), 1);
-            Scope scope { Scope::Kind::Block };
-            scope.owns_env = true;
-            push_scope(scope);
-        }
+        HeadScope const dead_zone = enter_loop_head_expression(loop.declaration, loop.scope);
         compile_expression(loop.object);
-        if (lexical) {
-            pop_scope();
-            emit(Opcode::PopEnv);
-        }
+        leave_loop_head(dead_zone);
         std::uint32_t const iterator = new_register();
         emit(Opcode::ForInStart);
         emit(Opcode::StoreReg, iterator);
@@ -992,12 +1462,9 @@ private:
         emit(Opcode::Dup);
         jump(Opcode::JumpIfEmpty, end_pop);
         push_scope(loop_scope(std::move(labels), end, next));
-        bool const pushed = compile_loop_head_binding(loop.declaration, loop.target);
+        HeadScope const head = compile_loop_head_binding(loop.declaration, loop.target, loop.scope);
         compile_statement(loop.body, {});
-        if (pushed) {
-            pop_scope();
-            emit(Opcode::PopEnv);
-        }
+        leave_loop_head(head);
         pop_scope();
         bind(next);
         emit(Opcode::Step);
@@ -1015,18 +1482,9 @@ private:
         // await` (§14.7.5.6 async-iterate) awaits each step's answer,
         // which must then be an iterator result, and awaits the close.
         bool const async_loop = loop.is_await;
-        bool const lexical = loop.declaration && loop.declaration->kind != VariableDeclaration::Kind::Var;
-        if (lexical) {
-            emit(Opcode::PushNamesEnv, name_list(head_names(loop.declaration)), 1);
-            Scope scope { Scope::Kind::Block };
-            scope.owns_env = true;
-            push_scope(scope);
-        }
+        HeadScope const dead_zone = enter_loop_head_expression(loop.declaration, loop.scope);
         compile_expression(loop.iterable);
-        if (lexical) {
-            pop_scope();
-            emit(Opcode::PopEnv);
-        }
+        leave_loop_head(dead_zone);
         std::uint32_t const iterator = new_register();
         new_register(); // the next method
         new_register(); // done — a for-of never steps past exhaustion, so it stays unset
@@ -1057,12 +1515,9 @@ private:
         int const refs_at_start = m_refs;
         std::uint32_t const envs_at_start = env_depth();
         push_scope(loop_scope(std::move(labels), end, next, iterator, async_loop));
-        bool const pushed = compile_loop_head_binding(loop.declaration, loop.target);
+        HeadScope const head = compile_loop_head_binding(loop.declaration, loop.target, loop.scope);
         compile_statement(loop.body, {});
-        if (pushed) {
-            pop_scope();
-            emit(Opcode::PopEnv);
-        }
+        leave_loop_head(head);
         pop_scope();
         std::uint32_t const protected_end = here();
         bind(next);
@@ -1121,7 +1576,24 @@ private:
             std::uint32_t const catch_entry = here();
             land(depth_at_start + 1, refs_at_start);
             add_handler(try_start, try_end, catch_entry, depth_at_start, refs_at_start, envs_at_start);
-            if (statement.catch_pattern) {
+            if (m_slots && (statement.catch_pattern || statement.catch_parameter)) {
+                // Resolved: the parameter's scope is an environment only when
+                // it materializes; a pattern's registers start as holes.
+                ScopeInfo const* const scope = statement.scope;
+                bool pushed = false;
+                if (scope) {
+                    pushed = enter_scope(scope);
+                    if (statement.catch_pattern)
+                        emit_holes(scope, true);
+                }
+                if (statement.catch_pattern)
+                    compile_pattern(statement.catch_pattern, BindMode::Initialize);
+                else
+                    emit_initialize(slot_named(statement.catch_parameter), statement.catch_parameter);
+                compile_block(*statement.handler);
+                if (scope)
+                    leave_scope(pushed);
+            } else if (statement.catch_pattern) {
                 std::vector<JsString*> names;
                 Interpreter::Impl::collect_bound_names(statement.catch_pattern, names);
                 emit(Opcode::PushNamesEnv, name_list(names), 1);
@@ -1210,8 +1682,15 @@ private:
         compile_expression(statement.discriminant);
         std::uint32_t const discriminant = new_register();
         emit(Opcode::StoreReg, discriminant);
-        bool const env = !statement.declarations.lexicals.empty() || !statement.declarations.functions.empty();
-        if (env) {
+        bool const resolved = m_slots && statement.scope != nullptr;
+        bool const env = !resolved && (!statement.declarations.lexicals.empty() || !statement.declarations.functions.empty());
+        bool resolved_pushed = false;
+        if (resolved) {
+            // The case block as a block scope (§14.12.4), resolved.
+            resolved_pushed = enter_scope(statement.scope);
+            emit_holes(statement.scope);
+            instantiate_functions(statement.declarations.functions);
+        } else if (env) {
             emit(Opcode::PushBlockEnv, declarations(&statement.declarations));
             Scope scope { Scope::Kind::Block };
             scope.owns_env = true;
@@ -1244,7 +1723,9 @@ private:
         }
         pop_scope();
         bind(end);
-        if (env) {
+        if (resolved) {
+            leave_scope(resolved_pushed);
+        } else if (env) {
             pop_scope();
             emit(Opcode::PopEnv);
         }
@@ -1265,9 +1746,14 @@ private:
     void compile_function_value(Expression const* value, std::uint32_t name_index)
     {
         switch (value->type) {
-        case NodeType::FunctionExpression:
-            emit(Opcode::MakeClosure, function(static_cast<FunctionExpression const*>(value)->function), name_index);
+        case NodeType::FunctionExpression: {
+            // A named function expression's own name gets an environment
+            // only when its scope materializes (the body reads the name).
+            auto const& expression = *static_cast<FunctionExpression const*>(value);
+            bool const without_environment = expression.scope != nullptr && !expression.scope->materializes;
+            emit(Opcode::MakeClosure, function(expression.function), name_index, without_environment ? 1 : 0);
             return;
+        }
         case NodeType::ArrowFunction:
             emit(Opcode::MakeClosure, function(static_cast<ArrowFunction const*>(value)->function), name_index);
             return;
@@ -1303,9 +1789,11 @@ private:
         if (!m_error.empty())
             return;
         switch (expression->type) {
-        case NodeType::Identifier:
-            emit(Opcode::GetName, name(static_cast<Identifier const*>(expression)->name));
+        case NodeType::Identifier: {
+            auto const& identifier = *static_cast<Identifier const*>(expression);
+            emit_load(slot_of(identifier), identifier.name);
             return;
+        }
         case NodeType::NumberLiteral:
             emit(Opcode::PushConstant, constant(Value::number(static_cast<NumberLiteral const*>(expression)->value)));
             return;
@@ -1322,7 +1810,12 @@ private:
             emit(Opcode::PushNull);
             return;
         case NodeType::ThisExpression:
-            emit(Opcode::ResolveThis);
+            // A plain function's own `this` is its frame's; an arrow's, or
+            // one an arrow also reads, is found through the environments.
+            if (m_slots && static_cast<ThisExpression const*>(expression)->resolution == Resolution::Local)
+                emit(Opcode::LoadThis);
+            else
+                emit(Opcode::ResolveThis);
             return;
         case NodeType::RegExpLiteral:
             emit(Opcode::NewRegExp, regexp(static_cast<RegExpLiteral const*>(expression)));
@@ -1363,7 +1856,10 @@ private:
             return;
         }
         case NodeType::NewTargetExpression:
-            emit(Opcode::NewTarget);
+            if (m_slots && static_cast<NewTargetExpression const*>(expression)->resolution == Resolution::Local)
+                emit(Opcode::LoadNewTarget);
+            else
+                emit(Opcode::NewTarget);
             return;
         case NodeType::UnaryExpression:
             compile_unary(*static_cast<UnaryExpression const*>(expression));
@@ -1779,9 +2275,11 @@ private:
     void compile_reference(Expression const* target)
     {
         switch (target->type) {
-        case NodeType::Identifier:
-            emit(Opcode::RefName, name(static_cast<Identifier const*>(target)->name));
+        case NodeType::Identifier: {
+            auto const& identifier = *static_cast<Identifier const*>(target);
+            emit_reference(slot_of(identifier), identifier.name);
             return;
+        }
         case NodeType::MemberExpression: {
             auto const& member = *static_cast<MemberExpression const*>(target);
             compile_expression(member.object);
@@ -1806,16 +2304,20 @@ private:
 
     void compile_super_reference(SuperMember const& member)
     {
+        // In the method itself (the home object resolved Local), `this` and
+        // the home object are the frame's: flag 1.
+        bool const own = m_slots && member.resolution == Resolution::Local;
+        std::uint8_t const flags = own ? 1 : 0;
         if (member.property) {
             // §13.3.7.1: `this` is resolved before the key is evaluated, so
             // `super[super()]` in a derived constructor is a ReferenceError
             // before the parent constructor ever runs.
-            emit(Opcode::ResolveThis);
+            emit(own ? Opcode::LoadThis : Opcode::ResolveThis);
             emit(Opcode::Pop);
             compile_expression(member.property);
-            emit(Opcode::RefSuper);
+            emit(Opcode::RefSuper, 0, 0, flags);
         } else {
-            emit(Opcode::RefSuperNamed, name(member.name));
+            emit(Opcode::RefSuperNamed, name(member.name), 0, flags);
         }
     }
 
@@ -1899,14 +2401,25 @@ private:
                 optional_check(context, Opcode::Dup, 1, 0);
             emit(Opcode::PushUndefined);
             return;
-        case NodeType::Identifier:
-            emit(Opcode::RefName, name(static_cast<Identifier const*>(callee)->name));
+        case NodeType::Identifier: {
+            // A resolved binding is never an object environment's, so the
+            // call's `this` is undefined without a reference.
+            auto const& identifier = *static_cast<Identifier const*>(callee);
+            if (Slot const slot = slot_of(identifier); slot.kind != Slot::Kind::Name) {
+                emit_load(slot, identifier.name);
+                if (optional_call)
+                    optional_check(context, Opcode::Dup, 1, 0);
+                emit(Opcode::PushUndefined);
+                return;
+            }
+            emit(Opcode::RefName, name(identifier.name));
             emit(Opcode::RefGet);
             if (optional_call)
                 optional_check(context, Opcode::Dup, 1, 1);
             emit(Opcode::RefThis);
             emit(Opcode::RefDrop);
             return;
+        }
         case NodeType::SuperMember:
             compile_super_reference(*static_cast<SuperMember const*>(callee));
             emit(Opcode::RefGet);
@@ -2016,7 +2529,15 @@ private:
         switch (unary.op) {
         case UnaryOp::Typeof:
             if (unary.operand->type == NodeType::Identifier) {
-                emit(Opcode::TypeofName, name(static_cast<Identifier const*>(unary.operand)->name));
+                // A resolved binding exists, so its value is read — a let
+                // in its dead zone throwing as a read does (§13.5.3).
+                auto const& identifier = *static_cast<Identifier const*>(unary.operand);
+                if (Slot const slot = slot_of(identifier); slot.kind != Slot::Kind::Name) {
+                    emit_load(slot, identifier.name);
+                    emit(Opcode::Unary, static_cast<std::uint32_t>(UnaryOp::Typeof));
+                    return;
+                }
+                emit(Opcode::TypeofName, name(identifier.name));
                 return;
             }
             compile_expression(unary.operand);
@@ -2047,6 +2568,15 @@ private:
                 return;
             }
             case NodeType::Identifier:
+                // A declared binding cannot be deleted (§9.1.1.1.7): false,
+                // and nothing to look up for a resolved one.
+                if (slot_of(*static_cast<Identifier const*>(unary.operand)).kind != Slot::Kind::Name) {
+                    emit(Opcode::PushFalse);
+                    return;
+                }
+                compile_reference(unary.operand);
+                emit(Opcode::RefDelete);
+                return;
             case NodeType::SuperMember:
                 compile_reference(unary.operand);
                 emit(Opcode::RefDelete);
@@ -2073,6 +2603,23 @@ private:
     {
         // §13.4.2–§13.4.5: the old value as a number, the new one stored,
         // the prefix form yielding the new and the postfix the old.
+        if (update.target->type == NodeType::Identifier) {
+            auto const& identifier = *static_cast<Identifier const*>(update.target);
+            if (Slot const slot = slot_of(identifier); slot.kind != Slot::Kind::Name) {
+                emit_load(slot, identifier.name);
+                emit(Opcode::ToNumeric);
+                if (update.prefix) {
+                    emit(update.increment ? Opcode::Inc : Opcode::Dec);
+                    emit_assign(slot);
+                } else {
+                    emit(Opcode::Dup);
+                    emit(update.increment ? Opcode::Inc : Opcode::Dec);
+                    emit_assign(slot);
+                    emit(Opcode::Pop);
+                }
+                return;
+            }
+        }
         compile_reference(update.target);
         emit(Opcode::RefGet);
         emit(Opcode::ToNumeric);
@@ -2136,6 +2683,16 @@ private:
             compile_pattern(assignment.target, BindMode::Assign);
             return;
         }
+        if (assignment.target->type == NodeType::Identifier) {
+            // A resolved binding needs no reference: nothing is looked up
+            // before the value, and the store checks its own dead zone and
+            // immutability.
+            auto const& identifier = *static_cast<Identifier const*>(assignment.target);
+            if (Slot const slot = slot_of(identifier); slot.kind != Slot::Kind::Name) {
+                compile_resolved_assignment(assignment, slot, identifier);
+                return;
+            }
+        }
         compile_reference(assignment.target);
         JsString* const binding_name = assignment.target->type == NodeType::Identifier
             ? static_cast<Identifier const*>(assignment.target)->name
@@ -2182,6 +2739,40 @@ private:
         compile_expression(assignment.value);
         emit(Opcode::Binary, static_cast<std::uint32_t>(*binary_for(assignment.op)));
         emit(Opcode::RefPutKeep);
+    }
+
+    void compile_resolved_assignment(AssignmentExpression const& assignment, Slot const& slot, Identifier const& identifier)
+    {
+        if (assignment.op == AssignmentOp::Assign) {
+            compile_named_value(assignment.value, identifier.name);
+            emit_assign(slot);
+            return;
+        }
+        emit_load(slot, identifier.name);
+        if (assignment.op == AssignmentOp::LogicalAnd || assignment.op == AssignmentOp::LogicalOr || assignment.op == AssignmentOp::Nullish) {
+            // The right-hand side may not be evaluated at all; then the
+            // current value is the result and nothing is stored.
+            Label skip;
+            switch (assignment.op) {
+            case AssignmentOp::LogicalAnd:
+                jump(Opcode::JumpIfFalseKeep, skip);
+                break;
+            case AssignmentOp::LogicalOr:
+                jump(Opcode::JumpIfTrueKeep, skip);
+                break;
+            default:
+                jump(Opcode::JumpIfNotNullishKeep, skip);
+                break;
+            }
+            emit(Opcode::Pop);
+            compile_named_value(assignment.value, identifier.name);
+            emit_assign(slot);
+            bind(skip);
+            return;
+        }
+        compile_expression(assignment.value);
+        emit(Opcode::Binary, static_cast<std::uint32_t>(*binary_for(assignment.op)));
+        emit_assign(slot);
     }
 
     // ---- patterns ---------------------------------------------------------
@@ -2231,7 +2822,8 @@ private:
             return;
         }
         if (mode == BindMode::Initialize) {
-            emit(Opcode::InitializeBinding, name(static_cast<Identifier const*>(target)->name));
+            auto const& identifier = *static_cast<Identifier const*>(target);
+            emit_initialize(slot_of(identifier), identifier.name);
             return;
         }
         emit(Opcode::RefPut);
@@ -2346,6 +2938,17 @@ private:
     int m_depth = 0;
     int m_refs = 0;
     bool m_unreachable = false;
+    // Resolved bindings (see the constructor): which registers hold an
+    // immutable binding, the parser's scopes this point of the code stands
+    // in (the function's first, whether they materialize or not), the
+    // environments the prologue pushed for the whole body, each scope's
+    // shape once made, and the big scopes' bindings by name.
+    bool m_slots = false;
+    std::vector<bool> m_register_immutable;
+    std::vector<ScopeInfo const*> m_chain;
+    std::uint32_t m_base_envs = 0;
+    std::unordered_map<ScopeInfo const*, std::uint32_t> m_shape_index;
+    std::unordered_map<ScopeInfo const*, std::unordered_map<JsString*, std::uint32_t>> m_binding_index;
 };
 
 } // namespace
@@ -2470,8 +3073,43 @@ std::string disassemble(CodeBlock const& code)
         case Opcode::ThrowTypeErrorConst:
             out += " " + std::to_string(ins.a);
             break;
+        case Opcode::GetLocal:
+        case Opcode::SetLocal:
+        case Opcode::RefLocal:
+            out += " r" + std::to_string(ins.a);
+            if (ins.a < code.register_names.size() && code.register_names[ins.a])
+                out += " " + code.register_names[ins.a]->to_utf8();
+            if (ins.flags)
+                out += " const";
+            break;
+        case Opcode::GetScoped:
+        case Opcode::SetScoped:
+        case Opcode::InitScoped:
+        case Opcode::RefScoped:
+            out += " hops=" + std::to_string(ins.a) + " slot=" + std::to_string(ins.b);
+            break;
+        case Opcode::PushEnv:
+            out += " " + std::to_string(ins.a);
+            if (ins.a < code.environments.size())
+                out += " size=" + std::to_string(code.environments[ins.a].bindings.size());
+            if (ins.flags & 1)
+                out += " function";
+            if (ins.flags & 2)
+                out += " var";
+            break;
+        case Opcode::MakeArguments:
+            out += ins.flags ? " mapped" : " unmapped";
+            break;
+        case Opcode::RefSuper:
+            if (ins.flags)
+                out += " own";
+            break;
         case Opcode::PushNamesEnv:
         case Opcode::CopyIterationEnv:
+            if (ins.op == Opcode::CopyIterationEnv && ins.flags) {
+                out += " all";
+                break;
+            }
             out += " [";
             if (ins.a < code.name_lists.size()) {
                 for (std::size_t i = 0; i < code.name_lists[ins.a].size(); ++i)

@@ -1442,6 +1442,7 @@ bool Parser::Impl::pop_function()
         function_scope->references = std::move(fn.own_references);
     if (node) {
         node->scope = function_scope;
+        node->body_scope = body_scope;
         node->dynamic = fn.has_direct_eval || fn.contains_with;
     }
 
@@ -1467,8 +1468,8 @@ bool Parser::Impl::pop_function()
 }
 
 // The per-function pass, once every reference into this function's scopes
-// is known: a direct eval written here makes every scope dynamic, a direct
-// eval or a with here captures every binding, a direct eval in a function
+// is known: a direct eval or a with written here, or program code, makes
+// every scope dynamic and captures every binding, a direct eval in a function
 // inside captures the bindings of the scopes around it, a mapped arguments
 // object captures the parameters it aliases; each scope materializes when
 // it is dynamic or has a captured binding; captured bindings take
@@ -1493,8 +1494,11 @@ void Parser::Impl::settle_function(FunctionContext& fn)
     std::uint32_t registers = 0;
     for (auto it = infos_begin; it != m_infos.end(); ++it) {
         ScopeInfo* const info = *it;
-        info->dynamic = fn.has_direct_eval || info->kind == ScopeInfo::Kind::With || info->kind == ScopeInfo::Kind::Program
-            || info->kind == ScopeInfo::Kind::Module || info->kind == ScopeInfo::Kind::Eval;
+        // A function with a direct eval or a with keeps its prologue by
+        // name and looks every name up by name, and so does program code
+        // (a script's, a module's, an eval's), whose environments are made
+        // by name: nothing resolves into or through their scopes.
+        info->dynamic = capture_all || node == nullptr || info->kind == ScopeInfo::Kind::With;
         std::uint32_t environment = 0;
         for (ScopeInfo::Binding& binding : info->bindings) {
             if (capture_all || info->dynamic || info->eval_reaches || (mapped_arguments && info == fn.info && binding.kind == BindingKind::Parameter))
@@ -1504,10 +1508,12 @@ void Parser::Impl::settle_function(FunctionContext& fn)
         info->environment_size = environment;
         info->materializes = info->dynamic || environment > 0;
     }
-    if (node)
+    if (node) {
         node->register_count = registers;
-    else
+        node->scopes.assign(infos_begin, m_infos.end());
+    } else {
         m_program->register_count = registers;
+    }
     m_infos.resize(fn.infos_start);
     for (std::size_t i = fn.bound_start; i < m_bound.size(); ++i) {
         BoundReference const& reference = m_bound[i];

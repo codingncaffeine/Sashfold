@@ -163,8 +163,8 @@ struct FunctionNode;
 // object aliases. A captured binding lives in the scope's environment at
 // `slot`; any other lives in a register of its function numbered by `slot`.
 // A scope materializes an environment when it has a captured binding or is
-// dynamic (a with, the program, or a scope of a function with a direct
-// eval, where names are looked up by name).
+// dynamic (a with, any scope of program code, or a scope of a function
+// with a direct eval or a with, where names are looked up by name).
 struct ScopeInfo {
     enum class Kind : std::uint8_t { Function, FunctionBody, Block, ForHead, Catch, ClassName, FunctionName, With, Program, Module, Eval };
     struct Binding {
@@ -195,9 +195,11 @@ struct ScopeInfo {
     }
 
     Kind kind = Kind::Block;
-    // A with, program code, or any scope of a function with a direct eval
-    // written in it (a var the eval declares may shadow an outer name):
-    // every name that reaches the scope is looked up by name.
+    // A with, any scope of program code (a script's, a module's or an
+    // eval's), or any scope of a function with a direct eval (a var the
+    // eval declares may shadow an outer name) or a with written in it:
+    // every name that reaches the scope is looked up by name, since the
+    // environments there are made by name.
     bool dynamic = false;
     // A direct eval inside the scope, in its own function or a nested one,
     // may name any of its bindings, so all of them are captured.
@@ -465,6 +467,8 @@ struct FunctionNode {
     bool dynamic = false;
     std::uint32_t register_count = 0; // one per uncaptured binding of the function's scopes
     ScopeInfo* scope = nullptr; // the function scope; the FunctionBody scope, when split, is its child
+    ScopeInfo* body_scope = nullptr; // the vars' scope: the FunctionBody scope when split, else the function scope
+    std::vector<ScopeInfo const*> scopes; // every scope this function's frame runs, in source order
 };
 
 struct FunctionExpression : Expression {

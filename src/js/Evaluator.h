@@ -57,8 +57,14 @@ struct Reference {
     // and written with `this` (this_value) as the receiver (§13.3.7.3).
     // Private: `o.#x` — the base and the Private Name as the key (§13.3.3),
     // read and written on the base alone, with `name` for the messages.
-    enum class Kind : std::uint8_t { Unresolvable, Binding, ObjectEnvironment, Property, Super, Private, Value };
+    // Local: a binding resolved to register `slot` of the running frame
+    // (`immutable` for a const); Scoped: one resolved to `slot` of
+    // `environment`. Neither is searched for by name, and neither can be
+    // deleted.
+    enum class Kind : std::uint8_t { Unresolvable, Binding, ObjectEnvironment, Property, Super, Private, Value, Local, Scoped };
     Kind kind = Kind::Value;
+    bool immutable = false;
+    std::uint32_t slot = 0;
     Environment* environment = nullptr;
     JsString* name = nullptr;
     Value base; // Property, Super: the base; Value: the value itself
@@ -135,11 +141,19 @@ struct Interpreter::Impl {
     std::string reference_key_text(Reference const& reference);
     std::optional<Value> get_value(Reference& reference, Context const& cx);
     bool put_value(Reference& reference, Value const& value, Context const& cx);
+    // SetMutableBinding (§9.1.1.1.5) on a binding in hand: its dead zone a
+    // ReferenceError, an immutable one a TypeError from strict code or for
+    // a const (and nothing, from sloppy code, for a function expression's
+    // own name).
+    bool set_mutable_binding(Environment::Binding& binding, Value const& value, bool strict);
     Value this_for_call(Reference const& reference);
 
     // ---- functions
     void set_function_name(Object& function, PropertyKey const& key, std::string_view prefix = {});
-    std::optional<Value> make_closure(FunctionNode const& node, Context& cx, PropertyKey const* name_key);
+    // `own_name_environment` false: a named function expression whose own
+    // name nothing inside reads gets no environment for it, and a hoisted
+    // declaration made on the machine never has one.
+    std::optional<Value> make_closure(FunctionNode const& node, Context& cx, PropertyKey const* name_key, bool own_name_environment = true);
     Object* make_arguments_object(ScriptFunction& function, Environment* environment, std::span<Value const> arguments, bool mapped);
     // [[Call]] and [[Construct]] of a script function: an async function
     // takes the promise path (call_async_function), everything else
@@ -151,14 +165,28 @@ struct Interpreter::Impl {
     std::optional<Value> run_script_function(ScriptFunction& function, Value const& this_argument,
         std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key,
         PromiseCapability const* async_capability, RealmRecord* caller_realm = nullptr);
+    // The same for a function compiled with its bindings resolved (one
+    // with no direct eval and no with): `this`, new.target and the
+    // arguments go on the frame, and the prologue is the body's own
+    // bytecode, which makes an environment only for a scope that needs one.
+    std::optional<Value> run_resolved_function(ScriptFunction& function, CodeBlock const& code, Value const& this_argument,
+        std::span<Value const> arguments, Object* new_target, PropertyKey const* field_key,
+        PromiseCapability const* async_capability, RealmRecord* caller_realm);
 
     // ---- classes
     Object* home_object_of(Context const& cx);
     // MakeSuperPropertyReference with the key already evaluated: a value
     // (`super[key]`) or a name (`super.name`).
     std::optional<Reference> super_reference(Context const& cx, Value const* key_value, JsString* name);
+    // The same with `this` and the home object in hand (a method reading
+    // them from its own frame).
+    std::optional<Reference> super_reference_of(Value const& this_value, Object* home, Value const* key_value, JsString* name);
     // SuperCall with the arguments already evaluated.
     std::optional<Value> super_call(Context& cx, std::span<Value const> arguments);
+    // Its middle, for a constructor that knows itself and its new.target:
+    // the parent constructor checked and constructed; binding the result
+    // as `this` is the caller's.
+    std::optional<Value> super_construct(ScriptFunction& active, Object* new_target, std::span<Value const> arguments);
     Value evaluate_new_target(Context& cx);
     std::optional<Value> call_field_initializer(ScriptFunction& initializer, Value const& this_value, PropertyKey const& key);
 
@@ -266,25 +294,34 @@ struct Interpreter::Impl {
     // scope from here, each element defined in order, then the name bound
     // and the static elements run. evaluate_class (the whole, with the
     // tree of a class handed in) is the same four calls.
+    // `make_environment` false: the class's own scope makes no environment
+    // (no function inside reads its name), so the class's functions close
+    // over `outer` and the name is the compiler's to keep.
     ClassBuilder* class_scope(ClassNode const& node, Environment* outer, PrivateEnvironment* outer_private, bool outer_strict,
-        PropertyKey const* name_key);
+        PropertyKey const* name_key, bool make_environment = true);
     bool class_begin(ClassBuilder& builder, Value const* heritage);
     bool class_element(ClassBuilder& builder, std::size_t index, Value const* key_value);
     std::optional<Value> class_finish(ClassBuilder& builder);
-    std::optional<Value> start_generator(ScriptFunction& function, Context const& cx);
+    // A generator's start (and an async generator's, and an async
+    // function's): with `prepared`, the frame of a body whose prologue is
+    // its own bytecode, which runs here before anything else — to its
+    // Suspend for a generator, to its first await or its end for an async
+    // function; without, the frame is made for a body whose prologue ran
+    // in C++ over the environments in `cx`.
+    std::optional<Value> start_generator(ScriptFunction& function, Context const& cx, Frame* prepared = nullptr);
     std::optional<Value> generator_resume(GeneratorObject& generator, ResumeKind kind, Value const& value);
     std::optional<Value> call_async_function(ScriptFunction& function, Value const& this_argument, std::span<Value const> arguments);
     // AsyncFunctionStart / AsyncBlockStart over `node`'s body: a call's
     // prologue has already made the environments in `cx`, or a module's
     // InitializeEnvironment has — the body is all that runs here.
-    std::optional<Value> start_async(FunctionNode const& node, Context const& cx, PromiseCapability const& capability);
+    std::optional<Value> start_async(FunctionNode const& node, Context const& cx, PromiseCapability const& capability, Frame* prepared = nullptr);
     void async_step(AsyncContextObject& context);
     // Async generators (§27.6): the object, the request queue's operations
     // — next/return/throw past validation, AsyncGeneratorCompleteStep,
     // AsyncGeneratorAwaitReturn, AsyncGeneratorDrainQueue — and the body's
     // driver, which is AsyncGeneratorStart's closure, AsyncGeneratorYield's
     // completing-and-resuming, and Await in one loop.
-    std::optional<Value> start_async_generator(ScriptFunction& function, Context const& cx);
+    std::optional<Value> start_async_generator(ScriptFunction& function, Context const& cx, Frame* prepared = nullptr);
     std::optional<Value> async_generator_enqueue(AsyncGeneratorObject& generator, ResumeKind kind, Value const& value,
         PromiseCapability const& capability);
     void async_generator_resume(AsyncGeneratorObject& generator, ResumeKind kind, Value const& value);

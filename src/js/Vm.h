@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <deque>
+#include <span>
 #include <vector>
 
 namespace sashfold::js {
@@ -28,7 +29,8 @@ namespace sashfold::js {
 class ClassBuilder : public Cell {
 public:
     ClassNode const* node = nullptr;
-    Environment* class_env = nullptr;
+    Environment* class_env = nullptr; // the scope's own, or the outer one when the scope makes none
+    bool owns_class_env = true;
     PrivateEnvironment* outer_private = nullptr; // restored when the class is done
     PrivateEnvironment* private_env = nullptr; // the class's own, or the outer one
     bool saved_strict = false;
@@ -54,7 +56,11 @@ public:
     std::vector<Value> registers;
     std::vector<Reference> refs;
     std::vector<Environment*> envs; // envs.back() is the lexical environment; envs[0] the body's own
-    std::vector<Value> arguments; // the call's, for a parameter block (LoadArgument, RestArguments)
+    // The call's arguments while its prologue runs (LoadArgument,
+    // RestArguments, MakeArguments): the caller's own storage, rooted by
+    // run_script_function for as long as the call lasts, and emptied
+    // before a suspended body could outlive it.
+    std::span<Value const> incoming;
     std::vector<ClassBuilder*> builders; // the classes under construction, innermost last
     Value field_key; // a field initializer's key, for LoadFieldKey
     Environment* variable = nullptr;
@@ -62,6 +68,14 @@ public:
     Program const* program = nullptr;
     PrivateEnvironment* private_environment = nullptr;
     bool strict = false;
+    // A body compiled with its bindings resolved keeps its call's `this`
+    // (the hole in a derived constructor until super() binds it) and
+    // new.target here; when its own scope materializes, that environment
+    // (`function_env`) holds them instead, for the arrows inside that
+    // reach them through the chain, and this frame reads them from there.
+    Value this_value;
+    Object* new_target = nullptr;
+    Environment* function_env = nullptr;
 
     // Suspension. `result` carries the value out (yielded, awaited,
     // returned); the resume fields carry the completion back in, and the
