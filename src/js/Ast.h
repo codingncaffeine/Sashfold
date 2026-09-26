@@ -19,7 +19,9 @@
 #include "js/Value.h"
 
 #include <cstdint>
+#include <deque>
 #include <memory>
+#include <memory_resource>
 #include <string>
 #include <utility>
 #include <vector>
@@ -144,12 +146,92 @@ struct Declarations {
     std::vector<std::pair<JsString*, bool>> lexicals;
 };
 
+struct FunctionNode;
+
+// A scope as the parser resolved it, one per scope that can hold a
+// binding: a function (its parameters, vars, hoisted functions and
+// top-level lexicals, with the var part split off into a FunctionBody
+// scope when the parameters have expressions), a block or case block with
+// declarations, a for head with let/const (copied per iteration), a catch
+// parameter, a class's own name, a named function expression's own name,
+// a with, and the program (script, module or eval code). The Program owns
+// them all.
+//
+// A binding is captured when an inner function refers to it, when a
+// reference to it passes a with, when it belongs to a function containing
+// a direct eval or a with, or when it is a parameter a mapped arguments
+// object aliases. A captured binding lives in the scope's environment at
+// `slot`; any other lives in a register of its function numbered by `slot`.
+// A scope materializes an environment when it has a captured binding or is
+// dynamic (a with, the program, or a scope of a function with a direct
+// eval, where names are looked up by name).
+struct ScopeInfo {
+    enum class Kind : std::uint8_t { Function, FunctionBody, Block, ForHead, Catch, ClassName, FunctionName, With, Program, Module, Eval };
+    struct Binding {
+        enum class Kind : std::uint8_t {
+            Parameter,
+            Var,
+            Function,
+            Let,
+            Const,
+            Class,
+            CatchParameter,
+            FunctionName,
+            Import,
+            This,
+            NewTarget,
+            HomeObject,
+            Arguments,
+        };
+        JsString* name = nullptr; // null for this, new.target and the home object
+        Kind kind = Kind::Var;
+        bool captured = false;
+        std::uint32_t slot = 0; // a register when not captured, an environment index when captured
+    };
+    // The bindings live in the Program's arena, with the scopes.
+    explicit ScopeInfo(std::pmr::memory_resource* arena)
+        : bindings(arena)
+    {
+    }
+
+    Kind kind = Kind::Block;
+    // A with, program code, or any scope of a function with a direct eval
+    // written in it (a var the eval declares may shadow an outer name):
+    // every name that reaches the scope is looked up by name.
+    bool dynamic = false;
+    // A direct eval inside the scope, in its own function or a nested one,
+    // may name any of its bindings, so all of them are captured.
+    bool eval_reaches = false;
+    bool materializes = false;
+    std::uint32_t start = 0; // where the scope opens in the source, which orders siblings
+    std::uint32_t environment_size = 0; // the captured bindings, in slot order
+    ScopeInfo* parent = nullptr; // null at the program
+    FunctionNode* function = nullptr; // the function whose frame runs this scope; null for program code
+    std::pmr::vector<Binding> bindings; // parameters, implicit bindings, vars, functions, lexicals
+    // Every reference written directly in this function or program, in
+    // source order, when the parse was asked to keep them (a function or
+    // program scope only; for the instrument and the tests).
+    std::vector<Expression const*> references;
+};
+
+// Where a reference's binding was found when its scopes closed: a register
+// of the running function, an environment `hops` materialized scopes out at
+// `slot`, or by name at run time (through a with, into a function with a
+// direct eval, or into program code).
+enum class Resolution : std::uint8_t { Unresolved, Local, Scoped, Dynamic };
+
 struct Identifier : Expression {
     Identifier()
         : Expression(NodeType::Identifier)
     {
     }
+    // The resolution first, so it sits in the padding at the end of
+    // Expression rather than adding to the node.
+    Resolution resolution = Resolution::Unresolved;
+    std::uint16_t hops = 0;
     JsString* name = nullptr;
+    std::uint32_t slot = 0;
+    ScopeInfo const* scope = nullptr; // the declaring scope, when one was found
 };
 
 struct NumberLiteral : Expression {
@@ -191,11 +273,16 @@ struct NullLiteral : Expression {
     }
 };
 
+// `this`: resolved to the This binding of the nearest non-arrow function.
 struct ThisExpression : Expression {
     ThisExpression()
         : Expression(NodeType::ThisExpression)
     {
     }
+    Resolution resolution = Resolution::Unresolved;
+    std::uint16_t hops = 0;
+    std::uint32_t slot = 0;
+    ScopeInfo const* scope = nullptr;
 };
 
 struct RegExpLiteral : Expression {
@@ -372,6 +459,12 @@ struct FunctionNode {
     bool uses_this = false;
     bool has_direct_eval = false; // a direct `eval(...)` call inside; everything must stay in scope
     bool has_duplicate_parameters = false;
+    // A direct eval written in the function itself or a with inside it:
+    // every binding of the function is captured, and names are looked up
+    // by name (all of them after the eval, those inside the with).
+    bool dynamic = false;
+    std::uint32_t register_count = 0; // one per uncaptured binding of the function's scopes
+    ScopeInfo* scope = nullptr; // the function scope; the FunctionBody scope, when split, is its child
 };
 
 struct FunctionExpression : Expression {
@@ -380,6 +473,7 @@ struct FunctionExpression : Expression {
     {
     }
     FunctionNode* function = nullptr;
+    ScopeInfo* scope = nullptr; // the own-name scope of a named function expression
 };
 
 struct ArrowFunction : Expression {
@@ -415,6 +509,7 @@ struct ClassNode {
     SourcePosition position;
     std::uint32_t source_start = 0;
     std::uint32_t source_end = 0;
+    ScopeInfo* scope = nullptr; // the scope binding a named class's own name over its heritage and body
 };
 
 struct ClassExpression : Expression {
@@ -432,8 +527,13 @@ struct SuperMember : Expression {
         : Expression(NodeType::SuperMember)
     {
     }
+    // The resolution of the home object binding.
+    Resolution resolution = Resolution::Unresolved;
+    std::uint16_t hops = 0;
     JsString* name = nullptr;
     Expression* property = nullptr; // `super[expr]`; name is null then
+    std::uint32_t slot = 0;
+    ScopeInfo const* scope = nullptr;
 };
 
 // `super(arguments)` in a derived constructor: constructs the parent
@@ -451,6 +551,10 @@ struct NewTargetExpression : Expression {
         : Expression(NodeType::NewTargetExpression)
     {
     }
+    Resolution resolution = Resolution::Unresolved;
+    std::uint16_t hops = 0;
+    std::uint32_t slot = 0;
+    ScopeInfo const* scope = nullptr;
 };
 
 enum class UnaryOp : std::uint8_t { Minus, Plus, Not, BitwiseNot, Typeof, Void, Delete };
@@ -777,6 +881,7 @@ struct BlockStatement : Statement {
     }
     std::vector<Statement*> body;
     Declarations declarations; // lexicals and block-level functions only
+    ScopeInfo* scope = nullptr; // null when the block declares nothing
 };
 
 struct EmptyStatement : Statement {
@@ -813,6 +918,7 @@ struct ForStatement : Statement {
     Expression* update = nullptr;
     Statement* body = nullptr;
     Declarations declarations; // a let/const in the head, copied per iteration (§14.7.4.4)
+    ScopeInfo* scope = nullptr; // the head's scope, for a let/const head
 };
 
 struct ForInStatement : Statement {
@@ -824,6 +930,7 @@ struct ForInStatement : Statement {
     Expression* target = nullptr; // `for (x in …)`; declaration is null then
     Expression* object = nullptr;
     Statement* body = nullptr;
+    ScopeInfo* scope = nullptr; // the head's scope, for a let/const head
 };
 
 struct ForOfStatement : Statement {
@@ -836,6 +943,7 @@ struct ForOfStatement : Statement {
     Expression* iterable = nullptr;
     Statement* body = nullptr;
     bool is_await = false; // `for await (… of …)` (§14.7.5): the async iteration protocol, awaiting each step
+    ScopeInfo* scope = nullptr; // the head's scope, for a let/const head
 };
 
 struct WhileStatement : Statement {
@@ -898,6 +1006,7 @@ struct TryStatement : Statement {
     Expression* catch_pattern = nullptr; // `catch ([a]) {`, `catch ({ message }) {`
     BlockStatement* handler = nullptr;
     BlockStatement* finalizer = nullptr;
+    ScopeInfo* scope = nullptr; // the catch parameter's scope
 };
 
 struct SwitchCase {
@@ -913,6 +1022,7 @@ struct SwitchStatement : Statement {
     Expression* discriminant = nullptr;
     std::vector<SwitchCase> cases;
     Declarations declarations; // the case block's lexicals
+    ScopeInfo* scope = nullptr; // null when the case block declares nothing
 };
 
 struct LabeledStatement : Statement {
@@ -931,6 +1041,7 @@ struct WithStatement : Statement {
     }
     Expression* object = nullptr;
     Statement* body = nullptr;
+    ScopeInfo* scope = nullptr; // the object scope around the body
 };
 
 // What a module asks of another (§16.2.1.3 ModuleRequest Record): the
@@ -978,6 +1089,19 @@ public:
     std::vector<ExportEntryRecord> local_export_entries;
     std::vector<ExportEntryRecord> indirect_export_entries;
     std::vector<ExportEntryRecord> star_export_entries;
+    // The program's scope (Program, Module or Eval) and the registers its
+    // own code needs for the uncaptured bindings of its blocks.
+    ScopeInfo* scope = nullptr;
+    std::uint32_t register_count = 0;
+
+    ScopeInfo* make_scope(ScopeInfo::Kind kind, std::uint32_t start)
+    {
+        ScopeInfo& scope_info = m_scopes.emplace_back(&m_scope_arena);
+        scope_info.kind = kind;
+        scope_info.start = start;
+        return &scope_info;
+    }
+    std::pmr::deque<ScopeInfo> const& scopes() const { return m_scopes; }
 
     template<typename T>
     T* make()
@@ -1008,6 +1132,11 @@ private:
     std::vector<std::unique_ptr<Node>> m_nodes;
     std::vector<std::unique_ptr<FunctionNode>> m_functions;
     std::vector<std::unique_ptr<ClassNode>> m_classes;
+    // The scopes and their bindings, allocated from one arena that goes
+    // with the Program (the scopes live exactly as long); a deque, since
+    // the parser keeps pointers while it adds more.
+    std::pmr::monotonic_buffer_resource m_scope_arena;
+    std::pmr::deque<ScopeInfo> m_scopes { &m_scope_arena };
 };
 
 }

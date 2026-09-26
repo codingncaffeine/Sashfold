@@ -1,10 +1,12 @@
 // js_probe runs a script on the engine under heap stress and shows what
 // the engine made of it: the completion or the thrown value after the job
-// queue has drained, the syntax tree (--dump-ast) and the bytecode of every
-// function body the bytecode tier compiled (--dump-bytecode). A build tool
-// for the script engine's own work, never shipped.
+// queue has drained, the syntax tree (--dump-ast), the scope tree with every
+// binding and every reference as the parser resolved them (--dump-scopes)
+// and the bytecode of every function body the bytecode tier compiled
+// (--dump-bytecode). A build tool for the script engine's own work, never
+// shipped.
 //
-//   js_probe "<source>" [--module] [--dump-ast] [--dump-bytecode]
+//   js_probe "<source>" [--module] [--dump-ast] [--dump-scopes] [--dump-bytecode]
 //
 // The source is one argument; a file arrives as "$(cat page.js)". With
 // --module it is parsed under the Module goal and evaluated as a module,
@@ -36,7 +38,7 @@ namespace {
 
 int usage()
 {
-    std::fputs("usage: js_probe \"<source>\" [--module] [--dump-ast] [--dump-bytecode]\n", stderr);
+    std::fputs("usage: js_probe \"<source>\" [--module] [--dump-ast] [--dump-scopes] [--dump-bytecode]\n", stderr);
     return 2;
 }
 
@@ -45,12 +47,15 @@ int usage()
 int main(int argc, char** argv)
 {
     bool want_ast = false;
+    bool want_scopes = false;
     bool want_bytecode = false;
     bool want_module = false;
     char const* source = nullptr;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--dump-ast") == 0) {
             want_ast = true;
+        } else if (std::strcmp(argv[i], "--dump-scopes") == 0) {
+            want_scopes = true;
         } else if (std::strcmp(argv[i], "--dump-bytecode") == 0) {
             want_bytecode = true;
         } else if (std::strcmp(argv[i], "--module") == 0) {
@@ -69,9 +74,10 @@ int main(int argc, char** argv)
     js::Interpreter in;
     in.set_stack_budget(platform::js_stack_budget_for(platform::widen_main_thread_stack(platform::script_stack_bytes)));
     in.heap().set_stress(true);
-    if (want_ast || want_module) {
+    if (want_ast || want_scopes || want_module) {
         js::ParseOptions options;
         options.module = want_module;
+        options.record_references = want_scopes;
         js::Parser parser(in.heap(), js::utf16_from_utf8(source), options);
         std::unique_ptr<js::Program> const program = parser.parse_program("<probe>");
         if (!program) {
@@ -83,6 +89,8 @@ int main(int argc, char** argv)
             std::fputs(js::dump_ast(*program).c_str(), stdout);
             std::fputc('\n', stdout);
         }
+        if (want_scopes)
+            std::fputs(js::dump_scopes(*program).c_str(), stdout);
     }
     if (want_module) {
         in.set_module_hooks(

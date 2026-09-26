@@ -1613,6 +1613,7 @@ std::optional<Value> Interpreter::Impl::perform_eval(std::u16string_view source,
         self.on_compiled_string(number, direct ? u"eval" : u"eval (indirect)", u"", source);
     }
     ParseOptions options;
+    options.eval = true;
     options.strict = direct && strict_caller;
     if (direct) {
         // §19.2.1.1 step 6: the eval code may name the private names of

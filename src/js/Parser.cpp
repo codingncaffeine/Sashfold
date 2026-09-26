@@ -6,6 +6,7 @@
 #include "js/Strings.h" // number_to_string, number_to_utf8, utf8_from_utf16
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -373,6 +374,148 @@ std::optional<UnaryOp> unary_operator_for(Token const& token)
     }
 }
 
+using BindingKind = ScopeInfo::Binding::Kind;
+
+// A reference on its way out through the scopes. It is resolved in the
+// first scope that declares its name — or, for `this`, `new.target` and the
+// home object, in the first non-arrow function, which has those as implicit
+// bindings — and handed to the enclosing scope otherwise. Resolution waits
+// for a scope to close because a reference may precede its declaration.
+struct PendingReference {
+    Expression* node = nullptr; // null for an implicit use with no node of its own (the `this` of `super.x`)
+    JsString* name = nullptr; // null for an implicit binding
+    ScopeInfo* from = nullptr; // the innermost ScopeInfo around the reference, set on the way out
+    BindingKind implicit = BindingKind::Var; // This, NewTarget or HomeObject when name is null
+    bool from_inner_function = false;
+    bool through_with = false;
+    bool in_parameters = false; // waiting at a function's top level from its parameter list
+};
+
+// A reference found in a scope of the function being parsed; its kind,
+// hops and slot are settled when that function closes and every capture
+// in it is known.
+struct BoundReference {
+    Expression* node = nullptr;
+    ScopeInfo* from = nullptr;
+    ScopeInfo* declaring = nullptr;
+    std::uint32_t index = 0;
+    bool through_with = false;
+};
+
+// A hash table keyed by atoms (compared by pointer), open addressing with
+// linear probing in one array: a big scope's names go in without an
+// allocation each, which a node-based set would make.
+template<typename Value>
+class AtomTable {
+public:
+    explicit AtomTable(std::size_t expected = 16)
+    {
+        std::size_t capacity = 16;
+        while (capacity < expected * 2)
+            capacity *= 2;
+        m_slots.assign(capacity, Slot {});
+    }
+    Value const* find(JsString* key) const
+    {
+        for (std::size_t i = index_of(key);; i = (i + 1) & (m_slots.size() - 1)) {
+            if (m_slots[i].key == key)
+                return &m_slots[i].value;
+            if (!m_slots[i].key)
+                return nullptr;
+        }
+    }
+    // False when the key was there already (its value is kept).
+    bool insert(JsString* key, Value value)
+    {
+        if ((m_count + 1) * 2 > m_slots.size())
+            grow();
+        for (std::size_t i = index_of(key);; i = (i + 1) & (m_slots.size() - 1)) {
+            if (m_slots[i].key == key)
+                return false;
+            if (!m_slots[i].key) {
+                m_slots[i] = Slot { key, value };
+                ++m_count;
+                return true;
+            }
+        }
+    }
+
+private:
+    struct Slot {
+        JsString* key = nullptr;
+        Value value {};
+    };
+    std::size_t index_of(JsString* key) const
+    {
+        // Fibonacci hashing of the address: atoms are aligned heap cells, so
+        // the low bits alone would crowd.
+        auto const bits = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(key));
+        return static_cast<std::size_t>((bits * 0x9E3779B97F4A7C15ull) >> 32) & (m_slots.size() - 1);
+    }
+    void grow()
+    {
+        std::vector<Slot> old = std::move(m_slots);
+        m_slots.assign(old.size() * 2, Slot {});
+        m_count = 0;
+        for (Slot const& slot : old) {
+            if (slot.key)
+                insert(slot.key, slot.value);
+        }
+    }
+    std::vector<Slot> m_slots;
+    std::size_t m_count = 0;
+};
+
+// A scope's bindings by name, built when many references meet many
+// bindings (a bundle's top-level function) so that resolving stays linear.
+using BindingIndex = AtomTable<std::uint32_t>;
+
+std::optional<BindingIndex> index_bindings(ScopeInfo const& info, std::size_t references)
+{
+    if (info.bindings.size() <= 16 || references <= 16)
+        return std::nullopt;
+    BindingIndex index(info.bindings.size());
+    for (std::size_t i = 0; i < info.bindings.size(); ++i) {
+        if (info.bindings[i].name)
+            index.insert(info.bindings[i].name, static_cast<std::uint32_t>(i));
+    }
+    return index;
+}
+
+// A set of binding names that stays in place while it is small, which is
+// nearly every scope, and becomes a hash table once it is not.
+class BindingNames {
+public:
+    bool contains(JsString* name) const
+    {
+        if (m_many)
+            return m_many->find(name) != nullptr;
+        return std::find(m_few.begin(), m_few.begin() + m_count, name) != m_few.begin() + m_count;
+    }
+    // False when the name was there already.
+    bool insert(JsString* name)
+    {
+        if (m_many)
+            return m_many->insert(name, true);
+        if (std::find(m_few.begin(), m_few.begin() + m_count, name) != m_few.begin() + m_count)
+            return false;
+        if (m_count < m_few.size()) {
+            m_few[m_count++] = name;
+            return true;
+        }
+        m_many.emplace(m_few.size() * 4);
+        for (JsString* few : m_few)
+            m_many->insert(few, true);
+        return m_many->insert(name, true);
+    }
+
+private:
+    // Only the first m_count are ever read, so the array is left unfilled.
+    std::array<JsString*, 12> m_few;
+    std::size_t m_count = 0;
+    std::optional<AtomTable<bool>> m_many;
+};
+
 // A lexical scope while it is open: what it declares, and every `var`
 // name declared inside it (own or nested), which is what a lexical name
 // must not collide with (§14.2.1).
@@ -386,6 +529,31 @@ struct Scope {
     bool is_module_top = false; // §16.2.1.1: function declarations are lexical here, and imports bind here
     bool is_catch_parameter = false; // B.3.4: a `var` may redeclare the parameter
     bool is_catch_body = false; // its lexicals must not redeclare the parameter (§14.15.1)
+    // The resolution: the scope's ScopeInfo — made at its first binding for
+    // a block, a for head or a catch, at once for the other kinds — and
+    // where its entries begin on the parser's three stacks: the bindings it
+    // declares in order (lexicals, block functions, catch parameters,
+    // imports, the own names of classes and function expressions; vars go
+    // to the function), the references still looking for their binding, and
+    // the ScopeInfos opened inside whose parent is not known yet. Scopes
+    // nest, so everything above a scope's start is its own or was handed to
+    // it by a scope that closed inside it.
+    ScopeInfo::Kind kind = ScopeInfo::Kind::Block;
+    std::uint32_t start = 0;
+    ScopeInfo* info = nullptr;
+    std::size_t declared_start = 0;
+    std::size_t references_start = 0;
+    std::size_t children_start = 0;
+    // A direct eval was written while the scope was open, so its ScopeInfo
+    // (which a block may not have yet) is told when the scope closes.
+    bool eval_reaches = false;
+};
+
+// A ScopeInfo waiting for its parent, and whether it was opened in a
+// parameter list (whose scope may be apart from the body's).
+struct PendingChild {
+    ScopeInfo* info = nullptr;
+    bool in_parameters = false;
 };
 
 struct Label {
@@ -440,6 +608,22 @@ struct FunctionContext {
     // Between a function's `(` and `)`: a yield or await expression there
     // is an early error (§15.1.1, §15.5.1, §15.8.1).
     bool in_parameters = false;
+    // The resolution. `info` is the function's (or the program's) scope;
+    // what the parameter list refers to and opens is told apart from the
+    // body's, since the two are separate scopes when the parameters have
+    // expressions (§10.2.11 step 28). On the parser's stacks, from these
+    // starts: the references found in this function's scopes, settled at
+    // its end, and every ScopeInfo its frame runs.
+    ScopeInfo* info = nullptr;
+    std::size_t parameters_start = 0; // the parameter names, in order, each once
+    std::size_t bound_start = 0;
+    std::size_t infos_start = 0;
+    std::vector<Expression const*> own_references; // with ParseOptions::record_references
+    bool has_direct_eval = false; // written in this function itself
+    // A direct eval here or in an arrow inside, whose code sees this
+    // function's this, new.target, home object and arguments.
+    bool eval_sees_this = false;
+    bool contains_with = false; // a with statement directly in this function
 };
 
 // An error the cover grammar defers (§13.2.5.1): `{ a = 1 }` and a
@@ -501,8 +685,17 @@ struct Parser::Impl {
     Scope& scope() { return *function().scopes.back(); }
     void push_function(FunctionNode*, Declarations*, bool is_arrow);
     bool pop_function();
-    Scope& push_scope(Declarations*);
-    void pop_scope();
+    Scope& push_scope(Declarations*, ScopeInfo::Kind = ScopeInfo::Kind::Block);
+    ScopeInfo* pop_scope(); // the closed scope's ScopeInfo, null when it had none
+    // Resolution (the scope tree on the Program): references go out
+    // through the open scopes as those close; bindings are recorded on the
+    // scope that declares them.
+    ScopeInfo* make_scope_info(Scope&);
+    void declare_binding(JsString* name, BindingKind);
+    void add_reference(Expression* node, JsString* name, BindingKind implicit = BindingKind::Var);
+    bool at_parameter_level() const; // the innermost open scope is a parameter list's
+    bool bind(ScopeInfo&, PendingReference const&, BindingIndex const* by_name);
+    void settle_function(FunctionContext&);
     bool declare_var(JsString* name, SourcePosition);
     bool declare_lexical(JsString* name, bool is_const, SourcePosition);
     // Private names (§15.7.1): declared by a class element, referred to by
@@ -666,6 +859,15 @@ struct Parser::Impl {
     // export entries, sorted into the Program's tables by finish_module.
     std::unordered_set<JsString*> m_export_names;
     std::vector<PendingExport> m_export_entries;
+    // The resolution's stacks, shared by every open scope and function
+    // (each keeps where its entries begin), so that a scope costs no
+    // allocation of its own.
+    std::vector<std::pair<JsString*, BindingKind>> m_declared;
+    std::vector<JsString*> m_parameters;
+    std::vector<PendingReference> m_references;
+    std::vector<PendingChild> m_children;
+    std::vector<BoundReference> m_bound;
+    std::vector<ScopeInfo*> m_infos;
 };
 
 Parser::Impl::Impl(Heap& heap, std::u16string source, ParseOptions options)
@@ -868,27 +1070,163 @@ void Parser::Impl::push_function(FunctionNode* node, Declarations* declarations,
         context->in_generator = node && node->is_generator;
         context->in_async = node && node->is_async;
     }
+    context->parameters_start = m_parameters.size();
+    context->bound_start = m_bound.size();
+    context->infos_start = m_infos.size();
     m_functions.push_back(std::move(context));
-    Scope& top = push_scope(declarations);
+    ScopeInfo::Kind const kind = node ? ScopeInfo::Kind::Function
+        : m_options.module            ? ScopeInfo::Kind::Module
+        : m_options.eval              ? ScopeInfo::Kind::Eval
+                                      : ScopeInfo::Kind::Program;
+    Scope& top = push_scope(declarations, kind);
     top.is_function_top = true;
+    if (node)
+        top.start = node->position.offset;
+    FunctionContext& fn = function();
+    fn.info = make_scope_info(top);
 }
 
-Scope& Parser::Impl::push_scope(Declarations* declarations)
+Scope& Parser::Impl::push_scope(Declarations* declarations, ScopeInfo::Kind kind)
 {
     FunctionContext& fn = function();
     auto scope_ptr = std::make_unique<Scope>();
     scope_ptr->declarations = declarations;
     scope_ptr->id = fn.next_scope_id++;
+    scope_ptr->kind = kind;
+    scope_ptr->start = m_current.position.offset;
+    scope_ptr->declared_start = m_declared.size();
+    scope_ptr->references_start = m_references.size();
+    scope_ptr->children_start = m_children.size();
     fn.scopes.push_back(std::move(scope_ptr));
-    return *fn.scopes.back();
+    Scope& pushed = *fn.scopes.back();
+    // A with, a class's name and a function expression's name are scopes
+    // whatever they hold; a block, a for head and a catch only once they
+    // declare something (declare_binding).
+    if (kind == ScopeInfo::Kind::With || kind == ScopeInfo::Kind::ClassName || kind == ScopeInfo::Kind::FunctionName)
+        make_scope_info(pushed);
+    return pushed;
 }
 
-void Parser::Impl::pop_scope()
+// Closes a scope below a function's top level: its bindings are recorded
+// (block functions first, then the rest in declaration order), the
+// references waiting in it are resolved against them or handed outward —
+// marked as passing a with when this is one — and the ScopeInfos opened
+// inside learn their parent.
+ScopeInfo* Parser::Impl::pop_scope()
 {
     FunctionContext& fn = function();
-    Scope& closing = *fn.scopes.back();
-    fn.retired_lexicals[closing.id] = std::move(closing.lexical_names);
+    std::unique_ptr<Scope> closing = std::move(fn.scopes.back());
     fn.scopes.pop_back();
+    fn.retired_lexicals[closing->id] = std::move(closing->lexical_names);
+    ScopeInfo* const info = closing->info;
+    // What this scope does not settle now waits in the enclosing one, or
+    // with the parameter list's when that is where the scope stood.
+    bool const to_parameters = at_parameter_level();
+    if (info) {
+        info->eval_reaches = closing->eval_reaches;
+        BindingNames names;
+        info->bindings.reserve(m_declared.size() - closing->declared_start);
+        for (int pass = 0; pass < 2; ++pass) {
+            for (std::size_t i = closing->declared_start; i < m_declared.size(); ++i) {
+                auto const [name, kind] = m_declared[i];
+                if ((kind == BindingKind::Function) != (pass == 0) || !names.insert(name))
+                    continue;
+                info->bindings.push_back(ScopeInfo::Binding { name, kind, false, 0 });
+            }
+        }
+        for (std::size_t i = closing->children_start; i < m_children.size(); ++i)
+            m_children[i].info->parent = info;
+        m_children.resize(closing->children_start);
+        m_children.push_back(PendingChild { info, to_parameters });
+    } else {
+        for (std::size_t i = closing->children_start; i < m_children.size(); ++i)
+            m_children[i].in_parameters = to_parameters;
+    }
+    m_declared.resize(closing->declared_start);
+    std::optional<BindingIndex> const by_name
+        = info ? index_bindings(*info, m_references.size() - closing->references_start) : std::nullopt;
+    std::size_t kept = closing->references_start;
+    for (std::size_t i = closing->references_start; i < m_references.size(); ++i) {
+        PendingReference reference = m_references[i];
+        if (info) {
+            if (!reference.from)
+                reference.from = info;
+            if (bind(*info, reference, by_name ? &*by_name : nullptr))
+                continue;
+            if (info->kind == ScopeInfo::Kind::With)
+                reference.through_with = true;
+        }
+        reference.in_parameters = to_parameters;
+        m_references[kept++] = reference;
+    }
+    m_references.resize(kept);
+    return info;
+}
+
+ScopeInfo* Parser::Impl::make_scope_info(Scope& scope_to_describe)
+{
+    FunctionContext& fn = function();
+    ScopeInfo* info = m_program->make_scope(scope_to_describe.kind, scope_to_describe.start);
+    info->function = fn.node;
+    m_infos.push_back(info);
+    scope_to_describe.info = info;
+    return info;
+}
+
+void Parser::Impl::declare_binding(JsString* name, BindingKind kind)
+{
+    Scope& s = scope();
+    if (!s.info)
+        make_scope_info(s);
+    m_declared.emplace_back(name, kind);
+}
+
+// A reference waits in the innermost open scope, tagged when that is a
+// parameter list, since the parameters may be a scope apart from the body.
+void Parser::Impl::add_reference(Expression* node, JsString* name, BindingKind implicit)
+{
+    PendingReference reference;
+    reference.node = node;
+    reference.name = name;
+    reference.implicit = implicit;
+    reference.in_parameters = at_parameter_level();
+    m_references.push_back(reference);
+    if (node && m_options.record_references)
+        function().own_references.push_back(node);
+}
+
+bool Parser::Impl::at_parameter_level() const
+{
+    FunctionContext const& fn = function();
+    return fn.in_parameters && fn.scopes.size() == 1;
+}
+
+// Resolves a reference against one scope's bindings: a name by name, an
+// implicit use by its kind. A use from an inner function, or one that
+// passed a with (and so will look the name up by name at run time), makes
+// the binding captured.
+bool Parser::Impl::bind(ScopeInfo& info, PendingReference const& reference, BindingIndex const* by_name)
+{
+    std::size_t index = 0;
+    std::size_t const count = info.bindings.size();
+    if (reference.name && by_name) {
+        std::uint32_t const* found = by_name->find(reference.name);
+        index = found ? *found : count;
+    } else if (reference.name) {
+        while (index < count && info.bindings[index].name != reference.name)
+            ++index;
+    } else {
+        while (index < count && (info.bindings[index].name || info.bindings[index].kind != reference.implicit))
+            ++index;
+    }
+    if (index == count)
+        return false;
+    ScopeInfo::Binding& binding = info.bindings[index];
+    if (reference.from_inner_function || reference.through_with)
+        binding.captured = true;
+    if (reference.node)
+        m_bound.push_back(BoundReference { reference.node, reference.from, &info, static_cast<std::uint32_t>(index), reference.through_with });
+    return true;
 }
 
 std::unordered_set<JsString*> const* Parser::Impl::lexicals_of(int scope_id) const
@@ -902,8 +1240,46 @@ std::unordered_set<JsString*> const* Parser::Impl::lexicals_of(int scope_id) con
     return retired == fn.retired_lexicals.end() ? nullptr : &retired->second;
 }
 
-// Closes the function: settles the Annex B block-function hoisting and
-// drops the context.
+namespace {
+
+template<typename Node>
+void resolve_as(Node& node, Resolution resolution, std::uint32_t hops, std::uint32_t slot, ScopeInfo const* scope)
+{
+    node.resolution = resolution;
+    node.hops = static_cast<std::uint16_t>(hops);
+    node.slot = slot;
+    node.scope = scope;
+}
+
+void set_resolution(Expression& node, Resolution resolution, std::uint32_t hops, std::uint32_t slot, ScopeInfo const* scope)
+{
+    switch (node.type) {
+    case NodeType::Identifier:
+        resolve_as(static_cast<Identifier&>(node), resolution, hops, slot, scope);
+        break;
+    case NodeType::ThisExpression:
+        resolve_as(static_cast<ThisExpression&>(node), resolution, hops, slot, scope);
+        break;
+    case NodeType::NewTargetExpression:
+        resolve_as(static_cast<NewTargetExpression&>(node), resolution, hops, slot, scope);
+        break;
+    case NodeType::SuperMember:
+        resolve_as(static_cast<SuperMember&>(node), resolution, hops, slot, scope);
+        break;
+    default:
+        break;
+    }
+}
+
+}
+
+// Closes the function: settles the Annex B block-function hoisting,
+// records the function scope's bindings — parameters, the implicit
+// bindings, vars, hoisted functions, top-level lexicals, with the last
+// three in a FunctionBody scope of their own when the parameters have
+// expressions — resolves what reached its top level, settles the
+// function's captures, slots and references, and hands every reference it
+// could not resolve to the enclosing function as coming from inside one.
 bool Parser::Impl::pop_function()
 {
     FunctionContext& fn = function();
@@ -922,8 +1298,245 @@ bool Parser::Impl::pop_function()
         if (fn.var_set.insert(candidate.name).second)
             fn.declarations->vars.push_back(candidate.name);
     }
+
+    FunctionNode* const node = fn.node;
+    Scope& top = *fn.scopes.front();
+    ScopeInfo* const function_scope = fn.info;
+    ScopeInfo* body_scope = function_scope;
+    bool const split = node && node->has_parameter_expressions;
+    if (split) {
+        body_scope = m_program->make_scope(ScopeInfo::Kind::FunctionBody, function_scope->start);
+        body_scope->function = node;
+        body_scope->parent = function_scope;
+        m_infos.push_back(body_scope);
+    }
+    function_scope->eval_reaches = top.eval_reaches;
+    body_scope->eval_reaches = top.eval_reaches;
+    // Everything above the top scope's starts is the function's own now:
+    // its top-level declarations, what reached its top level unresolved,
+    // and the ScopeInfos opened directly in it.
+    std::size_t const declared_start = top.declared_start;
+    std::size_t const references_start = top.references_start;
+    std::size_t const children_start = top.children_start;
+    auto const add = [](ScopeInfo* info, JsString* name, BindingKind kind) {
+        info->bindings.push_back(ScopeInfo::Binding { name, kind, false, 0 });
+    };
+    // `this`, `new.target` and the home object are bindings of the nearest
+    // non-arrow function when something uses them (a direct eval here or in
+    // an arrow inside might; one behind an inner non-arrow function sees
+    // that function's own); `arguments` when the object is made and can be
+    // named (§10.2.11 steps 15-22).
+    bool uses_this = false;
+    bool uses_new_target = false;
+    bool uses_home_object = false;
+    bool makes_arguments = false;
+    JsString* const arguments = m_heap.atoms().arguments;
+    if (node && !node->is_arrow) {
+        uses_this = fn.eval_sees_this;
+        uses_new_target = fn.eval_sees_this;
+        uses_home_object = fn.eval_sees_this && node->is_method;
+        for (std::size_t i = references_start; i < m_references.size(); ++i) {
+            PendingReference const& reference = m_references[i];
+            if (reference.name)
+                continue;
+            uses_this |= reference.implicit == BindingKind::This;
+            uses_new_target |= reference.implicit == BindingKind::NewTarget;
+            uses_home_object |= reference.implicit == BindingKind::HomeObject;
+        }
+        if (node->uses_arguments || fn.eval_sees_this) {
+            bool shadowed = fn.parameter_names.contains(arguments);
+            if (!split) {
+                for (FunctionDeclaration const* declaration : fn.declarations->functions)
+                    shadowed |= declaration->function->name == arguments;
+                for (std::size_t i = declared_start; i < m_declared.size(); ++i)
+                    shadowed |= m_declared[i].second != BindingKind::Function && m_declared[i].first == arguments;
+            }
+            makes_arguments = !shadowed;
+        }
+    }
+    // Each scope's bindings are sized once: they go into the Program's arena.
+    std::size_t const own_count = (m_parameters.size() - fn.parameters_start) + (uses_this ? 1 : 0) + (uses_new_target ? 1 : 0)
+        + (uses_home_object ? 1 : 0) + (makes_arguments ? 1 : 0);
+    std::size_t const body_count = fn.declarations->vars.size() + fn.declarations->functions.size() + (m_declared.size() - declared_start);
+    function_scope->bindings.reserve(own_count + (split ? 0 : body_count));
+    if (split)
+        body_scope->bindings.reserve(body_count);
+
+    BindingNames function_names;
+    BindingNames body_names_if_split;
+    BindingNames& body_names = split ? body_names_if_split : function_names;
+    for (std::size_t i = fn.parameters_start; i < m_parameters.size(); ++i) {
+        function_names.insert(m_parameters[i]);
+        add(function_scope, m_parameters[i], BindingKind::Parameter);
+    }
+    m_parameters.resize(fn.parameters_start);
+    if (uses_this)
+        add(function_scope, nullptr, BindingKind::This);
+    if (uses_new_target)
+        add(function_scope, nullptr, BindingKind::NewTarget);
+    if (uses_home_object)
+        add(function_scope, nullptr, BindingKind::HomeObject);
+    if (makes_arguments) {
+        function_names.insert(arguments);
+        add(function_scope, arguments, BindingKind::Arguments);
+    }
+    // A name both a var and a hoisted function is one binding, listed with
+    // the functions; without a split, a var or function named like a
+    // parameter (or `arguments`) is that binding.
+    BindingNames hoisted;
+    auto const name_of = [this](FunctionDeclaration const* declaration) {
+        return declaration->function->name ? declaration->function->name : atom(u"*default*");
+    };
+    for (FunctionDeclaration const* declaration : fn.declarations->functions)
+        hoisted.insert(name_of(declaration));
+    for (JsString* name : fn.declarations->vars) {
+        if (!hoisted.contains(name) && body_names.insert(name))
+            add(body_scope, name, BindingKind::Var);
+    }
+    for (FunctionDeclaration const* declaration : fn.declarations->functions) {
+        JsString* const name = name_of(declaration);
+        if (body_names.insert(name))
+            add(body_scope, name, BindingKind::Function);
+    }
+    for (std::size_t i = declared_start; i < m_declared.size(); ++i) {
+        auto const [name, kind] = m_declared[i];
+        if (kind != BindingKind::Function && body_names.insert(name))
+            add(body_scope, name, kind);
+    }
+    m_declared.resize(declared_start);
+
+    for (std::size_t i = children_start; i < m_children.size(); ++i)
+        m_children[i].info->parent = m_children[i].in_parameters ? function_scope : body_scope;
+    m_children.resize(children_start);
+
+    // The body's references look in the body, then (when split) in the
+    // parameters; the parameter list's in the parameters alone. What stays
+    // unresolved is compacted in place for the enclosing function.
+    std::size_t kept = references_start;
+    {
+        std::size_t const count = m_references.size() - references_start;
+        std::optional<BindingIndex> const body_index = index_bindings(*body_scope, count);
+        std::optional<BindingIndex> const function_index = split ? index_bindings(*function_scope, count) : std::nullopt;
+        BindingIndex const* const body_lookup = body_index ? &*body_index : nullptr;
+        BindingIndex const* const function_lookup = split ? (function_index ? &*function_index : nullptr) : body_lookup;
+        for (std::size_t i = references_start; i < m_references.size(); ++i) {
+            PendingReference reference = m_references[i];
+            if (reference.in_parameters) {
+                if (!reference.from)
+                    reference.from = function_scope;
+                if (bind(*function_scope, reference, function_lookup))
+                    continue;
+            } else {
+                if (!reference.from)
+                    reference.from = body_scope;
+                if (bind(*body_scope, reference, body_lookup))
+                    continue;
+                if (split && bind(*function_scope, reference, function_lookup))
+                    continue;
+            }
+            m_references[kept++] = reference;
+        }
+    }
+    settle_function(fn);
+    if (m_options.record_references)
+        function_scope->references = std::move(fn.own_references);
+    if (node) {
+        node->scope = function_scope;
+        node->dynamic = fn.has_direct_eval || fn.contains_with;
+    }
+
     m_functions.pop_back();
+    if (m_functions.empty()) {
+        // What reached the program unresolved is a global name.
+        m_program->scope = function_scope;
+        for (std::size_t i = references_start; i < kept; ++i) {
+            if (m_references[i].node)
+                set_resolution(*m_references[i].node, Resolution::Dynamic, 0, 0, nullptr);
+        }
+        m_references.resize(references_start);
+        return true;
+    }
+    bool const to_parameters = at_parameter_level();
+    m_children.push_back(PendingChild { function_scope, to_parameters });
+    for (std::size_t i = references_start; i < kept; ++i) {
+        m_references[i].from_inner_function = true;
+        m_references[i].in_parameters = to_parameters;
+    }
+    m_references.resize(kept);
     return true;
+}
+
+// The per-function pass, once every reference into this function's scopes
+// is known: a direct eval written here makes every scope dynamic, a direct
+// eval or a with here captures every binding, a direct eval in a function
+// inside captures the bindings of the scopes around it, a mapped arguments
+// object captures the parameters it aliases; each scope materializes when
+// it is dynamic or has a captured binding; captured bindings take
+// environment slots per scope in declaration order and the others
+// registers numbered across the function; then each reference found here
+// becomes Dynamic, Local or Scoped, its hops counting the materialized
+// scopes from where it stands out to (not including) the declaring one.
+void Parser::Impl::settle_function(FunctionContext& fn)
+{
+    FunctionNode* const node = fn.node;
+    bool const capture_all = fn.has_direct_eval || fn.contains_with;
+    bool const mapped_arguments = node && !node->is_strict && node->has_simple_parameter_list && !node->has_duplicate_parameters
+        && std::any_of(fn.info->bindings.begin(), fn.info->bindings.end(),
+            [](ScopeInfo::Binding const& binding) { return binding.kind == BindingKind::Arguments; });
+    // In source order, stable (an insertion sort: the scopes come nearly
+    // sorted, and a function has few).
+    auto const infos_begin = m_infos.begin() + static_cast<std::ptrdiff_t>(fn.infos_start);
+    for (auto it = infos_begin; it != m_infos.end(); ++it) {
+        for (auto back = it; back != infos_begin && (*(back - 1))->start > (*back)->start; --back)
+            std::iter_swap(back - 1, back);
+    }
+    std::uint32_t registers = 0;
+    for (auto it = infos_begin; it != m_infos.end(); ++it) {
+        ScopeInfo* const info = *it;
+        info->dynamic = fn.has_direct_eval || info->kind == ScopeInfo::Kind::With || info->kind == ScopeInfo::Kind::Program
+            || info->kind == ScopeInfo::Kind::Module || info->kind == ScopeInfo::Kind::Eval;
+        std::uint32_t environment = 0;
+        for (ScopeInfo::Binding& binding : info->bindings) {
+            if (capture_all || info->dynamic || info->eval_reaches || (mapped_arguments && info == fn.info && binding.kind == BindingKind::Parameter))
+                binding.captured = true;
+            binding.slot = binding.captured ? environment++ : registers++;
+        }
+        info->environment_size = environment;
+        info->materializes = info->dynamic || environment > 0;
+    }
+    if (node)
+        node->register_count = registers;
+    else
+        m_program->register_count = registers;
+    m_infos.resize(fn.infos_start);
+    for (std::size_t i = fn.bound_start; i < m_bound.size(); ++i) {
+        BoundReference const& reference = m_bound[i];
+        ScopeInfo::Binding const& binding = reference.declaring->bindings[reference.index];
+        if (reference.through_with || reference.declaring->dynamic) {
+            set_resolution(*reference.node, Resolution::Dynamic, 0, 0, reference.declaring);
+            continue;
+        }
+        if (!binding.captured) {
+            set_resolution(*reference.node, Resolution::Local, 0, binding.slot, reference.declaring);
+            continue;
+        }
+        // Passing a dynamic scope on the way (an inner function's, with a
+        // direct eval of its own) means the name may be found there first.
+        std::uint32_t hops = 0;
+        bool passes_dynamic = false;
+        ScopeInfo const* walk = reference.from;
+        while (walk && walk != reference.declaring) {
+            if (walk->materializes)
+                ++hops;
+            passes_dynamic |= walk->dynamic;
+            walk = walk->parent;
+        }
+        if (!walk || passes_dynamic || hops > 0xFFFF)
+            set_resolution(*reference.node, Resolution::Dynamic, 0, 0, reference.declaring);
+        else
+            set_resolution(*reference.node, Resolution::Scoped, hops, binding.slot, reference.declaring);
+    }
+    m_bound.resize(fn.bound_start);
 }
 
 // VarDeclaredNames: the name is checked against the lexical names of
@@ -962,6 +1575,7 @@ bool Parser::Impl::declare_lexical(JsString* name, bool is_const, SourcePosition
     s.lexical_names.insert(name);
     if (s.declarations)
         s.declarations->lexicals.emplace_back(name, is_const);
+    declare_binding(name, is_const ? BindingKind::Const : BindingKind::Let);
     return true;
 }
 
@@ -997,6 +1611,7 @@ bool Parser::Impl::declare_function(FunctionDeclaration* declaration, SourcePosi
     s.function_names.insert(name);
     if (s.declarations)
         s.declarations->functions.push_back(declaration);
+    declare_binding(name, BindingKind::Function);
     if (!fn.is_strict) {
         AnnexBCandidate candidate;
         candidate.name = name;
@@ -1021,6 +1636,7 @@ bool Parser::Impl::declare_module_binding(JsString* name, SourcePosition positio
     if (s.lexical_names.contains(name) || s.var_names.contains(name))
         return fail(position, "Identifier '" + utf8_from_utf16(name->view()) + "' has already been declared");
     s.lexical_names.insert(name);
+    declare_binding(name, BindingKind::Import);
     return true;
 }
 
@@ -1127,13 +1743,24 @@ bool Parser::Impl::note_arguments()
     return true;
 }
 
-// A direct eval can reach every enclosing scope, so none of them may be
-// optimised away.
+// A direct eval can name a binding of every enclosing scope, so none of
+// them may be optimised away, and the machine keeps every function around
+// it whole. Only the function it is written in can gain a var from it,
+// and only that function, or the nearest non-arrow one outside an arrow,
+// lends it this, new.target, the home object and arguments.
 void Parser::Impl::note_direct_eval()
 {
     for (auto const& fn : m_functions) {
         if (fn->node)
             fn->node->has_direct_eval = true;
+        for (auto const& open : fn->scopes)
+            open->eval_reaches = true;
+    }
+    function().has_direct_eval = true;
+    for (auto it = m_functions.rbegin(); it != m_functions.rend(); ++it) {
+        (*it)->eval_sees_this = true;
+        if (!(*it)->is_arrow)
+            break;
     }
 }
 
@@ -1638,7 +2265,9 @@ Expression* Parser::Impl::parse_new()
         }
         advance();
         leave();
-        return finish(make<NewTargetExpression>(start));
+        auto* expression = make<NewTargetExpression>(start);
+        add_reference(expression, nullptr, BindingKind::NewTarget);
+        return finish(expression);
     }
     // An ImportCall is a CallExpression, never a MemberExpression
     // (§13.3.10): `new import(x)` is a parse error; `new import.meta` is
@@ -1847,7 +2476,9 @@ Expression* Parser::Impl::parse_primary()
         case Keyword::This: {
             note_this();
             advance();
-            return finish(make<ThisExpression>(start));
+            auto* expression = make<ThisExpression>(start);
+            add_reference(expression, nullptr, BindingKind::This);
+            return finish(expression);
         }
         case Keyword::Null: {
             advance();
@@ -1957,6 +2588,7 @@ Expression* Parser::Impl::parse_identifier_reference()
     identifier->name = atom(m_current.value);
     if (identifier->name == m_heap.atoms().arguments && !note_arguments())
         return nullptr;
+    add_reference(identifier, identifier->name);
     advance();
     return finish(identifier);
 }
@@ -2273,6 +2905,7 @@ Expression* Parser::Impl::parse_object_literal()
                 leave();
                 return nullptr;
             }
+            add_reference(identifier, identifier->name);
             property.value = identifier;
             if (m_current.is(Punctuator::Assign)) {
                 m_cover_errors.push_back({ m_current.position, "Invalid shorthand property initializer" });
@@ -2387,10 +3020,21 @@ Expression* Parser::Impl::parse_function_expression(bool is_async)
         fn->is_constructable = false; // §15.5.4, §15.8.4: neither kind has [[Construct]]
     if (name_token)
         fn->name = atom(name_token->value);
+    // A named function expression binds its own name in a scope between
+    // the function and its surroundings (§15.2.5) — except the one
+    // `new Function` wraps its texts in, whose `anonymous` binds nothing.
+    bool const own_name_scope = name_token && !(m_options.function_constructor && m_functions.size() == 1);
+    if (own_name_scope) {
+        push_scope(nullptr, ScopeInfo::Kind::FunctionName);
+        scope().info->start = start.offset;
+        declare_binding(fn->name, BindingKind::FunctionName);
+    }
     if (!parse_function_rest(fn, FunctionKind::Expression, name_token))
         return nullptr;
     auto* expression = make<FunctionExpression>(start);
     expression->function = fn;
+    if (own_name_scope)
+        expression->scope = pop_scope();
     return finish(expression);
 }
 
@@ -2472,6 +3116,7 @@ Expression* Parser::Impl::parse_arrow(bool allow_in, std::optional<SourcePositio
         fn->parameters.push_back(parameter);
         fn->expected_argument_count = 1;
         function().parameter_names.insert(parameter.name);
+        m_parameters.push_back(parameter.name);
         advance();
     } else {
         advance(); // (
@@ -2524,6 +3169,11 @@ Expression* Parser::Impl::parse_super()
             return nullptr;
         }
         auto* call = make<SuperCall>(start);
+        // super() binds `this`, passes new.target on, and finds the parent
+        // constructor from the function (§13.3.7.1).
+        add_reference(nullptr, nullptr, BindingKind::This);
+        add_reference(nullptr, nullptr, BindingKind::NewTarget);
+        add_reference(nullptr, nullptr, BindingKind::HomeObject);
         if (!parse_arguments(call->arguments))
             return nullptr;
         return finish(call);
@@ -2533,6 +3183,8 @@ Expression* Parser::Impl::parse_super()
         return nullptr;
     }
     auto* member = make<SuperMember>(start);
+    add_reference(member, nullptr, BindingKind::HomeObject);
+    add_reference(nullptr, nullptr, BindingKind::This); // the receiver
     if (m_current.is(Punctuator::Dot)) {
         advance();
         if (m_current.type == TokenType::PrivateName) {
@@ -2652,6 +3304,13 @@ ClassNode* Parser::Impl::parse_class(bool is_expression, bool allow_anonymous)
         fail_unexpected();
         return abandon();
     }
+    // A named class binds its name, immutably, in a scope of its own
+    // around the heritage and the body (§15.7.14 steps 1-4).
+    if (node->name) {
+        push_scope(nullptr, ScopeInfo::Kind::ClassName);
+        scope().info->start = start.offset;
+        declare_binding(node->name, BindingKind::Class);
+    }
     if (m_current.is(Keyword::Extends)) {
         advance();
         node->has_heritage = true;
@@ -2702,6 +3361,8 @@ ClassNode* Parser::Impl::parse_class(bool is_expression, bool allow_anonymous)
     node->constructor->source_start = node->source_start;
     node->constructor->source_end = node->source_end;
     node->constructor->name = node->name;
+    if (node->name)
+        node->scope = pop_scope();
     context.is_strict = was_strict;
     return node;
 }
@@ -2730,6 +3391,7 @@ Statement* Parser::Impl::parse_class_declaration(bool default_export)
     declaration->is_default_export = default_export;
     if (!declare_lexical(node->name ? node->name : atom(u"*default*"), false, node->position))
         return nullptr;
+    m_declared.back().second = BindingKind::Class;
     return finish(declaration);
 }
 
@@ -3002,6 +3664,7 @@ Expression* Parser::Impl::parse_binding_pattern(std::vector<Token>& bound)
             bound.push_back(m_current);
             auto* identifier = make<Identifier>(m_current.position);
             identifier->name = atom(m_current.value);
+            add_reference(identifier, identifier->name);
             advance();
             pattern->rest = finish(identifier);
             if (!m_current.is(Punctuator::RightBrace)) {
@@ -3040,6 +3703,7 @@ Expression* Parser::Impl::parse_binding_pattern(std::vector<Token>& bound)
             auto* identifier = make<Identifier>(key_token.position);
             identifier->name = property.key;
             identifier->end_offset = key_token.end_offset;
+            add_reference(identifier, identifier->name);
             property.target = identifier;
         }
         if (m_current.is(Punctuator::Assign)) {
@@ -3079,6 +3743,7 @@ Expression* Parser::Impl::parse_binding_target(std::vector<Token>& bound)
     bound.push_back(m_current);
     auto* identifier = make<Identifier>(m_current.position);
     identifier->name = atom(m_current.value);
+    add_reference(identifier, identifier->name);
     advance();
     return finish(identifier);
 }
@@ -3290,8 +3955,11 @@ bool Parser::Impl::parse_formal_parameters(FunctionNode* fn, std::vector<Token>&
         if (counting)
             ++fn->expected_argument_count;
         for (Token const& token : names) {
-            if (!context.parameter_names.insert(atom(token.value)).second)
+            JsString* const name = atom(token.value);
+            if (!context.parameter_names.insert(name).second)
                 fn->has_duplicate_parameters = true;
+            else
+                m_parameters.push_back(name);
             bound.push_back(token);
         }
         fn->parameters.push_back(parameter);
@@ -4044,7 +4712,7 @@ BlockStatement* Parser::Impl::parse_block(bool is_catch_body)
         return nullptr;
     }
     advance();
-    pop_scope();
+    block->scope = pop_scope();
     leave();
     return finish(block);
 }
@@ -4130,7 +4798,7 @@ Statement* Parser::Impl::parse_if()
             if (!declaration)
                 return nullptr;
             block->body.push_back(declaration);
-            pop_scope();
+            block->scope = pop_scope();
             return finish(block);
         }
         return parse_statement(true);
@@ -4183,7 +4851,7 @@ Statement* Parser::Impl::parse_for()
             return nullptr;
     } else if (m_current.is(Keyword::Const) || is_let_declaration_start()) {
         lexical_scope = true;
-        push_scope(&head_declarations);
+        push_scope(&head_declarations, ScopeInfo::Kind::ForHead);
         VariableDeclaration::Kind const kind = m_current.is(Keyword::Const) ? VariableDeclaration::Kind::Const : VariableDeclaration::Kind::Let;
         declaration = parse_declaration_list(kind, false, true);
         if (!declaration)
@@ -4250,7 +4918,7 @@ Statement* Parser::Impl::parse_for()
             if (!statement->body)
                 return nullptr;
             if (lexical_scope)
-                pop_scope();
+                statement->scope = pop_scope();
             return finish(statement);
         }
         auto* statement = make<ForInStatement>(start);
@@ -4263,7 +4931,7 @@ Statement* Parser::Impl::parse_for()
         if (!statement->body)
             return nullptr;
         if (lexical_scope)
-            pop_scope();
+            statement->scope = pop_scope();
         return finish(statement);
     }
 
@@ -4307,7 +4975,7 @@ Statement* Parser::Impl::parse_for()
     if (!statement->body)
         return nullptr;
     if (lexical_scope) {
-        pop_scope();
+        statement->scope = pop_scope();
         statement->declarations = std::move(head_declarations);
     }
     return finish(statement);
@@ -4449,9 +5117,14 @@ Statement* Parser::Impl::parse_with()
     statement->object = parse_expression(true);
     if (!statement->object || !expect(Punctuator::RightParen))
         return nullptr;
+    // The body runs in the object's scope: a name reference inside that
+    // is not declared inside is looked up by name (the object may have it).
+    function().contains_with = true;
+    push_scope(nullptr, ScopeInfo::Kind::With);
     statement->body = parse_statement(true);
     if (!statement->body)
         return nullptr;
+    statement->scope = pop_scope();
     return finish(statement);
 }
 
@@ -4495,7 +5168,7 @@ Statement* Parser::Impl::parse_switch()
     }
     advance(); // }
     --fn.breakable_depth;
-    pop_scope();
+    statement->scope = pop_scope();
     return finish(statement);
 }
 
@@ -4530,6 +5203,10 @@ Statement* Parser::Impl::parse_try()
         advance();
         if (m_current.is(Punctuator::LeftParen)) {
             advance();
+            // The parameter's own scope (§14.15.1), opened before the
+            // parameter so that the names and defaults of a pattern
+            // resolve in it.
+            Scope& parameter_scope = push_scope(nullptr, ScopeInfo::Kind::Catch);
             std::vector<Token> bound;
             if (m_current.is(Punctuator::LeftBracket) || m_current.is(Punctuator::LeftBrace)) {
                 statement->catch_pattern = parse_binding_pattern(bound);
@@ -4544,10 +5221,9 @@ Statement* Parser::Impl::parse_try()
             }
             if (!expect(Punctuator::RightParen))
                 return nullptr;
-            // The parameter's own scope (§14.15.1): the body's lexicals
-            // may not redeclare its names, nor may they repeat; a `var`
-            // may redeclare a plain name (B.3.4), never a pattern's.
-            Scope& parameter_scope = push_scope(nullptr);
+            // The body's lexicals may not redeclare the parameter's names,
+            // nor may they repeat; a `var` may redeclare a plain name
+            // (B.3.4), never a pattern's.
             parameter_scope.is_catch_parameter = statement->catch_parameter != nullptr;
             for (Token const& token : bound) {
                 if (statement->catch_pattern && !check_binding_identifier(token, is_strict()))
@@ -4556,6 +5232,7 @@ Statement* Parser::Impl::parse_try()
                     fail(token.position, "Identifier '" + utf8_from_utf16(token.value) + "' has already been declared");
                     return nullptr;
                 }
+                declare_binding(atom(token.value), BindingKind::CatchParameter);
             }
             if (!m_current.is(Punctuator::LeftBrace)) {
                 fail_unexpected();
@@ -4564,7 +5241,7 @@ Statement* Parser::Impl::parse_try()
             statement->handler = parse_block(true);
             if (!statement->handler)
                 return nullptr;
-            pop_scope();
+            statement->scope = pop_scope();
         } else {
             // Optional catch binding (ES2019).
             if (!m_current.is(Punctuator::LeftBrace)) {
@@ -4689,8 +5366,11 @@ std::unique_ptr<Program> Parser::parse_program(std::string name)
 // and smuggles statements after it is rejected, as the specification's
 // separate parse of the body would reject it.
 std::unique_ptr<Program> Parser::parse_function_constructor(Heap& heap, std::u16string_view parameters,
-    std::u16string_view body, ParseError* error, DynamicFunctionKind kind)
+    std::u16string_view body, ParseError* error, DynamicFunctionKind kind, bool record_references)
 {
+    ParseOptions options;
+    options.function_constructor = true;
+    options.record_references = record_references;
     // The wrapper's head names the kind (§20.2.1.1.1 CreateDynamicFunction
     // step 6): the source text the function will show is exactly this.
     std::u16string_view const prefix = kind == DynamicFunctionKind::Generator ? u"(function* anonymous("
@@ -4705,7 +5385,7 @@ std::unique_ptr<Program> Parser::parse_function_constructor(Heap& heap, std::u16
         head += parameters;
         head += u"\n) {\n})";
         std::size_t const head_end = head.size();
-        Parser head_parser(heap, std::move(head));
+        Parser head_parser(heap, std::move(head), options);
         std::unique_ptr<Program> const head_program = head_parser.parse_program("<Function>");
         bool head_well_formed = head_program && head_program->body.size() == 1 && head_program->body[0]->type == NodeType::ExpressionStatement;
         if (head_well_formed) {
@@ -4725,7 +5405,7 @@ std::unique_ptr<Program> Parser::parse_function_constructor(Heap& heap, std::u16
     source += body;
     source += u"\n})";
     std::size_t const wrapper_end = source.size();
-    Parser parser(heap, std::move(source));
+    Parser parser(heap, std::move(source), options);
     std::unique_ptr<Program> program = parser.parse_program("<Function>");
     if (!program) {
         if (error)
@@ -5639,6 +6319,165 @@ std::string dump_ast(Program const& program)
     dumper.out += ')';
     std::string out = std::move(dumper.out);
     return out;
+}
+
+// ---- dump_scopes ------------------------------------------------------------------
+
+namespace {
+
+char const* scope_kind_name(ScopeInfo::Kind kind)
+{
+    switch (kind) {
+    case ScopeInfo::Kind::Function: return "function";
+    case ScopeInfo::Kind::FunctionBody: return "body";
+    case ScopeInfo::Kind::Block: return "block";
+    case ScopeInfo::Kind::ForHead: return "for-head";
+    case ScopeInfo::Kind::Catch: return "catch";
+    case ScopeInfo::Kind::ClassName: return "class-name";
+    case ScopeInfo::Kind::FunctionName: return "function-name";
+    case ScopeInfo::Kind::With: return "with";
+    case ScopeInfo::Kind::Program: return "program";
+    case ScopeInfo::Kind::Module: return "module";
+    case ScopeInfo::Kind::Eval: return "eval";
+    }
+    return "?";
+}
+
+char const* binding_kind_name(BindingKind kind)
+{
+    switch (kind) {
+    case BindingKind::Parameter: return "parameter";
+    case BindingKind::Var: return "var";
+    case BindingKind::Function: return "function";
+    case BindingKind::Let: return "let";
+    case BindingKind::Const: return "const";
+    case BindingKind::Class: return "class";
+    case BindingKind::CatchParameter: return "catch-parameter";
+    case BindingKind::FunctionName: return "function-name";
+    case BindingKind::Import: return "import";
+    case BindingKind::This: return "this";
+    case BindingKind::NewTarget: return "new.target";
+    case BindingKind::HomeObject: return "home-object";
+    case BindingKind::Arguments: return "arguments";
+    }
+    return "?";
+}
+
+struct ScopeDumper {
+    std::unordered_map<ScopeInfo const*, std::vector<ScopeInfo const*>> children;
+    std::string out;
+
+    void indent(int depth) { out.append(static_cast<std::size_t>(depth) * 2, ' '); }
+
+    template<typename Node>
+    void resolution(Node const& node)
+    {
+        switch (node.resolution) {
+        case Resolution::Unresolved:
+            out += " unresolved";
+            break;
+        case Resolution::Local:
+            out += " local slot " + std::to_string(node.slot);
+            break;
+        case Resolution::Scoped:
+            out += " scoped hops " + std::to_string(node.hops) + " slot " + std::to_string(node.slot);
+            break;
+        case Resolution::Dynamic:
+            out += " dynamic";
+            break;
+        }
+    }
+
+    void reference(Expression const& node, int depth)
+    {
+        indent(depth);
+        out += "reference ";
+        switch (node.type) {
+        case NodeType::Identifier: {
+            auto const& identifier = static_cast<Identifier const&>(node);
+            out += utf8_from_utf16(identifier.name->view());
+            resolution(identifier);
+            break;
+        }
+        case NodeType::ThisExpression:
+            out += "this";
+            resolution(static_cast<ThisExpression const&>(node));
+            break;
+        case NodeType::NewTargetExpression:
+            out += "new.target";
+            resolution(static_cast<NewTargetExpression const&>(node));
+            break;
+        case NodeType::SuperMember:
+            out += "super";
+            resolution(static_cast<SuperMember const&>(node));
+            break;
+        default:
+            out += "?";
+            break;
+        }
+        out += '\n';
+    }
+
+    void scope(ScopeInfo const& info, int depth)
+    {
+        indent(depth);
+        bool const is_function = info.kind == ScopeInfo::Kind::Function && info.function;
+        if (is_function && info.function->is_arrow) {
+            out += "arrow";
+        } else {
+            out += scope_kind_name(info.kind);
+            if (is_function)
+                out += ' ' + (info.function->name ? utf8_from_utf16(info.function->name->view()) : std::string("(anonymous)"));
+        }
+        if (info.dynamic)
+            out += " dynamic";
+        if (info.materializes)
+            out += " materializes";
+        if (info.environment_size)
+            out += " env " + std::to_string(info.environment_size);
+        out += '\n';
+        for (ScopeInfo::Binding const& binding : info.bindings) {
+            indent(depth + 1);
+            out += binding_kind_name(binding.kind);
+            if (binding.name && binding.kind != BindingKind::Arguments)
+                out += ' ' + utf8_from_utf16(binding.name->view());
+            if (binding.captured)
+                out += " captured";
+            out += " slot " + std::to_string(binding.slot) + '\n';
+        }
+        for (Expression const* node : info.references)
+            reference(*node, depth + 1);
+        auto const found = children.find(&info);
+        if (found == children.end())
+            return;
+        for (ScopeInfo const* child : found->second)
+            scope(*child, depth + 1);
+    }
+};
+
+}
+
+std::string dump_scopes(Program const& program)
+{
+    ScopeDumper dumper;
+    std::vector<ScopeInfo const*> detached;
+    for (ScopeInfo const& info : program.scopes()) {
+        if (info.parent)
+            dumper.children[info.parent].push_back(&info);
+        else if (&info != program.scope)
+            detached.push_back(&info);
+    }
+    for (auto& [parent, list] : dumper.children)
+        std::stable_sort(list.begin(), list.end(), [](ScopeInfo const* a, ScopeInfo const* b) { return a->start < b->start; });
+    if (program.scope)
+        dumper.scope(*program.scope, 0);
+    // A scope the tree lost its parent for is a fault in the resolution;
+    // shown, so that a test sees it.
+    for (ScopeInfo const* info : detached) {
+        dumper.out += "detached ";
+        dumper.scope(*info, 0);
+    }
+    return std::move(dumper.out);
 }
 
 }
