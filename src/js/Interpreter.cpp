@@ -55,10 +55,13 @@ namespace {
 // the object aliases the binding by its place.
 class ArgumentsObject : public Object {
 public:
-    ArgumentsObject(Object* prototype, Environment* environment, std::vector<std::uint8_t> mapped)
+    static constexpr std::uint32_t unmapped = ~std::uint32_t(0);
+
+    // slots[i] is the environment slot argument i aliases, or `unmapped`.
+    ArgumentsObject(Object* prototype, Environment* environment, std::vector<std::uint32_t> slots)
         : Object(prototype, Class::Arguments)
         , m_environment(environment)
-        , m_mapped(std::move(mapped))
+        , m_slots(std::move(slots))
     {
     }
 
@@ -129,14 +132,14 @@ public:
 private:
     bool is_mapped(PropertyKey const& key) const
     {
-        return key.is_index() && key.as_index() < m_mapped.size() && m_mapped[key.as_index()] != 0;
+        return key.is_index() && key.as_index() < m_slots.size() && m_slots[key.as_index()] != unmapped;
     }
-    Value binding_value(PropertyKey const& key) const { return m_environment->binding_at(key.as_index()).value; }
-    void set_binding_value(PropertyKey const& key, Value const& value) { m_environment->binding_at(key.as_index()).value = value; }
-    void unmap(PropertyKey const& key) { m_mapped[key.as_index()] = 0; }
+    Value binding_value(PropertyKey const& key) const { return m_environment->binding_at(m_slots[key.as_index()]).value; }
+    void set_binding_value(PropertyKey const& key, Value const& value) { m_environment->binding_at(m_slots[key.as_index()]).value = value; }
+    void unmap(PropertyKey const& key) { m_slots[key.as_index()] = unmapped; }
 
     Environment* m_environment;
-    std::vector<std::uint8_t> m_mapped;
+    std::vector<std::uint32_t> m_slots;
 };
 
 // Where the C++ stack stands, for the budget check: the frame address of
@@ -551,13 +554,25 @@ Object* Interpreter::Impl::make_arguments_object(ScriptFunction& function, Envir
     FunctionNode const& node = function.node();
     Object* object = nullptr;
     if (mapped) {
-        // Only a simple list without duplicates is mapped, so parameter i
-        // is binding i of the function's environment; the names are checked
-        // all the same, and one that is not where it should be stays unmapped.
-        std::vector<std::uint8_t> places(std::min(node.parameters.size(), arguments.size()), 0);
-        for (std::size_t i = 0; i < places.size(); ++i)
-            places[i] = i < environment->binding_count() && environment->binding_at(i).name == node.parameters[i].name ? 1 : 0;
-        object = heap().allocate<ArgumentsObject>(self.intrinsics().object_prototype, environment, std::move(places));
+        // A simple list is mapped: argument i aliases the binding of
+        // parameter i's name — and when a name is given twice, its last
+        // parameter is the one aliased (§10.4.4.7 walks the names from the
+        // end), the earlier ones staying plain. A name the environment does
+        // not hold where expected stays unmapped.
+        std::size_t const count = std::min(node.parameters.size(), arguments.size());
+        std::vector<std::uint32_t> slots(count, ArgumentsObject::unmapped);
+        for (std::size_t i = 0; i < count; ++i) {
+            JsString* const name = node.parameters[i].name;
+            bool last = true;
+            for (std::size_t later = i + 1; later < node.parameters.size() && last; ++later)
+                last = node.parameters[later].name != name;
+            if (!last)
+                continue;
+            std::size_t const slot = environment->place_of(name);
+            if (slot < environment->binding_count())
+                slots[i] = static_cast<std::uint32_t>(slot);
+        }
+        object = heap().allocate<ArgumentsObject>(self.intrinsics().object_prototype, environment, std::move(slots));
     } else {
         object = heap().allocate<Object>(self.intrinsics().object_prototype, Object::Class::Arguments);
     }
@@ -730,7 +745,7 @@ std::optional<Value> Interpreter::Impl::run_script_function(ScriptFunction& func
             }
         }
         if (!shadowed) {
-            bool const mapped = !node.is_strict && node.has_simple_parameter_list && !node.has_duplicate_parameters;
+            bool const mapped = !node.is_strict && node.has_simple_parameter_list;
             Object* arguments_object = make_arguments_object(function, parameter_env, arguments, mapped);
             parameter_env->declare(atoms().arguments, Value::object(arguments_object), !node.is_strict, true);
         }

@@ -166,6 +166,11 @@ void test_arguments()
     // Unmapped in strict code and with a default: independent.
     CHECK_JS_STRING(in, "function f(x) { 'use strict'; x = 2; const a = arguments[0]; arguments[0] = 3; return a + ',' + x; } f(1)", "1,2");
     CHECK_JS_STRING(in, "function f(x = 0) { x = 2; const a = arguments[0]; arguments[0] = 3; return a + ',' + x; } f(1)", "1,2");
+    // A name given twice: its last parameter is the one the arguments
+    // object aliases, both ways; the earlier index is a plain value.
+    CHECK_JS_NUMBER(in, "function d(a, a) { a = 9; return arguments[1]; } d(1, 2)", 9);
+    CHECK_JS_STRING(in, "function d(a, a) { arguments[0] = 5; arguments[1] = 6; return a + ',' + arguments[0]; } d(1, 2)", "6,5");
+    CHECK_JS_NUMBER(in, "function d(a, a) { a = 9; return arguments[0]; } d(1, 2)", 1);
     // Only the arguments given are mapped; a deleted index is unmapped.
     CHECK_JS_STRING(in, "function f(x, y) { y = 5; return arguments.length + ',' + arguments[1]; } f(1)", "1,undefined");
     CHECK_JS_STRING(in, "function f(x) { delete arguments[0]; arguments[0] = 9; return x + ',' + arguments[0]; } f(1)", "1,9");

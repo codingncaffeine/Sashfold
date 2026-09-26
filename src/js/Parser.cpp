@@ -1481,7 +1481,7 @@ void Parser::Impl::settle_function(FunctionContext& fn)
 {
     FunctionNode* const node = fn.node;
     bool const capture_all = fn.has_direct_eval || fn.contains_with;
-    bool const mapped_arguments = node && !node->is_strict && node->has_simple_parameter_list && !node->has_duplicate_parameters
+    bool const mapped_arguments = node && !node->is_strict && node->has_simple_parameter_list
         && std::any_of(fn.info->bindings.begin(), fn.info->bindings.end(),
             [](ScopeInfo::Binding const& binding) { return binding.kind == BindingKind::Arguments; });
     // In source order, stable (an insertion sort: the scopes come nearly

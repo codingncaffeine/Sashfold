@@ -705,7 +705,7 @@ private:
         for (ScopeInfo::Binding const& binding : function_scope->bindings) {
             if (binding.kind != ScopeInfo::Binding::Kind::Arguments)
                 continue;
-            bool const mapped = !fn.is_strict && fn.has_simple_parameter_list && !fn.has_duplicate_parameters;
+            bool const mapped = !fn.is_strict && fn.has_simple_parameter_list;
             emit(Opcode::MakeArguments, 0, 0, mapped ? 1 : 0);
             emit_initialize(slot_in(*function_scope, binding, 0), binding.name);
         }

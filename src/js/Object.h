@@ -1144,6 +1144,8 @@ public:
     std::size_t binding_count() const { return m_bindings.size(); }
     Binding& binding_at(std::size_t slot) { return m_bindings[slot]; }
     Binding const& binding_at(std::size_t slot) const { return m_bindings[slot]; }
+    // The slot of a name, or binding_count() when the environment has none.
+    std::size_t place_of(JsString const* name) const; // m_bindings.size() for none
 
     // A function environment binds `this`; an arrow's does not, and a
     // lookup walks outward past it. A derived class constructor's binds
@@ -1190,7 +1192,6 @@ private:
     // a nameless one (a function's this, new.target and home object, laid
     // out by slot) is covered without an entry.
     static constexpr std::size_t indexed_from = 12;
-    std::size_t place_of(JsString const* name) const; // m_bindings.size() for none
 
     std::vector<Binding> m_bindings;
     mutable std::unordered_map<JsString const*, std::uint32_t> m_index;
