@@ -304,6 +304,11 @@ target_link_libraries(png_diff PRIVATE sashfold_core sashfold_warnings)
 add_executable(png_sheet tools/png-sheet.cpp)
 target_link_libraries(png_sheet PRIVATE sashfold_core sashfold_warnings)
 
+# crypto_bench times the public-key operations a TLS connection performs
+# (tools/crypto-bench.cpp). A build tool, never shipped.
+add_executable(crypto_bench tools/crypto-bench.cpp)
+target_link_libraries(crypto_bench PRIVATE sashfold_core sashfold_warnings)
+
 # gen_bindings turns idl/*.idl into src/bindings/generated/*.gen.cpp: the
 # interfaces, their tags and their reflected attributes (tools/gen-bindings.cpp).
 # The output is committed; the bindings-regen target rewrites it and a test

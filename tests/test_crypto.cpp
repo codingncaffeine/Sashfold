@@ -444,6 +444,413 @@ void test_ecdh()
     CHECK(!crypto::ec_public_point(crypto::CurveId::P256, std::vector<std::uint8_t>(31, 1)).has_value());
 }
 
+// The public keys of RFC 6979 A.2.5 and A.2.6.
+constexpr std::string_view rfc6979_p256_key = "0460FED4BA255A9D31C961EB74C6356D68C049B8923B61FA6CE669622E60F29FB67903FE1008B8BC99A41AE9E95628BC64F2F1B20C2D7E9F5177A3C294D4462299";
+constexpr std::string_view rfc6979_p384_key = "04EC3A4E415B4E19A4568618029F427FA5DA9A8BC4AE92E02E06AAE5286B300C64DEF8F0EA9055866064A254515480BC13"
+                                              "8015D9B72D7D57244EA8EF9AC0C621896708A59367F9DFB9F54CA84B3F1C9DB1288B231C3AE0D4FE7344FD2533264720";
+
+std::vector<std::uint8_t> rfc6979_digest(std::string_view hash, std::string_view message)
+{
+    // SHA-224 is not implemented here; its digests of the two messages are given.
+    if (hash == "SHA-224")
+        return from_hex(message == "sample" ? "9003e374bc726550c2c289447fd0533160f875709386dfa377bfd41c" : "90a3ed9e32b2aaf4c61c410eb925426119e1a9dc53d4286ade99a809");
+    if (hash == "SHA-256") {
+        auto const d = crypto::Sha256::hash(ascii(message));
+        return { d.begin(), d.end() };
+    }
+    if (hash == "SHA-384") {
+        auto const d = crypto::Sha384::hash(ascii(message));
+        return { d.begin(), d.end() };
+    }
+    auto const d = crypto::Sha512::hash(ascii(message));
+    return { d.begin(), d.end() };
+}
+
+// Every signature RFC 6979 A.2.5 (P-256) and A.2.6 (P-384) gives, "sample"
+// and "test" under SHA-224, SHA-256, SHA-384 and SHA-512: digests shorter
+// than the order, as long, and longer (truncated to the order's bits).
+// OpenSSL's deterministic signing reproduces each and node's verify accepts
+// each. Each signature must also fail over the other message.
+void test_ecdsa_rfc6979()
+{
+    using crypto::BigInt;
+    using crypto::CurveId;
+    struct Vector {
+        CurveId id;
+        std::string_view hash;
+        std::string_view message;
+        std::string_view r;
+        std::string_view s;
+    };
+    static constexpr Vector vectors[] = {
+        { CurveId::P256, "SHA-224", "sample", "53B2FFF5D1752B2C689DF257C04C40A587FABABB3F6FC2702F1343AF7CA9AA3F", "B9AFB64FDC03DC1A131C7D2386D11E349F070AA432A4ACC918BEA988BF75C74C" },
+        { CurveId::P256, "SHA-224", "test", "C37EDB6F0AE79D47C3C27E962FA269BB4F441770357E114EE511F662EC34A692", "C820053A05791E521FCAAD6042D40AEA1D6B1A540138558F47D0719800E18F2D" },
+        { CurveId::P256, "SHA-256", "sample", "EFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716", "F7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8" },
+        { CurveId::P256, "SHA-256", "test", "F1ABB023518351CD71D881567B1EA663ED3EFCF6C5132B354F28D3B0B7D38367", "019F4113742A2B14BD25926B49C649155F267E60D3814B4C0CC84250E46F0083" },
+        { CurveId::P256, "SHA-384", "sample", "0EAFEA039B20E9B42309FB1D89E213057CBF973DC0CFC8F129EDDDC800EF7719", "4861F0491E6998B9455193E34E7B0D284DDD7149A74B95B9261F13ABDE940954" },
+        { CurveId::P256, "SHA-384", "test", "83910E8B48BB0C74244EBDF7F07A1C5413D61472BD941EF3920E623FBCCEBEB6", "8DDBEC54CF8CD5874883841D712142A56A8D0F218F5003CB0296B6B509619F2C" },
+        { CurveId::P256, "SHA-512", "sample", "8496A60B5E9B47C825488827E0495B0E3FA109EC4568FD3F8D1097678EB97F00", "2362AB1ADBE2B8ADF9CB9EDAB740EA6049C028114F2460F96554F61FAE3302FE" },
+        { CurveId::P256, "SHA-512", "test", "461D93F31B6540894788FD206C07CFA0CC35F46FA3C91816FFF1040AD1581A04", "39AF9F15DE0DB8D97E72719C74820D304CE5226E32DEDAE67519E840D1194E55" },
+        { CurveId::P384, "SHA-224", "sample", "42356E76B55A6D9B4631C865445DBE54E056D3B3431766D0509244793C3F9366450F76EE3DE43F5A125333A6BE060122", "9DA0C81787064021E78DF658F2FBB0B042BF304665DB721F077A4298B095E4834C082C03D83028EFBF93A3C23940CA8D" },
+        { CurveId::P384, "SHA-224", "test", "E8C9D0B6EA72A0E7837FEA1D14A1A9557F29FAA45D3E7EE888FC5BF954B5E62464A9A817C47FF78B8C11066B24080E72", "07041D4A7A0379AC7232FF72E6F77B6DDB8F09B16CCE0EC3286B2BD43FA8C6141C53EA5ABEF0D8231077A04540A96B66" },
+        { CurveId::P384, "SHA-256", "sample", "21B13D1E013C7FA1392D03C5F99AF8B30C570C6F98D4EA8E354B63A21D3DAA33BDE1E888E63355D92FA2B3C36D8FB2CD", "F3AA443FB107745BF4BD77CB3891674632068A10CA67E3D45DB2266FA7D1FEEBEFDC63ECCD1AC42EC0CB8668A4FA0AB0" },
+        { CurveId::P384, "SHA-256", "test", "6D6DEFAC9AB64DABAFE36C6BF510352A4CC27001263638E5B16D9BB51D451559F918EEDAF2293BE5B475CC8F0188636B", "2D46F3BECBCC523D5F1A1256BF0C9B024D879BA9E838144C8BA6BAEB4B53B47D51AB373F9845C0514EEFB14024787265" },
+        { CurveId::P384, "SHA-384", "sample", "94EDBB92A5ECB8AAD4736E56C691916B3F88140666CE9FA73D64C4EA95AD133C81A648152E44ACF96E36DD1E80FABE46", "99EF4AEB15F178CEA1FE40DB2603138F130E740A19624526203B6351D0A3A94FA329C145786E679E7B82C71A38628AC8" },
+        { CurveId::P384, "SHA-384", "test", "8203B63D3C853E8D77227FB377BCF7B7B772E97892A80F36AB775D509D7A5FEB0542A7F0812998DA8F1DD3CA3CF023DB", "DDD0760448D42D8A43AF45AF836FCE4DE8BE06B485E9B61B827C2F13173923E06A739F040649A667BF3B828246BAA5A5" },
+        { CurveId::P384, "SHA-512", "sample", "ED0959D5880AB2D869AE7F6C2915C6D60F96507F9CB3E047C0046861DA4A799CFE30F35CC900056D7C99CD7882433709", "512C8CCEEE3890A84058CE1E22DBC2198F42323CE8ACA9135329F03C068E5112DC7CC3EF3446DEFCEB01A45C2667FDD5" },
+        { CurveId::P384, "SHA-512", "test", "A0D5D090C9980FAF3C2CE57B7AE951D31977DD11C775D314AF55F76C676447D06FB6495CD21B4B6E340FC236584FB277", "976984E59B4C77B0E8E4460DCA3D9F20E07B9BB1F63BEEFAF576F6B2E8B224634A2092CD3792E0159AD9CEE37659C736" },
+    };
+    std::optional<crypto::EcPoint> const p256 = crypto::ec_decode_point(CurveId::P256, from_hex(rfc6979_p256_key));
+    std::optional<crypto::EcPoint> const p384 = crypto::ec_decode_point(CurveId::P384, from_hex(rfc6979_p384_key));
+    CHECK(p256.has_value() && p384.has_value());
+    if (!p256 || !p384)
+        return;
+    for (Vector const& v : vectors) {
+        crypto::EcPoint const& key = v.id == CurveId::P256 ? *p256 : *p384;
+        std::string const name = std::string(v.id == CurveId::P256 ? "P-256 " : "P-384 ") + std::string(v.hash) + " " + std::string(v.message);
+        BigInt const r = *BigInt::from_hex(v.r);
+        BigInt const s = *BigInt::from_hex(v.s);
+        bool const valid = crypto::ecdsa_verify(v.id, key, rfc6979_digest(v.hash, v.message), r, s);
+        CHECK_EQ(name + (valid ? " verifies" : " fails"), name + " verifies");
+        bool const other = crypto::ecdsa_verify(v.id, key, rfc6979_digest(v.hash, v.message == "sample" ? "test" : "sample"), r, s);
+        CHECK_EQ(name + (other ? " verifies the other message" : " refuses the other message"), name + " refuses the other message");
+    }
+}
+
+// A deterministic stream for the randomised checks below.
+struct SplitMix64 {
+    std::uint64_t state;
+    std::uint64_t next()
+    {
+        std::uint64_t z = (state += 0x9e3779b97f4a7c15);
+        z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9;
+        z = (z ^ (z >> 27)) * 0x94d049bb133111eb;
+        return z ^ (z >> 31);
+    }
+};
+
+crypto::BigInt random_scalar(SplitMix64& rng, crypto::Curve const& c)
+{
+    std::vector<std::uint8_t> bytes(c.field_bytes);
+    for (std::uint8_t& b : bytes)
+        b = static_cast<std::uint8_t>(rng.next() >> 56);
+    return crypto::BigInt::from_bytes(bytes)->mod(c.n);
+}
+
+bool same_point(std::optional<crypto::EcPoint> const& a, std::optional<crypto::EcPoint> const& b)
+{
+    if (!a || !b)
+        return !a && !b;
+    return a->x == b->x && a->y == b->y;
+}
+
+crypto::EcPoint negate(crypto::Curve const& c, crypto::EcPoint const& p)
+{
+    return crypto::EcPoint { p.x, c.p.sub(p.y) };
+}
+
+// A signature made here over BigInt, the textbook way (SEC 1 §4.1.3), from
+// a private key d and a nonce k: r = x(k·G) mod n, s = k⁻¹(e + r·d) mod n.
+struct Signature {
+    crypto::BigInt r;
+    crypto::BigInt s;
+};
+
+Signature sign(crypto::CurveId id, crypto::BigInt const& d, crypto::BigInt const& k, crypto::BigInt const& e)
+{
+    crypto::Curve const& c = crypto::curve(id);
+    std::optional<crypto::EcPoint> const r_point = crypto::ec_test::multiply(id, crypto::ec_test::Method::Reference, { c.gx, c.gy }, k);
+    crypto::BigInt const r = r_point->x.mod(c.n);
+    crypto::BigInt const s = k.mod_inverse_prime(c.n).mod_mul(e.mod(c.n).mod_add(r.mod_mul(d, c.n), c.n), c.n);
+    return { r, s };
+}
+
+// The ranges and cases SEC 1 §4.1.4 and FIPS 186-4 §6.4.2 name, each
+// checked on the side where a wrong verifier would say yes: r and s at 0
+// and at n, s + n (which a verifier that reduced instead of refusing would
+// accept), coordinates past p that are congruent to a point on the curve,
+// the encodings the decoder must refuse, a digest longer than the order
+// whose truncated-away bits must not matter, a signature whose x is r + n
+// (x mod n = r with x ≥ n, reachable only on a verifier that knows it), a
+// sum that is the point at infinity, and a sum whose two halves are the
+// same point.
+void test_ecdsa_edges()
+{
+    using crypto::BigInt;
+    using crypto::CurveId;
+    using crypto::ec_test::Method;
+    std::optional<crypto::EcPoint> const key = crypto::ec_decode_point(CurveId::P256, from_hex(rfc6979_p256_key));
+    CHECK(key.has_value());
+    if (!key)
+        return;
+    crypto::Curve const& c = crypto::curve(CurveId::P256);
+    auto const digest = crypto::Sha256::hash(ascii("sample"));
+    BigInt const r = *BigInt::from_hex("EFD48B2AACB6A8FD1140DD9CD45E81D69D2C877B56AAF991C34D0EA84EAF3716");
+    BigInt const s = *BigInt::from_hex("F7CB1C942D657C41D436C7A1B6E29F65F3E900DBB9AFF4064DC4AB2F843ACDA8");
+    BigInt const one = BigInt::from_u64(1);
+    CHECK(crypto::ecdsa_verify(CurveId::P256, *key, digest, r, s));
+    CHECK(!crypto::ecdsa_verify(CurveId::P256, *key, digest, BigInt(), s));
+    CHECK(!crypto::ecdsa_verify(CurveId::P256, *key, digest, r, BigInt()));
+    CHECK(!crypto::ecdsa_verify(CurveId::P256, *key, digest, c.n, s));
+    CHECK(!crypto::ecdsa_verify(CurveId::P256, *key, digest, r, c.n));
+    CHECK(!crypto::ecdsa_verify(CurveId::P256, *key, digest, c.n.sub(one), s));
+    CHECK(!crypto::ecdsa_verify(CurveId::P256, *key, digest, r, s.add(c.n)));
+    CHECK(!crypto::ecdsa_verify(CurveId::P256, *key, digest, r.add(c.n), s));
+    // The key with x or y moved up by p: the same point modulo p, refused.
+    CHECK(!crypto::ecdsa_verify(CurveId::P256, { key->x.add(c.p), key->y }, digest, r, s));
+    CHECK(!crypto::ecdsa_verify(CurveId::P256, { key->x, key->y.add(c.p) }, digest, r, s));
+    CHECK(!crypto::ecdsa_verify(CurveId::P256, { key->x, key->y.add(one) }, digest, r, s));
+    // Encodings: a wrong prefix, x = p, no prefix, the one-byte point at
+    // infinity, and a compressed point, which the decoder does not take.
+    std::vector<std::uint8_t> encoded = from_hex(rfc6979_p256_key);
+    encoded[0] = 0x05;
+    CHECK(!crypto::ec_decode_point(CurveId::P256, encoded).has_value());
+    encoded[0] = 0x04;
+    CHECK(crypto::ec_decode_point(CurveId::P256, encoded).has_value());
+    std::vector<std::uint8_t> x_is_p = encoded;
+    std::vector<std::uint8_t> const p_bytes = *c.p.to_bytes(32);
+    std::copy(p_bytes.begin(), p_bytes.end(), x_is_p.begin() + 1);
+    CHECK(!crypto::ec_decode_point(CurveId::P256, x_is_p).has_value());
+    CHECK(!crypto::ec_decode_point(CurveId::P256, std::span<std::uint8_t const>(encoded).subspan(1)).has_value());
+    CHECK(!crypto::ec_decode_point(CurveId::P256, std::vector<std::uint8_t> { 0x00 }).has_value());
+    std::vector<std::uint8_t> compressed(encoded.begin(), encoded.begin() + 33);
+    compressed[0] = 0x02 | (encoded.back() & 1);
+    CHECK(!crypto::ec_decode_point(CurveId::P256, compressed).has_value());
+    // SHA-512 under P-256 keeps only the digest's first 32 bytes: changing
+    // any later byte leaves the signature good, changing byte 31 does not.
+    BigInt const r512 = *BigInt::from_hex("8496A60B5E9B47C825488827E0495B0E3FA109EC4568FD3F8D1097678EB97F00");
+    BigInt const s512 = *BigInt::from_hex("2362AB1ADBE2B8ADF9CB9EDAB740EA6049C028114F2460F96554F61FAE3302FE");
+    auto long_digest = crypto::Sha512::hash(ascii("sample"));
+    for (std::size_t i = 32; i < long_digest.size(); ++i)
+        long_digest[i] ^= 0xA5;
+    CHECK(crypto::ecdsa_verify(CurveId::P256, *key, long_digest, r512, s512));
+    long_digest[31] ^= 1;
+    CHECK(!crypto::ecdsa_verify(CurveId::P256, *key, long_digest, r512, s512));
+
+    for (CurveId const id : { CurveId::P256, CurveId::P384 }) {
+        crypto::Curve const& cv = crypto::curve(id);
+        crypto::EcPoint const g { cv.gx, cv.gy };
+        std::string const curve_name = id == CurveId::P256 ? "P-256" : "P-384";
+        // A key and a signature made here, with a digest as long as the
+        // order: it verifies, and so does the digest plus n, which is the
+        // same e once reduced. e is kept below 2^128 so that e + n still
+        // fits the digest's bytes.
+        SplitMix64 rng { 0x5eed0001 };
+        BigInt const d = random_scalar(rng, cv);
+        BigInt const k = random_scalar(rng, cv);
+        BigInt const e = random_scalar(rng, cv).shift_right(cv.n.bit_length() - 128);
+        std::optional<crypto::EcPoint> const q = crypto::ec_test::multiply(id, Method::Reference, g, d);
+        Signature const sig = sign(id, d, k, e);
+        CHECK_EQ(curve_name + (crypto::ecdsa_verify(id, *q, *e.to_bytes(cv.field_bytes), sig.r, sig.s) ? " own signature verifies" : " own signature fails"),
+            curve_name + " own signature verifies");
+        std::optional<std::vector<std::uint8_t>> const e_plus_n = e.add(cv.n).to_bytes(cv.field_bytes);
+        CHECK(e_plus_n.has_value() && crypto::ecdsa_verify(id, *q, *e_plus_n, sig.r, sig.s));
+        CHECK(!crypto::ecdsa_verify(id, *q, *e.add(BigInt::from_u64(1)).to_bytes(cv.field_bytes), sig.r, sig.s));
+
+        // x(R) ≥ n: R = (n + t, y) for the smallest t ≥ 1 that is on the
+        // curve (p ≡ 3 mod 4, so a square root is a power), then a key Q
+        // made so that u1·G + u2·Q = R for a chosen e and s. Then r = t.
+        BigInt const exponent = cv.p.add(BigInt::from_u64(1)).shift_right(2);
+        std::optional<crypto::EcPoint> big_r;
+        for (std::uint64_t t = 1; t < 1000 && !big_r; ++t) {
+            BigInt const x = cv.n.add(BigInt::from_u64(t));
+            BigInt const rhs = x.mod_mul(x, cv.p).mod_mul(x, cv.p).mod_sub(BigInt::from_u64(3).mod_mul(x, cv.p), cv.p).mod_add(cv.b, cv.p);
+            BigInt const y = rhs.mod_pow(exponent, cv.p);
+            if (y.mod_mul(y, cv.p) == rhs)
+                big_r = crypto::EcPoint { x, y };
+        }
+        CHECK(big_r.has_value());
+        if (big_r) {
+            BigInt const r_small = big_r->x.sub(cv.n);
+            BigInt const s_chosen = BigInt::from_u64(0x1234567);
+            BigInt const w = s_chosen.mod_inverse_prime(cv.n);
+            BigInt const u1 = e.mod_mul(w, cv.n);
+            BigInt const u2 = r_small.mod_mul(w, cv.n);
+            std::optional<crypto::EcPoint> const u1g = crypto::ec_test::multiply(id, Method::Reference, g, u1);
+            std::optional<crypto::EcPoint> const difference = crypto::ec_test::add(id, *big_r, negate(cv, *u1g), false);
+            std::optional<crypto::EcPoint> const q_made = crypto::ec_test::multiply(id, Method::Reference, *difference, u2.mod_inverse_prime(cv.n));
+            bool const valid = crypto::ecdsa_verify(id, *q_made, *e.to_bytes(cv.field_bytes), r_small, s_chosen);
+            CHECK_EQ(curve_name + (valid ? " x = r + n verifies" : " x = r + n fails"), curve_name + " x = r + n verifies");
+            CHECK(!crypto::ecdsa_verify(id, *q_made, *e.to_bytes(cv.field_bytes), r_small.add(BigInt::from_u64(1)), s_chosen));
+        }
+
+        // The key G with e = n − 1, r = s = 1: u1·G + u2·G = n·G, the point
+        // at infinity, which must be a refusal.
+        CHECK(!crypto::ecdsa_verify(id, g, *cv.n.sub(BigInt::from_u64(1)).to_bytes(cv.field_bytes), BigInt::from_u64(1), BigInt::from_u64(1)));
+        // The key G with e = r and s = 2r/k: u1 = u2 = k/2, so the final sum
+        // adds a point to itself and must double it.
+        std::optional<crypto::EcPoint> const kg = crypto::ec_test::multiply(id, Method::Reference, g, k);
+        BigInt const r_k = kg->x.mod(cv.n);
+        BigInt const s_k = r_k.mod_add(r_k, cv.n).mod_mul(k.mod_inverse_prime(cv.n), cv.n);
+        bool const doubled = crypto::ecdsa_verify(id, g, *r_k.to_bytes(cv.field_bytes), r_k, s_k);
+        CHECK_EQ(curve_name + (doubled ? " equal halves verify" : " equal halves fail"), curve_name + " equal halves verify");
+    }
+}
+
+// RFC 5903 §8.1 (P-256) and §8.2 (P-384): the initiator's and responder's
+// private scalars, their public points, and the shared x, from both ends.
+// node's crypto computes the same points and secret from the same scalars.
+void test_ecdh_rfc5903()
+{
+    using crypto::CurveId;
+    struct Vector {
+        CurveId id;
+        std::string_view i;
+        std::string_view gi;
+        std::string_view r;
+        std::string_view gr;
+        std::string_view shared;
+    };
+    static constexpr Vector vectors[] = {
+        { CurveId::P256, "C88F01F510D9AC3F70A292DAA2316DE544E9AAB8AFE84049C62A9C57862D1433",
+            "04dad0b65394221cf9b051e1feca5787d098dfe637fc90b9ef945d0c37725811805271a0461cdb8252d61f1c456fa3e59ab1f45b33accf5f58389e0577b8990bb3",
+            "C6EF9C5D78AE012A011164ACB397CE2088685D8F06BF9BE0B283AB46476BEE53",
+            "04d12dfb5289c8d4f81208b70270398c342296970a0bccb74c736fc7554494bf6356fbf3ca366cc23e8157854c13c58d6aac23f046ada30f8353e74f33039872ab",
+            "d6840f6b42f6edafd13116e0e12565202fef8e9ece7dce03812464d04b9442de" },
+        { CurveId::P384, "099F3C7034D4A2C699884D73A375A67F7624EF7C6B3C0F160647B67414DCE655E35B538041E649EE3FAEF896783AB194",
+            "04667842d7d180ac2cde6f74f37551f55755c7645c20ef73e31634fe72b4c55ee6de3ac808acb4bdb4c88732aee95f41aa9482ed1fc0eeb9cafc4984625ccfc23f65032149e0e144ada024181535a0f38eeb9fcff3c2c947dae69b4c634573a81c",
+            "41CB0779B4BDB85D47846725FBEC3C9430FAB46CC8DC5060855CC9BDA0AA2942E0308312916B8ED2960E4BD55A7448FC",
+            "04e558dbef53eecde3d3fccfc1aea08a89a987475d12fd950d83cfa41732bc509d0d1ac43a0336def96fda41d0774a3571dcfbec7aacf3196472169e838430367f66eebe3c6e70c416dd5f0c68759dd1fff83fa40142209dff5eaad96db9e6386c",
+            "11187331c279962d93d604243fd592cb9d0a926f422e47187521287e7156c5c4d603135569b9e9d09cf5d4a270f59746" },
+    };
+    for (Vector const& v : vectors) {
+        std::string const name = v.id == CurveId::P256 ? "P-256" : "P-384";
+        std::optional<crypto::EcPoint> const gi = crypto::ec_public_point(v.id, from_hex(v.i));
+        std::optional<crypto::EcPoint> const gr = crypto::ec_public_point(v.id, from_hex(v.r));
+        CHECK(gi.has_value() && gr.has_value());
+        if (!gi || !gr)
+            continue;
+        CHECK_EQ(name + " gi " + hex(crypto::ec_encode_point(v.id, *gi)), name + " gi " + std::string(v.gi));
+        CHECK_EQ(name + " gr " + hex(crypto::ec_encode_point(v.id, *gr)), name + " gr " + std::string(v.gr));
+        std::optional<crypto::EcPoint> const peer_r = crypto::ec_decode_point(v.id, from_hex(v.gr));
+        std::optional<crypto::EcPoint> const peer_i = crypto::ec_decode_point(v.id, from_hex(v.gi));
+        CHECK(peer_r.has_value() && peer_i.has_value());
+        if (!peer_r || !peer_i)
+            continue;
+        std::optional<std::vector<std::uint8_t>> const from_i = crypto::ecdh_shared_x(v.id, from_hex(v.i), *peer_r);
+        std::optional<std::vector<std::uint8_t>> const from_r = crypto::ecdh_shared_x(v.id, from_hex(v.r), *peer_i);
+        CHECK_EQ(name + " shared " + (from_i ? hex(*from_i) : "none"), name + " shared " + std::string(v.shared));
+        CHECK_EQ(name + " shared " + (from_r ? hex(*from_r) : "none"), name + " shared " + std::string(v.shared));
+        // A peer point moved up by p is the same point modulo p, refused.
+        CHECK(!crypto::ecdh_shared_x(v.id, from_hex(v.i), { peer_r->x.add(crypto::curve(v.id).p), peer_r->y }).has_value());
+    }
+    // A scalar at or past n is reduced into [1, n − 1] before use: n + 1 is
+    // 1, and all ones is 2^256 − 1 − n.
+    for (CurveId const id : { CurveId::P256, CurveId::P384 }) {
+        crypto::Curve const& c = crypto::curve(id);
+        std::optional<crypto::EcPoint> const one = crypto::ec_public_point(id, *c.n.add(crypto::BigInt::from_u64(1)).to_bytes(c.field_bytes));
+        CHECK(one.has_value() && one->x == c.gx && one->y == c.gy);
+        std::vector<std::uint8_t> const ones(c.field_bytes, 0xFF);
+        std::optional<crypto::EcPoint> const from_ones = crypto::ec_public_point(id, ones);
+        CHECK(same_point(from_ones, crypto::ec_test::multiply(id, crypto::ec_test::Method::Reference, { c.gx, c.gy }, crypto::BigInt::from_bytes(ones)->mod(c.n))));
+    }
+}
+
+// The fixed-width arithmetic against the textbook formulas over BigInt it
+// replaced, bit for bit: 200 scalars per curve (the edges a window method
+// can get wrong first, the rest from a fixed seed), each times one of 20
+// points, through every multiplication path; and the generator's table
+// against the same reference. A point that differs in one bit of x or y
+// counts as a mismatch.
+void test_ec_differential()
+{
+    using crypto::BigInt;
+    using crypto::CurveId;
+    using crypto::ec_test::Method;
+    for (CurveId const id : { CurveId::P256, CurveId::P384 }) {
+        crypto::Curve const& c = crypto::curve(id);
+        crypto::EcPoint const g { c.gx, c.gy };
+        std::string const name = id == CurveId::P256 ? "P-256" : "P-384";
+        SplitMix64 rng { id == CurveId::P256 ? 0x0256u : 0x0384u };
+        std::vector<crypto::EcPoint> points;
+        for (int j = 0; j < 20; ++j)
+            points.push_back(*crypto::ec_test::multiply(id, Method::Reference, g, random_scalar(rng, c)));
+        std::vector<BigInt> scalars;
+        for (std::uint64_t const small : { 1u, 2u, 3u, 15u, 16u, 17u, 255u, 256u, 0xFFFFu, 0x10000u })
+            scalars.push_back(BigInt::from_u64(small));
+        for (std::uint64_t const below : { 1u, 2u, 15u, 16u, 17u })
+            scalars.push_back(c.n.sub(BigInt::from_u64(below)));
+        scalars.push_back(BigInt::from_u64(~std::uint64_t(0)));
+        scalars.push_back(c.n.shift_right(1));
+        scalars.push_back(BigInt::from_u64(1).shift_left(c.n.bit_length() - 1));
+        scalars.push_back(BigInt::from_u64(15).shift_left(c.n.bit_length() - 4).mod(c.n));
+        for (std::uint8_t const pattern : { 0x0F, 0xF0, 0x11, 0xFF, 0x80 })
+            scalars.push_back(BigInt::from_bytes(std::vector<std::uint8_t>(c.field_bytes, pattern))->mod(c.n));
+        while (scalars.size() < 200)
+            scalars.push_back(random_scalar(rng, c));
+        int double_add = 0;
+        int window = 0;
+        int constant_time = 0;
+        int base = 0;
+        int base_constant_time = 0;
+        for (std::size_t i = 0; i < scalars.size(); ++i) {
+            crypto::EcPoint const& p = points[i % points.size()];
+            std::optional<crypto::EcPoint> const expected = crypto::ec_test::multiply(id, Method::Reference, p, scalars[i]);
+            double_add += !same_point(crypto::ec_test::multiply(id, Method::DoubleAndAdd, p, scalars[i]), expected);
+            window += !same_point(crypto::ec_test::multiply(id, Method::Window, p, scalars[i]), expected);
+            constant_time += !same_point(crypto::ec_test::multiply(id, Method::ConstantTime, p, scalars[i]), expected);
+            if (i < 40) {
+                std::optional<crypto::EcPoint> const expected_g = crypto::ec_test::multiply(id, Method::Reference, g, scalars[i]);
+                base += !same_point(crypto::ec_test::multiply(id, Method::BaseTable, g, scalars[i]), expected_g);
+                base_constant_time += !same_point(crypto::ec_test::multiply(id, Method::BaseTableConstantTime, g, scalars[i]), expected_g);
+            }
+        }
+        CHECK_EQ(name + " double-and-add mismatches " + std::to_string(double_add), name + " double-and-add mismatches 0");
+        CHECK_EQ(name + " window mismatches " + std::to_string(window), name + " window mismatches 0");
+        CHECK_EQ(name + " constant-time mismatches " + std::to_string(constant_time), name + " constant-time mismatches 0");
+        CHECK_EQ(name + " base table mismatches " + std::to_string(base), name + " base table mismatches 0");
+        CHECK_EQ(name + " constant-time base table mismatches " + std::to_string(base_constant_time), name + " constant-time base table mismatches 0");
+    }
+}
+
+// The fixed-width paths against each other: k·G by the windows and the
+// tables equals k·G by plain double-and-add; a·G + b·G equals (a + b)·G
+// through both additions; P + P is 2·P and P + (−P) the point at infinity
+// through both, which the complete constant-time addition must get right
+// by mask; (n − 1)·G is −G; and 0·P is the point at infinity everywhere.
+void test_ec_consistency()
+{
+    using crypto::BigInt;
+    using crypto::CurveId;
+    using crypto::ec_test::Method;
+    for (CurveId const id : { CurveId::P256, CurveId::P384 }) {
+        crypto::Curve const& c = crypto::curve(id);
+        crypto::EcPoint const g { c.gx, c.gy };
+        std::string const name = id == CurveId::P256 ? "P-256" : "P-384";
+        SplitMix64 rng { 0xC0DE0000u + static_cast<std::uint64_t>(id) };
+        int window_mismatches = 0;
+        int sum_mismatches = 0;
+        for (int i = 0; i < 50; ++i) {
+            BigInt const k = random_scalar(rng, c);
+            std::optional<crypto::EcPoint> const plain = crypto::ec_test::multiply(id, Method::DoubleAndAdd, g, k);
+            window_mismatches += !same_point(crypto::ec_test::multiply(id, Method::Window, g, k), plain);
+            window_mismatches += !same_point(crypto::ec_test::multiply(id, Method::ConstantTime, g, k), plain);
+            window_mismatches += !same_point(crypto::ec_test::multiply(id, Method::BaseTable, g, k), plain);
+            window_mismatches += !same_point(crypto::ec_test::multiply(id, Method::BaseTableConstantTime, g, k), plain);
+            BigInt const a = random_scalar(rng, c);
+            BigInt const b = random_scalar(rng, c);
+            std::optional<crypto::EcPoint> const ag = crypto::ec_test::multiply(id, Method::BaseTable, g, a);
+            std::optional<crypto::EcPoint> const bg = crypto::ec_test::multiply(id, Method::BaseTable, g, b);
+            std::optional<crypto::EcPoint> const sum = crypto::ec_test::multiply(id, Method::BaseTable, g, a.mod_add(b, c.n));
+            sum_mismatches += !same_point(crypto::ec_test::add(id, *ag, *bg, false), sum);
+            sum_mismatches += !same_point(crypto::ec_test::add(id, *ag, *bg, true), sum);
+        }
+        CHECK_EQ(name + " k·G mismatches " + std::to_string(window_mismatches), name + " k·G mismatches 0");
+        CHECK_EQ(name + " a·G + b·G mismatches " + std::to_string(sum_mismatches), name + " a·G + b·G mismatches 0");
+        BigInt const k = random_scalar(rng, c);
+        std::optional<crypto::EcPoint> const p = crypto::ec_test::multiply(id, Method::Window, g, k);
+        std::optional<crypto::EcPoint> const twice = crypto::ec_test::multiply(id, Method::Window, *p, BigInt::from_u64(2));
+        CHECK(same_point(crypto::ec_test::add(id, *p, *p, false), twice));
+        CHECK(same_point(crypto::ec_test::add(id, *p, *p, true), twice));
+        CHECK(!crypto::ec_test::add(id, *p, negate(c, *p), false).has_value());
+        CHECK(!crypto::ec_test::add(id, *p, negate(c, *p), true).has_value());
+        std::optional<crypto::EcPoint> const minus_g = crypto::ec_test::multiply(id, Method::BaseTableConstantTime, g, c.n.sub(BigInt::from_u64(1)));
+        CHECK(same_point(minus_g, negate(c, g)));
+        for (Method const m : { Method::Reference, Method::DoubleAndAdd, Method::Window, Method::ConstantTime, Method::BaseTable, Method::BaseTableConstantTime })
+            CHECK(!crypto::ec_test::multiply(id, m, g, BigInt()).has_value());
+    }
+}
+
 
 // AES-128 (FIPS 197) and AES-128-GCM (SP 800-38D), the record protection of
 // TLS_AES_128_GCM_SHA256: the block cipher's known answers first, then the
@@ -583,5 +990,10 @@ int main()
     test_rsa();
     test_ecdsa();
     test_ecdh();
+    test_ecdsa_rfc6979();
+    test_ecdsa_edges();
+    test_ecdh_rfc5903();
+    test_ec_differential();
+    test_ec_consistency();
     return sashfold::test::report("crypto");
 }
