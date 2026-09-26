@@ -438,6 +438,7 @@ private:
     std::vector<std::unique_ptr<Cell>> m_cells;
     std::vector<Cell*> m_mark_stack; // the collector's worklist, its room kept between collections
     std::uint32_t m_mark = Tracer::standalone_mark; // advanced before each collection; never the standalone mark again
+    bool m_exact_next = false; // the last estimate could not be trusted: the next collection measures every live cell
     // Keys view the atom's own data; cells never move, so the views hold.
     std::unordered_map<std::u16string_view, JsString*> m_atoms;
     std::vector<RootProvider*> m_root_providers;

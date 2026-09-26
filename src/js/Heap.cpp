@@ -249,31 +249,51 @@ void Heap::collect()
     }
     tracer.m_worklist.swap(m_mark_stack); // empty now, its room kept
 
-    // A traced collection tallies what goes and what stays by kind; the
-    // swept are asked their size for that alone.
+    // What stays is measured exactly — every live cell asked its size —
+    // at every eighth collection, at one that traces (the tally by kind
+    // wants it), and at any that could find the heap over its ceiling,
+    // where the verdict must not rest on an estimate. The others learn
+    // what went from the cells they free and keep the estimate as it
+    // stood less that: a cell tells the heap of its growth as it grows,
+    // so the estimate is the adoptions and the growth, and asking half a
+    // million live cells again at every collection was the sweep's cost.
     bool const tracing = static_cast<bool>(m_on_collect);
+    bool const exact = tracing || m_exact_next || m_account.collections % 8 == 0 || (m_limit != 0 && m_bytes >= m_limit);
     std::unordered_map<char const*, KindTally> swept_by_kind;
     std::unordered_map<char const*, KindTally> live_by_kind;
     std::size_t live = 0;
+    std::size_t swept = 0;
     std::erase_if(m_cells, [&](std::unique_ptr<Cell> const& owned) {
         Cell const& cell = *owned;
         if (cell.m_mark == m_mark) {
-            std::size_t const bytes = cell.size_in_bytes();
-            live += bytes;
-            if (tracing) {
-                KindTally& kind = live_by_kind[typeid(cell).name()];
-                ++kind.cells;
-                kind.bytes += bytes;
+            if (exact) {
+                std::size_t const bytes = cell.size_in_bytes();
+                live += bytes;
+                if (tracing) {
+                    KindTally& kind = live_by_kind[typeid(cell).name()];
+                    ++kind.cells;
+                    kind.bytes += bytes;
+                }
             }
             return false;
         }
+        std::size_t const bytes = cell.size_in_bytes();
+        swept += bytes;
         if (tracing) {
             KindTally& kind = swept_by_kind[typeid(cell).name()];
             ++kind.cells;
-            kind.bytes += cell.size_in_bytes();
+            kind.bytes += bytes;
         }
         return true;
     });
+    if (!exact) {
+        // The estimate less what went. A growth the heap was never told of
+        // could leave less than went; then the next collection measures.
+        m_exact_next = swept > bytes_before;
+        live = swept > bytes_before ? 0 : bytes_before - swept;
+    } else {
+        m_exact_next = false;
+    }
 
     // The next collection is due once the garbage is twice the live set,
     // never sooner than the floor: a small heap should not collect on
@@ -304,8 +324,8 @@ void Heap::collect()
     m_account.live_bytes = live;
     m_collecting = false;
     if (tracing) {
-        m_on_collect(Collection { m_account.collections, ms, m_cells.size(), live, cells_before - m_cells.size(),
-            bytes_before > live ? bytes_before - live : 0, m_threshold, biggest_kinds(swept_by_kind), biggest_kinds(live_by_kind) });
+        m_on_collect(Collection { m_account.collections, ms, m_cells.size(), live, cells_before - m_cells.size(), swept,
+            m_threshold, biggest_kinds(swept_by_kind), biggest_kinds(live_by_kind) });
     }
 }
 
