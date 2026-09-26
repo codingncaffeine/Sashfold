@@ -1217,6 +1217,8 @@ ui::Profile profile_since(ui::Profile const& now, ui::Profile const& base)
 {
     ui::Profile d = now;
     d.restyles -= base.restyles;
+    d.restyled_elements -= base.restyled_elements;
+    d.whole_restyles -= base.whole_restyles;
     d.relayouts -= base.relayouts;
     d.paints -= base.paints;
     d.painted_pixels -= base.painted_pixels;
@@ -1261,7 +1263,9 @@ std::string engine_json(ui::Browser::EngineAccount const& e)
 std::string profile_json(ui::Profile const& p)
 {
     std::ostringstream out;
-    out << std::fixed << std::setprecision(1) << "{ \"restyles\": " << p.restyles << ", \"relayouts\": " << p.relayouts
+    out << std::fixed << std::setprecision(1) << "{ \"restyles\": " << p.restyles
+        << ", \"restyled_elements\": " << p.restyled_elements << ", \"whole_restyles\": " << p.whole_restyles
+        << ", \"relayouts\": " << p.relayouts
         << ", \"paints\": " << p.paints << ", \"painted_pixels\": " << p.painted_pixels << ", \"ms\": { \"commit\": " << p.commit_ms
         << ", \"sheets\": " << p.sheets_ms
         << ", \"fonts\": " << p.fonts_ms << ", \"compile\": " << p.style_compile_ms

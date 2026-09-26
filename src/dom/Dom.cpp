@@ -22,10 +22,68 @@ void Node::append_child(Node& child)
     insert_before(child, nullptr);
 }
 
+// A stamp goes up the ancestors as `descendants` until it meets one that
+// already has it: that one's own ancestors were given it when it was.
+void Node::mark_style_ancestors(std::uint32_t clock)
+{
+    for (Node* node = m_parent; node && node->m_style_marks.descendants != clock; node = node->m_parent)
+        node->m_style_marks.descendants = clock;
+}
+
+void Node::mark_style_self()
+{
+    std::uint32_t const clock = m_document->style_clock();
+    if (m_style_marks.self == clock)
+        return;
+    m_style_marks.self = clock;
+    mark_style_ancestors(clock);
+}
+
+void Node::mark_style_children()
+{
+    std::uint32_t const clock = m_document->style_clock();
+    if (m_style_marks.children == clock)
+        return;
+    m_style_marks.children = clock;
+    mark_style_ancestors(clock);
+}
+
+void Node::mark_style_subtree()
+{
+    std::uint32_t const clock = m_document->style_clock();
+    if (m_style_marks.subtree == clock)
+        return;
+    m_style_marks.subtree = clock;
+    mark_style_ancestors(clock);
+}
+
+void Node::mark_style_data()
+{
+    if (m_parent)
+        m_parent->mark_style_children();
+}
+
+std::uint32_t Document::advance_style_clock() const
+{
+    // The removals are kept for resolvers that look now and then; past this
+    // many they are let go of, and a resolver that has not looked since
+    // starts over.
+    constexpr std::size_t kept_removals = std::size_t(1) << 18;
+    ++m_style_clock;
+    if (m_style_removals.size() > kept_removals) {
+        m_style_removals.clear();
+        m_style_removals.shrink_to_fit();
+        m_style_removals_from = m_style_clock;
+    }
+    return m_style_clock;
+}
+
 void Node::insert_before(Node& child, Node* reference)
 {
     child.remove();
     child.m_parent = this;
+    child.mark_style_subtree();
+    mark_style_children();
     if (!reference) {
         m_children.push_back(&child);
         return;
@@ -111,6 +169,22 @@ void Node::remove()
         move_out(*place->root, place->reference, place->before_reference);
         move_out(*place->root, place->candidate, place->before_candidate);
     }
+    // Styles are kept only for what is in the document's tree, so only a
+    // removal from it has styles to let go of: every element that goes is
+    // written down, and the parent is marked for the siblings it leaves.
+    if (is_connected()) {
+        std::uint32_t const clock = m_document->style_clock();
+        std::vector<Node const*> pending { this };
+        while (!pending.empty()) {
+            Node const* current = pending.back();
+            pending.pop_back();
+            if (current->is_element())
+                m_document->m_style_removals.push_back({ clock, static_cast<Element const*>(current) });
+            for (Node const* child : current->m_children)
+                pending.push_back(child);
+        }
+    }
+    m_parent->mark_style_children();
     siblings.erase(std::remove(siblings.begin(), siblings.end(), this), siblings.end());
     m_parent = nullptr;
 }
@@ -181,6 +255,9 @@ void Document::adopt(Node& node)
             old.m_nodes.erase(it);
         }
         current->m_document = this;
+        // The old document's stamps mean nothing on this one's clock; the
+        // insertion that follows marks the whole subtree as new anyway.
+        current->m_style_marks = {};
     }
     // A range with a boundary among the moved nodes is this document's to keep
     // now, and stays the old one's only while a boundary is still its.

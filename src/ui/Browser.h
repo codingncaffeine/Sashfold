@@ -265,13 +265,18 @@ struct WallTime {
 // What the shell has done for its pages since it started, for the
 // instruments: counts and milliseconds, read by --bench and by a script's
 // assertions and never reset — a script marks a moment and reads the
-// difference. A restyle is the page's styles resolved whole, a relayout
+// difference. A restyle is the page's styles brought up to date, a relayout
 // the page laid out whole, however either was asked for; a paint is the
 // window's frame drawn again, its area in device pixels. The milliseconds
 // include what a phase fetched: the sheets and the pictures come through
 // the loader inside their phase.
 struct Profile {
     std::uint64_t restyles = 0;
+    // What the restyles computed: the elements, summed, and the restyles
+    // that computed the whole document (the first, a new set of rules, a
+    // change nothing bounds); the others computed only what had changed.
+    std::uint64_t restyled_elements = 0;
+    std::uint64_t whole_restyles = 0;
     std::uint64_t relayouts = 0;
     std::uint64_t paints = 0;
     // The frames for which the header alone was drawn again — a theme's

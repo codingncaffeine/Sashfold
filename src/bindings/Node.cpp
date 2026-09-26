@@ -605,7 +605,7 @@ js::Value attribute_map(Realm::Internals& in, dom::Element& element)
     js::ArrayObject* map = interpreter.new_array();
     map->set_prototype(in.prototype("NamedNodeMap"));
     map->host_data = &element;
-    for (dom::Attr const& attribute : element.attributes()) {
+    for (dom::Attr const& attribute : std::as_const(element).attributes()) {
         js::Object* attr = interpreter.heap().allocate<PlainPlatformObject>(in.prototype("Attr"));
         map->push(js::Value::object(attr));
         std::string const name = attribute.qualified_name();
@@ -771,9 +771,10 @@ void replace_data(Realm::Internals& in, dom::Node& node, std::size_t offset, std
     count = std::min(count, units.size() - offset);
     units.replace(offset, count, data);
     std::string utf8 = js::utf8_from_utf16(units);
-    if (node.is_text())
+    if (node.is_text()) {
         static_cast<dom::Text&>(node).data = std::move(utf8);
-    else if (node.type() == dom::NodeType::ProcessingInstruction)
+        node.mark_style_data();
+    } else if (node.type() == dom::NodeType::ProcessingInstruction)
         static_cast<dom::ProcessingInstruction&>(node).data = std::move(utf8);
     else
         static_cast<dom::Comment&>(node).data = std::move(utf8);
@@ -1245,12 +1246,12 @@ void install_element(Realm::Internals& in, js::Object& element)
     element_getter(in, element, "attributes", [](Realm::Internals& internals, dom::Element& e) -> Native { return attribute_map(internals, e); });
     element_getter(in, element, "shadowRoot", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
     element_getter(in, element, "assignedSlot", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
-    element_method(in, element, "hasAttributes", 0, [](Realm::Internals&, dom::Element& e, Args) -> Native { return js::Value::boolean(!e.attributes().empty()); });
+    element_method(in, element, "hasAttributes", 0, [](Realm::Internals&, dom::Element& e, Args) -> Native { return js::Value::boolean(!std::as_const(e).attributes().empty()); });
     element_method(in, element, "getAttributeNames", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         js::Interpreter::Roots const roots(internals.interpreter);
         js::ArrayObject* names = internals.interpreter.new_array();
         internals.interpreter.root(js::Value::object(names));
-        for (dom::Attr const& attribute : e.attributes())
+        for (dom::Attr const& attribute : std::as_const(e).attributes())
             names->push(internals.string(attribute.qualified_name()));
         return js::Value::object(names);
     });
@@ -1271,7 +1272,7 @@ void install_element(Realm::Internals& in, js::Object& element)
         std::optional<std::string> const name = string_argument(internals, args, 1);
         if (!name)
             return std::nullopt;
-        for (dom::Attr const& attribute : e.attributes()) {
+        for (dom::Attr const& attribute : std::as_const(e).attributes()) {
             if (attribute.namespace_uri == *namespace_uri && attribute.local_name == *name)
                 return internals.string(attribute.value);
         }
@@ -1338,7 +1339,7 @@ void install_element(Realm::Internals& in, js::Object& element)
         std::optional<std::string> const name = string_argument(internals, args, 1);
         if (!name)
             return std::nullopt;
-        for (dom::Attr const& attribute : e.attributes()) {
+        for (dom::Attr const& attribute : std::as_const(e).attributes()) {
             if (attribute.namespace_uri == *namespace_uri && attribute.local_name == *name)
                 return js::Value::boolean(true);
         }
@@ -1368,8 +1369,9 @@ void install_element(Realm::Internals& in, js::Object& element)
         js::Interpreter::Roots const roots(internals.interpreter);
         js::Value const map = internals.interpreter.root(attribute_map(internals, e));
         auto* array = static_cast<js::ArrayObject*>(map.as_object());
-        for (std::size_t i = 0; i < e.attributes().size(); ++i) {
-            if (e.attributes()[i].has_qualified_name(lower))
+        std::vector<dom::Attr> const& attributes = std::as_const(e).attributes();
+        for (std::size_t i = 0; i < attributes.size(); ++i) {
+            if (attributes[i].has_qualified_name(lower))
                 return array->element(static_cast<std::uint32_t>(i));
         }
         return js::Value::null();

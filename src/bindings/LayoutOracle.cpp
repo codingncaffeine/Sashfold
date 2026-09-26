@@ -106,6 +106,7 @@ void LayoutOracle::retarget(dom::Document& document, net::Url const& base)
     m_style_set.reset();
     m_sheet_signature.clear();
     m_styles.clear();
+    m_style_record = {};
     m_layout = {};
 }
 
@@ -183,7 +184,9 @@ void LayoutOracle::ensure()
                 text::FontManager::instance().restore_page_faces(std::move(faces));
         }
     } const fonts_back { m_keep_page_fonts, page_faces };
-    m_styles = css::resolve_styles(*m_document, *m_style_set);
+    // Only what changed since the last answer is computed again; layout
+    // stays whole.
+    css::update_styles(*m_document, *m_style_set, m_styles, m_style_record);
     // The objects and embeds as the realm has decided them, so that a script
     // measuring an object's fallback, or an embed that represents nothing,
     // measures what is drawn.

@@ -551,6 +551,7 @@ struct Browser::Impl {
         std::optional<css::StyleSet> style_set; // the sheets compiled for style_media
         css::MediaContext style_media;
         css::StyleMap styles;
+        css::StyleRecord style_record; // what the next restyle needs to compute only what changed
         layout::ImageMap images; // the page's pictures, decoded
         // The source each <img> in `images` was had for, so that a source a
         // script changes afterwards is fetched again (and heard of again).
@@ -1902,8 +1903,12 @@ struct Browser::Impl {
         if (for_the_viewport && !compiled && !tab.styles.empty() && !touched)
             return;
         {
+            // Only what changed since the last restyle is computed again,
+            // unless nothing bounds the change; layout stays whole.
             Stopwatch const resolving(profile.restyle_ms);
-            tab.styles = css::resolve_styles(*tab.document, *tab.style_set);
+            css::RestyleOutcome const outcome = css::update_styles(*tab.document, *tab.style_set, tab.styles, tab.style_record);
+            profile.restyled_elements += outcome.computed;
+            profile.whole_restyles += outcome.whole ? 1 : 0;
         }
         ++profile.restyles;
     }
@@ -2598,6 +2603,9 @@ struct Browser::Impl {
         // Laid out again only when a font came: a pass that found them all
         // still on their way changes nothing.
         if (tab.fonts.size() != had) {
+            // The ex and ch lengths are measured in these faces: the next
+            // restyle computes everything.
+            tab.document->mark_style_everything();
             relayout(tab);
             dirty = true;
         }
@@ -3283,6 +3291,7 @@ struct Browser::Impl {
         tab.style_set.reset();
         tab.sheet_signature.clear();
         tab.styles.clear();
+        tab.style_record = {};
         tab.layout = layout::LayoutResult {};
         tab.runs.clear();
         tab.selection.reset();

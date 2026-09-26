@@ -1165,6 +1165,11 @@ struct ComputedStyle {
     // written, var() references already substituted): inherited, shared
     // with the parent until an element declares one of its own.
     std::shared_ptr<CustomProperties const> custom;
+    // Whether a property that does not inherit took its parent's value all
+    // the same (`inherit`, or `all: inherit`): such a style reads more of
+    // its parent than inheritance carries, so a restyle that recomputes the
+    // parent recomputes it too.
+    bool inherits_explicitly = false;
 
     // SVG's painting properties (SVG 2 §13), all inherited but the two
     // gradient-stop ones. They apply to the shapes inside an <svg> and

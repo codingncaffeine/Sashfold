@@ -118,12 +118,38 @@ public:
     // and clears this slot when it does.
     js::Object* wrapper = nullptr;
 
+    // What changed here since styles were last computed from the tree, each
+    // as the document's style clock stood when it happened (0: never). A
+    // resolver that last read the tree at clock c recomputes what carries a
+    // stamp of c or later, so two of them over one document (the shell's,
+    // and the one a script's questions go to) each see every change since
+    // their own last look, and nothing is ever cleared.
+    //   self: this element's own attributes or state changed;
+    //   children: a child was inserted or removed, or a child's text changed;
+    //   subtree: this node was inserted, and everything in it is new;
+    //   descendants: some node below carries one of the three.
+    struct StyleMarks {
+        std::uint32_t self = 0;
+        std::uint32_t children = 0;
+        std::uint32_t subtree = 0;
+        std::uint32_t descendants = 0;
+    };
+    StyleMarks const& style_marks() const { return m_style_marks; }
+    void mark_style_self();
+    void mark_style_children();
+    void mark_style_subtree();
+    // This node's text changed: its parent's children are marked, since
+    // :empty and dir=auto read the text an element holds.
+    void mark_style_data();
+
 private:
     friend class Document;
+    void mark_style_ancestors(std::uint32_t clock);
     Document* m_document;
     NodeType m_type;
     Node* m_parent = nullptr;
     std::vector<Node*> m_children;
+    StyleMarks m_style_marks;
 };
 
 struct Attr {
@@ -173,7 +199,14 @@ public:
     bool is_svg(std::string_view name) const { return m_namespace_uri == ns::svg && m_local_name == name; }
     bool is_mathml(std::string_view name) const { return m_namespace_uri == ns::mathml && m_local_name == name; }
 
-    std::vector<Attr>& attributes() { return m_attributes; }
+    // Whoever takes the attributes to change them has changed this element's
+    // style inputs, so the mutable view marks the element as it is handed
+    // out; a reader takes the const one.
+    std::vector<Attr>& attributes()
+    {
+        mark_style_self();
+        return m_attributes;
+    }
     std::vector<Attr> const& attributes() const { return m_attributes; }
     Attr const* find_attribute(std::string_view name) const;
     bool has_attribute(std::string_view name) const { return find_attribute(name) != nullptr; }
@@ -291,7 +324,31 @@ public:
     // The iterators' places whose root is one of this document's nodes.
     std::vector<IteratorPlace*> const& places() const { return m_places; }
 
+    // The clock the nodes' style marks are stamped with. A resolver moves
+    // it on as it reads the tree, and keeps the value it moved it to: what
+    // changes after that carries that stamp or a later one. Moving the clock
+    // changes nothing in the tree, so a reader of a const document may.
+    std::uint32_t style_clock() const { return m_style_clock; }
+    std::uint32_t advance_style_clock() const;
+    // Everything must be computed again: a change no mark on a node can say,
+    // such as the fonts the page is measured in. The stamp it was made at.
+    void mark_style_everything() { m_style_everything = m_style_clock; }
+    std::uint32_t style_everything_at() const { return m_style_everything; }
+    // The elements taken out of the document's tree, each with the clock
+    // when it went, so that a resolver can drop the styles it keeps for
+    // them without ever reading the element (which another document may
+    // have adopted and freed since). The list is let go of when it grows
+    // long; a resolver that last looked before `style_removals_from` cannot
+    // know what went, and computes everything.
+    struct StyleRemoval {
+        std::uint32_t at;
+        Element const* element;
+    };
+    std::vector<StyleRemoval> const& style_removals() const { return m_style_removals; }
+    std::uint32_t style_removals_from() const { return m_style_removals_from; }
+
 private:
+    friend class Node;
     friend void set_range(Range&, Node*, std::uint32_t, Node*, std::uint32_t);
     friend void release_range(Range&);
     friend void hold_place(IteratorPlace&);
@@ -300,6 +357,10 @@ private:
     std::vector<Range*> m_ranges;
     std::vector<IteratorPlace*> m_places;
     std::uint32_t m_base_elements = 0;
+    mutable std::uint32_t m_style_clock = 1;
+    std::uint32_t m_style_everything = 0;
+    mutable std::vector<StyleRemoval> m_style_removals;
+    mutable std::uint32_t m_style_removals_from = 0;
 };
 
 // Deep-copies a subtree; the clone's nodes are owned by `document`.

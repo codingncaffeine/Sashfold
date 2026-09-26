@@ -79,6 +79,7 @@ private:
     std::optional<css::StyleSet> m_style_set;
     std::vector<text::PageFont> m_fonts; // the document's own, from its sheets
     css::StyleMap m_styles;
+    css::StyleRecord m_style_record; // what the next update needs to compute only what changed
     layout::LayoutResult m_layout;
 };
 

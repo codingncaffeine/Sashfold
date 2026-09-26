@@ -2262,6 +2262,7 @@ void TreeBuilder::insert_character(char32_t code_point)
 
     if (previous && previous->is_text()) {
         append_utf8(static_cast<Text*>(previous)->data, code_point);
+        previous->mark_style_data();
         return;
     }
     Text* text = m_document.create<Text>();

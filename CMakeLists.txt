@@ -107,6 +107,7 @@ add_library(sashfold_core STATIC
   src/css/Grid.cpp
   src/css/Parser.cpp
   src/css/Selector.cpp
+  src/css/StyleDifference.cpp
   src/css/StyleResolver.cpp
   src/css/Stylesheets.cpp
   src/css/Tokenizer.cpp

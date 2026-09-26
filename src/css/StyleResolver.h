@@ -8,8 +8,11 @@
 #include "css/Stylesheets.h"
 
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
+#include <string>
 #include <string_view>
 #include <unordered_map>
 #include <vector>
@@ -28,6 +31,21 @@ using StyleMap = std::unordered_map<dom::Element const*, ComputedStyle>;
 using StyleAttributeCheck = std::function<bool(dom::Element const& element, std::string_view text)>;
 
 struct RuleSet;
+
+// What a set's selectors can read besides the element they end on and its
+// ancestors, which decides how far a change to one element can reach:
+// sibling combinators and the `of S` counts read the siblings before it
+// (their attributes as much as their number), the positional pseudo-classes
+// its place among them, :empty its children, :has() anything below or after
+// it, and ::first-letter styles are handed down past the element that asks.
+struct StyleUses {
+    bool sibling_combinators = false; // + and ~
+    bool positional = false; // :nth-*, :first-/:last-/:only-child and -of-type
+    bool nth_of = false; // :nth-child(An+B of S), :nth-last-child(... of S)
+    bool empty = false; // :empty
+    bool has = false; // :has()
+    bool first_letter = false; // ::first-letter
+};
 
 // The UA stylesheet and the author sheets, in order, parsed, compiled and
 // indexed once for a media context: the part of style resolution that does
@@ -67,11 +85,63 @@ public:
     // The page's say on style attributes, asked for each one at every
     // resolution; none set means every attribute applies.
     void set_style_attribute_check(StyleAttributeCheck check);
+    StyleUses const& uses() const;
+    // A number no other set, and no earlier state of this one, has had: it
+    // moves whenever what the set computes could change (a new viewport, a
+    // new say on style attributes), so styles kept from before are known
+    // to be from another set.
+    std::uint64_t generation() const;
 
 private:
     friend StyleMap resolve_styles(dom::Document const& document, StyleSet const& set);
+    friend struct Restyler;
     std::unique_ptr<RuleSet> m_rules;
 };
+
+// What update_styles keeps between runs beside the map it brings up to
+// date: which document and which state of which set the map is for, how far
+// along the document's style clock it has read, and the styles of the root
+// and body as the cascade gave them, before the viewport took their
+// overflow and the root took body's writing mode. Its holder keeps it with
+// the map and hands both over together; a fresh record makes the next
+// update compute everything.
+struct StyleRecord {
+    dom::Document const* document = nullptr;
+    std::uint64_t set_generation = 0;
+    std::uint32_t read_at = 0;
+    int quirks = -1;
+    dom::Element const* root = nullptr;
+    dom::Element const* body = nullptr;
+    std::optional<ComputedStyle> root_cascaded;
+    std::optional<ComputedStyle> body_cascaded;
+};
+
+// How an update went: how many elements it computed, whether it computed
+// the whole document, and why when it did.
+struct RestyleOutcome {
+    std::size_t computed = 0;
+    bool whole = false;
+    std::string_view reason;
+};
+
+// Brings `styles` up to date with the document: the elements the style
+// marks say changed since `record` was last read, and what those changes
+// can reach, are computed again against their parents' current styles;
+// every other element keeps its style as it was. What cannot be bounded,
+// or was never computed, is computed whole as resolve_styles does, and
+// the outcome says so.
+RestyleOutcome update_styles(dom::Document const& document, StyleSet const& set, StyleMap& styles, StyleRecord& record);
+
+// Resolves the document from scratch and compares every element's style
+// with the one `styles` holds, field by field: the first element that is
+// missing, kept though it is not in the tree, or different, with the
+// field; nullopt when the two agree. What makes an update's bounds
+// checkable.
+std::optional<std::string> check_incremental(dom::Document const& document, StyleSet const& set, StyleMap const& styles);
+
+// The first field, by name, in which two computed styles differ: lists by
+// what they hold, custom properties by the values an element sees.
+std::optional<std::string_view> first_style_difference(ComputedStyle const& a, ComputedStyle const& b);
 
 // Matches every element against the set, cascades with the style=""
 // attributes, and computes styles (subtrees under display:none still get

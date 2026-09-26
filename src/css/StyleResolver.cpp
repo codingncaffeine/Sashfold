@@ -14,6 +14,7 @@
 
 #include <algorithm>
 #include <array>
+#include <atomic>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -26,6 +27,7 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace sashfold::css {
@@ -2231,8 +2233,72 @@ struct RuleSet {
                     by_type[lowercased(*type)].push_back(candidate);
                 else
                     universal.push_back(candidate);
+                note_uses(selectors[s]);
             }
         }
+    }
+
+    // What the set's selectors read beyond the element and its ancestors,
+    // down through every selector argument.
+    StyleUses uses;
+    void note_uses(ComplexSelector const& selector)
+    {
+        if (selector.pseudo_element == ComplexSelector::PseudoElement::FirstLetter)
+            uses.first_letter = true;
+        for (Combinator const combinator : selector.combinators) {
+            if (combinator == Combinator::NextSibling || combinator == Combinator::SubsequentSibling)
+                uses.sibling_combinators = true;
+        }
+        for (CompoundSelector const& compound : selector.compounds) {
+            for (SimpleSelector const& simple : compound.simples) {
+                switch (simple.pseudo) {
+                case SimpleSelector::PseudoKind::FirstChild:
+                case SimpleSelector::PseudoKind::LastChild:
+                case SimpleSelector::PseudoKind::OnlyChild:
+                case SimpleSelector::PseudoKind::FirstOfType:
+                case SimpleSelector::PseudoKind::LastOfType:
+                case SimpleSelector::PseudoKind::OnlyOfType:
+                case SimpleSelector::PseudoKind::NthOfType:
+                case SimpleSelector::PseudoKind::NthLastOfType:
+                    uses.positional = true;
+                    break;
+                case SimpleSelector::PseudoKind::NthChild:
+                case SimpleSelector::PseudoKind::NthLastChild:
+                    uses.positional = true;
+                    if (simple.argument)
+                        uses.nth_of = true;
+                    break;
+                case SimpleSelector::PseudoKind::Empty:
+                    uses.empty = true;
+                    break;
+                case SimpleSelector::PseudoKind::Has:
+                    uses.has = true;
+                    break;
+                case SimpleSelector::PseudoKind::None:
+                case SimpleSelector::PseudoKind::Root:
+                case SimpleSelector::PseudoKind::AnyLink:
+                case SimpleSelector::PseudoKind::Link:
+                case SimpleSelector::PseudoKind::Scope:
+                case SimpleSelector::PseudoKind::Not:
+                case SimpleSelector::PseudoKind::Is:
+                case SimpleSelector::PseudoKind::Where:
+                case SimpleSelector::PseudoKind::NeverMatches:
+                    break;
+                }
+                if (simple.argument) {
+                    for (ComplexSelector const& inner : simple.argument->selectors)
+                        note_uses(inner);
+                }
+            }
+        }
+    }
+
+    // The set's state, as StyleSet::generation tells it.
+    std::uint64_t generation = next_generation();
+    static std::uint64_t next_generation()
+    {
+        static std::atomic<std::uint64_t> counter { 0 };
+        return ++counter;
     }
 
     MediaContext media;
@@ -2679,6 +2745,43 @@ struct Resolver {
         return text;
     }
 
+    // An element's generated boxes and ::first-letter, cascaded from the rules
+    // compute_for matched for their targets (still in the scratch lists), each
+    // inheriting from the element. The boxes are returned for the text they
+    // show, which waits until the walk has stepped into the element, since a
+    // pseudo-element is a child of it: the ::before before the children, the
+    // ::after after them, the order the quotation marks want too.
+    GeneratedContent* dress(dom::Element const& element, ComputedStyle& style)
+    {
+        GeneratedContent* generated = nullptr;
+        if (style.display != Display::None && can_generate(element)) {
+            std::optional<ComputedStyle> before;
+            std::optional<ComputedStyle> after;
+            if (!matched_rules[1].empty())
+                before = cascade(1, element, style, false);
+            if (!matched_rules[2].empty())
+                after = cascade(2, element, style, false);
+            bool const has_before = before && generates_box(*before);
+            bool const has_after = after && generates_box(*after);
+            if (has_before || has_after) {
+                auto boxes = std::make_shared<GeneratedContent>();
+                if (has_before)
+                    boxes->before = GeneratedBox { std::move(*before), {} };
+                if (has_after)
+                    boxes->after = GeneratedBox { std::move(*after), {} };
+                generated = boxes.get();
+                style.generated = std::move(boxes);
+            }
+        }
+        // ::first-letter addresses a block container's first line, so a flex
+        // or grid container, a table box or a row is passed by. Layout decides
+        // whether there is a first letter to dress; the style is ready either
+        // way.
+        if (is_block_container_display(style.display) && !matched_rules[3].empty())
+            style.first_letter = std::make_shared<ComputedStyle const>(cascade(3, element, style, false));
+        return generated;
+    }
+
     void resolve_tree(dom::Node const& node, ComputedStyle const& parent_style)
     {
         ComputedStyle const* style_for_children = &parent_style;
@@ -2700,40 +2803,9 @@ struct Resolver {
                 ++display_none_depth;
             }
             apply_counter_ops(style);
-            // The generated boxes: each cascades from the rules matched for
-            // its target (still in the scratch lists), inheriting from the
-            // element. Their own counter work and text wait until the walk
-            // has stepped into the element, since a pseudo-element is a
-            // child of it — the ::before before the children, the ::after
-            // after them, which is the order the quotation marks want too.
-            if (style.display != Display::None && can_generate(element)) {
-                std::optional<ComputedStyle> before;
-                std::optional<ComputedStyle> after;
-                if (!matched_rules[1].empty())
-                    before = cascade(1, element, style, false);
-                if (!matched_rules[2].empty())
-                    after = cascade(2, element, style, false);
-                bool const has_before = before && generates_box(*before);
-                bool const has_after = after && generates_box(*after);
-                if (has_before || has_after) {
-                    auto boxes = std::make_shared<GeneratedContent>();
-                    if (has_before)
-                        boxes->before = GeneratedBox { std::move(*before), {} };
-                    if (has_after)
-                        boxes->after = GeneratedBox { std::move(*after), {} };
-                    generated = boxes.get();
-                    owner = &element;
-                    style.generated = std::move(boxes);
-                }
-            }
-            // ::first-letter cascades the same way, from the rules matched
-            // for its own target. It addresses a block container's first
-            // line, so a flex or grid container, a table box or a row is
-            // passed by. Layout decides whether there is a first letter to
-            // dress; the style is ready either way.
-            if (is_block_container_display(style.display) && !matched_rules[3].empty())
-                style.first_letter
-                    = std::make_shared<ComputedStyle const>(cascade(3, element, style, false));
+            generated = dress(element, style);
+            if (generated)
+                owner = &element;
             auto const [it, inserted] = map.emplace(&element, std::move(style));
             (void)inserted;
             style_for_children = &it->second;
@@ -3329,6 +3401,8 @@ struct Resolver {
             ComputedStyle const& from = from_parent ? parent : initial;
             property.copy(style, from);
             style.font_size = settled_font_size;
+            if (from_parent && !property.inherited)
+                style.inherits_explicitly = true;
             // A parent's border color that was currentColor inherits as the
             // keyword: this element's own color, settled at the end.
             if (property.border_colors & 1)
@@ -6478,6 +6552,490 @@ struct Resolver {
     }
 };
 
+namespace {
+
+// The html root among the document's children and the first body among its:
+// the viewport's overflow and the principal writing mode are taken from them.
+struct RootAndBody {
+    dom::Element const* root = nullptr;
+    dom::Element const* body = nullptr;
+    bool operator==(RootAndBody const&) const = default;
+};
+
+RootAndBody root_and_body(dom::Document const& document)
+{
+    RootAndBody found;
+    for (dom::Node const* child : document.children()) {
+        if (!child->is_element() || !static_cast<dom::Element const*>(child)->is_html("html"))
+            continue;
+        found.root = static_cast<dom::Element const*>(child);
+        for (dom::Node const* grandchild : child->children()) {
+            if (grandchild->is_element() && static_cast<dom::Element const*>(grandchild)->is_html("body")) {
+                found.body = static_cast<dom::Element const*>(grandchild);
+                break;
+            }
+        }
+        break;
+    }
+    return found;
+}
+
+// What the root and body give the viewport, written onto their styles once
+// everything has inherited from them as the cascade left them.
+void settle_root_and_body(StyleMap& map, RootAndBody const& pair)
+{
+    if (!pair.root)
+        return;
+    auto const html_it = map.find(pair.root);
+    if (html_it == map.end())
+        return;
+    auto const body_it = pair.body ? map.find(pair.body) : map.end();
+    // CSS 2.1 §11.1.1: the root's overflow applies to the viewport, and when
+    // the root's is visible, body's does instead — and the element it was
+    // taken from is then visible itself, so body still lets margins through
+    // and keeps no floats of its own.
+    if (html_it->second.overflow != Overflow::Visible) {
+        html_it->second.viewport_overflow_x = html_it->second.overflow_x;
+        html_it->second.viewport_overflow_y = html_it->second.overflow_y;
+        html_it->second.overflow = Overflow::Visible;
+        html_it->second.overflow_x = Overflow::Visible;
+        html_it->second.overflow_y = Overflow::Visible;
+    } else if (body_it != map.end()) {
+        html_it->second.viewport_overflow_x = body_it->second.overflow_x;
+        html_it->second.viewport_overflow_y = body_it->second.overflow_y;
+        body_it->second.overflow = Overflow::Visible;
+        body_it->second.overflow_x = Overflow::Visible;
+        body_it->second.overflow_y = Overflow::Visible;
+    }
+    // css-writing-modes-4 §3.1: the document's principal writing mode is
+    // the root's, except that an HTML root with a body child takes its used
+    // writing-mode and direction from that body instead. The computed
+    // values are left alone — everything has already inherited from them —
+    // so this settles only the mode the page is laid out in, and it is what
+    // keeps a `body { writing-mode: vertical-rl }` from standing sideways
+    // inside an upright root.
+    if (body_it != map.end()) {
+        html_it->second.writing_mode = body_it->second.writing_mode;
+        html_it->second.direction = body_it->second.direction;
+    }
+}
+
+// Whether an element's direction is read from its own text (dir=auto, and a
+// bdi without a direction of its own), so that a change anywhere inside it
+// can change its style. Wider than the hints' own test: any namespace.
+bool reads_own_text_direction(dom::Element const& element)
+{
+    dom::Attr const* const dir = element.find_attribute("dir");
+    if (dir && ascii_ci_equals(dir->value, "auto"))
+        return true;
+    if (element.local_name() != "bdi")
+        return false;
+    return !dir || !(ascii_ci_equals(dir->value, "ltr") || ascii_ci_equals(dir->value, "rtl"));
+}
+
+bool same_counter_ops(std::shared_ptr<CounterOps const> const& a, std::shared_ptr<CounterOps const> const& b)
+{
+    if (!a || a->empty())
+        return !b || b->empty();
+    return b && *a == *b;
+}
+
+// Whether a box's generated content takes part in the counters and the
+// quotation marks, which run through the whole document in tree order.
+bool generated_counts(ComputedStyle const& style)
+{
+    if (!style.generated)
+        return false;
+    for (std::optional<GeneratedBox> const* box : { &style.generated->before, &style.generated->after }) {
+        if (!*box)
+            continue;
+        ComputedStyle const& pseudo = (*box)->style;
+        if (pseudo.counter_reset || pseudo.counter_increment || pseudo.counter_set || pseudo.display == Display::ListItem)
+            return true;
+        for (ContentItem const& item : pseudo.content.items) {
+            if (item.kind != ContentItem::Kind::String && item.kind != ContentItem::Kind::Attr)
+                return true;
+        }
+    }
+    return false;
+}
+
+// Whether a style does counter work of its own or reads the counters.
+bool numbers_itself(ComputedStyle const& style)
+{
+    return (style.counter_reset && !style.counter_reset->empty())
+        || (style.counter_increment && !style.counter_increment->empty())
+        || (style.counter_set && !style.counter_set->empty()) || style.display == Display::ListItem
+        || generated_counts(style);
+}
+
+// Two styles of one element whose counter work, and whose reading of the
+// counters, is the same: with everything before it in tree order unchanged,
+// the counters it sees and leaves behind are the ones it saw and left.
+bool same_counter_work(ComputedStyle const& before, ComputedStyle const& after)
+{
+    return same_counter_ops(before.counter_reset, after.counter_reset)
+        && same_counter_ops(before.counter_increment, after.counter_increment)
+        && same_counter_ops(before.counter_set, after.counter_set)
+        && (before.display == Display::ListItem) == (after.display == Display::ListItem)
+        && !generated_counts(before) && !generated_counts(after);
+}
+
+// Brings a kept map up to date in place, walking only where the style marks
+// say something changed since `since`. A change it cannot bound stops it,
+// with the reason, and the caller computes everything instead.
+struct Updater {
+    Resolver& resolver;
+    StyleUses const& uses;
+    StyleRecord& record;
+    std::uint32_t since;
+    // Elements whose direction is read from their own text, with a change
+    // somewhere inside them.
+    std::unordered_set<dom::Element const*> forced;
+    std::size_t computed = 0;
+    std::string_view bail;
+    bool root_or_body_computed = false;
+
+    // What a parent's recomputation asks of a child: nothing; the child
+    // itself (its inherited values or what it inherits explicitly may
+    // have changed); or the child and everything in it.
+    enum class Redo : std::uint8_t {
+        None,
+        Self,
+        Subtree,
+    };
+
+    bool changed(std::uint32_t stamp) const { return stamp >= since; }
+
+    void find_text_direction_readers(dom::Node const& node)
+    {
+        dom::Node::StyleMarks const& marks = node.style_marks();
+        if (changed(marks.self) || changed(marks.children) || changed(marks.subtree)) {
+            for (dom::Node const* up = &node; up; up = up->parent()) {
+                if (up->is_element() && reads_own_text_direction(static_cast<dom::Element const&>(*up)))
+                    forced.insert(static_cast<dom::Element const*>(up));
+            }
+        }
+        // A new subtree is computed whole; what reads its text from above
+        // was found on the way up.
+        if (changed(marks.subtree) || !changed(marks.descendants))
+            return;
+        for (dom::Node const* child : node.children())
+            find_text_direction_readers(*child);
+    }
+
+    // The style an element's children inherited from: its entry, but for
+    // the root and body, whose entries carry what they gave the viewport.
+    ComputedStyle const& kept_style(dom::Element const& element) const
+    {
+        if (&element == record.root && record.root_cascaded)
+            return *record.root_cascaded;
+        if (&element == record.body && record.body_cascaded)
+            return *record.body_cascaded;
+        return resolver.map.find(&element)->second;
+    }
+
+    bool subtree_numbers_itself(dom::Element const& element) const
+    {
+        std::vector<dom::Node const*> pending { &element };
+        while (!pending.empty()) {
+            dom::Node const* node = pending.back();
+            pending.pop_back();
+            if (node->is_element()) {
+                auto const kept = resolver.map.find(static_cast<dom::Element const*>(node));
+                if (kept != resolver.map.end() && numbers_itself(kept->second))
+                    return true;
+            }
+            for (dom::Node const* child : node->children())
+                pending.push_back(child);
+        }
+        return false;
+    }
+
+    static bool inherited_differ(ComputedStyle const& before, ComputedStyle const& after)
+    {
+        return first_style_difference(Resolver::inherited_from(before), Resolver::inherited_from(after)).has_value();
+    }
+
+    void run(dom::Document const& document)
+    {
+        // The styles of what left the tree go; one that took part in the
+        // counters leaves the ones after it numbered otherwise.
+        std::vector<dom::Document::StyleRemoval> const& removals = document.style_removals();
+        for (auto it = removals.rbegin(); it != removals.rend() && it->at >= since; ++it) {
+            auto const kept = resolver.map.find(it->element);
+            if (kept == resolver.map.end())
+                continue;
+            if (numbers_itself(kept->second)) {
+                bail = "an element that takes part in the counters left the tree";
+                return;
+            }
+            resolver.map.erase(kept);
+        }
+        find_text_direction_readers(document);
+        dom::Element const* root = nullptr;
+        for (dom::Node const* child : document.children()) {
+            if (!child->is_element())
+                continue;
+            if (root) {
+                bail = "the document has more than one element child";
+                return;
+            }
+            root = static_cast<dom::Element const*>(child);
+        }
+        if (root && resolver.map.contains(root))
+            resolver.root_font_size = kept_style(*root).font_size;
+        ComputedStyle initial;
+        initial.font_size = resolver.initial_font_size;
+        update_children(document, initial, Redo::None, false);
+        if (!bail.empty() || !root_or_body_computed)
+            return;
+        // The root or body computed again: both go back to what the cascade
+        // gave them, and give the viewport what they give it once more.
+        if (record.root && record.root_cascaded)
+            resolver.map.insert_or_assign(record.root, *record.root_cascaded);
+        if (record.body && record.body_cascaded)
+            resolver.map.insert_or_assign(record.body, *record.body_cascaded);
+        settle_root_and_body(resolver.map, RootAndBody { record.root, record.body });
+    }
+
+    void update_children(dom::Node const& parent, ComputedStyle const& parent_style, Redo from_parent, bool parent_recomputed)
+    {
+        // Every child, when a child came or went or its text changed and the
+        // selectors count places or look at siblings, or when a sibling's own
+        // change reaches the others through `of S`.
+        bool all = from_parent == Redo::Subtree;
+        if (!all && changed(parent.style_marks().children) && (uses.sibling_combinators || uses.positional))
+            all = true;
+        if (!all && uses.nth_of) {
+            for (dom::Node const* child : parent.children()) {
+                if (child->is_element()
+                    && (changed(child->style_marks().self) || forced.contains(static_cast<dom::Element const*>(child)))) {
+                    all = true;
+                    break;
+                }
+            }
+        }
+        // A sibling that changed reaches the ones after it through + and ~.
+        bool after_change = false;
+        for (dom::Node const* child : parent.children()) {
+            if (!bail.empty())
+                return;
+            if (!child->is_element())
+                continue;
+            auto const& element = static_cast<dom::Element const&>(*child);
+            dom::Node::StyleMarks const& marks = element.style_marks();
+            auto const kept = resolver.map.find(&element);
+            bool const own = kept == resolver.map.end() || changed(marks.self) || changed(marks.subtree)
+                || forced.contains(&element) || (uses.empty && changed(marks.children));
+            Redo redo = all || after_change || own ? Redo::Subtree : Redo::None;
+            if (own && uses.sibling_combinators)
+                after_change = true;
+            if (redo == Redo::None
+                && (from_parent == Redo::Self || (parent_recomputed && kept->second.inherits_explicitly)))
+                redo = Redo::Self;
+            if (redo != Redo::None) {
+                recompute(element, parent_style, redo, kept == resolver.map.end() ? nullptr : &kept_style(element));
+                continue;
+            }
+            if (!changed(marks.descendants) && !changed(marks.children))
+                continue; // nothing in it changed: its styles stand as they are
+            std::vector<std::uint32_t> const offered = Resolver::identifier_hashes(element);
+            for (std::uint32_t const hash : offered)
+                resolver.ancestors.push(hash);
+            update_children(element, kept_style(element), Redo::None, false);
+            for (std::uint32_t const hash : offered)
+                resolver.ancestors.pop(hash);
+        }
+    }
+
+    void recompute(dom::Element const& element, ComputedStyle const& parent_style, Redo redo, ComputedStyle const* old)
+    {
+        bool const is_root = element.parent() && !element.parent()->is_element();
+        if (is_root)
+            resolver.root_font_size = resolver.initial_font_size;
+        ComputedStyle style = resolver.compute_for(element, parent_style);
+        ++computed;
+        if (is_root) {
+            if (old && old->font_size != style.font_size) {
+                bail = "the root's font size changed, which every rem length reads";
+                return;
+            }
+            resolver.root_font_size = style.font_size;
+        }
+        GeneratedContent* const generated = resolver.dress(element, style);
+        // Counters and quotation marks run through the document in tree
+        // order; a change to what one element does with them reaches
+        // everything after it, and that is not bounded here.
+        if (!old) {
+            if (numbers_itself(style)) {
+                bail = "a new element takes part in the counters";
+                return;
+            }
+        } else {
+            if (!same_counter_work(*old, style)) {
+                bail = "an element's part in the counters changed";
+                return;
+            }
+            if ((old->display == Display::None) != (style.display == Display::None) && subtree_numbers_itself(element)) {
+                bail = "display: none came or went over counter work";
+                return;
+            }
+            style.list_item_value = old->list_item_value;
+        }
+        if (generated && generated->before)
+            generated->before->text = resolver.content_text(element, generated->before->style);
+        if (generated && generated->after)
+            generated->after->text = resolver.content_text(element, generated->after->style);
+
+        Redo children = redo == Redo::Subtree ? Redo::Subtree : Redo::None;
+        if (children == Redo::None && (!old || inherited_differ(*old, style)))
+            children = Redo::Self;
+        if (&element == record.root) {
+            record.root_cascaded = style;
+            root_or_body_computed = true;
+        }
+        if (&element == record.body) {
+            record.body_cascaded = style;
+            root_or_body_computed = true;
+        }
+        resolver.map.insert_or_assign(&element, std::move(style));
+        ComputedStyle const& for_children = kept_style(element);
+        std::vector<std::uint32_t> const offered = Resolver::identifier_hashes(element);
+        for (std::uint32_t const hash : offered)
+            resolver.ancestors.push(hash);
+        update_children(element, for_children, children, true);
+        for (std::uint32_t const hash : offered)
+            resolver.ancestors.pop(hash);
+    }
+};
+
+// Where an element stands, for a report: its tag, id and classes, and the
+// child indexes that lead to it from the document.
+std::string describe(dom::Element const& element)
+{
+    std::string text = "<" + element.local_name();
+    if (dom::Attr const* id = element.find_attribute("id"))
+        text += " id=\"" + id->value + "\"";
+    if (dom::Attr const* classes = element.find_attribute("class"))
+        text += " class=\"" + classes->value + "\"";
+    text += "> at ";
+    std::vector<std::uint32_t> path;
+    for (dom::Node const* node = &element; node->parent(); node = node->parent())
+        path.push_back(node->index());
+    for (std::size_t i = path.size(); i-- > 0;)
+        text += "/" + std::to_string(path[i]);
+    return text;
+}
+
+}
+
+// The whole resolution, and the incremental one over it; a friend of
+// StyleSet, which keeps its compiled rules to itself.
+struct Restyler {
+    static StyleMap resolve_whole(dom::Document const& document, StyleSet const& set, StyleRecord* record)
+    {
+        set.m_rules->viewport_lengths = 0; // said again by this resolution
+        Resolver resolver(*set.m_rules);
+        ComputedStyle initial;
+        initial.font_size = resolver.initial_font_size;
+        resolver.resolve_tree(document, initial);
+        resolver.hand_down_first_letters(document);
+        RootAndBody const pair = root_and_body(document);
+        if (record) {
+            record->document = &document;
+            record->set_generation = set.m_rules->generation;
+            record->quirks = static_cast<int>(document.quirks_mode);
+            record->root = pair.root;
+            record->body = pair.body;
+            record->root_cascaded.reset();
+            record->body_cascaded.reset();
+            if (auto const it = pair.root ? resolver.map.find(pair.root) : resolver.map.end(); it != resolver.map.end())
+                record->root_cascaded = it->second;
+            if (auto const it = pair.body ? resolver.map.find(pair.body) : resolver.map.end(); it != resolver.map.end())
+                record->body_cascaded = it->second;
+        }
+        settle_root_and_body(resolver.map, pair);
+        return std::move(resolver.map);
+    }
+
+    static RestyleOutcome update(dom::Document const& document, StyleSet const& set, StyleMap& styles, StyleRecord& record)
+    {
+        RuleSet const& rules = *set.m_rules;
+        std::string_view reason;
+        if (record.read_at == 0 || record.document != &document)
+            reason = "nothing computed before";
+        else if (record.set_generation != rules.generation)
+            reason = "the rules or the viewport changed";
+        else if (record.quirks != static_cast<int>(document.quirks_mode))
+            reason = "the quirks mode changed";
+        else if (document.style_everything_at() >= record.read_at)
+            reason = "the document asked for everything";
+        else if (document.style_removals_from() > record.read_at)
+            reason = "too many removals to follow";
+        else if (rules.uses.has)
+            reason = ":has() can reach anything";
+        else if (rules.uses.first_letter)
+            reason = "::first-letter styles are handed down";
+        else if (!(root_and_body(document) == RootAndBody { record.root, record.body }))
+            reason = "the root or body is another element";
+        std::uint32_t const since = record.read_at;
+        record.read_at = document.advance_style_clock();
+        if (reason.empty()) {
+            Resolver resolver(rules);
+            resolver.map = std::move(styles);
+            Updater updater { resolver, rules.uses, record, since, {}, 0, {}, false };
+            updater.run(document);
+            if (updater.bail.empty()) {
+                styles = std::move(resolver.map);
+                return RestyleOutcome { updater.computed, false, {} };
+            }
+            reason = updater.bail;
+        }
+        styles = resolve_whole(document, set, &record);
+        return RestyleOutcome { styles.size(), true, reason };
+    }
+
+    static std::optional<std::string> check(dom::Document const& document, StyleSet const& set, StyleMap const& styles)
+    {
+        unsigned const kept_bits = set.m_rules->viewport_lengths;
+        StyleMap const fresh = resolve_whole(document, set, nullptr);
+        set.m_rules->viewport_lengths = kept_bits;
+        std::optional<std::string> found;
+        std::vector<dom::Node const*> pending { &document };
+        while (!pending.empty() && !found) {
+            dom::Node const* node = pending.back();
+            pending.pop_back();
+            if (node->is_element()) {
+                auto const& element = static_cast<dom::Element const&>(*node);
+                auto const expected = fresh.find(&element);
+                auto const actual = styles.find(&element);
+                if (expected == fresh.end())
+                    found = describe(element) + ": not resolved from scratch";
+                else if (actual == styles.end())
+                    found = describe(element) + ": no style kept";
+                else if (std::optional<std::string_view> const field = first_style_difference(expected->second, actual->second))
+                    found = describe(element) + ": " + std::string(*field);
+            }
+            for (std::size_t i = node->children().size(); i-- > 0;)
+                pending.push_back(node->children()[i]);
+        }
+        if (!found && styles.size() != fresh.size())
+            found = std::to_string(styles.size()) + " styles kept for " + std::to_string(fresh.size()) + " elements in the tree";
+        return found;
+    }
+};
+
+RestyleOutcome update_styles(dom::Document const& document, StyleSet const& set, StyleMap& styles, StyleRecord& record)
+{
+    return Restyler::update(document, set, styles, record);
+}
+
+std::optional<std::string> check_incremental(dom::Document const& document, StyleSet const& set, StyleMap const& styles)
+{
+    return Restyler::check(document, set, styles);
+}
+
 void set_gap_sink(GapSink sink)
 {
     gap_sink() = std::move(sink);
@@ -6885,7 +7443,12 @@ StyleSet& StyleSet::operator=(StyleSet&&) noexcept = default;
 void StyleSet::set_style_attribute_check(StyleAttributeCheck check)
 {
     m_rules->attribute_check = std::move(check);
+    m_rules->generation = RuleSet::next_generation();
 }
+
+StyleUses const& StyleSet::uses() const { return m_rules->uses; }
+
+std::uint64_t StyleSet::generation() const { return m_rules->generation; }
 
 std::size_t StyleSet::rule_count() const { return m_rules->rules.size(); }
 
@@ -6908,6 +7471,7 @@ void StyleSet::set_viewport(float width, float height)
 {
     m_rules->media.width = width;
     m_rules->media.height = height;
+    m_rules->generation = RuleSet::next_generation();
 }
 
 bool StyleSet::viewport_lengths() const { return m_rules->viewport_lengths != 0; }
@@ -6916,71 +7480,7 @@ bool StyleSet::viewport_height_lengths() const { return (m_rules->viewport_lengt
 
 StyleMap resolve_styles(dom::Document const& document, StyleSet const& set)
 {
-    set.m_rules->viewport_lengths = 0; // said again by this resolution
-    Resolver resolver(*set.m_rules);
-    ComputedStyle initial;
-    initial.font_size = resolver.initial_font_size;
-    resolver.resolve_tree(document, initial);
-    resolver.hand_down_first_letters(document);
-    // CSS 2.1 §11.1.1: the root's overflow applies to the viewport, and when
-    // the root's is visible, body's does instead — and the element it was
-    // taken from is then visible itself, so body still lets margins through
-    // and keeps no floats of its own.
-    for (dom::Node const* child : document.children()) {
-        if (!child->is_element() || !static_cast<dom::Element const*>(child)->is_html("html"))
-            continue;
-        auto const html_it = resolver.map.find(static_cast<dom::Element const*>(child));
-        if (html_it == resolver.map.end())
-            continue;
-        if (html_it->second.overflow != Overflow::Visible) {
-            html_it->second.viewport_overflow_x = html_it->second.overflow_x;
-            html_it->second.viewport_overflow_y = html_it->second.overflow_y;
-            html_it->second.overflow = Overflow::Visible;
-            html_it->second.overflow_x = Overflow::Visible;
-            html_it->second.overflow_y = Overflow::Visible;
-            break;
-        }
-        for (dom::Node const* grandchild : child->children()) {
-            if (!grandchild->is_element() || !static_cast<dom::Element const*>(grandchild)->is_html("body"))
-                continue;
-            if (auto const body_it = resolver.map.find(static_cast<dom::Element const*>(grandchild));
-                body_it != resolver.map.end()) {
-                html_it->second.viewport_overflow_x = body_it->second.overflow_x;
-                html_it->second.viewport_overflow_y = body_it->second.overflow_y;
-                body_it->second.overflow = Overflow::Visible;
-                body_it->second.overflow_x = Overflow::Visible;
-                body_it->second.overflow_y = Overflow::Visible;
-            }
-            break;
-        }
-        break;
-    }
-    // css-writing-modes-4 §3.1: the document's principal writing mode is
-    // the root's, except that an HTML root with a body child takes its used
-    // writing-mode and direction from that body instead. The computed
-    // values are left alone — everything has already inherited from them —
-    // so this settles only the mode the page is laid out in, and it is what
-    // keeps a `body { writing-mode: vertical-rl }` from standing sideways
-    // inside an upright root.
-    for (dom::Node const* child : document.children()) {
-        if (!child->is_element() || !static_cast<dom::Element const*>(child)->is_html("html"))
-            continue;
-        auto const html_it = resolver.map.find(static_cast<dom::Element const*>(child));
-        if (html_it == resolver.map.end())
-            break;
-        for (dom::Node const* grandchild : child->children()) {
-            if (!grandchild->is_element() || !static_cast<dom::Element const*>(grandchild)->is_html("body"))
-                continue;
-            if (auto const body_it = resolver.map.find(static_cast<dom::Element const*>(grandchild));
-                body_it != resolver.map.end()) {
-                html_it->second.writing_mode = body_it->second.writing_mode;
-                html_it->second.direction = body_it->second.direction;
-            }
-            break;
-        }
-        break;
-    }
-    return std::move(resolver.map);
+    return Restyler::resolve_whole(document, set, nullptr);
 }
 
 StyleMap resolve_styles(dom::Document const& document, std::vector<SheetSource> const& sheets,
