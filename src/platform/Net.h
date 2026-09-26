@@ -39,6 +39,10 @@ public:
     // How long one receive may wait for the peer before it fails; zero
     // (the default) waits for as long as the peer takes.
     bool set_receive_timeout(int milliseconds);
+    // Ends both directions without giving up the handle: a receive blocked
+    // on another thread returns at once, which close() alone does not
+    // promise. Safe to call from any thread while the socket is in use.
+    void shutdown();
     void close();
 
 private:

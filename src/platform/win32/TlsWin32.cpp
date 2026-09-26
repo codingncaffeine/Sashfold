@@ -226,15 +226,28 @@ bool TlsSocket::available()
     return true;
 }
 
-std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const& host, std::uint16_t port)
+std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const& host, std::uint16_t port, bool offer_h2)
 {
     // SChannel keeps its own session cache and resumes on its own; the
-    // port is the Linux backend's business.
+    // port is the Linux backend's business. This backend sends no ALPN, so
+    // every connection it makes speaks HTTP/1.1.
     static_cast<void>(port);
+    static_cast<void>(offer_h2);
     auto impl = std::make_unique<Impl>(std::move(socket));
     if (!impl->handshake(host))
         return std::nullopt;
     return TlsSocket(std::move(impl));
+}
+
+std::string TlsSocket::alpn() const
+{
+    return {};
+}
+
+void TlsSocket::shutdown()
+{
+    if (m_impl)
+        m_impl->socket.shutdown();
 }
 
 TlsSocket::TlsSocket(std::unique_ptr<Impl> impl)

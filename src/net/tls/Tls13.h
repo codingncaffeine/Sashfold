@@ -157,6 +157,9 @@ struct TlsConfig {
     std::optional<Session12> resume_session;
     std::function<void(Ticket)> on_ticket;
     std::function<void(Session12)> on_session;
+    // RFC 7301: the application protocols to offer, in order of preference;
+    // the server must choose one of them or none. Empty sends no ALPN.
+    std::vector<std::string> alpn { "http/1.1" };
 };
 
 // What one call produced: bytes for the socket and plaintext for the caller.

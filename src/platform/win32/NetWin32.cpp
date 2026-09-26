@@ -82,6 +82,12 @@ TcpSocket::~TcpSocket()
     close();
 }
 
+void TcpSocket::shutdown()
+{
+    if (m_handle != invalid_handle)
+        ::shutdown(static_cast<SOCKET>(m_handle), SD_BOTH);
+}
+
 void TcpSocket::close()
 {
     if (m_handle != invalid_handle) {

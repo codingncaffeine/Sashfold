@@ -27,8 +27,12 @@ public:
     // Takes ownership of the connected socket and runs the handshake with
     // SNI for `host`. nullopt on any handshake or validation failure. The
     // port names, with the host, the server whose session the connection
-    // may resume and whose tickets it keeps for the next one.
-    static std::optional<TlsSocket> connect(TcpSocket socket, std::string const& host, std::uint16_t port = 443);
+    // may resume and whose tickets it keeps for the next one. With
+    // `offer_h2`, the hello offers ALPN "h2" ahead of "http/1.1"; alpn()
+    // then says which the server chose. A backend without ALPN offers
+    // neither and reports nothing chosen, which reads as HTTP/1.1.
+    static std::optional<TlsSocket> connect(TcpSocket socket, std::string const& host, std::uint16_t port = 443,
+        bool offer_h2 = false);
 
     TlsSocket(TlsSocket&&) noexcept;
     TlsSocket& operator=(TlsSocket&&) noexcept;
@@ -36,11 +40,18 @@ public:
     TlsSocket& operator=(TlsSocket const&) = delete;
     ~TlsSocket();
 
+    // One thread may receive while another sends: an HTTP/2 connection is
+    // read by its own thread and written by the fetches it carries. Two
+    // senders, or two receivers, must take turns.
     bool send_all(std::uint8_t const* data, std::size_t size);
     // >0 plaintext bytes, 0 orderly close, <0 error.
     std::ptrdiff_t receive(std::uint8_t* buffer, std::size_t size);
     // As TcpSocket::set_receive_timeout, on the socket underneath.
     bool set_receive_timeout(int milliseconds);
+    // The application protocol the server chose, or empty.
+    std::string alpn() const;
+    // As TcpSocket::shutdown: wakes a receive blocked on another thread.
+    void shutdown();
     void close();
 
 private:

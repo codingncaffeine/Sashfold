@@ -134,7 +134,10 @@ add_library(sashfold_core STATIC
   src/net/DataUrl.cpp
   src/net/FetchPool.cpp
   src/net/Filters.cpp
+  src/net/Hpack.cpp
   src/net/Http.cpp
+  src/net/Http2.cpp
+  src/net/Http2Session.cpp
   src/net/Idna.cpp
   src/net/Url.cpp
   src/net/tls/Der.cpp

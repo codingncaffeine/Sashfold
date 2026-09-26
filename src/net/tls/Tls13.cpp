@@ -749,12 +749,15 @@ struct TlsEngine::Impl {
             // empty extension, which asks the server to issue one.
             extension(ext_session_ticket, session != nullptr ? View(session->ticket) : View {});
         }
-        {
+        if (!config.alpn.empty()) {
+            Bytes names;
+            for (std::string const& name : config.alpn) {
+                put8(names, static_cast<std::uint8_t>(name.size()));
+                names.insert(names.end(), name.begin(), name.end());
+            }
             Bytes alpn_list;
-            std::string const http11 = "http/1.1";
-            put16(alpn_list, static_cast<std::uint16_t>(http11.size() + 1));
-            put8(alpn_list, static_cast<std::uint8_t>(http11.size()));
-            alpn_list.insert(alpn_list.end(), http11.begin(), http11.end());
+            put16(alpn_list, static_cast<std::uint16_t>(names.size()));
+            alpn_list.insert(alpn_list.end(), names.begin(), names.end());
             extension(ext_alpn, alpn_list);
         }
         if (!cookie.empty()) {
@@ -1082,11 +1085,12 @@ struct TlsEngine::Impl {
             return false;
         }
         Reader l { list };
-        if (!l.vector8(name) || !l.done() || std::string(name.begin(), name.end()) != "http/1.1") {
+        std::string const chosen = l.vector8(name) && l.done() ? std::string(name.begin(), name.end()) : std::string();
+        if (chosen.empty() || std::find(config.alpn.begin(), config.alpn.end(), chosen) == config.alpn.end()) {
             fail(out, no_application_protocol, "the server chose a protocol that was not offered");
             return false;
         }
-        alpn = "http/1.1";
+        alpn = chosen;
         return true;
     }
 

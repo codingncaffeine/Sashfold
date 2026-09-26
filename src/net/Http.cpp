@@ -7,10 +7,13 @@
 #include "net/Connections.h"
 #include "net/Cookies.h"
 #include "net/DataUrl.h"
+#include "net/Http2Session.h"
 #include "platform/Tls.h"
 
 #include <algorithm>
 #include <chrono>
+#include <memory>
+#include <utility>
 #include <variant>
 
 namespace sashfold::net {
@@ -377,6 +380,7 @@ void FetchTiming::add(FetchTiming const& other)
     total_ms += other.total_ms;
     requests += other.requests;
     reused += other.reused;
+    http2 += other.http2;
     bytes += other.bytes;
 }
 
@@ -475,68 +479,57 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
         std::uint16_t const port = current.port.value_or(secure ? 443 : 80);
         std::string const key = origin_key(secure, current.host, port);
 
-        // An idle pooled connection to the origin first; a fresh one otherwise.
-        std::optional<Connection> connection;
-        bool reused = false;
-        if (options.pool) {
-            connection = options.pool->take(key, unix_now());
-            reused = connection.has_value();
-        }
         // A connection opened here adds its lookup, connect and handshake
         // to the fetch's account.
-        auto const open_connection = [&](std::string& error) {
+        auto const open_connection = [&](std::string& error, bool offer_h2) {
             ConnectionTiming opened;
-            std::optional<Connection> fresh = Connection::open(current.host, port, secure, error, &opened);
+            std::optional<Connection> fresh = Connection::open(current.host, port, secure, error, &opened, offer_h2);
             timing.resolve_ms += opened.resolve_ms;
             timing.connect_ms += opened.connect_ms;
             timing.tls_ms += opened.tls_ms;
             return fresh;
         };
-        if (!connection) {
-            std::string error;
-            connection = open_connection(error);
-            if (!connection)
-                return { std::nullopt, std::move(error) };
-            if (options.pool)
-                options.pool->note_opened();
-        }
-        if (options.receive_timeout_ms > 0)
-            connection->set_receive_timeout(options.receive_timeout_ms);
 
         std::string target = current.serialize_path();
         if (target.empty())
             target = "/";
         if (current.query)
             target += "?" + *current.query;
-        std::string request = method + " " + target + " HTTP/1.1\r\n";
-        request += "Host: " + current.serialize_host();
+        std::string authority = current.serialize_host();
         if (current.port) {
-            request += ':';
-            request += std::to_string(*current.port);
+            authority += ':';
+            authority += std::to_string(*current.port);
         }
-        request += "\r\n";
-        request += "User-Agent: " + std::string(user_agent()) + "\r\n";
+        // The request's fields after Host, in the order HTTP/1.1 writes
+        // them; HTTP/2 sends the same ones, lowercased, after its
+        // pseudo-fields.
+        std::vector<Header> fields;
+        fields.push_back({ "User-Agent", std::string(user_agent()) });
         if (find_header(headers, "accept") == nullptr)
-            request += "Accept: text/html,application/xhtml+xml,*/*;q=0.8\r\n";
-        request += "Accept-Encoding: gzip, deflate, br\r\n";
+            fields.push_back({ "Accept", "text/html,application/xhtml+xml,*/*;q=0.8" });
+        fields.push_back({ "Accept-Encoding", "gzip, deflate, br" });
         // The caller's headers; the ones the exchange owns are never theirs.
         for (Header const& header : headers) {
             std::string const name = lowered(header.name);
             if (name == "host" || name == "content-length" || name == "connection" || name == "accept-encoding"
                 || name == "cookie" || name == "transfer-encoding" || name == "user-agent")
                 continue;
-            request += header.name + ": " + header.value + "\r\n";
+            fields.push_back(header);
         }
         if (!revalidate_etag.empty() && find_header(headers, "if-none-match") == nullptr)
-            request += "If-None-Match: " + revalidate_etag + "\r\n";
+            fields.push_back({ "If-None-Match", revalidate_etag });
         if (!revalidate_modified.empty() && find_header(headers, "if-modified-since") == nullptr)
-            request += "If-Modified-Since: " + revalidate_modified + "\r\n";
+            fields.push_back({ "If-Modified-Since", revalidate_modified });
         if (!options.referrer.empty())
-            request += "Referer: " + options.referrer + "\r\n";
+            fields.push_back({ "Referer", options.referrer });
         if (!cookies.empty())
-            request += "Cookie: " + cookies + "\r\n";
+            fields.push_back({ "Cookie", cookies });
         if (!body.empty() || method == "POST" || method == "PUT" || method == "PATCH")
-            request += "Content-Length: " + std::to_string(body.size()) + "\r\n";
+            fields.push_back({ "Content-Length", std::to_string(body.size()) });
+        std::string request = method + " " + target + " HTTP/1.1\r\n";
+        request += "Host: " + authority + "\r\n";
+        for (Header const& field : fields)
+            request += field.name + ": " + field.value + "\r\n";
         request += options.pool ? "Connection: keep-alive\r\n\r\n" : "Connection: close\r\n\r\n";
         request.append(body.begin(), body.end());
 
@@ -573,26 +566,138 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
                 return "malformed HTTP response from " + current.serialize_host();
             return std::string();
         };
+        // HTTP/2 wherever TLS negotiates it (and, with prior knowledge, over
+        // plain http); HTTP/1.1 otherwise. A request an HTTP/2 server never
+        // processed goes once more on a new connection, and one an HTTP/2
+        // server spoke the protocol badly to goes once more over HTTP/1.1,
+        // which the origin speaks from then on.
+        bool const h2_possible = secure || options.http2_prior_knowledge;
+        bool http1_forced = false;
+        bool retried = false;
         std::optional<RawResponse> raw;
-        std::string failure = exchange(*connection, raw, reused);
-        if (!raw && reused) {
-            // The pooled connection was dead — the server's idle timeout won
-            // the race — so the request goes out once more, on a fresh one.
-            options.pool->note_retried();
-            std::string error;
-            connection = open_connection(error);
-            if (!connection)
-                return { std::nullopt, std::move(error) };
-            options.pool->note_opened();
-            failure = exchange(*connection, raw, false);
+        std::string failure;
+        while (true) {
+            bool const want_h2 = h2_possible && !http1_forced && !(options.pool && options.pool->http1_only(key));
+            std::shared_ptr<Http2Session> session;
+            bool reused = false;
+            // The first connection to an origin that may speak HTTP/2 is
+            // claimed, so the fetches beside it wait to share its session;
+            // the claim is settled on every way out of this attempt.
+            struct Claim {
+                ConnectionPool* pool = nullptr;
+                std::string const* key = nullptr;
+                bool held = false;
+                void settle(std::shared_ptr<Http2Session> opened)
+                {
+                    if (held)
+                        pool->settle(*key, std::move(opened));
+                    held = false;
+                }
+                ~Claim() { settle(nullptr); }
+            } claim;
+            if (want_h2 && options.pool) {
+                claim.pool = options.pool;
+                claim.key = &key;
+                session = options.pool->find_session(key, unix_now(), claim.held);
+                reused = session != nullptr;
+            }
+            std::optional<Connection> connection;
+            if (!session) {
+                // An idle pooled connection to the origin first; a fresh one otherwise.
+                if (options.pool && !claim.held) {
+                    connection = options.pool->take(key, unix_now());
+                    reused = connection.has_value();
+                }
+                if (!connection) {
+                    std::string error;
+                    connection = open_connection(error, want_h2 && secure);
+                    if (!connection)
+                        return { std::nullopt, std::move(error) };
+                    if (options.pool)
+                        options.pool->note_opened();
+                    bool const speaks_h2 = want_h2 && (!secure || connection->alpn() == "h2");
+                    if (speaks_h2) {
+                        Http2Config config;
+                        if (options.http2_stream_window != 0)
+                            config.stream_window = options.http2_stream_window;
+                        if (options.http2_connection_window != 0)
+                            config.connection_window = options.http2_connection_window;
+                        session = Http2Session::start(std::move(*connection), config);
+                        connection.reset();
+                    } else if (want_h2 && options.pool) {
+                        options.pool->note_http1_only(key);
+                    }
+                    claim.settle(session);
+                    if (speaks_h2 && !session) {
+                        failure = "the HTTP/2 preface could not be sent to " + current.serialize_host();
+                        http1_forced = true;
+                        if (options.pool)
+                            options.pool->note_http1_only(key);
+                        continue;
+                    }
+                }
+            }
+
+            if (session) {
+                Http2Session::Request exchanged;
+                exchanged.method = method;
+                exchanged.scheme = current.scheme;
+                exchanged.authority = authority;
+                exchanged.path = target;
+                exchanged.headers = fields;
+                exchanged.body = body;
+                Http2Session::Result result = session->exchange(exchanged, options.max_body, method == "HEAD", options.receive_timeout_ms);
+                ++timing.requests;
+                ++timing.http2;
+                if (reused)
+                    ++timing.reused;
+                timing.first_byte_ms += result.first_byte_ms;
+                timing.body_ms += result.body_ms;
+                timing.bytes += result.bytes;
+                if (result.outcome == Http2Session::Outcome::Done) {
+                    raw = std::move(result.response);
+                    break;
+                }
+                failure = std::move(result.error);
+                if (result.outcome == Http2Session::Outcome::Retry && !retried) {
+                    retried = true;
+                    if (options.pool)
+                        options.pool->note_retried();
+                    continue;
+                }
+                if (result.outcome == Http2Session::Outcome::ProtocolFailure) {
+                    // The next attempt is HTTP/1.1, which never comes back here.
+                    http1_forced = true;
+                    if (options.pool) {
+                        options.pool->note_http1_only(key);
+                        options.pool->note_retried();
+                    }
+                    continue;
+                }
+                break;
+            }
+
+            if (options.receive_timeout_ms > 0)
+                connection->set_receive_timeout(options.receive_timeout_ms);
+            failure = exchange(*connection, raw, reused);
+            if (!raw && reused) {
+                // The pooled connection was dead — the server's idle timeout won
+                // the race — so the request goes out once more, on a fresh one.
+                options.pool->note_retried();
+                std::string error;
+                connection = open_connection(error, false);
+                if (!connection)
+                    return { std::nullopt, std::move(error) };
+                options.pool->note_opened();
+                failure = exchange(*connection, raw, false);
+            }
+            // The connection outlives the response when the server left it open.
+            if (raw && options.pool && raw->keep_alive)
+                options.pool->give(key, std::move(*connection), unix_now());
+            break;
         }
         if (!raw)
             return { std::nullopt, std::move(failure) };
-
-        // The connection outlives the response when the server left it open.
-        if (options.pool && raw->keep_alive)
-            options.pool->give(key, std::move(*connection), unix_now());
-        connection.reset();
 
         // Set-Cookie applies on every hop, redirects included.
         if (options.cookie_jar)

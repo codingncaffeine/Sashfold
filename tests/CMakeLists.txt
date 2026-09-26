@@ -468,3 +468,17 @@ else()
   add_test(NAME test_tls_handshake COMMAND test_tls_handshake)
 endif()
 set_tests_properties(test_tls_handshake PROPERTIES TIMEOUT 300)
+
+# HTTP/2 and HPACK, then fetches against a loopback HTTP/2 server the test
+# writes itself; the one check through TLS runs against node's own HTTP/2
+# server (with a certificate openssl makes) when the configure step finds
+# both, and SKIPs without them.
+add_executable(test_http2 test_http2.cpp)
+target_link_libraries(test_http2 PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+find_program(SASHFOLD_NODE node)
+if(SASHFOLD_OPENSSL AND SASHFOLD_NODE)
+  add_test(NAME test_http2 COMMAND test_http2 ${SASHFOLD_OPENSSL} ${SASHFOLD_NODE})
+else()
+  add_test(NAME test_http2 COMMAND test_http2)
+endif()
+set_tests_properties(test_http2 PROPERTIES TIMEOUT 180)

@@ -108,6 +108,12 @@ TcpSocket::~TcpSocket()
     close();
 }
 
+void TcpSocket::shutdown()
+{
+    if (m_handle != invalid_handle)
+        ::shutdown(fd_of(m_handle), SHUT_RDWR);
+}
+
 void TcpSocket::close()
 {
     if (m_handle != invalid_handle) {

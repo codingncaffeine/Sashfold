@@ -211,7 +211,14 @@ int fetch_url(std::string const& input)
               << result.response->final_url.serialize() << ")\n";
     for (net::Header const& header : result.response->headers)
         std::cout << header.name << ": " << header.value << "\n";
-    std::cout << "\n[" << result.response->body.size() << " bytes of body]\n";
+    std::cout << "\n[" << result.response->body.size() << " bytes of body";
+    // Which protocol carried the exchanges (a redirect may cross from one
+    // server to another that speaks the other).
+    int const exchanges = result.timing.requests;
+    int const over_http2 = result.timing.http2;
+    if (exchanges > 0)
+        std::cout << (over_http2 == exchanges ? ", over HTTP/2" : over_http2 == 0 ? ", over HTTP/1.1" : ", over HTTP/2 and HTTP/1.1");
+    std::cout << "]\n";
     return 0;
 }
 
@@ -1072,7 +1079,8 @@ int render_page(std::string const& path, std::string const& output, int viewport
         }
         out
             << "  \"connections\": { \"opened\": " << connections.opened << ", \"reused\": "
-            << connections.reused << ", \"retried\": " << connections.retried << " },\n";
+            << connections.reused << ", \"retried\": " << connections.retried << ", \"http2_sessions\": "
+            << connections.sessions << " },\n";
         // Where the page's network time went, by what was fetched: the
         // loader's account of every fetch it made for this page.
         out << "  \"network\": " << census_json(loaded.loader->census()) << ",\n";

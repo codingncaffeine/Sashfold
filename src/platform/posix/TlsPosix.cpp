@@ -7,6 +7,7 @@
 #include "platform/Random.h"
 
 #include <array>
+#include <atomic>
 #include <chrono>
 #include <cstdio>
 #include <cstdlib>
@@ -196,12 +197,19 @@ void apply_version_request(tls::TlsConfig& config)
 
 }
 
+// Once connected, the engine is shared by the thread that receives and the
+// one that sends: `engine_mutex` covers every use of it, and the socket
+// writes that go with it, so records leave in the order they were sealed.
+// The receive itself waits outside the lock. The plaintext buffer and
+// `failed` are the receiving thread's alone.
 struct TlsSocket::Impl {
     TcpSocket socket;
+    std::mutex engine_mutex;
     tls::TlsEngine engine;
     std::vector<std::uint8_t> plaintext; // decrypted, not yet handed out
     std::size_t plaintext_at = 0;
-    bool closed = false;
+    std::atomic<bool> closed = false;
+    bool failed = false;
 
     Impl(TcpSocket s, tls::TlsConfig config)
         : socket(std::move(s))
@@ -245,6 +253,7 @@ struct TlsSocket::Impl {
             closed = true;
             return false;
         }
+        std::lock_guard<std::mutex> const lock(engine_mutex);
         tls::TlsOutput out;
         bool const ok = engine.feed(std::span<std::uint8_t const>(buffer, static_cast<std::size_t>(received)), out);
         if (!out.to_send.empty())
@@ -253,6 +262,7 @@ struct TlsSocket::Impl {
             plaintext.insert(plaintext.end(), out.plaintext.begin(), out.plaintext.end());
         if (!ok || engine.state() == tls::TlsState::Closed)
             closed = true;
+        failed = engine.state() == tls::TlsState::Failed;
         return !out.plaintext.empty();
     }
 };
@@ -262,9 +272,11 @@ bool TlsSocket::available()
     return true;
 }
 
-std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const& host, std::uint16_t port)
+std::optional<TlsSocket> TlsSocket::connect(TcpSocket socket, std::string const& host, std::uint16_t port, bool offer_h2)
 {
     tls::TlsConfig config;
+    if (offer_h2)
+        config.alpn = { "h2", "http/1.1" };
     // An IP literal sends no SNI (RFC 6066); a name does.
     bool const is_ip = !host.empty() && (host.find_first_not_of("0123456789.") == std::string::npos || host.find(':') != std::string::npos);
     if (!is_ip)
@@ -334,6 +346,7 @@ TlsSocket::~TlsSocket() = default;
 void TlsSocket::close()
 {
     if (m_impl && !m_impl->closed) {
+        std::lock_guard<std::mutex> const lock(m_impl->engine_mutex);
         std::vector<std::uint8_t> const alert = m_impl->engine.close_notify();
         if (!alert.empty())
             m_impl->socket.send_all(alert.data(), alert.size());
@@ -346,6 +359,7 @@ bool TlsSocket::send_all(std::uint8_t const* data, std::size_t size)
 {
     if (!m_impl)
         return false;
+    std::lock_guard<std::mutex> const lock(m_impl->engine_mutex);
     std::vector<std::uint8_t> const records = m_impl->engine.seal(std::span<std::uint8_t const>(data, size));
     return m_impl->send_records(records);
 }
@@ -353,6 +367,20 @@ bool TlsSocket::send_all(std::uint8_t const* data, std::size_t size)
 bool TlsSocket::set_receive_timeout(int milliseconds)
 {
     return m_impl && m_impl->socket.set_receive_timeout(milliseconds);
+}
+
+std::string TlsSocket::alpn() const
+{
+    if (!m_impl)
+        return {};
+    std::lock_guard<std::mutex> const lock(m_impl->engine_mutex);
+    return m_impl->engine.alpn();
+}
+
+void TlsSocket::shutdown()
+{
+    if (m_impl)
+        m_impl->socket.shutdown();
 }
 
 std::ptrdiff_t TlsSocket::receive(std::uint8_t* buffer, std::size_t size)
@@ -367,7 +395,7 @@ std::ptrdiff_t TlsSocket::receive(std::uint8_t* buffer, std::size_t size)
         m_impl->pull();
         if (m_impl->plaintext.empty() && m_impl->closed)
             return 0;
-        if (m_impl->plaintext.empty() && m_impl->engine.state() == tls::TlsState::Failed)
+        if (m_impl->plaintext.empty() && m_impl->failed)
             return -1;
     }
     std::size_t const available = m_impl->plaintext.size() - m_impl->plaintext_at;

@@ -5,7 +5,8 @@
 // decoding (gzip, deflate in both zlib and raw spellings), redirect
 // following, and persistent connections through a session's ConnectionPool
 // — all behind fetch(), the one choke point every load passes through.
-// https runs over the platform Tls seam where a backend exists.
+// https runs over the platform Tls seam where a backend exists, and speaks
+// HTTP/2 (net/Http2Session) wherever the server chooses it by ALPN.
 
 #include "net/Url.h"
 
@@ -94,6 +95,15 @@ struct FetchOptions {
     // blocklists and the page's Content Security Policy judge each hop
     // the way they judged the first request.
     std::function<std::optional<std::string>(Url& next)> hop_refusal;
+    // HTTP/2 goes wherever TLS negotiates it. Over plain http:// it is
+    // spoken only with prior knowledge (RFC 9113 Section 3.3), which no
+    // browser uses on the open web: the loopback tests set this, since
+    // ALPN needs TLS.
+    bool http2_prior_knowledge = false;
+    // The receive windows a new HTTP/2 connection grants, per stream and
+    // for the connection (see Http2Config); zero keeps the defaults.
+    std::uint32_t http2_stream_window = 0;
+    std::uint32_t http2_connection_window = 0;
 };
 
 // What a fetch cost, in milliseconds, summed over its redirect hops: the
@@ -101,10 +111,11 @@ struct FetchOptions {
 // it opened (none on a pooled connection), the wait for the first byte of
 // each response after its request went out, and the rest of each body
 // after that. `requests` counts the exchanges that went out on the wire —
-// a fetch answered from the cache makes none — and `reused` those of them
-// on a pooled connection; `bytes` is what came in on the wire, before
-// content decoding. total_ms is the whole call, the cache lookup and the
-// content decoding included.
+// a fetch answered from the cache makes none — `reused` those of them on a
+// pooled connection or an HTTP/2 session already up, and `http2` those
+// carried over HTTP/2; `bytes` is what came in on the wire, before content
+// decoding. total_ms is the whole call, the cache lookup and the content
+// decoding included.
 struct FetchTiming {
     double resolve_ms = 0;
     double connect_ms = 0;
@@ -114,6 +125,7 @@ struct FetchTiming {
     double total_ms = 0;
     int requests = 0;
     int reused = 0;
+    int http2 = 0;
     std::size_t bytes = 0;
 
     void add(FetchTiming const& other); // sums every field
