@@ -275,12 +275,20 @@ void Heap::collect()
         return true;
     });
 
-    // The next collection is due once the garbage matches the live set,
+    // The next collection is due once the garbage is twice the live set,
     // never sooner than the floor: a small heap should not collect on
-    // every few kilobytes.
+    // every few kilobytes, and a heap that is growing — a page loading —
+    // should not be marked at every doubling. Every collection costs the
+    // live set to mark, so the factor decides how many times a page is
+    // marked on its way up: at twice, a heap growing to a hundred
+    // megabytes is marked at eight, sixteen, thirty-two and sixty-four; at
+    // three times, at eight, twenty-four and seventy-two. The engines set
+    // this factor between one and a half and four by how fast the mutator
+    // allocates; three is within that and a page's memory is bounded by
+    // its ceiling regardless.
     std::size_t const floor = 8u * 1024u * 1024u;
     m_bytes = live; // every cell that stayed was just asked
-    m_threshold = std::max<std::size_t>(floor, live * 2u);
+    m_threshold = std::max<std::size_t>(floor, live * 3u);
     // Under a ceiling the heap may not double past it unlooked at: the
     // next collection is due at the ceiling at the latest (and a floor's
     // worth on, for a live set that already stands at it).

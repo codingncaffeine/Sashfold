@@ -713,9 +713,12 @@ int main()
         CHECK_EQ(heap.collections(), c1);
         CHECK(heap.bytes_allocated() >= 18u * 1024u * 1024u);
         CHECK_EQ(heap.cell_count(), base + 9);
-        // Past twice the live set it collects again, and the live set is
-        // what remains.
+        // Not yet past three times the live set, so not yet; past it, it
+        // collects again, and the live set is what remains.
         for (int i = 0; i < 4; ++i)
+            heap.string(mebibyte);
+        CHECK_EQ(heap.collections(), c1);
+        for (int i = 0; i < 10; ++i)
             heap.string(mebibyte);
         CHECK(heap.collections() > c1);
         CHECK(heap.cell_count() < base + 9);
