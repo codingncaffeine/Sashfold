@@ -196,8 +196,9 @@ void test_precedence()
     CHECK_EQ(parse("a ?? b | c"), expression_of("(logical ?? (id a) (binary | (id b) (id c)))"));
     CHECK_EQ(parse("(a || b) ?? c"), expression_of("(logical ?? (logical || (id a) (id b)) (id c))"));
     CHECK_EQ(parse("a ?? (b && c)"), expression_of("(logical ?? (id a) (logical && (id b) (id c)))"));
-    CHECK_EQ(parse("a || b ?? c"), "Mixing '?" "?' with '||' or '&&' without parentheses is not allowed");
-    CHECK_EQ(parse("a ?? b && c"), "Mixing '?" "?' with '||' or '&&' without parentheses is not allowed");
+    CHECK_EQ(parse("a || b ?? c"), "Unexpected token '?" "?'");
+    CHECK_EQ(parse("a ?? b && c"), "Unexpected token '&&'");
+    CHECK_EQ(parse("a ?? b || c"), "Unexpected token '||'");
     CHECK_EQ(parse("a ? b : c ? d : e"), expression_of("(cond (id a) (id b) (cond (id c) (id d) (id e)))"));
     CHECK_EQ(parse("a || b ? c : d"), expression_of("(cond (logical || (id a) (id b)) (id c) (id d))"));
     CHECK_EQ(parse("a = b = c"), expression_of("(assign = (id a) (assign = (id b) (id c)))"));
@@ -359,12 +360,13 @@ void test_templates()
     CHECK_EQ(parse("f()`x`()"), expression_of("(call (tagged (call (id f)) (template (\"x\") ())))"));
     CHECK_EQ(parse("new t`x`"), expression_of("(new (tagged (id t) (template (\"x\") ())))"));
     CHECK_EQ(parse("t`\\unicode`"), expression_of("(tagged (id t) (template (undefined) ()))"));
-    CHECK_EQ(parse("`\\unicode`"), "Invalid escape sequence in template literal");
-    CHECK_EQ(parse("`\\unicode`"), "Invalid escape sequence in template literal");
-    CHECK_EQ(parse("`\\01`"), "Invalid escape sequence in template literal");
-    CHECK_EQ(parse("`abc"), "Unterminated template literal");
-    CHECK_EQ(parse("`${a`"), "Unterminated template literal");
-    CHECK_EQ(parse("`${a b}`"), "Unexpected identifier 'b'");
+    CHECK_EQ(parse("`\\unicode`"), "Invalid Unicode escape sequence");
+    CHECK_EQ(parse("`\\xg`"), "Invalid hexadecimal escape sequence");
+    CHECK_EQ(parse("`\\01`"), "Octal escape sequences are not allowed in template strings.");
+    CHECK_EQ(parse("`\\8`"), "\\8 and \\9 are not allowed in template strings.");
+    CHECK_EQ(parse("`abc"), "Unexpected end of input");
+    CHECK_EQ(parse("`${a`"), "Unexpected end of input");
+    CHECK_EQ(parse("`${a b}`"), "Missing } in template expression");
     Parsed parsed = parse_source("`a\\n${x}`");
     CHECK(parsed.program != nullptr);
     if (parsed.program) {
@@ -392,9 +394,9 @@ void test_object_literals()
     CHECK_EQ(parse("({get, set})"), expression_of("(object (init \"get\" (id get)) (init \"set\" (id set)))"));
     CHECK_EQ(parse("({get 'a'() {}, set 1(v) {}, get [k]() {}})"),
         expression_of("(object (get \"a\" (function a ())) (set \"1\" (function 1 (v))) (get computed (id k) (function ())))"));
-    CHECK_EQ(parse("({get a(x) {}})"), "Getter must not have any formal parameters");
-    CHECK_EQ(parse("({set a() {}})"), "Setter must have exactly one formal parameter");
-    CHECK_EQ(parse("({set a(x, y) {}})"), "Setter must have exactly one formal parameter");
+    CHECK_EQ(parse("({get a(x) {}})"), "Getter must not have any formal parameters.");
+    CHECK_EQ(parse("({set a() {}})"), "Setter must have exactly one formal parameter.");
+    CHECK_EQ(parse("({set a(x, y) {}})"), "Setter must have exactly one formal parameter.");
     CHECK_EQ(parse("({a = 1})"), "Invalid shorthand property initializer");
     CHECK_EQ(parse("f({a = 1})"), "Invalid shorthand property initializer");
     CHECK_EQ(parse("[{a = 1}]"), "Invalid shorthand property initializer");
@@ -403,7 +405,7 @@ void test_object_literals()
     CHECK_EQ(parse("({__proto__: 1, __proto__: 2})"), "Duplicate __proto__ fields are not allowed in object literals");
     CHECK_EQ(parse("({__proto__: a, __proto__: b} = o)"), expression_of("(assign = (object-pattern (\"__proto__\" (id a)) (\"__proto__\" (id b))) (id o))"));
     CHECK_EQ(parse("({if: 1, class: 2, this: 3})"), expression_of("(object (init \"if\" (number 1)) (init \"class\" (number 2)) (init \"this\" (number 3)))"));
-    CHECK_EQ(parse("({if})"), "Unexpected token '}'");
+    CHECK_EQ(parse("({if})"), "Unexpected token 'if'");
     CHECK_EQ(parse("({1.5: x, 0x10: y, 1e3: z, .5: w})"), expression_of("(object (init \"1.5\" (id x)) (init \"16\" (id y)) (init \"1000\" (id z)) (init \"0.5\" (id w)))"));
     CHECK_EQ(parse("({a: 1,})"), expression_of("(object (init \"a\" (number 1)))"));
     CHECK_EQ(parse("({a: 1, a: 2})"), expression_of("(object (init \"a\" (number 1)) (init \"a\" (number 2)))"));
@@ -476,20 +478,20 @@ void test_statements()
     CHECK_EQ(parse("for (let k in o) x"), program_of("(for-in (let (k)) (id o) (expr (id x)))"));
     CHECK_EQ(parse("for (const k in o) x"), program_of("(for-in (const (k)) (id o) (expr (id x)))"));
     CHECK_EQ(parse("for (var k = 1 in o) x"), program_of("(for-in (var (k (number 1))) (id o) (expr (id x)))"));
-    CHECK_EQ(parse_strict("for (var k = 1 in o) x"), "for-in loop variable declaration may not have an initializer");
-    CHECK_EQ(parse("for (let k = 1 in o) x"), "for-in loop variable declaration may not have an initializer");
-    CHECK_EQ(parse("for (var a, b in o) x"), "Invalid left-hand side in for-in loop: Must have a single binding");
-    CHECK_EQ(parse("for (a = 1 in o) x"), "Invalid left-hand side in for-in loop");
+    CHECK_EQ(parse_strict("for (var k = 1 in o) x"), "for-in loop variable declaration may not have an initializer.");
+    CHECK_EQ(parse("for (let k = 1 in o) x"), "for-in loop variable declaration may not have an initializer.");
+    CHECK_EQ(parse("for (var a, b in o) x"), "Invalid left-hand side in for-in loop: Must have a single binding.");
+    CHECK_EQ(parse("for (a = 1 in o) x"), "Invalid left-hand side in for-loop");
     CHECK_EQ(parse("for (x of y) z"), program_of("(for-of (id x) (id y) (expr (id z)))"));
     CHECK_EQ(parse("for (const x of y) z"), program_of("(for-of (const (x)) (id y) (expr (id z)))"));
-    CHECK_EQ(parse("for (var x = 1 of y) z"), "for-of loop variable declaration may not have an initializer");
-    CHECK_EQ(parse("for (let a, b of o) x"), "Invalid left-hand side in for-of loop: Must have a single binding");
-    CHECK_EQ(parse("for (a = 1 of o) x"), "Invalid left-hand side in for-of loop");
+    CHECK_EQ(parse("for (var x = 1 of y) z"), "for-of loop variable declaration may not have an initializer.");
+    CHECK_EQ(parse("for (let a, b of o) x"), "Invalid left-hand side in for-of loop: Must have a single binding.");
+    CHECK_EQ(parse("for (a = 1 of o) x"), "Invalid left-hand side in for-loop");
     // On one line `async of` reads as an async arrow's head, which the
     // parser declines by name; split by a line terminator it is a name
     // again, and the for-of rule is what refuses it.
-    CHECK_EQ(parse("for (async of o) x"), "The left-hand side of a for-of loop may not be 'async'");
-    CHECK_EQ(parse("for (async\nof o) x"), "The left-hand side of a for-of loop may not be 'async'");
+    CHECK_EQ(parse("for (async of o) x"), "The left-hand side of a for-of loop may not be 'async'.");
+    CHECK_EQ(parse("for (async\nof o) x"), "The left-hand side of a for-of loop may not be 'async'.");
     CHECK_EQ(parse("for ((async) of o) x"), program_of("(for-of (id async) (id o) (expr (id x)))"));
     CHECK_EQ(parse("for (var x = (a in b);;) {}"), program_of("(for (var (x (binary in (id a) (id b)))) - - (block))"));
     CHECK_EQ(parse("for (let in o) x"), program_of("(for-in (id let) (id o) (expr (id x)))"));
@@ -524,7 +526,7 @@ void test_statements()
     CHECK_EQ(parse("   \n// only a comment\n"), "(program)");
     CHECK_EQ(parse("}"), "Unexpected token '}'");
     CHECK_EQ(parse("if (a) let x = 1"), "Lexical declaration cannot appear in a single-statement context");
-    CHECK_EQ(parse("while (a) const x = 1"), "Lexical declaration cannot appear in a single-statement context");
+    CHECK_EQ(parse("while (a) const x = 1"), "Unexpected token 'const'");
     CHECK_EQ(parse("if (a) let\n[x] = y"), "Lexical declaration cannot appear in a single-statement context");
     CHECK_EQ(parse("if (a) let {x} = y"), "Lexical declaration cannot appear in a single-statement context");
     // `let` alone on its line in statement position is the identifier, ended by ASI (§14.5).
@@ -533,9 +535,9 @@ void test_statements()
     CHECK_EQ(parse("if (a) let"), program_of("(if (id a) (expr (id let)))"));
     CHECK_EQ(parse("if (a) function f() {}"), program_of("(if (id a) (block (function f ())))"));
     CHECK_EQ(parse("if (a) x; else function f() {}"), program_of("(if (id a) (expr (id x)) (block (function f ())))"));
-    CHECK_EQ(parse("while (a) function f() {}"), "In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement");
+    CHECK_EQ(parse("while (a) function f() {}"), "In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement.");
     CHECK_EQ(parse("a: function f() {}"), program_of("(label a (function f ()))"));
-    CHECK_EQ(parse("while (x) a: function f() {}"), "In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement");
+    CHECK_EQ(parse("while (x) a: function f() {}"), "In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement.");
     CHECK_EQ(parse("let = 1"), expression_of("(assign = (id let) (number 1))"));
     CHECK_EQ(parse("let\nx = 1"), program_of("(let (x (number 1)))"));
     CHECK_EQ(parse("let.x"), expression_of("(member (id let) x)"));
@@ -551,13 +553,13 @@ void test_statements()
     CHECK_EQ(parse("var [...a, b] = c"), "Rest element must be last element");
     CHECK_EQ(parse("var [...a = 1] = c"), "Rest element may not have a default initializer");
     CHECK_EQ(parse("var {...a, b} = c"), "Rest element must be last element");
-    CHECK_EQ(parse("var {...[a]} = c"), "Unexpected token '['");
+    CHECK_EQ(parse("var {...[a]} = c"), "`...` must be followed by an identifier in declaration contexts");
     CHECK_EQ(parse("var {if} = c"), "Unexpected token 'if'");
     CHECK_EQ(parse("var {if: a} = c"), program_of("(var ((object-pattern (\"if\" (id a))) (id c)))"));
     CHECK_EQ(parse_strict("var [eval] = c"), "Unexpected eval or arguments in strict mode");
     CHECK_EQ(parse("for (let [a, b] of c) ;"), program_of("(for-of (let ((array-pattern (id a) (id b)))) (id c) (empty))"));
     CHECK_EQ(parse("for (var {a} in c) ;"), program_of("(for-in (var ((object-pattern (\"a\" (id a))))) (id c) (empty))"));
-    CHECK_EQ(parse("for (var [a] = [] in c) ;"), "for-in loop variable declaration may not have an initializer");
+    CHECK_EQ(parse("for (var [a] = [] in c) ;"), "for-in loop variable declaration may not have an initializer.");
     CHECK_EQ(parse("for (let [a] = [1]; ; ) break"), program_of("(for (let ((array-pattern (id a)) (array (number 1)))) - - (break))"));
     CHECK_EQ(parse("a.if + a.class + a.new"), expression_of("(binary + (binary + (member (id a) if) (member (id a) class)) (member (id a) new))"));
     CHECK_EQ(parse("\\u0069f (x) {}"), "Keyword must not contain escaped characters");
@@ -609,11 +611,11 @@ void test_strict_mode()
     CHECK_EQ(parse("function f() { \"use strict\"; with (a) {} }"), "Strict mode code may not include a with statement");
     CHECK_EQ(parse("function f() { \"use strict\" } with (a) {}"), program_of("(function f () (expr (string \"use strict\"))) (with (id a) (block))"));
     CHECK_EQ(parse_strict("with (a) {}"), "Strict mode code may not include a with statement");
-    CHECK_EQ(parse_strict("x = 010"), "Octal literals are not allowed in strict mode");
-    CHECK_EQ(parse_strict("x = 08"), "Octal literals are not allowed in strict mode");
-    CHECK_EQ(parse_strict("x = '\\01'"), "Octal escape sequences are not allowed in strict mode");
-    CHECK_EQ(parse_strict("x = '\\8'"), "Octal escape sequences are not allowed in strict mode");
-    CHECK_EQ(parse("'\\01'; 'use strict'"), "Octal escape sequences are not allowed in strict mode");
+    CHECK_EQ(parse_strict("x = 010"), "Octal literals are not allowed in strict mode.");
+    CHECK_EQ(parse_strict("x = 08"), "Decimals with leading zeros are not allowed in strict mode.");
+    CHECK_EQ(parse_strict("x = '\\01'"), "Octal escape sequences are not allowed in strict mode.");
+    CHECK_EQ(parse_strict("x = '\\8'"), "\\8 and \\9 are not allowed in strict mode.");
+    CHECK_EQ(parse("'\\01'; 'use strict'"), "Octal escape sequences are not allowed in strict mode.");
     // Not a prologue once a non-string statement precedes: sloppy, so the octal escape stands.
     CHECK_EQ(parse("x = '\\01'; 'use strict'"), program_of("(expr (assign = (id x) (string \"\x01\"))) (expr (string \"use strict\"))"));
     // \0 not followed by a digit is the NUL escape, fine in strict code.
@@ -635,8 +637,8 @@ void test_strict_mode()
         "(program strict (expr (call (id eval) (id x))) (expr (index (id arguments) (number 0))) (expr (call (id f) (id eval) (id arguments))))");
     CHECK_EQ(parse("function eval() { 'use strict' }"), "Unexpected eval or arguments in strict mode");
     CHECK_EQ(parse("function f(arguments) { 'use strict' }"), "Unexpected eval or arguments in strict mode");
-    CHECK_EQ(parse_strict("delete x"), "Delete of an unqualified identifier in strict mode");
-    CHECK_EQ(parse_strict("delete (x)"), "Delete of an unqualified identifier in strict mode");
+    CHECK_EQ(parse_strict("delete x"), "Delete of an unqualified identifier in strict mode.");
+    CHECK_EQ(parse_strict("delete (x)"), "Delete of an unqualified identifier in strict mode.");
     CHECK_EQ(parse_strict("delete x.y; delete x[0]; delete (x, y)"), "(program strict (expr (unary delete (member (id x) y))) (expr (unary delete (index (id x) (number 0)))) (expr (unary delete (seq (id x) (id y)))))");
     CHECK_EQ(parse("delete x"), expression_of("(unary delete (id x))"));
     CHECK_EQ(parse_strict("function f(a, a) {}"), "Duplicate parameter name not allowed in this context");
@@ -654,9 +656,9 @@ void test_strict_mode()
     CHECK_EQ(parse("var implements, interface, package, private, protected, public, static, yield"),
         program_of("(var (implements) (interface) (package) (private) (protected) (public) (static) (yield))"));
     CHECK_EQ(parse_strict("({static: 1, yield: 2}).let"), "(program strict (expr (member (object (init \"static\" (number 1)) (init \"yield\" (number 2))) let)))");
-    CHECK_EQ(parse_strict("if (x) function f() {}"), "In strict mode code, functions can only be declared at top level or inside a block");
-    CHECK_EQ(parse_strict("a: function f() {}"), "In strict mode code, functions can only be declared at top level or inside a block");
-    CHECK_EQ(parse_strict("while (x) function f() {}"), "In strict mode code, functions can only be declared at top level or inside a block");
+    CHECK_EQ(parse_strict("if (x) function f() {}"), "In strict mode code, functions can only be declared at top level or inside a block.");
+    CHECK_EQ(parse_strict("a: function f() {}"), "In strict mode code, functions can only be declared at top level or inside a block.");
+    CHECK_EQ(parse_strict("while (x) function f() {}"), "In strict mode code, functions can only be declared at top level or inside a block.");
     CHECK_EQ(parse_strict("{ function f() {} }"), "(program strict (block (function f ())))");
     Parsed parsed = parse_source("'use strict'; function f() { function g() {} } var h = function() {}");
     CHECK(parsed.program && parsed.program->is_strict);
@@ -898,7 +900,7 @@ void test_new_and_calls()
     CHECK_EQ(parse("f(a,)"), expression_of("(call (id f) (id a))"));
     CHECK_EQ(parse("a.b(c)[d].e"), expression_of("(member (index (call (member (id a) b) (id c)) (id d)) e)"));
     CHECK_EQ(parse("f(...a)"), program_of("(expr (call (id f) (spread (id a))))"));
-    CHECK_EQ(parse("f(a b)"), "Unexpected identifier 'b'");
+    CHECK_EQ(parse("f(a b)"), "missing ) after argument list");
 }
 
 void test_optional_chaining()
@@ -914,7 +916,7 @@ void test_optional_chaining()
     CHECK_EQ(parse("a?.b = 1"), "Invalid left-hand side in assignment");
     CHECK_EQ(parse("a?.b.c = 1"), "Invalid left-hand side in assignment");
     CHECK_EQ(parse("a?.b++"), "Invalid left-hand side expression in postfix operation");
-    CHECK_EQ(parse("for (a?.b in o);"), "Invalid left-hand side in for-in loop");
+    CHECK_EQ(parse("for (a?.b in o);"), "Invalid left-hand side in for-loop");
     CHECK_EQ(parse("a?.`x`"), "Invalid tagged template on optional chain");
     Parsed parsed = parse_source("eval?.(x)");
     CHECK(parsed.program != nullptr);
@@ -930,9 +932,9 @@ void test_error_positions()
     CHECK_EQ(error_at("var x = ;"), "1:9 Unexpected token ';'");
     CHECK_EQ(error_at("\n\nfoo("), "3:5 Unexpected end of input");
     CHECK_EQ(error_at("a = 1;\n  b = )"), "2:7 Unexpected token ')'");
-    CHECK_EQ(error_at("var x = 1 @ 2"), "1:11 Unexpected character '@'");
-    CHECK_EQ(error_at("x = 'abc"), "1:5 Unterminated string literal");
-    CHECK_EQ(error_at("/* open"), "1:1 Unterminated comment");
+    CHECK_EQ(error_at("var x = 1 @ 2"), "1:11 Invalid or unexpected token");
+    CHECK_EQ(error_at("x = 'abc"), "1:5 Invalid or unexpected token");
+    CHECK_EQ(error_at("/* open"), "1:1 Invalid or unexpected token");
     CHECK_EQ(error_at("let a;\nlet a;"), "2:5 Identifier 'a' has already been declared");
     CHECK_EQ(error_at("x = 1\r\ny = {"), "2:6 Unexpected end of input");
     CHECK_EQ(error_at("x = 2 +\n  * 3"), "2:3 Unexpected token '*'");
@@ -1031,8 +1033,8 @@ void test_patterns()
     CHECK_EQ(parse("function f(...a = []) {}"), "Rest parameter may not have a default initializer");
     CHECK_EQ(parse("function f([a]) { let a; }"), "Identifier 'a' has already been declared");
     CHECK_EQ(parse("({ set x(v = 1) {} })"), expression_of("(object (set \"x\" (function x ((= v (number 1))))))"));
-    CHECK_EQ(parse("({ set x(...v) {} })"), "Setter must have exactly one formal parameter");
-    CHECK_EQ(parse("({ get x([a]) {} })"), "Getter must not have any formal parameters");
+    CHECK_EQ(parse("({ set x(...v) {} })"), "Setter function argument must not be a rest parameter");
+    CHECK_EQ(parse("({ get x([a]) {} })"), "Getter must not have any formal parameters.");
     CHECK_EQ(parse_strict("function f([eval]) {}"), "Unexpected eval or arguments in strict mode");
     Parsed parsed = parse_source("function f(a, b = 1, c) {} function g(...r) {} function h([a], b) {} function k(a, b) {}");
     CHECK(parsed.program != nullptr);
@@ -1088,9 +1090,9 @@ void test_patterns()
     CHECK_EQ(parse_strict("({a: arguments} = c)"), "Unexpected eval or arguments in strict mode");
     CHECK_EQ(parse("[{a = 1}.b] = c"), "Invalid shorthand property initializer");
     CHECK_EQ(parse("[a = {b = 1}] = c"), "Invalid shorthand property initializer");
-    CHECK_EQ(parse("for ([a] = [1] of c) ;"), "Invalid left-hand side in for-of loop");
+    CHECK_EQ(parse("for ([a] = [1] of c) ;"), "Invalid left-hand side in for-loop");
     CHECK_EQ(parse("for ({a = 1}; ; ) ;"), "Invalid shorthand property initializer");
-    CHECK_EQ(parse("for ([a], b in c) ;"), "Invalid left-hand side in for-in loop");
+    CHECK_EQ(parse("for ([a], b in c) ;"), "Invalid left-hand side in for-loop");
 }
 
 // Classes, super and new.target.
@@ -1111,15 +1113,17 @@ void test_private_names()
     CHECK_EQ(parse("class A { #x; #x() {} }"), "Identifier '#x' has already been declared");
     CHECK_EQ(parse("class A { get #x() {} static set #x(v) {} }"), "Identifier '#x' has already been declared");
     CHECK_EQ(parse("class A { get #x() {} get #x() {} }"), "Identifier '#x' has already been declared");
-    CHECK_EQ(parse("class A { #constructor; }"), "Classes may not have a private element named '#constructor'");
+    CHECK_EQ(parse("class A { #constructor; }"), "Classes may not have a field named 'constructor'");
+    CHECK_EQ(parse("class A { #constructor() {} }"), "Class constructor may not be a private method");
     CHECK_EQ(parse("class A { #x; m() { delete this.#x; } }"), "Private fields can not be deleted");
     CHECK_EQ(parse("class A { #x; m() { delete (this.#x); } }"), "Private fields can not be deleted");
     CHECK_EQ(parse("class A extends B { #x; m() { super.#x; } }"), "Unexpected private field");
-    CHECK_EQ(parse("class A { #x; m() { #x; } }"), "Unexpected private name '#x'");
-    CHECK_EQ(parse("class A { #x; m(o) { return 1 < #x in o; } }"), "Unexpected private name '#x'");
-    CHECK_EQ(parse("class A { #x; m(o) { return (#x) in o; } }"), "Unexpected private name '#x'");
-    CHECK_EQ(parse("var o = { #x: 1 }"), "Unexpected private name '#x'");
-    CHECK_EQ(parse("#"), "Unexpected character '#'");
+    CHECK_EQ(parse("class A { #x; m() { #x; } }"), "Unexpected identifier '#x'");
+    CHECK_EQ(parse("class A { #x; m(o) { return 1 < #x in o; } }"), "Unexpected identifier '#x'");
+    CHECK_EQ(parse("class A { #x; m(o) { return (#x) in o; } }"), "Unexpected identifier '#x'");
+    CHECK_EQ(parse("var o = { #x: 1 }"), "Unexpected identifier '#x'");
+    CHECK_EQ(parse("#"), "Invalid or unexpected token");
+    CHECK_EQ(parse("#x"), "Private field '#x' must be declared in an enclosing class");
 }
 
 void test_classes()
@@ -1159,7 +1163,7 @@ void test_classes()
     CHECK_EQ(parse("class A extends function () { with (x) {} } {}"), "Strict mode code may not include a with statement");
     CHECK_EQ(parse("class A {} with (x) {}"), program_of("(class A) (with (id x) (block))"));
     CHECK_EQ(parse("class yield {}"), "Unexpected strict mode reserved word");
-    CHECK_EQ(parse("if (x) class A {}"), "Lexical declaration cannot appear in a single-statement context");
+    CHECK_EQ(parse("if (x) class A {}"), "Unexpected token 'class'");
     CHECK_EQ(parse("class A {} let A;"), "Identifier 'A' has already been declared");
     CHECK_EQ(parse("class A { *g() {} }"), program_of("(class A (method \"g\" (function* g ())))"));
     CHECK_EQ(parse("class A { async m() {} }"), program_of("(class A (method \"m\" (async function m ())))"));
@@ -1173,7 +1177,7 @@ void test_unsupported_features()
     CHECK_EQ(parse("({a: 1}) = b"), "Invalid left-hand side in assignment");
     CHECK_EQ(parse("(a,)"), "Unexpected token ')'");
     CHECK_EQ(parse("(a, b,)"), "Unexpected token ')'");
-    CHECK_EQ(parse("x = enum"), "Unexpected token 'enum'");
+    CHECK_EQ(parse("x = enum"), "Unexpected reserved word");
 }
 
 // Generators and async functions (§15.5, §15.8, §15.6, §15.9): the heads,
@@ -1203,7 +1207,7 @@ void test_generators_and_async()
     CHECK_EQ(parse("async(x)"), expression_of("(call (id async) (id x))"));
     CHECK_EQ(parse("async.x"), expression_of("(member (id async) x)"));
     CHECK_EQ(parse("var async = 1"), program_of("(var (async (number 1)))"));
-    CHECK_EQ(parse("if (x) async function f() {}"), "Async functions can only be declared at the top level or inside a block");
+    CHECK_EQ(parse("if (x) async function f() {}"), "Async functions can only be declared at the top level or inside a block.");
     // Methods.
     CHECK_EQ(parse("({ async *g() {}, async m() {}, *n() {}, async: 1, async() {}, get: 2 })"),
         expression_of("(object (init \"g\" (async function* g ())) (init \"m\" (async function m ())) (init \"n\" (function* n ())) (init \"async\" (number 1)) (init \"async\" (function async ())) (init \"get\" (number 2)))"));
@@ -1249,21 +1253,21 @@ void test_generators_and_async()
     CHECK_EQ(parse("async function f() { await x + 1 }"), program_of("(async function f () (expr (binary + (await (id x)) (number 1))))"));
     CHECK_EQ(parse("async function f() { await await x }"), program_of("(async function f () (expr (await (await (id x)))))"));
     CHECK_EQ(parse("async function f() { return await g() }"), program_of("(async function f () (return (await (call (id g)))))"));
-    CHECK_EQ(parse("async function f(a = await x) {}"), "Await expression not allowed in formal parameter");
+    CHECK_EQ(parse("async function f(a = await x) {}"), "Illegal await-expression in formal parameters of async function");
     CHECK_EQ(parse("async function f(await) {}"), "Unexpected reserved word");
     CHECK_EQ(parse("async function f() { var await }"), "Unexpected reserved word");
     CHECK_EQ(parse("async function f() { await: 1 }"), "Unexpected reserved word");
     CHECK_EQ(parse("async function f() { () => await }"), program_of("(async function f () (expr (arrow () (id await))))"));
-    CHECK_EQ(parse("async function f() { (a = await 1) => a }"), "Await expression not allowed in formal parameter");
+    CHECK_EQ(parse("async function f() { (a = await 1) => a }"), "Illegal await-expression in formal parameters of async function");
     CHECK_EQ(parse("async function f() { async () => await x }"), program_of("(async function f () (expr (async arrow () (await (id x)))))"));
-    CHECK_EQ(parse("function f() { async (a = await 1) => a }"), "Await expression not allowed in formal parameter");
+    CHECK_EQ(parse("function f() { async (a = await 1) => a }"), "Illegal await-expression in formal parameters of async function");
     CHECK_EQ(parse("async function* g() { yield await x }"), program_of("(async function* g () (expr (yield (await (id x)))))"));
     CHECK_EQ(parse("(async function await() {})"), "Unexpected reserved word");
     CHECK_EQ(parse("async function await() {}"), program_of("(async function await ())"));
     // Outside async code `await` is a name.
     CHECK_EQ(parse("await"), expression_of("(id await)"));
     CHECK_EQ(parse("await(x)"), expression_of("(call (id await) (id x))"));
-    CHECK_EQ(parse("await x"), "Unexpected identifier 'x'");
+    CHECK_EQ(parse("await x"), "await is only valid in async functions and the top level bodies of modules");
     // for await.
     CHECK_EQ(parse("async function f() { for await (const x of y) z }"), program_of("(async function f () (for-await-of (const (x)) (id y) (expr (id z))))"));
     CHECK_EQ(parse("async function f() { for await (x of y) z }"), program_of("(async function f () (for-await-of (id x) (id y) (expr (id z))))"));
@@ -1330,7 +1334,7 @@ void test_function_constructor()
     }
     program = js::Parser::parse_function_constructor(heap(), u"a b", u"", &error);
     CHECK(program == nullptr);
-    CHECK_EQ(error.message, "Unexpected identifier 'b'");
+    CHECK_EQ(error.message, "Arg string terminates parameters early");
     program = js::Parser::parse_function_constructor(heap(), u"", u"return", &error);
     CHECK(program != nullptr);
     program = js::Parser::parse_function_constructor(heap(), u"", u"}); evil(); (function() {", &error);
@@ -1486,7 +1490,7 @@ void test_modules()
     CHECK_EQ(parse_module("for await (x of y) ;"), module_of("(for-await-of (id x) (id y) (empty))"));
     CHECK_EQ(parse_module("with (a) {}"), "Strict mode code may not include a with statement");
     CHECK_EQ(parse_module("var public"), "Unexpected strict mode reserved word");
-    CHECK_EQ(parse_module("010"), "Octal literals are not allowed in strict mode");
+    CHECK_EQ(parse_module("010"), "Octal literals are not allowed in strict mode.");
     CHECK_EQ(parse_module("yield"), "Unexpected strict mode reserved word");
     CHECK_EQ(parse_module("function f() { await 1 }"), "Unexpected reserved word");
     CHECK_EQ(parse_module("function f() { await }"), "Unexpected reserved word");
@@ -1603,7 +1607,7 @@ void test_modules()
     CHECK_EQ(parse("import('m') = 1"), "Invalid left-hand side in assignment");
     CHECK_EQ(parse("import('m')++"), "Invalid left-hand side expression in postfix operation");
     CHECK_EQ(parse("[import('m')] = a"), "Invalid destructuring assignment target");
-    CHECK_EQ(parse("for (import('m') of a) ;"), "Invalid left-hand side in for-of loop");
+    CHECK_EQ(parse("for (import('m') of a) ;"), "Invalid left-hand side in for-loop");
     CHECK_EQ(parse("im\\u0070ort('m')"), "Keyword must not contain escaped characters");
     CHECK_EQ(parse_module("import.m\\u0065ta"), "Unexpected identifier 'meta'");
     CHECK_EQ(parse_module("import.meta = 1"), "Invalid left-hand side in assignment");

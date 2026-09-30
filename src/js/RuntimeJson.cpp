@@ -229,7 +229,7 @@ private:
             }
             ++m_pos;
             if (m_pos >= m_text.size())
-                return fail("Bad escaped character");
+                return unexpected();
             char16_t const escape = m_text[m_pos++];
             switch (escape) {
             case u'"': out += u'"'; break;

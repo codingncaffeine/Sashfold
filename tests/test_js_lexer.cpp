@@ -559,7 +559,7 @@ void test_comments_and_newlines()
     CHECK_TOKENS(u"a\n#! x", { { Id, u"a" }, { Bad, u"", true } });
     Token const comment = first(u"/* abc");
     CHECK_EQ(comment.type == Bad, true);
-    CHECK_EQ(comment.message, "Unterminated comment");
+    CHECK_EQ(comment.message, "Invalid or unexpected token");
     CHECK_EQ(comment.position.offset, 0u);
     CHECK_EQ(comment.end_offset, 6u);
     // Repeated next() at the end keeps answering EndOfInput.
@@ -586,9 +586,9 @@ void test_identifiers()
     // A private name (§12.7): `#` and any IdentifierName, a reserved word
     // or an escape included; the # stays in the value.
     CHECK_TOKENS(u"#x #if #\\u0061b #$_", { { Priv, u"#x" }, { Priv, u"#if" }, { Priv, u"#ab" }, { Priv, u"#$_" } });
-    CHECK_EQ(first(u"#").message, "Unexpected character '#'");
-    CHECK_EQ(first(u"# x").message, "Unexpected character '#'");
-    CHECK_EQ(first(u"#1").message, "Unexpected character '#'");
+    CHECK_EQ(first(u"#").message, "Invalid or unexpected token");
+    CHECK_EQ(first(u"# x").message, "Invalid or unexpected token");
+    CHECK_EQ(first(u"#1").message, "Invalid or unexpected token");
     CHECK_EQ(first(u"while").is(Keyword::While), true);
     CHECK(Lexer::keyword_for(u"while") == Keyword::While);
     CHECK(!Lexer::keyword_for(u"let"));
@@ -708,42 +708,42 @@ void test_invalid()
         char const* message;
     };
     Case const cases[] = {
-        { u"'abc", "Unterminated string literal" },
-        { u"\"abc\n\"", "Unterminated string literal" },
-        { u"'abc\\", "Unterminated string literal" },
+        { u"'abc", "Invalid or unexpected token" },
+        { u"\"abc\n\"", "Invalid or unexpected token" },
+        { u"'abc\\", "Invalid or unexpected token" },
         { u"'\\x4'", "Invalid hexadecimal escape sequence" },
         { u"'\\u12'", "Invalid Unicode escape sequence" },
-        { u"'\\u{110000}'", "Invalid Unicode escape sequence" },
+        { u"'\\u{110000}'", "Undefined Unicode code-point" },
         { u"'\\u{}'", "Invalid Unicode escape sequence" },
         { u"/abc", "Invalid regular expression: missing /" },
         { u"1__0", "Only one underscore is allowed as numeric separator" },
         { u"1_", "Numeric separators are not allowed at the end of numeric literals" },
         { u"1_.5", "Numeric separators are not allowed at the end of numeric literals" },
-        { u"0_1", "Numeric separator can not be used after leading 0" },
-        { u"0x_FF", "Missing hexadecimal digits after 0x" },
-        { u"0b2", "Missing binary digits after 0b" },
-        { u"0o", "Missing octal digits after 0o" },
-        { u"0x", "Missing hexadecimal digits after 0x" },
-        { u"1e", "Missing exponent digits" },
-        { u"1e+", "Missing exponent digits" },
-        { u"1.5n", "Identifier directly after number" },
-        { u"1e3n", "Identifier directly after number" },
-        { u"10nn", "Identifier directly after number" },
-        { u"017n", "Identifier directly after number" },
-        { u"3in", "Identifier directly after number" },
-        { u"1\\u0061", "Identifier directly after number" },
-        { u"0b12", "Identifier directly after number" },
-        { u"\\u0020x", "Invalid Unicode escape sequence" },
-        { u"\\u0030a", "Invalid Unicode escape sequence" },
-        { u"\\x41", "Invalid Unicode escape sequence" },
+        { u"0_1", "Numeric separator can not be used after leading 0." },
+        { u"0x_FF", "Invalid or unexpected token" },
+        { u"0b2", "Invalid or unexpected token" },
+        { u"0o", "Invalid or unexpected token" },
+        { u"0x", "Invalid or unexpected token" },
+        { u"1e", "Invalid or unexpected token" },
+        { u"1e+", "Invalid or unexpected token" },
+        { u"1.5n", "Invalid or unexpected token" },
+        { u"1e3n", "Invalid or unexpected token" },
+        { u"10nn", "Invalid or unexpected token" },
+        { u"017n", "Invalid or unexpected token" },
+        { u"3in", "Invalid or unexpected token" },
+        { u"1\\u0061", "Invalid or unexpected token" },
+        { u"0b12", "Invalid or unexpected token" },
+        { u"\\u0020x", "Invalid or unexpected token" },
+        { u"\\u0030a", "Invalid or unexpected token" },
+        { u"\\x41", "Invalid or unexpected token" },
         { u"a\\u{}", "Invalid Unicode escape sequence" },
-        { u"/* x", "Unterminated comment" },
-        { u"`x", "Unterminated template literal" },
-        { u"@", "Unexpected character '@'" },
-        { u"#", "Unexpected character '#'" },
-        { u"\\", "Invalid Unicode escape sequence" },
-        { u"\xD800", "Unexpected character U+D800" },
-        { u"\x7F", "Unexpected character U+007F" },
+        { u"/* x", "Invalid or unexpected token" },
+        { u"`x", "Unexpected end of input" },
+        { u"@", "Invalid or unexpected token" },
+        { u"#", "Invalid or unexpected token" },
+        { u"\\", "Invalid or unexpected token" },
+        { u"\xD800", "Invalid or unexpected token" },
+        { u"\x7F", "Invalid or unexpected token" },
     };
     for (Case const& c : cases) {
         Token const token = first(c.source);
@@ -797,14 +797,14 @@ void test_edge_cases()
     // §12.9.3: "The SourceCharacter immediately following a NumericLiteral
     // must not be an IdentifierStart or DecimalDigit" — `3in` is one
     // error, not `3 in`, and a bare radix prefix is an error of its own.
-    CHECK_EQ(first(u"3in").message, "Identifier directly after number");
+    CHECK_EQ(first(u"3in").message, "Invalid or unexpected token");
     CHECK_TOKENS(u"3 in x", { { Num, u"3" }, { Kw, u"in" }, { Id, u"x" } });
-    CHECK_EQ(first(u"0x").message, "Missing hexadecimal digits after 0x");
+    CHECK_EQ(first(u"0x").message, "Invalid or unexpected token");
     CHECK_EQ(first(u"0x").end_offset, 2u);
-    CHECK_EQ(first(u"0xg").message, "Missing hexadecimal digits after 0x");
-    CHECK_EQ(first(u"1e5e5").message, "Identifier directly after number");
-    CHECK_EQ(first(u"0b1e5").message, "Identifier directly after number");
-    CHECK_EQ(first(u"1\xE9").message, "Identifier directly after number");
+    CHECK_EQ(first(u"0xg").message, "Invalid or unexpected token");
+    CHECK_EQ(first(u"1e5e5").message, "Invalid or unexpected token");
+    CHECK_EQ(first(u"0b1e5").message, "Invalid or unexpected token");
+    CHECK_EQ(first(u"1\xE9").message, "Invalid or unexpected token");
 
     // DecimalLiteral :: . DecimalDigits and DecimalIntegerLiteral . — so
     // `.5.` is the number .5 then a Dot, `1..toString` is `1.` Dot name,
@@ -827,9 +827,9 @@ void test_edge_cases()
         test::check_eq(type_name(first(source).type), std::string("invalid"), label.c_str(), "invalid", __FILE__, __LINE__);
     }
     CHECK_EQ(first(u"1_.5").message, "Numeric separators are not allowed at the end of numeric literals");
-    CHECK_EQ(first(u"1e_5").message, "Missing exponent digits");
-    CHECK_EQ(first(u"1e+_5").message, "Missing exponent digits");
-    CHECK_EQ(first(u"0x_1").message, "Missing hexadecimal digits after 0x");
+    CHECK_EQ(first(u"1e_5").message, "Invalid or unexpected token");
+    CHECK_EQ(first(u"1e+_5").message, "Invalid or unexpected token");
+    CHECK_EQ(first(u"0x_1").message, "Invalid or unexpected token");
     CHECK_TOKENS(u"._5", { { Punct, u"." }, { Id, u"_5" } }); // no digit follows the dot: not a number
     CHECK_EQ(number_of(u"0.0_1"), 0.01);
     CHECK_EQ(number_of(u"1e1_0"), 1e10);
@@ -859,8 +859,8 @@ void test_edge_cases()
     // §12.9.4 UnicodeEscapeSequence :: u{ CodePoint }, at most 10FFFF: past
     // it is an error in a string or a name, an undefined cooked value in
     // a template, and no run of digits overflows the check.
-    CHECK_EQ(first(u"'\\u{110000}'").message, "Invalid Unicode escape sequence");
-    CHECK_EQ(first(u"'\\u{FFFFFFFFFFFFFFFFFFFF}'").message, "Invalid Unicode escape sequence");
+    CHECK_EQ(first(u"'\\u{110000}'").message, "Undefined Unicode code-point");
+    CHECK_EQ(first(u"'\\u{FFFFFFFFFFFFFFFFFFFF}'").message, "Undefined Unicode code-point");
     CHECK(first(u"'\\u{10FFFF}'").value == u"\U0010FFFF");
     CHECK_EQ(ascii(first(u"'\\u{0000000041}'").value), "A");
     CHECK_EQ(first(u"\\u{110000}").type == Bad, true);
@@ -899,7 +899,7 @@ void test_edge_cases()
     // and put no newline_before on the token after.
     CHECK_TOKENS(u"'a b' x", { { Str, u"a b" }, { Id, u"x" } });
     CHECK_TOKENS(u"\"a b\" x", { { Str, u"a b" }, { Id, u"x" } });
-    CHECK_EQ(first(u"'a\rb'").message, "Unterminated string literal");
+    CHECK_EQ(first(u"'a\rb'").message, "Invalid or unexpected token");
     CHECK_EQ(first(u"'a\r\nb'").end_offset, 2u); // stops before the terminator
 
     // §12.9.6.1: the TV and TRV of a LineTerminatorSequence are both LF,
@@ -995,7 +995,7 @@ void test_edge_cases()
         if (t.type == Id)
             t = lexer.next(false);
         std::string const label = "comment: " + ascii(source);
-        test::check_eq(t.message, std::string("Unterminated comment"), label.c_str(), "Unterminated comment", __FILE__, __LINE__);
+        test::check_eq(t.message, std::string("Invalid or unexpected token"), label.c_str(), "Invalid or unexpected token", __FILE__, __LINE__);
         test::check_eq(static_cast<std::size_t>(t.end_offset), std::u16string_view(source).size(), label.c_str(), "length", __FILE__, __LINE__);
         test::check_eq(lexer.next(true).type == End, true, label.c_str(), "end after", __FILE__, __LINE__);
     }
@@ -1006,15 +1006,15 @@ void test_edge_cases()
     // point with ID_Start, and a surrogate is not one): outside a literal
     // it is an Unexpected character that consumes one unit; inside a
     // string, template or regular expression it is an ordinary unit.
-    CHECK_EQ(first(u"\xD800").message, "Unexpected character U+D800");
-    CHECK_EQ(first(u"\xDC00").message, "Unexpected character U+DC00");
+    CHECK_EQ(first(u"\xD800").message, "Invalid or unexpected token");
+    CHECK_EQ(first(u"\xDC00").message, "Invalid or unexpected token");
     CHECK_EQ(first(u"\xD800").end_offset, 1u);
     CHECK_TOKENS(u"a\xD800", { { Id, u"a" }, { Bad, u"" } });
     CHECK_TOKENS(u"\xD800" u"b", { { Bad, u"" } });
     CHECK(first(u"'\xD800'").value == std::u16string(1, static_cast<char16_t>(0xD800)));
     CHECK(first(u"`\xDC00`").value == std::u16string(1, static_cast<char16_t>(0xDC00)));
     CHECK(first(u"/\xD800/").value == std::u16string(1, static_cast<char16_t>(0xD800)));
-    CHECK_EQ(first(u"\\u{D800}").message, "Invalid Unicode escape sequence");
+    CHECK_EQ(first(u"\\u{D800}").message, "Invalid or unexpected token");
     CHECK(first(u"'\\u{D800}'").value == std::u16string(1, static_cast<char16_t>(0xD800))); // a string may hold one
     CHECK(first(u"'\\uD83D\\uDE00'").value == u"\U0001F600"); // two escapes make a pair
     CHECK_EQ(first(u"\xDC00\xD800").end_offset, 1u); // low then high is not a pair

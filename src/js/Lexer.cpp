@@ -230,16 +230,20 @@ Trivia skip_trivia(Scanner& s, bool html_comments)
 
 // After the `u` of a \u escape: four hex digits, or {…} naming a code
 // point up to 10FFFF (§12.9.4 UnicodeEscapeSequence). Never consumes the
-// character that fails, so template scanning can carry on from it.
-std::optional<char32_t> scan_unicode_escape(Scanner& s)
+// character that fails, so template scanning can carry on from it. A code
+// point above 10FFFF sets `too_large`, which V8 words differently.
+std::optional<char32_t> scan_unicode_escape(Scanner& s, bool* too_large = nullptr)
 {
     if (s.eat(u'{')) {
         char32_t value = 0;
         int digits = 0;
         while (is_hex_digit(s.peek())) {
             value = value * 16 + static_cast<char32_t>(hex_value(s.peek()));
-            if (value > 0x10FFFF)
+            if (value > 0x10FFFF) {
+                if (too_large)
+                    *too_large = true;
                 return std::nullopt;
+            }
             ++digits;
             s.advance();
         }
@@ -316,14 +320,17 @@ Token scan_identifier(Scanner& s, Token token)
         if (s.peek() == U'\\') {
             if (s.peek(1) != U'u') {
                 s.advance(); // the error still consumes something: a caller that goes on makes progress
-                return invalid(std::move(token), "Invalid Unicode escape sequence");
+                return invalid(std::move(token), "Invalid or unexpected token");
             }
             s.advance(2);
-            std::optional<char32_t> const code_point = scan_unicode_escape(s);
+            bool too_large = false;
+            std::optional<char32_t> const code_point = scan_unicode_escape(s, &too_large);
             // §12.7.1 early errors: the escaped code point must itself be
             // an identifier character in that position.
-            if (!code_point || !(first ? Lexer::is_identifier_start(*code_point) : Lexer::is_identifier_part(*code_point)))
-                return invalid(std::move(token), "Invalid Unicode escape sequence");
+            if (!code_point)
+                return invalid(std::move(token), too_large ? "Undefined Unicode code-point" : "Invalid Unicode escape sequence");
+            if (!(first ? Lexer::is_identifier_start(*code_point) : Lexer::is_identifier_part(*code_point)))
+                return invalid(std::move(token), "Invalid or unexpected token");
             append_code_point(name, *code_point);
             escaped = true;
         } else {
@@ -459,7 +466,7 @@ Token scan_number(Scanner& s, Token token)
         if (run.error)
             return invalid(std::move(token), *run.error);
         if (run.count == 0)
-            return invalid(std::move(token), hex ? "Missing hexadecimal digits after 0x" : octal ? "Missing octal digits after 0o" : "Missing binary digits after 0b");
+            return invalid(std::move(token), "Invalid or unexpected token");
         value = power_of_two_value(integer, hex ? 4 : octal ? 3 : 1);
         decimal = false;
     } else if (s.peek() == U'0' && is_decimal_digit(prefix)) {
@@ -476,6 +483,7 @@ Token scan_number(Scanner& s, Token token)
             integer.push_back(static_cast<char>(s.peek()));
             s.advance();
         }
+        token.message = all_octal ? "Octal literals are not allowed in strict mode." : "Decimals with leading zeros are not allowed in strict mode.";
         if (all_octal) {
             value = power_of_two_value(integer, 3);
             decimal = false; // 017.5 is the literal 017 followed by the literal .5
@@ -484,7 +492,7 @@ Token scan_number(Scanner& s, Token token)
         integer.push_back('0');
         s.advance();
         if (s.peek() == U'_')
-            return invalid(std::move(token), "Numeric separator can not be used after leading 0");
+            return invalid(std::move(token), "Numeric separator can not be used after leading 0.");
     } else if (is_decimal_digit(s.peek())) {
         DigitRun const run = scan_digits(s, is_decimal_digit, integer);
         if (run.error)
@@ -510,7 +518,7 @@ Token scan_number(Scanner& s, Token token)
             if (run.error)
                 return invalid(std::move(token), *run.error);
             if (run.count == 0)
-                return invalid(std::move(token), "Missing exponent digits");
+                return invalid(std::move(token), "Invalid or unexpected token");
         }
         value = decimal_value(integer, fraction, exponent);
     }
@@ -527,7 +535,7 @@ Token scan_number(Scanner& s, Token token)
     std::size_t units = 0;
     char32_t const following = s.code_point(&units);
     if (following == U'\\' || is_decimal_digit(following) || Lexer::is_identifier_start(following))
-        return invalid(std::move(token), "Identifier directly after number");
+        return invalid(std::move(token), "Invalid or unexpected token");
 
     if (is_bigint) {
         token.type = TokenType::BigInt;
@@ -552,7 +560,7 @@ Token scan_string(Scanner& s, Token token)
     while (true) {
         char32_t const c = s.peek();
         if (c == eof_sentinel || c == U'\n' || c == U'\r')
-            return invalid(std::move(token), "Unterminated string literal");
+            return invalid(std::move(token), "Invalid or unexpected token");
         if (c == quote) {
             s.advance();
             break;
@@ -566,7 +574,7 @@ Token scan_string(Scanner& s, Token token)
         s.advance();
         char32_t const e = s.peek();
         if (e == eof_sentinel)
-            return invalid(std::move(token), "Unterminated string literal");
+            return invalid(std::move(token), "Invalid or unexpected token");
         if (Lexer::is_line_terminator(e)) {
             s.advance(); // LineContinuation: contributes nothing (a CR LF is one)
             continue;
@@ -600,9 +608,10 @@ Token scan_string(Scanner& s, Token token)
             break;
         }
         case U'u': {
-            std::optional<char32_t> const code_point = scan_unicode_escape(s);
+            bool too_large = false;
+            std::optional<char32_t> const code_point = scan_unicode_escape(s, &too_large);
             if (!code_point)
-                return invalid(std::move(token), "Invalid Unicode escape sequence");
+                return invalid(std::move(token), too_large ? "Undefined Unicode code-point" : "Invalid Unicode escape sequence");
             append_code_point(value, *code_point);
             break;
         }
@@ -619,8 +628,11 @@ Token scan_string(Scanner& s, Token token)
             // digits when the first is 0–3 (so the value fits a byte), two
             // when it is 4–7, and \0 before 8 or 9 is the legacy zero.
             int v = static_cast<int>(e - U'0');
-            if (e != U'0' || is_decimal_digit(s.peek()))
+            if (e != U'0' || is_decimal_digit(s.peek())) {
                 token.legacy_octal = true;
+                if (token.message.empty())
+                    token.message = "Octal escape sequences are not allowed in strict mode.";
+            }
             int const more = e <= U'3' ? 2 : 1;
             for (int i = 0; i < more && is_octal_digit(s.peek()); ++i) {
                 v = v * 8 + static_cast<int>(s.peek() - U'0');
@@ -632,6 +644,8 @@ Token scan_string(Scanner& s, Token token)
         case U'8':
         case U'9':
             token.legacy_octal = true; // NonOctalDecimalEscapeSequence
+            if (token.message.empty())
+                token.message = "\\8 and \\9 are not allowed in strict mode.";
             value.push_back(static_cast<char16_t>(e));
             break;
         default:
@@ -672,10 +686,16 @@ Token scan_template_span(Scanner& s, Token token)
     std::u16string cooked;
     std::u16string raw;
     bool cooked_valid = true;
+    std::string cooked_error; // what V8 says of the first bad escape, for an untagged template
+    auto bad_escape = [&](char const* message) {
+        if (cooked_valid)
+            cooked_error = message;
+        cooked_valid = false;
+    };
     while (true) {
         char32_t const c = s.peek();
         if (c == eof_sentinel)
-            return invalid(std::move(token), "Unterminated template literal");
+            return invalid(std::move(token), "Unexpected end of input");
         if (c == U'`') {
             s.advance();
             token.template_tail = true;
@@ -702,7 +722,7 @@ Token scan_template_span(Scanner& s, Token token)
         s.advance();
         char32_t const e = s.peek();
         if (e == eof_sentinel)
-            return invalid(std::move(token), "Unterminated template literal");
+            return invalid(std::move(token), "Unexpected end of input");
         s.advance();
         if (!Lexer::is_line_terminator(e)) {
             switch (e) {
@@ -729,20 +749,21 @@ Token scan_template_span(Scanner& s, Token token)
                     cooked.push_back(static_cast<char16_t>(hex_value(s.peek()) * 16 + hex_value(s.peek(1))));
                     s.advance(2);
                 } else {
-                    cooked_valid = false;
+                    bad_escape("Invalid hexadecimal escape sequence");
                 }
                 break;
             case U'u': {
-                std::optional<char32_t> const code_point = scan_unicode_escape(s);
+                bool too_large = false;
+                std::optional<char32_t> const code_point = scan_unicode_escape(s, &too_large);
                 if (code_point)
                     append_code_point(cooked, *code_point);
                 else
-                    cooked_valid = false;
+                    bad_escape(too_large ? "Undefined Unicode code-point" : "Invalid Unicode escape sequence");
                 break;
             }
             case U'0':
                 if (is_decimal_digit(s.peek()))
-                    cooked_valid = false; // no octal escapes in a template
+                    bad_escape("Octal escape sequences are not allowed in template strings."); // no octal escapes in a template
                 else
                     cooked.push_back(u'\0');
                 break;
@@ -753,9 +774,11 @@ Token scan_template_span(Scanner& s, Token token)
             case U'5':
             case U'6':
             case U'7':
+                bad_escape("Octal escape sequences are not allowed in template strings.");
+                break;
             case U'8':
             case U'9':
-                cooked_valid = false;
+                bad_escape("\\8 and \\9 are not allowed in template strings.");
                 break;
             default:
                 cooked.push_back(static_cast<char16_t>(e));
@@ -768,6 +791,8 @@ Token scan_template_span(Scanner& s, Token token)
     token.cooked_valid = cooked_valid;
     if (cooked_valid)
         token.value = std::move(cooked);
+    else
+        token.message = std::move(cooked_error);
     token.raw = std::move(raw);
     return token;
 }
@@ -1043,12 +1068,8 @@ Token scan_punctuator(Scanner& s, Token token)
         std::size_t units = 0;
         char32_t const code_point = s.code_point(&units);
         s.advance(units);
-        char buffer[40];
-        if (code_point >= 0x21 && code_point <= 0x7E)
-            std::snprintf(buffer, sizeof buffer, "Unexpected character '%c'", static_cast<char>(code_point));
-        else
-            std::snprintf(buffer, sizeof buffer, "Unexpected character U+%04X", static_cast<unsigned>(code_point));
-        return invalid(std::move(token), buffer);
+        (void)code_point;
+        return invalid(std::move(token), "Invalid or unexpected token");
     }
     s.advance(length);
     token.type = TokenType::Punctuator;
@@ -1069,7 +1090,7 @@ Token scan_private_name(Scanner& s, Token token)
     std::size_t units = 0;
     char32_t const c = s.code_point(&units);
     if (!(c == U'\\' || Lexer::is_identifier_start(c)))
-        return invalid(std::move(token), "Unexpected character '#'");
+        return invalid(std::move(token), "Invalid or unexpected token");
     token = scan_identifier(s, std::move(token));
     if (token.type == TokenType::Invalid)
         return token;
@@ -1095,7 +1116,7 @@ Token Lexer::next(bool regex_allowed)
     token.position = scanner.position();
     if (trivia.unterminated_comment) {
         token.position = trivia.comment_start;
-        token = invalid(std::move(token), "Unterminated comment");
+        token = invalid(std::move(token), "Invalid or unexpected token");
     } else {
         std::size_t units = 0;
         char32_t const c = scanner.code_point(&units);

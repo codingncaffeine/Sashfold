@@ -212,10 +212,15 @@ std::string describe_token(Token const& token)
     case TokenType::EndOfInput:
         return "Unexpected end of input";
     case TokenType::Identifier:
+        // A reserved word spelled with an escape is no name and no keyword.
+        if (token.has_escape && (Lexer::keyword_for(token.value) || token.value == u"yield" || token.value == u"await" || token.value == u"let"))
+            return "Keyword must not contain escaped characters";
         return "Unexpected identifier '" + utf8_from_utf16(token.value) + "'";
     case TokenType::PrivateName:
-        return "Unexpected private name '" + utf8_from_utf16(token.value) + "'";
+        return "Unexpected identifier '" + utf8_from_utf16(token.value) + "'";
     case TokenType::Keyword:
+        if (token.keyword == Keyword::Enum)
+            return "Unexpected reserved word";
         return "Unexpected token '" + utf8_from_utf16(token.value) + "'";
     case TokenType::Punctuator:
         return "Unexpected token '" + utf8_from_utf16(punctuator_text(token.punctuator)) + "'";
@@ -744,7 +749,7 @@ struct Parser::Impl {
     Expression* parse_assignment(bool allow_in, bool cover = false);
     bool check_cover(std::size_t mark);
     Expression* parse_conditional(bool allow_in);
-    Expression* parse_binary(int min_precedence, bool allow_in);
+    Expression* parse_binary(int min_precedence, bool allow_in, bool nullish_operand = false);
     Expression* parse_unary();
     Expression* parse_left_hand_side();
     Expression* parse_new();
@@ -1017,6 +1022,14 @@ bool Parser::Impl::consume_semicolon()
     }
     if (m_current.is(Punctuator::RightBrace) || m_current.type == TokenType::EndOfInput || m_current.newline_before)
         return true;
+    // `await x` outside an async body reads as the name `await` followed by
+    // something that cannot follow it; V8 says what was meant.
+    std::u16string_view const source = m_program->source;
+    if (m_current.type != TokenType::Invalid && m_previous_end >= 5 && m_previous_end <= source.size()
+        && source.substr(m_previous_end - 5, 5) == u"await"
+        && (m_previous_end == 5 || !Lexer::is_identifier_part(source[m_previous_end - 6]))
+        && (m_functions.empty() || !function().in_async))
+        return fail(m_current.position, "await is only valid in async functions and the top level bodies of modules");
     return fail_unexpected();
 }
 
@@ -2063,8 +2076,10 @@ Expression* Parser::Impl::parse_conditional(bool allow_in)
 // right-associative and its left operand may not be a bare unary
 // expression (§13.6: UpdateExpression ** ExponentiationExpression).
 // `??` may not mix with `||` or `&&` without parentheses (§13.13:
-// CoalesceExpression's operands are BitwiseORExpressions).
-Expression* Parser::Impl::parse_binary(int min_precedence, bool allow_in)
+// CoalesceExpression's operands are BitwiseORExpressions): the `||` or `&&`
+// (or the `??` after them) that breaks the rule is the unexpected token,
+// as V8 words it. `nullish_operand` says this is the right operand of `??`.
+Expression* Parser::Impl::parse_binary(int min_precedence, bool allow_in, bool nullish_operand)
 {
     SourcePosition const start = m_current.position;
     Expression* left = nullptr;
@@ -2075,7 +2090,16 @@ Expression* Parser::Impl::parse_binary(int min_precedence, bool allow_in)
         constexpr int relational_precedence = 8;
         Token const next = peek();
         if (!allow_in || min_precedence > relational_precedence || !next.is(Keyword::In)) {
-            fail_unexpected();
+            // V8 names a private name no enclosing class declares as that;
+            // one that is declared is merely somewhere it cannot be.
+            JsString* const name = atom(m_current.value);
+            bool declared = false;
+            for (PrivateScope const& scope : m_private_scopes)
+                declared = declared || scope.declared.contains(name);
+            if (declared)
+                fail_unexpected();
+            else
+                fail(m_current.position, "Private field '" + utf8_from_utf16(m_current.value) + "' must be declared in an enclosing class");
             return nullptr;
         }
         auto* private_in = make<PrivateInExpression>(start);
@@ -2102,6 +2126,15 @@ Expression* Parser::Impl::parse_binary(int min_precedence, bool allow_in)
         if (op.precedence == 0 || op.precedence < min_precedence)
             break;
         SourcePosition const operator_position = m_current.position;
+        if (op.logical) {
+            bool const nullish = op.logical_op == LogicalOp::Nullish;
+            bool const mixes_left = left->type == NodeType::LogicalExpression && !m_parenthesised.contains(left)
+                && (static_cast<LogicalExpression const*>(left)->op == LogicalOp::Nullish) != nullish;
+            if (mixes_left || (nullish_operand && !nullish)) {
+                fail_unexpected();
+                return nullptr;
+            }
+        }
         if (op.precedence == exponent_precedence && left->type == NodeType::UnaryExpression
             && !m_parenthesised.contains(left)) {
             fail(operator_position, "Unary operator used immediately before exponentiation expression. Parenthesis must be used to disambiguate operator precedence");
@@ -2113,21 +2146,11 @@ Expression* Parser::Impl::parse_binary(int min_precedence, bool allow_in)
         // chain), so it counts as a nesting level.
         if (!enter())
             return nullptr;
-        Expression* right = parse_binary(next_precedence, allow_in);
+        Expression* right = parse_binary(next_precedence, allow_in, op.logical && op.logical_op == LogicalOp::Nullish);
         leave();
         if (!right)
             return nullptr;
         if (op.logical) {
-            auto mixes = [&](Expression const* operand) {
-                if (operand->type != NodeType::LogicalExpression || m_parenthesised.contains(operand))
-                    return false;
-                bool const nullish = static_cast<LogicalExpression const*>(operand)->op == LogicalOp::Nullish;
-                return nullish != (op.logical_op == LogicalOp::Nullish);
-            };
-            if (mixes(left) || mixes(right)) {
-                fail(operator_position, "Mixing '?" "?' with '||' or '&&' without parentheses is not allowed");
-                return nullptr;
-            }
             auto* logical = make<LogicalExpression>(start);
             logical->op = op.logical_op;
             logical->left = left;
@@ -2161,7 +2184,7 @@ Expression* Parser::Impl::parse_unary()
         // §13.5.1.1: in strict code `delete x` is an early error, and so is
         // `delete (x)` — the rule looks through the parentheses.
         if (*op == UnaryOp::Delete && is_strict() && operand->type == NodeType::Identifier) {
-            fail(start, "Delete of an unqualified identifier in strict mode");
+            fail(start, "Delete of an unqualified identifier in strict mode.");
             return nullptr;
         }
         // §13.5.1.1: a private element cannot be deleted, parenthesised or not.
@@ -2198,7 +2221,7 @@ Expression* Parser::Impl::parse_unary()
     if (m_current.is_identifier(u"await") && !m_current.has_escape) {
         if (function().in_async) {
             if (function().in_parameters) {
-                fail(start, "Await expression not allowed in formal parameter");
+                fail(start, "Illegal await-expression in formal parameters of async function");
                 return nullptr;
             }
             if (!enter())
@@ -2446,7 +2469,7 @@ bool Parser::Impl::parse_arguments(std::vector<Expression*>& arguments)
         }
         if (!m_current.is(Punctuator::RightParen)) {
             leave();
-            return fail_unexpected();
+            return fail(m_current.position, "missing ) after argument list");
         }
     }
     advance();
@@ -2511,7 +2534,7 @@ Expression* Parser::Impl::parse_primary()
         }
     case TokenType::Number: {
         if (m_current.legacy_octal && is_strict()) {
-            fail(start, "Octal literals are not allowed in strict mode");
+            fail(start, m_current.message);
             return nullptr;
         }
         auto* literal = make<NumberLiteral>(start);
@@ -2528,7 +2551,7 @@ Expression* Parser::Impl::parse_primary()
     }
     case TokenType::String: {
         if (m_current.legacy_octal && is_strict()) {
-            fail(start, "Octal escape sequences are not allowed in strict mode");
+            fail(start, m_current.message);
             return nullptr;
         }
         auto* literal = make<StringLiteral>(start);
@@ -2729,7 +2752,7 @@ bool Parser::Impl::parse_property_key(PropertyDefinition& property, Token* key_t
         return true;
     case TokenType::String:
         if (m_current.legacy_octal && is_strict())
-            return fail(m_current.position, "Octal escape sequences are not allowed in strict mode");
+            return fail(m_current.position, m_current.message);
         property.key = atom(m_current.value);
         advance();
         return true;
@@ -2743,7 +2766,7 @@ bool Parser::Impl::parse_property_key(PropertyDefinition& property, Token* key_t
     }
     case TokenType::Number:
         if (m_current.legacy_octal && is_strict())
-            return fail(m_current.position, "Octal literals are not allowed in strict mode");
+            return fail(m_current.position, m_current.message);
         property.key = atom(number_to_string(m_current.number));
         advance();
         return true;
@@ -2929,7 +2952,11 @@ Expression* Parser::Impl::parse_object_literal()
             }
         } else {
             leave();
-            fail_unexpected();
+            // A key that cannot be a name is the token V8 names.
+            if (!property.computed_key)
+                fail(key_token.position, describe_token(key_token));
+            else
+                fail_unexpected();
             return nullptr;
         }
         object->properties.push_back(property);
@@ -2968,7 +2995,7 @@ Expression* Parser::Impl::parse_template(bool tagged)
         }
         if (!m_current.cooked_valid && !tagged) {
             leave();
-            fail(m_current.position, "Invalid escape sequence in template literal");
+            fail(m_current.position, m_current.message);
             return nullptr;
         }
         literal->cooked.push_back(m_current.cooked_valid ? atom(m_current.value) : nullptr);
@@ -2986,7 +3013,10 @@ Expression* Parser::Impl::parse_template(bool tagged)
         literal->expressions.push_back(expression);
         if (!m_current.is(Punctuator::RightBrace)) {
             leave();
-            fail_unexpected();
+            if (m_current.type == TokenType::Invalid)
+                fail_unexpected();
+            else
+                fail(m_current.position, "Missing } in template expression");
             return nullptr;
         }
         m_previous_end = m_current.end_offset;
@@ -3461,8 +3491,10 @@ bool Parser::Impl::parse_class_element(ClassNode& node)
         key_token = m_current;
         element.is_private = true;
         element.key = atom(m_current.value);
-        if (m_current.value == u"#constructor")
-            return fail(m_current.position, "Classes may not have a private element named '#constructor'");
+        if (m_current.value == u"#constructor") {
+            bool const method = element.kind == ClassElement::Kind::Getter || element.kind == ClassElement::Kind::Setter || peek().is(Punctuator::LeftParen);
+            return fail(m_current.position, method ? "Class constructor may not be a private method" : "Classes may not have a field named 'constructor'");
+        }
         advance();
     } else {
         if (!parse_property_key(definition, &key_token))
@@ -3664,7 +3696,10 @@ Expression* Parser::Impl::parse_binding_pattern(std::vector<Token>& bound)
             advance();
             if (m_current.type != TokenType::Identifier) {
                 leave();
-                fail_unexpected();
+                if (m_current.is(Punctuator::LeftBrace) || m_current.is(Punctuator::LeftBracket))
+                    fail(m_current.position, "`...` must be followed by an identifier in declaration contexts");
+                else
+                    fail_unexpected();
                 return nullptr;
             }
             bound.push_back(m_current);
@@ -3743,7 +3778,21 @@ Expression* Parser::Impl::parse_binding_target(std::vector<Token>& bound)
     if (m_current.is(Punctuator::LeftBracket) || m_current.is(Punctuator::LeftBrace))
         return parse_binding_pattern(bound);
     if (m_current.type != TokenType::Identifier) {
-        fail_unexpected();
+        // What could start an expression is a target that is not one, as
+        // V8 says it; anything else is simply not expected here.
+        bool const expression_start = m_current.type == TokenType::Number || m_current.type == TokenType::BigInt
+            || m_current.type == TokenType::String || m_current.type == TokenType::Template || m_current.type == TokenType::RegExp
+            || (m_current.type == TokenType::Keyword
+                && (m_current.keyword == Keyword::True || m_current.keyword == Keyword::False || m_current.keyword == Keyword::Null
+                    || m_current.keyword == Keyword::This || m_current.keyword == Keyword::New || m_current.keyword == Keyword::Typeof
+                    || m_current.keyword == Keyword::Void || m_current.keyword == Keyword::Delete || m_current.keyword == Keyword::Function
+                    || m_current.keyword == Keyword::Class || m_current.keyword == Keyword::Super))
+            || m_current.is(Punctuator::LeftParen) || m_current.is(Punctuator::Plus) || m_current.is(Punctuator::Minus)
+            || m_current.is(Punctuator::Exclamation) || m_current.is(Punctuator::Tilde);
+        if (expression_start)
+            fail(m_current.position, "Invalid destructuring assignment target");
+        else
+            fail_unexpected();
         return nullptr;
     }
     bound.push_back(m_current);
@@ -3751,6 +3800,14 @@ Expression* Parser::Impl::parse_binding_target(std::vector<Token>& bound)
     identifier->name = atom(m_current.value);
     add_reference(identifier, identifier->name);
     advance();
+    if (m_current.is(Punctuator::Dot)) {
+        fail(m_current.position, "Illegal property in declaration context");
+        return nullptr;
+    }
+    if (m_current.is(Punctuator::LeftBracket) || m_current.is(Punctuator::LeftParen)) {
+        fail(m_current.position, "Invalid destructuring assignment target");
+        return nullptr;
+    }
     return finish(identifier);
 }
 
@@ -4008,6 +4065,7 @@ bool Parser::Impl::parse_function_body(FunctionNode* fn)
 bool Parser::Impl::parse_directive_prologue(std::vector<Statement*>& body)
 {
     std::vector<SourcePosition> octal_positions;
+    std::string octal_message; // the first one's wording
     FunctionContext& fn = function();
     while (m_current.type == TokenType::String) {
         Token const directive = m_current;
@@ -4029,11 +4087,14 @@ bool Parser::Impl::parse_directive_prologue(std::vector<Statement*>& body)
             else
                 m_program->is_strict = true;
         }
-        if (directive.legacy_octal)
+        if (directive.legacy_octal) {
+            if (octal_positions.empty())
+                octal_message = directive.message;
             octal_positions.push_back(directive.position);
+        }
     }
     if (fn.is_strict && !octal_positions.empty())
-        return fail(octal_positions.front(), "Octal escape sequences are not allowed in strict mode");
+        return fail(octal_positions.front(), octal_message);
     return true;
 }
 
@@ -4074,9 +4135,11 @@ bool Parser::Impl::finish_parameters(FunctionNode* fn, FunctionKind kind, std::v
             return false;
     }
     if (kind == FunctionKind::Getter && !fn->parameters.empty())
-        return fail(fn->position, "Getter must not have any formal parameters");
-    if (kind == FunctionKind::Setter && (fn->parameters.size() != 1 || fn->parameters[0].is_rest))
-        return fail(fn->position, "Setter must have exactly one formal parameter");
+        return fail(fn->position, "Getter must not have any formal parameters.");
+    if (kind == FunctionKind::Setter && fn->parameters.size() == 1 && fn->parameters[0].is_rest)
+        return fail(fn->position, "Setter function argument must not be a rest parameter");
+    if (kind == FunctionKind::Setter && fn->parameters.size() != 1)
+        return fail(fn->position, "Setter must have exactly one formal parameter.");
     return true;
 }
 
@@ -4587,7 +4650,7 @@ Statement* Parser::Impl::parse_statement_inner(bool is_body)
         // position.
         Token const next = peek();
         if (next.is(Keyword::Function) && !next.newline_before) {
-            fail(start, "Async functions can only be declared at the top level or inside a block");
+            fail(start, "Async functions can only be declared at the top level or inside a block.");
             return nullptr;
         }
     }
@@ -4632,12 +4695,12 @@ Statement* Parser::Impl::parse_statement_inner(bool is_body)
             // (§14.1.1); Annex B.3.3's if-body exception is handled by
             // parse_if before it gets here.
             fail(start, is_strict()
-                    ? "In strict mode code, functions can only be declared at top level or inside a block"
-                    : "In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement");
+                    ? "In strict mode code, functions can only be declared at top level or inside a block."
+                    : "In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement.");
             return nullptr;
         case Keyword::Class:
         case Keyword::Const:
-            fail(start, "Lexical declaration cannot appear in a single-statement context");
+            fail_unexpected();
             return nullptr;
         case Keyword::Import: {
             // `import(…)` and `import.meta` are expressions (§13.3.10,
@@ -4759,11 +4822,8 @@ VariableDeclaration* Parser::Impl::parse_declaration_list(VariableDeclaration::K
             declarator.init = parse_assignment(allow_in);
             if (!declarator.init)
                 return nullptr;
-        } else if (kind == VariableDeclaration::Kind::Const && !in_for_head) {
-            fail(m_current.position, "Missing initializer in const declaration");
-            return nullptr;
-        } else if (declarator.pattern && !in_for_head) {
-            fail(m_current.position, "Missing initializer in destructuring declaration");
+        } else if ((kind == VariableDeclaration::Kind::Const || declarator.pattern) && !in_for_head) {
+            fail(m_current.position, declarator.pattern ? "Missing initializer in destructuring declaration" : "Missing initializer in const declaration");
             return nullptr;
         }
         for (Token const& token : bound) {
@@ -4797,6 +4857,10 @@ Statement* Parser::Impl::parse_if()
     // if branch; it behaves as the sole item of a block.
     auto parse_branch = [&]() -> Statement* {
         if (m_current.is(Keyword::Function) && !is_strict()) {
+            if (peek().is(Punctuator::Star)) {
+                fail(m_current.position, "Generators can only be declared at the top level or inside a block.");
+                return nullptr;
+            }
             SourcePosition const branch_start = m_current.position;
             auto* block = make<BlockStatement>(branch_start);
             push_scope(&block->declarations);
@@ -4889,14 +4953,14 @@ Statement* Parser::Impl::parse_for()
         std::string_view const loop_name = is_of ? "in for-of loop" : "in for-in loop";
         if (declaration) {
             if (declaration->declarations.size() != 1) {
-                fail(head_start, "Invalid left-hand side " + std::string(loop_name) + ": Must have a single binding");
+                fail(head_start, "Invalid left-hand side " + std::string(loop_name) + ": Must have a single binding.");
                 return nullptr;
             }
             // B.3.5: `for (var x = 1 in o)` survives in sloppy code only, and
             // only for a plain name; a for-of head never takes an initializer.
             if (declaration->declarations[0].init
                 && (is_of || declaration->kind != VariableDeclaration::Kind::Var || is_strict() || declaration->declarations[0].pattern)) {
-                fail(head_start, std::string(is_of ? "for-of" : "for-in") + " loop variable declaration may not have an initializer");
+                fail(head_start, std::string(is_await ? "for-await-of" : is_of ? "for-of" : "for-in") + " loop variable declaration may not have an initializer.");
                 return nullptr;
             }
             finish(declaration);
@@ -4906,9 +4970,9 @@ Statement* Parser::Impl::parse_for()
             && static_cast<Identifier const*>(target)->name->equals(u"async")) {
             // §14.7.5.1: `for (async of …)` is kept apart from an async
             // arrow's head; in parentheses the name is a name again.
-            fail(head_start, "The left-hand side of a for-of loop may not be 'async'");
+            fail(head_start, "The left-hand side of a for-of loop may not be 'async'.");
             return nullptr;
-        } else if (!check_simple_target(target, head_start, loop_name)) {
+        } else if (!check_simple_target(target, head_start, "in for-loop")) {
             return nullptr;
         }
         advance(); // in, or of
@@ -5317,11 +5381,15 @@ Statement* Parser::Impl::parse_labelled(bool is_body)
         // B.3.2 allows a labelled function declaration in sloppy code, but
         // never as the body of an if, loop or with (§14.1.1).
         if (is_strict()) {
-            fail(m_current.position, "In strict mode code, functions can only be declared at top level or inside a block");
+            fail(m_current.position, "In strict mode code, functions can only be declared at top level or inside a block.");
             return nullptr;
         }
         if (is_body) {
-            fail(m_current.position, "In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement");
+            fail(m_current.position, "In non-strict mode code, functions can only be declared at top level, inside a block, or as the body of an if statement.");
+            return nullptr;
+        }
+        if (peek().is(Punctuator::Star)) {
+            fail(m_current.position, "Generators can only be declared at the top level or inside a block.");
             return nullptr;
         }
         body = parse_function_declaration(false);
@@ -5400,8 +5468,15 @@ std::unique_ptr<Program> Parser::parse_function_constructor(Heap& heap, std::u16
                 && static_cast<FunctionExpression const*>(expression)->function->source_end + 1 == head_end;
         }
         if (!head_well_formed) {
-            if (error)
+            if (error) {
                 *error = head_parser.error() ? *head_parser.error() : ParseError { SourcePosition {}, "Unexpected token in function parameters" };
+                // A parameter list that ends where it should not — text after
+                // a parameter that is neither a comma nor the closing
+                // parenthesis, or one that closes early — is V8's own case.
+                bool const ended_early = head_program || error->message.starts_with("Unexpected identifier") || error->message == "Unexpected token ';'";
+                if (ended_early)
+                    error->message = "Arg string terminates parameters early";
+            }
             return nullptr;
         }
     }
