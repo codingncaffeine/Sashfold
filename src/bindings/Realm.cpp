@@ -508,9 +508,36 @@ void define_attribute(js::Interpreter& interpreter, js::Object& target, std::str
     target.put_accessor(interpreter.key(name), get, set, js::Enumerable | js::Configurable);
 }
 
-js::NativeFunction* define_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length,
-    js::NativeFunction::Callback callback)
+std::string interface_name_of(js::Interpreter& interpreter, js::Object const& target)
 {
+    std::optional<js::PropertyDescriptor> const tag
+        = target.get_own_property(js::PropertyKey::symbol(interpreter.atoms().symbol_to_string_tag));
+    if (tag && tag->value && tag->value->is_string())
+        return tag->value->as_string()->to_utf8();
+    return {};
+}
+
+Native too_few_arguments(js::Interpreter& interpreter, std::string_view operation, std::string_view on, std::size_t required, std::size_t given)
+{
+    return interpreter.throw_type_error("Failed to execute '" + std::string(operation) + "'" + (on.empty() ? std::string() : " on '" + std::string(on) + "'")
+        + ": " + std::to_string(required) + (required == 1 ? " argument" : " arguments") + " required, but only " + std::to_string(given)
+        + " present.");
+}
+
+js::NativeFunction* define_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length,
+    js::NativeFunction::Callback callback, bool count_arguments)
+{
+    // Called with fewer arguments than it requires — its length is how many
+    // that is — an operation throws before anything else is looked at
+    // (WebIDL §3.7.7, the overload resolution's first step).
+    if (count_arguments && length > 0) {
+        callback = [inner = std::move(callback), required = static_cast<std::size_t>(length), operation = std::string(name),
+                       on = interface_name_of(interpreter, target)](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+            if (args.size() < required)
+                return too_few_arguments(interp, operation, on, required, args.size());
+            return inner(interp, this_value, args);
+        };
+    }
     js::NativeFunction* const function
         = sashfold::js::define_method(interpreter, target, name, length, std::move(callback), js::Writable | js::Enumerable | js::Configurable);
     function->run_in_receivers_realm(); // an interface's operation, likewise

@@ -978,8 +978,8 @@ void install_window(Realm::Internals& in)
     // Timers.
     define_operation(interpreter, *global, "setTimeout", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return set_timer(interp, args, false); });
     define_operation(interpreter, *global, "setInterval", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return set_timer(interp, args, true); });
-    define_operation(interpreter, *global, "clearTimeout", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
-    define_operation(interpreter, *global, "clearInterval", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
+    define_operation(interpreter, *global, "clearTimeout", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
+    define_operation(interpreter, *global, "clearInterval", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
     define_operation(interpreter, *global, "requestAnimationFrame", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         js::Value const callback = js::argument(args, 0);
         if (!js::Interpreter::is_callable(callback))
@@ -1035,9 +1035,10 @@ void install_window(Realm::Internals& in)
         internals.console("info", "prompt: " + *message + " (cancelled)");
         return js::Value::null();
     });
-    for (std::string_view const name : { "print", "close", "stop", "focus", "blur", "captureEvents", "releaseEvents", "moveTo",
-             "moveBy", "resizeTo", "resizeBy" })
+    for (std::string_view const name : { "print", "close", "stop", "focus", "blur", "captureEvents", "releaseEvents" })
         define_operation(interpreter, *global, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    for (std::string_view const name : { "moveTo", "moveBy", "resizeTo", "resizeBy" })
+        define_operation(interpreter, *global, name, 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
     // window.open (HTML §7.2.2.1, the window open steps, as far as this host
     // goes): the URL against the document's, about:blank for none, and the
     // target — _self, _parent and _top name a window here, and so does the
@@ -1142,9 +1143,9 @@ void install_window(Realm::Internals& in)
             return js::Value::undefined();
         };
     };
-    define_operation(interpreter, *global, "scrollTo", 2, scroll(false));
-    define_operation(interpreter, *global, "scroll", 2, scroll(false));
-    define_operation(interpreter, *global, "scrollBy", 2, scroll(true));
+    define_operation(interpreter, *global, "scrollTo", 0, scroll(false));
+    define_operation(interpreter, *global, "scroll", 0, scroll(false));
+    define_operation(interpreter, *global, "scrollBy", 0, scroll(true));
     define_operation(interpreter, *global, "atob", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> text = internals.to_utf8(js::argument(args, 0));

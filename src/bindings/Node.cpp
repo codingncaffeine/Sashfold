@@ -1559,9 +1559,10 @@ void install_element(Realm::Internals& in, js::Object& element)
     element_accessor(
         in, element, "scrollLeft", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); },
         [](Realm::Internals&, dom::Element&, js::Value const&) -> Native { return js::Value::undefined(); });
-    for (std::string_view const name : { "scrollIntoView", "scrollIntoViewIfNeeded", "scrollTo", "scroll", "scrollBy", "releasePointerCapture",
-             "setPointerCapture", "requestPointerLock" })
+    for (std::string_view const name : { "scrollIntoView", "scrollIntoViewIfNeeded", "scrollTo", "scroll", "scrollBy", "requestPointerLock" })
         element_method(in, element, name, 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
+    for (std::string_view const name : { "releasePointerCapture", "setPointerCapture" })
+        element_method(in, element, name, 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
     element_method(in, element, "hasPointerCapture", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(false); });
     element_method(in, element, "attachShadow", 1, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
         return internals.throw_dom_exception("NotSupportedError", "Shadow trees are not supported");
@@ -1929,7 +1930,7 @@ void install_nodes(Realm::Internals& in)
             }
             return make_rect(internals_of(interp), values[0], values[1], values[2], values[3]);
         },
-        4);
+        0);
     in.prototypes["DOMRectReadOnly"] = rect;
     auto const rect_side = [](std::string_view a, std::string_view b, bool sum, bool minimum) {
         return [a, b, sum, minimum](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {

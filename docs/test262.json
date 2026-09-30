@@ -1,7 +1,7 @@
 {
   "revision": "419d3e0a2273ba01a3bfcbec423f2801425b8e93",
   "date": "2026-09-30",
-  "passed": 41607,
+  "passed": 41613,
   "total": 45148,
   "directories": [
     { "path": "test/language/arguments-object", "passed": 261, "total": 263 },
@@ -54,7 +54,7 @@
     { "path": "test/built-ins/Infinity", "passed": 6, "total": 6 },
     { "path": "test/built-ins/isFinite", "passed": 15, "total": 15 },
     { "path": "test/built-ins/isNaN", "passed": 15, "total": 15 },
-    { "path": "test/built-ins/JSON", "passed": 138, "total": 165 },
+    { "path": "test/built-ins/JSON", "passed": 144, "total": 165 },
     { "path": "test/built-ins/Map", "passed": 204, "total": 204 },
     { "path": "test/built-ins/MapIteratorPrototype", "passed": 11, "total": 11 },
     { "path": "test/built-ins/Math", "passed": 312, "total": 327 },

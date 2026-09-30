@@ -1,4 +1,4 @@
-# test262 tests passing (41607 of 45148) at test262 revision (unrecorded).
+# test262 tests passing (41613 of 45148) at test262 revision 419d3e0a2273ba01a3bfcbec423f2801425b8e93.
 # One test per line; a listed test that fails is a regression.
 # Re-bless with: test262_runner <checkout> <directories> <this file> --update
 test/annexB/built-ins/Date/prototype/getYear/B.2.4.js
@@ -6382,8 +6382,12 @@ test/built-ins/JSON/stringify/space-wrong-type.js
 test/built-ins/JSON/stringify/value-array-abrupt.js
 test/built-ins/JSON/stringify/value-array-circular.js
 test/built-ins/JSON/stringify/value-array-proxy-revoked.js
+test/built-ins/JSON/stringify/value-array-proxy.js
 test/built-ins/JSON/stringify/value-bigint-cross-realm.js
+test/built-ins/JSON/stringify/value-bigint-order.js
 test/built-ins/JSON/stringify/value-bigint-replacer.js
+test/built-ins/JSON/stringify/value-bigint-tojson-receiver.js
+test/built-ins/JSON/stringify/value-bigint-tojson.js
 test/built-ins/JSON/stringify/value-bigint.js
 test/built-ins/JSON/stringify/value-boolean-object.js
 test/built-ins/JSON/stringify/value-function.js
@@ -6393,6 +6397,7 @@ test/built-ins/JSON/stringify/value-number-object.js
 test/built-ins/JSON/stringify/value-object-abrupt.js
 test/built-ins/JSON/stringify/value-object-circular.js
 test/built-ins/JSON/stringify/value-object-proxy-revoked.js
+test/built-ins/JSON/stringify/value-object-proxy.js
 test/built-ins/JSON/stringify/value-primitive-top-level.js
 test/built-ins/JSON/stringify/value-string-escape-ascii.js
 test/built-ins/JSON/stringify/value-string-escape-unicode.js
@@ -6401,6 +6406,7 @@ test/built-ins/JSON/stringify/value-symbol.js
 test/built-ins/JSON/stringify/value-tojson-abrupt.js
 test/built-ins/JSON/stringify/value-tojson-arguments.js
 test/built-ins/JSON/stringify/value-tojson-array-circular.js
+test/built-ins/JSON/stringify/value-tojson-not-function.js
 test/built-ins/JSON/stringify/value-tojson-object-circular.js
 test/built-ins/JSON/stringify/value-tojson-result.js
 test/built-ins/Map/Symbol.species/length.js

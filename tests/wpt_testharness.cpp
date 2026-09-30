@@ -535,11 +535,15 @@ public:
 
     std::optional<Served> serve(net::Url const& url) const
     {
-        std::optional<std::string> const rel = rel_path_for(url);
+        std::optional<std::string> rel = rel_path_for(url);
         if (!rel)
             return std::nullopt;
         if (*rel == "resources/testharnessreport.js")
             return Served { std::string(report_script), "text/javascript", {} };
+        // The IDL parser every idlharness test loads is served by the
+        // suite's server under a name of its own: the file is elsewhere.
+        if (*rel == "resources/WebIDLParser.js")
+            rel = "resources/webidl2/lib/webidl2.js";
         if (rel->ends_with(".any.html"))
             return wrapper(*rel, rel->substr(0, rel->size() - 9) + ".any.js", true, url);
         if (rel->ends_with(".window.html"))

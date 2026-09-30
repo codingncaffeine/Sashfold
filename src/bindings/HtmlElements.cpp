@@ -597,8 +597,9 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         element_accessor(
             in, proto, "selectionDirection", [](Realm::Internals& internals, dom::Element&) -> Native { return internals.string("none"); },
             [](Realm::Internals&, dom::Element&, js::Value const&) -> Native { return js::Value::undefined(); });
-        for (std::string_view const name : { "select", "setSelectionRange", "setRangeText", "stepUp", "stepDown", "showPicker" })
-            element_method(in, proto, name, 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
+        for (auto const& [name, length] : { std::pair { "select", 0 }, std::pair { "setSelectionRange", 2 }, std::pair { "setRangeText", 1 },
+                 std::pair { "stepUp", 0 }, std::pair { "stepDown", 0 }, std::pair { "showPicker", 0 } })
+            element_method(in, proto, name, length, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
     }
 
     // Text areas.
@@ -619,8 +620,8 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         element_getter(in, proto, "textLength", [](Realm::Internals& internals, dom::Element& e) -> Native {
             return js::Value::number(static_cast<double>(js::utf16_from_utf8(control_value_of(internals, e)).size()));
         });
-        for (std::string_view const name : { "select", "setSelectionRange", "setRangeText" })
-            element_method(in, proto, name, 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
+        for (auto const& [name, length] : { std::pair { "select", 0 }, std::pair { "setSelectionRange", 2 }, std::pair { "setRangeText", 1 } })
+            element_method(in, proto, name, length, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
     }
 
     // Selects and options.
@@ -679,9 +680,11 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             if (!index)
                 return std::nullopt;
             std::vector<dom::Element*> const options = options_of(e);
-            if (*index < 0 || *index >= static_cast<double>(options.size()))
+            // (An `unsigned long`: what is not a number counts from nought.)
+            std::size_t const at = to_unsigned_long(*index);
+            if (at >= options.size())
                 return js::Value::null();
-            return js::Value::object(internals.wrap(*options[static_cast<std::size_t>(*index)]));
+            return js::Value::object(internals.wrap(*options[at]));
         });
         element_method(in, proto, "namedItem", 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
             std::optional<std::string> const name = string_of(internals, js::argument(args, 0));

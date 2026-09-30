@@ -686,7 +686,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_method(in, *document, "elementsFromPoint", 2, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
         return js::Value::object(internals.interpreter.new_array());
     });
-    document_method(in, *document, "caretRangeFromPoint", 2, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::null(); });
+    document_method(in, *document, "caretRangeFromPoint", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::null(); });
     document_method(in, *document, "hasFocus", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(true); });
     // The Storage Access API: a document has its cookies when it is the page
     // or on the page's host — the jar is closed to every other frame, the
@@ -738,8 +738,8 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             return js::Value::undefined();
         };
     };
-    document_method(in, *document, "write", 1, write(false));
-    document_method(in, *document, "writeln", 1, write(true));
+    document_method(in, *document, "write", 0, write(false));
+    document_method(in, *document, "writeln", 0, write(true));
     document_method(in, *document, "open", 0, [](Realm::Internals& internals, dom::Document& d, Args) -> Native {
         // The document is aborted: what it had queued is cancelled.
         if (&d == internals.document)

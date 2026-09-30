@@ -239,7 +239,7 @@ void install_mutation_observer(Realm::Internals& in)
         },
         1);
 
-    define_operation(interpreter, *proto, "observe", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *proto, "observe", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<MutationObserverObject*> const observer = this_observer(interp, this_value);
         if (!observer)

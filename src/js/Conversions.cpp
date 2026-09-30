@@ -6,6 +6,7 @@
 // cannot are static. The evaluator itself lives in Interpreter.cpp.
 
 #include "js/Intl.h"
+#include "js/MissCensus.h"
 #include "js/Module.h"
 #include "js/Object.h"
 #include "js/Runtime.h"
@@ -800,6 +801,8 @@ std::optional<bool> Interpreter::has_property(Object& object, PropertyKey const&
         if (link->get_own_property(key))
             return true;
     }
+    if (miss_census_on())
+        note_miss(object, key, true);
     return false;
 }
 

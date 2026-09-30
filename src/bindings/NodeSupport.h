@@ -142,7 +142,7 @@ void node_accessor(Realm::Internals& in, js::Object& prototype, std::string_view
 template<typename Body>
 void node_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, Body body)
 {
-    js::define_method(in.interpreter, prototype, name, length,
+    define_operation(in.interpreter, prototype, name, length,
         [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
             std::optional<dom::Node*> const node = this_node(interpreter, this_value);
             if (!node)
@@ -218,7 +218,7 @@ void element_forwarding_getter(Realm::Internals& in, js::Object& prototype, std:
 template<typename Body>
 void element_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, Body body)
 {
-    js::define_method(in.interpreter, prototype, name, length,
+    define_operation(in.interpreter, prototype, name, length,
         [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
             std::optional<dom::Element*> const element = this_element(interpreter, this_value);
             if (!element)
@@ -261,7 +261,7 @@ void document_accessor(Realm::Internals& in, js::Object& prototype, std::string_
 template<typename Body>
 void document_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, Body body)
 {
-    js::define_method(in.interpreter, prototype, name, length,
+    define_operation(in.interpreter, prototype, name, length,
         [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
             std::optional<dom::Document*> const document = this_document(interpreter, this_value);
             if (!document)

@@ -2,6 +2,7 @@
 
 #include "js/Ast.h"
 #include "js/Interpreter.h"
+#include "js/MissCensus.h"
 #include "js/Module.h"
 
 #include <algorithm>
@@ -443,6 +444,8 @@ bool Object::has_property(PropertyKey const& key) const
         if (link->get_own_property(key))
             return true;
     }
+    if (miss_census_on())
+        note_miss(*this, key, true);
     return false;
 }
 
@@ -465,6 +468,8 @@ std::optional<Value> Object::get(Interpreter& interpreter, PropertyKey const& ke
             return Value::undefined();
         return interpreter.call(Value::object(getter), receiver, {});
     }
+    if (miss_census_on())
+        note_miss(*this, key, false);
     return Value::undefined();
 }
 

@@ -984,7 +984,7 @@ void install_style(Realm::Internals& in)
         std::vector<std::string> const tokens = tokens_of(**list);
         return js::Value::boolean(std::find(tokens.begin(), tokens.end(), *token) != tokens.end());
     });
-    define_operation(interpreter, *token_list, "add", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *token_list, "add", 0, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
         if (!list)
             return std::nullopt;
@@ -999,7 +999,7 @@ void install_style(Realm::Internals& in)
         write_tokens(**list, tokens);
         return js::Value::undefined();
     });
-    define_operation(interpreter, *token_list, "remove", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *token_list, "remove", 0, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
         if (!list)
             return std::nullopt;

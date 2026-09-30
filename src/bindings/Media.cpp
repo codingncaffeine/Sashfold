@@ -2063,8 +2063,8 @@ void install_media_source(Realm::Internals& in)
         end_of_stream(internals, source, error);
         return js::Value::undefined();
     });
-    for (std::string_view const name : { "setLiveSeekableRange", "clearLiveSeekableRange" }) {
-        define_operation(interpreter, *proto, name, 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    for (auto const& [name, length] : { std::pair { "setLiveSeekableRange", 2 }, std::pair { "clearLiveSeekableRange", 0 } }) {
+        define_operation(interpreter, *proto, name, length, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
             std::optional<MediaSourceObject*> const found = this_as<MediaSourceObject>(interp, this_value);
             if (!found)
                 return std::nullopt;

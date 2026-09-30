@@ -1519,9 +1519,18 @@ void define_getter(Realm::Internals&, js::Object& prototype, std::string_view na
 void define_attribute(js::Interpreter&, js::Object& target, std::string_view name, js::NativeFunction::Callback getter,
     js::NativeFunction::Callback setter = {});
 // An IDL operation: a native method that is writable, enumerable and
-// configurable (WebIDL §3.7.7), unlike the language's own built-ins.
+// configurable (WebIDL §3.7.7), unlike the language's own built-ins, and
+// that throws a TypeError when it is called with fewer arguments than
+// `length`, which is how many it requires. (`count_arguments` false for a
+// caller that counts them itself, after it has looked at `this`.)
 js::NativeFunction* define_operation(js::Interpreter&, js::Object& target, std::string_view name, int length,
-    js::NativeFunction::Callback);
+    js::NativeFunction::Callback, bool count_arguments = true);
+// That TypeError: "Failed to execute 'name' on 'Interface': 2 arguments
+// required, but only 1 present."
+Native too_few_arguments(js::Interpreter&, std::string_view operation, std::string_view on, std::size_t required, std::size_t given);
+// What an interface's prototype says it is — its @@toStringTag — for the
+// messages that name it; nothing for an object that does not say.
+std::string interface_name_of(js::Interpreter&, js::Object const& prototype);
 // The IDL attributes reflected from content attributes (HTML §2.6.1), in
 // Reflect.cpp. Each of these defines one accessor pair on a prototype:
 // `property` is the IDL attribute's name, `attribute` the content

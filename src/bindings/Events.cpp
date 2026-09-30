@@ -781,7 +781,7 @@ void install_events(Realm::Internals& in)
         }
         return js::Value::object(path);
     });
-    define_operation(interpreter, *event, "initEvent", 3, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *event, "initEvent", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<EventObject*> const e = this_event(interp, this_value);
         if (!e)
             return std::nullopt;
@@ -810,7 +810,7 @@ void install_events(Realm::Internals& in)
     // CustomEvent.
     js::Object* custom_event = define_interface(in, "CustomEvent", event, event_constructor("CustomEvent"), 1);
     event_getter(in, *custom_event, "detail", [](Realm::Internals&, EventObject& e) { return e.detail_value.is_undefined() ? js::Value::null() : e.detail_value; });
-    define_operation(interpreter, *custom_event, "initCustomEvent", 4, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *custom_event, "initCustomEvent", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<EventObject*> const e = this_event(interp, this_value);
         if (!e)
             return std::nullopt;
@@ -832,7 +832,7 @@ void install_events(Realm::Internals& in)
     event_getter(in, *ui_event, "view", [](Realm::Internals& internals, EventObject&) { return js::Value::object(internals.window_proxy()); });
     event_getter(in, *ui_event, "detail", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.detail); });
     event_getter(in, *ui_event, "which", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.key_code ? e.key_code : e.button + 1); });
-    define_operation(interpreter, *ui_event, "initUIEvent", 5, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *ui_event, "initUIEvent", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<EventObject*> const e = this_event(interp, this_value);
         if (!e)
             return std::nullopt;
@@ -892,7 +892,7 @@ void install_events(Realm::Internals& in)
         return js::Value::boolean(false);
     };
     define_operation(interpreter, *mouse_event, "getModifierState", 1, modifier_state);
-    define_operation(interpreter, *mouse_event, "initMouseEvent", 15, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+    define_operation(interpreter, *mouse_event, "initMouseEvent", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<EventObject*> const e = this_event(interp, this_value);
         if (!e)
             return std::nullopt;

@@ -475,11 +475,14 @@ struct Stringifier {
         if (!value)
             return std::nullopt;
         in.root(*value);
-        if (value->is_object()) {
-            std::optional<Value> const to_json = in.get_method(*value, PropertyKey::atom(in.atoms().to_json));
+        // A toJSON that is not a function is not called, and is no error
+        // (SerializeJSONProperty step 2: GetV, then IsCallable); a BigInt
+        // is asked for one too, which is the only way one is serialized.
+        if (value->is_object() || value->is_bigint()) {
+            std::optional<Value> const to_json = in.get(*value, PropertyKey::atom(in.atoms().to_json));
             if (!to_json)
                 return std::nullopt;
-            if (!to_json->is_undefined()) {
+            if (Interpreter::is_callable(*to_json)) {
                 in.root(*to_json);
                 Value const arguments[1] = { Value::string(in.heap().key_to_string(key)) };
                 value = in.call(*to_json, *value, arguments);
