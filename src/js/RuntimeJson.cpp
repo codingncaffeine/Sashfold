@@ -45,17 +45,76 @@ public:
         m_in.root(*value);
         skip_whitespace();
         if (m_pos < m_text.size())
-            return unexpected();
+            return fail("Unexpected non-whitespace character after JSON");
         return value;
     }
 
 private:
+    // The failure messages are V8's, word for word: a token the grammar
+    // has no use for is named with a window of the source around it, and
+    // every other failure says what was wanted, where, and at which line
+    // and column.
+    enum class Token { End, Number, String, Other };
+
+    Token token_at(std::size_t pos) const
+    {
+        if (pos >= m_text.size())
+            return Token::End;
+        char16_t const c = m_text[pos];
+        if (c == u'"')
+            return Token::String;
+        if (c == u'-' || (c >= u'0' && c <= u'9'))
+            return Token::Number;
+        return Token::Other;
+    }
+
+    std::string where() const
+    {
+        std::size_t line = 1;
+        std::size_t last_break = 0;
+        std::size_t const end = std::min(m_pos, m_text.size());
+        std::size_t cursor = 0;
+        for (; cursor < end; ++cursor) {
+            if (m_text[cursor] == u'\r' && cursor + 1 < end && m_text[cursor + 1] == u'\n')
+                ++cursor;
+            if (m_text[cursor] == u'\r' || m_text[cursor] == u'\n') {
+                ++line;
+                last_break = cursor + 1;
+            }
+        }
+        return "at position " + std::to_string(m_pos) + " (line " + std::to_string(line) + " column " + std::to_string(1 + cursor - last_break) + ")";
+    }
+
+    std::nullopt_t fail(std::string_view what)
+    {
+        bool const names_json = what.ends_with("JSON");
+        return m_in.throw_syntax_error(std::string(what) + (names_json ? " " : " in JSON ") + where());
+    }
+
     std::nullopt_t unexpected()
     {
-        if (m_pos >= m_text.size())
+        switch (token_at(m_pos)) {
+        case Token::End:
             return m_in.throw_syntax_error("Unexpected end of JSON input");
-        std::u16string one(1, m_text[m_pos]);
-        return m_in.throw_syntax_error("Unexpected token " + utf8_from_utf16(one) + " in JSON at position " + std::to_string(m_pos));
+        case Token::Number:
+            return fail("Unexpected number");
+        case Token::String:
+            return fail("Unexpected string");
+        case Token::Other:
+            break;
+        }
+        std::size_t const length = m_text.size();
+        if (m_text == u"[object Object]" || m_text == u"NaN" || m_text == u"Infinity" || m_text == u"undefined")
+            return m_in.throw_syntax_error("\"" + utf8_from_utf16(m_text) + "\" is not valid JSON");
+        std::string const token = "Unexpected token '" + utf8_from_utf16(std::u16string(1, m_text[m_pos])) + "', ";
+        constexpr std::size_t context = 10;
+        if (length < context * 2 + 1)
+            return m_in.throw_syntax_error(token + "\"" + utf8_from_utf16(m_text) + "\" is not valid JSON");
+        if (m_pos < context)
+            return m_in.throw_syntax_error(token + "\"" + utf8_from_utf16(m_text.substr(0, m_pos + context)) + "\"... is not valid JSON");
+        if (m_pos < length - context)
+            return m_in.throw_syntax_error(token + "...\"" + utf8_from_utf16(m_text.substr(m_pos - context, context * 2)) + "\"... is not valid JSON");
+        return m_in.throw_syntax_error(token + "...\"" + utf8_from_utf16(m_text.substr(m_pos - context)) + "\" is not valid JSON");
     }
 
     void skip_whitespace()
@@ -69,11 +128,19 @@ private:
         }
     }
 
-    bool consume(std::u16string_view word)
+    // The word is scanned character by character so that a mismatch is
+    // reported at the character that broke it, as the end of the input
+    // when the text ran out first.
+    bool literal(std::u16string_view word)
     {
-        if (m_text.substr(m_pos, word.size()) != word)
-            return false;
-        m_pos += word.size();
+        ++m_pos;
+        for (std::size_t i = 1; i < word.size(); ++i) {
+            if (m_pos >= m_text.size() || m_text[m_pos] != word[i]) {
+                unexpected();
+                return false;
+            }
+            ++m_pos;
+        }
         return true;
     }
 
@@ -96,12 +163,12 @@ private:
         }
         if (c == u'-' || (c >= u'0' && c <= u'9'))
             return parse_number();
-        if (consume(u"true"))
-            return Value::boolean(true);
-        if (consume(u"false"))
-            return Value::boolean(false);
-        if (consume(u"null"))
-            return Value::null();
+        if (c == u't')
+            return literal(u"true") ? std::optional<Value>(Value::boolean(true)) : std::nullopt;
+        if (c == u'f')
+            return literal(u"false") ? std::optional<Value>(Value::boolean(false)) : std::nullopt;
+        if (c == u'n')
+            return literal(u"null") ? std::optional<Value>(Value::null()) : std::nullopt;
         return unexpected();
     }
 
@@ -112,20 +179,20 @@ private:
         std::size_t const start = m_pos;
         if (m_text[m_pos] == u'-')
             ++m_pos;
-        if (m_pos >= m_text.size())
-            return unexpected();
+        if (m_pos >= m_text.size() || m_text[m_pos] < u'0' || m_text[m_pos] > u'9')
+            return fail("No number after minus sign");
         if (m_text[m_pos] == u'0') {
             ++m_pos;
-        } else if (m_text[m_pos] >= u'1' && m_text[m_pos] <= u'9') {
+            if (m_pos < m_text.size() && m_text[m_pos] >= u'0' && m_text[m_pos] <= u'9')
+                return unexpected();
+        } else {
             while (m_pos < m_text.size() && m_text[m_pos] >= u'0' && m_text[m_pos] <= u'9')
                 ++m_pos;
-        } else {
-            return unexpected();
         }
         if (m_pos < m_text.size() && m_text[m_pos] == u'.') {
             ++m_pos;
             if (m_pos >= m_text.size() || m_text[m_pos] < u'0' || m_text[m_pos] > u'9')
-                return unexpected();
+                return fail("Unterminated fractional number");
             while (m_pos < m_text.size() && m_text[m_pos] >= u'0' && m_text[m_pos] <= u'9')
                 ++m_pos;
         }
@@ -134,7 +201,7 @@ private:
             if (m_pos < m_text.size() && (m_text[m_pos] == u'+' || m_text[m_pos] == u'-'))
                 ++m_pos;
             if (m_pos >= m_text.size() || m_text[m_pos] < u'0' || m_text[m_pos] > u'9')
-                return unexpected();
+                return fail("Exponent part is missing a number");
             while (m_pos < m_text.size() && m_text[m_pos] >= u'0' && m_text[m_pos] <= u'9')
                 ++m_pos;
         }
@@ -147,14 +214,14 @@ private:
         std::u16string out;
         while (true) {
             if (m_pos >= m_text.size())
-                return unexpected();
+                return fail("Unterminated string");
             char16_t const c = m_text[m_pos];
             if (c == u'"') {
                 ++m_pos;
                 return out;
             }
             if (c < 0x20)
-                return unexpected();
+                return fail("Bad control character in string literal");
             if (c != u'\\') {
                 out += c;
                 ++m_pos;
@@ -162,7 +229,7 @@ private:
             }
             ++m_pos;
             if (m_pos >= m_text.size())
-                return unexpected();
+                return fail("Bad escaped character");
             char16_t const escape = m_text[m_pos++];
             switch (escape) {
             case u'"': out += u'"'; break;
@@ -174,20 +241,20 @@ private:
             case u'r': out += u'\r'; break;
             case u't': out += u'\t'; break;
             case u'u': {
-                if (m_pos + 4 > m_text.size())
-                    return unexpected();
                 char16_t unit = 0;
                 for (int k = 0; k < 4; ++k) {
-                    char16_t const h = m_text[m_pos];
+                    char16_t const h = m_pos < m_text.size() ? m_text[m_pos] : u'\0';
                     int digit = -1;
-                    if (h >= u'0' && h <= u'9')
+                    if (m_pos >= m_text.size())
+                        digit = -1;
+                    else if (h >= u'0' && h <= u'9')
                         digit = h - u'0';
                     else if (h >= u'a' && h <= u'f')
                         digit = 10 + h - u'a';
                     else if (h >= u'A' && h <= u'F')
                         digit = 10 + h - u'A';
                     if (digit < 0)
-                        return unexpected();
+                        return fail("Bad Unicode escape");
                     unit = static_cast<char16_t>(unit * 16 + digit);
                     ++m_pos;
                 }
@@ -196,7 +263,7 @@ private:
             }
             default:
                 --m_pos;
-                return unexpected();
+                return fail("Bad escaped character");
             }
         }
     }
@@ -220,17 +287,15 @@ private:
                 return std::nullopt;
             array->set_element(index++, *element);
             skip_whitespace();
-            if (m_pos >= m_text.size())
-                return unexpected();
-            if (m_text[m_pos] == u',') {
+            if (m_pos < m_text.size() && m_text[m_pos] == u',') {
                 ++m_pos;
                 continue;
             }
-            if (m_text[m_pos] == u']') {
+            if (m_pos < m_text.size() && m_text[m_pos] == u']') {
                 ++m_pos;
                 return Value::object(array);
             }
-            return unexpected();
+            return fail("Expected ',' or ']' after array element");
         }
     }
 
@@ -245,16 +310,18 @@ private:
             ++m_pos;
             return Value::object(object);
         }
+        bool first = true;
         while (true) {
             skip_whitespace();
             if (m_pos >= m_text.size() || m_text[m_pos] != u'"')
-                return unexpected();
+                return fail(first ? "Expected property name or '}'" : "Expected double-quoted property name");
+            first = false;
             std::optional<std::u16string> const name = parse_string();
             if (!name)
                 return std::nullopt;
             skip_whitespace();
             if (m_pos >= m_text.size() || m_text[m_pos] != u':')
-                return unexpected();
+                return fail("Expected ':' after property name");
             ++m_pos;
             skip_whitespace();
             std::optional<Value> const value = parse_value(depth + 1);
@@ -268,17 +335,15 @@ private:
             if (!m_in.create_data_property(*object, key, *value))
                 return std::nullopt;
             skip_whitespace();
-            if (m_pos >= m_text.size())
-                return unexpected();
-            if (m_text[m_pos] == u',') {
+            if (m_pos < m_text.size() && m_text[m_pos] == u',') {
                 ++m_pos;
                 continue;
             }
-            if (m_text[m_pos] == u'}') {
+            if (m_pos < m_text.size() && m_text[m_pos] == u'}') {
                 ++m_pos;
                 return Value::object(object);
             }
-            return unexpected();
+            return fail("Expected ',' or '}' after property value");
         }
     }
 
