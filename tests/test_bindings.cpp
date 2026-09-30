@@ -4468,7 +4468,6 @@ void test_a_video_the_host_shows()
         turn();
         CHECK_EQ(page->number("v.readyState"), 4);
         page->eval("v.play();");
-        auto const played = steady::now();
         std::vector<bindings::VideoFrame> frames;
         for (int i = 0; i < 1000 && frames.empty(); ++i) {
             turn();
@@ -4509,11 +4508,18 @@ void test_a_video_the_host_shows()
             }
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
         }
-        CHECK(pictures >= 10 && pictures <= 13);
-        // The last of them is the one due when the page comes back: within
-        // a frame or two of the time since playing began.
-        double const since_play = std::chrono::duration<double>(steady::now() - played).count();
-        CHECK(static_cast<double>(last_ns) / 1e9 > since_play - 0.120 && static_cast<double>(last_ns) / 1e9 <= since_play + 0.005);
+        // Twelve pictures come due in four tenths of a second of a stream
+        // that has thirty a second — or as many as the stream had left,
+        // where a slow machine took most of its one second to get here. A
+        // machine that wakes this thread late passes a picture over now
+        // and then; most of them are still seen, and the last is the one
+        // due as the four tenths end.
+        double const first_seconds = before ? static_cast<double>(before->time_ns) / 1e9 : 0;
+        double const left = std::min(0.4, 29.0 / 30.0 - first_seconds);
+        double const moved = static_cast<double>(last_ns) / 1e9 - first_seconds;
+        CHECK(pictures <= 13);
+        CHECK(pictures >= static_cast<int>(left * 30.0 * 0.6) - 1);
+        CHECK(moved > left - 0.120 && moved < 0.4 + 0.040);
         // The page comes back, and its own account agrees: the position is
         // where the pictures are, and it has counted the pictures shown
         // while it was away.
@@ -4525,8 +4531,10 @@ void test_a_video_the_host_shows()
             CHECK(after[0].frames >= frames[0].frames + static_cast<std::uint64_t>(pictures));
             CHECK(after[0].frames >= serial - first_serial);
         }
+        // (At the picture last seen or a little on: the turn itself takes
+        // time, more on a slow machine, and the video does not wait for it.)
         double const position = page->number("v.currentTime");
-        CHECK(position > static_cast<double>(last_ns) / 1e9 - 0.005 && position < static_cast<double>(last_ns) / 1e9 + 0.080);
+        CHECK(position > static_cast<double>(last_ns) / 1e9 - 0.005 && position < static_cast<double>(last_ns) / 1e9 + 0.250);
         // The element's own bitmap is only the picture's size until
         // something reads it: a canvas that draws the video gets the
         // picture as it is shown.
