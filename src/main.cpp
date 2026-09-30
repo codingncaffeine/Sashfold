@@ -69,6 +69,7 @@ int usage(char const* program)
               << "                 [--exit-after ms] [--timings out.json]   (a headless run under a compositor with no screen)\n"
               << "                 [--js-heap-limit MB] [--memory-ceiling MB]   (a page's script heap; the whole process; 0: none)\n"
               << "                 [--trace-frames]   (every turn of the window's loop that did anything, on stderr: what it cost, and where)\n"
+              << "                 [--drive <file>]   (the window driven on the real clock: a line a step, `<ms> click <x> <y>`, `<ms> click-text <text>`, ...)\n"
               << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
               << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
@@ -283,6 +284,46 @@ std::size_t js_heap_limit = 0;
 // cost and where (--trace-frames, or SASHFOLD_TRACE_FRAMES in the
 // environment); a turn of a quarter of a second or more always does.
 bool trace_frames = false;
+
+// What a driven window does by itself, and when (--drive): one step a line
+// of the file, `<milliseconds> <command> [<arguments>]`, the time counted
+// from the window's start on the real clock. A step goes in through the door
+// the window's own events use, so what follows is what a reader's hand gets.
+//
+//   click <x> <y>          move <x> <y>          wheel <x> <y> <notches>
+//   click-text <text>      type <text>           key enter|escape|tab|space|pagedown|pageup|end|home
+//   navigate <typed>       text <file>           frame <file>
+//
+// `text` writes the page's laid-out text and its console beside the frames
+// (--frames-to), `frame` the frame last shown.
+struct DriveStep {
+    double at_ms = 0;
+    std::string command;
+    std::string argument;
+};
+std::vector<DriveStep> drive_steps;
+
+bool read_drive_file(std::string const& path)
+{
+    std::ifstream file(path);
+    if (!file)
+        return false;
+    for (std::string line; std::getline(file, line);) {
+        std::istringstream words(line);
+        DriveStep step;
+        if (!(words >> step.at_ms >> step.command))
+            continue; // a blank line, or a comment
+        std::getline(words, step.argument);
+        std::size_t const first = step.argument.find_first_not_of(" \t");
+        step.argument = first == std::string::npos ? std::string() : step.argument.substr(first);
+        while (!step.argument.empty() && (step.argument.back() == '\r' || step.argument.back() == ' '))
+            step.argument.pop_back();
+        drive_steps.push_back(std::move(step));
+    }
+    std::stable_sort(drive_steps.begin(), drive_steps.end(),
+        [](DriveStep const& a, DriveStep const& b) { return a.at_ms < b.at_ms; });
+    return true;
+}
 
 net::Blocklists load_blocklists(std::string const& path);
 ui::Theme load_theme(std::string const& path);
@@ -2056,6 +2097,13 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     auto last_themes_check = std::chrono::steady_clock::now();
     std::string last_title;
     std::optional<Rect> last_caret;
+    std::size_t next_drive_step = 0;
+    // How long the window's thread was held, turn by turn: what the reader
+    // feels as a window that does not answer. Said once at the end.
+    std::size_t turns_over_50 = 0;
+    std::size_t turns_over_250 = 0;
+    double held_ms = 0; // the sum of the turns of 50 ms and more
+    double longest_turn_ms = 0;
 
     bool running = true;
     while (running) {
@@ -2111,6 +2159,68 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         }
         if (!running)
             break;
+        // A driven window's steps that have come due.
+        while (next_drive_step < drive_steps.size()
+            && wall_ms(clock::now() - started).count() >= drive_steps[next_drive_step].at_ms) {
+            DriveStep const& step = drive_steps[next_drive_step++];
+            std::istringstream numbers(step.argument);
+            int x = 0;
+            int y = 0;
+            int notches = 0;
+            std::cerr << "drive: " << trace_stamp() << step.command << " " << step.argument;
+            ++turn_events;
+            if (step.command == "click" && numbers >> x >> y) {
+                browser.mouse_move(x, y);
+                browser.mouse_down(x, y, 1);
+                browser.mouse_up(x, y, 1);
+            } else if (step.command == "click-text") {
+                if (std::optional<std::pair<int, int>> const at = browser.find_text(step.argument)) {
+                    std::cerr << " \xe2\x80\x94 at " << at->first << ", " << at->second;
+                    browser.mouse_move(at->first, at->second);
+                    browser.mouse_down(at->first, at->second, 1);
+                    browser.mouse_up(at->first, at->second, 1);
+                } else {
+                    std::cerr << " \xe2\x80\x94 no text run contains it";
+                }
+            } else if (step.command == "move" && numbers >> x >> y) {
+                browser.mouse_move(x, y);
+            } else if (step.command == "wheel" && numbers >> x >> y >> notches) {
+                browser.mouse_move(x, y);
+                browser.wheel(x, y, notches);
+            } else if (step.command == "type") {
+                for (char32_t const code_point : decode_utf8(step.argument))
+                    browser.text_input(code_point);
+            } else if (step.command == "key") {
+                static constexpr std::pair<char const*, platform::Key> named[] = {
+                    { "enter", platform::Key::Enter }, { "escape", platform::Key::Escape },
+                    { "tab", platform::Key::Tab }, { "space", platform::Key::Space },
+                    { "pagedown", platform::Key::PageDown }, { "pageup", platform::Key::PageUp },
+                    { "end", platform::Key::End }, { "home", platform::Key::Home },
+                };
+                platform::KeyEvent key;
+                for (auto const& [name, named_key] : named) {
+                    if (step.argument == name)
+                        key.key = named_key;
+                }
+                if (key.key != platform::Key::None)
+                    browser.key_down(key);
+                else
+                    std::cerr << " \xe2\x80\x94 not a key this knows";
+            } else if (step.command == "navigate") {
+                browser.navigate(step.argument);
+            } else if (step.command == "text" && !frames_dir.empty()) {
+                std::ofstream out(std::filesystem::path(frames_dir) / step.argument, std::ios::binary);
+                out << "url: " << (browser.current_url() ? browser.current_url()->serialize() : std::string()) << "\n"
+                    << "title: " << browser.page_title() << "\n--- text ---\n"
+                    << browser.page_text() << "\n--- console ---\n"
+                    << browser.console_text();
+            } else if (step.command == "frame" && !frames_dir.empty() && last_presented != nullptr) {
+                capture(*last_presented, step.argument);
+            } else {
+                std::cerr << " \xe2\x80\x94 not a step this knows";
+            }
+            std::cerr << "\n";
+        }
         if (rescaled)
             browser.set_scale(*rescaled);
         if (resized)
@@ -2171,6 +2281,13 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             // under --trace-frames. The journal then has what a stall was
             // made of, and nobody has to guess.
             double const total = wall_ms(frame_done - turn_started).count();
+            if (total >= 50.0) {
+                ++turns_over_50;
+                held_ms += total;
+            }
+            if (total >= 250.0)
+                ++turns_over_250;
+            longest_turn_ms = std::max(longest_turn_ms, total);
             bool const worked = turn_events > 0 || loaded || present_ms.size() != presents_before;
             if (total >= 250.0 || (trace_frames && worked)) {
                 ui::Profile const spent = profile_since(browser.profile(), turn_profile);
@@ -2266,10 +2383,19 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 int const left = std::max(1, exit_after_ms - static_cast<int>(wall_ms(clock::now() - started).count()));
                 timeout = timeout < 0 ? left : std::min(timeout, left);
             }
+            if (next_drive_step < drive_steps.size()) {
+                int const left = std::max(1, static_cast<int>(drive_steps[next_drive_step].at_ms - wall_ms(clock::now() - started).count()));
+                timeout = timeout < 0 ? left : std::min(timeout, left);
+            }
             window->wait(timeout);
         }
     }
     save_profile(true);
+    if (trace_frames || exit_after_ms > 0) {
+        std::cerr << std::fixed << std::setprecision(1) << "sashfold: " << trace_stamp() << "the window's thread was held for "
+                  << held_ms << " ms in " << turns_over_50 << " turns of 50 ms and more (" << turns_over_250
+                  << " of 250 ms and more), the longest " << longest_turn_ms << " ms\n";
+    }
     if (!timings_path.empty()) {
         std::vector<double> sorted = present_ms;
         std::sort(sorted.begin(), sorted.end());
@@ -2418,6 +2544,14 @@ int main(int argc, char** argv)
         } else if (arg == "--timings") {
             if (!value_after(i, timings_path))
                 return usage(argv[0]);
+        } else if (arg == "--drive") {
+            std::string path;
+            if (!value_after(i, path))
+                return usage(argv[0]);
+            if (!read_drive_file(path)) {
+                std::cerr << "error: could not read " << path << "\n";
+                return 1;
+            }
         } else if (arg == "--trace-frames") {
             trace_frames = true;
         } else if (arg == "--js-heap-limit" || arg == "--memory-ceiling") {
