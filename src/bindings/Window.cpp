@@ -24,17 +24,38 @@ namespace sashfold::bindings {
 
 // --- StorageObject ------------------------------------------------------------------
 
-std::string const* StorageObject::find(std::string_view key) const
+std::mutex& storage_areas_mutex()
 {
+    static std::mutex mutex;
+    return mutex;
+}
+
+std::optional<std::string> StorageObject::find(std::string_view key) const
+{
+    std::lock_guard<std::mutex> const lock(storage_areas_mutex());
     for (auto const& [name, value] : area().items) {
         if (name == key)
-            return &value;
+            return value;
     }
-    return nullptr;
+    return std::nullopt;
+}
+
+std::size_t StorageObject::length() const
+{
+    std::lock_guard<std::mutex> const lock(storage_areas_mutex());
+    return area().items.size();
+}
+
+std::optional<std::string> StorageObject::key_at(std::size_t index) const
+{
+    std::lock_guard<std::mutex> const lock(storage_areas_mutex());
+    std::vector<std::pair<std::string, std::string>> const& items = area().items;
+    return index < items.size() ? std::optional<std::string>(items[index].first) : std::nullopt;
 }
 
 void StorageObject::put_item(std::string key, std::string value)
 {
+    std::lock_guard<std::mutex> const lock(storage_areas_mutex());
     StorageArea& storage = area();
     ++storage.changes;
     for (auto& [name, existing] : storage.items) {
@@ -48,6 +69,7 @@ void StorageObject::put_item(std::string key, std::string value)
 
 bool StorageObject::remove_item(std::string_view key)
 {
+    std::lock_guard<std::mutex> const lock(storage_areas_mutex());
     StorageArea& storage = area();
     auto const it = std::find_if(storage.items.begin(), storage.items.end(), [key](auto const& item) { return item.first == key; });
     if (it == storage.items.end())
@@ -59,6 +81,7 @@ bool StorageObject::remove_item(std::string_view key)
 
 void StorageObject::clear_items()
 {
+    std::lock_guard<std::mutex> const lock(storage_areas_mutex());
     StorageArea& storage = area();
     if (storage.items.empty())
         return;
@@ -71,7 +94,7 @@ std::optional<js::PropertyDescriptor> StorageObject::get_own_property(js::Proper
     if (key.is_string()) {
         js::Heap::NoCollect const guard(*heap()); // a fresh string the caller has not rooted yet
         std::string const name = key.is_index() ? std::to_string(key.as_index()) : key.as_atom()->to_utf8();
-        if (std::string const* value = find(name))
+        if (std::optional<std::string> const value = find(name))
             return js::PropertyDescriptor::data(js::Value::string(heap()->string(*value)), js::default_attributes);
     }
     return Object::get_own_property(key);
@@ -81,7 +104,7 @@ std::optional<js::Value> StorageObject::get(js::Interpreter& interpreter, js::Pr
 {
     if (key.is_string() && !has_property(key)) {
         std::string const name = key.is_index() ? std::to_string(key.as_index()) : key.as_atom()->to_utf8();
-        if (std::string const* value = find(name))
+        if (std::optional<std::string> const value = find(name))
             return js::Value::string(interpreter.string(*value));
     }
     return Object::get(interpreter, key, receiver);
@@ -111,7 +134,13 @@ bool StorageObject::delete_property(js::PropertyKey const& key)
 std::vector<js::PropertyKey> StorageObject::own_keys() const
 {
     std::vector<js::PropertyKey> keys;
-    for (auto const& [name, value] : area().items)
+    std::vector<std::string> names;
+    {
+        std::lock_guard<std::mutex> const lock(storage_areas_mutex());
+        for (auto const& [name, value] : area().items)
+            names.push_back(name);
+    }
+    for (std::string const& name : names)
         keys.push_back(heap()->key(name));
     for (js::PropertyKey const& key : Object::own_keys())
         keys.push_back(key);
@@ -1380,7 +1409,7 @@ void install_window(Realm::Internals& in)
         std::optional<StorageObject*> const storage = this_storage(interp, this_value);
         if (!storage)
             return std::nullopt;
-        return js::Value::number(static_cast<double>((*storage)->area().items.size()));
+        return js::Value::number(static_cast<double>((*storage)->length()));
     });
     define_operation(interpreter, *storage_proto, "key", 1, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StorageObject*> const storage = this_storage(interp, this_value);
@@ -1389,9 +1418,11 @@ void install_window(Realm::Internals& in)
         std::optional<double> const index = interp.to_number(js::argument(args, 0));
         if (!index)
             return std::nullopt;
-        if (*index < 0 || *index >= static_cast<double>((*storage)->area().items.size()))
+        std::optional<std::string> const name
+            = *index >= 0 && *index < 4294967296.0 ? (*storage)->key_at(static_cast<std::size_t>(*index)) : std::nullopt;
+        if (!name)
             return js::Value::null();
-        return internals_of(interp).string((*storage)->area().items[static_cast<std::size_t>(*index)].first);
+        return internals_of(interp).string(*name);
     });
     define_operation(interpreter, *storage_proto, "getItem", 1, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StorageObject*> const storage = this_storage(interp, this_value);
@@ -1400,7 +1431,7 @@ void install_window(Realm::Internals& in)
         std::optional<std::string> const key = internals_of(interp).to_utf8(js::argument(args, 0));
         if (!key)
             return std::nullopt;
-        std::string const* value = (*storage)->find(*key);
+        std::optional<std::string> const value = (*storage)->find(*key);
         return value ? internals_of(interp).string(*value) : js::Value::null();
     });
     define_operation(interpreter, *storage_proto, "setItem", 2, [this_storage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {

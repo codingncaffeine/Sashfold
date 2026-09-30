@@ -32,6 +32,11 @@ public:
     static void stop();
     // Whether the watch has acted since it was started.
     static bool tripped();
+    // A thread that runs a page says so, and that it is ending: when the
+    // watch acts, each such thread writes where it stands before the main
+    // thread does — a runaway is a page's far more often than the window's.
+    static void add_page_thread();
+    static void remove_page_thread();
 };
 
 }

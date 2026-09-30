@@ -327,7 +327,9 @@ public:
     std::optional<bool> set(js::Interpreter&, js::PropertyKey const&, js::Value const&, js::Value const& receiver) override;
     bool delete_property(js::PropertyKey const&) override;
     std::vector<js::PropertyKey> own_keys() const override;
-    std::string const* find(std::string_view key) const;
+    std::optional<std::string> find(std::string_view key) const;
+    std::size_t length() const;
+    std::optional<std::string> key_at(std::size_t index) const;
     void put_item(std::string key, std::string value);
     bool remove_item(std::string_view key);
     void clear_items();

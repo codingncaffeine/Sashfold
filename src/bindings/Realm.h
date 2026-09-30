@@ -27,6 +27,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <map>
 #include <string>
@@ -68,11 +69,15 @@ struct VideoFrame {
 };
 
 // A web storage area: the items in insertion order (key(n) counts on
-// it), and a count that moves with every change made to them.
+// it), and a count that moves with every change made to them. An area a
+// host gives is shared by every page of its origin, and those pages may be
+// on threads of their own: whoever reads or changes an area holds
+// storage_areas_mutex() while it does.
 struct StorageArea {
     std::vector<std::pair<std::string, std::string>> items;
     std::uint64_t changes = 0;
 };
+std::mutex& storage_areas_mutex();
 
 // A document a frame is inside, for the framing rules: its URL without the
 // fragment (about:srcdoc for an srcdoc document) and the URL of its origin.

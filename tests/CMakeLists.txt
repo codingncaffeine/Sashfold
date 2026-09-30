@@ -20,6 +20,9 @@ sashfold_test(test_frames)
 sashfold_test(test_filters)
 sashfold_test(test_csp)
 sashfold_test(test_profile)
+# Each tab's page on a thread of its own: the shell that keeps the chrome is
+# held by no page, by a wall-clock band.
+sashfold_test(test_page_threads)
 sashfold_test(test_svg)
 # The generated bindings must be what the IDL generates: regenerate with
 # the bindings-regen target when this fails.

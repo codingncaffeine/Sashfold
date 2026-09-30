@@ -2,9 +2,12 @@
 
 #include "platform/Memory.h"
 
+#include <algorithm>
 #include <atomic>
 #include <cstdio>
 #include <cstdlib>
+#include <mutex>
+#include <vector>
 
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -43,6 +46,8 @@ void pause_ms(int milliseconds)
 #ifndef _WIN32
 pthread_t g_main_thread;
 pthread_t g_watch_thread;
+std::mutex g_page_threads_mutex;
+std::vector<pthread_t> g_page_threads;
 
 #ifdef SASHFOLD_WALKS_STACKS
 // On the main thread, in the middle of whatever it was doing — which, when
@@ -51,10 +56,18 @@ pthread_t g_watch_thread;
 // exports one, else the offset to give addr2line).
 void write_where_it_stands(int)
 {
+    bool const main_thread = pthread_equal(pthread_self(), g_main_thread) != 0;
+    if (!main_thread) {
+        static constexpr char heading[] = "A page's thread was here:\n";
+        ssize_t const written = write(STDERR_FILENO, heading, sizeof heading - 1);
+        (void)written;
+    }
     void* frames[64];
     int const count = backtrace(frames, 64);
     backtrace_symbols_fd(frames, count, STDERR_FILENO);
-    std::abort();
+    // The main thread's is the last word; a page's thread goes on until it is.
+    if (main_thread)
+        std::abort();
 }
 #endif
 #endif
@@ -66,15 +79,34 @@ void say_and_abort(std::size_t resident, std::size_t ceiling)
     char line[320];
     int const length = std::snprintf(line, sizeof line,
         "sashfold: memory ceiling reached: %zu MB resident, the ceiling is %zu MB (--memory-ceiling). "
-        "Ending now, before the machine runs out; the tabs come back at the next start. The main thread was here:\n",
+        "Ending now, before the machine runs out; the tabs come back at the next start.\n",
         resident >> 20, ceiling >> 20);
+    static constexpr char main_heading[] = "The main thread was here:\n";
 #ifdef _WIN32
     if (length > 0)
         std::fwrite(line, 1, static_cast<std::size_t>(length), stderr);
+    std::fwrite(main_heading, 1, sizeof main_heading - 1, stderr);
     std::fflush(stderr);
 #else
     if (length > 0) {
         ssize_t const written = write(STDERR_FILENO, line, static_cast<std::size_t>(length));
+        (void)written;
+    }
+#ifdef SASHFOLD_WALKS_STACKS
+    // The threads that run the pages write where they stand first, each in
+    // the middle of whatever it was doing.
+    std::vector<pthread_t> pages;
+    {
+        std::lock_guard<std::mutex> const lock(g_page_threads_mutex);
+        pages = g_page_threads;
+    }
+    for (pthread_t const thread : pages)
+        pthread_kill(thread, SIGUSR2);
+    if (!pages.empty())
+        pause_ms(300);
+#endif
+    {
+        ssize_t const written = write(STDERR_FILENO, main_heading, sizeof main_heading - 1);
         (void)written;
     }
 #ifdef SASHFOLD_WALKS_STACKS
@@ -168,5 +200,24 @@ void MemoryWatch::stop()
 }
 
 bool MemoryWatch::tripped() { return g_tripped.load(); }
+
+void MemoryWatch::add_page_thread()
+{
+#ifndef _WIN32
+    std::lock_guard<std::mutex> const lock(g_page_threads_mutex);
+    g_page_threads.push_back(pthread_self());
+#endif
+}
+
+void MemoryWatch::remove_page_thread()
+{
+#ifndef _WIN32
+    std::lock_guard<std::mutex> const lock(g_page_threads_mutex);
+    pthread_t const self = pthread_self();
+    g_page_threads.erase(std::remove_if(g_page_threads.begin(), g_page_threads.end(),
+                             [self](pthread_t const thread) { return pthread_equal(thread, self) != 0; }),
+        g_page_threads.end());
+#endif
+}
 
 }

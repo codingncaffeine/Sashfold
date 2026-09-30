@@ -346,6 +346,17 @@ public:
     // anything is opened; the tabs there are then start again, empty.
     void set_pages_in_engines(bool apart);
     bool pages_in_engines() const;
+    // Each engine on a thread of its own, which its page's shell is made,
+    // used and ended on: the jobs are handed over and nothing is waited for,
+    // and `wake` — called from those threads — says the shell has something
+    // to hear, which it does at its next tick() or run_scripts(). Said
+    // before set_pages_in_engines.
+    void set_page_threads(std::function<void()> wake);
+    bool page_threads() const;
+    // Wakes every engine's thread, from any thread and for as long as
+    // whoever holds it likes: what a fetch that has its answer calls, and a
+    // worker with a word for its page.
+    std::function<void()> page_waker() const;
     // The reader's own themes folder. With one set, a download that is a
     // Firefox or Chrome theme (an .xpi, a .crx) is converted into it, offered
     // among the themes from then on, and put on at once; the file itself is

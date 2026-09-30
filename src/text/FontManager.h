@@ -16,6 +16,7 @@
 #include <mutex>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <unordered_map>
 #include <utility>
 #include <vector>
@@ -116,6 +117,9 @@ public:
     // The fonts the current page declared with @font-face, replacing the
     // last page's. They answer their family names ahead of the machine's
     // fonts, with system fonts on or off, and take no part in fallback.
+    // "The current page" is the page the calling thread is laying out: one
+    // manager serves every page's thread, each page's fonts are its own
+    // thread's, and so are the stacks resolved with them.
     // A file is parsed once and its face kept for as long as the manager
     // lives, so the same font on the next page costs a lookup; the stacks
     // resolved against an earlier set stay valid for the layouts that
@@ -124,7 +128,7 @@ public:
     std::size_t page_font_count() const
     {
         std::lock_guard<std::recursive_mutex> const lock(m_mutex);
-        return m_page_faces.size();
+        return mine().page_faces.size();
     }
 
     // The first catalogued face with a glyph for the code point, loading
@@ -150,7 +154,7 @@ public:
     std::vector<PageFace> page_faces() const
     {
         std::lock_guard<std::recursive_mutex> const lock(m_mutex);
-        return m_page_faces;
+        return mine().page_faces;
     }
     void restore_page_faces(std::vector<PageFace> faces);
 
@@ -158,7 +162,18 @@ private:
 
     FontManager() = default;
     void scan();
-    void retire_stacks();
+    // What is a thread's own: the fonts of the page it is laying out, in
+    // declaration order, and the stacks resolved with them — with the count
+    // of the machine's faces those were resolved against, so that a font
+    // added or the system fonts switched sets every thread's stacks aside
+    // the next time that thread asks.
+    struct ThreadFonts {
+        std::vector<PageFace> page_faces;
+        std::unordered_map<std::string, std::unique_ptr<FontStack>> stacks;
+        std::uint64_t made_for = 0;
+    };
+    ThreadFonts& mine() const; // the calling thread's; the caller holds the lock
+    void retire_stacks(ThreadFonts&);
     Face const* load(std::size_t catalogue_index);
     Face const* best_of(std::vector<std::size_t> const& indices, int weight, int stretch, bool italic);
     Face const* best_face(std::string const& family_lower, int weight, int stretch, bool italic);
@@ -181,11 +196,11 @@ private:
     std::unordered_map<std::string, std::vector<std::size_t>> m_by_family; // lowercased
     std::unordered_map<std::string, std::vector<std::size_t>> m_added_by_family; // the ones handed over by name
     std::unordered_map<std::size_t, std::unique_ptr<Face>> m_loaded; // catalogue index -> face (null: unreadable)
-    std::unordered_map<std::string, std::unique_ptr<FontStack>> m_stacks;
+    mutable std::unordered_map<std::thread::id, std::unique_ptr<ThreadFonts>> m_threads;
+    std::uint64_t m_generation = 0; // moves when the faces every thread resolves against do
     std::vector<std::unique_ptr<FontStack>> m_retired_stacks; // superseded, kept for the layouts holding them
     std::unordered_map<char32_t, Face const*> m_fallbacks;
     std::unordered_map<char32_t, Face const*> m_color_fallbacks;
-    std::vector<PageFace> m_page_faces; // the current page's, in declaration order
     std::unordered_map<std::string, std::unique_ptr<Face>> m_page_face_cache; // by family, weight, slant, bytes
     std::unordered_map<std::string, std::unique_ptr<Face>> m_ranged_faces; // a face kept to a unicode-range, by both
 };

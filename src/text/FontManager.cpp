@@ -241,7 +241,7 @@ void FontManager::add_font_file(std::string const& path)
         m_by_family[family].push_back(m_catalogue.size());
         m_catalogue.push_back(std::move(info));
     }
-    retire_stacks();
+    ++m_generation;
     m_fallbacks.clear();
     m_color_fallbacks.clear();
 }
@@ -252,7 +252,7 @@ void FontManager::set_system_fonts(bool enabled)
     if (m_system_fonts == enabled)
         return;
     m_system_fonts = enabled;
-    retire_stacks();
+    ++m_generation;
     m_fallbacks.clear();
     m_color_fallbacks.clear();
 }
@@ -260,27 +260,36 @@ void FontManager::set_system_fonts(bool enabled)
 // A stack, once handed out, is referenced by every text run laid out with
 // it; when the answers change, the old stacks are set aside rather than
 // destroyed, so a layout that still holds one paints and measures as before.
-void FontManager::retire_stacks()
+void FontManager::retire_stacks(ThreadFonts& fonts)
 {
-    for (auto& [key, stack] : m_stacks)
+    for (auto& [key, stack] : fonts.stacks)
         m_retired_stacks.push_back(std::move(stack));
-    m_stacks.clear();
+    fonts.stacks.clear();
+}
+
+FontManager::ThreadFonts& FontManager::mine() const
+{
+    std::unique_ptr<ThreadFonts>& fonts = m_threads[std::this_thread::get_id()];
+    if (!fonts)
+        fonts = std::make_unique<ThreadFonts>();
+    return *fonts;
 }
 
 void FontManager::restore_page_faces(std::vector<PageFace> faces)
 {
     std::lock_guard<std::recursive_mutex> const lock(m_mutex);
-    bool same = faces.size() == m_page_faces.size();
+    ThreadFonts& fonts = mine();
+    bool same = faces.size() == fonts.page_faces.size();
     for (std::size_t i = 0; same && i < faces.size(); ++i) {
-        same = faces[i].face == m_page_faces[i].face && faces[i].family_lower == m_page_faces[i].family_lower
-            && faces[i].weight == m_page_faces[i].weight && faces[i].italic == m_page_faces[i].italic
-            && faces[i].stretch == m_page_faces[i].stretch && faces[i].weight_max == m_page_faces[i].weight_max
-            && faces[i].stretch_max == m_page_faces[i].stretch_max;
+        same = faces[i].face == fonts.page_faces[i].face && faces[i].family_lower == fonts.page_faces[i].family_lower
+            && faces[i].weight == fonts.page_faces[i].weight && faces[i].italic == fonts.page_faces[i].italic
+            && faces[i].stretch == fonts.page_faces[i].stretch && faces[i].weight_max == fonts.page_faces[i].weight_max
+            && faces[i].stretch_max == fonts.page_faces[i].stretch_max;
     }
     if (same)
         return;
-    m_page_faces = std::move(faces);
-    retire_stacks();
+    fonts.page_faces = std::move(faces);
+    retire_stacks(fonts);
 }
 
 namespace {
@@ -333,17 +342,18 @@ void FontManager::set_page_fonts(std::vector<PageFont> const& fonts)
         faces.push_back(PageFace { lowercased(font.family), font.weight, font.italic, face, font.stretch,
             std::max(font.weight, font.weight_max), std::max(font.stretch, font.stretch_max) });
     }
-    bool same = faces.size() == m_page_faces.size();
+    ThreadFonts& mine_now = mine();
+    bool same = faces.size() == mine_now.page_faces.size();
     for (std::size_t i = 0; same && i < faces.size(); ++i) {
-        same = faces[i].face == m_page_faces[i].face && faces[i].family_lower == m_page_faces[i].family_lower
-            && faces[i].weight == m_page_faces[i].weight && faces[i].italic == m_page_faces[i].italic
-            && faces[i].stretch == m_page_faces[i].stretch && faces[i].weight_max == m_page_faces[i].weight_max
-            && faces[i].stretch_max == m_page_faces[i].stretch_max;
+        same = faces[i].face == mine_now.page_faces[i].face && faces[i].family_lower == mine_now.page_faces[i].family_lower
+            && faces[i].weight == mine_now.page_faces[i].weight && faces[i].italic == mine_now.page_faces[i].italic
+            && faces[i].stretch == mine_now.page_faces[i].stretch && faces[i].weight_max == mine_now.page_faces[i].weight_max
+            && faces[i].stretch_max == mine_now.page_faces[i].stretch_max;
     }
     if (same)
         return; // the same fonts as the last page: every stack still answers right
-    m_page_faces = std::move(faces);
-    retire_stacks();
+    mine_now.page_faces = std::move(faces);
+    retire_stacks(mine_now);
 }
 
 // The page's own face for a family, chosen the way best_face chooses: the
@@ -355,7 +365,7 @@ std::vector<Face const*> FontManager::page_faces(std::string const& family_lower
 {
     std::vector<Face const*> best;
     long best_score = -1;
-    for (PageFace const& candidate : m_page_faces) {
+    for (PageFace const& candidate : mine().page_faces) {
         if (candidate.family_lower != family_lower)
             continue;
         // A face answering a range stands at the point of it nearest the
@@ -492,7 +502,14 @@ FontStack const& FontManager::resolve(FontRequest const& request)
     }
     if (!request.page_fonts)
         key += "\n\tthe machine's alone";
-    if (auto const it = m_stacks.find(key); it != m_stacks.end())
+    ThreadFonts& fonts = mine();
+    if (fonts.made_for != m_generation) {
+        // The machine's faces are not what this thread's stacks were
+        // resolved against: they are set aside, and asked for afresh.
+        retire_stacks(fonts);
+        fonts.made_for = m_generation;
+    }
+    if (auto const it = fonts.stacks.find(key); it != fonts.stacks.end())
         return *it->second;
 
     auto stack = std::make_unique<FontStack>();
@@ -550,7 +567,7 @@ FontStack const& FontManager::resolve(FontRequest const& request)
         }
     }
     FontStack const& result = *stack;
-    m_stacks.emplace(std::move(key), std::move(stack));
+    fonts.stacks.emplace(std::move(key), std::move(stack));
     return result;
 }
 

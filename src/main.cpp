@@ -50,9 +50,11 @@
 #include <iomanip>
 #include <iostream>
 #include <iterator>
+#include <condition_variable>
 #include <map>
 #include <set>
 #include <mutex>
+#include <thread>
 #include <optional>
 #include <sstream>
 #include <string>
@@ -291,7 +293,7 @@ bool trace_frames = false;
 // the window's own events use, so what follows is what a reader's hand gets.
 //
 //   click <x> <y>          move <x> <y>          wheel <x> <y> <notches>
-//   click-text <text>      type <text>           key enter|escape|tab|space|pagedown|pageup|end|home
+//   click-text <text>      type <text>           key enter|escape|... or a chord: ctrl+t, ctrl+shift+t, alt+left
 //   navigate <typed>       text <file>           frame <file>
 //
 // `text` writes the page's laid-out text and its console beside the frames
@@ -304,12 +306,14 @@ struct DriveStep {
 std::vector<DriveStep> drive_steps;
 
 // Each tab's page in an engine of its own, the shell the window calls
-// keeping the chrome alone (ui::Browser::set_pages_in_engines). While the
-// cut is being made SASHFOLD_ENGINES in the environment says: 1 for the
-// engines, 0 for a shell that is whole. Unsaid, the window's shell is whole,
-// and a script is run twice — by a whole shell and then by one whose pages
-// are in engines — and passes when both do: what a reader sees must be the
-// same either way.
+// keeping the chrome alone (ui::Browser::set_pages_in_engines). In the
+// window every engine has a thread of its own, so that nothing of a page is
+// done by the window's thread; SASHFOLD_ENGINES=0 in the environment gives
+// the window a shell that is whole, as it was, to compare with. A script is
+// run twice — by a whole shell and then by one whose pages are in engines,
+// called in place on the script's clock — and passes when both do: what a
+// reader sees must be the same either way. SASHFOLD_ENGINES=1 or =0 runs a
+// script the one way alone.
 enum class Engines { Unsaid, Off, On };
 Engines engines = Engines::Unsaid;
 
@@ -1574,6 +1578,62 @@ bool write_text_file_atomically(std::filesystem::path const& path, std::string c
     return !error;
 }
 
+// The profile's files are written by a thread of their own: the window's
+// thread hands over a file's path and what it is to hold, and goes on — a
+// disk that is slow to answer holds no frame. Of what is handed over for
+// one file before it is written, the last is what is written; whoever ends
+// the writer waits for what it still owes.
+class ProfileWriter {
+public:
+    ProfileWriter()
+        : m_thread([this] { run(); })
+    {
+    }
+    ProfileWriter(ProfileWriter const&) = delete;
+    ProfileWriter& operator=(ProfileWriter const&) = delete;
+    ~ProfileWriter()
+    {
+        {
+            std::lock_guard<std::mutex> const lock(m_mutex);
+            m_ending = true;
+        }
+        m_wake.notify_one();
+        m_thread.join();
+    }
+    void write(std::filesystem::path const& path, std::string text)
+    {
+        {
+            std::lock_guard<std::mutex> const lock(m_mutex);
+            m_owed[path.string()] = std::move(text);
+        }
+        m_wake.notify_one();
+    }
+
+private:
+    void run()
+    {
+        for (;;) {
+            std::map<std::string, std::string> batch;
+            {
+                std::unique_lock<std::mutex> lock(m_mutex);
+                m_wake.wait(lock, [this] { return m_ending || !m_owed.empty(); });
+                if (m_owed.empty())
+                    return; // ending, with nothing owed
+                batch.swap(m_owed);
+            }
+            for (auto const& [path, text] : batch) {
+                if (!write_text_file_atomically(path, text))
+                    std::cerr << "sashfold: could not write " << path << "\n";
+            }
+        }
+    }
+    std::mutex m_mutex;
+    std::condition_variable m_wake;
+    std::map<std::string, std::string> m_owed;
+    bool m_ending = false;
+    std::thread m_thread;
+};
+
 // The containers the window offers, from the profile's containers.json:
 // [{"name": "Work", "color": "#f59e0b"}, …], in order. A profile without
 // the file gets one with four containers to start from.
@@ -1921,11 +1981,26 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // it: a fetch that has its answer, a worker with a word for its page. The
     // window and the loader outlive the threads; the browser does not.
     platform::Window* const waker = window.get();
-    loader.set_on_fetch_done([waker] { waker->wake(); });
     bindings::WorkerThreads worker_threads;
-    worker_threads.set_wake([waker] { waker->wake(); });
     ui::Browser browser(loader, load_theme(theme_file), window->width(), window->height());
-    browser.set_pages_in_engines(engines == Engines::On);
+    if (engines != Engines::Off) {
+        // Each tab's page in an engine on a thread of its own: this thread
+        // keeps the chrome, hands the pages what the reader does, and is
+        // woken when one of them has something to show or to say.
+        browser.set_page_threads([waker] { waker->wake(); });
+        browser.set_pages_in_engines(true);
+    }
+    // A fetch's answer and a worker's word are for a page: its thread's to
+    // take up, where it has one, and this one's where it has not.
+    std::function<void()> const wake_pages = browser.page_waker();
+    loader.set_on_fetch_done([waker, wake_pages] {
+        wake_pages();
+        waker->wake();
+    });
+    worker_threads.set_wake([waker, wake_pages] {
+        wake_pages();
+        waker->wake();
+    });
     report_theme_pictures(browser);
     browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
@@ -2052,6 +2127,9 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 next_capture_ms += frame_every_ms;
         }
     };
+    // Written by a thread of its own, which the end of this function waits
+    // for: nothing of the profile is written by the window's thread.
+    ProfileWriter writer;
     auto last_profile_write = std::chrono::steady_clock::now();
     // Writes whatever of the profile changed; true when a write is still
     // owed because the last one was less than a second ago.
@@ -2065,8 +2143,8 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             if (throttled) {
                 owed = true;
             } else {
-                if (write_text_file_atomically(profile_path / "session.json", session))
-                    saved_session = std::move(session);
+                writer.write(profile_path / "session.json", session);
+                saved_session = std::move(session);
                 last_profile_write = now;
             }
         }
@@ -2074,8 +2152,8 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             if (throttled) {
                 owed = true;
             } else {
-                if (write_text_file_atomically(profile_path / "bookmarks.json", browser.bookmarks_json()))
-                    saved_bookmarks = browser.bookmarks_changes();
+                writer.write(profile_path / "bookmarks.json", browser.bookmarks_json());
+                saved_bookmarks = browser.bookmarks_changes();
                 last_profile_write = now;
             }
         }
@@ -2083,8 +2161,12 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             if (throttled) {
                 owed = true;
             } else {
-                if (write_text_file_atomically(profile_path / "storage.json", browser.storage_json()))
-                    saved_storage = browser.storage_changes();
+                // The count first: a page on a thread of its own may store
+                // more while the areas are being written out, which is then
+                // written the next time.
+                std::uint64_t const changes = browser.storage_changes();
+                writer.write(profile_path / "storage.json", browser.storage_json());
+                saved_storage = changes;
                 last_profile_write = now;
             }
         }
@@ -2099,8 +2181,9 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             if (throttled) {
                 owed = true;
             } else {
-                if (write_text_file_atomically(cookie_file(profile_path, name), jar.serialize()))
-                    saved_cookies[name] = jar.changes();
+                std::uint64_t const changes = jar.changes();
+                writer.write(cookie_file(profile_path, name), jar.serialize());
+                saved_cookies[name] = changes;
                 last_profile_write = now;
             }
         }
@@ -2218,11 +2301,29 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                     { "tab", platform::Key::Tab }, { "space", platform::Key::Space },
                     { "pagedown", platform::Key::PageDown }, { "pageup", platform::Key::PageUp },
                     { "end", platform::Key::End }, { "home", platform::Key::Home },
+                    { "backspace", platform::Key::Backspace }, { "f5", platform::Key::F5 },
+                    { "f12", platform::Key::F12 }, { "left", platform::Key::Left }, { "right", platform::Key::Right },
+                    { "up", platform::Key::Up }, { "down", platform::Key::Down },
                 };
+                // A chord: ctrl+t, ctrl+shift+t, alt+left — the key after the
+                // last '+', the ones before it held.
                 platform::KeyEvent key;
+                std::string rest = step.argument;
+                for (std::size_t plus = rest.find('+'); plus != std::string::npos; plus = rest.find('+')) {
+                    std::string const held = rest.substr(0, plus);
+                    key.ctrl = key.ctrl || held == "ctrl";
+                    key.shift = key.shift || held == "shift";
+                    key.alt = key.alt || held == "alt";
+                    rest = rest.substr(plus + 1);
+                }
                 for (auto const& [name, named_key] : named) {
-                    if (step.argument == name)
+                    if (rest == name)
                         key.key = named_key;
+                }
+                if (key.key == platform::Key::None && rest.size() == 1
+                    && ((rest[0] >= 'a' && rest[0] <= 'z') || (rest[0] >= '0' && rest[0] <= '9'))) {
+                    key.key = platform::Key::Letter;
+                    key.letter = static_cast<char32_t>(rest[0] >= 'a' ? rest[0] - 'a' + 'A' : rest[0]);
                 }
                 if (key.key != platform::Key::None)
                     browser.key_down(key);
@@ -2355,7 +2456,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             theme_file = *chosen;
             theme_stamp = std::filesystem::last_write_time(theme_file, error);
             if (!profile_path.empty())
-                write_text_file_atomically(profile_path / "settings.json", "{\n  \"theme\": " + json_string(theme_file) + "\n}\n");
+                writer.write(profile_path / "settings.json", "{\n  \"theme\": " + json_string(theme_file) + "\n}\n");
         }
         // Themes are data: edit the file and the window follows.
         if (!theme_file.empty()) {
@@ -2393,7 +2494,9 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             // the profile write that is owed — and, while a fetch is on its
             // way, a moment at most: its arrival is looked for again then.
             int timeout = theme_file.empty() ? (user_themes.empty() ? -1 : 2000) : 500;
-            if (browser.has_pending_load())
+            // (A page with a thread of its own looks for its own fetches,
+            // and wakes this one when it has something to show.)
+            if (browser.has_pending_load() && !browser.page_threads())
                 timeout = timeout < 0 ? 8 : std::min(timeout, 8);
             if (std::optional<double> const due = browser.next_timer_ms()) {
                 int const ms = static_cast<int>(std::ceil(*due));
