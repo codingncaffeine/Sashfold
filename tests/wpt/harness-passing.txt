@@ -125749,6 +125749,371 @@ html/infrastructure/urls/terminology-0/document-base-url.html	The fallback base 
 html/infrastructure/urls/terminology-0/document-base-url.html	The fallback base URL of an iframe srcdoc document is the document base URL of the document's browsing context's browsing context container's document.
 html/infrastructure/urls/terminology-0/document-base-url.html	about:blank with a base element.
 html/infrastructure/urls/terminology-0/multiple-base.sub.html	If there are multiple <base> elements, the document base URL is the frozen base URL of the first one that has an href attribute
+html/semantics/embedded-content/media-elements/audio_volume_check.html	Check if audio.volume is able to set to new value in the range 0.0 to 1.0
+html/semantics/embedded-content/media-elements/audio_volume_check.html	Check if audio.volume is set to new value greater than 1.0 that expecting an IndexSizeError exception is to be thrown
+html/semantics/embedded-content/media-elements/audio_volume_check.html	Check if media.volume is able to set to new value 0.0 as silent
+html/semantics/embedded-content/media-elements/audio_volume_check.html	Check if media.volume is able to set to new value 1.0 as loudest
+html/semantics/embedded-content/media-elements/audio_volume_check.html	Check if media.volume is set to new value less than 0.0 that expecting an IndexSizeError exception is to be thrown
+html/semantics/embedded-content/media-elements/audio_volume_check.html	Check if the intial value of the audio.volume is in the range 0.0 to 1.0 inclusive
+html/semantics/embedded-content/media-elements/error-codes/error.html	audio.error after setting src to the empty string
+html/semantics/embedded-content/media-elements/error-codes/error.html	audio.error initial value
+html/semantics/embedded-content/media-elements/error-codes/error.html	video.error after setting src to the empty string
+html/semantics/embedded-content/media-elements/error-codes/error.html	video.error initial value
+html/semantics/embedded-content/media-elements/error-sequence.html	empty src attribute
+html/semantics/embedded-content/media-elements/error-sequence.html	urlRecord failure
+html/semantics/embedded-content/media-elements/event_canplay.html	audio events - canplay
+html/semantics/embedded-content/media-elements/event_canplay.html	video events - canplay
+html/semantics/embedded-content/media-elements/event_canplay_noautoplay.html	audio events - canplay
+html/semantics/embedded-content/media-elements/event_canplay_noautoplay.html	video events - canplay
+html/semantics/embedded-content/media-elements/event_canplaythrough.html	audio events - canplaythrough
+html/semantics/embedded-content/media-elements/event_canplaythrough.html	video events - canplaythrough
+html/semantics/embedded-content/media-elements/event_canplaythrough_noautoplay.html	audio events - canplaythrough
+html/semantics/embedded-content/media-elements/event_canplaythrough_noautoplay.html	video events - canplaythrough
+html/semantics/embedded-content/media-elements/event_loadeddata.html	audio events - loadeddata
+html/semantics/embedded-content/media-elements/event_loadeddata.html	video events - loadeddata
+html/semantics/embedded-content/media-elements/event_loadeddata_noautoplay.html	audio events - loadeddata
+html/semantics/embedded-content/media-elements/event_loadeddata_noautoplay.html	video events - loadeddata
+html/semantics/embedded-content/media-elements/event_loadedmetadata.html	audio events - loadedmetadata
+html/semantics/embedded-content/media-elements/event_loadedmetadata.html	video events - loadedmetadata
+html/semantics/embedded-content/media-elements/event_loadedmetadata_noautoplay.html	audio events - loadedmetadata
+html/semantics/embedded-content/media-elements/event_loadedmetadata_noautoplay.html	video events, loadedmetadata
+html/semantics/embedded-content/media-elements/event_loadstart.html	audio events - loadstart
+html/semantics/embedded-content/media-elements/event_loadstart.html	setting src attribute on autoplay audio should trigger loadstart event
+html/semantics/embedded-content/media-elements/event_loadstart.html	setting src attribute on autoplay video should trigger loadstart event
+html/semantics/embedded-content/media-elements/event_loadstart.html	video events - loadstart
+html/semantics/embedded-content/media-elements/event_loadstart_noautoplay.html	audio events - loadstart
+html/semantics/embedded-content/media-elements/event_loadstart_noautoplay.html	setting src attribute on non-autoplay audio should trigger loadstart event
+html/semantics/embedded-content/media-elements/event_loadstart_noautoplay.html	setting src attribute on non-autoplay video should trigger loadstart event
+html/semantics/embedded-content/media-elements/event_loadstart_noautoplay.html	video events - loadstart
+html/semantics/embedded-content/media-elements/event_order_canplay_canplaythrough.html	audio events - canplay, then canplaythrough
+html/semantics/embedded-content/media-elements/event_order_canplay_canplaythrough.html	video events - canplay, then canplaythrough
+html/semantics/embedded-content/media-elements/event_order_canplay_playing.html	audio events - canplay, then playing
+html/semantics/embedded-content/media-elements/event_order_canplay_playing.html	video events - canplay, then playing
+html/semantics/embedded-content/media-elements/event_order_durationchange_resize_loadedmetadata.html	audio events - durationchange, then loadedmetadata
+html/semantics/embedded-content/media-elements/event_order_durationchange_resize_loadedmetadata.html	video events - durationchange, resize then loadeddata
+html/semantics/embedded-content/media-elements/event_order_loadedmetadata_loadeddata.html	audio events - loadedmetadata, then loadeddata
+html/semantics/embedded-content/media-elements/event_order_loadedmetadata_loadeddata.html	video events - loadedmetadata, then loadeddata
+html/semantics/embedded-content/media-elements/event_order_loadstart_progress.html	audio events - loadstart, then progress
+html/semantics/embedded-content/media-elements/event_order_loadstart_progress.html	video events - loadstart, then progress
+html/semantics/embedded-content/media-elements/event_pause.html	audio events - pause
+html/semantics/embedded-content/media-elements/event_pause.html	video events - pause
+html/semantics/embedded-content/media-elements/event_pause_noautoplay.html	audio events - pause
+html/semantics/embedded-content/media-elements/event_pause_noautoplay.html	calling play() then pause() on non-autoplay audio should trigger pause event
+html/semantics/embedded-content/media-elements/event_pause_noautoplay.html	calling play() then pause() on non-autoplay video should trigger pause event
+html/semantics/embedded-content/media-elements/event_pause_noautoplay.html	video events - pause
+html/semantics/embedded-content/media-elements/event_play.html	audio events - play
+html/semantics/embedded-content/media-elements/event_play.html	video events - play
+html/semantics/embedded-content/media-elements/event_play_noautoplay.html	audio events - play
+html/semantics/embedded-content/media-elements/event_play_noautoplay.html	calling play() on audio should trigger play event
+html/semantics/embedded-content/media-elements/event_play_noautoplay.html	calling play() on video should trigger play event
+html/semantics/embedded-content/media-elements/event_play_noautoplay.html	video events - play
+html/semantics/embedded-content/media-elements/event_playing.html	audio events - playing
+html/semantics/embedded-content/media-elements/event_playing.html	video events - playing
+html/semantics/embedded-content/media-elements/event_playing_noautoplay.html	audio events - playing
+html/semantics/embedded-content/media-elements/event_playing_noautoplay.html	video events - playing
+html/semantics/embedded-content/media-elements/event_progress.html	audio events - progress
+html/semantics/embedded-content/media-elements/event_progress.html	video events - progress
+html/semantics/embedded-content/media-elements/event_progress_noautoplay.html	audio events - progress
+html/semantics/embedded-content/media-elements/event_progress_noautoplay.html	video events - progress
+html/semantics/embedded-content/media-elements/event_timeupdate_noautoplay.html	audio events - timeupdate
+html/semantics/embedded-content/media-elements/event_timeupdate_noautoplay.html	video events - timeupdate
+html/semantics/embedded-content/media-elements/event_volumechange.html	setting audio.muted fires volumechange
+html/semantics/embedded-content/media-elements/event_volumechange.html	setting audio.muted to false when false by default will not fire volumechange
+html/semantics/embedded-content/media-elements/event_volumechange.html	setting audio.muted to true when true by default will not fire volumechange
+html/semantics/embedded-content/media-elements/event_volumechange.html	setting audio.volume fires volumechange
+html/semantics/embedded-content/media-elements/event_volumechange.html	setting audio.volume/muted repeatedly fires volumechange repeatedly
+html/semantics/embedded-content/media-elements/event_volumechange.html	setting audio.volume/muted to the same value does not fire volumechange
+html/semantics/embedded-content/media-elements/event_volumechange.html	setting video.muted fires volumechange
+html/semantics/embedded-content/media-elements/event_volumechange.html	setting video.muted to false when false by default will not fire volumechange
+html/semantics/embedded-content/media-elements/event_volumechange.html	setting video.muted to true when true by default will not fire volumechange
+html/semantics/embedded-content/media-elements/event_volumechange.html	setting video.volume fires volumechange
+html/semantics/embedded-content/media-elements/event_volumechange.html	setting video.volume/muted repeatedly fires volumechange repeatedly
+html/semantics/embedded-content/media-elements/event_volumechange.html	setting video.volume/muted to the same value does not fire volumechange
+html/semantics/embedded-content/media-elements/historical.html	MediaController constructor should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.addCuePoint should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.addCueRange should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.autobuffer should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.bufferedBytes should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.bufferingRate should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.bufferingThrottled should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.controller should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.currentLoop should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.end should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.initialTime should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.loopCount should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.loopEnd should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.loopStart should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.mediaGroup should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.mozPreservesPitch should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.mozSrcObject should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.playCount should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.removeCuePoint should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.removeCueRanges should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.start should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.startDate should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.startOffsetTime should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.startTime should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.totalBytes should not be supported
+html/semantics/embedded-content/media-elements/historical.html	audio.webkitPreservesPitch should not be supported
+html/semantics/embedded-content/media-elements/historical.html	source.pixelratio should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.addCuePoint should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.addCueRange should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.audio should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.autobuffer should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.bufferedBytes should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.bufferingRate should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.bufferingThrottled should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.controller should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.currentLoop should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.end should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.initialTime should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.loopCount should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.loopEnd should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.loopStart should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.mediaGroup should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.mozPreservesPitch should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.mozSrcObject should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.playCount should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.removeCuePoint should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.removeCueRanges should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.start should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.startDate should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.startOffsetTime should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.startTime should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.totalBytes should not be supported
+html/semantics/embedded-content/media-elements/historical.html	video.webkitPreservesPitch should not be supported
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/addTextTrack.html	HTMLMediaElement.addTextTrack bogus first arg
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/addTextTrack.html	HTMLMediaElement.addTextTrack uppercase first arg
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/crossOrigin.html	HTMLMediaElement.crossOrigin
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/crossOrigin.html	HTMLMediaElement.crossOrigin, content attribute empty string
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/crossOrigin.html	HTMLMediaElement.crossOrigin, content attribute invalid value
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/crossOrigin.html	HTMLMediaElement.crossOrigin, content attribute missing
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/crossOrigin.html	HTMLMediaElement.crossOrigin, content attribute uppercase ANONYMOUS
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/crossOrigin.html	HTMLMediaElement.crossOrigin, content attribute use-credentials
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/crossOrigin.html	HTMLMediaElement.crossOrigin, setting to empty string
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/crossOrigin.html	HTMLMediaElement.crossOrigin, setting to invalid value
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/crossOrigin.html	HTMLMediaElement.crossOrigin, setting to null
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/crossOrigin.html	HTMLMediaElement.crossOrigin, setting to uppercase ANONYMOUS
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/crossOrigin.html	HTMLMediaElement.crossOrigin, setting to use-credentials
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLMediaElement/textTracks.html	HTMLMediaElement.textTracks
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/default.html	HTMLTrackElement.default empty string IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/default.html	HTMLTrackElement.default empty string content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/default.html	HTMLTrackElement.default false in IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/default.html	HTMLTrackElement.default foo in IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/default.html	HTMLTrackElement.default foo in content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/default.html	HTMLTrackElement.default missing value
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/default.html	HTMLTrackElement.default true in IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind content attribute "captions"
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind content attribute "captions\\u0000"
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind content attribute "chapters"
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind content attribute "descriptions"
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind content attribute "metadata"
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind content attribute "subtitles"
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind content attribute uppercase
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind content attribute with lowercase turkish i (dotless)
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind content attribute with uppercase turkish I (with dot)
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind invalid value in content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind missing value
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind setting IDL attribute to "CAPTIONS"
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind setting IDL attribute to "captions"
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind setting IDL attribute to "chapters"
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind setting IDL attribute to "descriptions"
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind setting IDL attribute to "metadata"
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind setting IDL attribute to "subtitles"
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind setting IDL attribute with \\u0000
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind setting IDL attribute with lowercase turkish I (dotless)
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/kind.html	HTMLTrackElement.kind setting IDL attribute with uppercase turkish I (with dot)
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/label.html	HTMLTrackElement.label \\u0000 in IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/label.html	HTMLTrackElement.label empty string IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/label.html	HTMLTrackElement.label empty string content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/label.html	HTMLTrackElement.label lowercase IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/label.html	HTMLTrackElement.label lowercase content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/label.html	HTMLTrackElement.label missing value
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/label.html	HTMLTrackElement.label uppercase IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/label.html	HTMLTrackElement.label uppercase content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/label.html	HTMLTrackElement.label whitespace in IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/label.html	HTMLTrackElement.label whitespace in content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/label.html	HTMLTrackElement.label\\u0000 in content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/src.html	HTMLTrackElement.src \\u0000 in content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/src.html	HTMLTrackElement.src assigning \\u0000 to IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/src.html	HTMLTrackElement.src assigning empty string to IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/src.html	HTMLTrackElement.src assigning foo\\u0000bar to IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/src.html	HTMLTrackElement.src assigning resolvable value to IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/src.html	HTMLTrackElement.src assigning unresolvable value to IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/src.html	HTMLTrackElement.src empty string in content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/src.html	HTMLTrackElement.src foo\\u0000bar in content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/src.html	HTMLTrackElement.src missing value
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/src.html	HTMLTrackElement.src resolvable value in content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/src.html	HTMLTrackElement.src unresolvable value in content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang \\u0000 content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang \\u0000 in IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang empty string IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang empty string content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang lowercase IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang lowercase content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang missing value
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang uppercase IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang uppercase content attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang whitespace in IDL attribute
+html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang whitespace in content attribute
+html/semantics/embedded-content/media-elements/interfaces/TextTrackList/onaddtrack.html	TextTrackList.addEventListener/removeEventListener
+html/semantics/embedded-content/media-elements/interfaces/TextTrackList/onaddtrack.html	TextTrackList.onaddtrack
+html/semantics/embedded-content/media-elements/interfaces/TextTrackList/onremovetrack.html	TextTrackList.addEventListener/removeEventListener
+html/semantics/embedded-content/media-elements/interfaces/TextTrackList/onremovetrack.html	TextTrackList.onremovetrack
+html/semantics/embedded-content/media-elements/loading-the-media-resource/load-events-networkState.html	NETWORK_NO_SOURCE
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-candidate-remove-no-listener.html	removing the candidate source, no listener
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-invoke-audio-constructor-no-src.html	NOT invoking resource selection with new Audio() sans src
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-invoke-insert-fragment-into-document.html	NOT invoking resource selection by inserting document fragment into a document
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-invoke-insert-into-document.html	NOT invoking resource selection by inserting into a document
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-invoke-insert-into-iframe.html	NOT invoking resource selection by inserting into other document with src set
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-invoke-insert-parent-into-document.html	NOT invoking resource selection by inserting parent into a document
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-invoke-insert-source-in-div.html	NOT invoking resource selection by inserting <source> in <div> in <video>
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-invoke-insert-source-in-namespace.html	NOT invoking resource selection by inserting <source> in the wrong namespace
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-invoke-remove-from-document.html	NOT invoking resource selection by removing from document with NETWORK_EMPTY
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-invoke-remove-src.html	NOT invoking media load or resource selection when removing the src attribute
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-invoke-set-src-in-namespace.html	NOT invoking load by setting src in the wrong namespace
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-invoke-set-src-networkState.html	invoking load by setting src when networkState is not NETWORK_EMPTY
+html/semantics/embedded-content/media-elements/loading-the-media-resource/resource-selection-resumes-onload.html	resource selection should not delay the load event indefinitely
+html/semantics/embedded-content/media-elements/location-of-the-media-resource/currentSrc.html	audio.currentSrc after setting src attribute " "
+html/semantics/embedded-content/media-elements/location-of-the-media-resource/currentSrc.html	audio.currentSrc after setting src attribute ""
+html/semantics/embedded-content/media-elements/location-of-the-media-resource/currentSrc.html	audio.currentSrc after setting src attribute "."
+html/semantics/embedded-content/media-elements/location-of-the-media-resource/currentSrc.html	audio.currentSrc after setting src attribute "data:,"
+html/semantics/embedded-content/media-elements/location-of-the-media-resource/currentSrc.html	audio.currentSrc initial value
+html/semantics/embedded-content/media-elements/location-of-the-media-resource/currentSrc.html	video.currentSrc after setting src attribute " "
+html/semantics/embedded-content/media-elements/location-of-the-media-resource/currentSrc.html	video.currentSrc after setting src attribute ""
+html/semantics/embedded-content/media-elements/location-of-the-media-resource/currentSrc.html	video.currentSrc after setting src attribute "."
+html/semantics/embedded-content/media-elements/location-of-the-media-resource/currentSrc.html	video.currentSrc after setting src attribute "data:,"
+html/semantics/embedded-content/media-elements/location-of-the-media-resource/currentSrc.html	video.currentSrc initial value
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	application/octet-stream not supported
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	audio/mp4 with and without codecs
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	audio/mp4 with bogus codec
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	audio/ogg with and without codecs
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	audio/ogg with bogus codec
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	audio/wav with bogus codec
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	audio/wav; codecs="1" (optional)
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	audio/webm with bogus codec
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	audio/webm; codecs="opus" (optional)
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	fictional formats and codecs not supported
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	utility code
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	video/3gpp with and without codecs
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	video/3gpp with bogus codec
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	video/mp4 with and without codecs
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	video/mp4 with bogus codec
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	video/ogg with and without codecs
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	video/ogg with bogus codec
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	video/webm codecs order
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	video/webm codecs subset
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	video/webm with bogus codec
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	video/webm; codecs="opus" (optional)
+html/semantics/embedded-content/media-elements/mime-types/canPlayType.html	video/webm; codecs="vp9" (optional)
+html/semantics/embedded-content/media-elements/networkState_during_loadstart.html	audioElement.networkState should be NETWORK_LOADING during loadstart event
+html/semantics/embedded-content/media-elements/networkState_during_loadstart.html	videoElement.networkState should be NETWORK_LOADING during loadstart event
+html/semantics/embedded-content/media-elements/networkState_during_progress.html	audio events - networkState during progress
+html/semantics/embedded-content/media-elements/networkState_during_progress.html	video events - networkState during progress
+html/semantics/embedded-content/media-elements/networkState_initial.html	audio.networkState - default state
+html/semantics/embedded-content/media-elements/networkState_initial.html	video.networkState - default state
+html/semantics/embedded-content/media-elements/offsets-into-the-media-resource/currentTime.html	currentTime initial value
+html/semantics/embedded-content/media-elements/offsets-into-the-media-resource/currentTime.html	setting currentTime when readyState is HAVE_NOTHING
+html/semantics/embedded-content/media-elements/offsets-into-the-media-resource/duration.html	duration initial value
+html/semantics/embedded-content/media-elements/paused_false_during_play.html	audio events - paused property
+html/semantics/embedded-content/media-elements/paused_false_during_play.html	video events - paused property
+html/semantics/embedded-content/media-elements/paused_true_during_pause.html	audio events - paused property
+html/semantics/embedded-content/media-elements/paused_true_during_pause.html	audio.paused should be true during pause event
+html/semantics/embedded-content/media-elements/paused_true_during_pause.html	video events - paused property
+html/semantics/embedded-content/media-elements/paused_true_during_pause.html	video.paused should be true during pause event
+html/semantics/embedded-content/media-elements/playing-the-media-resource/playbackRate.html	playbackRate initial value
+html/semantics/embedded-content/media-elements/playing-the-media-resource/playbackRate.html	playbackRate set to -1
+html/semantics/embedded-content/media-elements/playing-the-media-resource/playbackRate.html	playbackRate set to 0
+html/semantics/embedded-content/media-elements/playing-the-media-resource/playbackRate.html	playbackRate set to large negative value
+html/semantics/embedded-content/media-elements/playing-the-media-resource/playbackRate.html	playbackRate set to large positive value
+html/semantics/embedded-content/media-elements/playing-the-media-resource/playbackRate.html	playbackRate set to small negative value
+html/semantics/embedded-content/media-elements/playing-the-media-resource/playbackRate.html	playbackRate set to small positive value
+html/semantics/embedded-content/media-elements/preload_reflects_none_autoplay.html	audio.preload - reflection test
+html/semantics/embedded-content/media-elements/preload_reflects_none_autoplay.html	video.preload - reflection test
+html/semantics/embedded-content/media-elements/preserves-pitch.html	Test that preservesPitch is on by default
+html/semantics/embedded-content/media-elements/preserves-pitch.html	Test that preservesPitch is present and unprefixed.
+html/semantics/embedded-content/media-elements/readyState_during_canplay.html	audio events - readyState property during canplay
+html/semantics/embedded-content/media-elements/readyState_during_canplay.html	video events - readyState property during canplay
+html/semantics/embedded-content/media-elements/readyState_during_canplaythrough.html	audio events - readyState property during canplaythrough
+html/semantics/embedded-content/media-elements/readyState_during_canplaythrough.html	video events - readyState property during canplaythrough
+html/semantics/embedded-content/media-elements/readyState_during_loadeddata.html	audio events - readyState property during loadeddata
+html/semantics/embedded-content/media-elements/readyState_during_loadeddata.html	video events - readyState property during loadeddata
+html/semantics/embedded-content/media-elements/readyState_during_loadedmetadata.html	audio events - readyState property during loadedmetadata
+html/semantics/embedded-content/media-elements/readyState_during_loadedmetadata.html	video events - readyState property during loadedmetadata
+html/semantics/embedded-content/media-elements/readyState_during_playing.html	audio events - readyState property during playing
+html/semantics/embedded-content/media-elements/readyState_during_playing.html	video events - readyState property during playing
+html/semantics/embedded-content/media-elements/readyState_initial.html	audio.readyState - default state
+html/semantics/embedded-content/media-elements/readyState_initial.html	video.readyState - default state
+html/semantics/embedded-content/media-elements/src_reflects_attribute_not_source_elements.html	audio.src - reflection test
+html/semantics/embedded-content/media-elements/src_reflects_attribute_not_source_elements.html	video.src - reflection test
+html/semantics/embedded-content/media-elements/track/track-element/track-api-texttracks.html	Check getTrackById method
+html/semantics/embedded-content/media-elements/track/track-element/track-api-texttracks.html	Check the track elements
+html/semantics/embedded-content/media-elements/track/track-element/track-remove-quickly.html	Removing a track element before it has been processed doesn't crash
+html/semantics/embedded-content/media-elements/user-interface/muted.html	adding muted attribute has no effect on a connected audio after the setter
+html/semantics/embedded-content/media-elements/user-interface/muted.html	adding muted attribute has no effect on a connected video after the setter
+html/semantics/embedded-content/media-elements/user-interface/muted.html	adding muted attribute has no effect on audio.muted after setter
+html/semantics/embedded-content/media-elements/user-interface/muted.html	adding muted attribute has no effect on video.muted after setter
+html/semantics/embedded-content/media-elements/user-interface/muted.html	audio muted="" is honored regardless of connectedness
+html/semantics/embedded-content/media-elements/user-interface/muted.html	audio.defaultMuted reflects a muted attribute added via markup
+html/semantics/embedded-content/media-elements/user-interface/muted.html	cloning audio propagates muted (innerHTML-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	cloning audio propagates muted (script-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	cloning video propagates muted (innerHTML-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	cloning video propagates muted (script-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	defaultMuted does not affect audio.muted after the setter
+html/semantics/embedded-content/media-elements/user-interface/muted.html	defaultMuted does not affect video.muted after the setter
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting audio.muted (parser-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting audio.muted (script-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting audio.muted with muted="" (cloneNode-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting audio.muted with muted="" (innerHTML-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting audio.muted with muted="" (parser-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting audio.muted with muted="" (script-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting video.muted (parser-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting video.muted (script-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting video.muted with muted="" (cloneNode-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting video.muted with muted="" (innerHTML-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting video.muted with muted="" (parser-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting video.muted with muted="" (script-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	getting video.muted with muted="" after load (parser-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	removing muted attribute has no effect on a connected audio after the setter
+html/semantics/embedded-content/media-elements/user-interface/muted.html	removing muted attribute has no effect on a connected video after the setter
+html/semantics/embedded-content/media-elements/user-interface/muted.html	removing muted attribute has no effect on audio.muted after setter
+html/semantics/embedded-content/media-elements/user-interface/muted.html	removing muted attribute has no effect on video.muted after setter
+html/semantics/embedded-content/media-elements/user-interface/muted.html	setting audio.muted (parser-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	setting audio.muted (script-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	setting audio.muted with muted="" (parser-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	setting audio.muted with muted="" (script-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	setting video.muted (parser-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	setting video.muted (script-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	setting video.muted with muted="" (parser-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	setting video.muted with muted="" (script-created)
+html/semantics/embedded-content/media-elements/user-interface/muted.html	toggling audio.muted does not change defaultMuted
+html/semantics/embedded-content/media-elements/user-interface/muted.html	toggling video.muted does not change defaultMuted
+html/semantics/embedded-content/media-elements/user-interface/muted.html	video muted="" is honored regardless of connectedness
+html/semantics/embedded-content/media-elements/user-interface/muted.html	video.defaultMuted reflects a muted attribute added via markup
+html/semantics/embedded-content/media-elements/video_volume_check.html	Check if media.volume is able to set to new value 0.0 as silent
+html/semantics/embedded-content/media-elements/video_volume_check.html	Check if media.volume is able to set to new value 1.0 as loudest
+html/semantics/embedded-content/media-elements/video_volume_check.html	Check if media.volume is set to new value less than 0.0 that expecting an IndexSizeError exception is to be thrown
+html/semantics/embedded-content/media-elements/video_volume_check.html	Check if the intial value of the video.volume is in the range 0.0 to 1.0 inclusive
+html/semantics/embedded-content/media-elements/video_volume_check.html	Check if video.volume is able to set to new value in the range 0.0 to 1.0
+html/semantics/embedded-content/media-elements/video_volume_check.html	Check if video.volume is set to new value greater than 1.0 that expecting an IndexSizeError exception is to be thrown
+html/semantics/embedded-content/media-elements/volume_nonfinite.html	Setting audio.volume to -Infinity should throw a TypeError
+html/semantics/embedded-content/media-elements/volume_nonfinite.html	Setting audio.volume to Infinity should throw a TypeError
+html/semantics/embedded-content/media-elements/volume_nonfinite.html	Setting audio.volume to NaN should throw a TypeError
+html/semantics/embedded-content/media-elements/volume_nonfinite.html	Setting video.volume to -Infinity should throw a TypeError
+html/semantics/embedded-content/media-elements/volume_nonfinite.html	Setting video.volume to Infinity should throw a TypeError
+html/semantics/embedded-content/media-elements/volume_nonfinite.html	Setting video.volume to NaN should throw a TypeError
+html/semantics/embedded-content/the-audio-element/audio-loading-lazy-window-onload.html	Audio with loading=lazy does not delay window onload event
+html/semantics/embedded-content/the-audio-element/audio_constructor.html	Audio constructor
+html/semantics/embedded-content/the-audio-element/audio_constructor.html	Calling Audio should throw
+html/semantics/embedded-content/the-audio-element/audio_constructor.html	Calling HTMLAudioElement should throw
+html/semantics/embedded-content/the-audio-element/audio_constructor.html	Constructing HTMLAudioElement should throw
+html/semantics/embedded-content/the-audio-element/audio_constructor.html	Empty string argument
+html/semantics/embedded-content/the-audio-element/audio_constructor.html	Extra argument
+html/semantics/embedded-content/the-audio-element/audio_constructor.html	No arguments
+html/semantics/embedded-content/the-audio-element/audio_constructor.html	Non-empty string argument
+html/semantics/embedded-content/the-audio-element/audio_constructor.html	Null argument
+html/semantics/embedded-content/the-audio-element/audio_constructor.html	Prototype of object created with named constructor
+html/semantics/embedded-content/the-audio-element/audio_constructor.html	Undefined argument
 html/semantics/embedded-content/the-embed-element/document-getters-return-null-for-cross-origin.html	HTMLEmbedElement.getSVGDocument() for cross-origin document
 html/semantics/embedded-content/the-embed-element/embed-allowed-schemas.sub.window.html	about: allowed in embed
 html/semantics/embedded-content/the-embed-element/embed-allowed-schemas.sub.window.html	blob: allowed in embed
@@ -125923,6 +126288,14 @@ html/semantics/embedded-content/the-object-element/object-in-object-fallback-2.h
 html/semantics/embedded-content/the-object-element/object-javascript-url.html	javascript: in data attribute should do nothing
 html/semantics/embedded-content/the-object-element/object-javascript-url.html	location.href = 'javascript:"test"' should fire a load event
 html/semantics/embedded-content/the-object-element/object-javascript-url.html	location.href = 'javascript:1' should not fire a load event
+html/semantics/embedded-content/the-video-element/intrinsic_sizes.htm	default height is still 150
+html/semantics/embedded-content/the-video-element/intrinsic_sizes.htm	default object size is 300x150
+html/semantics/embedded-content/the-video-element/intrinsic_sizes.htm	default width is still 300
+html/semantics/embedded-content/the-video-element/video-loading-lazy-window-onload.html	Video with loading=lazy does not delay window onload event
+html/semantics/embedded-content/the-video-element/video-loading-poster-deferred.html	Video with loading=lazy that is not visible in viewport does not load poster image
+html/semantics/embedded-content/the-video-element/video-tabindex.html	Attributes shouldn't magically appear
+html/semantics/embedded-content/the-video-element/video_crash_empty_src.html	src="" does not crash.
+html/semantics/embedded-content/the-video-element/video_crash_empty_src.html	src="about:blank" does not crash.
 html/syntax/parsing/Document.getElementsByTagName-foreign-01.html	Testing altGlyph
 html/syntax/parsing/Document.getElementsByTagName-foreign-01.html	Testing altGlyphDef
 html/syntax/parsing/Document.getElementsByTagName-foreign-01.html	Testing altGlyphItem
@@ -128910,6 +129283,78 @@ html/webappapis/timers/setinterval-settimeout-clamping.any.html	setTimeout(0) be
 html/webappapis/timers/settimeout-detached-iframe.html	setTimeout() on a detached iframe's window does not throw and its callback never runs
 html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html	Test requires performance.now() to measure approximate timing of callbacks.
 html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html	Test that a timer scheduled during a microtask checkpoint does not inherit the timer nesting level of the task that just ran.
+media-source/URL-createObjectURL-null.html	URL.createObjectURL(null)
+media-source/URL-createObjectURL-revoke.html	Check no auto-revoking behavior with URL.createObjectURL(MediaSource).
+media-source/URL-createObjectURL-revoke.html	Check revoking behavior of URL.revokeObjectURL(url).
+media-source/URL-createObjectURL.html	URL.createObjectURL(mediaSource) should return a unique Blob URI.
+media-source/dedicated-worker/mediasource-worker-handle.html	MediaSource construction in DedicatedWorker context must fail if Window context did not claim MSE supported in DedicatedWorker
+media-source/dedicated-worker/mediasource-worker-handle.html	Test main-thread MediaSource does not have handle getter
+media-source/dedicated-worker/mediasource-worker-objecturl.html	MediaSource construction in DedicatedWorker context must fail if Window context did not claim MSE supported in DedicatedWorker
+media-source/mediasource-addsourcebuffer.html	Test addSourceBuffer() with empty type
+media-source/mediasource-addsourcebuffer.html	Test addSourceBuffer() with null
+media-source/mediasource-addsourcebuffer.html	Test addSourceBuffer() with unsupported type
+media-source/mediasource-attach-stops-delaying-load-event.html	MediaSource attachment should immediately stop delaying the load event
+media-source/mediasource-changetype-play-implicit.html	Test video-only implicit changeType for video/webm; codecs="vp9" <-> video/webm; codecs="vp9"
+media-source/mediasource-changetype-play-implicit.html	Test video-only implicit changeType for video/webm; codecs="vp9" <-> video/webm; codecs="vp9" (using types without codecs parameters for addSourceBuffer)
+media-source/mediasource-changetype-play-without-codecs-parameter.html	Test video-only changeType for video/webm; codecs="vp9" <-> video/webm; codecs="vp9" (using types without codecs parameters)
+media-source/mediasource-changetype-play.html	Test video-only changeType for video/webm; codecs="vp9" <-> video/webm; codecs="vp9"
+media-source/mediasource-closed.html	Test attribute values on a closed MediaSource object.
+media-source/mediasource-closed.html	Test endOfStream() while closed.
+media-source/mediasource-closed.html	Test endOfStream(decode) while closed.
+media-source/mediasource-closed.html	Test endOfStream(network) while closed.
+media-source/mediasource-closed.html	Test setting duration while closed.
+media-source/mediasource-endofstream-invaliderror.html	Test MediaSource.endOfStream() with invalid empty error string.
+media-source/mediasource-endofstream-invaliderror.html	Test MediaSource.endOfStream() with invalid non-empty error string.
+media-source/mediasource-endofstream-invaliderror.html	Test MediaSource.endOfStream() with invalid null error parameter.
+media-source/mediasource-endofstream.html	MediaSource.endOfStream(): duration truncated to 0 when there are no buffered coded frames
+media-source/mediasource-h264-play-starved.html	Enough frames are played when the decoder is starved.
+media-source/mediasource-is-type-supported.html	Test invalid MIME format ""
+media-source/mediasource-is-type-supported.html	Test invalid MIME format "null"
+media-source/mediasource-is-type-supported.html	Test invalid MIME format "unsupported_mediatype"
+media-source/mediasource-is-type-supported.html	Test invalid MIME format "video"
+media-source/mediasource-is-type-supported.html	Test invalid MIME format "video/"
+media-source/mediasource-is-type-supported.html	Test invalid MIME format "video/webm;codecs="
+media-source/mediasource-is-type-supported.html	Test invalid MIME format "video/webm;codecs=""
+media-source/mediasource-is-type-supported.html	Test invalid MIME format "video/webm;codecs="""
+media-source/mediasource-is-type-supported.html	Test invalid MIME format "video/webm;codecs=",""
+media-source/mediasource-is-type-supported.html	Test invalid MSE MIME media type "image/jpeg"
+media-source/mediasource-is-type-supported.html	Test invalid MSE MIME media type "text/html"
+media-source/mediasource-is-type-supported.html	Test invalid MSE MIME media type "xxx"
+media-source/mediasource-is-type-supported.html	Test invalid codec ID "audio/mp4;codecs="mp4a""
+media-source/mediasource-is-type-supported.html	Test invalid codec ID "audio/mp4;codecs="mp4a.40""
+media-source/mediasource-is-type-supported.html	Test invalid codec ID "audio/mp4;codecs="mp4a.40.""
+media-source/mediasource-is-type-supported.html	Test invalid codec ID "audio/mp4;codecs="mp4a.67.3""
+media-source/mediasource-is-type-supported.html	Test invalid inclusion of codecs parameter for mpeg audio types "audio/aac;codecs="aac""
+media-source/mediasource-is-type-supported.html	Test invalid inclusion of codecs parameter for mpeg audio types "audio/aac;codecs="adts""
+media-source/mediasource-is-type-supported.html	Test invalid inclusion of codecs parameter for mpeg audio types "audio/aac;codecs="mp4a.40""
+media-source/mediasource-is-type-supported.html	Test invalid inclusion of codecs parameter for mpeg audio types "audio/mpeg;codecs="mp3""
+media-source/mediasource-is-type-supported.html	Test invalid inclusion of codecs parameter for mpeg audio types "audio/mpeg;codecs="mp4a.69""
+media-source/mediasource-is-type-supported.html	Test invalid inclusion of codecs parameter for mpeg audio types "audio/mpeg;codecs="mp4a.6B""
+media-source/mediasource-is-type-supported.html	Test invalid mismatch between MIME type and codec ID "audio/mp4;codecs="avc1.4d001e""
+media-source/mediasource-is-type-supported.html	Test invalid mismatch between MIME type and codec ID "audio/mp4;codecs="vorbis""
+media-source/mediasource-is-type-supported.html	Test invalid mismatch between MIME type and codec ID "audio/webm;codecs="mp4a.40.2""
+media-source/mediasource-is-type-supported.html	Test invalid mismatch between MIME type and codec ID "audio/webm;codecs="vp8""
+media-source/mediasource-is-type-supported.html	Test invalid mismatch between MIME type and codec ID "video/mp4;codecs="vorbis""
+media-source/mediasource-is-type-supported.html	Test invalid mismatch between MIME type and codec ID "video/mp4;codecs="vp8""
+media-source/mediasource-is-type-supported.html	Test invalid mismatch between MIME type and codec ID "video/webm;codecs="mp4a.40.2""
+media-source/mediasource-is-type-supported.html	Test valid WebM type "audio/webm;codecs="opus""
+media-source/mediasource-is-type-supported.html	Test valid WebM type "video/webm;codecs="opus""
+media-source/mediasource-liveseekable.html	clearLiveSeekableRange returns with no error when conditions are correct
+media-source/mediasource-liveseekable.html	clearLiveSeekableRange throws an InvalidStateError exception if the readyState attribute is not 'open'
+media-source/mediasource-liveseekable.html	setLiveSeekableRange returns with no error when conditions are correct
+media-source/mediasource-liveseekable.html	setLiveSeekableRange throws an InvalidStateError exception if the readyState attribute is not 'open'
+media-source/mediasource-multiple-attach.html	Generate multiple unique URLs via URL.createObjectURL and revoke an URL
+media-source/mediasource-multiple-attach.html	Test that MediaSource can reattach if closed first
+media-source/mediasource-preload.html	error occurs with bogus blob URL (corrupted MediaSource object URL) and element preload=auto
+media-source/mediasource-preload.html	error occurs with bogus blob URL (corrupted MediaSource object URL) and element preload=metadata
+media-source/mediasource-preload.html	error occurs with bogus blob URL (corrupted MediaSource object URL) and element preload=none
+media-source/mediasource-preload.html	error occurs with bogus blob URL (revoked MediaSource object URL) and element preload=auto
+media-source/mediasource-preload.html	error occurs with bogus blob URL (revoked MediaSource object URL) and element preload=metadata
+media-source/mediasource-preload.html	error occurs with bogus blob URL (revoked MediaSource object URL) and element preload=none
+media-source/mediasource-preload.html	sourceopen occurs with element preload=auto
+media-source/mediasource-preload.html	sourceopen occurs with element preload=metadata
+media-source/mediasource-preload.html	sourceopen occurs with element preload=none
+media-source/mediasource-removesourcebuffer.html	Test removeSourceBuffer() with null
 shadow-dom/Document-caretPositionFromPoint.tentative.html	document.caretPositionFromPoint() throws when called without the correct parameters
 shadow-dom/Document-prototype-importNode.html	importNode on a shadow root in closed mode must throw a NotSupportedError
 shadow-dom/Document-prototype-importNode.html	importNode on a shadow root in open mode must throw a NotSupportedError

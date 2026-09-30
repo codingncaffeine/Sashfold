@@ -20,11 +20,10 @@ dirs=$(grep -c '"path":' docs/test262.json)
 # Each of these must match exactly one line: the stat tiles sit next to
 # other figures that are not this one.
 count() { grep -c "$1" "$2" || true; }
-[ "$(count 'tests over [0-9]* directories' README.md)" = 1 ] || { printf 'README test262 row moved\n'; exit 1; }
+[ "$(count '^| test262 | ' README.md)" = 1 ] || { printf 'README test262 row moved\n'; exit 1; }
 [ "$(count 'the ECMAScript conformance suite</a>' docs/index.html)" = 1 ] || { printf 'the test262 tile moved\n'; exit 1; }
 
-sed -i -E "s|[0-9,]+ tests over [0-9]+ directories|${comma} tests over ${dirs} directories|" README.md
-sed -i -E "/tests over [0-9]+ directories/ s|\*\*[0-9]+ / [0-9]+ \([0-9.]+%\)\*\*|**${passed} / ${total} (${pct}%)**|" README.md
+sed -i -E "/^\| test262 \| / s|\*\*[0-9]+ / [0-9]+ \([0-9.]+%\)\*\*|**${passed} / ${total} (${pct}%)**|" README.md
 sed -i -E "/ECMAScript conformance suite<\/a>/ s|[0-9]+ / [0-9]+|${passed} / ${total}|; /ECMAScript conformance suite<\/a>/ s|[0-9.]+%, by directory|${pct}%, by directory|" docs/index.html
 
 printf '%s / %s (%s%%) over %s directories\n' "$passed" "$total" "$pct" "$dirs"

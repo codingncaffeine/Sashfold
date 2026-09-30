@@ -59,3 +59,13 @@ IndexedDB
 # Added 2026-09-24 with the canvas element and its 2D context: the
 # 2d.* tests read pixels back through getImageData.
 html/canvas/element
+
+# Added 2026-09-29 with the media element's rules a player leans on: the
+# Media Source Extensions suite and the media elements' own. Most of
+# media-source needs VP8 and Vorbis to run at all, and the media elements'
+# fixtures under /media are not checked out, so the failing rows there
+# name codecs and text tracks before anything else.
+media-source
+html/semantics/embedded-content/media-elements
+html/semantics/embedded-content/the-video-element
+html/semantics/embedded-content/the-audio-element
