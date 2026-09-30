@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace sashfold {
 
@@ -17,6 +18,14 @@ Bitmap::Bitmap(int width, int height, Color fill)
         m_pixels[i * 4u + 2u] = fill.b;
         m_pixels[i * 4u + 3u] = fill.a;
     }
+}
+
+Bitmap::Bitmap(int width, int height, std::vector<std::uint8_t> pixels)
+    : m_width(std::max(width, 0))
+    , m_height(std::max(height, 0))
+    , m_pixels(std::move(pixels))
+{
+    m_pixels.resize(static_cast<std::size_t>(m_width) * static_cast<std::size_t>(m_height) * 4u);
 }
 
 Color Bitmap::pixel(int x, int y) const
@@ -154,6 +163,35 @@ void Bitmap::fill_rect(Rect rect, Color color)
                 set_pixel(x, y, color);
             else
                 blend_pixel(x, y, color);
+        }
+    }
+}
+
+void Bitmap::punch(Rect rect)
+{
+    if (rect.is_empty())
+        return;
+    int x0 = std::max(rect.x, 0);
+    int y0 = std::max(rect.y, 0);
+    int x1 = std::min(rect.right(), m_width);
+    int y1 = std::min(rect.bottom(), m_height);
+    if (m_clip) {
+        x0 = std::max(x0, m_clip->x);
+        y0 = std::max(y0, m_clip->y);
+        x1 = std::min(x1, m_clip->right());
+        y1 = std::min(y1, m_clip->bottom());
+    }
+    for (int y = y0; y < y1; ++y) {
+        for (int x = x0; x < x1; ++x) {
+            unsigned const coverage = m_round_clips.empty() ? 255u : round_clip_coverage(x, y);
+            if (coverage == 0)
+                continue;
+            if (coverage == 255) {
+                write_raw(x, y, Color::rgba(0, 0, 0, 0));
+                continue;
+            }
+            std::size_t const at = offset_of(x, y) + 3u;
+            m_pixels[at] = static_cast<std::uint8_t>((static_cast<unsigned>(m_pixels[at]) * (255u - coverage) + 127u) / 255u);
         }
     }
 }
@@ -394,9 +432,33 @@ void Bitmap::draw(Bitmap const& source, int x, int y)
         x1 = std::min(x1, m_clip->right());
         y1 = std::min(y1, m_clip->bottom());
     }
+    if (x1 <= x0 || y1 <= y0)
+        return;
+    if (!m_round_clips.empty()) {
+        for (int row = y0; row < y1; ++row) {
+            for (int column = x0; column < x1; ++column)
+                blend_pixel(column, row, source.pixel(column - x, row - y));
+        }
+        return;
+    }
+    // No curve to fade by: a row at a time, a pixel that is transparent
+    // passed over, one that is opaque stored, and only the rest blended —
+    // the bytes the pixel-by-pixel way writes, reached without its tests.
     for (int row = y0; row < y1; ++row) {
-        for (int column = x0; column < x1; ++column)
-            blend_pixel(column, row, source.pixel(column - x, row - y));
+        std::uint8_t const* from = source.m_pixels.data() + source.offset_of(x0 - x, row - y);
+        std::uint8_t* to = m_pixels.data() + offset_of(x0, row);
+        for (int column = x0; column < x1; ++column, from += 4, to += 4) {
+            if (from[3] == 0)
+                continue;
+            if (from[3] == 255) {
+                to[0] = from[0];
+                to[1] = from[1];
+                to[2] = from[2];
+                to[3] = 255;
+                continue;
+            }
+            blend_raw(column, row, Color::rgba(from[0], from[1], from[2], from[3]));
+        }
     }
 }
 
@@ -426,6 +488,28 @@ void Bitmap::blend_over(Bitmap const& source, int x, int y, float alpha)
             Color const over = source.pixel(column - x, row - y);
             if (under.r == over.r && under.g == over.g && under.b == over.b && under.a == over.a)
                 continue; // the group never touched this pixel
+            if (over.a != 255 && under.a == 255) {
+                // Less there than the backdrop it began as: the group has
+                // an opening in it (punch), with or without something laid
+                // over that. Colour counts by how much of it there is, so
+                // the move is made on colour times alpha — the backdrop
+                // keeps its own colour and loses only its share.
+                unsigned const w = static_cast<unsigned>(weight);
+                unsigned const alpha_scaled = 255u * (255u - w) + static_cast<unsigned>(over.a) * w;
+                if (alpha_scaled == 0) {
+                    write_raw(column, row, Color::rgba(0, 0, 0, 0));
+                    continue;
+                }
+                auto const moved = [&](std::uint8_t from, std::uint8_t to) {
+                    unsigned const scaled = static_cast<unsigned>(from) * 255u * (255u - w)
+                        + static_cast<unsigned>(to) * static_cast<unsigned>(over.a) * w;
+                    return static_cast<std::uint8_t>(std::min(255u, (scaled + alpha_scaled / 2u) / alpha_scaled));
+                };
+                write_raw(column, row,
+                    Color { moved(under.r, over.r), moved(under.g, over.g), moved(under.b, over.b),
+                        static_cast<std::uint8_t>((alpha_scaled + 127u) / 255u) });
+                continue;
+            }
             write_raw(column, row,
                 Color { towards(under.r, over.r), towards(under.g, over.g),
                     towards(under.b, over.b), towards(under.a, over.a) });

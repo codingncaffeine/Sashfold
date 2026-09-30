@@ -73,7 +73,7 @@ protected:
 
 // A device that plays nothing and hears on a clock the caller gives: what
 // was written counts as heard as that clock passes, at the format's rate,
-// two seconds of it held at most, as the real one does. What a headless run
+// two seconds of it held at most (the real one holds five). What a headless run
 // and the tests play through, so the whole path from the page to the
 // speakers runs, silently and in the page's own time. The clock is in
 // milliseconds; `tap`, when given, sees every sample taken, for a test to

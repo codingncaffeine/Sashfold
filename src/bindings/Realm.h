@@ -43,6 +43,10 @@ namespace sashfold::idb {
 class Storage; // storage/IndexedDb.h
 }
 
+namespace sashfold::media {
+class VideoPipeline; // media/VideoPipeline.h
+}
+
 namespace sashfold::bindings {
 
 class WorkerThreads; // Workers.h
@@ -61,11 +65,17 @@ struct LayoutBox {
 // to frame while the video's size holds and is written again in place:
 // `shape` moves with a new bitmap (a new size, so lay out again), `frames`
 // with every frame written (paint again).
+//
+// Where the host shows video itself (HostHooks::video_layers) `layer` is
+// where the pictures come from, by their own clock: the bitmap then says
+// only how large the picture is, the page's painting leaves its place
+// open, and a new frame is nothing for the page to paint.
 struct VideoFrame {
     dom::Element const* element = nullptr;
     std::shared_ptr<Bitmap const> bitmap;
     std::uint64_t shape = 0;
     std::uint64_t frames = 0;
+    std::shared_ptr<media::VideoPipeline> layer = nullptr;
 };
 
 // A web storage area: the items in insertion order (key(n) counts on
@@ -260,6 +270,20 @@ struct HostHooks {
     // (platform::AudioDevice::open); a headless run and the tests give a
     // device that hears on the page's own clock, which plays nothing.
     std::function<std::unique_ptr<platform::AudioDevice>(platform::AudioFormat const&, std::string& error)> open_audio;
+
+    // What makes a media element's video into pictures. Unset, the machine's
+    // own video hardware (media::VideoPipeline::open); a test gives a
+    // pipeline over a decoder of its own, so that what becomes of the
+    // pictures is tested on a machine that has no such hardware too.
+    std::function<std::shared_ptr<media::VideoPipeline>(std::string& error)> open_video;
+
+    // The host shows a video's pictures itself, from the pipeline that
+    // makes them and at the moment each comes due (VideoFrame::layer), as a
+    // browser's compositor does: playback is then as smooth as the display
+    // however long the page's scripts keep its thread. Unset, the element
+    // takes each picture at its own tick and the page paints it — what a
+    // headless run wants, where the page's clock is the only clock.
+    bool video_layers = false;
 
     // A line for each step of the event loop and the frames worth seeing — a
     // timer set or fired, a task run, a frame opened, closed or navigated, a

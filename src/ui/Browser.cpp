@@ -23,6 +23,7 @@
 #include "text/Face.h"
 #include "text/FontManager.h"
 #include "text/SashfoldMono.h"
+#include "ui/PageCompositor.h"
 #include "ui/PageImages.h"
 #include "ui/Cosmetic.h"
 #include "ui/BookmarkSources.h"
@@ -604,6 +605,13 @@ struct Browser::Impl {
         // the last whole paint put each picture in the content area.
         std::unordered_map<dom::Element const*, std::pair<std::uint64_t, std::uint64_t>> videos_seen;
         std::vector<paint::PaintedPicture> painted_pictures;
+        // The videos whose pictures this page does not paint: a compositor
+        // shows them, from the pipeline that makes them, through the place
+        // the painting leaves open for each (ui/PageCompositor.h). By the
+        // bitmap the layout holds for the video; and the same bitmaps as
+        // the painter is given them.
+        std::unordered_map<Bitmap const*, std::shared_ptr<media::VideoPipeline>> video_pipelines;
+        std::vector<Bitmap const*> shown_apart;
         layout::BackgroundImages backgrounds; // the pictures its styles name as backgrounds
         DrawnFrames frames; // its frames' pictures as last drawn, by element
         layout::ControlStates controls; // what the user typed and toggled in the page's forms
@@ -778,7 +786,12 @@ struct Browser::Impl {
         Impl& page() { return *browser->m_impl; }
         // The page as it was last painted, and how many times it has been:
         // whole, and at all (a video's new picture paints only the video).
+        // Where the page's videos are shown by a compositor, the painting
+        // has their places open and `patches` is what goes on it there:
+        // the two are said together, and counted as a picture each time
+        // either is new.
         std::shared_ptr<Bitmap const> picture;
+        std::shared_ptr<PicturePatches const> patches;
         std::uint64_t pictures = 0;
         std::uint64_t whole_pictures = 0;
         // What the shell that keeps the chrome has taken of those, and what
@@ -836,6 +849,8 @@ struct Browser::Impl {
         std::string theme_gallery_api;
         std::size_t js_heap_limit = 0;
         bindings::WorkerThreads* worker_threads = nullptr;
+        bool video_layers = true;
+        std::function<std::shared_ptr<media::VideoPipeline>(std::string& error)> video_opener;
         std::vector<Browser::Container> containers;
         std::vector<Browser::ThemePreset> theme_presets;
         std::string bookmark_backups_directory;
@@ -853,6 +868,11 @@ struct Browser::Impl {
     // The pages' engines each have a thread of their own: this shell's
     // caller — the window's thread — hands them jobs and never waits.
     bool page_threads = false;
+    // A page on a thread of its own has its videos shown by a compositor on
+    // another (ui/PageCompositor.h); and what makes a video into pictures,
+    // where a test gives a decoder of its own.
+    bool video_layers = true;
+    std::function<std::shared_ptr<media::VideoPipeline>(std::string& error)> video_opener;
     // How an engine's thread says the shell has something to hear.
     std::function<void()> wake_window;
     std::shared_ptr<PageWakes> page_wakes = std::make_shared<PageWakes>();
@@ -883,6 +903,7 @@ struct Browser::Impl {
     // The picture of the page in front that the frame is painted with: the
     // one last taken from its engine, and whose engine that was.
     std::shared_ptr<Bitmap const> shown_picture;
+    std::shared_ptr<PicturePatches const> shown_patches; // what its compositor puts on it: its videos
     Engine const* picture_of = nullptr;
     // The engine whose page asked for the theme being put on, which has it
     // on already: not told again.
@@ -1310,6 +1331,7 @@ struct Browser::Impl {
                 // it stands, which is none until it has painted once.
                 picture_of = engine;
                 shown_picture = engine->picture;
+                shown_patches = engine->patches;
                 engine->pictures_taken = engine->pictures;
                 engine->whole_pictures_taken = engine->whole_pictures;
                 return;
@@ -1321,6 +1343,7 @@ struct Browser::Impl {
                 engine->pictures_taken = engine->pictures;
                 engine->whole_pictures_taken = engine->whole_pictures;
                 shown_picture = engine->picture;
+                shown_patches = engine->patches;
             }
             return;
         }
@@ -1533,6 +1556,8 @@ struct Browser::Impl {
             page.theme_gallery_api = setup->theme_gallery_api;
             page.js_heap_limit = setup->js_heap_limit;
             page.worker_threads = setup->worker_threads;
+            page.video_layers = setup->video_layers;
+            page.video_opener = setup->video_opener;
             page.containers = setup->containers;
             page.theme_presets = setup->theme_presets;
             page.bookmark_backups_directory = setup->bookmark_backups_directory;
@@ -1552,6 +1577,10 @@ struct Browser::Impl {
         steady::time_point painted_at {};
         std::optional<steady::time_point> wake_at = steady::now();
         std::string said_before;
+        // Made when the page first has a video to show; `composing` while
+        // the picture last handed to it had one.
+        std::unique_ptr<PageCompositor> compositor;
+        bool composing = false;
         for (;;) {
             std::deque<std::function<void(Browser&)>> batch;
             Rect rect;
@@ -1575,7 +1604,9 @@ struct Browser::Impl {
                 self->told_bookmarks.reset();
             }
             std::shared_ptr<Bitmap const> picture;
+            std::vector<VideoLayer> layers;
             bool whole = false;
+            bool hidden = false;
             Said said;
             std::string said_now;
             {
@@ -1596,10 +1627,26 @@ struct Browser::Impl {
                     std::uint64_t const video_paints = page.profile.video_paints;
                     Bitmap const& painted = self->browser->frame();
                     whole = page.profile.paints != paints;
-                    if (whole || page.profile.video_paints != video_paints)
+                    if (whole || page.profile.video_paints != video_paints) {
                         picture = std::make_shared<Bitmap const>(painted);
+                        // Where the painting left a video's place open, and
+                        // whose pictures go there.
+                        Tab const& its = page.tabs.front();
+                        if (!its.video_pipelines.empty()) {
+                            ChromeLayout const c = page.layout_chrome();
+                            for (paint::PaintedPicture const& placed : its.painted_pictures) {
+                                auto const layer = its.video_pipelines.find(placed.bitmap);
+                                if (layer == its.video_pipelines.end())
+                                    continue;
+                                layers.push_back({ Rect { c.content.x + placed.rect.x, c.content.y + placed.rect.y, placed.rect.width, placed.rect.height },
+                                    Rect { c.content.x + placed.drawn.x, c.content.y + placed.drawn.y, placed.drawn.width, placed.drawn.height },
+                                    layer->second });
+                            }
+                        }
+                    }
                     painted_at = steady::now();
                 }
+                hidden = !page.page_shown;
                 said = page.say();
                 said.cursor = self->browser->cursor();
                 said.text_input_area = page.page_shown ? self->browser->text_input_area() : std::nullopt;
@@ -1629,6 +1676,36 @@ struct Browser::Impl {
                     }
                 }
             }
+            // A page with a video in it is said by its compositor, which
+            // puts the video's pictures on it as they come due — now, and
+            // for as long as this thread is kept by the turn after this.
+            // Once there is a compositor every picture goes through it, so
+            // that they are said in the order they were painted. A page
+            // that is not shown has nothing put on it.
+            if (picture && (compositor || !layers.empty())) {
+                if (!compositor) {
+                    compositor = std::make_unique<PageCompositor>(
+                        [engine = self.get()](std::shared_ptr<Bitmap const> page, std::shared_ptr<PicturePatches const> patches,
+                            bool page_is_new, bool painted_whole) {
+                            {
+                                std::lock_guard<std::mutex> const lock(engine->mutex);
+                                engine->picture = std::move(page);
+                                engine->patches = std::move(patches);
+                                ++engine->pictures;
+                                if (page_is_new && painted_whole)
+                                    ++engine->whole_pictures;
+                            }
+                            if (engine->wake_shell)
+                                engine->wake_shell();
+                        });
+                }
+                composing = !layers.empty();
+                compositor->submit(std::move(picture), std::move(layers), whole);
+                picture = nullptr;
+            } else if (hidden && composing) {
+                compositor->submit(nullptr, {}, false);
+                composing = false;
+            }
             // Said when it is news: another picture, something asked of the
             // shell, or words that differ from the last said.
             bool const news = picture || !said.requests.empty() || said.bookmarks
@@ -1650,6 +1727,7 @@ struct Browser::Impl {
                 self->said_new = true;
                 if (picture) {
                     self->picture = std::move(picture);
+                    self->patches = nullptr;
                     ++self->pictures;
                     if (whole)
                         ++self->whole_pictures;
@@ -1658,6 +1736,7 @@ struct Browser::Impl {
             if (self->wake_shell)
                 self->wake_shell();
         }
+        compositor.reset(); // its thread ends before the page whose pictures it shows
         // The page ends where it lived. A tab that was closed leaves its
         // history, with its pages, for whoever asks it back.
         {
@@ -1894,6 +1973,7 @@ struct Browser::Impl {
         if (tab.engine.get() == picture_of || &tab == active_tab()) {
             picture_of = nullptr;
             shown_picture.reset();
+            shown_patches.reset();
         }
         tab.engine.reset();
     }
@@ -3384,15 +3464,26 @@ struct Browser::Impl {
             return;
         bool lay_out = false;
         std::unordered_map<dom::Element const*, std::pair<std::uint64_t, std::uint64_t>> seen;
+        std::unordered_map<Bitmap const*, std::shared_ptr<media::VideoPipeline>> layers;
         for (bindings::VideoFrame const& video : pictures) {
             auto const before = tab.videos_seen.find(video.element);
             if (before == tab.videos_seen.end() || before->second.first != video.shape || !tab.images.contains(video.element)) {
                 tab.images[video.element] = layout::PageImage { video.bitmap, 1 };
                 lay_out = true;
-            } else if (before->second.second != video.frames) {
-                video_dirty = true;
+            } else if (before->second.second != video.frames && !video.layer) {
+                video_dirty = true; // (a picture a compositor shows is nothing for the page to paint)
             }
+            if (video.layer)
+                layers[video.bitmap.get()] = video.layer;
             seen[video.element] = { video.shape, video.frames };
+        }
+        if (layers != tab.video_pipelines) {
+            // Another set of places to leave open: painted again, whole.
+            tab.video_pipelines = std::move(layers);
+            tab.shown_apart.clear();
+            for (auto const& [bitmap, pipeline] : tab.video_pipelines)
+                tab.shown_apart.push_back(bitmap);
+            dirty = true;
         }
         for (auto const& [element, last] : tab.videos_seen) {
             if (!seen.contains(element)) {
@@ -3833,6 +3924,11 @@ struct Browser::Impl {
                 || std::chrono::steady_clock::now() - script_started > std::chrono::seconds(10);
         };
         hooks.js_heap_limit = js_heap_limit;
+        // A page on a thread of its own has its videos shown by a compositor
+        // on another (ui/PageCompositor.h): their pictures do not wait for
+        // the page's scripts.
+        hooks.video_layers = engine_self != nullptr && engine_self->threaded && video_layers;
+        hooks.open_video = video_opener;
         // A page over its heap's ceiling: the reader is told where the
         // shell says things, and the words stay until something else is said.
         hooks.out_of_memory = [this, document] {
@@ -9812,7 +9908,7 @@ struct Browser::Impl {
                 continue;
             Bitmap part(picture.rect.width, picture.rect.height, theme.content_background);
             paint::paint_page(part, tab->layout, -static_cast<float>(picture.rect.x),
-                -static_cast<float>(tab->scroll_y + picture.rect.y), &tab->backgrounds, &tab->scrolls);
+                -static_cast<float>(tab->scroll_y + picture.rect.y), &tab->backgrounds, &tab->scrolls, nullptr, &tab->shown_apart);
             frame.blit(part, c.content.x + picture.rect.x, c.content.y + picture.rect.y);
         }
     }
@@ -10170,12 +10266,14 @@ struct Browser::Impl {
             if (tab && tab->engine && shown_picture && !c.content.is_empty()) {
                 frame.set_clip(c.content);
                 frame.blit(*shown_picture, c.content.x, c.content.y);
+                if (shown_patches)
+                    put_patches(frame, *shown_patches, c.content.x, c.content.y);
                 frame.set_clip(std::nullopt);
             }
         } else if (tab && tab->document && !c.content.is_empty()) {
             Bitmap content(c.content.width, c.content.height, t.content_background);
             paint::paint_page(content, tab->layout, 0, -static_cast<float>(tab->scroll_y),
-                &tab->backgrounds, &tab->scrolls, &active_tab()->painted_pictures);
+                &tab->backgrounds, &tab->scrolls, &active_tab()->painted_pictures, &tab->shown_apart);
             // The find bar's matches, the current one stronger; then the
             // selection over them, all as translucent bands.
             if (find_open) {
@@ -10526,6 +10624,8 @@ std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab
         setup->theme_gallery_api = theme_gallery_api;
         setup->js_heap_limit = js_heap_limit;
         setup->worker_threads = worker_threads;
+        setup->video_layers = video_layers;
+        setup->video_opener = video_opener;
         setup->containers = containers;
         setup->theme_presets = theme_presets;
         setup->bookmark_backups_directory = bookmark_backups_directory;
@@ -10558,6 +10658,8 @@ std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab
     page.theme_gallery_api = theme_gallery_api;
     page.js_heap_limit = js_heap_limit;
     page.worker_threads = worker_threads;
+    page.video_layers = video_layers;
+    page.video_opener = video_opener;
     page.containers = containers;
     page.theme_presets = theme_presets;
     page.bookmark_backups_directory = bookmark_backups_directory;
@@ -10606,6 +10708,13 @@ void Browser::set_page_threads(std::function<void()> wake)
 {
     m_impl->page_threads = true;
     m_impl->wake_window = std::move(wake);
+}
+
+void Browser::set_video_layers(bool apart) { m_impl->video_layers = apart; }
+
+void Browser::set_video_opener(std::function<std::shared_ptr<media::VideoPipeline>(std::string& error)> opener)
+{
+    m_impl->video_opener = std::move(opener);
 }
 
 bool Browser::page_threads() const { return m_impl->page_threads; }

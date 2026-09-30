@@ -1,4 +1,5 @@
 #include "JsTest.h"
+#include "TestDecoder.h"
 #include "WebmBuilder.h"
 
 #include "bindings/LayoutOracle.h"
@@ -9,6 +10,7 @@
 #include "dom/Dom.h"
 #include "html/Serializer.h"
 #include "html/TreeBuilder.h"
+#include "media/VideoPipeline.h"
 #include "media/Vp9Accelerator.h"
 
 #include <algorithm>
@@ -21,8 +23,10 @@
 #include <cstdlib>
 #include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 // The DOM bindings, the event model and the event loop, driven from the
@@ -4423,6 +4427,175 @@ void test_media_source_shows_its_video()
     CHECK_EQ(page->realm->stats().uncaught_errors, 0);
 }
 
+// A video whose pictures the host shows itself (HostHooks::video_layers):
+// the element hands the host the pipeline the pictures come from, and the
+// pictures keep coming due by the element's clock while the page does
+// nothing at all — its thread kept, as a heavy page's scripts keep it. The
+// page's clock is the machine's here, as it is in a window.
+void test_a_video_the_host_shows()
+{
+    std::filesystem::path const fixture = std::filesystem::path(__FILE__).parent_path() / "fixtures" / "media" / "vp9-144p.webm";
+    std::ifstream in(fixture, std::ios::binary);
+    std::vector<std::uint8_t> const video_stream { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+    CHECK(video_stream.size() > 1000);
+    using steady = std::chrono::steady_clock;
+    char const* const script = R"JS(
+        var v = document.getElementById('v'), ms = new MediaSource();
+        ms.addEventListener('sourceopen', function () {
+            var sb = ms.addSourceBuffer('video/webm; codecs="vp9"');
+            sb.addEventListener('updateend', function () { ms.endOfStream(); }, { once: true });
+            sb.appendBuffer(Uint8Array.from(atob(VI), function (c) { return c.charCodeAt(0); }));
+        }, { once: true });
+        v.src = URL.createObjectURL(ms);
+    )JS";
+    for (bool const layers : { true, false }) {
+        bindings::HostHooks hooks;
+        hooks.video_layers = layers;
+        // (A decoder of the test's own, every picture flat white: the
+        // machine's video hardware is not what is tested here.)
+        hooks.open_video = [](std::string&) { return std::make_shared<media::VideoPipeline>(std::make_unique<test::TestAccelerator>()); };
+        auto page = std::make_unique<Page>("<!DOCTYPE html><body><video id=v></video></body>", "https://example.test/dir/page.html", std::move(hooks));
+        page->load();
+        auto const began = steady::now();
+        double const clock_began = page->clock;
+        // The page's clock follows the machine's, and the page takes a turn.
+        auto const turn = [&] {
+            page->clock = clock_began + std::chrono::duration<double, std::milli>(steady::now() - began).count();
+            for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+        };
+        page->eval("var VI = '" + base64_encode(video_stream) + "';");
+        page->eval(script);
+        turn();
+        CHECK_EQ(page->number("v.readyState"), 4);
+        page->eval("v.play();");
+        auto const played = steady::now();
+        std::vector<bindings::VideoFrame> frames;
+        for (int i = 0; i < 1000 && frames.empty(); ++i) {
+            turn();
+            frames = page->realm->video_frames();
+            if (frames.empty())
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        CHECK_EQ(frames.size(), 1u);
+        if (frames.size() != 1)
+            return;
+        CHECK(frames[0].bitmap && frames[0].bitmap->width() == 32 && frames[0].bitmap->height() == 18);
+        if (!layers) {
+            // The page paints its own video: no layer, the pictures in its bitmap.
+            CHECK(frames[0].layer == nullptr);
+            CHECK(frames[0].bitmap->pixels()[0] == 255);
+            continue;
+        }
+        CHECK(frames[0].layer != nullptr);
+        if (!frames[0].layer)
+            return;
+        CHECK(frames[0].layer->follows());
+        // The page is busy for four tenths of a second: nothing of it runs.
+        // Whoever shows the video asks the pipeline, and gets a new picture
+        // about every thirtieth of a second.
+        std::shared_ptr<media::ShownPicture const> const before = frames[0].layer->show();
+        CHECK(before != nullptr);
+        std::uint64_t serial = before ? before->serial : 0;
+        std::uint64_t const first_serial = serial;
+        int pictures = 0;
+        std::int64_t last_ns = before ? before->time_ns : 0;
+        auto const busy_from = steady::now();
+        while (steady::now() - busy_from < std::chrono::milliseconds(400)) {
+            std::shared_ptr<media::ShownPicture const> const shown = frames[0].layer->show();
+            if (shown && shown->serial != serial) {
+                serial = shown->serial;
+                last_ns = shown->time_ns;
+                ++pictures;
+            }
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        }
+        CHECK(pictures >= 10 && pictures <= 13);
+        // The last of them is the one due when the page comes back: within
+        // a frame or two of the time since playing began.
+        double const since_play = std::chrono::duration<double>(steady::now() - played).count();
+        CHECK(static_cast<double>(last_ns) / 1e9 > since_play - 0.120 && static_cast<double>(last_ns) / 1e9 <= since_play + 0.005);
+        // The page comes back, and its own account agrees: the position is
+        // where the pictures are, and it has counted the pictures shown
+        // while it was away.
+        turn();
+        std::vector<bindings::VideoFrame> const after = page->realm->video_frames();
+        CHECK_EQ(after.size(), 1u);
+        if (after.size() == 1) {
+            CHECK(after[0].bitmap == frames[0].bitmap);
+            CHECK(after[0].frames >= frames[0].frames + static_cast<std::uint64_t>(pictures));
+            CHECK(after[0].frames >= serial - first_serial);
+        }
+        double const position = page->number("v.currentTime");
+        CHECK(position > static_cast<double>(last_ns) / 1e9 - 0.005 && position < static_cast<double>(last_ns) / 1e9 + 0.080);
+        // The element's own bitmap is only the picture's size until
+        // something reads it: a canvas that draws the video gets the
+        // picture as it is shown.
+        page->eval("var c = document.createElement('canvas'); c.width = 32; c.height = 18;"
+                   "var x = c.getContext('2d'); x.drawImage(v, 0, 0); var px = x.getImageData(4, 4, 1, 1).data;");
+        CHECK_EQ(page->string("px[0] + ' ' + px[1] + ' ' + px[2] + ' ' + px[3]"), "255 255 255 255");
+        // Paused, the clock stands, and so do the pictures.
+        page->eval("v.pause();");
+        turn();
+        std::shared_ptr<media::ShownPicture const> const held = frames[0].layer->show();
+        std::this_thread::sleep_for(std::chrono::milliseconds(120));
+        std::shared_ptr<media::ShownPicture const> const still = frames[0].layer->show();
+        CHECK(held && still && held->serial == still->serial);
+        CHECK_EQ(page->realm->stats().uncaught_errors, 0);
+    }
+}
+
+// A rate other than one is not played through the speakers, which play at
+// one rate only: the position then goes by the clock, at that rate — it
+// does not stand where the sound stopped — and the sound takes up again
+// from where that has brought it when the rate is one again.
+void test_a_rate_that_is_not_one_moves_the_position()
+{
+    std::filesystem::path const fixture = std::filesystem::path(__FILE__).parent_path() / "fixtures" / "media" / "tiny-opus-celt.webm";
+    std::ifstream in(fixture, std::ios::binary);
+    std::vector<std::uint8_t> const opus_stream { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+    CHECK(opus_stream.size() > 1000);
+    double* clock = nullptr;
+    bindings::HostHooks hooks;
+    hooks.open_audio = [&clock](platform::AudioFormat const& format, std::string&) {
+        return platform::open_virtual_audio(format, [&clock] { return *clock; });
+    };
+    auto page = std::make_unique<Page>("<!DOCTYPE html><body><audio id=a></audio></body>", "https://example.test/dir/page.html", std::move(hooks));
+    clock = &page->clock;
+    page->load();
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    page->eval("var OI = '" + base64_encode(opus_stream) + "';");
+    page->eval(R"JS(
+        var a = document.getElementById('a'), ms = new MediaSource();
+        ms.addEventListener('sourceopen', function () {
+            var sb = ms.addSourceBuffer('audio/webm; codecs="opus"');
+            sb.addEventListener('updateend', function () { ms.endOfStream(); }, { once: true });
+            sb.appendBuffer(Uint8Array.from(atob(OI), function (c) { return c.charCodeAt(0); }));
+        }, { once: true });
+        a.src = URL.createObjectURL(ms);
+    )JS");
+    pump();
+    page->eval("a.play();");
+    pump();
+    page->clock += 200;
+    pump();
+    CHECK_EQ(page->number("Math.round(a.currentTime * 1000)"), 200);
+    // Twice as fast for a fifth of a second: four tenths further on.
+    page->eval("a.playbackRate = 2;");
+    pump();
+    page->clock += 200;
+    pump();
+    CHECK_EQ(page->number("Math.round(a.currentTime * 1000)"), 600);
+    // At one again: on from there, by what is heard.
+    page->eval("a.playbackRate = 1;");
+    pump();
+    page->clock += 100;
+    pump();
+    CHECK_EQ(page->number("Math.round(a.currentTime * 1000)"), 700);
+    CHECK_EQ(page->realm->stats().uncaught_errors, 0);
+}
+
 // A sound file played by the element itself: fetched, read, and moved
 // through by the clock. No machine running this has a sound server it may
 // open, so what is measured here is the element's own account of playing —
@@ -4879,6 +5052,8 @@ int main()
     test_media_source_rules();
     test_media_source_plays_its_sound();
     test_media_source_shows_its_video();
+    test_a_video_the_host_shows();
+    test_a_rate_that_is_not_one_moves_the_position();
     test_a_sound_file_plays();
     return test::report("test_bindings");
 }

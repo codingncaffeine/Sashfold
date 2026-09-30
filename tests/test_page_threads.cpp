@@ -1,21 +1,32 @@
 #include "Test.h"
+#include "TestDecoder.h"
 
+#include "core/Base64.h"
+#include "media/VideoPipeline.h"
 #include "net/Url.h"
 #include "ui/Browser.h"
 #include "ui/Theme.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
+#include <cstdint>
+#include <filesystem>
+#include <fstream>
 #include <functional>
+#include <iterator>
+#include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // Each tab's page in an engine on a thread of its own: what the window's
 // thread calls — the shell that keeps the chrome — is never held by a page,
-// two pages run at the same time, and what the reader does to a page still
-// reaches it.
+// two pages run at the same time, what the reader does to a page still
+// reaches it, and a page's video plays on while the page is busy.
 
 using namespace sashfold;
 
@@ -39,14 +50,41 @@ net::Url url_of(std::string_view text)
 // How long a busy page's script holds its thread.
 constexpr int busy_ms = 800;
 
+// How long the page that plays a video keeps its thread while it plays.
+constexpr int video_busy_ms = 600;
+
 // A page by its path: /busy spins for busy_ms in a timer and then says
-// done; /click says clicked when it is clicked; /green is a green page.
+// done; /click says clicked when it is clicked; /green is a green page;
+// /video plays the stream it is given through a MediaSource, says playing
+// when it does, and a moment later spins for video_busy_ms before it says
+// done.
 struct Pages final : ui::Loader {
+    std::string video_stream; // base64, for /video
+
     net::FetchResult load(net::Url const& url, std::string const&, bool, std::string_view) override
     {
         std::string html;
         std::string const path = url.serialize_path();
-        if (path.find("busy") != std::string::npos) {
+        if (path.find("video") != std::string::npos) {
+            html = "<title>video</title><body style='margin:0;background:rgb(0,0,160)'>"
+                   "<video id=v style='display:block;width:320px;height:180px'></video><script>"
+                   "var v = document.getElementById('v'), ms = new MediaSource();"
+                   "ms.addEventListener('sourceopen', function () {"
+                   "  var sb = ms.addSourceBuffer('video/webm; codecs=\"vp9\"');"
+                   "  sb.addEventListener('updateend', function () { ms.endOfStream(); }, { once: true });"
+                   "  sb.appendBuffer(Uint8Array.from(atob('"
+                + video_stream
+                + "'), function (c) { return c.charCodeAt(0); }));"
+                  "}, { once: true });"
+                  "v.src = URL.createObjectURL(ms);"
+                  "v.addEventListener('playing', function () {"
+                  "  document.title = 'playing';"
+                  "  setTimeout(function () { var until = Date.now() + "
+                + std::to_string(video_busy_ms)
+                + "; while (Date.now() < until) { } document.title = 'done'; }, 120);"
+                  "}, { once: true });"
+                  "v.play();</script>";
+        } else if (path.find("busy") != std::string::npos) {
             // (A moment after it is shown, so that it is seen waiting first.)
             html = "<title>busy</title><script>setTimeout(function () { var until = Date.now() + " + std::to_string(busy_ms)
                 + "; while (Date.now() < until) { } document.title = 'done'; }, 150);</script>";
@@ -233,6 +271,99 @@ void test_what_the_reader_does_reaches_the_page()
     CHECK_EQ(browser.active_tab(), std::size_t { 0 });
 }
 
+// What the window showed of a video while its page played it and then
+// kept its own thread: how many different pictures reached the frame
+// between the page saying it plays and saying it is done, and the longest
+// the frame went without a new one.
+struct Shown {
+    int pictures = 0;
+    double longest_wait_ms = 0;
+    double took_ms = 0;
+    Color beside; // the page, beside the video
+    bool done = false;
+};
+
+Shown watch_a_video(bool layers)
+{
+    Pages pages;
+    {
+        auto const fixture = std::filesystem::path(__FILE__).parent_path() / "fixtures" / "media" / "vp9-144p.webm";
+        std::ifstream in(fixture, std::ios::binary);
+        std::vector<std::uint8_t> const stream { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+        pages.video_stream = base64_encode(stream);
+    }
+    Loop loop;
+    ui::Browser browser(pages, ui::Theme {}, 800, 600);
+    // A decoder of the test's own: each frame shown is another grey, so
+    // that one picture is seen to give way to the next.
+    browser.set_video_opener([](std::string&) { return std::make_shared<media::VideoPipeline>(std::make_unique<test::TestAccelerator>(true)); });
+    browser.set_video_layers(layers);
+    browser.set_page_threads(loop.waker());
+    browser.set_pages_in_engines(true);
+    browser.open(url_of("https://video.test/video"));
+    Shown shown;
+    if (!loop.until(browser, [&] { return browser.page_title() == "playing"; }))
+        return shown;
+    Rect const page = browser.chrome_layout().content;
+    steady::time_point const from = steady::now();
+    steady::time_point last_at = from;
+    std::optional<Color> last;
+    while (ms_since(from) < 10000) {
+        if (browser.load_ready())
+            browser.tick();
+        browser.run_scripts();
+        if (browser.page_title() == "done") {
+            shown.done = true;
+            break;
+        }
+        if (browser.needs_paint()) {
+            Bitmap const& frame = browser.frame();
+            Color const at = frame.pixel(page.x + 160, page.y + 90); // the middle of the video
+            shown.beside = frame.pixel(page.x + 500, page.y + 90);
+            if (!last || !(at == *last)) {
+                if (last) {
+                    ++shown.pictures;
+                    shown.longest_wait_ms = std::max(shown.longest_wait_ms, ms_since(last_at));
+                }
+                last = at;
+                last_at = steady::now();
+            }
+        }
+        std::unique_lock<std::mutex> lock(loop.mutex);
+        loop.woken.wait_for(lock, std::chrono::milliseconds(2), [&loop] { return loop.wake; });
+        loop.wake = false;
+    }
+    shown.longest_wait_ms = std::max(shown.longest_wait_ms, ms_since(last_at));
+    shown.took_ms = ms_since(from);
+    return shown;
+}
+
+// A video's pictures do not wait for the page's thread: while the page
+// spins for six tenths of a second the window goes on showing a new picture
+// every thirtieth — put on the page by the compositor, which is no thread
+// of the page's nor the window's. The control is the same page with its
+// video left to its own painting: there the pictures stop for as long as
+// the page spins, which is what a reader saw as a stutter.
+void test_a_video_plays_on_while_its_page_is_busy()
+{
+    Shown const apart = watch_a_video(true);
+    CHECK(apart.done);
+    CHECK(apart.took_ms >= video_busy_ms);
+    // About twenty pictures come due in the seven tenths of a second; a
+    // machine busy with other tests may miss a few, not most.
+    CHECK(apart.pictures >= 14);
+    CHECK(apart.longest_wait_ms < 200);
+    // Beside the video the page is its own blue, and no hole shows.
+    CHECK((apart.beside == Color::rgb(0, 0, 160)));
+
+    Shown const painted = watch_a_video(false);
+    CHECK(painted.done);
+    CHECK(painted.took_ms >= video_busy_ms);
+    CHECK(painted.pictures <= 8);
+    CHECK(painted.longest_wait_ms >= video_busy_ms - 50);
+    CHECK((painted.beside == Color::rgb(0, 0, 160)));
+}
+
 } // namespace
 
 int main()
@@ -241,5 +372,6 @@ int main()
     test_the_shell_is_not_held_by_a_busy_page();
     test_two_pages_run_at_the_same_time();
     test_what_the_reader_does_reaches_the_page();
+    test_a_video_plays_on_while_its_page_is_busy();
     return sashfold::test::report("page_threads");
 }

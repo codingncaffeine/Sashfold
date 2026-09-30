@@ -1986,7 +1986,13 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     if (engines != Engines::Off) {
         // Each tab's page in an engine on a thread of its own: this thread
         // keeps the chrome, hands the pages what the reader does, and is
-        // woken when one of them has something to show or to say.
+        // woken when one of them has something to show or to say. A page's
+        // videos are shown by a compositor on a third thread, so that their
+        // pictures do not wait for the page's scripts;
+        // SASHFOLD_VIDEO_LAYERS=0 leaves them to the page's own painting,
+        // to compare the two.
+        if (char const* const asked = std::getenv("SASHFOLD_VIDEO_LAYERS"); asked && *asked == '0')
+            browser.set_video_layers(false);
         browser.set_page_threads([waker] { waker->wake(); });
         browser.set_pages_in_engines(true);
     }

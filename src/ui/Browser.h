@@ -33,6 +33,10 @@ namespace sashfold::bindings {
 class WorkerThreads;
 }
 
+namespace sashfold::media {
+class VideoPipeline; // media/VideoPipeline.h
+}
+
 namespace sashfold::ui {
 
 // Where documents come from: the shell's loader goes through the fetch
@@ -353,6 +357,15 @@ public:
     // before set_pages_in_engines.
     void set_page_threads(std::function<void()> wake);
     bool page_threads() const;
+    // Whether a page that has a thread of its own has its videos shown by a
+    // compositor apart from the page's painting (ui/PageCompositor.h), so
+    // that their pictures do not wait for the page's scripts: on, unless
+    // turned off here — to compare the two. Said before set_pages_in_engines.
+    void set_video_layers(bool apart);
+    // What makes a page's video into pictures, in place of the machine's
+    // video hardware: for a test, which gives a decoder of its own. Said
+    // before set_pages_in_engines.
+    void set_video_opener(std::function<std::shared_ptr<media::VideoPipeline>(std::string& error)> opener);
     // Wakes every engine's thread, from any thread and for as long as
     // whoever holds it likes: what a fetch that has its answer calls, and a
     // worker with a word for its page.

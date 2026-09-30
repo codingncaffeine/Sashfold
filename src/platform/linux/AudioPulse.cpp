@@ -1,10 +1,17 @@
 #include "platform/Audio.h"
 #include "platform/PulseProtocol.h"
+#include "platform/SoundClock.h"
+
+#include "core/TraceClock.h"
 
 #include <algorithm>
 #include <atomic>
 #include <cerrno>
+#include <chrono>
+#include <cmath>
+#include <cstdio>
 #include <cstdlib>
+#include <deque>
 #include <cstring>
 #include <mutex>
 #include <optional>
@@ -41,8 +48,17 @@ namespace {
 
 using namespace pulse;
 
-constexpr std::size_t ring_seconds_max = 2; // what the ring holds before a decoder must wait
-constexpr double latency_query_ms = 100;
+// What the ring holds before a decoder must wait. A page that plays sound
+// decodes it on its own thread, which its scripts keep for seconds at a
+// time while a heavy page starts: what is in the ring is what is heard
+// meanwhile. (A seek or a pause does not wait for it: the ring is emptied
+// at once, and the server holds a fifth of a second.)
+constexpr std::size_t ring_seconds_max = 5;
+// How often the server is asked where the stream has played to, in turn:
+// intervals that share no measure with the blocks a sound device takes
+// (multiples of a 375th of a second at 48 kHz), so that the answers fall
+// all over a block and some of them just after its step (SoundClock.h).
+constexpr int latency_query_ms[] = { 17, 23, 29, 37, 41 };
 // How much sound the server is asked to hold. Left to itself it will take
 // everything offered — seconds of it — and a seek would then wait for all
 // of it to drain; the shipping browsers keep a fifth of a second there and
@@ -135,7 +151,7 @@ public:
             std::size_t const room = m_ring_frames - m_held_frames - 1;
             std::size_t const frames = std::min(interleaved.size() / channels, room);
             for (std::size_t i = 0; i < frames * channels; ++i) {
-                m_ring[(m_write_at + i) % m_ring.size()] = interleaved[i];
+                m_ring[(m_write_at + i) % m_ring.size()] = m_silent ? 0.0f : interleaved[i];
             }
             m_write_at = (m_write_at + frames * channels) % m_ring.size();
             m_held_frames += frames;
@@ -157,13 +173,24 @@ public:
         std::lock_guard<std::mutex> const guard(m_lock);
         // What the ring still holds was never handed over, so it is not in
         // these numbers: they are the stream as the server knows it.
-        return m_clock;
+        AudioClock said = m_clock;
+        if (said.valid) {
+            // Where the stream has played to by now, the time since the
+            // server's last answer counted in (SoundClock.h): never back,
+            // and never past what the server was given — a stream that ran
+            // dry stands at its end — unless the server itself says so.
+            double const at_most = std::max(said.written_seconds, m_clock.played_seconds);
+            m_last_said = std::max(m_last_said, std::min(m_played.played_by(std::chrono::steady_clock::now()), at_most));
+            said.played_seconds = m_last_said;
+        }
+        return said;
     }
 
     void set_paused(bool paused) override
     {
         std::lock_guard<std::mutex> const guard(m_lock);
         if (m_paused_wanted != paused) {
+            m_played.set_paused(paused, std::chrono::steady_clock::now());
             m_paused_wanted = paused;
             m_paused_pending = true;
         }
@@ -190,6 +217,8 @@ public:
         m_flush_pending = true;
         m_clock = {};
         m_written_frames = 0;
+        m_played.reset();
+        m_last_said = 0;
         wake();
     }
 
@@ -528,8 +557,18 @@ private:
             double const played = static_cast<double>(static_cast<std::int64_t>(*read_index)) / per_second;
             double const written = static_cast<double>(static_cast<std::int64_t>(*write_index)) / per_second;
             std::lock_guard<std::mutex> const guard(m_lock);
-            m_clock.played_seconds = std::max(0.0, played - static_cast<double>(*sink_latency) / 1e6);
-            m_clock.latency_seconds = std::max(0.0, written - m_clock.played_seconds);
+            double const heard = std::max(0.0, played - static_cast<double>(*sink_latency) / 1e6);
+            auto const now = std::chrono::steady_clock::now();
+            if (m_trace) {
+                char line[240];
+                std::snprintf(line, sizeof line, "audio: %sthe server says heard %.4f s (read to %.4f, %.1f ms in its sink), the clock had %.4f (%+.1f ms), %s\n",
+                    trace_stamp().c_str(), heard, played, static_cast<double>(*sink_latency) / 1e3, m_played.played_by(now),
+                    (heard - m_played.played_by(now)) * 1e3, m_played.running() ? "running" : "standing");
+                std::fputs(line, stderr);
+            }
+            m_played.take_answer(heard, now);
+            m_clock.played_seconds = heard;
+            m_clock.latency_seconds = std::max(0.0, written - heard);
             m_clock.valid = true;
             break;
         }
@@ -545,7 +584,8 @@ private:
     {
         if (!connect_socket() || !handshake())
             return;
-        double since_latency = 0;
+        auto next_query = std::chrono::steady_clock::now();
+        std::size_t queries = 0;
         while (!m_stop.load() && !m_failed.load()) {
             bool paused = false;
             bool volume = false;
@@ -579,15 +619,18 @@ private:
             feed();
             if (!flush_outgoing())
                 break;
-            if (since_latency >= latency_query_ms) {
-                since_latency = 0;
+            auto const now = std::chrono::steady_clock::now();
+            if (now >= next_query) {
+                next_query = now + std::chrono::milliseconds(latency_query_ms[queries++ % std::size(latency_query_ms)]);
                 ask_for_latency();
                 if (!flush_outgoing())
                     break;
             }
-            if (!receive_more(20))
+            // Until the server says something, there is something for it,
+            // or the next asking is due.
+            auto const until_query = std::chrono::duration_cast<std::chrono::milliseconds>(next_query - now).count();
+            if (!receive_more(static_cast<int>(std::clamp<long long>(until_query + 1, 1, 20))))
                 break;
-            since_latency += 20;
             while (std::optional<Packet> const packet = next_packet())
                 handle(*packet);
         }
@@ -600,6 +643,13 @@ private:
     std::string m_name;
     std::size_t m_frame_bytes;
     std::size_t m_ring_frames;
+    // SASHFOLD_MEDIA_SILENT=1: the stream is opened, timed and fed as any
+    // other, and every sample handed to the server is silence — the real
+    // device and its clock under a test that nobody is to hear.
+    bool const m_silent = !environment("SASHFOLD_MEDIA_SILENT").empty() && environment("SASHFOLD_MEDIA_SILENT") != "0";
+    // SASHFOLD_AUDIO_TRACE=1: a line on stderr for each answer the server
+    // gives about where the stream has played to, beside what the clock had.
+    bool const m_trace = environment("SASHFOLD_AUDIO_TRACE") == "1";
 
     mutable std::mutex m_lock;
     std::vector<float> m_ring;
@@ -609,6 +659,10 @@ private:
     std::size_t m_credit_bytes = 0;
     std::uint64_t m_written_frames = 0;
     AudioClock m_clock;
+    // Where the stream has played to between the server's answers, and the
+    // last reading given out.
+    SoundClock m_played;
+    mutable double m_last_said = 0;
     std::uint32_t m_volume = volume_normal;
     bool m_volume_pending = false;
     bool m_paused_wanted = false;

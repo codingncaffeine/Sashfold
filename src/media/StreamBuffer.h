@@ -17,6 +17,7 @@
 #include <map>
 #include <optional>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace sashfold::media {
@@ -56,6 +57,19 @@ public:
         std::optional<std::int64_t> last_time_ns; // of the frame before, in this run of appends
         std::int64_t last_distance_ns = 0;
         std::int64_t longest_frame_ns = 0;
+        // The times of the earliest and the latest frame taken out or
+        // replaced since whoever reads the frames in order last asked: a
+        // reader that has taken frames in that stretch has taken what the
+        // track no longer holds. Nothing changed while the first is past
+        // the second. (One reader a track; asking does not change what the
+        // track holds.)
+        mutable std::int64_t changed_from_ns = std::numeric_limits<std::int64_t>::max();
+        mutable std::int64_t changed_to_ns = std::numeric_limits<std::int64_t>::min();
+        std::pair<std::int64_t, std::int64_t> take_changed() const
+        {
+            return { std::exchange(changed_from_ns, std::numeric_limits<std::int64_t>::max()),
+                std::exchange(changed_to_ns, std::numeric_limits<std::int64_t>::min()) };
+        }
     };
 
     struct Appended {

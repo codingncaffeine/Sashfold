@@ -39,6 +39,13 @@ struct Context {
     std::optional<Rect> page_clip = std::nullopt;
     // Where the pictures went, for a host that asked (paint_page).
     std::vector<PaintedPicture>* pictures = nullptr;
+    // The videos' pictures the host shows itself: their places are left open.
+    std::vector<Bitmap const*> const* shown_apart = nullptr;
+    // Where this target's corner lies in the one the host gave: a group
+    // painted apart is a part of it, and the pictures are noted in the
+    // host's own coordinates.
+    int origin_x = 0;
+    int origin_y = 0;
 };
 
 int round_px(float value)
@@ -874,15 +881,22 @@ void note_picture(Context const& context, Bitmap const& picture, Rect drawn)
         right = std::min(right, clip->right());
         bottom = std::min(bottom, clip->bottom());
     }
-    if (right > left && bottom > top)
-        context.pictures->push_back({ &picture, Rect { left, top, right - left, bottom - top } });
+    if (right > left && bottom > top) {
+        context.pictures->push_back({ &picture, Rect { left + context.origin_x, top + context.origin_y, right - left, bottom - top },
+            Rect { drawn.x + context.origin_x, drawn.y + context.origin_y, drawn.width, drawn.height } });
+    }
 }
 
 // A picture into its rectangle: a video's frame smoothly, as browsers draw
-// video, anything else with the painter's own filtering.
+// video, anything else with the painter's own filtering. A video's frame
+// that the host shows itself is not drawn: its place is left open.
 void draw_picture(Context& context, Fragment::ImageBox const& box, Rect drawn)
 {
-    if (box.video)
+    bool const apart = box.video && context.shown_apart != nullptr
+        && std::find(context.shown_apart->begin(), context.shown_apart->end(), box.bitmap.get()) != context.shown_apart->end();
+    if (apart)
+        context.target.punch(drawn);
+    else if (box.video)
         context.target.draw_scaled_opaque(*box.bitmap, drawn);
     else
         context.target.draw_scaled(*box.bitmap, drawn);
@@ -1453,6 +1467,10 @@ void paint_stacking_context(Context& context, Fragment const& root, bool is_canv
     Context inside { group, context.dx - static_cast<float>(area.x),
         context.dy - static_cast<float>(area.y), context.backgrounds, context.canvas_owner,
         context.scrolls };
+    inside.pictures = context.pictures;
+    inside.shown_apart = context.shown_apart;
+    inside.origin_x = context.origin_x + area.x;
+    inside.origin_y = context.origin_y + area.y;
     if (std::optional<Rect> const held = context.target.clip()) {
         group.set_clip(Rect { held->x - area.x, held->y - area.y, held->width, held->height });
     }
@@ -1735,7 +1753,8 @@ std::optional<ScrollbarGeometry> horizontal_scrollbar(
 }
 
 void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x, float offset_y,
-    layout::BackgroundImages const* backgrounds, layout::ScrollOffsets const* scrolls, std::vector<PaintedPicture>* pictures)
+    layout::BackgroundImages const* backgrounds, layout::ScrollOffsets const* scrolls, std::vector<PaintedPicture>* pictures,
+    std::vector<Bitmap const*> const* shown_apart)
 {
     target.fill_rect(Rect { 0, 0, target.width(), target.height() }, page.canvas_background);
     if (!page.root.style)
@@ -1745,7 +1764,7 @@ void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x
     // its own box, which is invisible; translucent body backgrounds are the
     // one known double-composite, noted for the reftest era.
     Fragment const* const owner = canvas_background_owner(page);
-    Context context { target, offset_x, offset_y, backgrounds, owner, scrolls, page.device_scale, target.clip(), pictures };
+    Context context { target, offset_x, offset_y, backgrounds, owner, scrolls, page.device_scale, target.clip(), pictures, shown_apart };
     // The canvas takes the whole background of the box that owns it, its
     // pictures included: they cover the surface, sized and placed against
     // the root element's box whichever box they came from.

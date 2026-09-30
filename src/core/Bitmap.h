@@ -95,6 +95,9 @@ struct RoundedRect {
 class Bitmap {
 public:
     Bitmap(int width, int height, Color fill = Color::rgb(255, 255, 255));
+    // A picture made elsewhere, taken as it is: `pixels` is width * height
+    // * 4 bytes (made so when it is not), and nothing is copied.
+    Bitmap(int width, int height, std::vector<std::uint8_t> pixels);
 
     int width() const { return m_width; }
     int height() const { return m_height; }
@@ -117,6 +120,15 @@ public:
     void blend_pixel(int x, int y, Color color);
 
     void fill_rect(Rect rect, Color color);
+
+    // Opens the rectangle to whatever is shown BEHIND this bitmap: a pixel
+    // wholly inside it becomes transparent black, and one a rounded clip
+    // covers in part keeps its colour and that much less of its alpha.
+    // What is painted over the rectangle afterwards composites as onto any
+    // pixel, so it lies over what shows through. It is how a picture
+    // someone else shows — a video's frame, put there by a compositor —
+    // has its place kept in a page's painting.
+    void punch(Rect rect);
 
     // A filled rectangle whose corners are quarter circles of the given
     // radius — integer geometry only, so it is byte-identical everywhere.

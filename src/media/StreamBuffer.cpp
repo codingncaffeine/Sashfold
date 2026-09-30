@@ -33,17 +33,24 @@ double to_seconds(std::int64_t ns)
 using Frames = std::map<std::int64_t, CodedFrame>;
 
 // Takes out [from, to) and, when pictures went, the pictures after them that
-// leaned on them: everything up to the next key frame.
-std::size_t erase_with_dependents(Frames& frames, Frames::iterator from, Frames::iterator to)
+// leaned on them: everything up to the next key frame. The track notes from
+// where it changed, for whoever had read that far.
+std::size_t erase_with_dependents(StreamBuffer::Track& track, Frames::iterator from, Frames::iterator to)
 {
+    Frames& frames = track.frames;
     std::size_t freed = 0;
     bool const any = from != to;
-    for (auto it = from; it != to; ++it)
+    if (any)
+        track.changed_from_ns = std::min(track.changed_from_ns, from->first);
+    for (auto it = from; it != to; ++it) {
         freed += it->second.data.size();
+        track.changed_to_ns = std::max(track.changed_to_ns, it->first);
+    }
     auto next = frames.erase(from, to);
     if (any) {
         while (next != frames.end() && !next->second.key) {
             freed += next->second.data.size();
+            track.changed_to_ns = std::max(track.changed_to_ns, next->first);
             next = frames.erase(next);
         }
     }
@@ -205,14 +212,14 @@ void StreamBuffer::file(Track& track, WebmFrame&& frame)
         if (before != frames.begin()) {
             --before;
             if (before->second.time_ns + before->second.duration_ns > time_ns + 1000)
-                track.bytes -= erase_with_dependents(frames, before, std::next(before));
+                track.bytes -= erase_with_dependents(track, before, std::next(before));
         }
     }
     auto const from = frames.lower_bound(time_ns);
     auto to = from;
     while (to != frames.end() && (to->first < end_ns || to->first == time_ns))
         ++to;
-    track.bytes -= erase_with_dependents(frames, from, to);
+    track.bytes -= erase_with_dependents(track, from, to);
 
     coded.data = std::move(frame.data);
     track.bytes += coded.data.size();
@@ -245,7 +252,7 @@ void StreamBuffer::remove(double start, double end)
             ++to;
         if (track.last_time_ns && *track.last_time_ns >= start_ns && (to == track.frames.end() || *track.last_time_ns < to->first))
             track.last_time_ns.reset();
-        track.bytes -= erase_with_dependents(track.frames, from, to);
+        track.bytes -= erase_with_dependents(track, from, to);
     }
 }
 

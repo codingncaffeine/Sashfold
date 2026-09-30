@@ -23,14 +23,22 @@ namespace sashfold::paint {
 // be.
 // `pictures`, when given, gets where each replaced element's picture went in
 // the target, clipped as it was drawn: what a host that paints one picture
-// again alone — a video's next frame — paints again.
+// again alone — a video's next frame — paints again. `drawn` is the whole
+// rectangle the picture is scaled into, of which `rect` is what shows.
+// `shown_apart` names the videos' pictures that the host shows itself, from
+// a layer under the page's painting: where one would be drawn its place is
+// left open instead (Bitmap::punch) — through the same clips, the rounded
+// ones too — and everything the page paints over it lies over the opening.
+// The target's alpha then says, pixel by pixel, how much of the layer shows.
 struct PaintedPicture {
     Bitmap const* bitmap = nullptr;
     Rect rect;
+    Rect drawn;
 };
 void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x = 0,
     float offset_y = 0, layout::BackgroundImages const* backgrounds = nullptr,
-    layout::ScrollOffsets const* scrolls = nullptr, std::vector<PaintedPicture>* pictures = nullptr);
+    layout::ScrollOffsets const* scrolls = nullptr, std::vector<PaintedPicture>* pictures = nullptr,
+    std::vector<Bitmap const*> const* shown_apart = nullptr);
 
 // The room a scrollbar takes inside a scrollport, in CSS px — one number
 // for both axes, as a desktop engine's default is.

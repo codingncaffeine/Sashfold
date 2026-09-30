@@ -139,6 +139,10 @@ sashfold_test(test_video)
 # They load the GPU drivers, whose own leaks lsan-suppressions.txt names
 # (test_bindings plays a video).
 set_tests_properties(test_vp9 test_video test_bindings PROPERTIES ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt")
+# A video shown apart from its page's painting: the clock, the pipeline that
+# follows it, the place the painting leaves open, and the compositor — by
+# wall-clock bands, with a decoder of the test's own (no hardware needed).
+sashfold_test(test_video_layer)
 add_executable(test_theme_import test_theme_import.cpp)
 target_link_libraries(test_theme_import PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_theme_import COMMAND test_theme_import ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/themes
