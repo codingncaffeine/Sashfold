@@ -1012,8 +1012,14 @@ std::optional<Value> NativeFunction::call(Interpreter& interpreter, Value const&
 {
     if (!m_call)
         return interpreter.throw_type_error("not a function");
-    // A built-in's [[Call]] (§10.3.1): its realm is current while it runs.
-    Interpreter::RealmScope const realm_scope(interpreter, realm());
+    // A built-in's [[Call]] (§10.3.1): its realm is current while it runs —
+    // or, for a host's native called on a host's object, that object's.
+    RealmRecord* running_in = realm();
+    if (m_in_receivers_realm && this_value.is_object()) {
+        if (RealmRecord* const home = this_value.as_object()->home_realm())
+            running_in = home;
+    }
+    Interpreter::RealmScope const realm_scope(interpreter, running_in);
     return m_call(interpreter, this_value, arguments);
 }
 

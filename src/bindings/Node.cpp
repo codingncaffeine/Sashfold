@@ -606,7 +606,7 @@ js::Value attribute_map(Realm::Internals& in, dom::Element& element)
     map->set_prototype(in.prototype("NamedNodeMap"));
     map->host_data = &element;
     for (dom::Attr const& attribute : std::as_const(element).attributes()) {
-        js::Object* attr = interpreter.heap().allocate<PlainPlatformObject>(in.prototype("Attr"));
+        js::Object* attr = interpreter.heap().allocate<PlainPlatformObject>(in.prototype("Attr"), in.realm_record);
         map->push(js::Value::object(attr));
         std::string const name = attribute.qualified_name();
         attr->put(interpreter.key("name"), in.string(name), js::Enumerable);
@@ -767,7 +767,7 @@ void replace_data(Realm::Internals& in, dom::Node& node, std::size_t offset, std
 {
     std::u16string units = data_units(node);
     std::optional<std::string> const before
-        = in.mutation_observers.empty() ? std::nullopt : std::optional<std::string>(js::utf8_from_utf16(units));
+        = in.agent.mutation_observers.empty() ? std::nullopt : std::optional<std::string>(js::utf8_from_utf16(units));
     count = std::min(count, units.size() - offset);
     units.replace(offset, count, data);
     std::string utf8 = js::utf8_from_utf16(units);

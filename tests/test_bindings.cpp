@@ -2023,6 +2023,49 @@ void test_an_iframe_has_the_initial_about_blank_document()
     page.reset();
 }
 
+// A native of an interface works on the object it is called on — WebIDL's
+// relevant realm of `this` — whichever realm's copy of the function was
+// called. A page that takes its natives from a frame of its own, the usual
+// way to have ones no other script has patched, still changes its own
+// history, reads its own document's address and cookies, makes elements of
+// its own document and defines elements in its own registry.
+void test_a_native_of_another_realm_acts_on_its_receiver()
+{
+    auto page = std::make_unique<Page>("<!DOCTYPE html><body><div id=d></div><iframe id=f></iframe>", "https://example.test/dir/page.html");
+    page->load();
+    page->eval("var W = document.getElementById('f').contentWindow;"
+               "function said(f) { try { return String(f()); } catch (e) { return 'threw ' + e.name + ': ' + e.message; } }"
+               "function getter(proto, name) { return Object.getOwnPropertyDescriptor(proto, name).get; }");
+    CHECK(page->boolean("W.History !== History && W.History.prototype.pushState !== History.prototype.pushState"));
+    // The page's history, through the frame's History.prototype.
+    CHECK_EQ(page->string("said(function () { W.History.prototype.replaceState.call(history, { a: 1 }, '', '/dir/page.html?x=1'); return location.search + ' ' + history.state.a; })"), "?x=1 1");
+    CHECK_EQ(page->string("said(function () { var before = history.length; W.History.prototype.pushState.call(history, { b: 2 }, '', '?y=2'); return location.search + ' ' + (history.length - before) + ' ' + history.state.b; })"), "?y=2 1 2");
+    CHECK_EQ(page->string("said(function () { return JSON.stringify(getter(W.History.prototype, 'state').call(history)) + ' ' + JSON.stringify(W.history.state); })"), "{\"b\":2} null");
+    // The frame's own history is its own still.
+    CHECK_EQ(page->string("said(function () { W.history.replaceState({ c: 3 }, ''); return W.history.state.c + ' ' + history.state.b + ' ' + W.location.href; })"), "3 2 about:blank");
+    // The page's document, through the frame's Document.prototype.
+    CHECK_EQ(page->string("said(function () { return getter(W.Document.prototype, 'URL').call(document); })"), "https://example.test/dir/page.html?y=2");
+    CHECK_EQ(page->string("said(function () { var e = W.Document.prototype.createElement.call(document, 'div'); return (e instanceof HTMLDivElement) + ' ' + (e instanceof W.HTMLDivElement) + ' ' + (e.ownerDocument === document); })"), "true false true");
+    CHECK_EQ(page->string("said(function () { document.cookie = 'a=1'; return getter(W.Document.prototype, 'cookie').call(document); })"), "a=1");
+    CHECK_EQ(page->string("said(function () { var all = W.Document.prototype.querySelectorAll.call(document, 'div'); return (all instanceof NodeList) + ' ' + all.length; })"), "true 1");
+    // Its registry of custom elements.
+    CHECK_EQ(page->string("said(function () { W.CustomElementRegistry.prototype.define.call(customElements, 'x-mine', class extends HTMLElement {}); return (customElements.get('x-mine') !== undefined) + ' ' + (W.customElements.get('x-mine') !== undefined); })"), "true false");
+    // An observer made with the frame's MutationObserver hears of the page's
+    // nodes: observers are the agent's, not a realm's (DOM §4.3).
+    page->eval("var heard = []; var watcher = new W.MutationObserver(function (records) { heard.push(records.length + ' ' + records[0].type + ' ' + (records[0].target === document.body)); });"
+               "watcher.observe(document.body, { childList: true }); document.body.appendChild(document.createElement('i'));");
+    CHECK_EQ(page->string("heard.join('|')"), "1 childList true");
+    page->eval("watcher.disconnect(); document.body.appendChild(document.createElement('b'));");
+    CHECK_EQ(page->string("heard.join('|')"), "1 childList true");
+    // An object of the language is nobody's: the frame's Array method makes
+    // a frame's array of the page's one.
+    CHECK(page->boolean("W.Array.prototype.slice.call([1, 2]) instanceof W.Array"));
+    // And a native called on an object of its own realm is as it was.
+    CHECK_EQ(page->string("said(function () { var e = W.document.createElement('p'); return (e instanceof W.HTMLParagraphElement) + ' ' + (e instanceof HTMLParagraphElement); })"), "true false");
+    CHECK_EQ(page->console, "");
+    page.reset();
+}
+
 // A window is reached through its WindowProxy (HTML §7.2.3): `window`,
 // `globalThis`, `this`, a frame's contentWindow, frames by index, parent and
 // top are one object, which follows its frame to the next document and is
@@ -4804,6 +4847,7 @@ int main()
     test_messages_between_windows();
     test_a_frames_document_follows_its_iframe();
     test_an_iframe_has_the_initial_about_blank_document();
+    test_a_native_of_another_realm_acts_on_its_receiver();
     test_a_window_of_another_origin_shows_little();
     test_document_domain_relaxes_the_same_origin_rule();
     test_the_origin_interface();

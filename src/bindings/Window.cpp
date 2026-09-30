@@ -1300,7 +1300,7 @@ void install_window(Realm::Internals& in)
     }
     for (std::string_view const name : { "back", "forward", "go" })
         define_operation(interpreter, *history_proto, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-    global->put(interpreter.key("history"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(history_proto)), js::builtin_attributes);
+    global->put(interpreter.key("history"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(history_proto, in.realm_record)), js::builtin_attributes);
 
     // Navigator.
     js::Object* navigator_proto = define_interface(in, "Navigator", nullptr);
@@ -1347,7 +1347,7 @@ void install_window(Realm::Internals& in)
     define_operation(interpreter, *navigator_proto, "sendBeacon", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
     define_operation(interpreter, *navigator_proto, "vibrate", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
     define_operation(interpreter, *navigator_proto, "registerProtocolHandler", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-    global->put(interpreter.key("navigator"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(navigator_proto)), js::builtin_attributes);
+    global->put(interpreter.key("navigator"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(navigator_proto, in.realm_record)), js::builtin_attributes);
     global->put(interpreter.key("clientInformation"), *global->get(interpreter, interpreter.key("navigator"), js::Value::object(global)), js::builtin_attributes);
 
     // Screen.
@@ -1365,7 +1365,7 @@ void install_window(Realm::Internals& in)
         bool const landscape = internals.hooks.viewport_width >= internals.hooks.viewport_height;
         return js::Value::object(object_with(internals, { { "type", internals.string(landscape ? "landscape-primary" : "portrait-primary") }, { "angle", js::Value::number(0) } }));
     });
-    global->put(interpreter.key("screen"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(screen_proto)), js::builtin_attributes);
+    global->put(interpreter.key("screen"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(screen_proto, in.realm_record)), js::builtin_attributes);
 
     // Storage.
     js::Object* storage_proto = define_interface(in, "Storage", nullptr);
@@ -1443,8 +1443,8 @@ void install_window(Realm::Internals& in)
     }
     // A document sandboxed into an opaque origin has neither: reading one is a
     // SecurityError, as there is no storage key for such an origin.
-    in.local_storage_object = interpreter.heap().allocate<StorageObject>(storage_proto, local_area);
-    in.session_storage_object = interpreter.heap().allocate<StorageObject>(storage_proto);
+    in.local_storage_object = interpreter.heap().allocate<StorageObject>(storage_proto, in.realm_record, local_area);
+    in.session_storage_object = interpreter.heap().allocate<StorageObject>(storage_proto, in.realm_record);
     define_getter(in, *global, "localStorage", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         if (internals.sandbox_flags & sandboxing::origin)

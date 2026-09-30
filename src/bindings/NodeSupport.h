@@ -148,7 +148,8 @@ void node_method(Realm::Internals& in, js::Object& prototype, std::string_view n
             if (!node)
                 return std::nullopt;
             return body(internals_of(interpreter), **node, args);
-        });
+        })
+        ->run_in_receivers_realm(); // the node it is called on says which realm
 }
 
 template<typename Read>
@@ -223,7 +224,8 @@ void element_method(Realm::Internals& in, js::Object& prototype, std::string_vie
             if (!element)
                 return std::nullopt;
             return body(internals_of(interpreter), **element, args);
-        });
+        })
+        ->run_in_receivers_realm(); // the element it is called on says which realm
 }
 
 template<typename Read>
@@ -265,7 +267,8 @@ void document_method(Realm::Internals& in, js::Object& prototype, std::string_vi
             if (!document)
                 return std::nullopt;
             return body(internals_of(interpreter), **document, args);
-        });
+        })
+        ->run_in_receivers_realm(); // the document it is called on says which realm
 }
 
 // A DOMRect for a box in client coordinates.

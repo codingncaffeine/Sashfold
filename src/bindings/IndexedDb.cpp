@@ -2606,7 +2606,7 @@ void install_indexeddb(Realm::Internals& in)
             return std::nullopt;
         return js::Value::number(idb::compare(*first, *second));
     });
-    js::Object* const factory_object = interpreter.heap().allocate<PlainPlatformObject>(factory);
+    js::Object* const factory_object = interpreter.heap().allocate<PlainPlatformObject>(factory, in.realm_record);
     in.window_values["indexedDB"] = js::Value::object(factory_object);
     define_getter(in, *global, "indexedDB", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return internals_of(interp).window_values["indexedDB"];

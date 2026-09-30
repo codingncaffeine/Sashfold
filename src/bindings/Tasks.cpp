@@ -471,7 +471,7 @@ void install_message_channel(Realm::Internals& in)
             auto* second = interp.heap().allocate<MessagePortObject>(internals.prototype("MessagePort"), *internals.realm_record);
             first->entangled = second;
             second->entangled = first;
-            js::Object* channel = interp.heap().allocate<PlainPlatformObject>(internals.prototype("MessageChannel"));
+            js::Object* channel = interp.heap().allocate<PlainPlatformObject>(internals.prototype("MessageChannel"), internals.realm_record);
             channel->put(interp.key("port1"), js::Value::object(first), js::Enumerable);
             channel->put(interp.key("port2"), js::Value::object(second), js::Enumerable);
             return js::Value::object(channel);
@@ -639,7 +639,7 @@ void install_abort(Realm::Internals& in)
         [](js::Interpreter& interp, Args, js::Object*) -> Native {
             Realm::Internals& internals = internals_of(interp);
             js::Heap::NoCollect const no_collect(interp.heap());
-            js::Object* object = interp.heap().allocate<PlainPlatformObject>(internals.prototype("AbortController"));
+            js::Object* object = interp.heap().allocate<PlainPlatformObject>(internals.prototype("AbortController"), internals.realm_record);
             object->put(interp.key("signal"), js::Value::object(new_abort_signal(internals)), js::Enumerable);
             return js::Value::object(object);
         },

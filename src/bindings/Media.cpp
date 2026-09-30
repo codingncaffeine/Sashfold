@@ -459,7 +459,7 @@ js::Value make_time_ranges(Realm::Internals& in, TimeRanges ranges)
 js::Value make_media_error(Realm::Internals& in, int code, std::string_view message)
 {
     js::Heap::NoCollect const no_collect(in.interpreter.heap());
-    js::Object* error = in.interpreter.heap().allocate<PlainPlatformObject>(in.prototype("MediaError"));
+    js::Object* error = in.interpreter.heap().allocate<PlainPlatformObject>(in.prototype("MediaError"), in.realm_record);
     error->put(in.interpreter.key("code"), js::Value::number(code), js::Enumerable);
     error->put(in.interpreter.key("message"), in.string(message), js::Enumerable);
     return js::Value::object(error);
@@ -2175,7 +2175,7 @@ void install_media_element(Realm::Internals& in)
     element_method(in, video_element, "getVideoPlaybackQuality", 0, [picture_counts](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         media::VideoPipeline::Counts const counts = picture_counts(internals, e);
         js::Heap::NoCollect const no_collect(internals.interpreter.heap());
-        js::Object* quality = internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("VideoPlaybackQuality"));
+        js::Object* quality = internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("VideoPlaybackQuality"), internals.realm_record);
         quality->put(internals.interpreter.key("creationTime"), js::Value::number(internals.now()), js::Enumerable);
         quality->put(internals.interpreter.key("totalVideoFrames"), js::Value::number(static_cast<double>(counts.decoded)), js::Enumerable);
         quality->put(internals.interpreter.key("droppedVideoFrames"), js::Value::number(static_cast<double>(counts.skipped)), js::Enumerable);

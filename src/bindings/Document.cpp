@@ -473,7 +473,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     });
     document_getter(in, *document, "implementation", [](Realm::Internals& internals, dom::Document&) -> Native {
         js::Heap::NoCollect const no_collect(internals.interpreter.heap());
-        js::Object* implementation = internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("DOMImplementation"));
+        js::Object* implementation = internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("DOMImplementation"), internals.realm_record);
         return js::Value::object(implementation);
     });
     document_getter(in, *document, "timeline", [](Realm::Internals& internals, dom::Document&) -> Native {
@@ -597,7 +597,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         if (!name)
             return std::nullopt;
         js::Heap::NoCollect const no_collect(internals.interpreter.heap());
-        js::Object* attr = internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("Attr"));
+        js::Object* attr = internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("Attr"), internals.realm_record);
         attr->put(internals.interpreter.key("name"), internals.string(ascii_lower(*name)), js::Enumerable);
         attr->put(internals.interpreter.key("localName"), internals.string(ascii_lower(*name)), js::Enumerable);
         attr->put(internals.interpreter.key("value"), internals.string(""), js::Enumerable | js::Writable);
@@ -839,7 +839,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     js::Object* dom_parser = define_interface(in, "DOMParser", nullptr,
         [](js::Interpreter& interp, Args, js::Object*) -> Native {
             Realm::Internals& internals = internals_of(interp);
-            return js::Value::object(interp.heap().allocate<PlainPlatformObject>(internals.prototype("DOMParser")));
+            return js::Value::object(interp.heap().allocate<PlainPlatformObject>(internals.prototype("DOMParser"), internals.realm_record));
         });
     define_operation(interpreter, *dom_parser, "parseFromString", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);

@@ -127,6 +127,18 @@ void StyleDeclarationObject::trace(js::Tracer& tracer)
     tracer.visit(record);
 }
 
+void StorageObject::trace(js::Tracer& tracer)
+{
+    Object::trace(tracer);
+    tracer.visit(m_realm);
+}
+
+void PlainPlatformObject::trace(js::Tracer& tracer)
+{
+    Object::trace(tracer);
+    tracer.visit(m_realm);
+}
+
 void UrlObject::trace(js::Tracer& tracer)
 {
     Object::trace(tracer);
@@ -483,13 +495,26 @@ void define_getter(Realm::Internals& in, js::Object& prototype, std::string_view
 void define_attribute(js::Interpreter& interpreter, js::Object& target, std::string_view name, js::NativeFunction::Callback getter,
     js::NativeFunction::Callback setter)
 {
-    sashfold::js::define_accessor(interpreter, target, name, std::move(getter), std::move(setter), js::Enumerable | js::Configurable);
+    // An interface's attribute reads and writes the object it is called on,
+    // in that object's realm.
+    js::Heap::NoCollect const guard(interpreter.heap());
+    js::NativeFunction* const get = interpreter.new_native("get " + std::string(name), 0, std::move(getter));
+    get->run_in_receivers_realm();
+    js::NativeFunction* set = nullptr;
+    if (setter) {
+        set = interpreter.new_native("set " + std::string(name), 1, std::move(setter));
+        set->run_in_receivers_realm();
+    }
+    target.put_accessor(interpreter.key(name), get, set, js::Enumerable | js::Configurable);
 }
 
 js::NativeFunction* define_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length,
     js::NativeFunction::Callback callback)
 {
-    return sashfold::js::define_method(interpreter, target, name, length, std::move(callback), js::Writable | js::Enumerable | js::Configurable);
+    js::NativeFunction* const function
+        = sashfold::js::define_method(interpreter, target, name, length, std::move(callback), js::Writable | js::Enumerable | js::Configurable);
+    function->run_in_receivers_realm(); // an interface's operation, likewise
+    return function;
 }
 
 // The reflected-attribute helpers themselves are in Reflect.cpp.
@@ -1369,6 +1394,7 @@ void erase_loop_work(Realm::Internals& in)
 {
     std::erase_if(in.agent.timers, [&in](Timer const& timer) { return timer.owner == &in; });
     std::erase_if(in.agent.tasks, [&in](Task const& task) { return task.owner == &in; });
+    drop_mutation_observers_of(in);
     for (ChildFrame const& listed : in.child_frames)
         erase_loop_work(listed.realm->internals());
 }
@@ -1409,6 +1435,7 @@ Realm::~Realm()
         in.agent.ending = true;
     std::erase_if(in.agent.timers, [&in](Timer const& timer) { return timer.owner == &in; });
     std::erase_if(in.agent.tasks, [&in](Task const& task) { return task.owner == &in; });
+    drop_mutation_observers_of(in);
     // Its document unloads: the workers it started end, and the blob: URLs
     // it made go with it.
     in.workers.clear();
@@ -2153,13 +2180,30 @@ void Realm::Internals::adopt_into(dom::Document& target, dom::Node& node)
         return;
     if (node.parent())
         frames_removed(node);
+    // The realm the subtree's nodes were made in: its document's, or — the
+    // document's frame having been taken out of its page, so that no list
+    // names its realm any more — the one its root's wrapper names, while
+    // that realm still stands.
+    Internals* made_in = realm_of(node.document());
+    if (made_in == nullptr && node.wrapper != nullptr) {
+        if (js::RealmRecord const* const record = static_cast<NodeWrapper*>(node.wrapper)->home_realm(); record->host_defined != nullptr)
+            made_in = &static_cast<Realm*>(record->host_defined)->internals();
+    }
     target.adopt(node);
     Internals* const home = realm_of(target);
     if (!home)
         return;
     std::vector<dom::Node*> nodes;
     walk_subtree(node, nodes);
+    // A node is an object of the realm it was made in, and adoption does not
+    // change that (DOM, "create a node"): one no script has reached yet is
+    // given its wrapper now, by that realm, so that the wrapper a script
+    // meets later is not the adopting document's. From then on the natives
+    // called on it work in the realm of the document it is in.
+    js::Heap::NoCollect const guard(interpreter.heap());
     for (dom::Node* const moved : nodes) {
+        if (!moved->wrapper && made_in != nullptr && made_in != home)
+            made_in->wrap(*moved);
         if (moved->wrapper)
             static_cast<NodeWrapper*>(moved->wrapper)->rehome(*home->realm_record);
     }

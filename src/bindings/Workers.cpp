@@ -936,7 +936,7 @@ void install_worker_scope(Realm::Internals& in, std::vector<js::PropertyKey> con
                  "languages", "onLine", "hardwareConcurrency", "deviceMemory" })
             share_getter(interpreter, *navigator_proto, *worker_navigator_proto, member);
     }
-    in.window_values["navigator"] = js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(worker_navigator_proto));
+    in.window_values["navigator"] = js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(worker_navigator_proto, in.realm_record));
     define_getter(in, *global, "navigator", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return internals_of(interp).window_values["navigator"];
     });

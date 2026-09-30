@@ -151,6 +151,12 @@ public:
     bool is_error() const { return m_class == Class::Error; }
     bool is_host() const { return m_class == Class::Host; }
 
+    // The realm a host's object belongs to (WebIDL's relevant realm of a
+    // platform object): what a host's native called on it runs in, whichever
+    // realm's copy of the native was called (NativeFunction::run_in_receivers_realm).
+    // Null for every object of the language, which is no realm's.
+    virtual RealmRecord* home_realm() const { return nullptr; }
+
     // [[IsHTMLDDA]] (HTML's "the all exotic object" is the only object the
     // web ever gives this slot, via `document.all`): ToBoolean, the abstract
     // equality comparison and typeof all treat an object with this slot as
@@ -411,10 +417,16 @@ public:
     std::optional<Value> construct(Interpreter&, std::span<Value const> arguments, Object* new_target) override;
     // What a call runs, for a host that puts a function of its own in front.
     Callback const& callback() const { return m_call; }
+    // A host's operation or attribute: called on an object that names a home
+    // realm, it runs in that realm and not in the one it was made in, so the
+    // state it works on is the receiver's. A built-in of the language runs
+    // in its own realm whatever it is called on (§10.3.1).
+    void run_in_receivers_realm() { m_in_receivers_realm = true; }
 
 private:
     Callback m_call;
     ConstructCallback m_construct;
+    bool m_in_receivers_realm = false;
 };
 
 // A function written in C++ that carries values: the resolving functions

@@ -90,6 +90,7 @@ public:
     ~NodeWrapper() override;
     dom::Node& node() const { return *m_node; }
     Realm& realm() const { return *static_cast<Realm*>(m_record->host_defined); }
+    js::RealmRecord* home_realm() const override { return m_record; }
     // A node adopted into another realm's document is that realm's from then on.
     void rehome(js::RealmRecord& record) { m_record = &record; }
     // A frame's realm ending before the heap its wrappers live in lets each go
@@ -219,6 +220,7 @@ public:
     {
         return wrapper && !wrapper->detached() ? static_cast<dom::Element*>(&wrapper->node()) : nullptr;
     }
+    js::RealmRecord* home_realm() const override { return wrapper ? wrapper->home_realm() : nullptr; }
     void trace(js::Tracer&) override;
 };
 
@@ -248,6 +250,7 @@ public:
     }
     js::RealmRecord* record; // the realm that made it, for a declaration of no element
     bool computed;
+    js::RealmRecord* home_realm() const override { return wrapper ? wrapper->home_realm() : record; }
     Realm::Internals& internals() const;
     std::optional<js::Value> get(js::Interpreter&, js::PropertyKey const&, js::Value const& receiver) override;
     std::optional<bool> set(js::Interpreter&, js::PropertyKey const&, js::Value const&, js::Value const& receiver) override;
@@ -309,11 +312,14 @@ public:
 // object's own.
 class StorageObject final : public js::Object {
 public:
-    explicit StorageObject(js::Object* prototype, StorageArea* backing = nullptr)
+    StorageObject(js::Object* prototype, js::RealmRecord* realm, StorageArea* backing = nullptr)
         : Object(prototype, Class::Host)
+        , m_realm(realm)
         , m_backing(backing)
     {
     }
+    js::RealmRecord* home_realm() const override { return m_realm; }
+    void trace(js::Tracer&) override;
     StorageArea& area() { return m_backing ? *m_backing : m_own; }
     StorageArea const& area() const { return m_backing ? *m_backing : m_own; }
     std::optional<js::PropertyDescriptor> get_own_property(js::PropertyKey const&) const override;
@@ -327,6 +333,7 @@ public:
     void clear_items();
 
 private:
+    js::RealmRecord* m_realm;
     StorageArea* m_backing = nullptr;
     StorageArea m_own;
 };
@@ -377,13 +384,20 @@ public:
 // AbortController. It is an ordinary object in every internal method, and
 // its class is Object, but it is a platform object all the same, which a
 // structured clone refuses (HTML §2.7.3) as it does no ordinary object made
-// from the same prototype.
+// from the same prototype. It names the realm it was made in, which is the
+// realm its interface's natives work in when they are called on it.
 class PlainPlatformObject final : public js::Object {
 public:
-    explicit PlainPlatformObject(js::Object* prototype)
+    PlainPlatformObject(js::Object* prototype, js::RealmRecord* realm)
         : Object(prototype)
+        , m_realm(realm)
     {
     }
+    js::RealmRecord* home_realm() const override { return m_realm; }
+    void trace(js::Tracer&) override;
+
+private:
+    js::RealmRecord* m_realm;
 };
 
 // An AbortSignal (Tasks.cpp): whether it has fired and why.
@@ -739,6 +753,13 @@ struct Agent {
     // Set through set_wake_loop, which hands it to the remote tasks too.
     std::function<void()> wake_loop;
     js::Interpreter interpreter;
+    // The MutationObservers with something to watch, whichever of the
+    // agent's realms made each and whichever document its nodes are in (DOM
+    // §4.3: the observers are the agent's), and whether a delivery of what
+    // they are owed is already arranged for the end of this turn
+    // (Mutations.cpp). A realm that ends takes the ones it made with it.
+    std::vector<js::Object*> mutation_observers;
+    bool mutation_delivery_pending = false;
     std::vector<Timer> timers;
     // Run before the timers at the next pump, oldest first, each holding what
     // it needs through Persistents.
@@ -927,11 +948,6 @@ struct Realm::Internals {
     // order it defined them. Held by pointer so that a definition's address
     // stands still while an element it upgraded points at it.
     std::vector<std::shared_ptr<CustomElementDefinition>> custom_element_definitions;
-    // The MutationObservers watching parts of this document, and whether
-    // a delivery of what they are owed is already arranged for the end of
-    // this turn (Mutations.cpp).
-    std::vector<js::Object*> mutation_observers;
-    bool mutation_delivery_pending = false;
     // The IntersectionObservers with something to watch or to deliver, and
     // what the last update saw, so that an update with nothing moved since
     // costs nothing (Intersection.cpp).
@@ -1364,6 +1380,8 @@ js::Value new_dom_matrix_2d(Realm::Internals&, Matrix2D const&);
 // the tree owes a definition.
 void install_mutation_observer(Realm::Internals&); // Mutations.cpp: MutationObserver, MutationRecord
 void trace_mutation_observers(Realm::Internals const&, js::Tracer&);
+// The observers a realm made stop watching: the realm is ending.
+void drop_mutation_observers_of(Realm::Internals&);
 // Intersection.cpp: IntersectionObserver and its entries. The update runs
 // at the end of each turn of the event loop, and measures only when a
 // target was added, the tree or the scroll or the viewport moved, or a

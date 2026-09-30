@@ -516,7 +516,7 @@ void install_custom_elements(Realm::Internals& in)
         return pending_promise(interp);
     });
 
-    js::Object* const registry_object = interpreter.heap().allocate<PlainPlatformObject>(registry);
+    js::Object* const registry_object = interpreter.heap().allocate<PlainPlatformObject>(registry, in.realm_record);
     interpreter.global()->put(interpreter.key("customElements"), js::Value::object(registry_object), js::builtin_attributes);
 }
 

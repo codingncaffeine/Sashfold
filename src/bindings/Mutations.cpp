@@ -34,11 +34,14 @@ struct Registration {
 
 class MutationObserverObject final : public js::Object {
 public:
-    MutationObserverObject(js::Object* prototype, js::Value the_callback)
+    MutationObserverObject(js::Object* prototype, js::RealmRecord* the_realm, js::Value the_callback)
         : Object(prototype, Class::Host)
+        , made_in(the_realm)
         , callback(the_callback)
     {
     }
+    js::RealmRecord* made_in; // the realm that made it
+    js::RealmRecord* home_realm() const override { return made_in; }
     js::Value callback;
     std::vector<Registration> registrations;
     std::vector<js::Value> records;
@@ -46,6 +49,7 @@ public:
     void trace(js::Tracer& tracer) override
     {
         Object::trace(tracer);
+        tracer.visit(made_in);
         tracer.visit(callback);
         for (js::Value const& record : records)
             tracer.visit(record);
@@ -97,18 +101,18 @@ bool watches(Registration const& registration, dom::Node& node)
 // change.
 void arrange_delivery(Realm::Internals& in)
 {
-    if (in.mutation_delivery_pending)
+    if (in.agent.mutation_delivery_pending)
         return;
-    in.mutation_delivery_pending = true;
+    in.agent.mutation_delivery_pending = true;
     js::Interpreter& interpreter = in.interpreter;
     js::Interpreter::Roots const roots(interpreter);
     js::NativeFunction* deliver = interpreter.new_native("deliver mutations", 0,
         [](js::Interpreter& interp, js::Value const&, Args) -> Native {
             Realm::Internals& internals = internals_of(interp);
-            internals.mutation_delivery_pending = false;
+            internals.agent.mutation_delivery_pending = false;
             // The list is copied first: a callback may make or drop
             // observers, and must not move the one being walked.
-            std::vector<js::Object*> const observers = internals.mutation_observers;
+            std::vector<js::Object*> const observers = internals.agent.mutation_observers;
             for (js::Object* const object : observers) {
                 auto* const observer = static_cast<MutationObserverObject*>(object);
                 if (observer->records.empty())
@@ -134,11 +138,11 @@ void queue_record(Realm::Internals& in, dom::Node& node, std::string_view type,
     std::vector<dom::Node*> const& added, std::vector<dom::Node*> const& removed, dom::Node* previous, dom::Node* next,
     std::string_view attribute_name, std::string_view attribute_namespace, std::optional<std::string> const& old_value)
 {
-    if (in.mutation_observers.empty())
+    if (in.agent.mutation_observers.empty())
         return;
     js::Interpreter& interpreter = in.interpreter;
     bool made_any = false;
-    for (js::Object* const object : in.mutation_observers) {
+    for (js::Object* const object : in.agent.mutation_observers) {
         auto* const observer = static_cast<MutationObserverObject*>(object);
         for (Registration const& registration : observer->registrations) {
             if (!watches(registration, node))
@@ -159,7 +163,7 @@ void queue_record(Realm::Internals& in, dom::Node& node, std::string_view type,
             js::Interpreter::Roots const roots(interpreter);
             interpreter.root(js::Value::object(observer));
             js::Heap::NoCollect const no_collect(interpreter.heap());
-            js::Object* record = interpreter.heap().allocate<PlainPlatformObject>(in.prototype("MutationRecord"));
+            js::Object* record = interpreter.heap().allocate<PlainPlatformObject>(in.prototype("MutationRecord"), in.realm_record);
             record->put(interpreter.key("type"), in.string(type), js::Enumerable);
             record->put(interpreter.key("target"), js::Value::object(in.wrap(node)), js::Enumerable);
             record->put(interpreter.key("addedNodes"), node_list(in, added), js::Enumerable);
@@ -210,8 +214,15 @@ void mutation_character_data_changed(Realm::Internals& in, dom::Node& node, std:
 
 void trace_mutation_observers(Realm::Internals const& in, js::Tracer& tracer)
 {
-    for (js::Object* const observer : in.mutation_observers)
+    for (js::Object* const observer : in.agent.mutation_observers)
         tracer.visit(observer);
+}
+
+void drop_mutation_observers_of(Realm::Internals& in)
+{
+    std::erase_if(in.agent.mutation_observers, [&in](js::Object* const observer) {
+        return static_cast<MutationObserverObject*>(observer)->made_in == in.realm_record;
+    });
 }
 
 void install_mutation_observer(Realm::Internals& in)
@@ -224,7 +235,7 @@ void install_mutation_observer(Realm::Internals& in)
             if (!js::Interpreter::is_callable(callback))
                 return interp.throw_type_error("Failed to construct 'MutationObserver': parameter 1 is not of type 'Function'.");
             Realm::Internals& internals = internals_of(interp);
-            return js::Value::object(interp.heap().allocate<MutationObserverObject>(internals.prototype("MutationObserver"), callback));
+            return js::Value::object(interp.heap().allocate<MutationObserverObject>(internals.prototype("MutationObserver"), internals.realm_record, callback));
         },
         1);
 
@@ -314,9 +325,9 @@ void install_mutation_observer(Realm::Internals& in)
         auto& registrations = (*observer)->registrations;
         std::erase_if(registrations, [&](Registration const& already) { return already.target == *target; });
         registrations.push_back(std::move(registration));
-        if (std::find(internals.mutation_observers.begin(), internals.mutation_observers.end(), *observer)
-            == internals.mutation_observers.end())
-            internals.mutation_observers.push_back(*observer);
+        std::vector<js::Object*>& watching = internals.agent.mutation_observers;
+        if (std::find(watching.begin(), watching.end(), *observer) == watching.end())
+            watching.push_back(*observer);
         return js::Value::undefined();
     });
 
@@ -327,7 +338,7 @@ void install_mutation_observer(Realm::Internals& in)
             return std::nullopt;
         (*observer)->registrations.clear();
         (*observer)->records.clear();
-        std::erase(internals.mutation_observers, static_cast<js::Object*>(*observer));
+        std::erase(internals.agent.mutation_observers, static_cast<js::Object*>(*observer));
         return js::Value::undefined();
     });
 
