@@ -3,8 +3,9 @@
 // Regular expressions (§22.2), matched by backtracking over UTF-16 code
 // units — or code points under the `u` flag. Written to the ES5 grammar
 // plus the additions modern pages lean on: named groups, `s`, `y`, `u`,
-// lookahead. No lookbehind and no property escapes yet; a pattern using
-// them is a SyntaxError, never a silent mismatch.
+// lookahead and lookbehind (a lookbehind's body is matched backward), and
+// \p{…} escapes over the tables in core/PropertyData.h. Not written: the `v`
+// flag, and with it the properties of strings.
 //
 // The matcher is iterative with an explicit backtrack stack and a step
 // budget, so a pathological pattern on hostile input exhausts the budget

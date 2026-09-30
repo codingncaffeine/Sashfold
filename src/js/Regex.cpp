@@ -1,6 +1,7 @@
 #include "js/Regex.h"
 
 #include "core/CaseData.h"
+#include "core/PropertyData.h"
 #include "core/Unicode.h"
 
 #include <algorithm>
@@ -379,6 +380,164 @@ std::vector<Range> class_escape_ranges(char16_t letter, bool unicode, bool ignor
     }
 }
 
+// ---- Unicode property escapes (§22.2.2.9 UnicodePropertyValueExpression) ----
+
+namespace properties = ::sashfold::unicode_properties;
+
+// The general categories by every name ECMA-262 accepts, each as the set
+// of two-letter categories it covers (the single letters and LC group them).
+struct CategoryName {
+    char const* name;
+    char const* categories; // two-letter codes run together
+};
+
+constexpr CategoryName category_names[] = {
+    { "Cased_Letter", "LuLlLt" }, { "LC", "LuLlLt" },
+    { "Close_Punctuation", "Pe" }, { "Pe", "Pe" },
+    { "Connector_Punctuation", "Pc" }, { "Pc", "Pc" },
+    { "Control", "Cc" }, { "Cc", "Cc" }, { "cntrl", "Cc" },
+    { "Currency_Symbol", "Sc" }, { "Sc", "Sc" },
+    { "Dash_Punctuation", "Pd" }, { "Pd", "Pd" },
+    { "Decimal_Number", "Nd" }, { "Nd", "Nd" }, { "digit", "Nd" },
+    { "Enclosing_Mark", "Me" }, { "Me", "Me" },
+    { "Final_Punctuation", "Pf" }, { "Pf", "Pf" },
+    { "Format", "Cf" }, { "Cf", "Cf" },
+    { "Initial_Punctuation", "Pi" }, { "Pi", "Pi" },
+    { "Letter", "LuLlLtLmLo" }, { "L", "LuLlLtLmLo" },
+    { "Letter_Number", "Nl" }, { "Nl", "Nl" },
+    { "Line_Separator", "Zl" }, { "Zl", "Zl" },
+    { "Lowercase_Letter", "Ll" }, { "Ll", "Ll" },
+    { "Mark", "MnMcMe" }, { "M", "MnMcMe" }, { "Combining_Mark", "MnMcMe" },
+    { "Math_Symbol", "Sm" }, { "Sm", "Sm" },
+    { "Modifier_Letter", "Lm" }, { "Lm", "Lm" },
+    { "Modifier_Symbol", "Sk" }, { "Sk", "Sk" },
+    { "Nonspacing_Mark", "Mn" }, { "Mn", "Mn" },
+    { "Number", "NdNlNo" }, { "N", "NdNlNo" },
+    { "Open_Punctuation", "Ps" }, { "Ps", "Ps" },
+    { "Other", "CcCfCsCoCn" }, { "C", "CcCfCsCoCn" },
+    { "Other_Letter", "Lo" }, { "Lo", "Lo" },
+    { "Other_Number", "No" }, { "No", "No" },
+    { "Other_Punctuation", "Po" }, { "Po", "Po" },
+    { "Other_Symbol", "So" }, { "So", "So" },
+    { "Paragraph_Separator", "Zp" }, { "Zp", "Zp" },
+    { "Private_Use", "Co" }, { "Co", "Co" },
+    { "Punctuation", "PcPdPsPePiPfPo" }, { "P", "PcPdPsPePiPfPo" }, { "punct", "PcPdPsPePiPfPo" },
+    { "Separator", "ZsZlZp" }, { "Z", "ZsZlZp" },
+    { "Space_Separator", "Zs" }, { "Zs", "Zs" },
+    { "Spacing_Mark", "Mc" }, { "Mc", "Mc" },
+    { "Surrogate", "Cs" }, { "Cs", "Cs" },
+    { "Symbol", "SmScSkSo" }, { "S", "SmScSkSo" },
+    { "Titlecase_Letter", "Lt" }, { "Lt", "Lt" },
+    { "Unassigned", "Cn" }, { "Cn", "Cn" },
+    { "Uppercase_Letter", "Lu" }, { "Lu", "Lu" },
+};
+
+std::optional<std::vector<Range>> general_category_ranges(std::string_view name)
+{
+    for (CategoryName const& entry : category_names) {
+        if (name != entry.name)
+            continue;
+        std::string_view const wanted = entry.categories;
+        std::vector<Range> ranges;
+        std::size_t const runs = std::size(properties::general_category_runs);
+        for (std::size_t i = 0; i < runs; ++i) {
+            std::string_view const code = properties::general_category_codes[properties::general_category_runs[i].category];
+            if (wanted.find(code) == std::string_view::npos)
+                continue;
+            char32_t const first = properties::general_category_runs[i].first;
+            char32_t const last = i + 1 < runs ? properties::general_category_runs[i + 1].first - 1 : 0x10FFFF;
+            ranges.push_back({ first, last });
+        }
+        return normalized(std::move(ranges));
+    }
+    return std::nullopt;
+}
+
+std::optional<std::vector<Range>> script_ranges(std::string_view name, bool extensions)
+{
+    std::optional<std::uint16_t> id;
+    for (properties::ScriptName const& entry : properties::script_names)
+        if (name == entry.name)
+            id = entry.script;
+    if (!id)
+        return std::nullopt;
+    std::vector<Range> ranges;
+    for (properties::ScriptRange const& range : properties::script_ranges)
+        if (range.script == *id)
+            ranges.push_back({ range.first, range.last });
+    if (ranges.empty() && (name == "Unknown" || name == "Zzzz")) {
+        // Unknown is what no line of Scripts.txt claims.
+        std::vector<Range> claimed;
+        for (properties::ScriptRange const& range : properties::script_ranges)
+            claimed.push_back({ range.first, range.last });
+        return complemented(normalized(std::move(claimed)), 0x10FFFF);
+    }
+    if (!extensions)
+        return normalized(std::move(ranges));
+    // Script_Extensions: a code point with an entry belongs to the scripts
+    // that entry lists instead of its own Script.
+    std::vector<Range> overridden;
+    std::vector<Range> listed;
+    for (properties::ScriptExtension const& extension : properties::script_extension_ranges) {
+        overridden.push_back({ extension.first, extension.last });
+        for (std::uint32_t k = 0; k < extension.count; ++k)
+            if (properties::script_extension_scripts[extension.offset + k] == *id)
+                listed.push_back({ extension.first, extension.last });
+    }
+    std::vector<Range> const not_overridden = complemented(normalized(std::move(overridden)), 0x10FFFF);
+    std::vector<Range> kept;
+    for (Range const& range : normalized(std::move(ranges)))
+        for (Range const& free : not_overridden) {
+            char32_t const first = std::max(range.first, free.first);
+            char32_t const last = std::min(range.last, free.last);
+            if (first <= last)
+                kept.push_back({ first, last });
+        }
+    kept.insert(kept.end(), listed.begin(), listed.end());
+    return normalized(std::move(kept));
+}
+
+std::optional<std::vector<Range>> binary_property_ranges(std::string_view name)
+{
+    if (name == "Any")
+        return std::vector<Range> { { 0, 0x10FFFF } };
+    if (name == "ASCII")
+        return std::vector<Range> { { 0, 0x7F } };
+    if (name == "Assigned")
+        return general_category_ranges("Cn").transform([](std::vector<Range> const& unassigned) { return complemented(unassigned, 0x10FFFF); });
+    for (properties::BinaryProperty const& property : properties::binary_properties) {
+        if (name != property.name && (property.alias[0] == '\0' || name != property.alias))
+            continue;
+        std::vector<Range> ranges;
+        for (std::uint32_t k = 0; k < property.range_count; ++k) {
+            properties::CodeRange const& range = properties::binary_property_ranges[property.first_range + k];
+            ranges.push_back({ range.first, range.last });
+        }
+        return ranges;
+    }
+    return std::nullopt;
+}
+
+// `name` alone, or `name=value`. Nullopt is an unknown name or value.
+std::optional<std::vector<Range>> property_escape_ranges(std::string_view expression)
+{
+    std::size_t const equals = expression.find('=');
+    if (equals == std::string_view::npos) {
+        if (auto const category = general_category_ranges(expression))
+            return category;
+        return binary_property_ranges(expression);
+    }
+    std::string_view const name = expression.substr(0, equals);
+    std::string_view const value = expression.substr(equals + 1);
+    if (name == "General_Category" || name == "gc")
+        return general_category_ranges(value);
+    if (name == "Script" || name == "sc")
+        return script_ranges(value, false);
+    if (name == "Script_Extensions" || name == "scx")
+        return script_ranges(value, true);
+    return std::nullopt;
+}
+
 // RegExpIdentifierName (§22.2.1) is IdentifierStart (IdentifierPart)*.
 // Stand-ins for the lexer's ID_Start / ID_Continue tests: ASCII exactly,
 // and above it any code point that is not a separator, control, format
@@ -437,6 +596,7 @@ struct Node {
     char32_t ch = 0; // Char
     std::uint32_t index = 0; // Class: class index; Group, Backref: group number
     bool negative = false; // Lookahead
+    bool behind = false; // Lookahead: a lookbehind, whose body is matched from its end back to its start
     bool greedy = true; // Repeat
     std::uint32_t min = 0; // Repeat
     std::uint32_t max = 0;
@@ -472,10 +632,11 @@ struct ClassAtom {
 };
 
 struct Escape {
-    enum class Kind : std::uint8_t { Character, ClassEscape, Backslash };
+    enum class Kind : std::uint8_t { Character, ClassEscape, Backslash, Property };
     Kind kind = Kind::Character;
     char32_t ch = 0;
     char16_t letter = 0; // ClassEscape: d D s S w W
+    std::vector<Range> set; // Property: \p{…} or \P{…}
 };
 
 struct PendingName {
@@ -789,6 +950,7 @@ std::optional<std::uint32_t> PatternParser::parse_term(int depth)
     std::size_t const term_start = m_pos;
     std::uint32_t const groups_before = m_group_index;
     bool quantifiable = true;
+    bool lookaround = false; // a quantifier on one that cannot take it is an Invalid quantifier
     std::optional<std::uint32_t> atom;
     char16_t const c = unit();
     switch (c) {
@@ -828,11 +990,26 @@ std::optional<std::uint32_t> PatternParser::parse_term(int depth)
                 // Annex B.1.2: a lookahead is a QuantifiableAssertion
                 // outside `u` mode; under `u` a quantifier on it is an error.
                 quantifiable = !m_unicode;
+                lookaround = true;
                 break;
             }
             if (kind == u'<' && (unit_at(3) == u'=' || unit_at(3) == u'!')) {
-                error("Lookbehind assertions are not supported", term_start);
-                return std::nullopt;
+                // A lookbehind is an Assertion and never a QuantifiableAssertion,
+                // in `u` mode or out of it (Annex B.1.2 only opens lookahead).
+                bool const negative = unit_at(3) == u'!';
+                m_pos += 4;
+                auto const body = parse_group_body(depth, term_start);
+                if (!body)
+                    return std::nullopt;
+                Node node;
+                node.kind = NodeKind::Lookahead;
+                node.negative = negative;
+                node.behind = true;
+                node.child = *body;
+                atom = make(std::move(node));
+                quantifiable = false;
+                lookaround = true;
+                break;
             }
             if (kind == u':') {
                 m_pos += 3;
@@ -976,7 +1153,7 @@ std::optional<std::uint32_t> PatternParser::parse_term(int depth)
     if (!has_quantifier)
         return atom;
     if (!quantifiable) {
-        error("Nothing to repeat", term_start);
+        error(lookaround ? "Invalid quantifier" : "Nothing to repeat", term_start);
         return std::nullopt;
     }
     Node node;
@@ -1051,6 +1228,8 @@ std::optional<std::uint32_t> PatternParser::parse_atom_escape()
         return make_class(class_escape_ranges(escape.letter, m_unicode, m_ignore_case), false);
     case Escape::Kind::Backslash:
         return make_char(u'\\');
+    case Escape::Kind::Property:
+        return make_class(std::move(escape.set), false);
     }
     return std::nullopt;
 }
@@ -1079,8 +1258,33 @@ bool PatternParser::parse_escape(bool in_class, Escape& out)
         return true;
     case u'p':
     case u'P':
-        if (m_unicode)
-            return error("Unicode property escapes (\\p{...}) are not supported", escape_start);
+        if (m_unicode) {
+            ++m_pos;
+            if (!at(u'{'))
+                return error("Invalid property name", escape_start);
+            std::size_t const name_start = ++m_pos;
+            while (!at_end() && unit() != u'}')
+                ++m_pos;
+            if (at_end())
+                return error("Invalid property name", escape_start);
+            std::string expression;
+            for (std::size_t i = name_start; i < m_pos; ++i) {
+                char16_t const unit_i = m_pattern[i];
+                bool const allowed = is_ascii_letter(unit_i) || is_decimal_digit(unit_i) || unit_i == u'_' || unit_i == u'=';
+                if (!allowed)
+                    return error("Invalid property name", escape_start);
+                expression.push_back(static_cast<char>(unit_i));
+            }
+            ++m_pos; // }
+            std::optional<std::vector<Range>> set = property_escape_ranges(expression);
+            if (!set)
+                return error("Invalid property name", escape_start);
+            out.kind = Escape::Kind::Property;
+            out.set = normalized(std::move(*set));
+            if (c == u'P')
+                out.set = complemented(out.set, 0x10FFFF);
+            return true;
+        }
         ++m_pos;
         out.ch = c;
         return true;
@@ -1408,6 +1612,10 @@ bool PatternParser::parse_class_atom(ClassAtom& out)
     case Escape::Kind::Backslash:
         out.ch = u'\\';
         return true;
+    case Escape::Kind::Property:
+        out.is_set = true;
+        out.set = std::move(escape.set);
+        return true;
     }
     return false;
 }
@@ -1452,6 +1660,8 @@ private:
     std::optional<std::uint32_t> single_character(std::uint32_t index) const
     {
         Node const* node = &m_nodes[index];
+        if (m_backward) // the simple loops read forward only
+            return std::nullopt;
         while (node->kind == NodeKind::NonCapturingGroup)
             node = &m_nodes[node->child];
         if (node->kind == NodeKind::Char || node->kind == NodeKind::Any || node->kind == NodeKind::Class)
@@ -1459,17 +1669,20 @@ private:
         return std::nullopt;
     }
 
+    // In a lookbehind (m_backward) the consuming instructions carry b = 1:
+    // they read the character before the position and step back over it.
     void emit_single(Node const& node)
     {
+        std::uint32_t const backward = m_backward ? 1u : 0u;
         switch (node.kind) {
         case NodeKind::Char:
-            add({ Op::Char, canonical(node.ch), 0 });
+            add({ Op::Char, canonical(node.ch), backward });
             break;
         case NodeKind::Any:
-            add({ m_dot_all ? Op::AnyAll : Op::Any, 0, 0 });
+            add({ m_dot_all ? Op::AnyAll : Op::Any, 0, backward });
             break;
         default:
-            add({ Op::Class, node.index, 0 });
+            add({ Op::Class, node.index, backward });
             break;
         }
     }
@@ -1489,11 +1702,11 @@ private:
             break;
         case NodeKind::Backref:
         case NodeKind::NamedBackref:
-            add({ Op::Backref, node.index, 0 });
+            add({ Op::Backref, node.index, m_backward ? 1u : 0u });
             break;
         case NodeKind::BackrefSet:
             m_program.backref_sets.push_back(node.group_set);
-            add({ Op::BackrefSet, static_cast<std::uint32_t>(m_program.backref_sets.size() - 1), 0 });
+            add({ Op::BackrefSet, static_cast<std::uint32_t>(m_program.backref_sets.size() - 1), m_backward ? 1u : 0u });
             break;
         case NodeKind::LineStart:
             add({ Op::LineStart, 0, 0 });
@@ -1508,18 +1721,24 @@ private:
             add({ Op::NotWordBoundary, 0, 0 });
             break;
         case NodeKind::Group:
-            add({ Op::Save, 2 * node.index, 0 });
+            // Matched backward, a group's end is met first.
+            add({ Op::Save, m_backward ? 2 * node.index + 1 : 2 * node.index, 0 });
             emit(node.child);
-            add({ Op::Save, 2 * node.index + 1, 0 });
+            add({ Op::Save, m_backward ? 2 * node.index : 2 * node.index + 1, 0 });
             break;
         case NodeKind::NonCapturingGroup:
             emit(node.child);
             break;
         case NodeKind::Lookahead: {
+            // A lookahead body is matched forward and a lookbehind's
+            // backward (§22.2.2.4), whichever direction encloses it.
+            bool const enclosing = m_backward;
+            m_backward = node.behind;
             std::uint32_t const start = add({ Op::LookStart, 0, node.negative ? 1u : 0u });
             emit(node.child);
             add({ Op::LookEnd, 0, 0 });
             m_program.code[start].a = here();
+            m_backward = enclosing;
             break;
         }
         case NodeKind::Alternation: {
@@ -1540,8 +1759,13 @@ private:
             break;
         }
         case NodeKind::Sequence:
-            for (std::uint32_t const child : node.children)
-                emit(child);
+            if (m_backward) {
+                for (auto child = node.children.rbegin(); child != node.children.rend(); ++child)
+                    emit(*child);
+            } else {
+                for (std::uint32_t const child : node.children)
+                    emit(child);
+            }
             break;
         case NodeKind::Repeat:
             emit_repeat(node);
@@ -1584,6 +1808,7 @@ private:
     bool m_ignore_case;
     bool m_unicode;
     bool m_dot_all;
+    bool m_backward = false; // emitting the body of a lookbehind
 };
 
 // -------------------------------------------------------------- matching
@@ -1675,9 +1900,20 @@ private:
         std::uint32_t width = 0;
         return pos < m_length && is_word_char(read_char(pos, width));
     }
+    // The same test on the character that ends at pos (a lookbehind's
+    // direction); pos > 0. `width` is how far back it reaches.
+    bool matches_single_before(Instruction const& instruction, std::uint32_t pos, std::uint32_t& width) const
+    {
+        char32_t const c = read_char_before(pos);
+        width = c > 0xFFFF ? 2 : 1;
+        return accepts_single(instruction, c);
+    }
     bool matches_single(Instruction const& instruction, std::uint32_t pos, std::uint32_t& width) const
     {
-        char32_t const c = read_char(pos, width);
+        return accepts_single(instruction, read_char(pos, width));
+    }
+    bool accepts_single(Instruction const& instruction, char32_t c) const
+    {
         switch (instruction.op) {
         case Op::Char:
             return canonicalize(c) == instruction.a;
@@ -1708,7 +1944,7 @@ private:
         m_registers[slot] = value;
     }
 
-    bool match_backreference(std::uint32_t group, std::uint32_t& pos) const;
+    bool match_backreference(std::uint32_t group, std::uint32_t& pos, bool backward) const;
     bool finish_lookahead(std::uint32_t& pc, std::uint32_t& pos);
     bool backtrack(std::uint32_t& pc, std::uint32_t& pos);
 
@@ -1728,12 +1964,30 @@ private:
 // BackreferenceMatcher (§22.2.2.7.2): a group that did not participate
 // matches the empty string; otherwise the captured text must recur here,
 // character by character under ignoreCase.
-bool Matcher::match_backreference(std::uint32_t group, std::uint32_t& pos) const
+bool Matcher::match_backreference(std::uint32_t group, std::uint32_t& pos, bool backward) const
 {
     std::uint32_t const start = m_registers[2 * group];
     std::uint32_t const end = m_registers[2 * group + 1];
     if (start == unset || end == unset)
         return true;
+    if (backward) {
+        // In a lookbehind the captured text must end where the match now
+        // is, compared from its last character back.
+        std::uint32_t i = end;
+        std::uint32_t j = pos;
+        while (i > start) {
+            if (j == 0)
+                return false;
+            char32_t const a = read_char_before(i);
+            char32_t const b = read_char_before(j);
+            if (m_ignore_case ? canonicalize(a) != canonicalize(b) : a != b)
+                return false;
+            i -= a > 0xFFFF ? 2 : 1;
+            j -= b > 0xFFFF ? 2 : 1;
+        }
+        pos = j;
+        return true;
+    }
     if (!m_ignore_case) {
         std::uint32_t const length = end - start;
         if (length > m_length - pos)
@@ -1876,7 +2130,14 @@ Matcher::Outcome Matcher::run(std::uint32_t start)
         case Op::AnyAll:
         case Op::Class: {
             std::uint32_t width = 0;
-            if (pos < m_length && matches_single(instruction, pos, width)) {
+            if (instruction.b != 0) {
+                if (pos > 0 && matches_single_before(instruction, pos, width)) {
+                    pos -= width;
+                    ++pc;
+                } else {
+                    ok = false;
+                }
+            } else if (pos < m_length && matches_single(instruction, pos, width)) {
                 pos += width;
                 ++pc;
             } else {
@@ -1885,7 +2146,7 @@ Matcher::Outcome Matcher::run(std::uint32_t start)
             break;
         }
         case Op::Backref:
-            ok = match_backreference(instruction.a, pos);
+            ok = match_backreference(instruction.a, pos, instruction.b != 0);
             if (ok)
                 ++pc;
             break;
@@ -1900,7 +2161,7 @@ Matcher::Outcome Matcher::run(std::uint32_t start)
                     break;
                 }
             }
-            ok = chosen == 0 || match_backreference(chosen, pos);
+            ok = chosen == 0 || match_backreference(chosen, pos, instruction.b != 0);
             if (ok)
                 ++pc;
             break;

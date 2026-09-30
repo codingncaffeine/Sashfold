@@ -360,6 +360,36 @@ int main()
         { u"(?:x(?!y)|xy)", u"", u"xy", 0, { { 0, 2 } } },
         { u"(?=(a+))a*b\\1", u"", u"baaabac", 0, { { 3, 6 }, { 3, 4 } } }, // §22.2.2.4 note 2: no backtracking into the lookahead
         { u"(?=a)*", u"", u"a", 0, { { 0, 0 } } }, // B.1.2 QuantifiableAssertion
+        // Lookbehind: the body is matched from its end back to its start,
+        // so captures and backreferences read right to left (§22.2.2.4).
+        { u"(?<=a)b", u"", u"ab", 0, { { 1, 2 } } },
+        { u"(?<!a)b", u"", u"ab", 0, {} },
+        { u"(?<!a)b", u"", u"cb", 0, { { 1, 2 } } },
+        { u"(?<=(\\d+)(\\d+))$", u"", u"1053", 0, { { 4, 4 }, { 0, 1 }, { 1, 4 } } },
+        { u"(?<=\\1(a))b", u"", u"aab", 0, { { 2, 3 }, { 1, 2 } } },
+        { u"(?<=(a)\\1)b", u"", u"aab", 0, { { 2, 3 }, { 1, 2 } } },
+        { u"(?<=a+)b", u"", u"aaab", 0, { { 3, 4 } } },
+        { u"(?<=a|bc)d", u"", u"bcd", 0, { { 2, 3 } } },
+        { u"(?<=^[a-c]{3})def", u"", u"abcdef", 0, { { 3, 6 } } },
+        { u"(?<=A)b", u"i", u"ab", 0, { { 1, 2 } } },
+        { u"(?<=.)x", u"u", u"\U0001F600x", 0, { { 2, 3 } } },
+        { u"(?<=(?<!a)b)c", u"", u"abc", 0, {} },
+        { u"(?<=(?<a>\\w){3})f", u"", u"abcdef", 0, { { 5, 6 }, { 2, 3 } } },
+        // Unicode property escapes.
+        { u"\\p{Lu}", u"u", u"aBc", 0, { { 1, 2 } } },
+        { u"\\P{L}+", u"u", u"ab12cd", 0, { { 2, 4 } } },
+        { u"[\\p{N}\\s]+", u"u", u"a1 2 3b", 0, { { 1, 6 } } },
+        { u"\\p{Script=Greek}+", u"u", u"abc αβγ def", 0, { { 4, 7 } } },
+        { u"\\p{sc=Cyrl}+", u"u", u"абв", 0, { { 0, 3 } } },
+        { u"\\p{scx=Grek}", u"u", u"͂", 0, { { 0, 1 } } },
+        { u"\\p{Emoji_Presentation}", u"u", u"a\U0001F600", 0, { { 1, 3 } } },
+        { u"\\p{Alphabetic}+", u"u", u"ab12", 0, { { 0, 2 } } },
+        { u"\\p{White_Space}+", u"u", u"a \t\nb", 0, { { 1, 4 } } },
+        { u"\\p{ASCII}+", u"u", u"abé", 0, { { 0, 2 } } },
+        { u"\\p{Any}", u"u", u"x", 0, { { 0, 1 } } },
+        { u"\\p{Lu}", u"iu", u"À", 0, { { 0, 1 } } },
+        { u"\\p{Nd}+", u"u", u"x٣٤", 0, { { 1, 3 } } },
+        { u"\\p", u"", u"p", 0, { { 0, 1 } } }, // an identity escape outside `u`
         { u"^(?:(?=x)x|y)+$", u"", u"xyx", 0, { { 0, 3 } } },
         { u"(?!a)b", u"", u"ab", 0, { { 1, 2 } } },
         { u"a(?=(b))(?!\\1c)", u"", u"abd", 0, { { 0, 1 }, { 1, 2 } } },
@@ -434,7 +464,7 @@ int main()
         { u"?", u"", "Nothing to repeat" },
         { u"{1}", u"", "Nothing to repeat" },
         { u"{1,2}", u"", "Nothing to repeat" },
-        { u"(?=a)*", u"u", "Nothing to repeat" },
+        { u"(?=a)*", u"u", "Invalid quantifier" },
         { u"^*", u"", "Nothing to repeat" },
         { u"\\b+", u"", "Nothing to repeat" },
         { u"a*??", u"", "Nothing to repeat" },
@@ -448,11 +478,16 @@ int main()
         { u"(?<a>", u"", "Unterminated group" },
         { u"a)", u"", "Unmatched ')'" },
         { u")", u"", "Unmatched ')'" },
-        { u"(?<=a)b", u"", "Lookbehind assertions are not supported" },
-        { u"(?<!a)", u"u", "Lookbehind assertions are not supported" },
-        { u"\\p{L}", u"u", "Unicode property escapes (\\p{...}) are not supported" },
-        { u"\\P{L}", u"u", "Unicode property escapes (\\p{...}) are not supported" },
-        { u"[\\p{L}]", u"u", "Unicode property escapes (\\p{...}) are not supported" },
+        { u"(?<=a)+", u"", "Invalid quantifier" },
+        { u"(?<!a)*", u"u", "Invalid quantifier" },
+        { u"(?<=a", u"", "Unterminated group" },
+        { u"\\p{Foo}", u"u", "Invalid property name" },
+        { u"\\p{L", u"u", "Invalid property name" },
+        { u"\\p", u"u", "Invalid property name" },
+        { u"\\P{Script}", u"u", "Invalid property name" },
+        { u"\\p{Script=Foo}", u"u", "Invalid property name" },
+        { u"\\p{lu}", u"u", "Invalid property name" },
+        { u"[\\p{Bogus}]", u"u", "Invalid property name" },
         { u"[z-a]", u"", "Range out of order in character class" },
         { u"[z-a]", u"u", "Range out of order in character class" },
         { u"a{70000}", u"", "Quantifier bound too large (above 65535)" },
@@ -501,7 +536,7 @@ int main()
         CHECK_EQ(error.offset, std::size_t { 2 });
         CHECK(!Regex::compile(u"[z-a]", RegexFlags {}, &error));
         CHECK_EQ(error.offset, std::size_t { 1 });
-        CHECK(!Regex::compile(u"x(?<=a)b", RegexFlags {}, &error));
+        CHECK(!Regex::compile(u"x(?<=ab", RegexFlags {}, &error));
         CHECK_EQ(error.offset, std::size_t { 1 });
     }
 
@@ -731,9 +766,9 @@ int main()
 
     std::vector<ErrorCase> const review_errors {
         // Under `u` no assertion is quantifiable (§22.2.1 Term[+U]).
-        { u"(?=a)+", u"u", "Nothing to repeat" },
-        { u"(?=a)?", u"u", "Nothing to repeat" },
-        { u"(?!a)*", u"u", "Nothing to repeat" },
+        { u"(?=a)+", u"u", "Invalid quantifier" },
+        { u"(?=a)?", u"u", "Invalid quantifier" },
+        { u"(?!a)*", u"u", "Invalid quantifier" },
         // Outside `u` only lookahead is (Annex B.1.2 QuantifiableAssertion).
         { u"$+", u"", "Nothing to repeat" },
         { u"\\B{2}", u"", "Nothing to repeat" },

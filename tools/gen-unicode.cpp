@@ -1005,10 +1005,283 @@ void emit_case(std::string const& path, UnicodeData const& data)
 
 }
 
+// --- The properties a regular expression's \p{…} names -----------------------
+
+struct CodeRange {
+    std::uint32_t first = 0;
+    std::uint32_t last = 0;
+};
+
+// Sorted, merged ranges out of a list of code points or ranges.
+std::vector<CodeRange> merged_ranges(std::vector<CodeRange> ranges)
+{
+    std::sort(ranges.begin(), ranges.end(), [](CodeRange const& a, CodeRange const& b) { return a.first < b.first; });
+    std::vector<CodeRange> out;
+    for (CodeRange const& range : ranges) {
+        if (!out.empty() && range.first <= out.back().last + 1)
+            out.back().last = std::max(out.back().last, range.last);
+        else
+            out.push_back(range);
+    }
+    return out;
+}
+
+// Every "range ; Name # …" line of a UCD property file, by property name
+// (the second field), for the names asked for. Files with a value in a third
+// field (InCB, NFC_QC) give the name of a property whose lines this ignores.
+std::map<std::string, std::vector<CodeRange>> load_binary_properties(std::string const& path, std::set<std::string> const& wanted)
+{
+    std::map<std::string, std::vector<CodeRange>> out;
+    std::ifstream file = open_or_die(path);
+    std::string line;
+    while (std::getline(file, line)) {
+        std::size_t const hash = line.find('#');
+        std::string const body = trim(hash == std::string::npos ? line : line.substr(0, hash));
+        if (body.empty())
+            continue;
+        std::vector<std::string> const fields = split(body, ';');
+        if (fields.size() != 2 || !wanted.contains(trim(fields[1])))
+            continue;
+        char32_t first = 0;
+        char32_t last = 0;
+        parse_code_point_range(trim(fields[0]), first, last);
+        out[trim(fields[1])].push_back({ first, last });
+    }
+    return out;
+}
+
+void emit_properties(std::string const& path, std::string const& data_dir)
+{
+    // General categories and Bidi_Mirrored, from UnicodeData.txt.
+    std::vector<std::string> const categories = { "Cc", "Cf", "Cn", "Co", "Cs", "Ll", "Lm", "Lo", "Lt", "Lu", "Mc", "Me", "Mn",
+        "Nd", "Nl", "No", "Pc", "Pd", "Pe", "Pf", "Pi", "Po", "Ps", "Sc", "Sk", "Sm", "So", "Zl", "Zp", "Zs" };
+    auto category_index = [&](std::string const& name) {
+        return static_cast<std::uint8_t>(std::find(categories.begin(), categories.end(), name) - categories.begin());
+    };
+    constexpr std::size_t code_points = 0x110000;
+    std::vector<std::uint8_t> category(code_points, category_index("Cn"));
+    std::vector<CodeRange> mirrored;
+    {
+        std::ifstream file = open_or_die(data_dir + "/UnicodeData.txt");
+        std::string line;
+        char32_t range_first = 0;
+        while (std::getline(file, line)) {
+            if (line.empty())
+                continue;
+            std::vector<std::string> const fields = split(line, ';');
+            char32_t const c = parse_hex(fields[0]);
+            if (fields[1].ends_with(", First>")) {
+                range_first = c;
+                continue;
+            }
+            char32_t const first = fields[1].ends_with(", Last>") ? range_first : c;
+            for (char32_t k = first; k <= c; ++k)
+                category[k] = category_index(fields[2]);
+            if (fields.size() > 9 && fields[9] == "Y")
+                mirrored.push_back({ c, c });
+        }
+    }
+
+    // Scripts, their names and aliases, and the Script_Extensions overrides.
+    std::map<std::string, std::uint16_t> script_id; // long name
+    std::vector<std::string> script_order;
+    std::vector<std::pair<std::string, std::uint16_t>> script_aliases; // every spelling
+    {
+        std::ifstream file = open_or_die(data_dir + "/PropertyValueAliases.txt");
+        std::string line;
+        while (std::getline(file, line)) {
+            if (!line.starts_with("sc "))
+                continue;
+            std::vector<std::string> fields = split(line.substr(0, line.find('#')), ';');
+            for (std::string& field : fields)
+                field = trim(field);
+            std::uint16_t const id = static_cast<std::uint16_t>(script_order.size());
+            script_order.push_back(fields[2]);
+            script_id[fields[2]] = id;
+            for (std::size_t k = 1; k < fields.size(); ++k)
+                script_aliases.emplace_back(fields[k], id);
+        }
+    }
+    std::map<std::string, std::uint16_t> short_id;
+    for (auto const& alias : script_aliases)
+        short_id[alias.first] = alias.second;
+    struct ScriptRange {
+        std::uint32_t first;
+        std::uint32_t last;
+        std::uint16_t script;
+    };
+    std::vector<ScriptRange> script_ranges;
+    {
+        std::ifstream file = open_or_die(data_dir + "/Scripts.txt");
+        std::string line;
+        while (std::getline(file, line)) {
+            std::size_t const hash = line.find('#');
+            std::string const body = trim(hash == std::string::npos ? line : line.substr(0, hash));
+            if (body.empty())
+                continue;
+            std::vector<std::string> const fields = split(body, ';');
+            char32_t first = 0;
+            char32_t last = 0;
+            parse_code_point_range(trim(fields[0]), first, last);
+            script_ranges.push_back({ first, last, script_id.at(trim(fields[1])) });
+        }
+        std::sort(script_ranges.begin(), script_ranges.end(), [](ScriptRange const& a, ScriptRange const& b) { return a.first < b.first; });
+    }
+    struct ScriptExtension {
+        std::uint32_t first;
+        std::uint32_t last;
+        std::uint32_t offset;
+        std::uint32_t count;
+    };
+    std::vector<ScriptExtension> extensions;
+    std::vector<std::uint16_t> extension_lists;
+    {
+        std::ifstream file = open_or_die(data_dir + "/ScriptExtensions.txt");
+        std::string line;
+        while (std::getline(file, line)) {
+            std::size_t const hash = line.find('#');
+            std::string const body = trim(hash == std::string::npos ? line : line.substr(0, hash));
+            if (body.empty())
+                continue;
+            std::vector<std::string> const fields = split(body, ';');
+            char32_t first = 0;
+            char32_t last = 0;
+            parse_code_point_range(trim(fields[0]), first, last);
+            ScriptExtension extension { first, last, static_cast<std::uint32_t>(extension_lists.size()), 0 };
+            for (std::string const& name : split(trim(fields[1]), ' '))
+                if (!trim(name).empty()) {
+                    extension_lists.push_back(short_id.at(trim(name)));
+                    ++extension.count;
+                }
+            extensions.push_back(extension);
+        }
+        std::sort(extensions.begin(), extensions.end(), [](ScriptExtension const& a, ScriptExtension const& b) { return a.first < b.first; });
+    }
+
+    // The binary properties ECMA-262 names, from wherever the data has them.
+    struct Wanted {
+        char const* file;
+        char const* name;
+        char const* alias;
+    };
+    std::vector<Wanted> const wanted = {
+        { "PropList.txt", "ASCII_Hex_Digit", "AHex" }, { "DerivedCoreProperties.txt", "Alphabetic", "Alpha" },
+        { "PropList.txt", "Bidi_Control", "Bidi_C" }, { "UnicodeData.txt", "Bidi_Mirrored", "Bidi_M" },
+        { "DerivedCoreProperties.txt", "Case_Ignorable", "CI" }, { "DerivedCoreProperties.txt", "Cased", "" },
+        { "DerivedCoreProperties.txt", "Changes_When_Casefolded", "CWCF" }, { "DerivedCoreProperties.txt", "Changes_When_Casemapped", "CWCM" },
+        { "DerivedCoreProperties.txt", "Changes_When_Lowercased", "CWL" }, { "DerivedNormalizationProps.txt", "Changes_When_NFKC_Casefolded", "CWKCF" },
+        { "DerivedCoreProperties.txt", "Changes_When_Titlecased", "CWT" }, { "DerivedCoreProperties.txt", "Changes_When_Uppercased", "CWU" },
+        { "PropList.txt", "Dash", "" }, { "DerivedCoreProperties.txt", "Default_Ignorable_Code_Point", "DI" },
+        { "PropList.txt", "Deprecated", "Dep" }, { "PropList.txt", "Diacritic", "Dia" }, { "emoji-data.txt", "Emoji", "" },
+        { "emoji-data.txt", "Emoji_Component", "EComp" }, { "emoji-data.txt", "Emoji_Modifier", "EMod" },
+        { "emoji-data.txt", "Emoji_Modifier_Base", "EBase" }, { "emoji-data.txt", "Emoji_Presentation", "EPres" },
+        { "emoji-data.txt", "Extended_Pictographic", "ExtPict" }, { "PropList.txt", "Extender", "Ext" },
+        { "DerivedCoreProperties.txt", "Grapheme_Base", "Gr_Base" }, { "DerivedCoreProperties.txt", "Grapheme_Extend", "Gr_Ext" },
+        { "PropList.txt", "Hex_Digit", "Hex" }, { "PropList.txt", "IDS_Binary_Operator", "IDSB" },
+        { "PropList.txt", "IDS_Trinary_Operator", "IDST" }, { "DerivedCoreProperties.txt", "ID_Continue", "IDC" },
+        { "DerivedCoreProperties.txt", "ID_Start", "IDS" }, { "PropList.txt", "Ideographic", "Ideo" },
+        { "PropList.txt", "Join_Control", "Join_C" }, { "PropList.txt", "Logical_Order_Exception", "LOE" },
+        { "DerivedCoreProperties.txt", "Lowercase", "Lower" }, { "DerivedCoreProperties.txt", "Math", "" },
+        { "PropList.txt", "Noncharacter_Code_Point", "NChar" }, { "PropList.txt", "Pattern_Syntax", "Pat_Syn" },
+        { "PropList.txt", "Pattern_White_Space", "Pat_WS" }, { "PropList.txt", "Quotation_Mark", "QMark" },
+        { "PropList.txt", "Radical", "" }, { "PropList.txt", "Regional_Indicator", "RI" },
+        { "PropList.txt", "Sentence_Terminal", "STerm" }, { "PropList.txt", "Soft_Dotted", "SD" },
+        { "PropList.txt", "Terminal_Punctuation", "Term" }, { "PropList.txt", "Unified_Ideograph", "UIdeo" },
+        { "DerivedCoreProperties.txt", "Uppercase", "Upper" }, { "PropList.txt", "Variation_Selector", "VS" },
+        { "PropList.txt", "White_Space", "space" }, { "DerivedCoreProperties.txt", "XID_Continue", "XIDC" },
+        { "DerivedCoreProperties.txt", "XID_Start", "XIDS" },
+    };
+    std::map<std::string, std::vector<CodeRange>> by_name;
+    for (char const* file : { "PropList.txt", "DerivedCoreProperties.txt", "emoji-data.txt", "DerivedNormalizationProps.txt" }) {
+        std::set<std::string> names;
+        for (Wanted const& w : wanted)
+            if (std::string(w.file) == file)
+                names.insert(w.name);
+        for (auto& [name, ranges] : load_binary_properties(data_dir + "/" + file, names))
+            by_name[name] = merged_ranges(std::move(ranges));
+    }
+    by_name["Bidi_Mirrored"] = merged_ranges(mirrored);
+    for (Wanted const& w : wanted)
+        if (by_name[w.name].empty()) {
+            std::cerr << "gen-unicode: no ranges for " << w.name << "\n";
+            std::exit(1);
+        }
+
+    // The data directory names its own version on Scripts.txt's first line
+    // ("# Scripts-17.0.0.txt"): the properties follow the version test262 and
+    // the engines' own tables use, which need not be the one the rest of the
+    // headers are built from.
+    std::string version = unicode_version;
+    {
+        std::ifstream scripts = open_or_die(data_dir + "/Scripts.txt");
+        std::string first_line;
+        std::getline(scripts, first_line);
+        std::size_t const dash = first_line.find('-');
+        std::size_t const dot_txt = first_line.find(".txt");
+        if (dash != std::string::npos && dot_txt != std::string::npos && dot_txt > dash)
+            version = first_line.substr(dash + 1, dot_txt - dash - 1);
+    }
+    std::ofstream out(path);
+    out << "// GENERATED by tools/gen-unicode.cpp from the Unicode " << version << " data files. Do not edit.\n"
+        << "// What a regular expression's \\p{…} escapes name: the general categories,\n"
+        << "// the scripts (with their Script_Extensions) and the binary properties\n"
+        << "// ECMA-262 lists.\n\n"
+        << "#pragma once\n\n#include <cstdint>\n\nnamespace sashfold::unicode_properties {\n\n"
+        << "struct CodeRange {\n    std::uint32_t first;\n    std::uint32_t last;\n};\n\n";
+    out << "// General_Category, in runs: a run holds its category up to the next run's start.\n"
+        << "inline constexpr char const* general_category_codes[] = {";
+    for (std::size_t k = 0; k < categories.size(); ++k)
+        out << (k ? ", " : " ") << '"' << categories[k] << '"';
+    out << " };\n\nstruct GeneralCategoryRun {\n    std::uint32_t first;\n    std::uint8_t category;\n};\n\n"
+        << "inline constexpr GeneralCategoryRun general_category_runs[] = {\n";
+    std::size_t count = 0;
+    for (std::size_t c = 0; c < code_points; ++c) {
+        if (c > 0 && category[c] == category[c - 1])
+            continue;
+        out << (count % 6 == 0 ? "    " : " ") << "{ 0x" << std::hex << c << std::dec << ", " << int(category[c]) << " },"
+            << (count % 6 == 5 ? "\n" : "");
+        ++count;
+    }
+    out << "\n};\n\n";
+    out << "struct ScriptRange {\n    std::uint32_t first;\n    std::uint32_t last;\n    std::uint16_t script;\n};\n\n"
+        << "inline constexpr ScriptRange script_ranges[] = {\n";
+    for (std::size_t k = 0; k < script_ranges.size(); ++k)
+        out << (k % 4 == 0 ? "    " : " ") << "{ 0x" << std::hex << script_ranges[k].first << ", 0x" << script_ranges[k].last << std::dec << ", "
+            << script_ranges[k].script << " }," << (k % 4 == 3 ? "\n" : "");
+    out << "\n};\n\nstruct ScriptName {\n    char const* name;\n    std::uint16_t script;\n};\n\n"
+        << "// Every spelling of every script, long names and aliases.\ninline constexpr ScriptName script_names[] = {\n";
+    for (auto const& alias : script_aliases)
+        out << "    { \"" << alias.first << "\", " << alias.second << " },\n";
+    out << "};\n\nstruct ScriptExtension {\n    std::uint32_t first;\n    std::uint32_t last;\n    std::uint32_t offset;\n    std::uint32_t count;\n};\n\n"
+        << "// Script_Extensions where it differs from Script: the scripts each range belongs to.\n"
+        << "inline constexpr ScriptExtension script_extension_ranges[] = {\n";
+    for (std::size_t k = 0; k < extensions.size(); ++k)
+        out << (k % 3 == 0 ? "    " : " ") << "{ 0x" << std::hex << extensions[k].first << ", 0x" << extensions[k].last << std::dec << ", "
+            << extensions[k].offset << ", " << extensions[k].count << " }," << (k % 3 == 2 ? "\n" : "");
+    out << "\n};\n\ninline constexpr std::uint16_t script_extension_scripts[] = {";
+    for (std::size_t k = 0; k < extension_lists.size(); ++k)
+        out << (k % 16 == 0 ? "\n    " : " ") << extension_lists[k] << ",";
+    out << "\n};\n\nstruct BinaryProperty {\n    char const* name;\n    char const* alias;\n    std::uint32_t first_range;\n    std::uint32_t range_count;\n};\n\n"
+        << "inline constexpr BinaryProperty binary_properties[] = {\n";
+    std::uint32_t offset = 0;
+    for (Wanted const& w : wanted) {
+        out << "    { \"" << w.name << "\", \"" << w.alias << "\", " << offset << ", " << by_name[w.name].size() << " },\n";
+        offset += static_cast<std::uint32_t>(by_name[w.name].size());
+    }
+    out << "};\n\ninline constexpr CodeRange binary_property_ranges[] = {";
+    count = 0;
+    for (Wanted const& w : wanted)
+        for (CodeRange const& range : by_name[w.name]) {
+            out << (count % 6 == 0 ? "\n    " : " ") << "{ 0x" << std::hex << range.first << ", 0x" << range.last << std::dec << " },";
+            ++count;
+        }
+    out << "\n};\n\n}\n";
+}
+
 int main(int argc, char** argv)
 {
-    if (argc != 3) {
-        std::cerr << "usage: gen-unicode <data-dir> <repo-root>\n";
+    if (argc != 3 && argc != 4) {
+        std::cerr << "usage: gen-unicode <data-dir> <repo-root> [<properties-data-dir>]\n";
         return 2;
     }
     std::string const data_dir = argv[1];
@@ -1036,5 +1309,8 @@ int main(int argc, char** argv)
     emit_bidi(repo + "/src/core/BidiData.h", bidi, mirrors, brackets);
     emit_line_break(repo + "/src/core/LineBreakData.h", line_break, east_asian, pictographic, emoji_presentation,
         unicode_data);
+    // The regular expression properties may come from a newer release than
+    // the rest: an optional third argument names their data directory.
+    emit_properties(repo + "/src/core/PropertyData.h", argc == 4 ? argv[3] : data_dir);
     return 0;
 }

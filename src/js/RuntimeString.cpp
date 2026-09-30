@@ -237,7 +237,7 @@ std::optional<Compiled> compile_regexp(Interpreter& in, Value const& pattern, Va
     in.root(Value::string(flag_string));
     std::optional<RegexFlags> const parsed = RegexFlags::parse(flag_string->view());
     if (!parsed)
-        return in.throw_syntax_error("Invalid regular expression flags '" + flag_string->to_utf8() + "'");
+        return in.throw_syntax_error("Invalid flags supplied to RegExp constructor '" + flag_string->to_utf8() + "'");
     Regex::CompileError error;
     std::optional<Regex> regex = Regex::compile(source->view(), *parsed, &error);
     if (!regex)

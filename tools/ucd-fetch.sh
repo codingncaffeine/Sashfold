@@ -56,4 +56,21 @@ fetch "$base/ucd/EastAsianWidth.txt" EastAsianWidth.txt "# EastAsianWidth"
 fetch "$base/ucd/emoji/emoji-data.txt" emoji-data.txt "# emoji-data"
 fetch "$base/ucd/auxiliary/LineBreakTest.txt" LineBreakTest.txt "# LineBreakTest"
 
+# The files the regular expression properties (\p{...}) are made from, in
+# p17/: they follow the release the engines and test262 use, which is newer
+# than the version above. tools/gen-unicode.cpp takes the directory as its
+# third argument.
+dest="$dest/p17"
+mkdir -p "$dest"
+props="https://www.unicode.org/Public/17.0.0/ucd"
+fetch "$props/UnicodeData.txt" UnicodeData.txt ";"
+fetch "$props/Scripts.txt" Scripts.txt "# Scripts"
+fetch "$props/ScriptExtensions.txt" ScriptExtensions.txt "# ScriptExtensions"
+fetch "$props/PropList.txt" PropList.txt "# PropList"
+fetch "$props/DerivedCoreProperties.txt" DerivedCoreProperties.txt "# DerivedCoreProperties"
+fetch "$props/PropertyValueAliases.txt" PropertyValueAliases.txt "# PropertyValueAliases"
+fetch "$props/DerivedNormalizationProps.txt" DerivedNormalizationProps.txt "# DerivedNormalizationProps"
+fetch "$props/emoji/emoji-data.txt" emoji-data.txt "# emoji-data"
+dest="$(dirname "$dest")"
+
 echo "Unicode $version data is in $dest"
