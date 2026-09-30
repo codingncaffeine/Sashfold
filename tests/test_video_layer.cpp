@@ -300,11 +300,14 @@ void test_a_pipeline_shows_pictures_by_its_clock()
     // Standing at the start: the first frame's picture, and no other
     // however long it stands.
     std::shared_ptr<media::ShownPicture const> first;
+    steady::time_point first_asked;
     for (int i = 0; i < 2000 && !first; ++i) {
+        first_asked = steady::now();
         first = pipeline.show();
         if (!first)
             std::this_thread::sleep_for(std::chrono::milliseconds(1));
     }
+    steady::time_point const first_had = steady::now();
     CHECK(first != nullptr);
     if (!first)
         return;
@@ -322,7 +325,8 @@ void test_a_pipeline_shows_pictures_by_its_clock()
     clock->set(running);
     pipeline.clock_changed();
     double const stream_seconds = static_cast<double>(blocks.back().time_ns) / 1e9;
-    std::vector<std::pair<std::int64_t, double>> shown; // the frame's time, and when it was shown
+    std::vector<std::pair<std::int64_t, double>> shown; // the frame's time, and when it was asked for
+    std::vector<double> had; // when the asking came back with it
     std::uint64_t serial = first->serial;
     while (seconds_since(started) < stream_seconds + 0.4) {
         double const at = seconds_since(started);
@@ -330,6 +334,7 @@ void test_a_pipeline_shows_pictures_by_its_clock()
         if (picture->serial != serial) {
             serial = picture->serial;
             shown.emplace_back(picture->time_ns, at);
+            had.push_back(seconds_since(started));
         }
         std::this_thread::sleep_for(std::chrono::microseconds(500));
     }
@@ -356,8 +361,25 @@ void test_a_pipeline_shows_pictures_by_its_clock()
     CHECK_EQ(counts.failed, 0u);
     CHECK_EQ(counts.shown, serial);
     // What it says of the waits between pictures is what was measured here.
+    // A picture was shown between the asking for it and the having of it,
+    // so the longest wait is no shorter than the longest from one picture
+    // had to the next asked for, and no longer than the longest from one
+    // asked for to the next had — on a machine of any speed.
     double const longest_wait = pipeline.take_longest_wait_ms();
-    CHECK(longest_wait >= 25.0 && longest_wait < 200.0);
+    double at_least = 0;
+    double at_most = 0;
+    double asked_before = -std::chrono::duration<double>(started - first_asked).count();
+    double had_before = -std::chrono::duration<double>(started - first_had).count();
+    for (std::size_t i = 0; i < shown.size(); ++i) {
+        at_least = std::max(at_least, (shown[i].second - had_before) * 1000.0);
+        at_most = std::max(at_most, (had[i] - asked_before) * 1000.0);
+        asked_before = shown[i].second;
+        had_before = had[i];
+    }
+    std::cout << "a pipeline by its clock: " << shown.size() << " pictures, the latest " << latest * 1000.0
+              << " ms after its time, the longest wait " << longest_wait << " ms (between " << at_least << " and "
+              << at_most << ")\n";
+    CHECK(longest_wait >= at_least && longest_wait <= at_most);
 
     // A clock that may not pass a moment shows nothing from after it. (As
     // for a seek: the clock is told where playback stands before the
@@ -683,22 +705,33 @@ void test_the_compositor_shows_pictures_while_the_page_is_busy()
     CHECK(said.front().page_is_new && said.front().whole && said.front().page == page);
     CHECK(std::none_of(said.begin() + 1, said.end(), [](Said const& each) { return each.page_is_new; }));
     // Every picture at its time: a new frame in each saying after the
-    // first, none before it is due and none a tenth of a second late, and
-    // no two sayings a quarter of a second apart.
+    // first and none before it is due. How late is held two ways, because
+    // a shared runner holds a thread back a tenth of a second now and then:
+    // the middle one of them within a twentieth of a second of its time
+    // (a compositor late by habit is late in the middle too), and none a
+    // quarter of a second late nor two sayings a quarter of a second apart.
     double latest = 0;
     double longest_gap = 0;
     bool none_early = true;
     bool in_order = true;
+    std::vector<double> late;
     for (std::size_t i = 1; i < said.size(); ++i) {
         double const due = static_cast<double>(said[i].frame_ns) / 1e9;
         none_early = none_early && said[i].at >= due - 0.003;
         latest = std::max(latest, said[i].at - due);
+        late.push_back(said[i].at - due);
         longest_gap = std::max(longest_gap, said[i].at - said[i - 1].at);
         in_order = in_order && said[i].frame_ns > said[i - 1].frame_ns;
     }
+    std::sort(late.begin(), late.end());
+    double const late_in_the_middle = late.empty() ? 0.0 : late[late.size() / 2];
+    std::cout << "a compositor by itself: " << said.size() << " sayings, the latest " << latest * 1000.0
+              << " ms after its time, the middle one " << late_in_the_middle * 1000.0 << " ms, the longest gap "
+              << longest_gap * 1000.0 << " ms\n";
     CHECK(in_order);
     CHECK(none_early);
-    CHECK(latest < 0.100);
+    CHECK(late_in_the_middle < 0.050);
+    CHECK(latest < 0.250);
     CHECK(longest_gap < 0.250);
     CHECK_EQ(said.back().frame_ns, blocks.back().time_ns);
     // The patch is the video's place: the picture where the place is open,

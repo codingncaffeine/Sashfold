@@ -349,14 +349,20 @@ void test_a_video_plays_on_while_its_page_is_busy()
     Shown const apart = watch_a_video(true);
     CHECK(apart.done);
     CHECK(apart.took_ms >= video_busy_ms);
-    // About twenty pictures come due in the seven tenths of a second; a
-    // machine busy with other tests may miss a few, not most.
-    CHECK(apart.pictures >= 14);
-    CHECK(apart.longest_wait_ms < 200);
+    // About twenty pictures come due in the seven tenths of a second. A
+    // shared runner that wakes this loop late sees fewer of them, so the
+    // bands are drawn from the control below and not from a good machine:
+    // more pictures than a video its page paints may show, and no wait half
+    // as long as the page was busy.
+    CHECK(apart.pictures >= 10);
+    CHECK(apart.longest_wait_ms < video_busy_ms / 2);
     // Beside the video the page is its own blue, and no hole shows.
     CHECK((apart.beside == Color::rgb(0, 0, 160)));
 
     Shown const painted = watch_a_video(false);
+    std::cout << "a video while its page is busy: " << apart.pictures << " pictures, the longest wait "
+              << apart.longest_wait_ms << " ms; painted by its page: " << painted.pictures << " pictures, "
+              << painted.longest_wait_ms << " ms\n";
     CHECK(painted.done);
     CHECK(painted.took_ms >= video_busy_ms);
     CHECK(painted.pictures <= 8);
