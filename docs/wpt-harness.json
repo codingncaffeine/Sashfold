@@ -1,7 +1,7 @@
 {
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
   "date": "2026-09-30",
-  "passed": 136018,
+  "passed": 136077,
   "total": 160466,
   "files": 4974,
   "completed": 4972,
@@ -37,8 +37,8 @@
     { "path": "css/css-display", "passed": 152, "total": 443, "files": 33, "completed": 33 },
     { "path": "IndexedDB", "passed": 1356, "total": 1397, "files": 226, "completed": 226 },
     { "path": "html/canvas/element", "passed": 1903, "total": 3417, "files": 1286, "completed": 1286 },
-    { "path": "media-source", "passed": 67, "total": 355, "files": 83, "completed": 83 },
-    { "path": "html/semantics/embedded-content/media-elements", "passed": 299, "total": 867, "files": 379, "completed": 379 },
+    { "path": "media-source", "passed": 72, "total": 355, "files": 83, "completed": 83 },
+    { "path": "html/semantics/embedded-content/media-elements", "passed": 353, "total": 867, "files": 379, "completed": 379 },
     { "path": "html/semantics/embedded-content/the-video-element", "passed": 8, "total": 28, "files": 22, "completed": 22 },
     { "path": "html/semantics/embedded-content/the-audio-element", "passed": 12, "total": 24, "files": 14, "completed": 14 }
   ]
