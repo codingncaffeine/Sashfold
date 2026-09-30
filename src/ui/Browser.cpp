@@ -499,9 +499,21 @@ struct Browser::Impl {
         origins[requested.serialize(true)] = std::move(origin);
     }
 
+    struct Engine;
+
     struct Tab {
         std::vector<HistoryEntry> history;
         std::size_t index = 0;
+        // In a shell whose pages live in engines, the engine this tab's page
+        // is in — made the first time the page is needed — and everything
+        // below that is a page's stays empty: the history above, the
+        // container, the status and the icon are then a mirror of what the
+        // engine last said (hear).
+        std::shared_ptr<Engine> engine;
+        bool page_fullscreen = false; // of that mirror: an element of the page is shown full screen
+        bool page_modal = false; // a menu of the page's is open, or its link hints
+        bool page_menu_open = false;
+        std::string page_find_status;
         // The page's scripts and the page. The realm's wrappers point into
         // the document, so on every path that ends a tab the realm must go
         // first. Move-assignment runs the members forward — closing a tab
@@ -658,6 +670,100 @@ struct Browser::Impl {
         std::string favicon_key;
         bool pinned = false; // it comes back as it was
     };
+
+    // --- A page in an engine of its own ----------------------------------------
+    //
+    // A shell is whole — the chrome and every tab's page in one, all of it
+    // done by whoever calls it — or it is cut in two along the line a tab's
+    // page is drawn inside. Cut, the shell the window calls keeps the chrome:
+    // the strip, the toolbar, the bars, its menus, the palette, and of each
+    // tab what the chrome shows of it — a mirror: its history's addresses
+    // and titles, its icon, its status — with the page's picture as it was
+    // last painted. The page itself is in an ENGINE: a shell of its own that
+    // holds that one tab and draws no chrome, so that everything a page is —
+    // its scripts, styles, layout, scrolling, selection, forms, its own menus
+    // — is the code it always was, done elsewhere. What the reader does to
+    // the page goes to its engine as a job (ask); what the page has to tell
+    // comes back as what it says (say, hear) and what it asks of the shell
+    // (ask_shell). The shell that keeps the chrome reads nothing of a page.
+
+    // What an engine's page asks of the shell it is a tab of, done the next
+    // time the shell takes a step of loading: with the shell, and where the
+    // asking tab stands in it by then.
+    using ShellRequest = std::function<void(Impl& shell, std::size_t tab)>;
+
+    // What an engine says of its page, for the shell's mirror of the tab.
+    struct Said {
+        std::vector<HistoryEntry> history; // as the page's, without the pages' bytes
+        std::size_t index = 0;
+        std::string status;
+        std::shared_ptr<Bitmap const> favicon;
+        std::string favicon_key;
+        bool navigating = false; // a load on its way that has not reached the tab
+        bool fullscreen = false; // an element of the page is shown full screen
+        bool modal = false; // a menu of the page's is open, or its link hints: the keys are its
+        bool menu_open = false;
+        std::string find_status; // "3 of 12", for the bar the shell draws
+        Browser::WindowRequest window_request = Browser::WindowRequest::None;
+        std::optional<Bookmarks> bookmarks; // the reader's, when the page about them changed them
+        std::vector<ShellRequest> requests;
+    };
+
+    struct Engine {
+        // The shell it is a tab of, which keeps what every tab shares: the
+        // storage areas and the databases.
+        Impl* shell = nullptr;
+        // The shell that is the page: one tab, no chrome.
+        std::unique_ptr<Browser> browser;
+        Impl& page() { return *browser->m_impl; }
+        // The page as it was last painted, and how many times it has been:
+        // whole, and at all (a video's new picture paints only the video).
+        std::shared_ptr<Bitmap const> picture;
+        std::uint64_t pictures = 0;
+        std::uint64_t whole_pictures = 0;
+        // What the shell that keeps the chrome has taken of those, and what
+        // it last told the page: its size and scale, the bookmarks as they
+        // stood, the theme by its count.
+        std::uint64_t pictures_taken = 0;
+        std::uint64_t whole_pictures_taken = 0;
+        std::uint64_t bookmarks_told = ~std::uint64_t { 0 };
+        // What the page has asked of the shell, not yet done.
+        std::vector<ShellRequest> requests;
+        // The engine drew the blank page its tab began as, when it was made:
+        // the shell's first drawing of that tab is already done.
+        bool began_blank = false;
+        // Whether the page was last told it is the one shown.
+        bool shown_told = false;
+    };
+
+    // This shell keeps the chrome, and each tab's page is in an engine.
+    bool pages_in_engines = false;
+    // This shell is an engine's: the page of one tab of `engine_shell`.
+    Engine* engine_self = nullptr;
+    // An engine's page: whether its tab is the one in front in the shell it
+    // belongs to. What a whole shell does for its tab in front only — the
+    // pictures and fonts taken up as they come, the styles and layout kept
+    // fresh — an engine does only while its page is shown.
+    bool page_shown = true;
+    // What this engine's page asks of its shell, until the shell hears.
+    std::vector<ShellRequest> shell_requests;
+    // The profile of the engines that are gone, so that what the shell has
+    // done since it started never counts backwards.
+    Profile retired_profile;
+    mutable Profile reported_profile;
+    // The engine whose page asked for the theme being put on, which has it
+    // on already: not told again.
+    Engine* theme_told_by = nullptr;
+    // The page's picture changed since the frame was painted — and whether
+    // the page was painted whole for it, or only a video's new picture was.
+    bool content_dirty = false;
+    bool content_whole = false;
+    // The buttons that went down on the page and are still held, a bit
+    // each: their coming up is the page's to hear, and while the left one
+    // is held the pointer's moves are the page's, wherever they go.
+    int page_buttons = 0;
+    // The pointer was last over the page: leaving it is told to the page.
+    bool pointer_on_page = false;
 
     enum class Hover {
         None,
@@ -954,6 +1060,364 @@ struct Browser::Impl {
         add_blank_tab();
     }
 
+    // An engine's shell: the page of one tab of another shell, at the
+    // display's scale, with nothing of the chrome. The tab comes as the
+    // shell has it — its container, the history it was given — and is drawn
+    // here when it is the blank page every new tab begins as.
+    Impl(Loader& the_loader, Theme the_theme, int the_width, int the_height, Engine& the_engine, float the_scale,
+        Tab the_tab, bool blank)
+        : engine_self(&the_engine)
+        , loader(the_loader)
+        , theme(the_theme.scaled(the_scale))
+        , base_theme(std::move(the_theme))
+        , scale(the_scale)
+        , width(std::max(the_width, 1))
+        , height(std::max(the_height, 1))
+        , frame(width, height, theme.chrome_background)
+    {
+        tabs.push_back(std::move(the_tab));
+        if (blank)
+            render(tabs.front());
+        sync_address();
+    }
+
+    // --- The engines -----------------------------------------------------------
+
+    // The rectangle of the window an engine's page has: everything below
+    // the chrome, the find bar included in the chrome.
+    Rect page_rect() const { return layout_chrome().content; }
+
+    // The engine a tab's page is in, made the first time it is asked for —
+    // at the size and scale the page has now, holding the history the tab
+    // came with (a session's, a closed tab's, a copied one's); null in a
+    // shell that is whole.
+    Engine* engine_of(Tab& tab)
+    {
+        if (!pages_in_engines)
+            return nullptr;
+        if (!tab.engine)
+            tab.engine = make_engine(tab, page_rect());
+        return tab.engine.get();
+    }
+    Engine const* engine_of(Tab const& tab) const { return pages_in_engines ? tab.engine.get() : nullptr; }
+    std::shared_ptr<Engine> make_engine(Tab const& tab, Rect const& rect);
+
+    // The shell that is the page of the tab in front; null where the shell
+    // is whole.
+    Browser* front_page() const
+    {
+        if (!pages_in_engines)
+            return nullptr;
+        Tab const* const tab = active_tab();
+        return tab && tab->engine ? tab->engine->browser.get() : nullptr;
+    }
+
+    // The page in front paints itself, where something changed, and the
+    // shell takes the picture: whole, or with only a video's frame new.
+    void take_picture()
+    {
+        Tab* const tab = active_tab();
+        if (!tab)
+            return;
+        tell_shown();
+        ask(*tab, [](Browser& shell) {
+            Impl& page = *shell.m_impl;
+            Engine& engine = *page.engine_self;
+            std::uint64_t const paints = page.profile.paints;
+            std::uint64_t const video_paints = page.profile.video_paints;
+            Bitmap const& painted = shell.frame();
+            bool const whole = page.profile.paints != paints || !engine.picture;
+            if (!whole && page.profile.video_paints == video_paints)
+                return;
+            engine.picture = std::make_shared<Bitmap const>(painted);
+            ++engine.pictures;
+            if (whole)
+                ++engine.whole_pictures;
+        });
+        Engine& engine = *tab->engine;
+        if (engine.pictures != engine.pictures_taken) {
+            content_dirty = true;
+            if (engine.whole_pictures != engine.whole_pictures_taken)
+                content_whole = true;
+            engine.pictures_taken = engine.pictures;
+            engine.whole_pictures_taken = engine.whole_pictures;
+        }
+    }
+
+    // A history entry as the chrome needs it: where, what it is called, how
+    // far down — and not the page's bytes.
+    static HistoryEntry without_page(HistoryEntry const& entry)
+    {
+        HistoryEntry bare;
+        bare.url = entry.url;
+        bare.final_url = entry.final_url;
+        bare.title = entry.title;
+        bare.content_type = entry.content_type;
+        bare.status = entry.status;
+        bare.from_cache = entry.from_cache;
+        bare.internal = entry.internal;
+        bare.error = entry.error;
+        bare.scroll_y = entry.scroll_y;
+        bare.unloaded = entry.unloaded;
+        bare.pushed = entry.pushed;
+        return bare;
+    }
+
+    // What this engine's page has to tell the shell it is a tab of.
+    Said say()
+    {
+        Said said;
+        Tab& tab = tabs.front();
+        said.history.reserve(tab.history.size());
+        for (HistoryEntry const& entry : tab.history)
+            said.history.push_back(without_page(entry));
+        said.index = tab.index;
+        said.status = tab.status;
+        said.favicon = tab.favicon;
+        said.favicon_key = tab.favicon_key;
+        said.navigating = tab.navigating.has_value()
+            || std::any_of(pending.begin(), pending.end(), [](Pending const& load) { return load.tab == 0; });
+        said.fullscreen = page_fullscreen();
+        said.menu_open = !menus.empty();
+        said.modal = said.menu_open || hints_active;
+        said.find_status = find_status(tab);
+        said.window_request = window_request;
+        window_request = Browser::WindowRequest::None;
+        if (engine_self->bookmarks_told != bookmarks.changes()) {
+            said.bookmarks = bookmarks;
+            engine_self->bookmarks_told = bookmarks.changes();
+        }
+        said.requests = std::move(shell_requests);
+        shell_requests.clear();
+        return said;
+    }
+
+    // The shell takes what a tab's engine said into its mirror of the tab.
+    void hear(Tab& tab, Said said)
+    {
+        Engine& engine = *tab.engine;
+        bool const front = &tab == active_tab();
+        bool changed = tab.index != said.index || tab.history.size() != said.history.size() || tab.status != said.status
+            || tab.favicon != said.favicon || tab.navigating.has_value() != said.navigating;
+        for (std::size_t i = 0; !changed && i < said.history.size(); ++i) {
+            HistoryEntry const& was = tab.history[i];
+            HistoryEntry const& is = said.history[i];
+            changed = was.title != is.title || was.internal != is.internal || was.error != is.error
+                || was.unloaded != is.unloaded || was.url.serialize() != is.url.serialize()
+                || was.final_url.serialize() != is.final_url.serialize();
+        }
+        tab.history = std::move(said.history);
+        tab.index = said.index;
+        tab.status = std::move(said.status);
+        tab.favicon = std::move(said.favicon);
+        tab.favicon_key = std::move(said.favicon_key);
+        if (said.navigating) {
+            Navigating on_its_way; // only that there is one: the load itself is the engine's
+            tab.navigating = std::move(on_its_way);
+        } else {
+            tab.navigating.reset();
+        }
+        if (tab.page_fullscreen != said.fullscreen || tab.page_find_status != said.find_status
+            || tab.page_menu_open != said.menu_open) {
+            tab.page_fullscreen = said.fullscreen;
+            tab.page_find_status = std::move(said.find_status);
+            changed = true;
+        }
+        tab.page_modal = said.modal;
+        tab.page_menu_open = said.menu_open;
+        if (said.window_request != Browser::WindowRequest::None && front)
+            window_request = said.window_request;
+        if (said.bookmarks) {
+            bookmarks = std::move(*said.bookmarks);
+            engine.bookmarks_told = bookmarks.changes();
+            changed = true;
+        }
+        for (ShellRequest& request : said.requests)
+            engine.requests.push_back(std::move(request));
+        if (changed) {
+            if (front)
+                sync_address();
+            dirty = true;
+        }
+    }
+
+    // A job for a tab's page, done in its engine; then what the page says
+    // of itself is heard. The page is first told what of the shell's it
+    // keeps a copy of and has not heard the last of.
+    void ask(Tab& tab, std::function<void(Browser&)> const& job)
+    {
+        Engine* const engine = engine_of(tab);
+        if (!engine)
+            return;
+        std::shared_ptr<Engine> const held = tab.engine; // the job may close its own tab
+        Impl& page = engine->page();
+        if (engine->bookmarks_told != bookmarks.changes()) {
+            page.bookmarks = bookmarks;
+            engine->bookmarks_told = bookmarks.changes();
+        }
+        // Its part of the window, and the display's scale, as they are now:
+        // a page always knows the room it has, as a whole shell's does.
+        Rect const rect = page_rect();
+        if (page.width != std::max(rect.width, 1) || page.height != std::max(rect.height, 1) || page.scale != scale) {
+            page.width = std::max(rect.width, 1);
+            page.height = std::max(rect.height, 1);
+            if (page.scale != scale) {
+                page.scale = scale;
+                page.theme = page.base_theme.scaled(scale);
+            }
+            page.dirty = true;
+        }
+        job(*engine->browser);
+        hear(tab, page.say());
+    }
+
+    // The same for the tab in front, with the page's place in the window:
+    // the job is given the window point (0, 0) of the page's own.
+    void ask_front(std::function<void(Browser&)> const& job)
+    {
+        if (Tab* const tab = active_tab())
+            ask(*tab, job);
+    }
+
+    // What the page at a window point is asked about is asked at the point
+    // of its own frame: the window's, less where the page begins.
+    std::pair<int, int> to_page(int x, int y) const
+    {
+        Rect const rect = page_rect();
+        return { x - rect.x, y - rect.y };
+    }
+
+    // An engine's page asks its shell for something only the shell can do —
+    // a tab opened, a theme put on — which is done when the shell next takes
+    // a step of loading, as a window a page asks for always was.
+    void ask_shell(ShellRequest request) { shell_requests.push_back(std::move(request)); }
+
+    // The shell does the oldest thing its tabs' pages have asked of it;
+    // false when there is none.
+    bool do_page_request()
+    {
+        for (std::size_t i = 0; i < tabs.size(); ++i) {
+            Engine* const engine = tabs[i].engine.get();
+            if (!engine || engine->requests.empty())
+                continue;
+            ShellRequest const request = std::move(engine->requests.front());
+            engine->requests.erase(engine->requests.begin());
+            request(*this, i);
+            return true;
+        }
+        return false;
+    }
+
+    bool page_requests_waiting() const
+    {
+        return std::any_of(tabs.begin(), tabs.end(),
+            [](Tab const& tab) { return tab.engine && !tab.engine->requests.empty(); });
+    }
+
+    // Each page is told whether it is the one shown, when that has changed:
+    // the tab in front's is, and draws itself again for having been away.
+    void tell_shown()
+    {
+        if (!pages_in_engines)
+            return;
+        for (std::size_t i = 0; i < tabs.size(); ++i) {
+            Engine* const engine = tabs[i].engine.get();
+            bool const shown = i == active;
+            if (!engine || engine->shown_told == shown)
+                continue;
+            engine->shown_told = shown;
+            ask(tabs[i], [shown](Browser& shell) {
+                shell.m_impl->page_shown = shown;
+                shell.m_impl->dirty = true;
+            });
+        }
+    }
+
+    // What the shell has to say of a tab, in the words at its page's foot —
+    // which a page in an engine draws, and so is told.
+    void say_status(Tab& tab, std::string words)
+    {
+        if (pages_in_engines) {
+            ask(tab, [words](Browser& shell) {
+                shell.m_impl->tabs.front().status = words;
+                shell.m_impl->dirty = true;
+            });
+            return;
+        }
+        tab.status = std::move(words);
+    }
+
+    // Every tab's page is told: a theme, a setting the pages keep a copy of.
+    void tell_pages(std::function<void(Browser&)> const& job)
+    {
+        for (std::size_t i = 0; i < tabs.size(); ++i) {
+            if (tabs[i].engine)
+                ask(tabs[i], job);
+        }
+    }
+
+    // A tab's history with its pages' bytes, which only the engine holds:
+    // what a closed tab keeps and a copied tab starts with.
+    std::vector<HistoryEntry> history_with_pages(Tab& tab)
+    {
+        if (Engine* const engine = pages_in_engines ? tab.engine.get() : nullptr) {
+            Tab& its = engine->page().tabs.front();
+            if (HistoryEntry* const entry = its.current())
+                entry->scroll_y = its.scroll_y;
+            return its.history;
+        }
+        return tab.history;
+    }
+
+    // An engine that is going leaves what it counted with the shell.
+    void retire(Tab& tab)
+    {
+        if (!tab.engine)
+            return;
+        add_page_profile(retired_profile, tab.engine->page().profile);
+        tab.engine.reset();
+    }
+
+    static void add_page_profile(Profile& sum, Profile const& page)
+    {
+        sum.restyles += page.restyles;
+        sum.restyled_elements += page.restyled_elements;
+        sum.whole_restyles += page.whole_restyles;
+        sum.relayouts += page.relayouts;
+        sum.video_paints += page.video_paints;
+        sum.video_paint_ms += page.video_paint_ms;
+        sum.sheet_collections += page.sheet_collections;
+        sum.sheet_decodes += page.sheet_decodes;
+        sum.commit_ms += page.commit_ms;
+        sum.sheets_ms += page.sheets_ms;
+        sum.fonts_ms += page.fonts_ms;
+        sum.style_compile_ms += page.style_compile_ms;
+        sum.images_ms += page.images_ms;
+        sum.restyle_ms += page.restyle_ms;
+        sum.relayout_ms += page.relayout_ms;
+        sum.frames_ms += page.frames_ms;
+        sum.paint_ms += page.paint_ms;
+    }
+
+    // What the shell and its tabs' pages have done between them.
+    Profile const& whole_profile() const
+    {
+        if (!pages_in_engines)
+            return profile;
+        reported_profile = profile;
+        add_page_profile(reported_profile, retired_profile);
+        for (Tab const& tab : tabs) {
+            if (tab.engine)
+                add_page_profile(reported_profile, tab.engine->page().profile);
+        }
+        return reported_profile;
+    }
+
+    // The tab a whole shell does its front-tab work for: the tab in front —
+    // and none in an engine whose page is not the one shown.
+    Tab* shown_tab() { return engine_self && !page_shown ? nullptr : active_tab(); }
+    Tab const* shown_tab() const { return engine_self && !page_shown ? nullptr : active_tab(); }
+
     // --- Tabs and history -----------------------------------------------------
 
     Tab* active_tab() { return tabs.empty() ? nullptr : &tabs[std::min(active, tabs.size() - 1)]; }
@@ -1047,6 +1511,9 @@ struct Browser::Impl {
 
     bindings::StorageArea* storage_area(std::string_view container, std::string_view origin)
     {
+        // The areas are the shell's, shared by every tab's page.
+        if (engine_self)
+            return engine_self->shell->storage_area(container, origin);
         return &storage[storage_key(container, origin)];
     }
 
@@ -1078,6 +1545,8 @@ struct Browser::Impl {
 
     std::shared_ptr<idb::Storage> indexed_db_storage(std::string_view container, std::string_view origin)
     {
+        if (engine_self)
+            return engine_self->shell->indexed_db_storage(container, origin);
         std::shared_ptr<idb::Storage>& kept = indexed_db[storage_key(container, origin)];
         if (!kept) {
             std::filesystem::path directory;
@@ -1304,6 +1773,8 @@ struct Browser::Impl {
         hints.clear();
         menus.clear();
         main_menu_open = false;
+        for (Tab& tab : tabs)
+            retire(tab); // the engines of the tabs that go
         tabs = std::move(restored);
         active = 0;
         opened_beside = 0;
@@ -1421,15 +1892,22 @@ struct Browser::Impl {
         }
         Theme const& t = theme;
         ChromeLayout c;
-        c.tab_strip = Rect { 0, 0, width, t.tab_strip_height };
-        c.toolbar = Rect { 0, t.tab_strip_height, width, t.toolbar_height };
-        int content_top = t.tab_strip_height + t.toolbar_height;
-        if (bookmarks_bar_shown()) {
+        // An engine's frame is its page's: none of the chrome is laid out in
+        // it, only what is drawn over a page and is the page's own — the
+        // developer tools under it, the words at its foot, its menus.
+        bool const page_only = engine_self != nullptr;
+        int content_top = 0;
+        if (!page_only) {
+            c.tab_strip = Rect { 0, 0, width, t.tab_strip_height };
+            c.toolbar = Rect { 0, t.tab_strip_height, width, t.toolbar_height };
+            content_top = t.tab_strip_height + t.toolbar_height;
+        }
+        if (!page_only && bookmarks_bar_shown()) {
             // The bar is the toolbar's second row, and takes its height from the content.
             c.bookmarks_bar = Rect { 0, content_top, width, t.bookmarks_bar_height };
             content_top += t.bookmarks_bar_height;
         }
-        if (find_open) {
+        if (!page_only && find_open) {
             // The find bar sits under the toolbar and takes its height from the content.
             c.find_bar = Rect { 0, content_top, width, t.find_height };
             int const box_width = std::min(std::clamp(width / 2, 120, 360), std::max(0, width - 2 * t.padding));
@@ -1442,7 +1920,7 @@ struct Browser::Impl {
         // the page's bottom corner while there is something to say, and is
         // not there otherwise: no bar is kept for it.
         c.content = Rect { 0, content_top, width, std::max(0, height - content_top) };
-        if (devtools_open) {
+        if (devtools_open && !pages_in_engines) {
             // The panel takes the bottom of the content: the tree left, the
             // inspected element's box and style right.
             int const panel = std::min(t.devtools_height, c.content.height / 2);
@@ -1453,7 +1931,9 @@ struct Browser::Impl {
             c.devtools_styles = Rect { tree_width + t.padding, c.devtools.y + t.border_width + t.padding / 2,
                 std::max(0, width - tree_width - 2 * t.padding), panel - t.border_width };
         }
-        if (std::string const said = status_text(); status_worth_showing(said)) {
+        // (Where the pages are in engines, the words at a page's foot are
+        // its engine's to say, in the page's picture.)
+        if (std::string const said = pages_in_engines ? std::string() : status_text(); status_worth_showing(said)) {
             // As wide as its words, up to three fifths of the window.
             int const wanted = static_cast<int>(text_width(decode_utf8(said), t.status_font_size) + 0.5f) + 2 * t.padding;
             int const box_width = std::min(wanted, std::max(0, width * 3 / 5));
@@ -1479,6 +1959,12 @@ struct Browser::Impl {
                     break;
                 c.palette_rows.push_back(row);
             }
+        }
+        if (page_only) {
+            c.menus.reserve(menus.size());
+            for (std::size_t i = 0; i < menus.size(); ++i)
+                c.menus.push_back(lay_out_menu(menus[i], i > 0 ? &c.menus[i - 1] : nullptr));
+            return c;
         }
 
         // The window's controls, when the shell draws the frame: three
@@ -2309,6 +2795,8 @@ struct Browser::Impl {
     bool page_fullscreen() const
     {
         Tab const* const tab = active_tab();
+        if (pages_in_engines)
+            return tab && tab->page_fullscreen; // as its engine last said
         return fullscreen_document != nullptr && tab && tab->document.get() == fullscreen_document;
     }
 
@@ -2317,6 +2805,15 @@ struct Browser::Impl {
     // the window back — here, if the page is gone or did not answer.
     void leave_fullscreen()
     {
+        if (pages_in_engines) {
+            // The page that has the screen is told to give it back; what it
+            // says then brings the chrome and the window back.
+            for (Tab& tab : tabs) {
+                if (tab.page_fullscreen)
+                    ask(tab, [](Browser& shell) { shell.m_impl->leave_fullscreen(); });
+            }
+            return;
+        }
         if (fullscreen_document == nullptr)
             return;
         if (Tab* const owner = tab_of(fullscreen_document); owner && owner->realm)
@@ -2851,7 +3348,7 @@ struct Browser::Impl {
         // window asks for the whole screen; leaving brings both back.
         hooks.request_fullscreen = [this, document](bool enter) {
             Tab const* const owner = tab_of(document);
-            if (!owner || owner != active_tab())
+            if (!owner || owner != shown_tab())
                 return false;
             if (enter) {
                 fullscreen_document = document;
@@ -3237,6 +3734,17 @@ struct Browser::Impl {
 
     void render(Tab& tab)
     {
+        if (pages_in_engines) {
+            // The page is its engine's to draw. An engine just made has
+            // drawn the blank page its tab began as; any other is asked to
+            // draw the entry its tab stands on.
+            bool const made_now = !tab.engine;
+            Engine& engine = *engine_of(tab);
+            if (!(made_now && engine.began_blank))
+                ask(tab, [](Browser& shell) { shell.m_impl->render(shell.m_impl->tabs.front()); });
+            dirty = true;
+            return;
+        }
         HistoryEntry* const entry = tab.current();
         // The realm goes before the document its wrappers point into.
         tab.realm.reset();
@@ -3441,6 +3949,15 @@ struct Browser::Impl {
     {
         if (tab_index >= tabs.size())
             return;
+        if (pages_in_engines) {
+            // The load is the page's engine's to make, from the tab as it
+            // stands there.
+            ask(tabs[tab_index], [url, mode, https_first, post](Browser& shell) {
+                shell.m_impl->queue(0, url, mode, https_first, post);
+            });
+            dirty = true;
+            return;
+        }
         tabs[tab_index].status = "Loading " + url.serialize();
         // What an internal page's address asks to be done — a bookmark
         // removed, a theme put on — is honoured only when it was asked from
@@ -3547,8 +4064,15 @@ struct Browser::Impl {
             return std::nullopt;
         bool const offered = std::any_of(theme_presets.begin(), theme_presets.end(),
             [&](Browser::ThemePreset const& preset) { return preset.path == *written; });
-        if (!offered)
+        if (!offered) {
             theme_presets.push_back({ converted->name, *written });
+            if (engine_self) {
+                ask_shell([preset = theme_presets.back()](Impl& shell, std::size_t) {
+                    shell.theme_presets.push_back(preset);
+                    shell.tell_pages([presets = shell.theme_presets](Browser& page) { page.set_theme_presets(presets); });
+                });
+            }
+        }
         put_on_theme(*written);
         return converted->name;
     }
@@ -3630,6 +4154,10 @@ struct Browser::Impl {
         Tab* const tab = active_tab();
         if (!tab)
             return;
+        if (pages_in_engines) {
+            ask(*tab, [html, url, status](Browser& shell) { shell.m_impl->show_internal(html, url, status); });
+            return;
+        }
         HistoryEntry entry;
         entry.url = url;
         entry.final_url = url;
@@ -3981,6 +4509,10 @@ struct Browser::Impl {
         Tab* const tab = active_tab();
         if (!tab)
             return;
+        if (pages_in_engines) {
+            ask(*tab, [url](Browser& shell) { shell.m_impl->open(url); });
+            return;
+        }
         HistoryEntry const* const current = tab->current();
         // A fragment on the current document scrolls; it does not reload.
         if (current && !current->internal && url.fragment
@@ -4005,6 +4537,11 @@ struct Browser::Impl {
         Tab* const tab = active_tab();
         if (!tab || tab->history.empty())
             return;
+        if (pages_in_engines) {
+            ask(*tab, [delta](Browser& shell) { shell.m_impl->go(delta); });
+            refresh_hover();
+            return;
+        }
         auto const target = static_cast<std::ptrdiff_t>(tab->index) + delta;
         if (target < 0 || target >= static_cast<std::ptrdiff_t>(tab->history.size()))
             return;
@@ -4042,6 +4579,17 @@ struct Browser::Impl {
     {
         blur_address();
         add_blank_tab(container);
+        if (pages_in_engines)
+            ask(tabs[active], [container](Browser& shell) { shell.m_impl->become_new_tab_page(container); });
+        else
+            become_new_tab_page(container);
+        focus_address(false);
+        refresh_hover();
+    }
+
+    // The blank tab in front becomes the new-tab page, in place.
+    void become_new_tab_page(std::string const& container)
+    {
         if (HistoryEntry* const entry = tabs[active].current()) {
             entry->url = *net::parse_url("about:newtab");
             entry->final_url = entry->url;
@@ -4051,8 +4599,6 @@ struct Browser::Impl {
         }
         if (!container.empty())
             tabs[active].status = "New tab in the " + container + " container";
-        focus_address(false);
-        refresh_hover();
     }
 
     void new_tab() { new_tab_in({}); }
@@ -4081,7 +4627,8 @@ struct Browser::Impl {
         if (files.empty())
             return urls;
         std::sort(files.begin(), files.end());
-        std::size_t const first = new_tabs_opened++ % files.size();
+        // (Counted by the shell that keeps the tabs, whichever tab's page asks.)
+        std::size_t const first = (engine_self ? engine_self->shell->new_tabs_opened : new_tabs_opened)++ % files.size();
         for (std::size_t i = 0; i < files.size(); ++i) {
             std::string generic = files[(first + i) % files.size()].generic_string();
             if (!generic.starts_with("/"))
@@ -4136,8 +4683,11 @@ struct Browser::Impl {
         Tab& tab = tabs[index];
         if (!worth_reopening(tab))
             return;
-        if (HistoryEntry* const entry = tab.current())
+        if (pages_in_engines) {
+            tab.history = history_with_pages(tab); // the pages' bytes are the engine's
+        } else if (HistoryEntry* const entry = tab.current()) {
             entry->scroll_y = tab.scroll_y;
+        }
         closed_tabs.push_back(ClosedTab { std::move(tab.history), tab.index, tab.container, index,
             std::move(tab.favicon), std::move(tab.favicon_key), tab.pinned });
         tab.history.clear();
@@ -4179,17 +4729,23 @@ struct Browser::Impl {
         if (index >= tabs.size())
             return;
         blur_address();
-        Tab const& from = tabs[index];
+        Tab& from = tabs[index];
         Tab tab;
-        tab.history = from.history;
+        tab.history = history_with_pages(from);
         tab.index = from.index;
         tab.container = from.container;
         tab.favicon = from.favicon; // the same picture, shared
         tab.favicon_key = from.favicon_key;
         tab.pinned = from.pinned; // a pinned tab's copy stands beside it, pinned
-        if (HistoryEntry* const entry = tab.current())
-            entry->scroll_y = from.scroll_y;
-        tab.scroll_y = from.scroll_y;
+        if (pages_in_engines) {
+            // Where the page stands is what its engine's entry says.
+            if (HistoryEntry const* const entry = tab.current())
+                tab.scroll_y = entry->scroll_y;
+        } else {
+            if (HistoryEntry* const entry = tab.current())
+                entry->scroll_y = from.scroll_y;
+            tab.scroll_y = from.scroll_y;
+        }
         std::size_t const at = insert_tab(index + 1, std::move(tab), true);
         show_kept(at);
     }
@@ -4255,6 +4811,14 @@ struct Browser::Impl {
     void show_kept(std::size_t index)
     {
         Tab& tab = tabs[index];
+        if (pages_in_engines) {
+            // Its engine, made with the history the tab came with, shows it.
+            ask(tab, [](Browser& shell) { shell.m_impl->show_kept(0); });
+            sync_address();
+            refresh_hover();
+            dirty = true;
+            return;
+        }
         HistoryEntry const* const entry = tab.current();
         if (entry && entry->unloaded) {
             ensure_loaded(index);
@@ -4274,6 +4838,11 @@ struct Browser::Impl {
         close_menus();
         remember_closed(index);
         opened_beside = 0;
+        if (pages_in_engines) {
+            if (tabs[index].page_fullscreen)
+                window_request = Browser::WindowRequest::ExitFullscreen;
+            retire(tabs[index]);
+        }
         tabs.erase(tabs.begin() + static_cast<std::ptrdiff_t>(index));
         for (Pending& load : pending) {
             if (load.tab > index)
@@ -4311,6 +4880,7 @@ struct Browser::Impl {
         if (index != active)
             opened_beside = 0; // what another tab opens stands beside that tab
         active = index;
+        tell_shown();
         ensure_loaded(index); // a restored tab fetches its page now
         ensure_fresh(tabs[index]); // its scripts may have run while another tab showed
         blur_address();
@@ -4414,7 +4984,7 @@ struct Browser::Impl {
         std::string const where = entry->final_url.serialize();
         if (BookmarkNode const* const marked = bookmarks.find_url(where)) {
             bookmarks.remove(marked->id);
-            tab->status = "Bookmark removed";
+            say_status(*tab, "Bookmark removed");
         } else {
             auto const now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
             std::uint64_t const made = bookmarks.add_bookmark(Bookmarks::bar_id, tab_title(*tab), where, static_cast<std::int64_t>(now));
@@ -4422,7 +4992,7 @@ struct Browser::Impl {
                 std::vector<std::uint8_t> const png = encode_png(*tab->favicon);
                 bookmarks.set_icon(made, std::string(png.begin(), png.end()));
             }
-            tab->status = "Bookmarked: it is on the bookmarks bar";
+            say_status(*tab, "Bookmarked: it is on the bookmarks bar");
         }
         refresh_hover();
         dirty = true;
@@ -4434,9 +5004,9 @@ struct Browser::Impl {
     {
         bookmarks.set_bar_mode(bookmarks.bar_mode() == BookmarksBarMode::Never ? BookmarksBarMode::Always : BookmarksBarMode::Never);
         if (Tab* const tab = active_tab()) {
-            tab->status = bookmarks.bar_mode() == BookmarksBarMode::Never ? "The bookmarks bar is hidden"
-                : bookmarks.bar().children.empty()                         ? "The bookmarks bar is shown once it holds a bookmark (Ctrl+D)"
-                                                                           : "The bookmarks bar is shown";
+            say_status(*tab, bookmarks.bar_mode() == BookmarksBarMode::Never ? "The bookmarks bar is hidden"
+                    : bookmarks.bar().children.empty()                       ? "The bookmarks bar is shown once it holds a bookmark (Ctrl+D)"
+                                                                             : "The bookmarks bar is shown");
         }
         refresh_hover();
         dirty = true;
@@ -4974,7 +5544,9 @@ struct Browser::Impl {
                 next = Hover::DevtoolsStyles;
             else if (c.content.contains(x, y)) {
                 next = Hover::Content;
-                if (std::optional<LinkHit> found = link_under(x, y)) {
+                // (In a shell that keeps the chrome alone, what is under the
+                // pointer there is the page's engine's to know.)
+                if (std::optional<LinkHit> found = pages_in_engines ? std::nullopt : link_under(x, y)) {
                     link = std::move(found->url);
                     link_frame = found->frame;
                     link_target = std::move(found->target);
@@ -4997,6 +5569,11 @@ struct Browser::Impl {
                 link.reset();
                 link_frame = nullptr;
             }
+        }
+        if (Tab const* const front = active_tab(); pages_in_engines && front && front->page_menu_open && next != Hover::Content) {
+            // A menu of the page's holds the pointer as one of the shell's does.
+            next = Hover::None;
+            index = 0;
         }
         if (!menus.empty()) {
             // An open menu holds the pointer: nothing under it or beside it
@@ -5036,6 +5613,33 @@ struct Browser::Impl {
         }
         if (!menus.empty())
             follow_pointer_in_menus(from_x, from_y);
+        if (pages_in_engines) {
+            // The page hears where the pointer is over it, at the point of
+            // its own frame, and that it has left.
+            if (hover == Hover::Content || (page_buttons & 2) != 0) {
+                auto const [px, py] = to_page(x, y);
+                pointer_on_page = true;
+                ask_front([px, py](Browser& shell) { shell.m_impl->update_hover(px, py); });
+            } else if (pointer_on_page) {
+                pointer_on_page = false;
+                ask_front([](Browser& shell) { shell.m_impl->update_hover(-1, -1); });
+            }
+        }
+    }
+
+    // A button that went down on the page is the page's: pressed at the
+    // point of its own frame, and its coming up told to it (mouse_up).
+    void press_page(int x, int y, int button, platform::Modifiers const& modifiers)
+    {
+        auto const [px, py] = to_page(x, y);
+        page_buttons |= 1 << button;
+        ask_front([px, py, button, modifiers](Browser& shell) { shell.mouse_down(px, py, button, modifiers); });
+    }
+
+    // A key the page is to hear, and then its engine's own handling of it.
+    void key_to_page(KeyEvent const& key)
+    {
+        ask_front([key](Browser& shell) { shell.key_down(key); });
     }
 
     // --- The command palette ----------------------------------------------------
@@ -5210,6 +5814,21 @@ struct Browser::Impl {
             return;
         set_base_theme(std::move(*loaded));
         theme_request = path;
+        // A page put it on — its own page of themes, a theme it downloaded:
+        // the theme is the window's, and the shell that keeps the chrome
+        // puts it on there and on every other page.
+        if (engine_self)
+            ask_shell([path](Impl& shell, std::size_t tab) { shell.put_on_theme_from(path, tab); });
+    }
+
+    // The same, asked by the page of one of the shell's tabs, which has put
+    // the theme on already.
+    void put_on_theme_from(std::string const& path, std::size_t from)
+    {
+        std::shared_ptr<Engine> const asker = from < tabs.size() ? tabs[from].engine : nullptr;
+        theme_told_by = asker.get();
+        put_on_theme(path);
+        theme_told_by = nullptr;
     }
 
     void set_base_theme(Theme loaded)
@@ -5217,6 +5836,16 @@ struct Browser::Impl {
         base_theme = std::move(loaded);
         theme = base_theme.scaled(scale);
         load_theme_pictures();
+        if (pages_in_engines) {
+            // Each page takes the theme itself, for what of it a page shows.
+            for (std::size_t i = 0; i < tabs.size(); ++i) {
+                if (tabs[i].engine && tabs[i].engine.get() != theme_told_by)
+                    ask(tabs[i], [told = base_theme](Browser& shell) { shell.set_theme(told); });
+            }
+            refresh_hover();
+            dirty = true;
+            return;
+        }
         for (Tab& tab : tabs) {
             // The new-tab page is made of the theme's colors and pictures:
             // one that is showing is made again, not left in the theme it
@@ -5237,6 +5866,10 @@ struct Browser::Impl {
     // theme_problems says which and why.
     void load_theme_pictures()
     {
+        // (An engine draws no header: the theme's pictures, and the face the
+        // chrome's words are set in, are the shell's that keeps the chrome.)
+        if (engine_self)
+            return;
         // The face its words are set in goes on with the rest of the theme.
         set_chrome_font_family(base_theme.font_family);
         bookmark_widths_at = ~std::uint64_t { 0 }; // another face, other widths
@@ -5926,6 +6559,11 @@ struct Browser::Impl {
             return;
         blur_address();
         blur_find();
+        if (pages_in_engines) {
+            auto const [px, py] = to_page(x, y);
+            ask(*tab, [px, py, regardless](Browser& shell) { shell.m_impl->open_content_menu(px, py, regardless); });
+            return;
+        }
         bool const allowed = page_allows_menu(*tab, x, y);
         if (!tab->document || (!allowed && !regardless))
             return;
@@ -6425,6 +7063,14 @@ struct Browser::Impl {
     void mouse_move(int x, int y)
     {
         update_hover(x, y);
+        if (pages_in_engines) {
+            // A thumb or a selection being dragged is the page's.
+            if ((page_buttons & 2) != 0) {
+                auto const [px, py] = to_page(x, y);
+                ask_front([px, py](Browser& shell) { shell.mouse_move(px, py); });
+            }
+            return;
+        }
         if (bar_drag) {
             Tab* const tab = active_tab();
             ChromeLayout const c = layout_chrome();
@@ -6473,6 +7119,10 @@ struct Browser::Impl {
 
     void mouse_up(int button)
     {
+        if (pages_in_engines && (page_buttons & (1 << button)) != 0) {
+            page_buttons &= ~(1 << button);
+            ask_front([button](Browser& shell) { shell.mouse_up(0, 0, button); });
+        }
         if (button == 1) {
             selecting = false;
             bar_drag.reset();
@@ -6536,6 +7186,10 @@ struct Browser::Impl {
                 platform::write_clipboard_text(address);
             return;
         }
+        if (pages_in_engines) {
+            ask_front([](Browser& shell) { shell.m_impl->copy_selection(); });
+            return;
+        }
         if (Tab* const with_control = tab_with_focused_control()) {
             if (std::optional<std::string> const value = selected_in_control(*with_control); value && !value->empty())
                 platform::write_clipboard_text(*value);
@@ -6552,6 +7206,12 @@ struct Browser::Impl {
     // The clipboard's text typed into whatever has focus.
     void paste()
     {
+        if (pages_in_engines && !address_focus) {
+            // Into the page's field, by the page's engine.
+            if (!find_focus && !palette_open)
+                ask_front([](Browser& shell) { shell.m_impl->paste(); });
+            return;
+        }
         std::optional<std::string> const text = platform::read_clipboard_text();
         if (!text || text->empty())
             return;
@@ -6819,9 +7479,24 @@ struct Browser::Impl {
             inspect(tab, lines[static_cast<std::size_t>(index)].node);
     }
 
-    void toggle_devtools()
+    void toggle_devtools() { set_devtools(!devtools_open); }
+
+    // The panel is the window's: open over every tab's page, or over none.
+    // Where the pages are in engines each draws it under its own page, the
+    // shell that keeps the chrome says which way it is, and a page that
+    // opens it (Inspect, in its own menu) says so to the shell.
+    void set_devtools(bool open)
     {
-        devtools_open = !devtools_open;
+        if (devtools_open == open)
+            return;
+        devtools_open = open;
+        if (pages_in_engines) {
+            tell_pages([open](Browser& shell) { shell.m_impl->set_devtools(open); });
+            dirty = true;
+            return;
+        }
+        if (engine_self)
+            ask_shell([open](Impl& shell, std::size_t) { shell.set_devtools(open); });
         if (Tab* const tab = active_tab())
             set_scroll(*tab, tab->scroll_y); // the content is shorter or taller now
         dirty = true;
@@ -7065,6 +7740,20 @@ struct Browser::Impl {
     // current match keeps its place while it still exists.
     void update_matches(Tab& tab)
     {
+        if (pages_in_engines) {
+            // The bar and its words are the shell's; what they match is the
+            // page's to find, in its engine.
+            if (tab.engine) {
+                ask(tab, [open = find_open, query = find_query](Browser& shell) {
+                    Impl& page = *shell.m_impl;
+                    page.find_open = open;
+                    page.find_query = query;
+                    page.update_matches(page.tabs.front());
+                    page.dirty = true;
+                });
+            }
+            return;
+        }
         tab.matches.clear();
         if (!find_open || find_query.empty()) {
             tab.current_match = 0;
@@ -7103,6 +7792,11 @@ struct Browser::Impl {
     // Scrolls so the current match's line is in view.
     void scroll_to_match(Tab& tab)
     {
+        if (pages_in_engines) {
+            if (tab.engine)
+                ask(tab, [](Browser& shell) { shell.m_impl->scroll_to_match(shell.m_impl->tabs.front()); });
+            return;
+        }
         if (tab.matches.empty())
             return;
         Match const& match = tab.matches[std::min(tab.current_match, tab.matches.size() - 1)];
@@ -7171,6 +7865,11 @@ struct Browser::Impl {
     void find_step(int direction)
     {
         Tab* const tab = active_tab();
+        if (tab && pages_in_engines) {
+            ask(*tab, [direction](Browser& shell) { shell.m_impl->find_step(direction); });
+            dirty = true;
+            return;
+        }
         if (!tab || tab->matches.empty())
             return;
         std::size_t const count = tab->matches.size();
@@ -7181,6 +7880,16 @@ struct Browser::Impl {
 
     void refind()
     {
+        if (Tab* const tab = active_tab(); tab && pages_in_engines) {
+            ask(*tab, [open = find_open, query = find_query](Browser& shell) {
+                Impl& page = *shell.m_impl;
+                page.find_open = open;
+                page.find_query = query;
+                page.refind();
+            });
+            dirty = true;
+            return;
+        }
         if (Tab* const tab = active_tab()) {
             tab->current_match = 0;
             update_matches(*tab);
@@ -7219,6 +7928,8 @@ struct Browser::Impl {
 
     std::string find_status(Tab const& tab) const
     {
+        if (pages_in_engines)
+            return find_open && !find_query.empty() ? tab.page_find_status : std::string();
         if (!find_open || find_query.empty())
             return {};
         if (tab.matches.empty())
@@ -7608,6 +8319,13 @@ struct Browser::Impl {
         update_hover(x, y);
         note_activation();
         menu_press_button = 0;
+        if (Tab const* const front = active_tab(); pages_in_engines && front && front->page_menu_open && hover != Hover::Content) {
+            // A press off the page closes the page's menu, and — as with a
+            // menu of the shell's — does nothing more, but for a right click.
+            ask_front([](Browser& shell) { shell.m_impl->close_menus(); });
+            if (button != 3)
+                return;
+        }
         if (!menus.empty()) {
             // An open menu takes the press: on an item it chooses it, on
             // the menu's own box it does nothing, and anywhere else it
@@ -7622,6 +8340,12 @@ struct Browser::Impl {
             close_menus();
             if (button != 3)
                 return;
+        }
+        if (button == 3 && pages_in_engines && hover == Hover::Content && !palette_open) {
+            // The page's own menu, or what its script makes of the click.
+            press_page(x, y, button, modifiers);
+            dirty = true;
+            return;
         }
         if (button == 3) {
             open_menu_at(x, y, modifiers.shift);
@@ -7695,6 +8419,10 @@ struct Browser::Impl {
             case Hover::Content:
                 blur_address();
                 blur_find();
+                if (pages_in_engines) {
+                    press_page(x, y, button, modifiers);
+                    break;
+                }
                 // A bar is drawn over the content, so it answers first: a
                 // thumb is taken hold of, the track beside it moves a
                 // scrollport at a time.
@@ -7775,7 +8503,9 @@ struct Browser::Impl {
             case Hover::None: blur_address(); break;
             }
         } else if (button == 2) {
-            if (hover == Hover::Content && hover_link) {
+            if (pages_in_engines && hover == Hover::Content) {
+                press_page(x, y, button, modifiers);
+            } else if (hover == Hover::Content && hover_link) {
                 // The middle button: a tab of its own, as Ctrl with a click.
                 net::Url const url = *hover_link; // the hover moves with the tabs
                 if (modifiers.shift)
@@ -7814,6 +8544,13 @@ struct Browser::Impl {
     // both browsers put them.)
     void open_tab_beside(std::string const& container, net::Url const& url, std::size_t opener, bool to_front)
     {
+        if (engine_self) {
+            // A tab is the shell's to open, beside the tab whose page asked.
+            ask_shell([container, url, to_front](Impl& shell, std::size_t tab) {
+                shell.open_tab_beside(container, url, tab, to_front);
+            });
+            return;
+        }
         if (to_front)
             blur_address();
         Tab tab;
@@ -7838,6 +8575,10 @@ struct Browser::Impl {
     // A tab at the strip's end, in front: what the main menu opens.
     void open_tab_in(std::string const& container, net::Url const& url)
     {
+        if (engine_self) {
+            ask_shell([container, url](Impl& shell, std::size_t) { shell.open_tab_in(container, url); });
+            return;
+        }
         blur_address();
         add_blank_tab(container);
         queue(active, url, Mode::Push);
@@ -7968,6 +8709,11 @@ struct Browser::Impl {
             menu_key(key);
             return;
         }
+        // And so does a menu of the page's own, or its link hints.
+        if (Tab const* const front = active_tab(); pages_in_engines && front && front->page_modal) {
+            key_to_page(key);
+            return;
+        }
         if (hints_active) {
             hint_key(key);
             return;
@@ -7989,6 +8735,13 @@ struct Browser::Impl {
         // The page hears a key meant for it — not the shell's own chords —
         // at the focused control, else the document; preventDefault keeps
         // the shell's handling from running.
+        if (pages_in_engines && !key.ctrl && !key.alt && !address_focus && !find_focus) {
+            // The page's key: the page hears it, and what it leaves alone
+            // its engine acts on — a field typed in, the page moved, a
+            // reload.
+            key_to_page(key);
+            return;
+        }
         if (!key.ctrl && !key.alt && !address_focus && !find_focus) {
             if (Tab* const tab = active_tab(); tab && tab->realm && tab->document) {
                 dom::Element const* const target = tab->controls.focused;
@@ -8033,6 +8786,8 @@ struct Browser::Impl {
             case U'X':
                 if (address_focus) {
                     cut_address();
+                } else if (pages_in_engines) {
+                    key_to_page(key);
                 } else {
                     cut_in_control();
                 }
@@ -8047,6 +8802,8 @@ struct Browser::Impl {
                 if (address_focus) {
                     select_all = !address.empty();
                     dirty = true;
+                } else if (pages_in_engines) {
+                    key_to_page(key);
                 } else if (Tab* const with_control = tab_with_focused_control()) {
                     select_all_in_control(*with_control);
                 } else if (Tab* const tab = active_tab()) {
@@ -8087,6 +8844,10 @@ struct Browser::Impl {
         }
         if (address_focus) {
             edit_address(key);
+            return;
+        }
+        if (pages_in_engines) {
+            key_to_page(key); // a chord that is none of the shell's
             return;
         }
         if (edit_control(key))
@@ -8196,6 +8957,9 @@ struct Browser::Impl {
         } else if (address_focus) {
             preedit = text;
             preedit_owner = PreeditOwner::Address;
+        } else if (pages_in_engines) {
+            ask_front([text](Browser& shell) { shell.preedit(text); });
+            return;
         } else if (Tab* const tab = tab_with_focused_control()) {
             if (tab->controls.preedit == text && tab->controls.preedit_owner == tab->controls.focused)
                 return;
@@ -8300,6 +9064,19 @@ struct Browser::Impl {
             return caret_in(c.find_box, c.find_box.x + t.border_width + t.padding, find_query, find_caret);
         if (address_focus)
             return caret_in(c.address, c.address.x + t.border_width + t.padding + 2, address, caret);
+        if (pages_in_engines) {
+            // The caret of a field of the page's, as its engine has it,
+            // moved to where the page is in the window.
+            Tab* const front = active_tab();
+            if (!front || !front->engine)
+                return std::nullopt;
+            std::optional<Rect> area = front->engine->browser->text_input_area();
+            if (area) {
+                area->x += c.content.x;
+                area->y += c.content.y;
+            }
+            return area;
+        }
         Tab* const tab = tab_with_focused_control();
         if (!tab)
             return std::nullopt;
@@ -8326,12 +9103,20 @@ struct Browser::Impl {
             menu_letter(code_point);
             return;
         }
+        if (Tab const* const front = active_tab(); pages_in_engines && front && front->page_modal) {
+            ask_front([code_point](Browser& shell) { shell.text_input(code_point); });
+            return;
+        }
         if (palette_open) {
             type_into_palette(code_point);
             return;
         }
         if (find_focus) {
             type_into_find(code_point);
+            return;
+        }
+        if (!address_focus && pages_in_engines) {
+            ask_front([code_point](Browser& shell) { shell.text_input(code_point); });
             return;
         }
         if (!address_focus) {
@@ -8408,7 +9193,11 @@ struct Browser::Impl {
         // When a theme's picture moved and nothing else changed, and nothing
         // floats over the header, the header is painted again and the page
         // under it is left as it was painted.
-        bool const header_only = header_dirty && !dirty && menus.empty() && !palette_open && !find_open;
+        bool const header_only = header_dirty && !dirty && !content_dirty && menus.empty() && !palette_open && !find_open;
+        // The page's engine painted a video's new picture and nothing else
+        // changed: the page's picture is put into the frame again, which the
+        // engine has counted, and no paint of the window's is.
+        bool const video_only = pages_in_engines && content_dirty && !content_whole && !dirty && !header_dirty;
         // A picture that moves starts its clock when it is first shown.
         for (ThemeLayers* const surface : { &frame_pictures, &toolbar_pictures, &tab_background_pictures }) {
             for (ThemeLayers::Layer& layer : surface->layers) {
@@ -8418,6 +9207,8 @@ struct Browser::Impl {
         }
         if (header_only) {
             ++profile.header_paints;
+        } else if (video_only) {
+            // counted where it was painted
         } else {
             ++profile.paints;
             profile.painted_pixels += static_cast<std::uint64_t>(frame.width()) * static_cast<std::uint64_t>(frame.height());
@@ -8427,10 +9218,23 @@ struct Browser::Impl {
                 shown->painted_pictures.clear();
         }
         drop_stale_preedit();
-        Theme const& t = theme;
         ChromeLayout const c = layout_chrome();
         Tab const* const tab = active_tab();
         net::Url const* const url = tab && tab->current() ? &tab->current()->final_url : nullptr;
+        // An engine's frame is its page's: no header is drawn in it.
+        if (!engine_self)
+            paint_header(c, tab, url);
+        if (header_only) {
+            header_dirty = false;
+            return;
+        }
+        paint_below(c, tab);
+    }
+
+    // The tab strip, the toolbar with the bookmarks bar, and the find bar.
+    void paint_header(ChromeLayout const& c, Tab const* const tab, net::Url const* const url)
+    {
+        Theme const& t = theme;
 
         // The header — the tab strip and the toolbar — begins as the frame:
         // its color, another when the window is not the one in front, and
@@ -8713,14 +9517,25 @@ struct Browser::Impl {
             }
         }
 
-        if (header_only) {
-            header_dirty = false;
-            return;
-        }
+    }
+
+    // The page, and what lies over it: the developer tools, the palette,
+    // the words at the page's foot, the menus.
+    void paint_below(ChromeLayout const& c, Tab const* const tab)
+    {
+        Theme const& t = theme;
 
         // Content.
         frame.fill_rect(c.content, t.content_background);
-        if (tab && tab->document && !c.content.is_empty()) {
+        if (pages_in_engines) {
+            // The page as its engine last painted it, into the page's part
+            // of the window and no further.
+            if (tab && tab->engine && tab->engine->picture && !c.content.is_empty()) {
+                frame.set_clip(c.content);
+                frame.blit(*tab->engine->picture, c.content.x, c.content.y);
+                frame.set_clip(std::nullopt);
+            }
+        } else if (tab && tab->document && !c.content.is_empty()) {
             Bitmap content(c.content.width, c.content.height, t.content_background);
             paint::paint_page(content, tab->layout, 0, -static_cast<float>(tab->scroll_y),
                 &tab->backgrounds, &tab->scrolls, &active_tab()->painted_pictures);
@@ -8800,7 +9615,7 @@ struct Browser::Impl {
 
         // Devtools panel: the tree on the left, the inspected element's box
         // and style on the right.
-        if (devtools_open) {
+        if (devtools_open && !pages_in_engines) {
             frame.fill_rect(c.devtools, t.chrome_background);
             frame.fill_rect(Rect { 0, c.devtools.y, width, t.border_width }, t.chrome_border);
             frame.fill_rect(Rect { c.devtools_styles.x - t.padding, c.devtools.y, t.border_width,
@@ -8912,6 +9727,8 @@ struct Browser::Impl {
 
         dirty = false;
         header_dirty = false;
+        content_dirty = false;
+        content_whole = false;
     }
 
     // The open menus, over everything else: a bordered box each, a row an
@@ -9011,18 +9828,132 @@ Browser::Browser(Loader& loader, Theme theme, int width, int height)
 {
 }
 
+// What an engine's shell is made with: the loader and the theme of the shell
+// it is a tab of, the page's part of the window and the display's scale, the
+// engine, and the tab — with the history it came with — it is the page of.
+struct Browser::PageOnly {
+    Loader& loader;
+    Theme const& theme;
+    Rect rect;
+    float scale;
+    Impl::Engine& engine;
+    Impl::Tab& tab; // taken
+    bool blank;
+};
+
+Browser::Browser(PageOnly const& page)
+    : m_impl(std::make_unique<Impl>(page.loader, page.theme, page.rect.width, page.rect.height, page.engine, page.scale,
+          std::move(page.tab), page.blank))
+{
+}
+
 Browser::~Browser() = default;
+
+std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab, Rect const& rect)
+{
+    auto engine = std::make_shared<Engine>();
+    engine->shell = this;
+    // The tab as the page's shell holds it: the container, and the history
+    // the tab came with. A tab that is the one blank entry every new tab
+    // begins as is drawn by the engine as it is made.
+    Tab first;
+    first.container = tab.container;
+    first.history = tab.history;
+    first.index = tab.index;
+    first.scroll_y = tab.scroll_y;
+    first.favicon = tab.favicon;
+    first.favicon_key = tab.favicon_key;
+    bool const blank = tab.history.size() == 1 && is_about_blank(tab.history.front().url) && !tab.history.front().unloaded
+        && tab.history.front().bytes.empty();
+    engine->began_blank = blank;
+    engine->shown_told = &tab == active_tab();
+    engine->browser.reset(new Browser(PageOnly { loader, base_theme, rect, scale, *engine, first, blank }));
+    // What the shell was told and its pages keep a copy of.
+    Impl& page = engine->page();
+    page.page_shown = engine->shown_told;
+    page.downloads_directory = downloads_directory;
+    page.user_themes_directory = user_themes_directory;
+    page.theme_gallery_api = theme_gallery_api;
+    page.js_heap_limit = js_heap_limit;
+    page.worker_threads = worker_threads;
+    page.containers = containers;
+    page.theme_presets = theme_presets;
+    page.bookmark_backups_directory = bookmark_backups_directory;
+    page.bookmark_sources_home = bookmark_sources_home;
+    page.clock = clock;
+    page.wall_clock = wall_clock;
+    page.window_active = window_active;
+    page.window_visible = window_visible;
+    page.devtools_open = devtools_open;
+    page.find_open = find_open;
+    page.find_query = find_query;
+    page.bookmarks = bookmarks;
+    engine->bookmarks_told = bookmarks.changes();
+    return engine;
+}
+
+void Browser::set_pages_in_engines(bool apart)
+{
+    if (m_impl->pages_in_engines == apart || m_impl->engine_self)
+        return;
+    // The tabs there are start again, empty: before anything is opened
+    // that is the one blank tab a shell begins with.
+    std::vector<std::string> containers;
+    for (Impl::Tab& tab : m_impl->tabs) {
+        containers.push_back(tab.container);
+        m_impl->retire(tab);
+    }
+    m_impl->tabs.clear();
+    m_impl->pending.clear();
+    m_impl->pending_windows.clear();
+    // Nothing had been opened: what was counted was the blank tab's that
+    // is gone, and the tab that takes its place is counted afresh.
+    m_impl->profile = Profile {};
+    m_impl->retired_profile = Profile {};
+    m_impl->pages_in_engines = apart;
+    m_impl->active = 0;
+    for (std::string& container : containers)
+        m_impl->add_blank_tab(std::move(container));
+    m_impl->active = 0;
+    m_impl->dirty = true;
+}
+
+bool Browser::pages_in_engines() const { return m_impl->pages_in_engines; }
 
 void Browser::set_theme(Theme theme) { m_impl->set_base_theme(std::move(theme)); }
 
 void Browser::open_palette(std::string const& query) { m_impl->open_palette(query); }
-bool Browser::menu_open() const { return !m_impl->menus.empty(); }
-std::string Browser::menu_text() const { return m_impl->menu_text(); }
-bool Browser::choose_menu_item(std::string const& label) { return m_impl->choose_menu_item(label); }
+bool Browser::menu_open() const
+{
+    Browser const* const page = m_impl->front_page();
+    return !m_impl->menus.empty() || (page && page->menu_open());
+}
+
+std::string Browser::menu_text() const
+{
+    // The shell's own menu, else the one the page in front has open.
+    if (Browser const* const page = m_impl->front_page(); page && m_impl->menus.empty())
+        return page->menu_text();
+    return m_impl->menu_text();
+}
+
+bool Browser::choose_menu_item(std::string const& label)
+{
+    if (m_impl->front_page() && m_impl->menus.empty()) {
+        bool chosen = false;
+        m_impl->ask_front([&chosen, &label](Browser& page) { chosen = page.choose_menu_item(label); });
+        return chosen;
+    }
+    return m_impl->choose_menu_item(label);
+}
 void Browser::open_main_menu() { m_impl->open_main_menu(); }
 bool Browser::palette_open() const { return m_impl->palette_open; }
 std::string Browser::palette_selection() const { return m_impl->palette_selection(); }
-void Browser::set_theme_presets(std::vector<ThemePreset> presets) { m_impl->theme_presets = std::move(presets); }
+void Browser::set_theme_presets(std::vector<ThemePreset> presets)
+{
+    m_impl->theme_presets = std::move(presets);
+    m_impl->tell_pages([told = m_impl->theme_presets](Browser& page) { page.set_theme_presets(told); });
+}
 std::optional<std::string> Browser::take_theme_request()
 {
     std::optional<std::string> request = std::move(m_impl->theme_request);
@@ -9039,6 +9970,7 @@ void Browser::set_scale(float scale)
     if (!(scale > 0) || clamped == m_impl->scale)
         return;
     m_impl->close_menus(); // hung from a point of the old geometry
+    m_impl->tell_pages([](Browser& page) { page.m_impl->close_menus(); });
     m_impl->scale = clamped;
     m_impl->theme = m_impl->base_theme.scaled(clamped);
     // Nothing is laid out here: see resize().
@@ -9050,17 +9982,32 @@ float Browser::scale() const { return m_impl->scale; }
 void Browser::set_downloads_directory(std::string directory)
 {
     m_impl->downloads_directory = std::move(directory);
+    m_impl->tell_pages([told = m_impl->downloads_directory](Browser& page) { page.set_downloads_directory(told); });
 }
 
-void Browser::set_js_heap_limit(std::size_t bytes) { m_impl->js_heap_limit = bytes; }
-void Browser::set_worker_threads(bindings::WorkerThreads* threads) { m_impl->worker_threads = threads; }
+void Browser::set_js_heap_limit(std::size_t bytes)
+{
+    m_impl->js_heap_limit = bytes;
+    m_impl->tell_pages([bytes](Browser& page) { page.set_js_heap_limit(bytes); });
+}
+
+void Browser::set_worker_threads(bindings::WorkerThreads* threads)
+{
+    m_impl->worker_threads = threads;
+    m_impl->tell_pages([threads](Browser& page) { page.set_worker_threads(threads); });
+}
 
 void Browser::set_user_themes_directory(std::string directory)
 {
     m_impl->user_themes_directory = std::move(directory);
+    m_impl->tell_pages([told = m_impl->user_themes_directory](Browser& page) { page.set_user_themes_directory(told); });
 }
 
-void Browser::set_theme_gallery_source(std::string address) { m_impl->theme_gallery_api = std::move(address); }
+void Browser::set_theme_gallery_source(std::string address)
+{
+    m_impl->theme_gallery_api = std::move(address);
+    m_impl->tell_pages([told = m_impl->theme_gallery_api](Browser& page) { page.set_theme_gallery_source(told); });
+}
 
 void Browser::resize(int width, int height)
 {
@@ -9073,6 +10020,8 @@ void Browser::resize(int width, int height)
     if (std::max(width, 1) == m_impl->width && std::max(height, 1) == m_impl->height)
         return;
     m_impl->close_menus(); // hung from a point of the old geometry
+    if (Browser* const page = m_impl->front_page(); page && !page->m_impl->menus.empty())
+        m_impl->ask_front([](Browser& shown) { shown.m_impl->close_menus(); });
     m_impl->width = std::max(width, 1);
     m_impl->height = std::max(height, 1);
     m_impl->dirty = true;
@@ -9093,6 +10042,13 @@ void Browser::wheel(int x, int y, int notches)
     m_impl->update_hover(x, y);
     if (!m_impl->menus.empty())
         return; // an open menu holds the pointer: nothing under it moves
+    if (m_impl->pages_in_engines) {
+        if (m_impl->page_rect().contains(x, y)) {
+            auto const [px, py] = m_impl->to_page(x, y);
+            m_impl->ask_front([px, py, notches](Browser& page) { page.wheel(px, py, notches); });
+        }
+        return;
+    }
     if (m_impl->layout_chrome().content.contains(x, y))
         m_impl->wheel_at(x, y, notches);
     m_impl->refresh_hover();
@@ -9104,6 +10060,13 @@ void Browser::scroll_pixels(int x, int y, int dx, int dy)
     m_impl->update_hover(x, y);
     if (!m_impl->menus.empty())
         return;
+    if (m_impl->pages_in_engines) {
+        if (m_impl->page_rect().contains(x, y)) {
+            auto const [px, py] = m_impl->to_page(x, y);
+            m_impl->ask_front([px, py, dx, dy](Browser& page) { page.scroll_pixels(px, py, dx, dy); });
+        }
+        return;
+    }
     if (m_impl->layout_chrome().content.contains(x, y))
         m_impl->scroll_pixels_at(x, y, dy);
     m_impl->refresh_hover();
@@ -9137,6 +10100,7 @@ void Browser::set_window_active(bool active)
     if (m_impl->window_active == active)
         return;
     m_impl->window_active = active;
+    m_impl->tell_pages([active](Browser& page) { page.set_window_active(active); });
     m_impl->dirty = true;
 }
 
@@ -9147,6 +10111,7 @@ void Browser::set_window_visible(bool visible)
     if (m_impl->window_visible == visible)
         return;
     m_impl->window_visible = visible;
+    m_impl->tell_pages([visible](Browser& page) { page.set_window_visible(visible); });
     if (!visible)
         return;
     // Shown again: a picture that moves goes on from the frame it stopped
@@ -9186,8 +10151,17 @@ std::size_t Browser::import_bookmarks_html(std::string_view html)
     return came;
 }
 
-void Browser::set_bookmark_backups_directory(std::string directory) { m_impl->bookmark_backups_directory = std::move(directory); }
-void Browser::set_bookmark_sources_home(std::string home) { m_impl->bookmark_sources_home = std::move(home); }
+void Browser::set_bookmark_backups_directory(std::string directory)
+{
+    m_impl->bookmark_backups_directory = std::move(directory);
+    m_impl->tell_pages([told = m_impl->bookmark_backups_directory](Browser& page) { page.set_bookmark_backups_directory(told); });
+}
+
+void Browser::set_bookmark_sources_home(std::string home)
+{
+    m_impl->bookmark_sources_home = std::move(home);
+    m_impl->tell_pages([told = m_impl->bookmark_sources_home](Browser& page) { page.set_bookmark_sources_home(told); });
+}
 
 std::vector<std::string> Browser::bookmarks_bar_titles() const
 {
@@ -9217,11 +10191,18 @@ void Browser::duplicate_tab(std::size_t index) { m_impl->duplicate_tab(index); }
 
 bool Browser::has_pending_load() const
 {
+    if (m_impl->pages_in_engines) {
+        // A page of any tab's with a load under way, or something a page
+        // has asked of the shell.
+        return m_impl->page_requests_waiting()
+            || std::any_of(m_impl->tabs.begin(), m_impl->tabs.end(),
+                [](Impl::Tab const& tab) { return tab.engine && tab.engine->browser->has_pending_load(); });
+    }
     if (load_ready() || m_impl->any_navigating())
         return true;
     // Pictures or fonts on their way to the page in front: nothing to do
     // now, and not done either.
-    Impl::Tab const* const tab = m_impl->active_tab();
+    Impl::Tab const* const tab = m_impl->shown_tab();
     return tab && (tab->images_owed || tab->fonts_owed);
 }
 
@@ -9235,19 +10216,44 @@ bool Browser::navigating() const
 
 bool Browser::load_ready() const
 {
+    if (m_impl->pages_in_engines) {
+        return m_impl->page_requests_waiting()
+            || std::any_of(m_impl->tabs.begin(), m_impl->tabs.end(),
+                [](Impl::Tab const& tab) { return tab.engine && tab.engine->browser->load_ready(); });
+    }
     if (!m_impl->pending.empty() || !m_impl->pending_windows.empty() || m_impl->any_navigation_ready())
         return true;
-    Impl::Tab const* const tab = m_impl->active_tab();
+    Impl::Tab const* const tab = m_impl->shown_tab();
     return tab && (Impl::pictures_ready(*tab) || Impl::fonts_ready(*tab));
 }
 
 bool Browser::tick()
 {
+    if (m_impl->pages_in_engines) {
+        // What a page asked of the shell first, as a window a page asks for
+        // always came first; then a step of the first page that has one to
+        // take; and with none, a moment's wait by a page that is waiting.
+        m_impl->tell_shown();
+        if (m_impl->do_page_request())
+            return true;
+        for (int waiting = 0; waiting < 2; ++waiting) {
+            for (std::size_t i = 0; i < m_impl->tabs.size(); ++i) {
+                Impl::Tab& tab = m_impl->tabs[i];
+                if (!tab.engine || !(waiting ? tab.engine->browser->has_pending_load() : tab.engine->browser->load_ready()))
+                    continue;
+                bool more = false;
+                m_impl->ask(tab, [&more](Browser& page) { more = page.tick(); });
+                return more || has_pending_load();
+            }
+        }
+        return false;
+    }
     // A window a page asked for opens first: its tab, then its load queued
     // like any other.
     if (!m_impl->pending_windows.empty()) {
         Impl::PendingWindow const window = m_impl->pending_windows.front();
         m_impl->pending_windows.erase(m_impl->pending_windows.begin());
+        // (Asked of the shell it is a tab of, in an engine.)
         // Beside the tab whose page asked — in front, when a page asked.
         m_impl->open_tab_beside(window.container, window.url, window.opener, window.to_front);
     }
@@ -9258,12 +10264,12 @@ bool Browser::tick()
     if (m_impl->pending.empty()) {
         // The page shown takes the fonts that have come, and is laid out
         // in them.
-        if (Impl::Tab* const tab = m_impl->active_tab(); tab && tab->fonts_owed && Impl::fonts_ready(*tab)) {
+        if (Impl::Tab* const tab = m_impl->shown_tab(); tab && tab->fonts_owed && Impl::fonts_ready(*tab)) {
             m_impl->continue_fonts(*tab);
             return true;
         }
         // The page shown takes the next of its pictures: those that have come.
-        if (Impl::Tab* const tab = m_impl->active_tab(); tab && tab->images_owed) {
+        if (Impl::Tab* const tab = m_impl->shown_tab(); tab && tab->images_owed) {
             if (Impl::pictures_ready(*tab)) {
                 m_impl->continue_images(*tab);
                 return true;
@@ -9284,7 +10290,7 @@ bool Browser::tick()
         }
         // Fonts still on their way, and nothing else to do: a moment on one
         // of them, the same way.
-        if (Impl::Tab* const tab = m_impl->active_tab(); tab && tab->fonts_owed) {
+        if (Impl::Tab* const tab = m_impl->shown_tab(); tab && tab->fonts_owed) {
             bool waited = false;
             for (std::shared_ptr<net::FetchTicket> const& ticket : tab->fonts_coming) {
                 if (!ticket->done()) {
@@ -9323,6 +10329,7 @@ bool Browser::restore_session(std::string_view json) { return m_impl->restore_se
 void Browser::set_containers(std::vector<Container> containers)
 {
     m_impl->containers = std::move(containers);
+    m_impl->tell_pages([told = m_impl->containers](Browser& page) { page.set_containers(told); });
     m_impl->dirty = true;
 }
 std::vector<Browser::Container> const& Browser::containers() const { return m_impl->containers; }
@@ -9344,6 +10351,18 @@ bool Browser::run_scripts()
 {
     Impl& impl = *m_impl;
     bool ran = false;
+    if (impl.pages_in_engines) {
+        // Every page's timers, each in its engine, in the tabs' order; then
+        // the shell's own clockwork.
+        impl.tell_shown();
+        for (std::size_t i = 0; i < impl.tabs.size(); ++i) {
+            if (impl.tabs[i].engine)
+                impl.ask(impl.tabs[i], [&ran](Browser& page) { ran = page.run_scripts() || ran; });
+        }
+        if (impl.advance_theme_pictures())
+            ran = true;
+        return ran;
+    }
     for (Impl::Tab& tab : impl.tabs) {
         if (!tab.realm)
             continue;
@@ -9358,7 +10377,7 @@ bool Browser::run_scripts()
         impl.window_request = WindowRequest::ExitFullscreen;
         impl.dirty = true;
     }
-    if (Impl::Tab* const tab = impl.active_tab()) {
+    if (Impl::Tab* const tab = impl.shown_tab()) {
         impl.take_video_frames(*tab);
         impl.ensure_fresh(*tab);
     }
@@ -9372,6 +10391,19 @@ bool Browser::run_scripts()
 std::optional<double> Browser::next_timer_ms() const
 {
     std::optional<double> soonest;
+    if (m_impl->pages_in_engines) {
+        // The soonest of the pages' timers, and of the theme's pictures.
+        std::optional<double> due;
+        for (Impl::Tab const& tab : m_impl->tabs) {
+            if (!tab.engine)
+                continue;
+            if (std::optional<double> const its = tab.engine->browser->next_timer_ms(); its && (!due || *its < *due))
+                due = its;
+        }
+        if (std::optional<double> const theme = m_impl->next_theme_frame_ms(); theme && (!due || *theme < *due))
+            due = theme;
+        return due;
+    }
     for (Impl::Tab const& tab : m_impl->tabs) {
         if (!tab.realm)
             continue;
@@ -9390,12 +10422,23 @@ std::optional<double> Browser::next_timer_ms() const
     return due;
 }
 
-void Browser::set_clock(std::function<double()> now) { m_impl->clock = std::move(now); }
-void Browser::set_wall_clock(std::function<WallTime()> now) { m_impl->wall_clock = std::move(now); }
+void Browser::set_clock(std::function<double()> now)
+{
+    m_impl->clock = std::move(now);
+    m_impl->tell_pages([told = m_impl->clock](Browser& page) { page.set_clock(told); });
+}
+
+void Browser::set_wall_clock(std::function<WallTime()> now)
+{
+    m_impl->wall_clock = std::move(now);
+    m_impl->tell_pages([told = m_impl->wall_clock](Browser& page) { page.set_wall_clock(told); });
+}
 std::size_t Browser::blocked_requests() const { return m_impl->loader.blocked_requests(); }
 
 std::string Browser::console_text() const
 {
+    if (Browser const* const page = m_impl->front_page())
+        return page->console_text();
     Impl::Tab const* const tab = m_impl->active_tab();
     if (!tab)
         return {};
@@ -9414,30 +10457,43 @@ Bitmap const& Browser::frame()
         m_impl->frame = Bitmap(m_impl->width, m_impl->height, m_impl->theme.chrome_background);
         m_impl->dirty = true;
     }
+    if (m_impl->pages_in_engines)
+        m_impl->take_picture(); // the page in front paints itself, in its engine
     if (Impl::Tab* const tab = m_impl->active_tab())
         m_impl->ensure_fresh(*tab);
-    if (m_impl->dirty || m_impl->header_dirty)
+    if (m_impl->dirty || m_impl->header_dirty || m_impl->content_dirty)
         m_impl->paint();
     if (m_impl->video_dirty)
         m_impl->paint_videos();
     return m_impl->frame;
 }
 
-bool Browser::needs_paint() const { return m_impl->dirty || m_impl->header_dirty || m_impl->video_dirty; }
+bool Browser::needs_paint() const
+{
+    if (Browser const* const page = m_impl->front_page(); page && page->needs_paint())
+        return true;
+    return m_impl->dirty || m_impl->header_dirty || m_impl->video_dirty || m_impl->content_dirty;
+}
 
 void Browser::settle_video(double timeout_ms)
 {
+    if (m_impl->front_page()) {
+        m_impl->ask_front([timeout_ms](Browser& page) { page.settle_video(timeout_ms); });
+        return;
+    }
     Impl::Tab* const tab = m_impl->active_tab();
     if (!tab || !tab->realm)
         return;
     tab->realm->settle_video(timeout_ms);
     m_impl->take_video_frames(*tab);
 }
-Profile const& Browser::profile() const { return m_impl->profile; }
+Profile const& Browser::profile() const { return m_impl->whole_profile(); }
 
 Browser::EngineAccount Browser::engine_account() const
 {
     EngineAccount account;
+    if (Browser const* const page = m_impl->front_page())
+        return page->engine_account();
     Impl::Tab const* const tab = m_impl->active_tab();
     if (!tab || !tab->realm)
         return account;
@@ -9458,6 +10514,8 @@ Browser::EngineAccount Browser::engine_account() const
 
 std::size_t Browser::pictures() const
 {
+    if (Browser const* const page = m_impl->front_page())
+        return page->pictures();
     Impl::Tab const* const tab = m_impl->active_tab();
     if (!tab)
         return 0;
@@ -9487,6 +10545,12 @@ platform::Cursor Browser::cursor() const
         case Request::ResizeBottomLeft: return Cursor::ResizeDiagonalUp;
         default: break;
         }
+    }
+    if (m_impl->hover == Impl::Hover::Content && m_impl->pages_in_engines) {
+        // What the pointer is over on the page is the page's to say.
+        if (Browser const* const page = m_impl->front_page())
+            return page->cursor();
+        return Cursor::Arrow;
     }
     if (m_impl->hover == Impl::Hover::Content) {
         if (dom::Element const* const control = m_impl->control_at(m_impl->mouse_x, m_impl->mouse_y))
@@ -9531,7 +10595,14 @@ bool Browser::can_go_back() const { return m_impl->can_go(-1); }
 bool Browser::can_go_forward() const { return m_impl->can_go(+1); }
 std::string const& Browser::address_text() const { return m_impl->address; }
 bool Browser::address_focused() const { return m_impl->address_focus; }
-std::string Browser::status_text() const { return m_impl->status_text(); }
+std::string Browser::status_text() const
+{
+    // The words at the page's foot are the page's to say, where it is in
+    // an engine: where a link leads, what is loading.
+    if (Browser const* const page = m_impl->front_page())
+        return page->status_text();
+    return m_impl->status_text();
+}
 
 std::string Browser::page_title() const
 {
@@ -9541,6 +10612,8 @@ std::string Browser::page_title() const
 
 std::string Browser::page_text() const
 {
+    if (Browser const* const page = m_impl->front_page())
+        return page->page_text();
     Impl::Tab const* const tab = m_impl->active_tab();
     std::string text;
     float last_baseline = 0;
@@ -9563,12 +10636,18 @@ std::string Browser::page_text() const
 
 int Browser::scroll_y() const
 {
+    if (Browser const* const page = m_impl->front_page())
+        return page->scroll_y();
     Impl::Tab const* const tab = m_impl->active_tab();
     return tab ? tab->scroll_y : 0;
 }
 
 std::pair<int, int> Browser::box_scroll_at(int x, int y) const
 {
+    if (Browser const* const page = m_impl->front_page()) {
+        auto const [px, py] = m_impl->to_page(x, y);
+        return page->box_scroll_at(px, py);
+    }
     Impl::Tab* const tab = m_impl->active_tab();
     std::optional<std::pair<float, float>> const point = m_impl->page_point(x, y);
     if (!tab || !point)
@@ -9592,10 +10671,27 @@ std::pair<int, int> Browser::box_scroll_at(int x, int y) const
     return { static_cast<int>(at.x + 0.5f), static_cast<int>(at.y + 0.5f) };
 }
 
-std::optional<net::Url> Browser::link_at(int x, int y) const { return m_impl->link_at(x, y); }
+std::optional<net::Url> Browser::link_at(int x, int y) const
+{
+    if (Browser const* const page = m_impl->front_page()) {
+        auto const [px, py] = m_impl->to_page(x, y);
+        return page->link_at(px, py);
+    }
+    return m_impl->link_at(x, y);
+}
 
 std::optional<std::pair<int, int>> Browser::find_text(std::string const& text, std::size_t nth) const
 {
+    if (Browser const* const page = m_impl->front_page()) {
+        // Found in the page's own frame, and given as a point of the window.
+        std::optional<std::pair<int, int>> at = page->find_text(text, nth);
+        if (at) {
+            Rect const rect = m_impl->page_rect();
+            at->first += rect.x;
+            at->second += rect.y;
+        }
+        return at;
+    }
     std::size_t skip = nth;
     Impl::Tab* const tab = m_impl->active_tab();
     if (!tab || !tab->document || text.empty())
@@ -9623,7 +10719,38 @@ std::optional<std::pair<int, int>> Browser::find_text(std::string const& text, s
     return search(tab->frames);
 }
 
-ChromeLayout Browser::chrome_layout() const { return m_impl->layout_chrome(); }
+ChromeLayout Browser::chrome_layout() const
+{
+    ChromeLayout chrome = m_impl->layout_chrome();
+    if (Browser const* const page = m_impl->front_page()) {
+        // The menus the page in front has open, and the panel under it, are
+        // in its own frame: given here as they lie in the window.
+        Rect const rect = m_impl->page_rect();
+        ChromeLayout const its = page->chrome_layout();
+        auto const placed = [&rect](Rect box) {
+            if (!box.is_empty()) {
+                box.x += rect.x;
+                box.y += rect.y;
+            }
+            return box;
+        };
+        if (chrome.menus.empty()) {
+            for (MenuBox const& menu : its.menus) {
+                MenuBox moved;
+                moved.box = placed(menu.box);
+                for (Rect const& row : menu.rows)
+                    moved.rows.push_back(placed(row));
+                chrome.menus.push_back(std::move(moved));
+            }
+        }
+        chrome.content = placed(its.content);
+        chrome.status = placed(its.status);
+        chrome.devtools = placed(its.devtools);
+        chrome.devtools_tree = placed(its.devtools_tree);
+        chrome.devtools_styles = placed(its.devtools_styles);
+    }
+    return chrome;
+}
 
 namespace {
 
@@ -9646,6 +10773,11 @@ dom::Element const* control_named_anywhere(dom::Document const& document, DrawnF
 
 bool Browser::focus_control(std::string const& name)
 {
+    if (m_impl->front_page()) {
+        bool focused = false;
+        m_impl->ask_front([&focused, &name](Browser& page) { focused = page.focus_control(name); });
+        return focused;
+    }
     Impl::Tab* const tab = m_impl->active_tab();
     if (!tab || !tab->document)
         return false;
@@ -9661,6 +10793,8 @@ bool Browser::focus_control(std::string const& name)
 
 std::optional<std::string> Browser::control_value(std::string const& name) const
 {
+    if (Browser const* const page = m_impl->front_page())
+        return page->control_value(name);
     Impl::Tab const* const tab = m_impl->active_tab();
     if (!tab || !tab->document)
         return std::nullopt;
@@ -9672,6 +10806,8 @@ std::optional<std::string> Browser::control_value(std::string const& name) const
 
 std::string Browser::focused_control_name() const
 {
+    if (Browser const* const page = m_impl->front_page())
+        return m_impl->address_focus || m_impl->find_focus ? std::string() : page->focused_control_name();
     Impl::Tab const* const tab = m_impl->active_tab();
     if (!tab || !tab->controls.focused)
         return "";
@@ -9681,12 +10817,21 @@ std::string Browser::focused_control_name() const
 
 std::string Browser::selected_text() const
 {
+    if (Browser const* const page = m_impl->front_page())
+        return page->selected_text();
     Impl::Tab const* const tab = m_impl->active_tab();
     return tab ? Impl::selected_text(*tab) : std::string();
 }
 
 bool Browser::select_text(std::string const& text)
 {
+    if (m_impl->front_page()) {
+        bool selected = false;
+        m_impl->ask_front([&selected, &text](Browser& page) { selected = page.select_text(text); });
+        if (selected)
+            m_impl->blur_address();
+        return selected;
+    }
     Impl::Tab* const tab = m_impl->active_tab();
     if (!tab || text.empty())
         return false;
@@ -9757,10 +10902,20 @@ std::string Browser::find_status() const
 
 void Browser::toggle_reader() { m_impl->toggle_reader(); }
 
-std::size_t Browser::hint_count() const { return m_impl->hints_active ? m_impl->hints.size() : 0; }
+std::size_t Browser::hint_count() const
+{
+    if (Browser const* const page = m_impl->front_page())
+        return page->hint_count();
+    return m_impl->hints_active ? m_impl->hints.size() : 0;
+}
 
 bool Browser::inspect_text(std::string const& text)
 {
+    if (m_impl->front_page()) {
+        bool inspected = false;
+        m_impl->ask_front([&inspected, &text](Browser& page) { inspected = page.inspect_text(text); });
+        return inspected;
+    }
     Impl::Tab* const tab = m_impl->active_tab();
     if (!tab || text.empty())
         return false;
@@ -9776,6 +10931,8 @@ bool Browser::inspect_text(std::string const& text)
 
 std::string Browser::inspected_summary() const
 {
+    if (Browser const* const page = m_impl->front_page())
+        return page->inspected_summary();
     Impl::Tab const* const tab = m_impl->active_tab();
     return tab ? Impl::node_summary(tab->inspected) : std::string();
 }

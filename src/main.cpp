@@ -303,6 +303,16 @@ struct DriveStep {
 };
 std::vector<DriveStep> drive_steps;
 
+// Each tab's page in an engine of its own, the shell the window calls
+// keeping the chrome alone (ui::Browser::set_pages_in_engines). While the
+// cut is being made SASHFOLD_ENGINES in the environment says: 1 for the
+// engines, 0 for a shell that is whole. Unsaid, the window's shell is whole,
+// and a script is run twice — by a whole shell and then by one whose pages
+// are in engines — and passes when both do: what a reader sees must be the
+// same either way.
+enum class Engines { Unsaid, Off, On };
+Engines engines = Engines::Unsaid;
+
 bool read_drive_file(std::string const& path)
 {
     std::ifstream file(path);
@@ -1845,21 +1855,32 @@ net::Blocklists load_blocklists(std::string const& path)
 int run_script_mode(std::string const& script, bool update_goldens, int width, int height,
     std::string const& theme_path, std::string const& blocklists_path, std::string const& downloads)
 {
-    ui::ShellLoader loader;
-    loader.set_blocklists(load_blocklists(blocklists_path));
-    ui::Browser browser(loader, load_theme(theme_path), width, height);
-    report_theme_pictures(browser);
-    platform::use_process_clipboard(true); // a script never touches the real clipboard
-    browser.set_downloads_directory(downloads);
-    browser.set_js_heap_limit(js_heap_limit);
-    // The four containers a fresh profile gets, so a script can open tabs
-    // in them and step through them the way the window does.
-    browser.set_containers(containers_from(
-        "[{\"name\": \"Personal\", \"color\": \"#3b82f6\"}, {\"name\": \"Work\", \"color\": \"#f59e0b\"}, "
-        "{\"name\": \"Banking\", \"color\": \"#22c55e\"}, {\"name\": \"Shopping\", \"color\": \"#ec4899\"}]"));
-    browser.set_theme_presets(theme_presets_beside(theme_path));
-    ui::ScriptResult const result = ui::run_script(browser, script, update_goldens, std::cout);
-    return result.ok() ? 0 : 1;
+    auto const run = [&](bool in_engines, bool update) {
+        ui::ShellLoader loader;
+        loader.set_blocklists(load_blocklists(blocklists_path));
+        ui::Browser browser(loader, load_theme(theme_path), width, height);
+        browser.set_pages_in_engines(in_engines);
+        report_theme_pictures(browser);
+        platform::use_process_clipboard(true); // a script never touches the real clipboard
+        platform::write_clipboard_text({}); // and begins with nothing on it
+        browser.set_downloads_directory(downloads);
+        browser.set_js_heap_limit(js_heap_limit);
+        // The four containers a fresh profile gets, so a script can open tabs
+        // in them and step through them the way the window does.
+        browser.set_containers(containers_from(
+            "[{\"name\": \"Personal\", \"color\": \"#3b82f6\"}, {\"name\": \"Work\", \"color\": \"#f59e0b\"}, "
+            "{\"name\": \"Banking\", \"color\": \"#22c55e\"}, {\"name\": \"Shopping\", \"color\": \"#ec4899\"}]"));
+        browser.set_theme_presets(theme_presets_beside(theme_path));
+        return ui::run_script(browser, script, update, std::cout).ok();
+    };
+    if (engines != Engines::Unsaid)
+        return run(engines == Engines::On, update_goldens) ? 0 : 1;
+    // Whole first, which is what writes a golden that is being blessed; then
+    // with the pages in engines, which must match what the first left.
+    if (!run(false, update_goldens))
+        return 1;
+    std::cout << "again, each tab's page in an engine of its own:\n";
+    return run(true, false) ? 0 : 1;
 }
 
 // A headless run of the window — under a compositor with no screen — ends
@@ -1904,6 +1925,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     bindings::WorkerThreads worker_threads;
     worker_threads.set_wake([waker] { waker->wake(); });
     ui::Browser browser(loader, load_theme(theme_file), window->width(), window->height());
+    browser.set_pages_in_engines(engines == Engines::On);
     report_theme_pictures(browser);
     browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
@@ -2645,6 +2667,8 @@ int main(int argc, char** argv)
     }
 
     render_blocklists_path = blocklists_path;
+    if (char const* const asked = std::getenv("SASHFOLD_ENGINES"); asked && *asked)
+        engines = *asked == '0' ? Engines::Off : Engines::On;
     if (char const* const asked = std::getenv("SASHFOLD_TRACE_FRAMES"); asked && *asked && *asked != '0')
         trace_frames = true;
     js_heap_limit = js_heap_limit_mb >= 0 ? static_cast<std::size_t>(js_heap_limit_mb) * 1024u * 1024u

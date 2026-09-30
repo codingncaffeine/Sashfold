@@ -338,6 +338,14 @@ public:
     // (as unsaid) a worker runs inside run_scripts(), on the scripts' clock:
     // what a script and a golden want. For the pages opened from now on.
     void set_worker_threads(bindings::WorkerThreads* threads);
+    // Each tab's page in an engine of its own: a shell that holds that one
+    // tab and draws no chrome, which this shell hands what the reader does
+    // to the page and takes the page's picture from — so that a page's
+    // scripts, styles, layout and paint are nothing this shell does, and a
+    // window's thread that calls it is never held by a page. Set before
+    // anything is opened; the tabs there are then start again, empty.
+    void set_pages_in_engines(bool apart);
+    bool pages_in_engines() const;
     // The reader's own themes folder. With one set, a download that is a
     // Firefox or Chrome theme (an .xpi, a .crx) is converted into it, offered
     // among the themes from then on, and put on at once; the file itself is
@@ -670,6 +678,9 @@ public:
 
 private:
     struct Impl;
+    // What an engine's shell is made with (Browser.cpp): one tab's page.
+    struct PageOnly;
+    explicit Browser(PageOnly const&);
     std::unique_ptr<Impl> m_impl;
 };
 
