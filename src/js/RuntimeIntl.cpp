@@ -952,7 +952,7 @@ std::optional<std::vector<std::string>> canonicalize_locale_list(Interpreter& in
         }
         std::optional<std::string> const canonical = canonicalize_language_tag(text);
         if (!canonical)
-            return in.throw_range_error("Incorrect locale information provided");
+            return in.throw_range_error("Invalid language tag: " + text);
         if (std::find(seen.begin(), seen.end(), *canonical) == seen.end())
             seen.push_back(*canonical);
     }

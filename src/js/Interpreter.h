@@ -363,7 +363,9 @@ public:
     std::optional<std::int32_t> to_int32(Value const&);
     std::optional<std::uint32_t> to_uint32(Value const&);
     std::optional<double> to_length(Value const&); // 0 … 2^53 − 1
-    std::optional<double> to_index(Value const&); // RangeError past 2^53 − 1
+    // RangeError past 2^53 − 1; `range_message` words it as V8 does for the
+    // caller, a `%` in it standing for the integer that was out of range.
+    std::optional<double> to_index(Value const&, std::string_view range_message = "Invalid index");
     std::optional<JsString*> to_string(Value const&);
     std::optional<Object*> to_object(Value const&);
     std::optional<PropertyKey> to_property_key(Value const&);

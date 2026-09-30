@@ -265,14 +265,14 @@ std::optional<bool> initialize_from_buffer(Interpreter& in, TypedArrayObject& ta
     in.root(length);
     std::string const name(element_type_name(target.element_type()));
     double const size = static_cast<double>(target.element_size());
-    std::optional<double> const offset = in.to_index(byte_offset);
+    std::optional<double> const offset = in.to_index(byte_offset, "Start offset % is outside the bounds of the buffer");
     if (!offset)
         return std::nullopt;
     if (std::fmod(*offset, size) != 0)
-        return in.throw_range_error("Start offset of " + name + " should be a multiple of " + number_to_utf8(size));
+        return in.throw_range_error("start offset of " + name + " should be a multiple of " + number_to_utf8(size));
     std::optional<double> new_length;
     if (!length.is_undefined()) {
-        std::optional<double> const index = in.to_index(length);
+        std::optional<double> const index = in.to_index(length, "Invalid typed array length: %");
         if (!index)
             return std::nullopt;
         new_length = *index;
@@ -289,7 +289,7 @@ std::optional<bool> initialize_from_buffer(Interpreter& in, TypedArrayObject& ta
     double new_byte_length = 0;
     if (!new_length) {
         if (std::fmod(buffer_byte_length, size) != 0)
-            return in.throw_range_error("Byte length of " + name + " should be a multiple of " + number_to_utf8(size));
+            return in.throw_range_error("byte length of " + name + " should be a multiple of " + number_to_utf8(size));
         new_byte_length = buffer_byte_length - *offset;
         if (new_byte_length < 0)
             return in.throw_range_error("Start offset " + number_to_utf8(*offset) + " is outside the bounds of the buffer");
@@ -365,7 +365,7 @@ NativeFunction::ConstructCallback kind_constructor(ElementType type)
         Value const first = args[0];
         in.root(first);
         if (!first.is_object()) {
-            std::optional<double> const length = in.to_index(first);
+            std::optional<double> const length = in.to_index(first, "Invalid typed array length: %");
             if (!length)
                 return std::nullopt;
             std::optional<TypedArrayObject*> const array = allocate_typed_array(in, type, new_target, *length);

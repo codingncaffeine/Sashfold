@@ -1269,7 +1269,7 @@ void install_prototype(Interpreter& in, Object& prototype)
             return std::nullopt;
         double const actual = *relative >= 0 ? *relative : length + *relative;
         if (actual >= length || actual < 0)
-            return interp.throw_range_error("Invalid index");
+            return interp.throw_range_error("Invalid index : " + number_to_utf8(*relative));
         Value const value = argument(args, 1);
         interp.root(value);
         std::optional<ArrayObject*> const array = array_create(interp, length);

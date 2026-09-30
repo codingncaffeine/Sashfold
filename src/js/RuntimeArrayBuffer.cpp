@@ -242,7 +242,7 @@ std::optional<Value> get_view_value(Interpreter& in, Value const& this_value, Va
     DataViewObject& view = **found;
     Interpreter::Roots const roots(in);
     in.root(this_value);
-    std::optional<double> const get_index = in.to_index(request_index);
+    std::optional<double> const get_index = in.to_index(request_index, "Offset is outside the bounds of the DataView");
     if (!get_index)
         return std::nullopt;
     bool const little_endian = Interpreter::to_boolean(little_endian_value);
@@ -268,7 +268,7 @@ std::optional<Value> set_view_value(Interpreter& in, Value const& this_value, Va
     Interpreter::Roots const roots(in);
     in.root(this_value);
     in.root(value);
-    std::optional<double> const get_index = in.to_index(request_index);
+    std::optional<double> const get_index = in.to_index(request_index, "Offset is outside the bounds of the DataView");
     if (!get_index)
         return std::nullopt;
     std::optional<Value> const numeric = to_element_value(in, type, value);
@@ -740,7 +740,7 @@ void install_array_buffer(Interpreter& in)
                 interp.root(Value::object(new_target));
             Value const options = argument(args, 1);
             interp.root(options);
-            std::optional<double> const byte_length = interp.to_index(argument(args, 0));
+            std::optional<double> const byte_length = interp.to_index(argument(args, 0), "Invalid array buffer length");
             if (!byte_length)
                 return std::nullopt;
             std::optional<double> max_byte_length;
@@ -910,14 +910,14 @@ void install_data_view(Interpreter& in)
             interp.root(buffer_value);
             Value const length_value = argument(args, 2);
             interp.root(length_value);
-            std::optional<double> const offset = interp.to_index(argument(args, 1));
+            std::optional<double> const offset = interp.to_index(argument(args, 1), "Start offset % is outside the bounds of the buffer");
             if (!offset)
                 return std::nullopt;
             if (buffer.is_detached())
                 return interp.throw_type_error("Cannot construct a DataView on a detached ArrayBuffer");
             double buffer_byte_length = static_cast<double>(buffer.byte_length());
             if (*offset > buffer_byte_length)
-                return interp.throw_range_error("Start offset is outside the bounds of the buffer");
+                return interp.throw_range_error("Start offset " + number_to_utf8(*offset) + " is outside the bounds of the buffer");
             std::optional<double> view_byte_length;
             if (length_value.is_undefined()) {
                 if (!buffer.is_resizable())
@@ -927,7 +927,7 @@ void install_data_view(Interpreter& in)
                 if (!length)
                     return std::nullopt;
                 if (*offset + *length > buffer_byte_length)
-                    return interp.throw_range_error("Invalid DataView length");
+                    return interp.throw_range_error("Invalid DataView length " + number_to_utf8(*length));
                 view_byte_length = *length;
             }
             std::optional<Object*> const proto = interp.get_prototype_from_constructor(new_target, &Intrinsics::data_view_prototype);
@@ -938,9 +938,9 @@ void install_data_view(Interpreter& in)
                 return interp.throw_type_error("Cannot construct a DataView on a detached ArrayBuffer");
             buffer_byte_length = static_cast<double>(buffer.byte_length());
             if (*offset > buffer_byte_length)
-                return interp.throw_range_error("Start offset is outside the bounds of the buffer");
+                return interp.throw_range_error("Start offset " + number_to_utf8(*offset) + " is outside the bounds of the buffer");
             if (view_byte_length && *offset + *view_byte_length > buffer_byte_length)
-                return interp.throw_range_error("Invalid DataView length");
+                return interp.throw_range_error("Invalid DataView length " + number_to_utf8(*view_byte_length));
             std::optional<std::size_t> count;
             if (view_byte_length)
                 count = static_cast<std::size_t>(*view_byte_length);

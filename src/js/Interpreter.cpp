@@ -2008,7 +2008,7 @@ std::optional<Value> Interpreter::Impl::apply_binary(BinaryOp op, Value const& l
             default: {
                 BigInteger::Power power = BigInteger::power(a, b);
                 if (power.negative_exponent)
-                    return self.throw_range_error("Exponent must be non-negative");
+                    return self.throw_range_error("Exponent must be positive");
                 if (power.too_large)
                     return self.throw_range_error("Maximum BigInt size exceeded");
                 return self.bigint(std::move(*power.value));

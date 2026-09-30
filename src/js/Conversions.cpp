@@ -474,7 +474,7 @@ std::optional<double> Interpreter::to_length(Value const& value)
     return std::min(*integer, max_safe_integer);
 }
 
-std::optional<double> Interpreter::to_index(Value const& value)
+std::optional<double> Interpreter::to_index(Value const& value, std::string_view range_message)
 {
     // §7.1.22: undefined is 0; anything outside 0 … 2^53 − 1 is a
     // RangeError rather than a clamp.
@@ -483,8 +483,12 @@ std::optional<double> Interpreter::to_index(Value const& value)
     std::optional<double> const integer = to_integer_or_infinity(value);
     if (!integer)
         return std::nullopt;
-    if (*integer < 0 || *integer > max_safe_integer)
-        return throw_range_error("Invalid index");
+    if (*integer < 0 || *integer > max_safe_integer) {
+        std::string message(range_message);
+        if (std::size_t const at = message.find('%'); at != std::string::npos)
+            message.replace(at, 1, number_to_utf8(*integer));
+        return throw_range_error(message);
+    }
     return *integer;
 }
 

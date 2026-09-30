@@ -103,7 +103,7 @@ void install_bigint(Interpreter& in)
             if (!requested)
                 return std::nullopt;
             if (*requested < 2 || *requested > 36)
-                return interp.throw_range_error("toString() radix must be between 2 and 36");
+                return interp.throw_range_error("toString() radix argument must be between 2 and 36");
             radix = static_cast<int>(*requested);
         }
         return Value::string(interp.string(std::string_view((*value)->to_string(radix))));

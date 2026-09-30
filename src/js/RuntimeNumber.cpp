@@ -99,7 +99,7 @@ std::optional<Value> number_to_string_method(Interpreter& interp, Value const& t
         if (!requested)
             return std::nullopt;
         if (*requested < 2 || *requested > 36)
-            return interp.throw_range_error("toString() radix must be between 2 and 36");
+            return interp.throw_range_error("toString() radix argument must be between 2 and 36");
         radix = static_cast<int>(*requested);
     }
     if (radix == 10)
