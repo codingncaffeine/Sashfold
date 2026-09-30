@@ -68,6 +68,9 @@ std::string class_name(Object const& object)
     case Object::Class::Arguments: return "Arguments";
     case Object::Class::ArrayIterator: return "Array Iterator";
     case Object::Class::StringIterator: return "String Iterator";
+    case Object::Class::RegExpStringIterator: return "RegExp String Iterator";
+    case Object::Class::WeakRef: return "WeakRef";
+    case Object::Class::FinalizationRegistry: return "FinalizationRegistry";
     case Object::Class::Map: return "Map";
     case Object::Class::Set: return "Set";
     case Object::Class::WeakMap: return "WeakMap";

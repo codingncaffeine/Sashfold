@@ -121,6 +121,40 @@ void test_weak_collections()
     CHECK_JS_THROWS(in, "WeakMap.prototype.get.call(new Map(), {})", "TypeError");
 }
 
+// WeakRef and FinalizationRegistry hold their targets strongly (there are no
+// weak edges in the collector yet): deref always answers and no callback runs.
+void test_weak_refs()
+{
+    js::Interpreter& in = fresh();
+    CHECK_JS_TRUE(in, "(function () { var o = {}; var w = new WeakRef(o); return w.deref() === o && Object.prototype.toString.call(w) === '[object WeakRef]' && WeakRef.length === 1; })()");
+    CHECK_JS_TRUE(in, "new WeakRef(Symbol('s')).deref().toString() === 'Symbol(s)'");
+    CHECK_JS_THROWS(in, "new WeakRef(1)", "TypeError");
+    CHECK_JS_THROWS(in, "new WeakRef(Symbol.for('registered'))", "TypeError");
+    CHECK_JS_THROWS(in, "WeakRef({})", "TypeError");
+    CHECK_JS_THROWS(in, "WeakRef.prototype.deref.call({})", "TypeError");
+    CHECK_JS_TRUE(in, "(function () { var called = 0; var fr = new FinalizationRegistry(function () { ++called; }); var o = {}; return fr.register(o, 1, o) === undefined && fr.unregister(o) === true && fr.unregister(o) === false && Object.prototype.toString.call(fr) === '[object FinalizationRegistry]' && called === 0; })()");
+    CHECK_JS_THROWS(in, "new FinalizationRegistry(1)", "TypeError");
+    CHECK_JS_THROWS(in, "var o = {}; new FinalizationRegistry(function () {}).register(o, o)", "TypeError");
+    CHECK_JS_THROWS(in, "new FinalizationRegistry(function () {}).register(1, 2)", "TypeError");
+    CHECK_JS_THROWS(in, "new FinalizationRegistry(function () {}).unregister(1)", "TypeError");
+}
+
+// String.prototype.matchAll, RegExp.prototype[@@matchAll] and Error.captureStackTrace.
+void test_match_all()
+{
+    js::Interpreter& in = fresh();
+    CHECK_JS_STRING(in, "Array.from('a1b22c333'.matchAll(/\\d+/g)).map(function (m) { return m[0] + '@' + m.index; }).join()", "1@1,22@3,333@6");
+    CHECK_JS_STRING(in, "Array.from('x=1,y=2'.matchAll(/(?<k>\\w)=(?<v>\\d)/g)).map(function (m) { return m.groups.k + m.groups.v; }).join()", "x1,y2");
+    CHECK_JS_TRUE(in, "Array.from('abc'.matchAll(/(?:)/g)).length === 4 && Array.from('\\u{1F600}'.matchAll(/(?:)/gu)).length === 2");
+    CHECK_JS_TRUE(in, "Array.from('a.b'.matchAll('.')).length === 3 && Array.from('a'.matchAll()).length === 2");
+    CHECK_JS_THROWS(in, "'a'.matchAll(/a/)", "TypeError");
+    CHECK_JS_TRUE(in, "(function () { var it = 'ab'.matchAll(/./g); return Object.prototype.toString.call(it) === '[object RegExp String Iterator]' && it[Symbol.iterator]() === it && it.next().value[0] === 'a' && it.next().value[0] === 'b' && it.next().done === true && it.next().done === true; })()");
+    CHECK_JS_TRUE(in, "typeof RegExp.prototype[Symbol.matchAll] === 'function' && String.prototype.matchAll.length === 1");
+    CHECK_JS_THROWS(in, "'a'.matchAll.call(null, /a/g)", "TypeError");
+    CHECK_JS_TRUE(in, "(function () { var o = { name: 'X', message: 'm' }; Error.captureStackTrace(o); var d = Object.getOwnPropertyDescriptor(o, 'stack'); return o.stack.split('\\n')[0] === 'X: m' && d.writable && d.configurable && !d.enumerable; })()");
+    CHECK_JS_THROWS(in, "Error.captureStackTrace(1)", "TypeError");
+}
+
 } // namespace
 
 int main()
@@ -128,5 +162,7 @@ int main()
     test_map();
     test_set();
     test_weak_collections();
+    test_weak_refs();
+    test_match_all();
     return sashfold::test::report("js_collections");
 }

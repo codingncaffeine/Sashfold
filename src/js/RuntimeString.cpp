@@ -726,6 +726,47 @@ std::optional<Value> regexp_symbol_split(Interpreter& in, Value const& this_valu
 }
 
 // The RegExp constructor (§22.2.4.1).
+// RegExp.prototype[@@matchAll] (§22.2.6.9): a matcher of the species
+// constructor, made from this regexp and its flags with lastIndex carried
+// over, walked by a %RegExpStringIterator%.
+std::optional<Value> regexp_symbol_match_all(Interpreter& in, Value const& this_value, Args args)
+{
+    std::optional<Object*> const rx = this_object(in, this_value, "[Symbol.matchAll]");
+    if (!rx)
+        return std::nullopt;
+    Interpreter::Roots const roots(in);
+    in.root(this_value);
+    std::optional<JsString*> const string = in.to_string(argument(args, 0));
+    if (!string)
+        return std::nullopt;
+    in.root(Value::string(*string));
+    std::optional<Value> const constructor = in.species_constructor(**rx, in.intrinsics().regexp_constructor);
+    if (!constructor)
+        return std::nullopt;
+    in.root(*constructor);
+    std::optional<JsString*> const flags = flags_of(in, **rx);
+    if (!flags)
+        return std::nullopt;
+    in.root(Value::string(*flags));
+    Value const construct_arguments[2] = { this_value, Value::string(*flags) };
+    std::optional<Value> const matcher = in.construct(*constructor, construct_arguments);
+    if (!matcher)
+        return std::nullopt;
+    in.root(*matcher);
+    std::optional<Value> const last_index_value = in.get(**rx, PropertyKey::atom(in.atoms().last_index));
+    if (!last_index_value)
+        return std::nullopt;
+    std::optional<double> const last_index = in.to_length(*last_index_value);
+    if (!last_index)
+        return std::nullopt;
+    if (!in.set(*matcher->as_object(), PropertyKey::atom(in.atoms().last_index), Value::number(*last_index), true))
+        return std::nullopt;
+    std::u16string_view const flag_text = (*flags)->view();
+    bool const global = flag_text.find(u'g') != std::u16string_view::npos;
+    bool const unicode = flag_text.find(u'u') != std::u16string_view::npos || flag_text.find(u'v') != std::u16string_view::npos;
+    return Value::object(in.heap().allocate<RegExpStringIteratorObject>(in.intrinsics().regexp_string_iterator_prototype, matcher->as_object(), *string, global, unicode));
+}
+
 std::optional<Value> construct_regexp(Interpreter& in, Args args, Object* new_target, bool called_as_function)
 {
     Interpreter::Roots const roots(in);
@@ -936,6 +977,7 @@ void install_regexp_library(Interpreter& in)
         };
         SymbolMethod const methods[] = {
             { in.atoms().symbol_match, "[Symbol.match]", 1, regexp_symbol_match },
+            { in.atoms().symbol_match_all, "[Symbol.matchAll]", 1, regexp_symbol_match_all },
             { in.atoms().symbol_replace, "[Symbol.replace]", 2, regexp_symbol_replace },
             { in.atoms().symbol_search, "[Symbol.search]", 1, regexp_symbol_search },
             { in.atoms().symbol_split, "[Symbol.split]", 2, regexp_symbol_split },
@@ -1130,6 +1172,55 @@ std::u16string normalize_string(std::u16string_view input, bool compose)
 
 void install_string_prototype(Interpreter& in, Object& prototype)
 {
+    define_method(in, prototype, "matchAll", 1, [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
+        // §22.1.3.14: a @@matchAll on the argument takes over — a RegExp must
+        // be global — otherwise a global RegExp of the argument is made.
+        if (this_value.is_nullish())
+            return interp.throw_type_error("String.prototype.matchAll called on null or undefined");
+        Interpreter::Roots const roots(interp);
+        interp.root(this_value);
+        Value const regexp = argument(args, 0);
+        interp.root(regexp);
+        if (!regexp.is_nullish()) {
+            std::optional<bool> const is_regexp = interp.is_regexp(regexp);
+            if (!is_regexp)
+                return std::nullopt;
+            if (*is_regexp) {
+                std::optional<Value> const flags = interp.get(regexp, PropertyKey::atom(interp.atoms().flags));
+                if (!flags)
+                    return std::nullopt;
+                if (flags->is_nullish())
+                    return interp.throw_type_error("String.prototype.matchAll called with a non-global RegExp argument");
+                std::optional<JsString*> const flag_text = interp.to_string(*flags);
+                if (!flag_text)
+                    return std::nullopt;
+                if ((*flag_text)->view().find(u'g') == std::u16string_view::npos)
+                    return interp.throw_type_error("String.prototype.matchAll called with a non-global RegExp argument");
+            }
+            std::optional<Value> const matcher = interp.get_method(regexp, PropertyKey::symbol(interp.atoms().symbol_match_all));
+            if (!matcher)
+                return std::nullopt;
+            if (!matcher->is_undefined()) {
+                interp.root(*matcher);
+                Value const arguments[1] = { this_value };
+                return interp.call(*matcher, regexp, arguments);
+            }
+        }
+        std::optional<JsString*> const string = interp.to_string(this_value);
+        if (!string)
+            return std::nullopt;
+        interp.root(Value::string(*string));
+        std::optional<Value> const rx = regexp_create(interp, regexp, make_string(interp, u"g"), interp.intrinsics().regexp_prototype);
+        if (!rx)
+            return std::nullopt;
+        interp.root(*rx);
+        std::optional<Value> const invoke = interp.get(*rx->as_object(), PropertyKey::symbol(interp.atoms().symbol_match_all));
+        if (!invoke)
+            return std::nullopt;
+        interp.root(*invoke);
+        Value const arguments[1] = { Value::string(*string) };
+        return interp.call(*invoke, *rx, arguments);
+    });
     define_method(in, prototype, "at", 1, [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
         Interpreter::Roots const roots(interp);
         std::optional<JsString*> const string = this_string(interp, this_value, "at");
@@ -1778,6 +1869,47 @@ void install_string_library(Interpreter& in)
 std::optional<Value> create_regexp(Interpreter& in, Value const& pattern, Value const& flags)
 {
     return regexp_create(in, pattern, flags, in.intrinsics().regexp_prototype);
+}
+
+std::optional<Value> regexp_string_iterator_next(Interpreter& in, Value const& this_value, std::span<Value const>)
+{
+    if (!this_value.is_object() || this_value.as_object()->class_id() != Object::Class::RegExpStringIterator)
+        return in.throw_type_error("next method called on incompatible receiver " + in.describe(this_value));
+    auto& iterator = *static_cast<RegExpStringIteratorObject*>(this_value.as_object());
+    if (iterator.done())
+        return Value::object(in.create_iter_result(Value::undefined(), true));
+    Interpreter::Roots const roots(in);
+    in.root(this_value);
+    std::optional<Value> const match = regexp_exec(in, *iterator.matcher(), iterator.string());
+    if (!match)
+        return std::nullopt;
+    if (match->is_null()) {
+        iterator.finish();
+        return Value::object(in.create_iter_result(Value::undefined(), true));
+    }
+    in.root(*match);
+    if (!iterator.global()) {
+        iterator.finish();
+        return Value::object(in.create_iter_result(*match, false));
+    }
+    std::optional<Value> const matched_value = in.get(*match->as_object(), PropertyKey::index(0));
+    if (!matched_value)
+        return std::nullopt;
+    std::optional<JsString*> const matched = in.to_string(*matched_value);
+    if (!matched)
+        return std::nullopt;
+    if ((*matched)->is_empty()) {
+        std::optional<Value> const this_index_value = in.get(*iterator.matcher(), PropertyKey::atom(in.atoms().last_index));
+        if (!this_index_value)
+            return std::nullopt;
+        std::optional<double> const this_index = in.to_length(*this_index_value);
+        if (!this_index)
+            return std::nullopt;
+        double const next = static_cast<double>(advance_string_index(iterator.string()->view(), static_cast<std::size_t>(*this_index), iterator.unicode()));
+        if (!in.set(*iterator.matcher(), PropertyKey::atom(in.atoms().last_index), Value::number(next), true))
+            return std::nullopt;
+    }
+    return Value::object(in.create_iter_result(*match, false));
 }
 
 void install_string(Interpreter& in)

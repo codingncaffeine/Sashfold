@@ -2380,6 +2380,9 @@ void RealmRecord::trace(Tracer& tracer)
     tracer.visit(i.iterator_prototype);
     tracer.visit(i.array_iterator_prototype);
     tracer.visit(i.string_iterator_prototype);
+    tracer.visit(i.regexp_string_iterator_prototype);
+    tracer.visit(i.weak_ref_prototype);
+    tracer.visit(i.finalization_registry_prototype);
     tracer.visit(i.array_prototype_values);
     tracer.visit(i.map_prototype);
     tracer.visit(i.set_prototype);

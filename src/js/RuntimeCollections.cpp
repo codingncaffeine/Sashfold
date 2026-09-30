@@ -1118,6 +1118,135 @@ void install_collections(Interpreter& in)
     });
     weak_set_prototype.put(PropertyKey::symbol(atoms.symbol_to_string_tag), Value::string(in.atom("WeakSet")), Configurable);
 
+    // ---- WeakRef (§26.1) and FinalizationRegistry (§26.2). The collector has
+    // no weak edges, so both hold what they are given strongly (see
+    // WeakRefObject): deref() always answers, and no cleanup callback ever runs.
+    {
+        Object* weak_ref_prototype = in.new_object();
+        i.weak_ref_prototype = weak_ref_prototype;
+        NativeFunction* weak_ref = in.new_native(
+            "WeakRef", 1,
+            [](Interpreter& interp, Value const&, Args) -> std::optional<Value> {
+                return interp.throw_type_error("Constructor WeakRef requires 'new'");
+            },
+            [](Interpreter& interp, Args args, Object* new_target) -> std::optional<Value> {
+                Interpreter::Roots const roots(interp);
+                if (new_target)
+                    interp.root(Value::object(new_target));
+                if (!can_be_held_weakly(interp, argument(args, 0)))
+                    return interp.throw_type_error("WeakRef: invalid target");
+                std::optional<Object*> const proto = interp.get_prototype_from_constructor(new_target, &Intrinsics::weak_ref_prototype);
+                if (!proto)
+                    return std::nullopt;
+                return Value::object(interp.heap().allocate<WeakRefObject>(*proto, argument(args, 0)));
+            });
+        weak_ref->put(PropertyKey::atom(in.atoms().prototype), Value::object(weak_ref_prototype), frozen_attributes);
+        weak_ref_prototype->put(PropertyKey::atom(in.atoms().constructor), Value::object(weak_ref), builtin_attributes);
+        in.global()->put(in.key("WeakRef"), Value::object(weak_ref), builtin_attributes);
+        define_method(in, *weak_ref_prototype, "deref", 0, [](Interpreter& interp, Value const& this_value, Args) -> std::optional<Value> {
+            if (!this_value.is_object() || this_value.as_object()->class_id() != Object::Class::WeakRef)
+                return interp.throw_type_error("Method WeakRef.prototype.deref called on incompatible receiver " + interp.describe(this_value));
+            return static_cast<WeakRefObject*>(this_value.as_object())->target();
+        });
+        weak_ref_prototype->put(PropertyKey::symbol(atoms.symbol_to_string_tag), Value::string(in.atom("WeakRef")), Configurable);
+
+        Object* registry_prototype = in.new_object();
+        i.finalization_registry_prototype = registry_prototype;
+        NativeFunction* registry = in.new_native(
+            "FinalizationRegistry", 1,
+            [](Interpreter& interp, Value const&, Args) -> std::optional<Value> {
+                return interp.throw_type_error("Constructor FinalizationRegistry requires 'new'");
+            },
+            [](Interpreter& interp, Args args, Object* new_target) -> std::optional<Value> {
+                Interpreter::Roots const roots(interp);
+                if (new_target)
+                    interp.root(Value::object(new_target));
+                if (!Interpreter::is_callable(argument(args, 0)))
+                    return interp.throw_type_error("FinalizationRegistry: cleanup must be callable");
+                std::optional<Object*> const proto = interp.get_prototype_from_constructor(new_target, &Intrinsics::finalization_registry_prototype);
+                if (!proto)
+                    return std::nullopt;
+                return Value::object(interp.heap().allocate<FinalizationRegistryObject>(*proto, argument(args, 0)));
+            });
+        registry->put(PropertyKey::atom(in.atoms().prototype), Value::object(registry_prototype), frozen_attributes);
+        registry_prototype->put(PropertyKey::atom(in.atoms().constructor), Value::object(registry), builtin_attributes);
+        in.global()->put(in.key("FinalizationRegistry"), Value::object(registry), builtin_attributes);
+        auto this_registry = [](Interpreter& interp, Value const& this_value, std::string_view method) -> std::optional<FinalizationRegistryObject*> {
+            if (!this_value.is_object() || this_value.as_object()->class_id() != Object::Class::FinalizationRegistry)
+                return interp.throw_type_error("Method FinalizationRegistry.prototype." + std::string(method) + " called on incompatible receiver " + interp.describe(this_value));
+            return static_cast<FinalizationRegistryObject*>(this_value.as_object());
+        };
+        define_method(in, *registry_prototype, "register", 2, [this_registry](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
+            std::optional<FinalizationRegistryObject*> const target_registry = this_registry(interp, this_value, "register");
+            if (!target_registry)
+                return std::nullopt;
+            Value const target = argument(args, 0);
+            Value const held = argument(args, 1);
+            Value const token = argument(args, 2);
+            if (!can_be_held_weakly(interp, target))
+                return interp.throw_type_error("FinalizationRegistry.prototype.register: invalid target");
+            if (Interpreter::same_value(target, held))
+                return interp.throw_type_error("FinalizationRegistry.prototype.register: target and holdings must not be same");
+            if (!can_be_held_weakly(interp, token) && !token.is_undefined())
+                return interp.throw_type_error("FinalizationRegistry.prototype.register: invalid unregister token");
+            (*target_registry)->cells().push_back({ target, held, token });
+            return Value::undefined();
+        });
+        define_method(in, *registry_prototype, "unregister", 1, [this_registry](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
+            std::optional<FinalizationRegistryObject*> const target_registry = this_registry(interp, this_value, "unregister");
+            if (!target_registry)
+                return std::nullopt;
+            Value const token = argument(args, 0);
+            if (!can_be_held_weakly(interp, token))
+                return interp.throw_type_error("Invalid unregisterToken ('" + interp.describe(token) + "')");
+            auto& cells = (*target_registry)->cells();
+            std::size_t const before = cells.size();
+            std::erase_if(cells, [&](FinalizationRegistryObject::Cell const& cell) { return Interpreter::same_value(cell.token, token); });
+            return Value::boolean(cells.size() != before);
+        });
+        registry_prototype->put(PropertyKey::symbol(atoms.symbol_to_string_tag), Value::string(in.atom("FinalizationRegistry")), Configurable);
+    }
+
+    // ---- Error.captureStackTrace (V8): a `stack` string on any object, the
+    // object's own "Name: message" header over one frame line.
+    in.intrinsics().error_constructor->put(in.key("captureStackTrace"),
+        Value::object(in.new_native("captureStackTrace", 2, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
+            Value const target = argument(args, 0);
+            if (!target.is_object())
+                return interp.throw_type_error("invalid_argument");
+            Object& object = *target.as_object();
+            Interpreter::Roots const roots(interp);
+            interp.root(target);
+            std::optional<Value> const name_value = interp.get(object, interp.key("name"));
+            std::optional<Value> const message_value = name_value ? interp.get(object, interp.key("message")) : std::nullopt;
+            if (!message_value)
+                return std::nullopt;
+            std::string name = "Error";
+            if (!name_value->is_undefined()) {
+                std::optional<JsString*> const text = interp.to_string(*name_value);
+                if (!text)
+                    return std::nullopt;
+                name = (*text)->to_utf8();
+            }
+            std::string message;
+            if (!message_value->is_undefined()) {
+                std::optional<JsString*> const text = interp.to_string(*message_value);
+                if (!text)
+                    return std::nullopt;
+                message = (*text)->to_utf8();
+            }
+            std::string header = name.empty() ? message : message.empty() ? name : name + ": " + message;
+            std::string const stack = header + "\n    at <anonymous>";
+            std::optional<bool> const defined = interp.define_own_property(object, interp.key("stack"),
+                PropertyDescriptor::data(Value::string(interp.atom(stack)), builtin_attributes));
+            if (!defined)
+                return std::nullopt;
+            if (!*defined)
+                return interp.throw_type_error("Cannot define property stack, object is not extensible");
+            return Value::undefined();
+        })),
+        builtin_attributes);
+
     // ---- the iterators (§24.1.5, §24.2.5)
     i.map_iterator_prototype = in.new_object(i.iterator_prototype);
     define_method(in, *i.map_iterator_prototype, "next", 0, [](Interpreter& interp, Value const& this_value, Args) {

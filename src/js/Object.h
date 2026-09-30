@@ -106,6 +106,9 @@ public:
         Arguments,
         ArrayIterator, // %ArrayIteratorPrototype%'s instances (§23.1.5)
         StringIterator, // %StringIteratorPrototype%'s instances (§22.1.5)
+        RegExpStringIterator, // %RegExpStringIteratorPrototype%'s instances (§22.2.9)
+        WeakRef, // §26.1
+        FinalizationRegistry, // §26.2
         Map, // §24.1
         Set, // §24.2
         WeakMap, // §24.3
@@ -773,6 +776,98 @@ private:
     Value m_result;
     State m_state = State::Pending;
     bool m_handled = false;
+};
+
+// A WeakRef (§26.1). The target is held STRONGLY: the collector has no
+// weak edges yet, so deref() always finds it — a valid outcome, since the
+// specification lets an engine never collect a target — but nothing is
+// released by dropping the last other reference.
+class WeakRefObject : public Object {
+public:
+    WeakRefObject(Object* prototype, Value target)
+        : Object(prototype, Class::WeakRef)
+        , m_target(target)
+    {
+    }
+
+    Value target() const { return m_target; }
+    void trace(Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(m_target);
+    }
+
+private:
+    Value m_target;
+};
+
+// A FinalizationRegistry (§26.2): the cleanup callback and the cells
+// registered. Targets, held values and tokens are held strongly (see
+// WeakRefObject), so no cell is ever finalized and the callback never runs.
+class FinalizationRegistryObject : public Object {
+public:
+    struct Cell {
+        Value target;
+        Value held;
+        Value token;
+    };
+
+    FinalizationRegistryObject(Object* prototype, Value cleanup)
+        : Object(prototype, Class::FinalizationRegistry)
+        , m_cleanup(cleanup)
+    {
+    }
+
+    std::vector<Cell>& cells() { return m_cells; }
+    void trace(Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(m_cleanup);
+        for (Cell const& cell : m_cells) {
+            tracer.visit(cell.target);
+            tracer.visit(cell.held);
+            tracer.visit(cell.token);
+        }
+    }
+
+private:
+    Value m_cleanup;
+    std::vector<Cell> m_cells;
+};
+
+// %RegExpStringIteratorPrototype%'s instances (§22.2.9): the matcher, the
+// string it runs over, and whether it is global and unicode; done once a
+// step found no match or the pattern was not global.
+class RegExpStringIteratorObject : public Object {
+public:
+    RegExpStringIteratorObject(Object* prototype, Object* matcher, JsString* string, bool global, bool unicode)
+        : Object(prototype, Class::RegExpStringIterator)
+        , m_matcher(matcher)
+        , m_string(string)
+        , m_global(global)
+        , m_unicode(unicode)
+    {
+    }
+
+    Object* matcher() const { return m_matcher; }
+    JsString* string() const { return m_string; }
+    bool global() const { return m_global; }
+    bool unicode() const { return m_unicode; }
+    bool done() const { return m_done; }
+    void finish() { m_done = true; }
+    void trace(Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(m_matcher);
+        tracer.visit(m_string);
+    }
+
+private:
+    Object* m_matcher;
+    JsString* m_string;
+    bool m_global;
+    bool m_unicode;
+    bool m_done = false;
 };
 
 // %StringIteratorPrototype%'s instances (§22.1.5): the string and the

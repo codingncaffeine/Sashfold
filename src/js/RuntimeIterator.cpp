@@ -499,6 +499,11 @@ void install_iterators(Interpreter& in)
     define_method(in, *i.string_iterator_prototype, "next", 0, string_iterator_next);
     i.string_iterator_prototype->put(PropertyKey::symbol(atoms.symbol_to_string_tag), Value::string(in.atom("String Iterator")), Configurable);
 
+    // %RegExpStringIteratorPrototype% (§22.2.9.2), what matchAll returns.
+    i.regexp_string_iterator_prototype = in.new_object(i.iterator_prototype);
+    define_method(in, *i.regexp_string_iterator_prototype, "next", 0, regexp_string_iterator_next);
+    i.regexp_string_iterator_prototype->put(PropertyKey::symbol(atoms.symbol_to_string_tag), Value::string(in.atom("RegExp String Iterator")), Configurable);
+
     // Array.prototype.entries, keys, values (§23.1.3.5, .19, .37), and
     // @@iterator, which is the very same function as values (§23.1.3.40).
     Object& array_prototype = *i.array_prototype;

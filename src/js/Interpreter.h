@@ -87,6 +87,9 @@ struct Intrinsics {
     Object* iterator_prototype = nullptr;
     Object* array_iterator_prototype = nullptr;
     Object* string_iterator_prototype = nullptr;
+    Object* regexp_string_iterator_prototype = nullptr;
+    Object* weak_ref_prototype = nullptr;
+    Object* finalization_registry_prototype = nullptr;
     Function* array_prototype_values = nullptr;
     // The keyed collections (§24) and their iterators.
     Object* map_prototype = nullptr;

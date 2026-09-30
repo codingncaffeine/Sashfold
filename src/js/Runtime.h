@@ -119,6 +119,10 @@ std::optional<TypedArrayObject*> validate_typed_array(Interpreter&, Value const&
 // structured clone makes a RegExp again from its original source and flags.
 std::optional<Value> create_regexp(Interpreter&, Value const& pattern, Value const& flags);
 
+// %RegExpStringIteratorPrototype%.next (§22.2.9.2.1), installed with the
+// iterator prototypes.
+std::optional<Value> regexp_string_iterator_next(Interpreter&, Value const& this_value, std::span<Value const> args);
+
 // SetIntegrityLevel (§7.3.15): sealed, or frozen when `frozen`; nullopt with
 // the exception a proxy's trap threw. How the bindings make a FrozenArray,
 // such as a MessageEvent's ports.
