@@ -8120,6 +8120,7 @@ dom/events/KeyEvent-initKeyEvent.html	KeyboardEvent.initKeyEvent shouldn't be de
 dom/events/KeyEvent-initKeyEvent.html	KeyboardEvent.initKeyEvent shouldn't be defined (created by createEvent("KeyboardEvent")
 dom/events/KeyEvent-initKeyEvent.html	KeyboardEvent.prototype.initKeyEvent shouldn't be defined
 dom/events/event-disabled-dynamic.html	disabled is honored properly in presence of dynamic changes
+dom/events/event-global-extra.window.html	window.event and element from another document
 dom/events/event-global-set-before-handleEvent-lookup.window.html	window.event is set before 'handleEvent' lookup
 dom/events/event-global.html	event exists on window, which is initially set to undefined
 dom/events/event-global.html	window.event is only defined during dispatch
@@ -18805,9 +18806,22 @@ dom/nodes/insertion-removing-steps/script-does-not-run-on-child-removal.window.h
 dom/nodes/moveBefore/Node-moveBefore.html	Calling moveBefore with a non-Node first argument must throw TypeError.
 dom/nodes/moveBefore/Node-moveBefore.html	Calling moveBefore with second argument missing, or other than Node, null, or undefined, must throw TypeError.
 dom/nodes/moveBefore/Node-moveBefore.html	moveBefore() method does not exist on non-ParentNode Nodes
+dom/nodes/node-creation-realm.html	DOMImplementation.createDocumentType() creates a node in the associated document's realm
+dom/nodes/node-creation-realm.html	DOMImplementation.createHTMLDocument() creates the document and its contents in the target realm
+dom/nodes/node-creation-realm.html	Document.createAttribute() creates a node in the target document's realm
+dom/nodes/node-creation-realm.html	Document.createCDATASection() creates a node in the target document's realm
+dom/nodes/node-creation-realm.html	Document.createComment() creates a node in the target document's realm
+dom/nodes/node-creation-realm.html	Document.createDocumentFragment() creates a node in the target document's realm
+dom/nodes/node-creation-realm.html	Document.createProcessingInstruction() creates a node in the target document's realm
+dom/nodes/node-creation-realm.html	Document.createTextNode() creates a node in the target document's realm
+dom/nodes/node-creation-realm.html	cloneNode() clones into the node's node document realm
 dom/nodes/node-realm-adoption-after-frame-removal.html	Never-wrapped node keeps its creation realm: iframe removed before adoption (subtree not pre-detached)
 dom/nodes/node-realm-adoption-after-frame-removal.html	Never-wrapped node keeps its creation realm: subtree detached, iframe removed, then adopted
+dom/nodes/node-realm-adoption-after-frame-removal.html	Node reached through the adopting document still reports its creation realm (frame removed before adoption)
+dom/nodes/node-realm-mixed-across-adoption.html	Custom element parsed into an adopted container uses the node-document realm and registry
+dom/nodes/node-realm-mixed-across-adoption.html	Element parsed into an adopted container takes the node-document realm, not the container's creation realm
 dom/nodes/node-realm-mixed-across-adoption.html	Never-wrapped node keeps its creation realm across multiple adoptions
+dom/nodes/node-realm-mixed-across-adoption.html	Text parsed into an adopted container takes the node-document realm, not the container's creation realm
 dom/nodes/node-realm-preserved-across-adoption.html	Built-in element keeps its creation realm after adoption
 dom/nodes/node-realm-preserved-across-adoption.html	Comment node keeps its creation realm after adoption
 dom/nodes/node-realm-preserved-across-adoption.html	Never-wrapped descendant keeps its creation realm after adoption
