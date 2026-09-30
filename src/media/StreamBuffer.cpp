@@ -144,7 +144,13 @@ void StreamBuffer::file(Track& track, WebmFrame&& frame)
     // (MSE §3.5.8 step 6): every track waits for a key frame again.
     if (track.last_time_ns) {
         std::int64_t const distance = time_ns - *track.last_time_ns;
-        if (distance < 0 || (track.last_distance_ns > 0 && distance > 2 * track.last_distance_ns)) {
+        // The leap that counts is past twice the longest frame seen, not
+        // twice the last distance alone: with millisecond timestamps a
+        // 60 fps stream's frames are 16 and 17 ms apart by turns, and one
+        // dropped frame would otherwise begin a new run at every append.
+        // The second frame of a run sets the pace; it is never a leap.
+        std::int64_t const allowance = track.last_distance_ns > 0 ? 2 * std::max(track.last_distance_ns, track.longest_frame_ns) : 0;
+        if (distance < 0 || (allowance > 0 && distance > allowance)) {
             if (mode == Mode::Sequence)
                 group_start = m_group_end;
             for (Track& each : m_tracks) {
@@ -277,7 +283,7 @@ TimeRanges StreamBuffer::ranges_of(Track const& track)
 {
     // Frames a hair apart are one stretch: twice the longest frame, the
     // room the shipping engines give a stream's own jitter.
-    std::int64_t const slack = std::max<std::int64_t>(2 * track.longest_frame_ns, 1'000'000);
+    std::int64_t const slack = gap_slack_ns(track);
     TimeRanges out;
     std::int64_t open_start = 0;
     std::int64_t open_end = 0;
@@ -322,6 +328,16 @@ double StreamBuffer::highest_end() const
             CodedFrame const& last = track.frames.rbegin()->second;
             highest = std::max(highest, last.time_ns + last.duration_ns);
         }
+    }
+    return to_seconds(highest);
+}
+
+double StreamBuffer::highest_start() const
+{
+    std::int64_t highest = 0;
+    for (Track const& track : m_tracks) {
+        if (!track.frames.empty())
+            highest = std::max(highest, track.frames.rbegin()->first);
     }
     return to_seconds(highest);
 }

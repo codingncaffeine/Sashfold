@@ -4,6 +4,7 @@
 #include "bindings/Fetching.h"
 
 #include "core/Bitmap.h"
+#include "core/TraceClock.h"
 #include "media/Opus.h"
 #include "media/StreamBuffer.h"
 #include "media/VideoPipeline.h"
@@ -80,7 +81,7 @@ bool tracing()
 void trace(std::string const& line)
 {
     if (tracing())
-        std::cerr << "media: " << line << "\n";
+        std::cerr << "media: " << trace_stamp() << line << "\n";
 }
 
 class MediaSourceObject;
@@ -122,6 +123,17 @@ public:
     double volume = 1;
     bool muted = false;
     double last_time_update = 0;
+    double last_time_update_position = -1; // what the last periodic timeupdate reported
+    double last_progress = -1e12; // when the element last said progress
+    std::string current_src; // what the resource selection chose, "" until it ran
+    bool preserves_pitch = true;
+    // The element's track lists, made when first asked for; none has a track.
+    js::Value text_tracks = js::Value::undefined();
+    js::Value audio_tracks = js::Value::undefined();
+    js::Value video_tracks = js::Value::undefined();
+    // requestVideoFrameCallback: each called once, with the next picture shown.
+    std::vector<std::pair<std::uint32_t, js::Value>> frame_callbacks;
+    std::uint32_t next_frame_callback = 1;
     std::uint32_t video_width = 0;
     std::uint32_t video_height = 0;
     TimeRanges played;
@@ -252,6 +264,11 @@ void MediaStateObject::trace(js::Tracer& tracer)
         tracer.visit(resolve);
         tracer.visit(reject);
     }
+    tracer.visit(text_tracks);
+    tracer.visit(audio_tracks);
+    tracer.visit(video_tracks);
+    for (auto const& [id, callback] : frame_callbacks)
+        tracer.visit(callback);
 }
 
 void SourceBufferObject::trace(js::Tracer& tracer)
@@ -451,6 +468,7 @@ js::Value make_media_error(Realm::Internals& in, int code, std::string_view mess
 // --- The element's state --------------------------------------------------------------------
 
 void run_load(Realm::Internals& in, MediaStateObject& state);
+void select_resource(Realm::Internals& in, MediaStateObject& state);
 void update_media(Realm::Internals& in, MediaStateObject& state);
 void update_sound(Realm::Internals& in, MediaStateObject& state);
 void restart_device(MediaStateObject& state);
@@ -476,6 +494,9 @@ MediaStateObject& state_of(Realm::Internals& in, dom::Element& element)
     {
         js::Heap::NoCollect const no_collect(in.interpreter.heap());
         made = in.interpreter.heap().allocate<MediaStateObject>(wrapper);
+        // Created with a muted attribute, the element starts muted (HTML
+        // §4.8.11.13); the attribute says nothing after that.
+        made->muted = element.find_attribute("muted") != nullptr;
         wrapper.keep_same_object("media state", made);
     }
     return *made;
@@ -590,7 +611,9 @@ void set_ready_state(Realm::Internals& in, MediaStateObject& state, int next)
             queue_element_event(in, state, "playing");
         }
     }
-    if (next <= HaveCurrentData && previous >= HaveFutureData && !state.paused && !state.ended_fired && !state.seeking) {
+    // A seek that lands where nothing is buffered drops the state too, and
+    // says so: a player that nudges playback by seeking waits for it.
+    if (next <= HaveCurrentData && previous >= HaveFutureData && !state.paused && !state.ended_fired) {
         queue_element_event(in, state, "timeupdate");
         queue_element_event(in, state, "waiting");
     }
@@ -701,8 +724,11 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
     // And the picture: the frame due at the position, playing, paused or
     // just seeked.
     present_video(in, state);
-    if (state.advancing && now - state.last_time_update >= time_update_ms) {
+    // The periodic timeupdate says the position moved (HTML §4.8.11.8): a
+    // clock held at the end of what is buffered is not news every 250 ms.
+    if (state.advancing && now - state.last_time_update >= time_update_ms && state.position != state.last_time_update_position) {
         state.last_time_update = now;
+        state.last_time_update_position = state.position;
         queue_element_event(in, state, "timeupdate");
     }
     arm_timer(in, state);
@@ -904,8 +930,16 @@ void feed_stream(MediaStateObject& state, StreamBuffer::Track const& track)
         // or so either side of where the last one ended; a hole wider than
         // that waits for the page to fill it, and the speakers run dry.
         auto const it = track.frames.lower_bound(state.next_audio_ns - 1'000'000);
-        if (it == track.frames.end() || it->first > state.next_audio_ns + 50'000'000)
+        if (it == track.frames.end() || it->first > state.next_audio_ns + StreamBuffer::gap_slack_ns(track))
             return;
+        if (it->first > state.next_audio_ns + 1'000'000) {
+            // A hole the buffered ranges count as one stretch is played as
+            // silence, so what is heard keeps the stream's own time.
+            auto const silent = static_cast<std::size_t>((it->first - state.next_audio_ns) * stream_rate / nanoseconds);
+            state.pending.insert(state.pending.end(), silent * stream_channels, 0.0f);
+            state.next_audio_ns = it->first;
+            continue;
+        }
         media::OpusDecoder::Result result = state.opus->decode(it->second.data, state.pending);
         if (result.outcome == media::OpusDecoder::Outcome::Invalid) {
             state.opus->conceal(960, state.pending);
@@ -1003,6 +1037,36 @@ StreamBuffer::Track const* vp9_track(MediaStateObject const& state)
 constexpr std::int64_t handover_ahead_ns = 1'000'000'000;
 constexpr std::int64_t pictures_ahead_ns = 250'000'000;
 
+// requestVideoFrameCallback's callbacks, each once, for the picture just
+// shown: called from a task of their own with the time and what is known
+// of the frame (HTML's VideoFrameCallbackMetadata).
+void deliver_frame_callbacks(Realm::Internals& in, MediaStateObject& state, std::int64_t time_ns, int width, int height)
+{
+    std::vector<std::pair<std::uint32_t, js::Value>> taken;
+    taken.swap(state.frame_callbacks);
+    std::vector<std::shared_ptr<js::Persistent>> held;
+    held.reserve(taken.size());
+    for (auto const& [id, callback] : taken)
+        held.push_back(std::make_shared<js::Persistent>(in.interpreter.heap(), callback));
+    double const media_time = static_cast<double>(time_ns) / 1e9;
+    double const presented = static_cast<double>(state.picture_frames);
+    in.post_task([&in, held, media_time, width, height, presented] {
+        Realm::Internals::Entry const entry(in);
+        js::Interpreter& interp = in.interpreter;
+        js::Interpreter::Roots const roots(interp);
+        double const now = in.now();
+        js::Object* metadata = interp.new_object();
+        interp.root(js::Value::object(metadata));
+        for (auto const& [name, value] : std::initializer_list<std::pair<char const*, double>> { { "presentationTime", now },
+                 { "expectedDisplayTime", now }, { "width", static_cast<double>(width) }, { "height", static_cast<double>(height) },
+                 { "mediaTime", media_time }, { "presentedFrames", presented }, { "processingDuration", 0 } })
+            metadata->put(interp.key(name), js::Value::number(value), js::Enumerable);
+        js::Value const arguments[] = { js::Value::number(now), js::Value::object(metadata) };
+        for (std::shared_ptr<js::Persistent> const& callback : held)
+            in.call_reporting(callback->value(), js::Value::undefined(), arguments, "requestVideoFrameCallback");
+    });
+}
+
 // Shows the frame due at the position: the coded frames go to the pipeline
 // from the key frame at or before it, and the newest picture it has made
 // whose time has come is written into the element's bitmap.
@@ -1067,6 +1131,8 @@ void present_video(Realm::Internals& in, MediaStateObject& state)
         state.video->recycle(std::move(frame->rgba));
         state.picture_frames++;
         state.video_awaiting = false;
+        if (!state.frame_callbacks.empty())
+            deliver_frame_callbacks(in, state, frame->time_ns, frame->width, frame->height);
     }
     if (tracing() && std::abs(state.position - state.last_video_trace) >= 1.0) {
         state.last_video_trace = state.position;
@@ -1139,8 +1205,11 @@ void update_sound(Realm::Internals& in, MediaStateObject& state)
             queue_element_event(in, state, "ended");
         }
     }
-    if (state.advancing && now - state.last_time_update >= time_update_ms) {
+    // The periodic timeupdate says the position moved (HTML §4.8.11.8): a
+    // clock held at the end of what is buffered is not news every 250 ms.
+    if (state.advancing && now - state.last_time_update >= time_update_ms && state.position != state.last_time_update_position) {
         state.last_time_update = now;
+        state.last_time_update_position = state.position;
         queue_element_event(in, state, "timeupdate");
     }
     arm_timer(in, state);
@@ -1284,7 +1353,28 @@ void run_load(Realm::Internals& in, MediaStateObject& state)
     }
     state.error = js::Value::null();
     state.playback_rate = state.default_playback_rate;
+    state.current_src.clear();
+    state.network_state = NetworkNoSource;
 
+    // The resource selection waits for a stable state (HTML §4.8.11.5,
+    // steps 6 and on): the page that set the source sees the element
+    // emptied, with no source and currentSrc empty, before anything is
+    // chosen.
+    std::uint64_t const generation = state.generation;
+    auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(&state));
+    in.post_task([&in, held, generation] {
+        Realm::Internals::Entry const entry(in);
+        auto& chosen = *static_cast<MediaStateObject*>(held->value().as_object());
+        if (chosen.generation != generation || chosen.wrapper->detached())
+            return;
+        select_resource(in, chosen);
+    });
+}
+
+// The resource selection algorithm, from step 6: the src attribute, else
+// the <source> children, else nothing to load.
+void select_resource(Realm::Internals& in, MediaStateObject& state)
+{
     dom::Node& node = state.wrapper->node();
     if (!node.is_element())
         return;
@@ -1297,6 +1387,10 @@ void run_load(Realm::Internals& in, MediaStateObject& state)
         for (dom::Node* child : element.children()) {
             if (child->is_element() && static_cast<dom::Element*>(child)->is_html("source")) {
                 any = true;
+                if (dom::Attr const* const candidate = static_cast<dom::Element*>(child)->find_attribute("src")) {
+                    std::optional<net::Url> const url = net::parse_url(candidate->value, &in.base_url());
+                    state.current_src = url ? url->serialize() : std::string(candidate->value);
+                }
                 queue_fire(in, in.wrap(*child), "error");
             }
         }
@@ -1307,7 +1401,12 @@ void run_load(Realm::Internals& in, MediaStateObject& state)
     }
     state.network_state = NetworkLoading;
     queue_element_event(in, state, "loadstart");
+    if (src->value.empty()) {
+        fail_load(in, state, "The src attribute is empty.");
+        return;
+    }
     std::optional<net::Url> const url = net::parse_url(src->value, &in.base_url());
+    state.current_src = url ? url->serialize() : std::string(src->value);
     auto const named = url ? in.media_source_urls.find(url->serialize(true)) : in.media_source_urls.end();
     auto* const source = named != in.media_source_urls.end() ? dynamic_cast<MediaSourceObject*>(named->second) : nullptr;
     if (source != nullptr && (source->ready != MediaSourceObject::Closed || source->attached != nullptr)) {
@@ -1432,6 +1531,16 @@ void finish_update(Realm::Internals& in, SourceBufferObject& buffer, bool failed
     buffer.updating = false;
     fire(in, &buffer, failed ? "error" : "update");
     fire(in, &buffer, "updateend");
+    // Media that arrived is progress on the element, said at most every
+    // 350 ms while the source feeds it, as the shipping engines say it.
+    if (!failed && buffer.parent != nullptr && buffer.parent->attached != nullptr) {
+        MediaStateObject& state = *buffer.parent->attached;
+        double const now = in.now();
+        if (now - state.last_progress >= 350) {
+            state.last_progress = now;
+            queue_element_event(in, state, "progress");
+        }
+    }
 }
 
 Native append_buffer(js::Interpreter& interp, js::Value const& this_value, Args args)
@@ -1457,13 +1566,13 @@ Native append_buffer(js::Interpreter& interp, js::Value const& this_value, Args 
     auto data = std::make_shared<std::vector<std::uint8_t>>(bytes->begin(), bytes->end());
     buffer.updating = true;
     std::uint64_t const generation = buffer.generation;
+    // updatestart is owed from the moment of the call (MSE §3.5.4 step 10):
+    // an abort() that comes before the append runs still sees it first.
+    queue_fire(in, &buffer, "updatestart");
     auto held = std::make_shared<js::Persistent>(interp.heap(), this_value);
     in.post_task([&in, held, data, generation] {
         Realm::Internals::Entry const entry(in);
         auto& target = *static_cast<SourceBufferObject*>(held->value().as_object());
-        if (target.generation != generation || target.parent == nullptr)
-            return;
-        fire(in, &target, "updatestart");
         if (target.generation != generation || target.parent == nullptr)
             return;
         StreamBuffer::Appended const appended = target.buffer.append(*data);
@@ -1741,17 +1850,23 @@ void install_media_source(Realm::Internals& in)
             MediaSourceObject& source = **found;
             if (source.ready != MediaSourceObject::Open)
                 return internals.throw_dom_exception("InvalidStateError", "The MediaSource is not open.");
-            double highest = 0;
+            // The duration change algorithm (MSE §3.15.1): a duration before
+            // the latest frame BEGINS is refused; one inside the last frame
+            // is rounded up to where that frame ends.
+            double highest_start = 0;
+            double highest_end = 0;
             for (SourceBufferObject const* buffer : source.buffers->items) {
                 if (buffer->updating)
                     return internals.throw_dom_exception("InvalidStateError", "A SourceBuffer is still updating.");
-                highest = std::max(highest, buffer->buffer.highest_end());
+                highest_start = std::max(highest_start, buffer->buffer.highest_start());
+                highest_end = std::max(highest_end, buffer->buffer.highest_end());
             }
-            if (*value < highest)
-                return internals.throw_dom_exception("InvalidStateError", "The duration cannot be set before the end of what is buffered; remove that first.");
-            source.duration = *value;
+            if (*value < highest_start)
+                return internals.throw_dom_exception("InvalidStateError", "The duration cannot be set before the latest frame buffered; remove that first.");
+            double const duration = std::max(*value, highest_end);
+            source.duration = duration;
             if (source.attached != nullptr) {
-                set_duration(internals, *source.attached, *value);
+                set_duration(internals, *source.attached, duration);
                 update_media(internals, *source.attached);
             }
             return js::Value::undefined();
@@ -1889,11 +2004,23 @@ void install_media_element(Realm::Internals& in)
         error_constructor.as_object()->put(interpreter.key(name), js::Value::number(value), js::Enumerable);
     }
 
+    // What getVideoPlaybackQuality() answers with, and the track lists —
+    // each empty: the engine reads no text tracks and exposes no audio or
+    // video track objects yet, but a player asking finds the lists, their
+    // length and their events, as it would in any browser.
+    define_interface(in, "VideoPlaybackQuality", nullptr);
+    for (char const* const name : { "TextTrackList", "AudioTrackList", "VideoTrackList" }) {
+        js::Object* list = define_interface(in, name, in.prototype("EventTarget"));
+        define_getter(in, *list, "length", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
+        define_operation(interpreter, *list, "getTrackById", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::null(); });
+        static constexpr std::string_view list_events[] = { "change", "addtrack", "removetrack" };
+        define_event_handlers(in, *list, list_events);
+    }
+
     js::Object& element = *in.prototype("HTMLMediaElement");
+    js::Object& video_element = *in.prototype("HTMLVideoElement");
     element_getter(in, element, "currentSrc", [](Realm::Internals& internals, dom::Element& e) -> Native {
-        dom::Attr const* src = e.find_attribute("src");
-        std::optional<net::Url> const url = src ? net::parse_url(src->value, &internals.base_url()) : std::nullopt;
-        return internals.string(url ? url->serialize() : "");
+        return internals.string(live_state_of(internals, e).current_src);
     });
     element_getter(in, element, "paused", [](Realm::Internals& internals, dom::Element& e) -> Native { return js::Value::boolean(live_state_of(internals, e).paused); });
     element_getter(in, element, "seeking", [](Realm::Internals& internals, dom::Element& e) -> Native { return js::Value::boolean(live_state_of(internals, e).seeking); });
@@ -1989,6 +2116,80 @@ void install_media_element(Realm::Internals& in)
             }
             return js::Value::undefined();
         });
+
+    element_accessor(
+        in, element, "defaultMuted", [](Realm::Internals&, dom::Element& e) -> Native { return js::Value::boolean(e.find_attribute("muted") != nullptr); },
+        [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
+            if (js::Interpreter::to_boolean(value))
+                set_attribute(internals, e, "muted", "");
+            else
+                remove_attribute(internals, e, "muted");
+            return js::Value::undefined();
+        });
+    element_accessor(
+        in, element, "preservesPitch", [](Realm::Internals& internals, dom::Element& e) -> Native { return js::Value::boolean(live_state_of(internals, e).preserves_pitch); },
+        [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
+            live_state_of(internals, e).preserves_pitch = js::Interpreter::to_boolean(value);
+            return js::Value::undefined();
+        });
+    auto const track_list = [](Realm::Internals& internals, dom::Element& e, js::Value MediaStateObject::* slot, char const* interface) -> Native {
+        MediaStateObject& state = live_state_of(internals, e);
+        if ((state.*slot).is_undefined()) {
+            js::Heap::NoCollect const no_collect(internals.interpreter.heap());
+            state.*slot = js::Value::object(internals.interpreter.heap().allocate<EventTargetObject>(internals.prototype(interface)));
+        }
+        return state.*slot;
+    };
+    element_getter(in, element, "textTracks", [track_list](Realm::Internals& internals, dom::Element& e) -> Native {
+        return track_list(internals, e, &MediaStateObject::text_tracks, "TextTrackList");
+    });
+    element_getter(in, element, "audioTracks", [track_list](Realm::Internals& internals, dom::Element& e) -> Native {
+        return track_list(internals, e, &MediaStateObject::audio_tracks, "AudioTrackList");
+    });
+    element_getter(in, element, "videoTracks", [track_list](Realm::Internals& internals, dom::Element& e) -> Native {
+        return track_list(internals, e, &MediaStateObject::video_tracks, "VideoTrackList");
+    });
+
+    // What a player reads of the pictures: the frames decoded and the ones
+    // shown too late, through getVideoPlaybackQuality() and the older
+    // webkit counters alike; and a callback for the next picture shown.
+    auto const picture_counts = [](Realm::Internals& internals, dom::Element& e) {
+        MediaStateObject& state = live_state_of(internals, e);
+        return state.video ? state.video->counts() : media::VideoPipeline::Counts {};
+    };
+    element_getter(in, video_element, "webkitDecodedFrameCount", [picture_counts](Realm::Internals& internals, dom::Element& e) -> Native {
+        return js::Value::number(static_cast<double>(picture_counts(internals, e).decoded));
+    });
+    element_getter(in, video_element, "webkitDroppedFrameCount", [picture_counts](Realm::Internals& internals, dom::Element& e) -> Native {
+        return js::Value::number(static_cast<double>(picture_counts(internals, e).skipped));
+    });
+    element_method(in, video_element, "getVideoPlaybackQuality", 0, [picture_counts](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+        media::VideoPipeline::Counts const counts = picture_counts(internals, e);
+        js::Heap::NoCollect const no_collect(internals.interpreter.heap());
+        js::Object* quality = internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("VideoPlaybackQuality"));
+        quality->put(internals.interpreter.key("creationTime"), js::Value::number(internals.now()), js::Enumerable);
+        quality->put(internals.interpreter.key("totalVideoFrames"), js::Value::number(static_cast<double>(counts.decoded)), js::Enumerable);
+        quality->put(internals.interpreter.key("droppedVideoFrames"), js::Value::number(static_cast<double>(counts.skipped)), js::Enumerable);
+        quality->put(internals.interpreter.key("corruptedVideoFrames"), js::Value::number(0), js::Enumerable);
+        return js::Value::object(quality);
+    });
+    element_method(in, video_element, "requestVideoFrameCallback", 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        js::Value const callback = js::argument(args, 0);
+        if (!js::Interpreter::is_callable(callback))
+            return internals.interpreter.throw_type_error("Failed to execute 'requestVideoFrameCallback' on 'HTMLVideoElement': parameter 1 is not of type 'Function'.");
+        MediaStateObject& state = live_state_of(internals, e);
+        std::uint32_t const id = state.next_frame_callback++;
+        state.frame_callbacks.emplace_back(id, callback);
+        return js::Value::number(id);
+    });
+    element_method(in, video_element, "cancelVideoFrameCallback", 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        std::optional<double> const id = internals.interpreter.to_number(js::argument(args, 0));
+        if (!id)
+            return std::nullopt;
+        MediaStateObject& state = live_state_of(internals, e);
+        std::erase_if(state.frame_callbacks, [&id](std::pair<std::uint32_t, js::Value> const& entry) { return static_cast<double>(entry.first) == *id; });
+        return js::Value::undefined();
+    });
 
     element_method(in, element, "load", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         run_load(internals, state_of(internals, e));

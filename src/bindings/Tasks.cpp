@@ -28,13 +28,11 @@ namespace sashfold::bindings {
 
 namespace {
 
-// A DOMException as a value: the realm's thrower builds it and throws, so
-// the exception is taken back.
+// A DOMException as a value, built by the realm without a throw: a rejected
+// promise's reason is no exception the page raised.
 js::Value dom_error(Realm::Internals& in, std::string_view name, std::string_view message)
 {
-    if (in.throw_dom_exception(name, message))
-        return js::Value::undefined();
-    return in.interpreter.take_exception();
+    return in.make_dom_exception(name, message);
 }
 
 std::optional<AbortSignalObject*> this_signal(js::Interpreter& interp, js::Value const& this_value)

@@ -261,6 +261,26 @@ std::string ranges_text(media::TimeRanges const& ranges)
     return out.str();
 }
 
+// Millisecond timestamps at 60 fps are 16 and 17 ms apart by turns, so one
+// dropped frame is a 33 ms step: twice the last distance would call that a
+// leap and drop every dependent frame to the next key frame; twice the
+// longest frame does not. A step past that allowance is still a leap.
+void test_stream_buffer_jitter()
+{
+    using media::StreamBuffer;
+    StreamBuffer buffer;
+    CHECK(buffer.append(init_segment(true, false)).ok);
+    CHECK(buffer.append(video_cluster(0, { 0, -17, -33, -50, -66, -99, -116 })).ok);
+    CHECK_EQ(ranges_text(buffer.buffered()), std::string("[0,133) "));
+    // Dependents 185 ms on: a leap, so they wait for a key frame and are dropped.
+    CHECK(buffer.append(video_cluster(300, { -1, -18 })).ok);
+    CHECK_EQ(ranges_text(buffer.buffered()), std::string("[0,133) "));
+    // A key frame begins the next run wherever it is (a lone frame has no
+    // length until the next arrives, so two are given).
+    CHECK(buffer.append(video_cluster(400, { 0, -17 })).ok);
+    CHECK_EQ(ranges_text(buffer.buffered()), std::string("[0,133) [400,434) "));
+}
+
 void test_stream_buffer()
 {
     using media::StreamBuffer;
@@ -437,6 +457,7 @@ int main(int argc, char** argv)
     test_real_file(fixtures, "tiny-vp9", "V_VP9", 0.0);
     test_real_file(fixtures, "tiny-opus", "A_OPUS", 6.5);
     test_stream_buffer();
+    test_stream_buffer_jitter();
     test_real_buffer(fixtures);
     return sashfold::test::report("webm");
 }

@@ -1606,10 +1606,9 @@ void install_window(Realm::Internals& in)
             std::optional<std::string> const name = js::argument(args, 1).is_undefined() ? std::optional<std::string>("Error") : internals.to_utf8(args[1]);
             if (!message || !name)
                 return std::nullopt;
-            // The realm's own thrower builds the same shape; it throws, so
-            // the exception is taken back as the return value.
-            internals.throw_dom_exception(*name, *message);
-            return interp.take_exception();
+            // Built without being thrown: a page probing `new DOMException`
+            // raises nothing, and the throw count must not say it did.
+            return dom_exception_value(internals, *name, *message);
         },
         0);
     for (auto const& [name, code] : { std::pair { "INDEX_SIZE_ERR", 1 }, std::pair { "HIERARCHY_REQUEST_ERR", 3 }, std::pair { "WRONG_DOCUMENT_ERR", 4 },

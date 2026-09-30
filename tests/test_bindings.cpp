@@ -4089,6 +4089,113 @@ void test_custom_elements()
     CHECK_EQ(page->string("'' + host.querySelector('my-grow').attributes.length"), "11");
 }
 
+// What a player reads and sets on the element beside playback: a
+// DOMException it constructs is no exception raised, the muted attribute
+// mutes at creation and defaultMuted reflects it, currentSrc is empty until
+// the resource selection ran, the track lists exist and are empty, the
+// playback quality and the webkit counters read, the pitch switch is kept,
+// and a frame callback can be asked for and taken back.
+void test_media_element_extras()
+{
+    auto page = loaded("<!DOCTYPE html><body><video id=v muted></video><video id=w></video><audio id=a></audio></body>");
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    std::uint64_t const throws_before = page->realm->interpreter().throws();
+    CHECK_EQ(page->string("(function () { var e = new DOMException('m', 'AbortError'); return e.name + ' ' + e.message + ' ' + e.code + ' ' + (e instanceof Error); })()"),
+        "AbortError m 20 true");
+    CHECK_EQ(page->realm->interpreter().throws(), throws_before);
+    CHECK_EQ(page->string("[v.muted, v.defaultMuted, w.muted, w.defaultMuted].join()"), "true,true,false,false");
+    CHECK_EQ(page->string("v.muted = false; v.defaultMuted = false; w.defaultMuted = true; [v.muted, v.hasAttribute('muted'), w.muted, w.hasAttribute('muted')].join()"),
+        "false,false,false,true");
+    CHECK_EQ(page->string("w.src = 'clip.webm'; w.currentSrc + ' ' + w.networkState"), " 3");
+    pump();
+    CHECK_EQ(page->string("w.currentSrc"), "https://example.test/dir/clip.webm");
+    CHECK_EQ(page->string("[v.textTracks.length, v.audioTracks.length, v.videoTracks.length, v.textTracks instanceof TextTrackList, v.audioTracks instanceof EventTarget,"
+                          " v.videoTracks.getTrackById('x'), v.textTracks === v.textTracks, a.audioTracks instanceof AudioTrackList].join()"),
+        "0,0,0,true,true,,true,true");
+    CHECK_EQ(page->string("var q = v.getVideoPlaybackQuality(); [q instanceof VideoPlaybackQuality, typeof q.creationTime, q.totalVideoFrames, q.droppedVideoFrames,"
+                          " q.corruptedVideoFrames, v.webkitDecodedFrameCount, v.webkitDroppedFrameCount].join()"),
+        "true,number,0,0,0,0,0");
+    CHECK_EQ(page->string("v.preservesPitch + ' ' + (v.preservesPitch = false, v.preservesPitch) + ' ' + a.preservesPitch"), "true false true");
+    CHECK_EQ(page->string("var id = v.requestVideoFrameCallback(function () {}); [typeof id, id > 0, v.cancelVideoFrameCallback(id), typeof a.requestVideoFrameCallback].join()"),
+        "number,true,,undefined");
+    CHECK(page->throws("v.requestVideoFrameCallback(1)").starts_with("TypeError"));
+}
+
+// The rules a MediaSource player leans on: updatestart is owed from the
+// call even when abort() comes first, media arriving is progress on the
+// element, a duration inside the last frame is rounded up to its end and
+// one before the latest frame refused, a seek into nothing buffered says
+// waiting, and a clock held at the buffered end repeats no timeupdate.
+void test_media_source_rules()
+{
+    using namespace sashfold::test::webm;
+    auto const base64 = [](Bytes const& bytes) { return base64_encode(bytes); };
+    auto const cluster = [](int track, std::initializer_list<int> times) {
+        Bytes body = element(0xE7, uint_body(0));
+        for (int const time : times)
+            sashfold::test::webm::append(body, element(0xA3, block(track, std::abs(time), time >= 0 ? 0x80 : 0x00, sashfold::test::webm::text("frame"))));
+        return element(0x1F43B675, body);
+    };
+    auto page = loaded("<!DOCTYPE html><body><video id=v></video></body>");
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    page->eval("var VI = '" + base64(init_segment(true, false)) + "', AI = '" + base64(init_segment(false, true)) + "', VC = '"
+        + base64(cluster(1, { 0, -500, 1000, -1500 })) + "', AC = '" + base64(cluster(2, { 0, 500, 1000, 1500, 2000 })) + "';");
+    page->eval(R"JS(
+        var log = [], updates = 0;
+        var take = function () { var s = log.join(' '); log = []; return s; };
+        var bytes = function (b) { return Uint8Array.from(atob(b), function (c) { return c.charCodeAt(0); }); };
+        var append = function (b, d) { return new Promise(function (r) { b.addEventListener('updateend', r, { once: true }); b.appendBuffer(bytes(d)); }); };
+        var v = document.getElementById('v'), ms = new MediaSource(), vb, ab;
+        ['progress', 'play', 'playing', 'waiting', 'seeking', 'seeked', 'pause'].forEach(function (t) { v.addEventListener(t, function () { log.push(t); }); });
+        v.addEventListener('timeupdate', function () { updates++; });
+        ms.addEventListener('sourceopen', function () {
+            vb = ms.addSourceBuffer('video/webm; codecs="vp9"');
+            ab = ms.addSourceBuffer('audio/webm; codecs="opus"');
+            append(vb, VI).then(function () { return append(ab, AI); }).then(function () { return append(vb, VC); })
+                .then(function () { return append(ab, AC); }).then(function () { log.push('appended'); });
+        }, { once: true });
+        v.src = URL.createObjectURL(ms);
+    )JS");
+    pump();
+    // Four appends inside one moment: progress once, throttled to 350 ms.
+    CHECK_EQ(page->string("take()"), "progress appended");
+    page->clock += 400;
+    page->eval(R"JS(
+        ['updatestart', 'update', 'updateend', 'abort'].forEach(function (t) { vb.addEventListener(t, function () { log.push(t); }); });
+        vb.appendBuffer(bytes(VC));
+        vb.abort();
+    )JS");
+    pump();
+    CHECK_EQ(page->string("take()"), "updatestart abort updateend");
+    // Video buffered to 2 s, audio to 2.5 s: the latest frame begins at 2 s.
+    CHECK_EQ(page->string("ms.duration = 2.2; '' + ms.duration"), "2.5");
+    CHECK(page->throws("ms.duration = 1.9").starts_with("InvalidStateError"));
+    page->eval("v.play();");
+    pump();
+    CHECK_EQ(page->string("take()"), "play playing");
+    page->eval("v.currentTime = 2.3;");
+    pump();
+    CHECK_EQ(page->string("take() + ' ' + v.readyState"), "seeking waiting 1");
+    page->eval("v.currentTime = 0;");
+    pump();
+    CHECK_EQ(page->string("take()"), "seeking seeked playing");
+    page->clock += 2500;
+    pump();
+    CHECK_EQ(page->string("v.currentTime + ' ' + take()"), "2 waiting");
+    int const updates = static_cast<int>(page->number("updates"));
+    page->clock += 600;
+    pump();
+    CHECK_EQ(page->number("updates"), updates);
+    page->eval("v.currentTime = 1;");
+    page->clock += 300;
+    pump();
+    CHECK(page->number("updates") > updates);
+}
+
 // A MediaSource's sound, decoded as it plays: a real Opus stream (a second
 // of a 440 Hz sine, made by ffmpeg in CELT alone) appended by the page,
 // played into a device that lets the test listen to every sample it was
@@ -4327,7 +4434,7 @@ void test_a_sound_file_plays()
         a.addEventListener('timeupdate', function () { updates++; });
         a.src = 'tone.wav';
     )JS");
-    CHECK_EQ(page->string("a.networkState + ' ' + a.readyState"), "2 0"); // loading, nothing known yet
+    CHECK_EQ(page->string("a.networkState + ' ' + a.readyState"), "3 0"); // no source chosen yet, nothing known
     pump();
     CHECK_EQ(page->string("take()"), "loadstart loadedmetadata durationchange loadeddata canplay canplaythrough");
     CHECK_EQ(page->string("a.duration + ' ' + a.readyState + ' ' + a.networkState + ' ' + a.paused"), "0.5 4 1 true");
@@ -4537,8 +4644,12 @@ void test_media_source_and_the_media_element()
     )JS");
     CHECK_EQ(page->string("ms.readyState + ' ' + ms.duration + ' ' + v.readyState + ' ' + v.networkState + ' ' + v.duration + ' ' + v.paused"), "closed NaN 0 0 NaN true");
     page->eval("v.src = URL.createObjectURL(ms);");
-    CHECK_EQ(page->string("ms.readyState"), "open");
+    // The source is attached when the resource selection runs, a task
+    // later: until then the element has no source and the MediaSource is
+    // still closed (HTML §4.8.11.5 awaits a stable state first).
+    CHECK_EQ(page->string("ms.readyState + ' ' + v.networkState + ' ' + v.currentSrc"), "closed 3 ");
     pump();
+    CHECK_EQ(page->string("ms.readyState + ' ' + (v.currentSrc === v.src)"), "open true");
     CHECK_EQ(page->string("take()"), "loadstart sourceopen durationchange resize loadedmetadata appended loadeddata canplay");
     CHECK_EQ(page->string("ranges(vb.buffered) + ' ' + ranges(ab.buffered) + ' ' + ranges(v.buffered) + ' ' + ranges(v.seekable)"), "[0,2) [0,2.5) [0,2) [0,2.5)");
     CHECK_EQ(page->string("v.readyState + ' ' + v.duration + ' ' + v.videoWidth + 'x' + v.videoHeight + ' ' + ms.sourceBuffers.length + ' ' + ms.activeSourceBuffers.length"), "3 2.5 320x180 2 2");
@@ -4708,6 +4819,8 @@ int main()
     test_custom_elements();
     test_reflected_attributes();
     test_media_source_and_the_media_element();
+    test_media_element_extras();
+    test_media_source_rules();
     test_media_source_plays_its_sound();
     test_media_source_shows_its_video();
     test_a_sound_file_plays();

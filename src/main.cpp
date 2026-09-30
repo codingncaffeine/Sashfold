@@ -2,6 +2,7 @@
 #include "bindings/Realm.h"
 #include "bindings/Workers.h"
 #include "core/Ascii.h"
+#include "core/TraceClock.h"
 #include "core/Bitmap.h"
 #include "core/Json.h"
 #include "core/Png.h"
@@ -2175,7 +2176,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 ui::Profile const spent = profile_since(browser.profile(), turn_profile);
                 ui::Browser::EngineAccount const engine = engine_since(browser.engine_account(), turn_engine);
                 double const presented = present_ms.size() != presents_before ? present_ms.back() : 0.0;
-                std::cerr << std::fixed << std::setprecision(1) << "sashfold: turn " << total << " ms \xe2\x80\x94 "
+                std::cerr << std::fixed << std::setprecision(1) << "sashfold: " << trace_stamp() << "turn " << total << " ms \xe2\x80\x94 "
                           << turn_events << " events";
                 if (turn_resizes > 0)
                     std::cerr << " (" << turn_resizes << " sizes, the last " << browser.width() << "x" << browser.height() << ")";
@@ -2296,6 +2297,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
 
 int main(int argc, char** argv)
 {
+    trace_seconds(); // the trace clock's origin is the start of the process
     // Before anything runs script on this thread: the room a page's
     // recursion has is the room V8 gives it, and every realm made here
     // reads the stack it is on for its budget.

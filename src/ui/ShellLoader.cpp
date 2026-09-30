@@ -1,6 +1,7 @@
 #include "ui/ShellLoader.h"
 
 #include "core/Ascii.h"
+#include "core/TraceClock.h"
 
 #include <atomic>
 #include <chrono>
@@ -67,7 +68,7 @@ void trace_request(std::string const& method, net::Url const& url, std::vector<s
             keep_bytes(stem + ".res", result.response->body);
     }
     if (result.response) {
-        std::cerr << "net: " << label << method << " " << result.response->status << " " << shown << " ("
+        std::cerr << "net: " << trace_stamp() << label << method << " " << result.response->status << " " << shown << " ("
                   << result.response->body.size() << " bytes" << (result.response->from_cache ? ", cached" : "") << ")\n";
         // A small answer from a media server is a message, not media: shown
         // whole, so what the server said can be read.
@@ -80,7 +81,7 @@ void trace_request(std::string const& method, net::Url const& url, std::vector<s
             std::cerr << "net: body " << hex << "\n";
         }
     } else
-        std::cerr << "net: " << label << method << " failed " << shown << ": " << result.error << "\n";
+        std::cerr << "net: " << trace_stamp() << label << method << " failed " << shown << ": " << result.error << "\n";
 }
 
 }
@@ -170,7 +171,10 @@ std::optional<std::string> ShellLoader::refusal(net::Url const& url, net::Url co
             = m_blocklists.blocks(net::FilterRequest { &url, first_party, kind });
         if (block) {
             ++m_blocked;
-            return (block->nefarious ? "kept off by " : "blocked by ") + block->list + ": " + block->rule;
+            std::string const why = (block->nefarious ? "kept off by " : "blocked by ") + block->list + ": " + block->rule;
+            if (net_tracing())
+                std::cerr << "net: " << trace_stamp() << "refused " << url.serialize().substr(0, 200) << ": " << why << "\n";
+            return why;
         }
     }
     if (guard.refusal)

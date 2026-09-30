@@ -10,6 +10,7 @@
 
 #include "media/WebM.h"
 
+#include <algorithm>
 #include <cstddef>
 #include <cstdint>
 #include <limits>
@@ -86,6 +87,12 @@ public:
     // reaching the furthest end of any (MSE §3.1, the buffered attribute).
     TimeRanges buffered(bool ended = false) const;
     double highest_end() const; // seconds; 0 when empty
+    double highest_start() const; // seconds; where the latest frame begins, 0 when empty
+    // How far apart two of a track's frames may be and still count as one
+    // stretch: twice the longest frame, the room the shipping engines give
+    // a stream's own jitter. The buffered ranges and whoever plays the
+    // frames use the same allowance, so a hole one crosses the other does.
+    static std::int64_t gap_slack_ns(Track const& track) { return std::max<std::int64_t>(2 * track.longest_frame_ns, 1'000'000); }
     double group_end() const { return m_group_end; } // where sequence mode would put the next run
     std::size_t bytes() const;
     std::size_t quota() const;

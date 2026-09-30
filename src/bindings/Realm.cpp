@@ -3,6 +3,7 @@
 #include "bindings/Fetching.h"
 
 #include "core/Ascii.h"
+#include "core/TraceClock.h"
 #include "core/Unicode.h"
 #include "html/DocumentBase.h"
 #include "html/Serializer.h"
@@ -758,6 +759,14 @@ std::optional<std::string> Realm::Internals::to_utf8(js::Value const& value)
 
 Native Realm::Internals::throw_dom_exception(std::string_view name, std::string_view message)
 {
+    return interpreter.throw_value(make_dom_exception(name, message));
+}
+
+// A DOMException as a value: what throw_dom_exception raises, and what a
+// page gets from `new DOMException` or a rejected promise — built without
+// passing through the interpreter's throw, which counts and traces.
+js::Value Realm::Internals::make_dom_exception(std::string_view name, std::string_view message)
+{
     js::Heap::NoCollect const guard(interpreter.heap());
     js::Object* error = interpreter.new_error(js::ErrorType::Error, message);
     if (js::Object* proto = prototype("DOMException"))
@@ -778,7 +787,7 @@ Native Realm::Internals::throw_dom_exception(std::string_view name, std::string_
             code = number;
     }
     error->put(interpreter.key("code"), js::Value::number(code), js::builtin_attributes);
-    return interpreter.throw_value(js::Value::object(error));
+    return js::Value::object(error);
 }
 
 // --- Wrappers -----------------------------------------------------------------------
@@ -1441,7 +1450,7 @@ void Realm::trace_if_asked()
             // were running when it was. Neither runs script nor touches
             // the exception being thrown, so the watcher cannot change
             // what it watches.
-            std::string line = "threw: " + interpreter.stack_text(thrown);
+            std::string line = "threw: " + trace_stamp() + interpreter.stack_text(thrown);
             for (std::size_t at = line.find("\n    at "); at != std::string::npos; at = line.find("\n    at ", at))
                 line.replace(at, 8, "  <- ");
             std::cerr << line << "\n";

@@ -1182,6 +1182,7 @@ struct Realm::Internals {
     js::Value string(std::string_view utf8) { return js::Value::string(interpreter.string(utf8)); }
     std::optional<std::string> to_utf8(js::Value const&);
     Native throw_dom_exception(std::string_view name, std::string_view message);
+    js::Value make_dom_exception(std::string_view name, std::string_view message); // the same, as a value, thrown by nobody
 };
 
 // The realm a native was installed by.
