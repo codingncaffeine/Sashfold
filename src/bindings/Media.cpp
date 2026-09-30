@@ -468,6 +468,7 @@ js::Value make_media_error(Realm::Internals& in, int code, std::string_view mess
 // --- The element's state --------------------------------------------------------------------
 
 void run_load(Realm::Internals& in, MediaStateObject& state);
+void schedule_selection(Realm::Internals& in, MediaStateObject& state);
 void select_resource(Realm::Internals& in, MediaStateObject& state);
 void update_media(Realm::Internals& in, MediaStateObject& state);
 void update_sound(Realm::Internals& in, MediaStateObject& state);
@@ -1354,12 +1355,17 @@ void run_load(Realm::Internals& in, MediaStateObject& state)
     state.error = js::Value::null();
     state.playback_rate = state.default_playback_rate;
     state.current_src.clear();
-    state.network_state = NetworkNoSource;
+    schedule_selection(in, state);
+}
 
-    // The resource selection waits for a stable state (HTML §4.8.11.5,
-    // steps 6 and on): the page that set the source sees the element
-    // emptied, with no source and currentSrc empty, before anything is
-    // chosen.
+// The resource selection algorithm's first steps (HTML §4.8.11.5): the
+// element has no source, and the choice waits for a stable state, so the
+// page that set the source sees the element emptied, with no source and
+// currentSrc empty, before anything is chosen. play() on an element that
+// was never loaded comes here too, without the load algorithm's abort.
+void schedule_selection(Realm::Internals& in, MediaStateObject& state)
+{
+    state.network_state = NetworkNoSource;
     std::uint64_t const generation = state.generation;
     auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(&state));
     in.post_task([&in, held, generation] {
@@ -1397,6 +1403,9 @@ void select_resource(Realm::Internals& in, MediaStateObject& state)
         state.network_state = any ? NetworkNoSource : NetworkEmpty;
         if (any)
             queue_element_event(in, state, "loadstart");
+        // Nothing it can play, whether no source was named or none of those
+        // named is one it reads: a play() waiting on the choice hears so.
+        settle_play_promises(in, state, false, "NotSupportedError", "The element has no supported sources.");
         return;
     }
     state.network_state = NetworkLoading;
@@ -2212,7 +2221,11 @@ void install_media_element(Realm::Internals& in)
         js::Interpreter& interp = internals.interpreter;
         trace("play()");
         MediaStateObject& state = live_state_of(internals, e);
-        if (!state.error.is_null() || state.network_state == NetworkNoSource || (state.source == nullptr && !state.sound))
+        // Only a source that failed refuses at once (HTML §4.8.11.8 play(),
+        // step 2). A source not yet chosen — the selection runs a task after
+        // src was set — leaves the promise pending: playback begins, and the
+        // promise settles, when the data comes, or the load fails.
+        if (!state.error.is_null())
             return rejected_promise(interp, dom_exception_value(internals, "NotSupportedError", "The element has no supported sources."));
         std::optional<js::PromiseCapability> const capability
             = js::new_promise_capability(interp, js::Value::object(interp.intrinsics().promise_constructor));
@@ -2221,6 +2234,8 @@ void install_media_element(Realm::Internals& in)
         js::Interpreter::Roots const roots(interp);
         interp.root(capability->promise);
         state.play_promises.emplace_back(capability->resolve, capability->reject);
+        if (state.network_state == NetworkEmpty)
+            schedule_selection(internals, state);
         update_media(internals, state);
         if (state.ended_fired)
             seek(internals, state, 0);

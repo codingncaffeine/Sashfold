@@ -3726,10 +3726,13 @@ void test_interfaces_that_promise()
         crypto.subtle.digest('SHA-256', 'not bytes').catch(function (e) { out.push('bytes ' + e.name); });
         crypto.subtle.sign().catch(function (e) { out.push('sign ' + e.name); });
     )JS");
+    // play() on an element with no source is answered by the resource
+    // selection, which runs a task later: the last to settle.
+    for (int i = 0; i < 100 && page.realm->run_pending(); ++i) { }
     CHECK_EQ(page.string("out.join(' | ')"),
-        std::string("when true | has true | request undefined | fonts function | load 0 | play NotSupportedError | decode EncodingError | exit TypeError"
+        std::string("when true | has true | request undefined | fonts function | load 0 | decode EncodingError | exit TypeError"
                     " | full TypeError | ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad | 512 64 true | 384 48"
-                    " | sha1 NotSupportedError | bytes TypeError | sign NotSupportedError"));
+                    " | sha1 NotSupportedError | bytes TypeError | sign NotSupportedError | play NotSupportedError"));
     CHECK_EQ(page.console, std::string(""));
 }
 
@@ -4159,10 +4162,17 @@ void test_media_source_rules()
                 .then(function () { return append(ab, AC); }).then(function () { log.push('appended'); });
         }, { once: true });
         v.src = URL.createObjectURL(ms);
+        // play() before the selection ran: the promise waits for the data.
+        v.play().then(function () { log.push('resolved'); }, function (e) { log.push('rejected ' + e.name); });
     )JS");
+    CHECK_EQ(page->string("take() + ' ' + v.paused"), " false");
     pump();
-    // Four appends inside one moment: progress once, throttled to 350 ms.
-    CHECK_EQ(page->string("take()"), "progress appended");
+    // Four appends inside one moment: progress once, throttled to 350 ms;
+    // playback begins as soon as the buffers cover the start.
+    CHECK_EQ(page->string("take()"), "play waiting progress resolved appended playing");
+    page->eval("v.pause();");
+    pump();
+    CHECK_EQ(page->string("take()"), "pause");
     page->clock += 400;
     page->eval(R"JS(
         ['updatestart', 'update', 'updateend', 'abort'].forEach(function (t) { vb.addEventListener(t, function () { log.push(t); }); });
@@ -4738,9 +4748,11 @@ void test_media_source_and_the_media_element()
         v4.src = gone;
     )JS");
     pump();
-    CHECK_EQ(page->string("take()"), // Both fetches are begun before either can fail: a source that is no
-        // MediaSource is now really asked for.
-        "play NotSupportedError v3 loadstart v4 loadstart v3 error 4 3 v4 error 4 3");
+    CHECK_EQ(page->string("take()"), // play() before the choice: the element starts (play, waiting) and the
+        // promise waits for the choice, which fails once the fetch does. Both
+        // fetches are begun before either can fail: a source that is no
+        // MediaSource is really asked for.
+        "v3 play v3 waiting v3 loadstart play NotSupportedError v4 loadstart v3 error 4 3 v4 error 4 3");
 }
 
 int main()
