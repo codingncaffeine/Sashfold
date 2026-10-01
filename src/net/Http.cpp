@@ -12,6 +12,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <memory>
 #include <utility>
 #include <variant>
@@ -153,6 +154,14 @@ std::string const* find_header(std::vector<Header> const& headers, std::string_v
 
 std::string_view user_agent()
 {
+    // A string of the user's own choosing when SASHFOLD_USER_AGENT is set, as
+    // every browser allows (Chrome's --user-agent, Firefox's override pref);
+    // navigator.userAgent follows it, since the shell reads this function too.
+    static std::string const chosen = [] {
+        char const* const set = std::getenv("SASHFOLD_USER_AGENT");
+        return set && *set ? std::string(set) : std::string();
+    }();
+    if (!chosen.empty()) return chosen;
     // The compat-shaped token every engine ships (documented in the README).
 #ifdef _WIN32
     return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Sashfold/" SASHFOLD_VERSION;
