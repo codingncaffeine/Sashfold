@@ -1422,6 +1422,29 @@ void install_window(Realm::Internals& in)
             return js::Value::object(empty);
         });
     }
+    // navigator.userActivation (HTML §6.4.4): whether the reader is acting
+    // on the page now (transient, the host's clock) and whether they ever
+    // have (sticky).
+    js::Object* user_activation = define_interface(in, "UserActivation", nullptr);
+    define_getter(in, *user_activation, "hasBeenActive", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        if (internals.hooks.user_activation && internals.hooks.user_activation())
+            internals.has_been_active = true;
+        return js::Value::boolean(internals.has_been_active);
+    });
+    define_getter(in, *user_activation, "isActive", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        bool const active = internals.hooks.user_activation && internals.hooks.user_activation();
+        if (active)
+            internals.has_been_active = true;
+        return js::Value::boolean(active);
+    });
+    define_getter(in, *navigator_proto, "userActivation", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        return js::Value::object(same_object(internals, "navigator.userActivation", [&] {
+            return interp.heap().allocate<PlainPlatformObject>(internals.prototype("UserActivation"), internals.realm_record);
+        }));
+    });
     define_operation(interpreter, *navigator_proto, "javaEnabled", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
     define_operation(interpreter, *navigator_proto, "sendBeacon", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
     define_operation(interpreter, *navigator_proto, "vibrate", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });

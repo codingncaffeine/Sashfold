@@ -7,8 +7,11 @@
 #include "core/Unicode.h"
 #include "html/Serializer.h"
 #include "html/TreeBuilder.h"
+#include "js/Runtime.h"
 #include "net/Filters.h"
 
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -16,6 +19,208 @@
 namespace sashfold::bindings {
 
 namespace {
+
+// A ViewTransition (css-view-transitions-1 §9), what startViewTransition
+// hands back. Nothing here draws a transition yet, so every one is skipped
+// the way the standard has a user agent skip one it cannot show, in the
+// task that would have set it up (InvalidStateError): the update callback
+// then runs in a task of its own and updateCallbackDone follows it; ready
+// is rejected, the rejection handled; finished follows updateCallbackDone.
+// The page's changes land, and its code runs in the order it would in a
+// browser; only the animation between the two states is not shown.
+class ViewTransitionObject final : public js::Object {
+public:
+    enum class Phase : std::uint8_t { PendingCapture, UpdateCallbackCalled, Done };
+    ViewTransitionObject(js::Object* prototype, js::RealmRecord* realm, js::Value const& the_callback,
+        js::PromiseCapability const& the_update_done, js::PromiseCapability const& the_ready, js::PromiseCapability const& the_finished)
+        : Object(prototype, Class::Host)
+        , callback(the_callback)
+        , update_done(the_update_done)
+        , ready(the_ready)
+        , finished(the_finished)
+        , m_realm(realm)
+    {
+    }
+    js::Value callback; // undefined for none
+    js::PromiseCapability update_done;
+    js::PromiseCapability ready;
+    js::PromiseCapability finished;
+    Phase phase = Phase::PendingCapture;
+    js::RealmRecord* home_realm() const override { return m_realm; }
+    void trace(js::Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(callback);
+        for (js::PromiseCapability const* capability : { &update_done, &ready, &finished }) {
+            tracer.visit(capability->promise);
+            tracer.visit(capability->resolve);
+            tracer.visit(capability->reject);
+        }
+    }
+
+private:
+    js::RealmRecord* m_realm;
+};
+
+std::optional<ViewTransitionObject*> this_transition(js::Interpreter& interp, js::Value const& this_value)
+{
+    auto* found = this_value.is_object() ? dynamic_cast<ViewTransitionObject*>(this_value.as_object()) : nullptr;
+    if (found == nullptr) {
+        interp.throw_type_error("Illegal invocation");
+        return std::nullopt;
+    }
+    return found;
+}
+
+// "Call the update callback" (§9.1.3): what the callback returns, a promise
+// or not, settles updateCallbackDone; a throw rejects it.
+void call_update_callback(Realm::Internals& in, ViewTransitionObject& transition)
+{
+    js::Interpreter& interp = in.interpreter;
+    js::Interpreter::Roots const roots(interp);
+    interp.root(js::Value::object(&transition));
+    if (transition.phase != ViewTransitionObject::Phase::Done)
+        transition.phase = ViewTransitionObject::Phase::UpdateCallbackCalled;
+    js::Value result = js::Value::undefined();
+    if (js::Interpreter::is_callable(transition.callback)) {
+        std::optional<js::Value> const returned = interp.call(transition.callback, js::Value::undefined(), {});
+        if (!returned) {
+            js::Value const thrown[] = { interp.take_exception() };
+            interp.root(thrown[0]);
+            static_cast<void>(interp.call(transition.update_done.reject, js::Value::undefined(), thrown));
+            return;
+        }
+        result = *returned;
+    }
+    interp.root(result);
+    // updateCallbackDone is a Promise<undefined>: it follows the callback's
+    // promise, fulfilled with undefined, rejected with its reason.
+    js::Value const promise_constructor = js::Value::object(interp.intrinsics().promise_constructor);
+    std::optional<js::Value> const callback_promise = js::promise_resolve(interp, promise_constructor, result);
+    if (!callback_promise)
+        return;
+    interp.root(*callback_promise);
+    std::optional<js::Value> const then = interp.get(*callback_promise, "then");
+    if (!then || !js::Interpreter::is_callable(*then))
+        return;
+    interp.root(*then);
+    js::ClosureFunction* to_undefined = interp.new_closure("", 1, {},
+        [](js::Interpreter&, js::ClosureFunction&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    js::Value const reactions[] = { js::Value::object(to_undefined) };
+    std::optional<js::Value> const chained = interp.call(*then, *callback_promise, reactions);
+    if (!chained)
+        return;
+    interp.root(*chained);
+    js::Value const results[] = { *chained };
+    static_cast<void>(interp.call(transition.update_done.resolve, js::Value::undefined(), results));
+}
+
+// "Skip the view transition" (§9.1.5) with `reason`.
+void skip_view_transition(Realm::Internals& in, ViewTransitionObject& transition, js::Value const& reason)
+{
+    js::Interpreter& interp = in.interpreter;
+    if (transition.phase == ViewTransitionObject::Phase::Done)
+        return;
+    js::Interpreter::Roots const roots(interp);
+    interp.root(js::Value::object(&transition));
+    interp.root(reason);
+    if (transition.phase == ViewTransitionObject::Phase::PendingCapture) {
+        auto held = std::make_shared<js::Persistent>(interp.heap(), js::Value::object(&transition));
+        in.post_task([&in, held] {
+            Realm::Internals::Entry const entry(in);
+            call_update_callback(in, *static_cast<ViewTransitionObject*>(held->value().as_object()));
+        });
+    }
+    if (in.active_view_transition == &transition)
+        in.active_view_transition = nullptr;
+    transition.phase = ViewTransitionObject::Phase::Done;
+    // ready is rejected, the rejection marked handled: a page is not told
+    // of a rejection the standard makes on its behalf.
+    if (auto* ready = dynamic_cast<js::PromiseObject*>(transition.ready.promise.as_object()))
+        ready->set_handled();
+    js::Value const reasons[] = { reason };
+    static_cast<void>(interp.call(transition.ready.reject, js::Value::undefined(), reasons));
+    // finished follows updateCallbackDone.
+    js::Value const done[] = { transition.update_done.promise };
+    static_cast<void>(interp.call(transition.finished.resolve, js::Value::undefined(), done));
+}
+
+Native start_view_transition(Realm::Internals& internals, Args args)
+{
+    js::Interpreter& interp = internals.interpreter;
+    js::Interpreter::Roots const roots(interp);
+    js::Value callback = js::argument(args, 0);
+    interp.root(callback);
+    // Level 2's StartViewTransitionOptions: { update, types }.
+    if (callback.is_object() && !js::Interpreter::is_callable(callback)) {
+        std::optional<js::Value> const update = interp.get(callback, "update");
+        if (!update)
+            return std::nullopt;
+        callback = update->is_nullish() ? js::Value::undefined() : *update;
+        interp.root(callback);
+    }
+    if (!callback.is_nullish() && !js::Interpreter::is_callable(callback))
+        return interp.throw_type_error("Failed to execute 'startViewTransition' on 'Document': The provided value is not of type '(UpdateCallback or StartViewTransitionOptions)'.");
+    if (callback.is_null())
+        callback = js::Value::undefined();
+    js::Value const promise_constructor = js::Value::object(interp.intrinsics().promise_constructor);
+    js::PromiseCapability capabilities[3];
+    for (js::PromiseCapability& capability : capabilities) {
+        std::optional<js::PromiseCapability> const made = js::new_promise_capability(interp, promise_constructor);
+        if (!made)
+            return std::nullopt;
+        capability = *made;
+        interp.root(capability.promise);
+        interp.root(capability.resolve);
+        interp.root(capability.reject);
+    }
+    ViewTransitionObject* transition = interp.heap().allocate<ViewTransitionObject>(
+        internals.prototype("ViewTransition"), internals.realm_record, callback, capabilities[0], capabilities[1], capabilities[2]);
+    interp.root(js::Value::object(transition));
+    if (internals.active_view_transition != nullptr) {
+        skip_view_transition(internals, *static_cast<ViewTransitionObject*>(internals.active_view_transition),
+            dom_exception_value(internals, "AbortError", "Transition was skipped because another transition started."));
+    }
+    internals.active_view_transition = transition;
+    // "Perform pending transition operations" at the next rendering
+    // opportunity (§9.1.1): nothing here captures a state, so the
+    // transition is skipped there.
+    auto held = std::make_shared<js::Persistent>(interp.heap(), js::Value::object(transition));
+    internals.post_task([&internals, held] {
+        Realm::Internals::Entry const entry(internals);
+        auto& pending = *static_cast<ViewTransitionObject*>(held->value().as_object());
+        if (pending.phase != ViewTransitionObject::Phase::PendingCapture)
+            return;
+        skip_view_transition(internals, pending,
+            dom_exception_value(internals, "InvalidStateError", "Transition was skipped because this engine does not show one yet."));
+    });
+    return js::Value::object(transition);
+}
+
+void install_view_transition(Realm::Internals& in)
+{
+    js::Object* view_transition = define_interface(in, "ViewTransition", nullptr);
+    define_getter(in, *view_transition, "updateCallbackDone", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        std::optional<ViewTransitionObject*> const found = this_transition(interp, this_value);
+        return found ? Native((*found)->update_done.promise) : std::nullopt;
+    });
+    define_getter(in, *view_transition, "ready", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        std::optional<ViewTransitionObject*> const found = this_transition(interp, this_value);
+        return found ? Native((*found)->ready.promise) : std::nullopt;
+    });
+    define_getter(in, *view_transition, "finished", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        std::optional<ViewTransitionObject*> const found = this_transition(interp, this_value);
+        return found ? Native((*found)->finished.promise) : std::nullopt;
+    });
+    define_operation(in.interpreter, *view_transition, "skipTransition", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        std::optional<ViewTransitionObject*> const found = this_transition(interp, this_value);
+        if (!found)
+            return std::nullopt;
+        Realm::Internals& internals = internals_of(interp);
+        skip_view_transition(internals, **found, dom_exception_value(internals, "AbortError", "Transition was skipped by skipTransition()."));
+        return js::Value::undefined();
+    });
+}
 
 // Whether a document's cookies are its own to use: the page's are, and a
 // frame's on the page's host; to every other frame — a third party — the
@@ -465,6 +670,21 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_getter(in, *document, "fullscreenEnabled", [](Realm::Internals& internals, dom::Document&) -> Native {
         return js::Value::boolean(fullscreen_enabled(internals));
     });
+    // The prefixed names pages still write (Fullscreen §5, legacy).
+    for (std::string_view const name : { "webkitFullscreenElement", "webkitCurrentFullScreenElement" })
+        document_getter(in, *document, name, [](Realm::Internals& internals, dom::Document&) -> Native { return fullscreen_element(internals); });
+    document_getter(in, *document, "webkitFullscreenEnabled", [](Realm::Internals& internals, dom::Document&) -> Native {
+        return js::Value::boolean(fullscreen_enabled(internals));
+    });
+    document_getter(in, *document, "webkitIsFullScreen", [](Realm::Internals& internals, dom::Document&) -> Native {
+        return js::Value::boolean(!fullscreen_element(internals).is_null());
+    });
+    // Prerendering (Speculation Rules, Prerendering Revamped §3.1): no
+    // document here is loaded ahead of being shown.
+    document_getter(in, *document, "prerendering", [](Realm::Internals&, dom::Document&) -> Native { return js::Value::boolean(false); });
+    // Picture-in-Picture: no window of this engine floats a video yet.
+    document_getter(in, *document, "pictureInPictureEnabled", [](Realm::Internals&, dom::Document&) -> Native { return js::Value::boolean(false); });
+    document_getter(in, *document, "pictureInPictureElement", [](Realm::Internals&, dom::Document&) -> Native { return js::Value::null(); });
     document_getter(in, *document, "styleSheets", [](Realm::Internals& internals, dom::Document&) -> Native {
         return js::Value::object(internals.interpreter.new_array());
     });
@@ -742,6 +962,25 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_method(in, *document, "exitFullscreen", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
         return exit_fullscreen_promise(internals);
     });
+    for (std::string_view const name : { "webkitExitFullscreen", "webkitCancelFullScreen" }) {
+        document_method(in, *document, name, 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
+            Native const promise = exit_fullscreen_promise(internals);
+            if (!promise)
+                return std::nullopt;
+            if (promise->is_object())
+                if (auto* made = dynamic_cast<js::PromiseObject*>(promise->as_object()))
+                    made->set_handled();
+            return js::Value::undefined();
+        });
+    }
+    document_method(in, *document, "exitPictureInPicture", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
+        return rejected_promise(internals.interpreter,
+            dom_exception_value(internals, "InvalidStateError", "There is no Picture-in-Picture element in this document."));
+    });
+    document_method(in, *document, "startViewTransition", 0, [](Realm::Internals& internals, dom::Document&, Args args) -> Native {
+        return start_view_transition(internals, args);
+    });
+    install_view_transition(in);
     document_method(in, *document, "exitPointerLock", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::undefined(); });
     document_method(in, *document, "getSelection", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
         return internals.interpreter.get(js::Value::object(internals.interpreter.global()), "getSelection").and_then(

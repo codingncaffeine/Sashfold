@@ -556,9 +556,27 @@ public:
     // reporting each throw, then the unhandled rejections.
     void run_jobs(std::function<void(Value const&)> const& report);
     // HostPromiseRejectionTracker (§27.2.1.9): `rejected` = the "reject"
-    // operation, else "handle".
+    // operation, else "handle". A rejection is remembered with the realm
+    // that was running when it happened (HTML §8.1.7.3: the current
+    // settings object), which is where it is reported.
     void track_rejection(PromiseObject&, bool rejected);
+    // Reports the oldest batch of rejections left without a handler by a
+    // drain (one batch per drain, HTML's "about-to-be-notified" list):
+    // each to on_unhandled_rejection first, when the host gave one, then
+    // to on_console unless the host said it took it; the promise is then
+    // outstanding, and a handler coming to it later is on_rejection_handled.
     void report_unhandled_rejections();
+    // The host's part of the tracker. on_rejections_pending is told at the
+    // end of each drain that left rejections unhandled, and then decides
+    // when report_unhandled_rejections runs for that batch (HTML queues a
+    // task per batch, which report one batch each, oldest first); without
+    // it the drain reports at once. on_unhandled_rejection answers whether
+    // the host took the rejection — an unhandledrejection event canceled —
+    // so that nothing is printed; on_rejection_handled is a handler coming
+    // to a promise already reported (rejectionhandled).
+    std::function<void()> on_rejections_pending;
+    std::function<bool(PromiseObject&, RealmRecord*)> on_unhandled_rejection;
+    std::function<void(PromiseObject&, RealmRecord*)> on_rejection_handled;
 
     // Direct eval (§19.2.1.1) from the evaluator; `eval` the function is
     // the indirect form. Exposed for the bindings' inline event handlers.
@@ -714,7 +732,18 @@ private:
     ModuleFetcher m_module_fetcher;
     ModuleMetaHook m_module_meta_hook;
     std::deque<Job> m_jobs; // traced
-    std::vector<PromiseObject*> m_unhandled_rejections; // traced; rejected with no handler yet
+    // A rejection and the realm it is reported in: the ones of the drain
+    // under way, the batches earlier drains left (each HTML's
+    // about-to-be-notified list of one checkpoint, awaiting its report),
+    // and the ones reported whose handler, should one come, is news (the
+    // outstanding set; a weak set in HTML, strong and bounded here).
+    struct TrackedRejection {
+        PromiseObject* promise = nullptr;
+        RealmRecord* realm = nullptr;
+    };
+    std::vector<TrackedRejection> m_unhandled_rejections; // traced
+    std::deque<std::vector<TrackedRejection>> m_rejection_batches; // traced
+    std::vector<TrackedRejection> m_reported_rejections; // traced
     Value m_exception;
     bool m_has_exception = false;
     // Every exception raised, caught or not, and a watcher for whoever

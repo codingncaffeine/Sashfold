@@ -634,6 +634,51 @@ void install_abort(Realm::Internals& in)
         schedule_native(internals, std::isnan(*delay) || *delay < 0 ? 0 : *delay, js::Value::object(fire));
         return signal_value;
     });
+    // AbortSignal.any(signals): a dependent signal (DOM §3.2.3, "create a
+    // dependent abort signal"), aborted already if any source is, else
+    // aborted when the first of them is, with its reason; a source that
+    // is itself dependent lends its own sources.
+    define_operation(interpreter, *signal_constructor.as_object(), "any", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        js::Interpreter::Roots const roots(interp);
+        js::Value const iterable = js::argument(args, 0);
+        interp.root(iterable);
+        std::optional<std::vector<js::Value>> const given = interp.iterable_to_list(iterable);
+        if (!given)
+            return std::nullopt;
+        std::vector<AbortSignalObject*> sources;
+        for (js::Value const& one : *given) {
+            interp.root(one);
+            auto* source = one.is_object() ? dynamic_cast<AbortSignalObject*>(one.as_object()) : nullptr;
+            if (source == nullptr)
+                return interp.throw_type_error("Failed to execute 'any' on 'AbortSignal': Failed to convert value to 'AbortSignal'.");
+            sources.push_back(source);
+        }
+        AbortSignalObject* made = new_abort_signal(internals);
+        js::Value const made_value = js::Value::object(made);
+        interp.root(made_value);
+        made->dependent = true;
+        for (AbortSignalObject* source : sources) {
+            if (source->aborted) {
+                made->aborted = true;
+                made->reason = source->reason;
+                return made_value;
+            }
+        }
+        for (AbortSignalObject* source : sources) {
+            if (!source->dependent) {
+                made->sources.push_back(js::Value::object(source));
+                source->dependents.push_back(made_value);
+                continue;
+            }
+            for (js::Value const& inner : source->sources) {
+                auto* inner_source = static_cast<AbortSignalObject*>(inner.as_object());
+                made->sources.push_back(inner);
+                inner_source->dependents.push_back(made_value);
+            }
+        }
+        return made_value;
+    });
 
     js::Object* controller = define_interface(in, "AbortController", nullptr,
         [](js::Interpreter& interp, Args, js::Object*) -> Native {
@@ -689,6 +734,10 @@ void signal_abort(Realm::Internals& in, AbortSignalObject& signal, js::Value con
     in.interpreter.root(js::Value::object(event));
     event->is_trusted = true;
     in.dispatch(*event, &signal);
+    // Then every dependent signal, with the same reason.
+    std::vector<js::Value> const dependents = signal.dependents;
+    for (js::Value const& one : dependents)
+        signal_abort(in, *static_cast<AbortSignalObject*>(one.as_object()), signal.reason);
 }
 
 void install_tasks(Realm::Internals& in)

@@ -10,6 +10,7 @@
 
 #include "js/Object.h"
 
+#include <algorithm>
 #include <memory>
 #include <optional>
 #include <span>
@@ -518,6 +519,8 @@ void Interpreter::clear_jobs()
 {
     m_jobs.clear();
     m_unhandled_rejections.clear();
+    m_rejection_batches.clear();
+    m_reported_rejections.clear();
 }
 
 bool Interpreter::run_next_job(Value* thrown)
@@ -620,31 +623,71 @@ void Interpreter::run_jobs(std::function<void(Value const&)> const& report)
         if (on_console)
             on_console("error", "a million jobs in one checkpoint: the rest were dropped");
     }
-    report_unhandled_rejections();
+    if (m_unhandled_rejections.empty())
+        return;
+    m_rejection_batches.push_back(std::move(m_unhandled_rejections));
+    m_unhandled_rejections.clear();
+    if (on_rejections_pending) {
+        on_rejections_pending();
+        return;
+    }
+    while (!m_rejection_batches.empty())
+        report_unhandled_rejections();
 }
 
 // HostPromiseRejectionTracker (§27.2.1.9): a rejection with no handler
 // is remembered; a handler arriving later takes it back; what is left
-// when a drain ends is reported once.
+// when a drain ends is reported once. A handler coming to a promise
+// after its report is told to the host (HTML §8.1.7.3, "handle").
 void Interpreter::track_rejection(PromiseObject& promise, bool rejected)
 {
     if (rejected) {
-        m_unhandled_rejections.push_back(&promise);
+        m_unhandled_rejections.push_back({ &promise, m_realm });
         return;
     }
-    std::erase(m_unhandled_rejections, &promise);
+    auto const same = [&promise](TrackedRejection const& tracked) { return tracked.promise == &promise; };
+    auto const pending = std::find_if(m_unhandled_rejections.begin(), m_unhandled_rejections.end(), same);
+    if (pending != m_unhandled_rejections.end()) {
+        m_unhandled_rejections.erase(pending);
+        return;
+    }
+    for (std::vector<TrackedRejection>& batch : m_rejection_batches) {
+        auto const waiting = std::find_if(batch.begin(), batch.end(), same);
+        if (waiting != batch.end()) {
+            batch.erase(waiting);
+            return;
+        }
+    }
+    auto const reported = std::find_if(m_reported_rejections.begin(), m_reported_rejections.end(), same);
+    if (reported == m_reported_rejections.end())
+        return;
+    RealmRecord* const realm = reported->realm;
+    m_reported_rejections.erase(reported);
+    if (on_rejection_handled)
+        on_rejection_handled(promise, realm);
 }
 
 void Interpreter::report_unhandled_rejections()
 {
-    std::vector<PromiseObject*> const pending = std::move(m_unhandled_rejections);
-    m_unhandled_rejections.clear();
-    for (PromiseObject* promise : pending) {
-        if (promise->is_handled())
+    if (m_rejection_batches.empty())
+        return;
+    std::vector<TrackedRejection> const pending = std::move(m_rejection_batches.front());
+    m_rejection_batches.pop_front();
+    for (TrackedRejection const& tracked : pending) {
+        PromiseObject& promise = *tracked.promise;
+        if (promise.is_handled())
             continue;
-        promise->set_handled();
-        if (on_console)
-            on_console("error", "Uncaught (in promise) " + describe(promise->result()) + stack_lines_for_console(promise->result()));
+        bool const taken = on_unhandled_rejection && on_unhandled_rejection(promise, tracked.realm);
+        // The event's listeners ran: one may have handled it meanwhile.
+        if (promise.is_handled())
+            continue;
+        if (!taken && on_console)
+            on_console("error", "Uncaught (in promise) " + describe(promise.result()) + stack_lines_for_console(promise.result()));
+        // Outstanding, bounded: a page that rejects without end and never
+        // handles keeps the newest and forgets the rest.
+        if (m_reported_rejections.size() >= 256)
+            m_reported_rejections.erase(m_reported_rejections.begin());
+        m_reported_rejections.push_back(tracked);
     }
 }
 

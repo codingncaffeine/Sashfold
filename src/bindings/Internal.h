@@ -198,6 +198,11 @@ public:
     std::optional<Origin> sender_origin;
     // ErrorEvent (HTML §8.1.4.3): the error is detail_value.
     bool is_error_event = false;
+    // PromiseRejectionEvent (HTML §8.1.7.4): the promise; the reason is detail_value.
+    js::Value promise_value;
+    // ToggleEvent (HTML §2.6.6): "open" or "closed", before and after.
+    std::string old_state;
+    std::string new_state;
     // IDBVersionChangeEvent: the versions, the new one null for a deletion.
     double old_version = 0;
     std::optional<double> new_version;
@@ -416,10 +421,21 @@ public:
     }
     bool aborted = false;
     js::Value reason; // undefined until aborted
+    // A dependent signal (DOM §3.2.3, AbortSignal.any): the sources it
+    // follows, held so that they live as long as it does; and on a source,
+    // the dependents to abort with it. Both strong: the heap has no weak
+    // edge, and a signal is small.
+    bool dependent = false;
+    std::vector<js::Value> sources;
+    std::vector<js::Value> dependents;
     void trace(js::Tracer& tracer) override
     {
         EventTargetObject::trace(tracer);
         tracer.visit(reason);
+        for (js::Value const& source : sources)
+            tracer.visit(source);
+        for (js::Value const& one : dependents)
+            tracer.visit(one);
     }
 };
 
@@ -985,6 +1001,18 @@ struct Realm::Internals {
     std::uint64_t document_aborts = 0;
     // The wrapper of the element shown full screen, if one is (Fullscreen.cpp).
     js::Object* fullscreen_wrapper = nullptr;
+    // The document's active view transition (css-view-transitions-1 §9),
+    // from startViewTransition until it is skipped (Document.cpp).
+    js::Object* active_view_transition = nullptr;
+    // Sticky activation (HTML §6.4): whether the reader has ever acted on
+    // this window — a key or a button pressed on its page — what
+    // navigator.userActivation.hasBeenActive answers. The transient kind
+    // is the host's to say (hooks.user_activation).
+    bool has_been_active = false;
+    // The details elements whose toggle event task is queued (HTML §4.11.1,
+    // the "details toggle task tracker"), by wrapper — which the task keeps
+    // alive until it runs — with the state the event will say they are in.
+    std::unordered_map<js::Object*, std::string> toggle_tasks;
     // What scripts hold for this window, its WindowProxy; and whether an
     // object is this window, the proxy or the global object behind it.
     js::Object* window_proxy() const;
@@ -1617,6 +1645,14 @@ js::Value event_handler_of(Realm::Internals&, js::Object* target, std::string_vi
 // Told of every attribute written on an element: a body's or frameset's
 // on<type> attribute for a window event becomes the window's handler.
 void window_handler_attribute_written(Realm::Internals&, dom::Element&, std::string_view local_name);
+// Fires a PromiseRejectionEvent of `type` (unhandledrejection or
+// rejectionhandled, HTML §8.1.7.3) at this realm's window for the promise,
+// with its result as the reason; true when the page canceled it.
+bool notify_rejection(Realm::Internals&, js::PromiseObject&, std::string_view type);
+// Told of a details element's open attribute set or removed: queues its
+// toggle event task (HTML §4.11.1), one at a time per element, the queued
+// one taking the newest state.
+void details_open_written(Realm::Internals&, dom::Element&, bool was_open);
 
 // An attribute marked [SameObject] (WebIDL): the object `make` builds the
 // first time, kept with the realm's roots under `key` and handed out again.

@@ -105,6 +105,7 @@ void EventObject::trace(js::Tracer& tracer)
     tracer.visit(detail_value);
     tracer.visit(source_value);
     tracer.visit(ports);
+    tracer.visit(promise_value);
 }
 
 void ElementBackedObject::trace(js::Tracer& tracer)
@@ -244,6 +245,8 @@ void attribute_written(Realm::Internals& in, dom::Element& element, std::string_
     // reports none, so a removal must say what was removed.
     custom_element_attribute_changed(in, element, local_name, old_value);
     window_handler_attribute_written(in, element, local_name);
+    if (local_name == "open" && element.is_html("details"))
+        details_open_written(in, element, old_value.has_value());
     switch (container_kind(element)) {
     case ContainerKind::IFrame:
         if (local_name == "srcdoc" || (local_name == "src" && !element.find_attribute("srcdoc")))
@@ -1269,6 +1272,43 @@ void install_interfaces(Realm::Internals& in)
     install_window_proxy(in, language_globals);
 }
 
+// The host's half of HostPromiseRejectionTracker (HTML §8.1.7.3), on the
+// interpreter this realm shares with the others of its agent: a drain that
+// leaves rejections unhandled has them reported in a task of this realm's
+// — each an unhandledrejection event at the window of the realm it came
+// from, printed unless the page cancels it — and a handler coming to one
+// reported is a rejectionhandled event, in a task of its own.
+void install_rejection_tracker(Realm::Internals& in)
+{
+    js::Interpreter& interpreter = in.interpreter;
+    // A task per checkpoint that left rejections, queued as it ends — after
+    // everything the script queued, before anything queued later — each
+    // reporting its own checkpoint's batch (HTML §8.1.7.3 "notify about
+    // rejected promises").
+    interpreter.on_rejections_pending = [&in] {
+        in.post_task([&in] {
+            Realm::Internals::Entry const entry(in);
+            in.interpreter.report_unhandled_rejections();
+        });
+    };
+    interpreter.on_unhandled_rejection = [](js::PromiseObject& promise, js::RealmRecord* record) {
+        Realm* const realm = record ? static_cast<Realm*>(record->host_defined) : nullptr;
+        if (realm == nullptr || realm->internals().ended || realm->internals().discarded)
+            return false;
+        return notify_rejection(realm->internals(), promise, "unhandledrejection");
+    };
+    interpreter.on_rejection_handled = [](js::PromiseObject& promise, js::RealmRecord* record) {
+        Realm* const realm = record ? static_cast<Realm*>(record->host_defined) : nullptr;
+        if (realm == nullptr || realm->internals().ended || realm->internals().discarded)
+            return;
+        Realm::Internals& owner = realm->internals();
+        auto held = std::make_shared<js::Persistent>(owner.interpreter.heap(), js::Value::object(&promise));
+        owner.post_task([&owner, held] {
+            notify_rejection(owner, *static_cast<js::PromiseObject*>(held->value().as_object()), "rejectionhandled");
+        });
+    };
+}
+
 // Lets every wrapper of a document's nodes go of its node, the document's own
 // and those of every node it owns, in its tree or not: the realm ending before
 // the heap they live in takes the document with it.
@@ -1301,6 +1341,7 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     // running has its say on eval and Function, and on a string a timer
     // would compile.
     interpreter.on_compile_strings = [&interpreter]() { return internals_of(interpreter).compile_strings_refusal(); };
+    install_rejection_tracker(in);
     // The module map is the document's: its keys are URLs, and the realm
     // resolves and fetches modules for the engine (§8.1.7).
     in.install_module_hooks();
@@ -1372,6 +1413,7 @@ Realm::Realm(WorkerScope scope, dom::Document& document, net::Url url, HostHooks
         m_internals->console(level, message);
     };
     interpreter.on_compile_strings = [&interpreter]() { return internals_of(interpreter).compile_strings_refusal(); };
+    install_rejection_tracker(in);
     if (in.hooks.should_stop)
         interpreter.set_interrupt([this] { return m_internals->hooks.should_stop(); });
     // A worker's heap is its own, under a ceiling of the same height as its page's.
@@ -2858,6 +2900,9 @@ bool Realm::dispatch_mouse_event(dom::Node& target, std::string_view type, Mouse
     event->shift_key = init.shift;
     event->alt_key = init.alt;
     event->meta_key = init.meta;
+    // A button pressed is an activation-triggering input event (HTML §6.4.1).
+    if (type == "mousedown")
+        in.has_been_active = true;
     return in.dispatch(*event, in.wrap(target));
 }
 
@@ -2879,6 +2924,10 @@ bool Realm::dispatch_key_event(dom::Node* target, std::string_view type, KeyInit
     event->alt_key = init.alt;
     event->meta_key = init.meta;
     event->repeat = init.repeat;
+    // A key pressed, other than Escape, is an activation-triggering input
+    // event (HTML §6.4.1).
+    if (type == "keydown" && init.key != "Escape")
+        in.has_been_active = true;
     js::Object* target_object = target ? in.wrap(*target) : in.wrap(*in.document);
     return in.dispatch(*event, target_object);
 }
@@ -3089,6 +3138,7 @@ void Realm::trace_roots(js::Tracer& tracer)
     tracer.visit(in.current_event);
     tracer.visit(in.history_state);
     tracer.visit(in.location);
+    tracer.visit(in.active_view_transition);
     for (auto const& [key, object] : in.same_objects)
         tracer.visit(object);
     tracer.visit(in.local_storage_object);

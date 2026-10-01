@@ -69,3 +69,9 @@ media-source
 html/semantics/embedded-content/media-elements
 html/semantics/embedded-content/the-video-element
 html/semantics/embedded-content/the-audio-element
+
+# Added 2026-10-01 with navigator.userActivation and the Picture-in-Picture
+# members a video site's watch page reads: the suite's own tests of each.
+# Most need a reader's click through the test driver and say so by failing.
+html/user-activation
+picture-in-picture

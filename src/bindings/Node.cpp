@@ -1591,6 +1591,19 @@ void install_element(Realm::Internals& in, js::Object& element)
     element_method(in, element, "requestFullscreen", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         return request_fullscreen(internals, e);
     });
+    // The prefixed names pages still write (Fullscreen §5, legacy): the
+    // same request, its promise not handed back.
+    for (std::string_view const name : { "webkitRequestFullscreen", "webkitRequestFullScreen" }) {
+        element_method(in, element, name, 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+            Native const promise = request_fullscreen(internals, e);
+            if (!promise)
+                return std::nullopt;
+            if (promise->is_object())
+                if (auto* made = dynamic_cast<js::PromiseObject*>(promise->as_object()))
+                    made->set_handled();
+            return js::Value::undefined();
+        });
+    }
 }
 
 // --- CharacterData, Text, Comment ------------------------------------------------------------

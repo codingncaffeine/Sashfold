@@ -1,5 +1,6 @@
 #include "bindings/Internal.h"
 #include "bindings/NodeSupport.h"
+#include "js/Runtime.h"
 
 // Events (DOM §2): the dispatch algorithm over the capture, target and
 // bubble phases, addEventListener and its options, the on<type> handlers
@@ -7,6 +8,7 @@
 // the Event interfaces a page constructs.
 
 #include <algorithm>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -489,6 +491,14 @@ js::NativeFunction::ConstructCallback event_constructor(std::string interface)
             event->colno = to_unsigned_long(*colno);
             event->detail_value = *error;
         }
+        if (interface == "ToggleEvent") {
+            std::optional<std::string> old_state = init_string(interpreter, init, "oldState");
+            std::optional<std::string> new_state = init_string(interpreter, init, "newState");
+            if (!old_state || !new_state)
+                return std::nullopt;
+            event->old_state = std::move(*old_state);
+            event->new_state = std::move(*new_state);
+        }
         if (interface == "MessageEvent") {
             std::optional<js::Value> const data = init_value(interpreter, init, "data");
             std::optional<std::string> origin = init_string(interpreter, init, "origin");
@@ -694,6 +704,54 @@ bool Realm::Internals::dispatch(EventObject& event, js::Object* target)
 }
 
 // --- Handler accessors ---------------------------------------------------------------------
+
+void details_open_written(Realm::Internals& in, dom::Element& element, bool was_open)
+{
+    bool const is_open = element.find_attribute("open") != nullptr;
+    if (was_open == is_open)
+        return; // the value changed; the state did not
+    js::Object* const wrapper = in.wrap(element);
+    std::string const new_state = is_open ? "open" : "closed";
+    if (auto const queued = in.toggle_tasks.find(wrapper); queued != in.toggle_tasks.end()) {
+        queued->second = new_state;
+        return;
+    }
+    in.toggle_tasks.emplace(wrapper, new_state);
+    auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(wrapper));
+    std::string const old_state = was_open ? "open" : "closed";
+    in.post_task([&in, held, old_state] {
+        js::Object* const target = held->value().as_object();
+        auto const queued = in.toggle_tasks.find(target);
+        if (queued == in.toggle_tasks.end())
+            return;
+        std::string const new_state_now = queued->second;
+        in.toggle_tasks.erase(queued);
+        Realm::Internals::Entry const entry(in);
+        js::Interpreter::Roots const roots(in.interpreter);
+        EventObject* event = in.new_event("ToggleEvent", "toggle", false, false);
+        in.interpreter.root(js::Value::object(event));
+        event->is_trusted = true;
+        event->old_state = old_state;
+        event->new_state = new_state_now;
+        in.dispatch(*event, target);
+    });
+}
+
+bool notify_rejection(Realm::Internals& in, js::PromiseObject& promise, std::string_view type)
+{
+    js::Interpreter& interp = in.interpreter;
+    Realm::Internals::Entry const entry(in);
+    js::Interpreter::Roots const roots(interp);
+    interp.root(js::Value::object(&promise));
+    // unhandledrejection is cancelable — canceled, nothing is printed;
+    // rejectionhandled is not (HTML §8.1.7.3).
+    EventObject* event = in.new_event("PromiseRejectionEvent", type, false, type == "unhandledrejection");
+    interp.root(js::Value::object(event));
+    event->is_trusted = true;
+    event->promise_value = js::Value::object(&promise);
+    event->detail_value = promise.result();
+    return !in.dispatch(*event, in.window_proxy());
+}
 
 js::Value event_handler_of(Realm::Internals& in, js::Object* target, std::string_view type)
 {
@@ -1053,6 +1111,56 @@ void install_events(Realm::Internals& in)
 
     js::Object* pop_state_event = define_interface(in, "PopStateEvent", event, event_constructor("PopStateEvent"), 1);
     event_getter(in, *pop_state_event, "state", [](Realm::Internals&, EventObject& e) { return e.detail_value.is_undefined() ? js::Value::null() : e.detail_value; });
+
+    // PromiseRejectionEvent (HTML §8.1.7.4): the promise is a required
+    // member of its init, and any value there is resolved to one.
+    js::Object* rejection_event = define_interface(
+        in, "PromiseRejectionEvent", event,
+        [](js::Interpreter& interp, Args args, js::Object*) -> Native {
+            Realm::Internals& internals = internals_of(interp);
+            if (args.size() < 2)
+                return too_few_arguments(interp, "PromiseRejectionEvent", "PromiseRejectionEvent", 2, args.size());
+            std::optional<std::string> const type = internals.to_utf8(args[0]);
+            if (!type)
+                return std::nullopt;
+            js::Value const init = args[1];
+            if (!init.is_object())
+                return interp.throw_type_error("Failed to construct 'PromiseRejectionEvent': parameter 2 is not of type 'PromiseRejectionEventInit'.");
+            std::optional<bool> const bubbles = init_flag(interp, init, "bubbles", false);
+            std::optional<bool> const cancelable = init_flag(interp, init, "cancelable", false);
+            std::optional<bool> const composed = init_flag(interp, init, "composed", false);
+            if (!bubbles || !cancelable || !composed)
+                return std::nullopt;
+            js::Interpreter::Roots const roots(interp);
+            interp.root(init);
+            std::optional<js::Value> const given = interp.get(init, "promise");
+            if (!given)
+                return std::nullopt;
+            if (given->is_undefined())
+                return interp.throw_type_error("Failed to construct 'PromiseRejectionEvent': Failed to read the 'promise' property from 'PromiseRejectionEventInit': Required member is undefined.");
+            interp.root(*given);
+            std::optional<js::Value> const promise = js::promise_resolve(interp, js::Value::object(interp.intrinsics().promise_constructor), *given);
+            if (!promise)
+                return std::nullopt;
+            interp.root(*promise);
+            std::optional<js::Value> const reason = interp.get(init, "reason");
+            if (!reason)
+                return std::nullopt;
+            interp.root(*reason);
+            EventObject* made = internals.new_event("PromiseRejectionEvent", *type, *bubbles, *cancelable);
+            made->composed = *composed;
+            made->promise_value = *promise;
+            made->detail_value = *reason;
+            return js::Value::object(made);
+        },
+        2);
+    event_getter(in, *rejection_event, "promise", [](Realm::Internals&, EventObject& e) { return e.promise_value; });
+    event_getter(in, *rejection_event, "reason", [](Realm::Internals&, EventObject& e) { return e.detail_value; });
+
+    // ToggleEvent (HTML §2.6.6): a details element opened or closed.
+    js::Object* toggle_event = define_interface(in, "ToggleEvent", event, event_constructor("ToggleEvent"), 1);
+    event_getter(in, *toggle_event, "oldState", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.old_state); });
+    event_getter(in, *toggle_event, "newState", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.new_state); });
 
     define_interface(in, "TransitionEvent", event, event_constructor("TransitionEvent"), 1);
     define_interface(in, "AnimationEvent", event, event_constructor("AnimationEvent"), 1);

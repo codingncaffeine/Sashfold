@@ -2456,8 +2456,20 @@ void Interpreter::trace_roots(Tracer& tracer)
         for (Value const& argument : job.arguments)
             tracer.visit(argument);
     }
-    for (PromiseObject* promise : m_unhandled_rejections)
-        tracer.visit(promise);
+    for (TrackedRejection const& tracked : m_unhandled_rejections) {
+        tracer.visit(tracked.promise);
+        tracer.visit(tracked.realm);
+    }
+    for (std::vector<TrackedRejection> const& batch : m_rejection_batches) {
+        for (TrackedRejection const& tracked : batch) {
+            tracer.visit(tracked.promise);
+            tracer.visit(tracked.realm);
+        }
+    }
+    for (TrackedRejection const& tracked : m_reported_rejections) {
+        tracer.visit(tracked.promise);
+        tracer.visit(tracked.realm);
+    }
     m_impl->trace(tracer);
 }
 

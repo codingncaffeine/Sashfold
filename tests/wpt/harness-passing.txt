@@ -8203,6 +8203,18 @@ custom-elements/upgrading/upgrading-parser-created-element.html	HTMLElement cons
 custom-elements/upgrading/upgrading-parser-created-element.html	HTMLElement constructor must throw an TypeError when the top of the construction stack is marked AlreadyConstructed due to a custom element constructor constructing itself before super() call
 dom/abort/AbortSignal.any.html	signal returned by AbortSignal.abort() should not fire abort event
 dom/abort/AbortSignal.any.html	the AbortSignal.abort() static returns an already aborted signal
+dom/abort/abort-signal-any.any.html	Abort events for AbortSignal.any() signals fire in the right order (using AbortController)
+dom/abort/abort-signal-any.any.html	AbortSignal.any() can be passed the same signal more than once (using AbortController)
+dom/abort/abort-signal-any.any.html	AbortSignal.any() follows a single signal (using AbortController)
+dom/abort/abort-signal-any.any.html	AbortSignal.any() follows multiple signals (using AbortController)
+dom/abort/abort-signal-any.any.html	AbortSignal.any() returns an aborted signal if passed an aborted signal (using AbortController)
+dom/abort/abort-signal-any.any.html	AbortSignal.any() signals are composable (using AbortController)
+dom/abort/abort-signal-any.any.html	AbortSignal.any() uses the first instance of a duplicate signal (using AbortController)
+dom/abort/abort-signal-any.any.html	AbortSignal.any() works with an empty array of signals
+dom/abort/abort-signal-any.any.html	AbortSignal.any() works with intermediate signals (using AbortController)
+dom/abort/abort-signal-any.any.html	AbortSignal.any() works with signals returned by AbortSignal.timeout() (using AbortController)
+dom/abort/abort-signal-any.any.html	Dependent signals for AbortSignal.any() should use the same DOMException instance from the already aborted source signal (using AbortController)
+dom/abort/abort-signal-any.any.html	Dependent signals for AbortSignal.any() should use the same DOMException instance from the source signal being aborted later (using AbortController)
 dom/abort/abort-signal-timeout.html	Signal returned by AbortSignal.timeout() is not aborted after frame detach
 dom/abort/event.any.html	AbortController abort() should fire event synchronously
 dom/abort/event.any.html	AbortController abort(null) should set signal.reason
@@ -69542,6 +69554,7 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interf
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: window.navigator must inherit property "product" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: window.navigator must inherit property "productSub" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: window.navigator must inherit property "registerProtocolHandler(DOMString, USVString)" with the proper type
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: window.navigator must inherit property "userActivation" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: window.navigator must inherit property "userAgent" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: window.navigator must inherit property "vendor" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: window.navigator must inherit property "vendorSub" with the proper type
@@ -69619,6 +69632,13 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	PopStateEvent in
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	PopStateEvent interface: existence and properties of interface prototype object's @@unscopables property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	PopStateEvent interface: new PopStateEvent("popstate", { data: {} }) must inherit property "state" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	PopStateEvent must be primary interface of new PopStateEvent("popstate", { data: {} })
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	PromiseRejectionEvent interface object length
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	PromiseRejectionEvent interface object name
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	PromiseRejectionEvent interface: attribute promise
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	PromiseRejectionEvent interface: attribute reason
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	PromiseRejectionEvent interface: existence and properties of interface prototype object
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	PromiseRejectionEvent interface: existence and properties of interface prototype object's "constructor" property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	PromiseRejectionEvent interface: existence and properties of interface prototype object's @@unscopables property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Range interface: calling createContextualFragment((TrustedHTML or DOMString)) on new Range() with too few arguments must throw TypeError
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Range interface: new Range() must inherit property "createContextualFragment((TrustedHTML or DOMString))" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Range interface: operation createContextualFragment((TrustedHTML or DOMString))
@@ -69756,6 +69776,7 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification 
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of new ImageData(10, 10)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of new MessageEvent("message", { data: 5 })
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of new PopStateEvent("popstate", { data: {} })
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of new ToggleEvent("beforetoggle")
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of sessionStorage
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of window.external
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of window.history
@@ -69809,6 +69830,22 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TimeRanges inter
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TimeRanges interface: operation end(unsigned long)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TimeRanges interface: operation start(unsigned long)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TimeRanges must be primary interface of document.createElement("video").buffered
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ToggleEvent interface object length
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ToggleEvent interface object name
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ToggleEvent interface: attribute newState
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ToggleEvent interface: attribute oldState
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ToggleEvent interface: existence and properties of interface prototype object
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ToggleEvent interface: existence and properties of interface prototype object's "constructor" property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ToggleEvent interface: existence and properties of interface prototype object's @@unscopables property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ToggleEvent interface: new ToggleEvent("beforetoggle") must inherit property "newState" with the proper type
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ToggleEvent interface: new ToggleEvent("beforetoggle") must inherit property "oldState" with the proper type
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ToggleEvent must be primary interface of new ToggleEvent("beforetoggle")
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface object length
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface object name
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface: existence and properties of interface object
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface: existence and properties of interface prototype object
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface: existence and properties of interface prototype object's "constructor" property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface: existence and properties of interface prototype object's @@unscopables property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface object name
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface: attribute onaddtrack
@@ -133783,6 +133820,18 @@ html/syntax/parsing/zero.html	U+0000 should vanish after ampersand and three let
 html/syntax/parsing/zero.html	U+0000 should vanish after ampersand and two letters of entity prefix
 html/syntax/parsing/zero.html	U+0000 should vanish after semicolonless entity
 html/syntax/parsing/zero.html	U+0000 should vanish before required semicolon
+html/user-activation/chained-setTimeout.html	Call-depth=1: initial activation states are false
+html/user-activation/chained-setTimeout.html	Call-depth=2: initial activation states are false
+html/user-activation/chained-setTimeout.html	Call-depth=3: initial activation states are false
+html/user-activation/propagation-crossorigin.sub.html	Child1 frame initial state
+html/user-activation/propagation-crossorigin.sub.html	Child2 frame initial state
+html/user-activation/propagation-crossorigin.sub.html	Grandchild frame initial state
+html/user-activation/propagation-crossorigin.sub.html	Parent frame initial state
+html/user-activation/propagation-same-and-cross-origin.sub.html	Check Initial states of user activation are all false
+html/user-activation/propagation-sameorigin.html	Child1 frame initial state
+html/user-activation/propagation-sameorigin.html	Child2 frame initial state
+html/user-activation/propagation-sameorigin.html	Grandchild frame initial state
+html/user-activation/propagation-sameorigin.html	Parent frame initial state
 html/webappapis/dynamic-markup-insertion/document-write/019.html	document.write
 html/webappapis/dynamic-markup-insertion/document-write/020.html	document.write
 html/webappapis/dynamic-markup-insertion/document-write/021.html	document.write
@@ -133868,9 +133917,11 @@ html/webappapis/dynamic-markup-insertion/opening-the-input-stream/no-new-global.
 html/webappapis/dynamic-markup-insertion/opening-the-input-stream/no-new-global.window.html	sessionStorage maintains object identity through open()
 html/webappapis/dynamic-markup-insertion/opening-the-input-stream/remove-initial-about-blankness.window.html	Double-check: without document.open(), Window reuse indeed happens
 html/webappapis/dynamic-markup-insertion/opening-the-input-stream/tasks.window.html	document.open() and tasks (MessagePort)
+html/webappapis/dynamic-markup-insertion/opening-the-input-stream/tasks.window.html	document.open() and tasks (Promise rejection)
 html/webappapis/dynamic-markup-insertion/opening-the-input-stream/tasks.window.html	document.open() and tasks (canvas.toBlob())
 html/webappapis/dynamic-markup-insertion/opening-the-input-stream/tasks.window.html	document.open() and tasks (timeout)
 html/webappapis/dynamic-markup-insertion/opening-the-input-stream/tasks.window.html	tasks without document.open() (MessagePort)
+html/webappapis/dynamic-markup-insertion/opening-the-input-stream/tasks.window.html	tasks without document.open() (Promise rejection)
 html/webappapis/dynamic-markup-insertion/opening-the-input-stream/tasks.window.html	tasks without document.open() (canvas.toBlob())
 html/webappapis/dynamic-markup-insertion/opening-the-input-stream/tasks.window.html	tasks without document.open() (timeout)
 html/webappapis/dynamic-markup-insertion/opening-the-input-stream/unload.window.html	document.open(): Do not fire pagehide, visibilitychange, or unload events
@@ -135347,10 +135398,31 @@ html/webappapis/scripting/processing-model-2/runtime-error-same-origin.html	wind
 html/webappapis/scripting/processing-model-2/runtime-error-same-origin.html	window.onerror - runtime error in <script src=...> (column)
 html/webappapis/scripting/processing-model-2/runtime-error.html	window.onerror - runtime error in <script>
 html/webappapis/scripting/processing-model-2/runtime-error.html	window.onerror - runtime error in <script> (column)
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-event-constructor.html	This tests the constructor for the PromiseRejectionEvent DOM class.
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-attached-in-event.html	Attaching a handler in unhandledrejection should not trigger rejectionhandled.
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-iframe.html	delayed handling: promise is created in iframe and being rejected elsewhere
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-iframe.html	no unhandledrejection/rejectionhandled: promise is created in iframe and being rejected elsewhere
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-iframe.html	unhandledrejection: promise is created in iframe and being rejected elsewhere
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.dedicatedworker.html	rejectionhandled: fires once for each of many rejections handled after they were reported
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.dedicatedworker.html	unhandledrejection: does not fire when many rejections are all handled in the same turn
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.dedicatedworker.html	unhandledrejection: does not fire when many rejections are handled in reverse order
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.dedicatedworker.html	unhandledrejection: fires once for each of many rejections in one turn
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.dedicatedworker.html	unhandledrejection: fires only for the rejections left unhandled
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.dedicatedworker.html	unhandledrejection: handling a reported batch does not suppress a batch rejected after it
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.html	rejectionhandled: fires once for each of many rejections handled after they were reported
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.html	unhandledrejection: does not fire when many rejections are all handled in the same turn
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.html	unhandledrejection: does not fire when many rejections are handled in reverse order
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.html	unhandledrejection: fires once for each of many rejections in one turn
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.html	unhandledrejection: fires only for the rejections left unhandled
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-many-promises.html	unhandledrejection: handling a reported batch does not suppress a batch rejected after it
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events-onerror.html	Throwing inside an unhandledrejection handler invokes the error handler.
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	delayed handling: a microtask delay before attaching a handler prevents both events (Promise.reject-created promise)
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	delayed handling: a microtask delay before attaching a handler prevents both events (immediately-rejected new Promise-created promise)
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	delayed handling: a microtask delay before attaching the handler, and before rejecting the promise, indirected through Promise.all
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	delayed handling: a nested-queueTask after promise creation/rejection, plus many promise microtasks, is too late to attach a rejection handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	delayed handling: a nested-queueTask after promise creation/rejection, plus promise microtasks, is too late to attach a rejection handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	delayed handling: a nested-queueTask before promise creation/rejection, plus many promise microtasks, is too late to attach a rejection handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	delayed handling: a nested-task delay before attaching a handler causes unhandledrejection
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	delayed handling: delaying handling by setTimeout(,10) will cause both events to fire
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	microtask nesting: attaching a handler inside a combination of mutationObserverMicrotask + promise microtasks
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	microtask nesting: attaching a handler inside a combination of mutationObserverMicrotask + promise microtasks, all inside a queueTask
@@ -135358,6 +135430,7 @@ html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promis
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	microtask nesting: attaching a handler inside a combination of promise microtasks + mutationObserverMicrotask
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	microtask nesting: attaching a handler inside a combination of promise microtasks + mutationObserverMicrotask, all inside a queueTask
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	microtask nesting: attaching a handler inside a combination of promise microtasks + mutationObserverMicrotask, all inside a setTimeout
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	mutationObserverMicrotask vs. queueTask ordering is not disturbed inside unhandledrejection events
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: all inside a queued task, a rejection handler attached synchronously to a promise created from returning a Promise.reject-created promise in a fulfillment handler
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise created from returning a Promise.reject-created promise in a fulfillment handler
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise created from returning a setTimeout-delayed rejection in a fulfillment handler
@@ -135365,9 +135438,24 @@ html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promis
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise from Promise.reject
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise from Promise.reject, indirecting through Promise.all
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a synchronously-rejected promise created with new Promise
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	unhandledrejection: from Promise.reject
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	unhandledrejection: from Promise.reject, indirected through Promise.all
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	unhandledrejection: from a setTimeout-delayed rejection
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	unhandledrejection: from a synchronous rejection in new Promise
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	unhandledrejection: from a task-delayed rejection
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	unhandledrejection: from a throw in a fulfillment handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	unhandledrejection: from a throw in a rejection handler attached one microtask after a setTimeout-delayed rejection
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	unhandledrejection: from a throw in a rejection handler chained off of Promise.reject
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	unhandledrejection: from a throw in a rejection handler chained off of a setTimeout-delayed rejection
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	unhandledrejection: from returning a Promise.reject-created rejection in a fulfillment handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.dedicatedworker.html	unhandledrejection: from returning a setTimeout-delayed rejection in a fulfillment handler
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: a microtask delay before attaching a handler prevents both events (Promise.reject-created promise)
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: a microtask delay before attaching a handler prevents both events (immediately-rejected new Promise-created promise)
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: a microtask delay before attaching the handler, and before rejecting the promise, indirected through Promise.all
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: a nested-queueTask after promise creation/rejection, plus many promise microtasks, is too late to attach a rejection handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: a nested-queueTask after promise creation/rejection, plus promise microtasks, is too late to attach a rejection handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: a nested-queueTask before promise creation/rejection, plus many promise microtasks, is too late to attach a rejection handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: a nested-task delay before attaching a handler causes unhandledrejection
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: a task delay before attaching a handler prevents unhandledrejection
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: delaying handling by setTimeout(,10) will cause both events to fire
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	delayed handling: delaying handling rejected promise created from createImageBitmap will cause both events to fire
@@ -135380,6 +135468,7 @@ html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promis
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	microtask nesting: attaching a handler inside a combination of promise microtasks + mutationObserverMicrotask
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	microtask nesting: attaching a handler inside a combination of promise microtasks + mutationObserverMicrotask, all inside a queueTask
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	microtask nesting: attaching a handler inside a combination of promise microtasks + mutationObserverMicrotask, all inside a setTimeout
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	mutationObserverMicrotask vs. queueTask ordering is not disturbed inside unhandledrejection events
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	no unhandledrejection/rejectionhandled: all inside a queued task, a rejection handler attached synchronously to a promise created from returning a Promise.reject-created promise in a fulfillment handler
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise created from createImageBitmap
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise created from returning a Promise.reject-created promise in a fulfillment handler
@@ -135388,6 +135477,21 @@ html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promis
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise from Promise.reject
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a promise from Promise.reject, indirecting through Promise.all
 html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	no unhandledrejection/rejectionhandled: rejection handler attached synchronously to a synchronously-rejected promise created with new Promise
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	queueTask ordering vs. the task queued for unhandled rejection notification (1)
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	queueTask ordering vs. the task queued for unhandled rejection notification (2)
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	rejectionhandled is dispatched from a queued task, and not immediately
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	unhandledrejection: from Promise.reject
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	unhandledrejection: from Promise.reject, indirected through Promise.all
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	unhandledrejection: from a setTimeout-delayed rejection
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	unhandledrejection: from a synchronous rejection in new Promise
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	unhandledrejection: from a task-delayed rejection
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	unhandledrejection: from a throw in a fulfillment handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	unhandledrejection: from a throw in a rejection handler attached one microtask after a setTimeout-delayed rejection
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	unhandledrejection: from a throw in a rejection handler chained off of Promise.reject
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	unhandledrejection: from a throw in a rejection handler chained off of a setTimeout-delayed rejection
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	unhandledrejection: from createImageBitmap which is UA triggered
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	unhandledrejection: from returning a Promise.reject-created rejection in a fulfillment handler
+html/webappapis/scripting/processing-model-2/unhandled-promise-rejections/promise-rejection-events.html	unhandledrejection: from returning a setTimeout-delayed rejection in a fulfillment handler
 html/webappapis/scripting/processing-model-2/window-onerror-parse-error.html	correct number of calls to window.onerror
 html/webappapis/scripting/processing-model-2/window-onerror-parse-error.html	correct url passed to window.onerror
 html/webappapis/scripting/processing-model-2/window-onerror-runtime-error-throw.html	correct number of calls to window.onerror
@@ -135712,6 +135816,43 @@ media-source/mediasource-preload.html	sourceopen occurs with element preload=aut
 media-source/mediasource-preload.html	sourceopen occurs with element preload=metadata
 media-source/mediasource-preload.html	sourceopen occurs with element preload=none
 media-source/mediasource-removesourcebuffer.html	Test removeSourceBuffer() with null
+picture-in-picture/disable-picture-in-picture.html	Test disablePictureInPicture IDL attribute
+picture-in-picture/exit-picture-in-picture.html	Exit Picture-in-Picture rejects when there is no Picture-in-Picture video
+picture-in-picture/idlharness.window.html	Document includes DocumentOrShadowRoot: member names are unique
+picture-in-picture/idlharness.window.html	Document includes GlobalEventHandlers: member names are unique
+picture-in-picture/idlharness.window.html	Document includes NonElementParentNode: member names are unique
+picture-in-picture/idlharness.window.html	Document includes ParentNode: member names are unique
+picture-in-picture/idlharness.window.html	Document includes XPathEvaluatorBase: member names are unique
+picture-in-picture/idlharness.window.html	Document interface: attribute pictureInPictureElement
+picture-in-picture/idlharness.window.html	Document interface: attribute pictureInPictureEnabled
+picture-in-picture/idlharness.window.html	Document interface: document must inherit property "exitPictureInPicture()" with the proper type
+picture-in-picture/idlharness.window.html	Document interface: document must inherit property "pictureInPictureElement" with the proper type
+picture-in-picture/idlharness.window.html	Document interface: document must inherit property "pictureInPictureEnabled" with the proper type
+picture-in-picture/idlharness.window.html	DocumentFragment includes NonElementParentNode: member names are unique
+picture-in-picture/idlharness.window.html	DocumentFragment includes ParentNode: member names are unique
+picture-in-picture/idlharness.window.html	DocumentOrShadowRoot interface: document must inherit property "pictureInPictureElement" with the proper type
+picture-in-picture/idlharness.window.html	Element includes ChildNode: member names are unique
+picture-in-picture/idlharness.window.html	Element includes NonDocumentTypeChildNode: member names are unique
+picture-in-picture/idlharness.window.html	Element includes ParentNode: member names are unique
+picture-in-picture/idlharness.window.html	Element includes Slottable: member names are unique
+picture-in-picture/idlharness.window.html	HTMLElement includes ElementContentEditable: member names are unique
+picture-in-picture/idlharness.window.html	HTMLElement includes GlobalEventHandlers: member names are unique
+picture-in-picture/idlharness.window.html	HTMLElement includes HTMLOrSVGOrMathMLElement: member names are unique
+picture-in-picture/idlharness.window.html	HTMLVideoElement interface: attribute disablePictureInPicture
+picture-in-picture/idlharness.window.html	HTMLVideoElement interface: attribute onenterpictureinpicture
+picture-in-picture/idlharness.window.html	HTMLVideoElement interface: attribute onleavepictureinpicture
+picture-in-picture/idlharness.window.html	Partial interface Document: member names are unique
+picture-in-picture/idlharness.window.html	Partial interface Document: original interface defined
+picture-in-picture/idlharness.window.html	Partial interface Document[2]: member names are unique
+picture-in-picture/idlharness.window.html	Partial interface Document[3]: member names are unique
+picture-in-picture/idlharness.window.html	Partial interface Element: member names are unique
+picture-in-picture/idlharness.window.html	Partial interface HTMLVideoElement: member names are unique
+picture-in-picture/idlharness.window.html	Partial interface HTMLVideoElement: original interface defined
+picture-in-picture/idlharness.window.html	Partial interface mixin DocumentOrShadowRoot: member names are unique
+picture-in-picture/idlharness.window.html	Partial interface mixin DocumentOrShadowRoot: original interface mixin defined
+picture-in-picture/idlharness.window.html	Partial interface mixin DocumentOrShadowRoot[2]: member names are unique
+picture-in-picture/idlharness.window.html	ShadowRoot includes DocumentOrShadowRoot: member names are unique
+picture-in-picture/idlharness.window.html	idl_test validation
 shadow-dom/Document-caretPositionFromPoint.tentative.html	document.caretPositionFromPoint() throws when called without the correct parameters
 shadow-dom/Document-prototype-importNode.html	importNode on a shadow root in closed mode must throw a NotSupportedError
 shadow-dom/Document-prototype-importNode.html	importNode on a shadow root in open mode must throw a NotSupportedError

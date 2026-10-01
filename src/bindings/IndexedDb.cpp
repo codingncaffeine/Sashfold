@@ -2523,6 +2523,20 @@ void install_indexeddb(Realm::Internals& in)
             return std::nullopt;
         return (*found)->new_version ? js::Value::number(*(*found)->new_version) : js::Value::null();
     });
+    // The data loss members are a browser's (Chromium's IDL, which the
+    // suite's idlharness reads): nothing here is lost on open.
+    define_getter(in, *version_event, "dataLoss", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        std::optional<EventObject*> const found = this_of<EventObject>(interp, this_value);
+        if (!found)
+            return std::nullopt;
+        return internals_of(interp).string("none");
+    });
+    define_getter(in, *version_event, "dataLossMessage", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        std::optional<EventObject*> const found = this_of<EventObject>(interp, this_value);
+        if (!found)
+            return std::nullopt;
+        return internals_of(interp).string("");
+    });
 
     // IDBRequest and IDBOpenDBRequest.
     js::Object* request = define_interface(in, "IDBRequest", event_target);

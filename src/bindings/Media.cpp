@@ -2389,6 +2389,13 @@ void install_media_element(Realm::Internals& in)
         MediaStateObject const& state = live_state_of(internals, e);
         return js::Value::number(state.ready_state >= HaveMetadata ? state.video_height : 0);
     });
+    // Picture-in-Picture: no window of this engine floats a video yet, so
+    // document.pictureInPictureEnabled is false and a request is refused
+    // as the standard refuses one then (NotSupportedError).
+    reflect_boolean(in, video, "disablePictureInPicture", "disablepictureinpicture");
+    element_method(in, video, "requestPictureInPicture", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
+        return rejected_promise(internals.interpreter, dom_exception_value(internals, "NotSupportedError", "Picture-in-Picture is not available."));
+    });
 }
 
 }

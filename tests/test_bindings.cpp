@@ -1147,8 +1147,11 @@ void test_window_location_url_storage_navigator()
     // Promise reactions and queueMicrotask share the checkpoint's queue.
     page->eval("var order = []; Promise.resolve().then(function () { order.push('reaction'); }); queueMicrotask(function () { order.push('microtask'); }); order.push('sync');");
     CHECK_EQ(page->string("order.join(' ')"), "sync reaction microtask");
-    // An unhandled rejection is reported to the console once the checkpoint ends.
+    // An unhandled rejection is reported to the console in the task that
+    // follows the checkpoint it was left unhandled by.
     page->eval("Promise.reject(new TypeError('nobody listens'));");
+    CHECK(page->console.find("Uncaught (in promise)") == std::string::npos);
+    for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
     CHECK(page->console.find("error:Uncaught (in promise) TypeError: nobody listens") != std::string::npos);
     CHECK_EQ(page->string("btoa('hello') + '|' + atob('aGVsbG8=') + '|' + atob(' aGk ')"), "aGVsbG8=|hello|hi");
     CHECK(page->throws("btoa('\\u0100')").starts_with("InvalidCharacterError"));
@@ -3839,6 +3842,164 @@ void test_interfaces_that_promise()
     CHECK_EQ(page.console, std::string(""));
 }
 
+// The small things a page asks the document, the window and a signal for
+// (a census of a video site's watch page named each): prerendering, the
+// Picture-in-Picture members, the prefixed fullscreen names, a view
+// transition, navigator.userActivation, AbortSignal.any, the
+// PromiseRejectionEvent interface, an IDBVersionChangeEvent's data loss.
+void test_the_small_things_a_page_asks_for()
+{
+    auto page = loaded("<!DOCTYPE html><body><p id=p>x</p></body>");
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    CHECK(page->boolean("document.prerendering === false && 'onprerenderingchange' in document"));
+    CHECK(page->boolean("document.pictureInPictureEnabled === false && document.pictureInPictureElement === null"));
+    CHECK(page->boolean("document.webkitFullscreenElement === null && document.webkitCurrentFullScreenElement === null && document.webkitIsFullScreen === false"
+                        " && document.webkitFullscreenEnabled === document.fullscreenEnabled && typeof document.webkitExitFullscreen === 'function'"
+                        " && typeof document.webkitCancelFullScreen === 'function' && typeof document.body.webkitRequestFullscreen === 'function'"
+                        " && typeof document.body.webkitRequestFullScreen === 'function' && document.body.webkitRequestFullscreen() === undefined"));
+    CHECK(page->boolean("(function () { var v = document.createElement('video'); if (v.disablePictureInPicture !== false) return false;"
+                        " v.disablePictureInPicture = true; return v.hasAttribute('disablepictureinpicture') && v.disablePictureInPicture && 'onenterpictureinpicture' in v; })()"));
+    CHECK(page->boolean("navigator.userActivation instanceof UserActivation && navigator.userActivation === navigator.userActivation"
+                        " && navigator.userActivation.isActive === false && navigator.userActivation.hasBeenActive === false"));
+    CHECK(page->boolean("(function () { var e = new IDBVersionChangeEvent('x', { oldVersion: 1 }); return e.dataLoss === 'none' && e.dataLossMessage === ''; })()"));
+    // A details element opened or closed fires toggle in a task of its own,
+    // one task per element however many times it changed meanwhile, the
+    // event saying the state before the first change and the state now.
+    CHECK(page->boolean("(function () { var e = new ToggleEvent('t', { oldState: 'a', newState: 'b' }); return e.oldState === 'a' && e.newState === 'b' && new ToggleEvent('t').oldState === '' && e instanceof Event; })()"));
+    page->eval(R"JS(
+        var out = [];
+        var d = document.createElement('details');
+        document.body.appendChild(d);
+        d.addEventListener('toggle', function (e) { out.push(e.oldState + '>' + e.newState + ' ' + (e instanceof ToggleEvent) + ' ' + e.isTrusted + ' ' + e.bubbles); });
+        d.setAttribute('open', '');
+        d.setAttribute('open', 'still');
+    )JS");
+    CHECK_EQ(page->string("out.join(' | ')"), "");
+    pump();
+    CHECK_EQ(page->string("out.join(' | ')"), "closed>open true true false");
+    page->eval("d.removeAttribute('open'); d.setAttribute('open', '');");
+    pump();
+    CHECK_EQ(page->string("out.join(' | ')"), "closed>open true true false | open>open true true false");
+    page->eval("d.removeAttribute('open');");
+    pump();
+    CHECK_EQ(page->string("out.join(' | ')"), "closed>open true true false | open>open true true false | open>closed true true false");
+    // AbortSignal.any: a dependent signal follows its sources.
+    CHECK(page->boolean("!AbortSignal.any([]).aborted && AbortSignal.any([]) instanceof AbortSignal"));
+    CHECK(page->boolean("(function () { var s = AbortSignal.any([new AbortController().signal, AbortSignal.abort('r')]); return s.aborted && s.reason === 'r'; })()"));
+    CHECK(page->boolean(R"JS((function () {
+        var c1 = new AbortController(), c2 = new AbortController();
+        var dep = AbortSignal.any([c1.signal, c2.signal]);
+        var deep = AbortSignal.any([dep]);
+        var fired = 0;
+        dep.onabort = function (e) { fired += e.target === dep ? 1 : 100; };
+        deep.addEventListener('abort', function () { fired += 10; });
+        c2.abort('two');
+        if (!(dep.aborted && dep.reason === 'two' && deep.aborted && deep.reason === 'two' && fired === 11)) return false;
+        c1.abort('one');
+        return dep.reason === 'two' && fired === 11;
+    })())JS"));
+    CHECK(page->throws("AbortSignal.any([1])").starts_with("TypeError"));
+    CHECK(page->throws("AbortSignal.any()").starts_with("TypeError"));
+    // PromiseRejectionEvent: the promise is required, and resolved to one.
+    CHECK(page->boolean("(function () { var p = Promise.resolve(1); var e = new PromiseRejectionEvent('x', { promise: p, reason: 'why' });"
+                        " return e.promise === p && e.reason === 'why' && !e.cancelable && e instanceof Event && e.type === 'x'; })()"));
+    CHECK(page->boolean("new PromiseRejectionEvent('x', { promise: 5 }).promise instanceof Promise && new PromiseRejectionEvent('x', { promise: 5 }).reason === undefined"));
+    CHECK(page->throws("new PromiseRejectionEvent('x', {})").starts_with("TypeError"));
+    CHECK(page->throws("new PromiseRejectionEvent('x')").starts_with("TypeError"));
+    // The promises: Picture-in-Picture refused, a view transition skipped
+    // the way the standard skips one the engine cannot show, its callback
+    // run in a task of its own and its promises settled in the order a
+    // browser settles them.
+    page->eval(R"JS(
+        var out = [];
+        document.exitPictureInPicture().catch(function (e) { out.push('exit ' + e.name); });
+        document.createElement('video').requestPictureInPicture().catch(function (e) { out.push('pip ' + e.name); });
+        var t = document.startViewTransition(function () { out.push('update'); return 'v'; });
+        out.push('started ' + (t instanceof ViewTransition) + ' ' + (t.ready instanceof Promise) + ' ' + (t.updateCallbackDone instanceof Promise));
+        t.updateCallbackDone.then(function (v) { out.push('done ' + v); });
+        t.ready.catch(function (e) { out.push('ready ' + e.name); });
+        t.finished.then(function () { out.push('finished'); });
+        var t2 = document.startViewTransition({ update: function () { out.push('update2'); } });
+        t2.ready.catch(function (e) { out.push('ready2 ' + e.name); });
+        t2.updateCallbackDone.then(function () { out.push('done2'); });
+        t2.finished.then(function () { out.push('finished2'); });
+    )JS");
+    CHECK_EQ(page->string("out.join(' | ')"), "started true true true | exit InvalidStateError | pip NotSupportedError | ready AbortError");
+    pump();
+    CHECK_EQ(page->string("out.join(' | ')"),
+        "started true true true | exit InvalidStateError | pip NotSupportedError | ready AbortError | update | done undefined | finished"
+        " | ready2 InvalidStateError | update2 | done2 | finished2");
+    // A callback that throws rejects updateCallbackDone and finished alike;
+    // skipTransition() on a transition already done changes nothing; no
+    // callback at all is fine; anything else is a TypeError.
+    page->eval(R"JS(
+        out = [];
+        var t3 = document.startViewTransition(function () { throw new RangeError('no'); });
+        t3.updateCallbackDone.catch(function (e) { out.push('done3 ' + e.name); });
+        t3.finished.catch(function (e) { out.push('finished3 ' + e.name); });
+        t3.ready.catch(function (e) { out.push('ready3 ' + e.name); });
+        t3.skipTransition();
+        t3.skipTransition();
+        var t4 = document.startViewTransition();
+        t4.finished.then(function () { out.push('finished4'); });
+    )JS");
+    pump();
+    CHECK_EQ(page->string("out.join(' | ')"), "ready3 AbortError | done3 RangeError | finished3 RangeError | finished4");
+    CHECK(page->throws("document.startViewTransition(5)").starts_with("TypeError"));
+    CHECK_EQ(page->console, std::string(""));
+    // Sticky activation: a button pressed on the page, from the host.
+    dom::Element* paragraph = static_cast<dom::Element*>(page->realm->node_of(page->eval("document.getElementById('p')").value));
+    CHECK(paragraph != nullptr);
+    bindings::Realm::MouseInit press;
+    page->realm->dispatch_mouse_event(*paragraph, "mousemove", press);
+    CHECK(page->boolean("navigator.userActivation.hasBeenActive === false"));
+    page->realm->dispatch_mouse_event(*paragraph, "mousedown", press);
+    CHECK(page->boolean("navigator.userActivation.hasBeenActive === true && navigator.userActivation.isActive === false"));
+}
+
+// A rejection no handler takes is an unhandledrejection event at the
+// window, in a task after the checkpoint that left it so (HTML §8.1.7.3);
+// canceled, nothing is printed; a handler coming to it after that is a
+// rejectionhandled event. A handler that comes before the task is neither.
+void test_rejections_are_events()
+{
+    auto page = loaded("<!DOCTYPE html><body></body>");
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    page->eval(R"JS(
+        var seen = [];
+        var p1, p2, p3;
+        window.addEventListener('unhandledrejection', function (e) {
+            seen.push('unhandled ' + e.reason + ' ' + (e instanceof PromiseRejectionEvent) + ' ' + e.cancelable + ' ' + e.isTrusted + ' '
+                + (e.promise === p1 ? 'p1' : e.promise === p2 ? 'p2' : '?'));
+            if (e.reason === 'take') e.preventDefault();
+        });
+        window.onrejectionhandled = function (e) { seen.push('handled ' + e.reason + ' ' + (e.promise === p2 ? 'p2' : e.promise === p1 ? 'p1' : '?') + ' ' + e.cancelable); };
+        p1 = Promise.reject('take');
+        p2 = Promise.reject('print');
+        p3 = Promise.reject('early');
+        p3.catch(function () {});
+    )JS");
+    CHECK_EQ(page->string("seen.join(' | ')"), "");
+    CHECK_EQ(page->console, std::string(""));
+    pump();
+    CHECK_EQ(page->string("seen.join(' | ')"), "unhandled take true true true p1 | unhandled print true true true p2");
+    CHECK_EQ(page->console, std::string("error:Uncaught (in promise) print|"));
+    page->eval("p2.catch(function () {}); p1.then(null, function () {});");
+    CHECK_EQ(page->number("seen.length"), 2);
+    pump();
+    CHECK_EQ(page->string("seen.join(' | ')"),
+        "unhandled take true true true p1 | unhandled print true true true p2 | handled print p2 false | handled take p1 false");
+    // A second handler on a promise already handled is no event.
+    page->eval("p2.catch(function () {});");
+    pump();
+    CHECK_EQ(page->number("seen.length"), 4);
+    CHECK_EQ(page->console, std::string("error:Uncaught (in promise) print|"));
+}
+
 } // namespace
 
 // MutationObserver: what changed in a part of the tree, in one batch at the
@@ -5106,6 +5267,8 @@ int main()
     test_the_computed_appearance();
     test_the_audio_constructor();
     test_interfaces_that_promise();
+    test_the_small_things_a_page_asks_for();
+    test_rejections_are_events();
     test_scripts_that_must_not_run_again();
     test_mutation_observer();
     test_intersection_observer();
