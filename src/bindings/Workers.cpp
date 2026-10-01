@@ -861,18 +861,18 @@ constexpr std::string_view shared_names[] = {
 
 // An accessor of one prototype given to another with its getter alone: what
 // a worker's location and navigator show is what a URL and a window's
-// navigator do, read-only.
+// navigator do, read-only. The getter is defined anew on the other
+// prototype from the member as it was before its receiver check, so that
+// it answers for the other interface's objects (WebIDL §3.7.6).
 void share_getter(js::Interpreter& interpreter, js::Object& from, js::Object& to, std::string_view name)
 {
     std::optional<js::PropertyDescriptor> const found = from.get_own_property(interpreter.key(name));
     if (!found || !found->get || *found->get == nullptr)
         return;
-    js::PropertyDescriptor descriptor;
-    descriptor.get = *found->get;
-    descriptor.set = static_cast<js::Object*>(nullptr);
-    descriptor.enumerable = true;
-    descriptor.configurable = true;
-    (void)to.define_own_property(interpreter.key(name), descriptor);
+    auto* const getter = dynamic_cast<js::NativeFunction*>(*found->get);
+    if (getter == nullptr)
+        return;
+    define_attribute(interpreter, to, name, getter->unwrapped ? getter->unwrapped : getter->callback());
 }
 
 }

@@ -788,11 +788,15 @@ void define_event_handlers(Realm::Internals& in, js::Object& target, std::span<s
 {
     for (std::string_view const type : types) {
         std::string const type_name(type);
+        // onmouseenter and onmouseleave are [LegacyLenientThis] (HTML
+        // §8.1.8.2.1), and Chromium treats onreadystatechange so too: read
+        // on the wrong object they are undefined, written they do nothing.
+        MemberKind const kind = type == "mouseenter" || type == "mouseleave" || type == "readystatechange" ? MemberKind::LenientThis : MemberKind::Plain;
         define_getter(in, target, "on" + type_name,
-            [type_name](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
+            [type_name, kind](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
                 Realm::Internals& internals = internals_of(interpreter);
                 if (!this_value.is_object() || !internals.handlers_of(this_value.as_object()))
-                    return interpreter.throw_type_error("Illegal invocation");
+                    return kind == MemberKind::LenientThis ? Native(js::Value::undefined()) : interpreter.throw_type_error("Illegal invocation");
                 return handler_value(internals, this_value.as_object(), type_name);
             },
             [type_name](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
@@ -809,7 +813,8 @@ void define_event_handlers(Realm::Internals& in, js::Object& target, std::span<s
                     handler.function = value; // a callable, or an object the spec keeps and never calls
                 (*map)[type_name] = handler;
                 return js::Value::undefined();
-            });
+            },
+            kind);
     }
 }
 

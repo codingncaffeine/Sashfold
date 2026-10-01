@@ -1052,46 +1052,17 @@ void install_style(Realm::Internals& in)
         return js::Value::boolean(true);
     });
     define_operation(interpreter, *token_list, "supports", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
-    define_operation(interpreter, *token_list, "forEach", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
-        std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
-        if (!list)
-            return std::nullopt;
-        js::Value const callback = js::argument(args, 0);
-        if (!js::Interpreter::is_callable(callback))
-            return interp.throw_type_error("parameter 1 is not of type 'Function'");
-        std::vector<std::string> const tokens = tokens_of(**list);
-        js::Interpreter::Roots const roots(interp);
-        interp.root(callback);
-        for (std::size_t i = 0; i < tokens.size(); ++i) {
-            js::Value const arguments[3] = { internals_of(interp).string(tokens[i]), js::Value::number(static_cast<double>(i)), this_value };
-            if (!interp.call(callback, js::argument(args, 1), arguments))
-                return std::nullopt;
+    // A value iterator's entries, keys, values, forEach and @@iterator are
+    // the Array prototype's own functions (WebIDL §3.7.10.1): generic over
+    // the list's length and indices, and so answering any array-like.
+    {
+        js::Object* const array_prototype = interpreter.intrinsics().array_prototype;
+        for (std::string_view const name : { "entries", "keys", "values", "forEach" }) {
+            if (std::optional<js::PropertyDescriptor> const own = array_prototype->get_own_property(interpreter.key(name)); own && own->value)
+                token_list->put(interpreter.key(name), *own->value, js::Writable | js::Enumerable | js::Configurable);
         }
-        return js::Value::undefined();
-    });
-    for (std::string_view const name : { "keys", "values", "entries" }) {
-        bool const pairs = name == "entries";
-        bool const keys = name == "keys";
-        define_operation(interpreter, *token_list, name, 0, [pairs, keys](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
-            std::optional<TokenListObject*> const list = this_token_list(interp, this_value);
-            if (!list)
-                return std::nullopt;
-            std::vector<std::string> const tokens = tokens_of(**list);
-            js::Interpreter::Roots const roots(interp);
-            js::ArrayObject* out = interp.new_array();
-            interp.root(js::Value::object(out));
-            for (std::size_t i = 0; i < tokens.size(); ++i) {
-                if (keys) {
-                    out->push(js::Value::number(static_cast<double>(i)));
-                } else if (pairs) {
-                    js::Value const pair[2] = { js::Value::number(static_cast<double>(i)), internals_of(interp).string(tokens[i]) };
-                    out->push(js::Value::object(interp.new_array(pair)));
-                } else {
-                    out->push(internals_of(interp).string(tokens[i]));
-                }
-            }
-            return js::Value::object(out);
-        });
+        if (std::optional<js::PropertyDescriptor> const values = array_prototype->get_own_property(interpreter.key("values")); values && values->value)
+            token_list->put(js::PropertyKey::symbol(interpreter.atoms().symbol_iterator), *values->value, js::Writable | js::Configurable);
     }
 
     // CSSStyleDeclaration.

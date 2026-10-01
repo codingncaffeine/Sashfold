@@ -2330,7 +2330,7 @@ void install_media_element(Realm::Internals& in)
         }
         return js::Value::undefined();
     });
-    element_method(in, element, "play", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+    element_promise_method(in, element, "play", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         js::Interpreter& interp = internals.interpreter;
         trace("play()");
         MediaStateObject& state = live_state_of(internals, e);
@@ -2393,7 +2393,7 @@ void install_media_element(Realm::Internals& in)
     // document.pictureInPictureEnabled is false and a request is refused
     // as the standard refuses one then (NotSupportedError).
     reflect_boolean(in, video, "disablePictureInPicture", "disablepictureinpicture");
-    element_method(in, video, "requestPictureInPicture", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
+    element_promise_method(in, video, "requestPictureInPicture", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
         return rejected_promise(internals.interpreter, dom_exception_value(internals, "NotSupportedError", "Picture-in-Picture is not available."));
     });
 }

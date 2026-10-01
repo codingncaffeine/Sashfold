@@ -491,23 +491,132 @@ js::Object* define_interface_with(Realm::Internals& in, std::string_view name, j
 }
 
 void define_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, js::NativeFunction::Callback getter,
-    js::NativeFunction::Callback setter)
+    js::NativeFunction::Callback setter, MemberKind kind)
 {
-    define_attribute(in.interpreter, prototype, name, std::move(getter), std::move(setter));
+    define_attribute(in.interpreter, prototype, name, std::move(getter), std::move(setter), kind);
+}
+
+void define_promise_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, js::NativeFunction::Callback getter)
+{
+    define_attribute(in.interpreter, prototype, name, std::move(getter), {}, MemberKind::ReturnsPromise);
+}
+
+namespace {
+
+// A global interface (WebIDL [Global]: Window, the worker scopes): its
+// members are reached through the global object by any receiver, so they
+// are not checked.
+bool is_global_interface(std::string_view name)
+{
+    return name == "Window" || name.ends_with("GlobalScope");
+}
+
+// Whether a receiver implements an interface (WebIDL §3.7.6, §3.7.7): an
+// object with the interface's prototype above it on its chain. The chain
+// starts above the object, so a prototype is not an instance of its own
+// interface, and a plain object is an instance of nothing. An object of
+// another realm has that realm's prototype for the interface, known by its
+// name tag. A window's proxy stands for its window; any other proxy is no
+// platform object.
+bool receiver_implements(js::Interpreter& interpreter, js::Value const& this_value, js::Object const* prototype, std::string const& interface_name)
+{
+    if (!this_value.is_object())
+        return false;
+    js::Object const* object = this_value.as_object();
+    if (object->is_proxy()) {
+        CrossOriginObject const* const stands_for = dynamic_cast<CrossOriginObject const*>(object);
+        if (stands_for == nullptr || stands_for->target() == nullptr)
+            return false;
+        object = stands_for->target();
+    }
+    for (js::Object const* p = object->prototype(); p != nullptr; p = p->prototype()) {
+        if (p == prototype)
+            return true;
+    }
+    for (js::Object const* p = object->prototype(); p != nullptr; p = p->prototype()) {
+        if (interface_name_of(interpreter, *p) == interface_name)
+            return true;
+    }
+    return false;
+}
+
+// The receiver an interface's member works on: `this` when it implements
+// the interface; the global object for a `this` of undefined or null (a
+// call with no receiver) when the global implements it; else nothing, and
+// the member throws "Illegal invocation", as the browsers put it.
+std::optional<js::Value> interface_receiver(js::Interpreter& interpreter, js::Value const& this_value, js::Object const* prototype,
+    std::string const& interface_name)
+{
+    if (receiver_implements(interpreter, this_value, prototype, interface_name))
+        return this_value;
+    if (this_value.is_nullish()) {
+        // The global as scripts hold it: the window's proxy, which stands
+        // for the window (and is what an event's target then is).
+        js::Object* const global_this = interpreter.current_realm()->global_this;
+        js::Value const global = js::Value::object(global_this != nullptr ? global_this : interpreter.global());
+        if (receiver_implements(interpreter, global, prototype, interface_name))
+            return global;
+    }
+    return std::nullopt;
+}
+
+}
+
+namespace {
+
+// The refusal of a receiver, as the member's kind has it (MemberKind).
+Native refuse_receiver(js::Interpreter& interpreter, MemberKind kind, std::string const& message)
+{
+    if (kind == MemberKind::LenientThis)
+        return js::Value::undefined();
+    if (kind == MemberKind::ReturnsPromise)
+        return rejected_promise(interpreter, js::Value::object(interpreter.new_error(js::ErrorType::TypeError, message)));
+    return interpreter.throw_type_error(message);
+}
+
 }
 
 void define_attribute(js::Interpreter& interpreter, js::Object& target, std::string_view name, js::NativeFunction::Callback getter,
-    js::NativeFunction::Callback setter)
+    js::NativeFunction::Callback setter, MemberKind kind)
 {
+    // An attribute on an interface's prototype answers only for a receiver
+    // that implements the interface (WebIDL §3.7.6); the prototype is known
+    // by its name tag, which only define_interface_with puts. One put on
+    // the global object or on an instance is not wrapped.
+    std::string const on = interface_name_of(interpreter, target);
+    js::NativeFunction::Callback const inner_getter = getter;
+    js::NativeFunction::Callback const inner_setter = setter;
+    if (!on.empty() && !is_global_interface(on)) {
+        js::Object const* const prototype = &target;
+        std::string const reading = kind == MemberKind::ReturnsPromise
+            ? "Failed to read the '" + std::string(name) + "' property from '" + on + "': Illegal invocation"
+            : std::string("Illegal invocation");
+        getter = [inner = std::move(getter), prototype, on, kind, reading](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+            std::optional<js::Value> const receiver = interface_receiver(interp, this_value, prototype, on);
+            if (!receiver)
+                return refuse_receiver(interp, kind, reading);
+            return inner(interp, *receiver, args);
+        };
+        if (setter) {
+            setter = [inner = std::move(setter), prototype, on, kind](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+                std::optional<js::Value> const receiver = interface_receiver(interp, this_value, prototype, on);
+                if (!receiver)
+                    return refuse_receiver(interp, kind, "Illegal invocation");
+                return inner(interp, *receiver, args);
+            };
+        }
+    }
     // An interface's attribute reads and writes the object it is called on,
     // in that object's realm.
     js::Heap::NoCollect const guard(interpreter.heap());
     js::NativeFunction* const get = interpreter.new_native("get " + std::string(name), 0, std::move(getter));
     get->run_in_receivers_realm();
+    get->unwrapped = inner_getter;
     js::NativeFunction* set = nullptr;
     if (setter) {
         set = interpreter.new_native("set " + std::string(name), 1, std::move(setter));
         set->run_in_receivers_realm();
+        set->unwrapped = inner_setter;
     }
     target.put_accessor(interpreter.key(name), get, set, js::Enumerable | js::Configurable);
 }
@@ -521,31 +630,63 @@ std::string interface_name_of(js::Interpreter& interpreter, js::Object const& ta
     return {};
 }
 
+namespace {
+
+std::string too_few_arguments_message(std::string_view operation, std::string_view on, std::size_t required, std::size_t given)
+{
+    return "Failed to execute '" + std::string(operation) + "'" + (on.empty() ? std::string() : " on '" + std::string(on) + "'") + ": "
+        + std::to_string(required) + (required == 1 ? " argument" : " arguments") + " required, but only " + std::to_string(given) + " present.";
+}
+
+}
+
 Native too_few_arguments(js::Interpreter& interpreter, std::string_view operation, std::string_view on, std::size_t required, std::size_t given)
 {
-    return interpreter.throw_type_error("Failed to execute '" + std::string(operation) + "'" + (on.empty() ? std::string() : " on '" + std::string(on) + "'")
-        + ": " + std::to_string(required) + (required == 1 ? " argument" : " arguments") + " required, but only " + std::to_string(given)
-        + " present.");
+    return interpreter.throw_type_error(too_few_arguments_message(operation, on, required, given));
 }
 
 js::NativeFunction* define_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length,
-    js::NativeFunction::Callback callback, bool count_arguments)
+    js::NativeFunction::Callback callback, bool count_arguments, MemberKind kind)
 {
     // Called with fewer arguments than it requires — its length is how many
     // that is — an operation throws before anything else is looked at
     // (WebIDL §3.7.7, the overload resolution's first step).
+    std::string const on = interface_name_of(interpreter, target);
+    js::NativeFunction::Callback const inner = callback;
     if (count_arguments && length > 0) {
-        callback = [inner = std::move(callback), required = static_cast<std::size_t>(length), operation = std::string(name),
-                       on = interface_name_of(interpreter, target)](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+        callback = [inner = std::move(callback), required = static_cast<std::size_t>(length), operation = std::string(name), on,
+                       kind](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
             if (args.size() < required)
-                return too_few_arguments(interp, operation, on, required, args.size());
+                return refuse_receiver(interp, kind, too_few_arguments_message(operation, on, required, args.size()));
             return inner(interp, this_value, args);
+        };
+    }
+    // Before even that: an operation on an interface's prototype is for a
+    // receiver that implements the interface (§3.7.7 step 2), "Failed to
+    // execute 'name' on 'Interface': Illegal invocation" for any other —
+    // the short "Illegal invocation" for EventTarget's, as Chromium says it.
+    if (!on.empty() && !is_global_interface(on)) {
+        js::Object const* const prototype = &target;
+        std::string const refusal = on == "EventTarget" ? std::string("Illegal invocation")
+                                                        : "Failed to execute '" + std::string(name) + "' on '" + on + "': Illegal invocation";
+        callback = [inner = std::move(callback), prototype, on, kind, refusal](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+            std::optional<js::Value> const receiver = interface_receiver(interp, this_value, prototype, on);
+            if (!receiver)
+                return refuse_receiver(interp, kind, refusal);
+            return inner(interp, *receiver, args);
         };
     }
     js::NativeFunction* const function
         = sashfold::js::define_method(interpreter, target, name, length, std::move(callback), js::Writable | js::Enumerable | js::Configurable);
     function->run_in_receivers_realm(); // an interface's operation, likewise
+    function->unwrapped = inner;
     return function;
+}
+
+js::NativeFunction* define_promise_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length,
+    js::NativeFunction::Callback callback, bool count_arguments)
+{
+    return define_operation(interpreter, target, name, length, std::move(callback), count_arguments, MemberKind::ReturnsPromise);
 }
 
 // The reflected-attribute helpers themselves are in Reflect.cpp.

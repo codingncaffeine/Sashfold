@@ -271,6 +271,34 @@ void document_method(Realm::Internals& in, js::Object& prototype, std::string_vi
         ->run_in_receivers_realm(); // the document it is called on says which realm
 }
 
+// The same two for an operation of Promise type: a wrong receiver or too
+// few arguments is a rejection, not a throw.
+template<typename Body>
+void element_promise_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, Body body)
+{
+    define_promise_operation(in.interpreter, prototype, name, length,
+        [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+            std::optional<dom::Element*> const element = this_element(interpreter, this_value);
+            if (!element)
+                return std::nullopt;
+            return body(internals_of(interpreter), **element, args);
+        })
+        ->run_in_receivers_realm();
+}
+
+template<typename Body>
+void document_promise_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, Body body)
+{
+    define_promise_operation(in.interpreter, prototype, name, length,
+        [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+            std::optional<dom::Document*> const document = this_document(interpreter, this_value);
+            if (!document)
+                return std::nullopt;
+            return body(internals_of(interpreter), **document, args);
+        })
+        ->run_in_receivers_realm();
+}
+
 // A DOMRect for a box in client coordinates.
 js::Value make_rect(Realm::Internals&, double x, double y, double width, double height);
 js::Value make_rect(Realm::Internals&, LayoutBox const& box);

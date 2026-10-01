@@ -197,12 +197,12 @@ Native media_capabilities_info(js::Interpreter& interp, Args args, bool decoding
 void install_media_capabilities(Realm::Internals& in, js::Object& navigator)
 {
     js::Object* capabilities = define_interface(in, "MediaCapabilities", nullptr);
-    define_operation(in.interpreter, *capabilities, "decodingInfo", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_promise_operation(in.interpreter, *capabilities, "decodingInfo", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         return media_capabilities_info(interp, args, true);
-    }, false);
-    define_operation(in.interpreter, *capabilities, "encodingInfo", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    });
+    define_promise_operation(in.interpreter, *capabilities, "encodingInfo", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         return media_capabilities_info(interp, args, false);
-    }, false);
+    });
     define_same_object(in, navigator, "mediaCapabilities", "MediaCapabilities");
 }
 
@@ -587,7 +587,7 @@ void install_permissions(Realm::Internals& in, js::Object& navigator)
     // query(descriptor): the names the registry and the shipping engines
     // know; every one is denied here, since nothing here asks the reader
     // and nothing here has the device.
-    define_operation(in.interpreter, *permissions, "query", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_promise_operation(in.interpreter, *permissions, "query", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Interpreter::Roots const roots(interp);
         js::Value const descriptor = js::argument(args, 0);
@@ -619,7 +619,7 @@ void install_permissions(Realm::Internals& in, js::Object& navigator)
         made->put(interp.key("__state"), internals.string("denied"), 0);
         made->put(interp.key("__name"), internals.string(*name), 0);
         return resolved_promise(interp, js::Value::object(made));
-    }, false);
+    });
     define_same_object(in, navigator, "permissions", "Permissions");
 }
 
@@ -713,7 +713,7 @@ void install_media_devices(Realm::Internals& in, js::Object& navigator)
     // getUserMedia: a request with neither audio nor video is a TypeError;
     // any other is refused — no camera or microphone is opened here, and
     // the reader is not asked (NotAllowedError, §10.2).
-    define_operation(interpreter, *devices, "getUserMedia", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_promise_operation(interpreter, *devices, "getUserMedia", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Value const constraints = js::argument(args, 0);
         if (!constraints.is_undefined() && !constraints.is_object())
@@ -742,7 +742,7 @@ void install_media_devices(Realm::Internals& in, js::Object& navigator)
 void install_wake_lock(Realm::Internals& in, js::Object& navigator)
 {
     js::Object* wake_lock = define_interface(in, "WakeLock", nullptr);
-    define_operation(in.interpreter, *wake_lock, "request", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_promise_operation(in.interpreter, *wake_lock, "request", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Value const type = js::argument(args, 0);
         if (!type.is_undefined()) {
@@ -764,7 +764,7 @@ void install_credentials(Realm::Internals& in, js::Object& navigator)
     // No credential type is written: a request for one is refused as a
     // browser refuses a type it has not got (NotSupportedError).
     for (std::string_view const name : { "get", "create" }) {
-        define_operation(in.interpreter, *container, name, 0, [name](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+        define_promise_operation(in.interpreter, *container, name, 0, [name](js::Interpreter& interp, js::Value const&, Args args) -> Native {
             Realm::Internals& internals = internals_of(interp);
             js::Value const options = js::argument(args, 0);
             if (!options.is_undefined() && !options.is_object())
@@ -772,10 +772,10 @@ void install_credentials(Realm::Internals& in, js::Object& navigator)
             return reject_with(internals, "NotSupportedError", "No credential type is supported.");
         });
     }
-    define_operation(in.interpreter, *container, "store", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    define_promise_operation(in.interpreter, *container, "store", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return reject_type_error(internals_of(interp), "Failed to execute 'store' on 'CredentialsContainer': parameter 1 is not of type 'Credential'.");
-    }, false);
-    define_operation(in.interpreter, *container, "preventSilentAccess", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    });
+    define_promise_operation(in.interpreter, *container, "preventSilentAccess", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return resolved_promise(interp, js::Value::undefined());
     });
     define_same_object(in, navigator, "credentials", "CredentialsContainer");
@@ -795,7 +795,7 @@ void install_navigator_operations(Realm::Internals& in, js::Object& navigator)
             return interp.throw_type_error("Failed to execute 'canShare' on 'Navigator': parameter 1 is not of type 'ShareData'.");
         return js::Value::boolean(false);
     });
-    define_operation(interpreter, navigator, "share", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_promise_operation(interpreter, navigator, "share", 0, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Value const data = js::argument(args, 0);
         if (!data.is_undefined() && !data.is_object())
@@ -807,12 +807,12 @@ void install_navigator_operations(Realm::Internals& in, js::Object& navigator)
     // Badging: nothing shows a badge, and the standard lets a user agent
     // take the ask and show none.
     for (std::string_view const name : { "setAppBadge", "clearAppBadge" }) {
-        define_operation(interpreter, navigator, name, 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        define_promise_operation(interpreter, navigator, name, 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
             return resolved_promise(interp, js::Value::undefined());
         });
     }
     // Encrypted Media: no key system is known (§3.1.1 step 6).
-    define_operation(interpreter, navigator, "requestMediaKeySystemAccess", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_promise_operation(interpreter, navigator, "requestMediaKeySystemAccess", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const key_system = internals.to_utf8(js::argument(args, 0));
         if (!key_system)
@@ -828,7 +828,7 @@ void install_navigator_operations(Realm::Internals& in, js::Object& navigator)
         if (list->empty())
             return reject_type_error(internals, "Failed to execute 'requestMediaKeySystemAccess' on 'Navigator': The supportedConfigurations parameter is empty.");
         return reject_with(internals, "NotSupportedError", "Unsupported keySystem or supportedConfigurations.");
-    }, false);
+    });
 }
 
 } // namespace

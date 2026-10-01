@@ -95,3 +95,9 @@ gamepad
 # sinks to refuse a string under require-trusted-types-for say so by failing
 # until the enforcement is written.
 trusted-types
+
+# Added 2026-10-01 with User Timing: marks and measures, the entry buffer
+# they go into, and the clock they are stamped with.
+user-timing
+performance-timeline
+hr-time

@@ -319,16 +319,20 @@ std::vector<dom::Node*> form_controls(Realm::Internals& in, dom::Element& form)
 
 } // namespace
 
-// --- The interfaces ---------------------------------------------------------------------
+// --- HTMLOrSVGElement -------------------------------------------------------------------
 
-void install_html_elements(Realm::Internals& in, js::Object& html_element)
+// The mixin HTMLElement, SVGElement and MathMLElement include (HTML §3.2.7):
+// members of its own on each prototype. HTMLElement's nonce and autofocus
+// come from the IDL's generated reflections; the other two take them here.
+void install_html_or_svg_element(Realm::Internals& in, js::Object& proto, bool with_reflected)
 {
-    js::Interpreter& interpreter = in.interpreter;
-    js::Heap::NoCollect const guard(interpreter.heap());
-
-    // HTMLElement.
+    js::Heap::NoCollect const guard(in.interpreter.heap());
+    if (with_reflected) {
+        reflect_string(in, proto, "nonce", "nonce");
+        reflect_boolean(in, proto, "autofocus", "autofocus");
+    }
     element_accessor(
-        in, html_element, "tabIndex",
+        in, proto, "tabIndex",
         [](Realm::Internals&, dom::Element& e) -> Native {
             if (dom::Attr const* attribute = e.find_attribute("tabindex")) {
                 char* end = nullptr;
@@ -349,6 +353,27 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             set_attribute(internals, e, "tabindex", js::number_to_utf8(js::Interpreter::to_integer_or_infinity(*number)));
             return js::Value::undefined();
         });
+    element_getter(in, proto, "dataset", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_dataset(internals, e); });
+    element_method(in, proto, "focus", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+        move_focus(internals, &e);
+        return js::Value::undefined();
+    });
+    element_method(in, proto, "blur", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+        if (focused_element(internals) == &e)
+            move_focus(internals, nullptr);
+        return js::Value::undefined();
+    });
+}
+
+// --- The interfaces ---------------------------------------------------------------------
+
+void install_html_elements(Realm::Internals& in, js::Object& html_element)
+{
+    js::Interpreter& interpreter = in.interpreter;
+    js::Heap::NoCollect const guard(interpreter.heap());
+
+    // HTMLElement.
+    install_html_or_svg_element(in, html_element, false);
     element_accessor(
         in, html_element, "contentEditable",
         [](Realm::Internals& internals, dom::Element& e) -> Native {
@@ -396,7 +421,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             return js::Value::undefined();
         });
     element_forwarding_getter(in, html_element, "style", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_style_declaration(internals, &e, false); }, "cssText");
-    element_getter(in, html_element, "dataset", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_dataset(internals, e); });
     element_getter(in, html_element, "offsetParent", [](Realm::Internals& internals, dom::Element& e) -> Native {
         if (e.is_html("body") || e.is_html("html"))
             return js::Value::null();
@@ -438,15 +462,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             return js::Value::undefined();
         Realm::MouseInit init;
         internals.realm.dispatch_mouse_event(e, "click", init);
-        return js::Value::undefined();
-    });
-    element_method(in, html_element, "focus", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
-        move_focus(internals, &e);
-        return js::Value::undefined();
-    });
-    element_method(in, html_element, "blur", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
-        if (focused_element(internals) == &e)
-            move_focus(internals, nullptr);
         return js::Value::undefined();
     });
     for (std::string_view const name : { "showPopover", "hidePopover", "togglePopover" })
@@ -583,7 +598,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             return js::Value::number(box ? std::round(static_cast<double>(box->y)) : 0);
         });
         // decode(): settled by whether the host has the picture decoded.
-        element_method(in, proto, "decode", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+        element_promise_method(in, proto, "decode", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
             if (internals.hooks.image_size && internals.hooks.image_size(e))
                 return resolved_promise(internals.interpreter, js::Value::undefined());
             return rejected_promise(internals.interpreter, dom_exception_value(internals, "EncodingError", "The source image cannot be decoded."));

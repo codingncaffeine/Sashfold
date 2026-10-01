@@ -1355,6 +1355,15 @@ void install_reflected_attributes(Realm::Internals&);
 // Installers, one per file.
 void install_events(Realm::Internals&); // Events.cpp
 void install_nodes(Realm::Internals&); // Node.cpp
+// The mixins an interface includes get members of their own on each
+// prototype (WebIDL §2.11): a member answers for its own interface's
+// objects, so one native cannot be put on two prototypes. ParentNode (DOM
+// §4.2.6) for Element, Document and DocumentFragment, the collections by
+// name for the first two; HTMLOrSVGElement (HTML §3.2.7) for HTMLElement,
+// SVGElement and MathMLElement, nonce and autofocus by hand where the IDL's
+// generated reflections do not reach.
+void install_parent_node(Realm::Internals&, js::Object& prototype, bool with_collections_by_name); // Node.cpp
+void install_html_or_svg_element(Realm::Internals&, js::Object& prototype, bool with_reflected); // HtmlElements.cpp
 void install_style(Realm::Internals&); // Style.cpp
 void install_window(Realm::Internals&); // Window.cpp
 void install_binary(Realm::Internals&); // Binary.cpp: TextEncoder, TextDecoder, Blob, File
@@ -1553,17 +1562,29 @@ js::Object* define_interface_with(Realm::Internals&, std::string_view name, js::
 // An accessor pair on a prototype: an IDL attribute, enumerable and
 // configurable as WebIDL §3.7.6 has it, so that `for (k in element)`
 // lists it the way it does in a browser.
+// How a member on an interface's prototype answers a receiver that does not
+// implement the interface (WebIDL §3.7.6, §3.7.7): a TypeError "Illegal
+// invocation"; a promise rejected with that error, for a member whose type
+// is a Promise (every exception of such a member is a rejection, the count
+// of its arguments included); or nothing at all — undefined read, a write
+// ignored — for an attribute marked [LegacyLenientThis].
+enum class MemberKind : std::uint8_t { Plain, ReturnsPromise, LenientThis };
 void define_getter(Realm::Internals&, js::Object& prototype, std::string_view name, js::NativeFunction::Callback getter,
-    js::NativeFunction::Callback setter = {});
+    js::NativeFunction::Callback setter = {}, MemberKind kind = MemberKind::Plain);
 // The same pair from an interpreter alone.
 void define_attribute(js::Interpreter&, js::Object& target, std::string_view name, js::NativeFunction::Callback getter,
-    js::NativeFunction::Callback setter = {});
+    js::NativeFunction::Callback setter = {}, MemberKind kind = MemberKind::Plain);
+// A read-only attribute of Promise type.
+void define_promise_getter(Realm::Internals&, js::Object& prototype, std::string_view name, js::NativeFunction::Callback getter);
 // An IDL operation: a native method that is writable, enumerable and
 // configurable (WebIDL §3.7.7), unlike the language's own built-ins, and
 // that throws a TypeError when it is called with fewer arguments than
 // `length`, which is how many it requires. (`count_arguments` false for a
 // caller that counts them itself, after it has looked at `this`.)
 js::NativeFunction* define_operation(js::Interpreter&, js::Object& target, std::string_view name, int length,
+    js::NativeFunction::Callback, bool count_arguments = true, MemberKind kind = MemberKind::Plain);
+// An operation of Promise type.
+js::NativeFunction* define_promise_operation(js::Interpreter&, js::Object& target, std::string_view name, int length,
     js::NativeFunction::Callback, bool count_arguments = true);
 // That TypeError: "Failed to execute 'name' on 'Interface': 2 arguments
 // required, but only 1 present."

@@ -933,7 +933,7 @@ void install_body_mixin(Realm::Internals& in, js::Object& prototype)
              std::pair { "bytes", Consume::Bytes }, std::pair { "formData", Consume::FormData }, std::pair { "json", Consume::Json },
              std::pair { "text", Consume::Text } }) {
         Consume const which = kind;
-        define_operation(interpreter, prototype, name, 0, [which](js::Interpreter& interp, js::Value const& this_value, Args) {
+        define_promise_operation(interpreter, prototype, name, 0, [which](js::Interpreter& interp, js::Value const& this_value, Args) {
             return consume_body(interp, this_value, which);
         });
     }

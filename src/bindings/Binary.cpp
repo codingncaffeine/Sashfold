@@ -634,7 +634,7 @@ void install_blob(Realm::Internals& in)
         piece->type = type;
         return js::Value::object(piece);
     });
-    define_operation(interpreter, *blob, "text", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_promise_operation(interpreter, *blob, "text", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         // text(): the bytes as UTF-8, errors replaced, through a promise.
         std::optional<BlobObject*> const found = this_blob(interp, this_value);
         if (!found)
@@ -645,7 +645,7 @@ void install_blob(Realm::Internals& in)
             js::append_code_point(text, code_point);
         return resolved_promise(interp,js::Value::string(interp.string(text)));
     });
-    define_operation(interpreter, *blob, "arrayBuffer", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_promise_operation(interpreter, *blob, "arrayBuffer", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<BlobObject*> const found = this_blob(interp, this_value);
         if (!found)
             return std::nullopt;
@@ -656,7 +656,7 @@ void install_blob(Realm::Internals& in)
             std::memcpy((*buffer)->data(), (*found)->bytes.data(), (*found)->bytes.size());
         return resolved_promise(interp,js::Value::object(*buffer));
     });
-    define_operation(interpreter, *blob, "bytes", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_promise_operation(interpreter, *blob, "bytes", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<BlobObject*> const found = this_blob(interp, this_value);
         if (!found)
             return std::nullopt;

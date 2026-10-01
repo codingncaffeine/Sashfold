@@ -501,7 +501,7 @@ void install_custom_elements(Realm::Internals& in)
     });
     // whenDefined(): settled as the definition arrives, and at once for one
     // already made.
-    define_operation(interpreter, *registry, "whenDefined", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+    define_promise_operation(interpreter, *registry, "whenDefined", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)

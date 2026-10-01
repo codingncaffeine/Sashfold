@@ -1002,6 +1002,8 @@ IndexedDB/idlharness.any.html	IDBFactory interface: existence and properties of 
 IndexedDB/idlharness.any.html	IDBFactory interface: existence and properties of interface prototype object
 IndexedDB/idlharness.any.html	IDBFactory interface: existence and properties of interface prototype object's "constructor" property
 IndexedDB/idlharness.any.html	IDBFactory interface: existence and properties of interface prototype object's @@unscopables property
+IndexedDB/idlharness.any.html	IDBFactory interface: operation cmp(any, any)
+IndexedDB/idlharness.any.html	IDBFactory interface: operation databases()
 IndexedDB/idlharness.any.html	IDBFactory interface: operation deleteDatabase(DOMString)
 IndexedDB/idlharness.any.html	IDBFactory interface: operation open(DOMString, optional unsigned long long)
 IndexedDB/idlharness.any.html	IDBFactory must be primary interface of [object IDBFactory]
@@ -1582,6 +1584,8 @@ badging/idlharness.https.any.html	Navigator includes NavigatorPlugins: member na
 badging/idlharness.https.any.html	Navigator interface: calling setAppBadge(optional unsigned long long) on navigator with too few arguments must throw TypeError
 badging/idlharness.https.any.html	Navigator interface: navigator must inherit property "clearAppBadge()" with the proper type
 badging/idlharness.https.any.html	Navigator interface: navigator must inherit property "setAppBadge(optional unsigned long long)" with the proper type
+badging/idlharness.https.any.html	Navigator interface: operation clearAppBadge()
+badging/idlharness.https.any.html	Navigator interface: operation setAppBadge(optional unsigned long long)
 badging/idlharness.https.any.html	Partial interface Navigator: member names are unique
 badging/idlharness.https.any.html	Partial interface mixin NavigatorID: member names are unique
 badging/idlharness.https.any.html	WorkerNavigator includes NavigatorBadge: member names are unique
@@ -1613,6 +1617,7 @@ credential-management/idlharness.https.window.html	CredentialsContainer interfac
 credential-management/idlharness.https.window.html	CredentialsContainer interface: navigator.credentials must inherit property "store(Credential)" with the proper type
 credential-management/idlharness.https.window.html	CredentialsContainer interface: operation create(optional CredentialCreationOptions)
 credential-management/idlharness.https.window.html	CredentialsContainer interface: operation get(optional CredentialRequestOptions)
+credential-management/idlharness.https.window.html	CredentialsContainer interface: operation preventSilentAccess()
 credential-management/idlharness.https.window.html	CredentialsContainer interface: operation store(Credential)
 credential-management/idlharness.https.window.html	CredentialsContainer must be primary interface of navigator.credentials
 credential-management/idlharness.https.window.html	Element includes ChildNode: member names are unique
@@ -1630,6 +1635,7 @@ credential-management/idlharness.https.window.html	Navigator includes NavigatorI
 credential-management/idlharness.https.window.html	Navigator includes NavigatorLanguage: member names are unique
 credential-management/idlharness.https.window.html	Navigator includes NavigatorOnLine: member names are unique
 credential-management/idlharness.https.window.html	Navigator includes NavigatorPlugins: member names are unique
+credential-management/idlharness.https.window.html	Navigator interface: attribute credentials
 credential-management/idlharness.https.window.html	Partial dictionary CredentialCreationOptions: member names are unique
 credential-management/idlharness.https.window.html	Partial dictionary CredentialCreationOptions: original dictionary defined
 credential-management/idlharness.https.window.html	Partial dictionary CredentialCreationOptions[2]: member names are unique
@@ -5070,6 +5076,7 @@ css/cssom/idlharness.html	CSSStyleDeclaration interface object length
 css/cssom/idlharness.html	CSSStyleDeclaration interface object name
 css/cssom/idlharness.html	CSSStyleDeclaration interface: attribute cssText
 css/cssom/idlharness.html	CSSStyleDeclaration interface: attribute length
+css/cssom/idlharness.html	CSSStyleDeclaration interface: attribute parentRule
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyPriority(CSSOMString) on getComputedStyle(svg_element) with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyPriority(CSSOMString) on style_element.style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyPriority(CSSOMString) on svg_element.style with too few arguments must throw TypeError
@@ -8674,10 +8681,12 @@ dom/events/scrolling/scrollend-event-for-user-scroll.html	Tests that the target_
 dom/events/scrolling/scrollend-event-for-user-scroll.html	Tests that the target_div gets scrollend event when dragging the scrollbar thumb.
 dom/events/window-composed-path.html	window target has an empty path after dispatch
 dom/events/window-event-restored-after-throwing-onerror.html	window.event is restored after a throwing window.onerror handler
+dom/lists/DOMTokenList-Iterable.html	DOMTokenList has Symbol.iterator.
 dom/lists/DOMTokenList-Iterable.html	DOMTokenList has entries method.
 dom/lists/DOMTokenList-Iterable.html	DOMTokenList has forEach method.
 dom/lists/DOMTokenList-Iterable.html	DOMTokenList has length method.
 dom/lists/DOMTokenList-Iterable.html	DOMTokenList has values method.
+dom/lists/DOMTokenList-Iterable.html	DOMTokenList is iterable via for-of loop.
 dom/lists/DOMTokenList-coverage-for-attributes.html	a.classList in  namespace should be DOMTokenList.
 dom/lists/DOMTokenList-coverage-for-attributes.html	a.classList in http://example.com/ namespace should be DOMTokenList.
 dom/lists/DOMTokenList-coverage-for-attributes.html	a.classList in http://www.w3.org/1998/Math/MathML namespace should be DOMTokenList.
@@ -8850,7 +8859,12 @@ dom/lists/DOMTokenList-coverage-for-attributes.html	th.sizes in http://example.c
 dom/lists/DOMTokenList-coverage-for-attributes.html	th.sizes in http://www.w3.org/1998/Math/MathML namespace should be undefined.
 dom/lists/DOMTokenList-coverage-for-attributes.html	th.sizes in http://www.w3.org/1999/xhtml namespace should be undefined.
 dom/lists/DOMTokenList-coverage-for-attributes.html	th.sizes in http://www.w3.org/2000/svg namespace should be undefined.
+dom/lists/DOMTokenList-iteration.html	classList
+dom/lists/DOMTokenList-iteration.html	classList inheritance from Array.prototype
+dom/lists/DOMTokenList-iteration.html	classList.entries
 dom/lists/DOMTokenList-iteration.html	classList.forEach
+dom/lists/DOMTokenList-iteration.html	classList.keys
+dom/lists/DOMTokenList-iteration.html	classList.values
 dom/lists/DOMTokenList-stringifier.html	DOMTokenList stringifier
 dom/lists/DOMTokenList-value.html	DOMTokenList value
 dom/nodes/CharacterData-appendChild.html	Comment.appendChild(Comment)
@@ -65363,6 +65377,7 @@ gamepad/idlharness.window.html	Navigator includes NavigatorLanguage: member name
 gamepad/idlharness.window.html	Navigator includes NavigatorOnLine: member names are unique
 gamepad/idlharness.window.html	Navigator includes NavigatorPlugins: member names are unique
 gamepad/idlharness.window.html	Navigator interface: navigator must inherit property "getGamepads()" with the proper type
+gamepad/idlharness.window.html	Navigator interface: operation getGamepads()
 gamepad/idlharness.window.html	Partial interface Element: member names are unique
 gamepad/idlharness.window.html	Partial interface HTMLBodyElement: member names are unique
 gamepad/idlharness.window.html	Partial interface Navigator: member names are unique
@@ -65408,6 +65423,7 @@ geolocation/idlharness.https.window.html	Geolocation interface: existence and pr
 geolocation/idlharness.https.window.html	Geolocation interface: navigator.geolocation must inherit property "clearWatch(long)" with the proper type
 geolocation/idlharness.https.window.html	Geolocation interface: navigator.geolocation must inherit property "getCurrentPosition(PositionCallback, optional PositionErrorCallback?, optional PositionOptions)" with the proper type
 geolocation/idlharness.https.window.html	Geolocation interface: navigator.geolocation must inherit property "watchPosition(PositionCallback, optional PositionErrorCallback?, optional PositionOptions)" with the proper type
+geolocation/idlharness.https.window.html	Geolocation interface: operation clearWatch(long)
 geolocation/idlharness.https.window.html	Geolocation interface: operation getCurrentPosition(PositionCallback, optional PositionErrorCallback?, optional PositionOptions)
 geolocation/idlharness.https.window.html	Geolocation interface: operation watchPosition(PositionCallback, optional PositionErrorCallback?, optional PositionOptions)
 geolocation/idlharness.https.window.html	Geolocation must be primary interface of navigator.geolocation
@@ -65425,6 +65441,8 @@ geolocation/idlharness.https.window.html	GeolocationPosition interface: existenc
 geolocation/idlharness.https.window.html	GeolocationPosition interface: existence and properties of interface prototype object's @@unscopables property
 geolocation/idlharness.https.window.html	GeolocationPositionError interface object length
 geolocation/idlharness.https.window.html	GeolocationPositionError interface object name
+geolocation/idlharness.https.window.html	GeolocationPositionError interface: attribute code
+geolocation/idlharness.https.window.html	GeolocationPositionError interface: attribute message
 geolocation/idlharness.https.window.html	GeolocationPositionError interface: constant PERMISSION_DENIED on interface object
 geolocation/idlharness.https.window.html	GeolocationPositionError interface: constant PERMISSION_DENIED on interface prototype object
 geolocation/idlharness.https.window.html	GeolocationPositionError interface: constant POSITION_UNAVAILABLE on interface object
@@ -65442,6 +65460,7 @@ geolocation/idlharness.https.window.html	Navigator includes NavigatorID: member 
 geolocation/idlharness.https.window.html	Navigator includes NavigatorLanguage: member names are unique
 geolocation/idlharness.https.window.html	Navigator includes NavigatorOnLine: member names are unique
 geolocation/idlharness.https.window.html	Navigator includes NavigatorPlugins: member names are unique
+geolocation/idlharness.https.window.html	Navigator interface: attribute geolocation
 geolocation/idlharness.https.window.html	Partial interface Navigator: member names are unique
 geolocation/idlharness.https.window.html	Partial interface Navigator: original interface defined
 geolocation/idlharness.https.window.html	Partial interface Navigator[2]: member names are unique
@@ -65461,6 +65480,42 @@ geolocation/watchPosition_TypeError.https.html	Call watchPosition() with wrong t
 geolocation/watchPosition_TypeError.https.html	Call watchPosition() with wrong type for second argument. Exception expected.
 geolocation/watchPosition_TypeError.https.html	Call watchPosition() with wrong type for third argument. Exception expected.
 geolocation/watchPosition_TypeError.https.html	Calling watchPosition() with a legacy event handler object.
+hr-time/basic.any.html	Performance interface extends EventTarget.
+hr-time/basic.any.html	self.performance.now() difference is not negative
+hr-time/basic.any.html	self.performance.now() is a function that returns a number
+hr-time/idlharness.any.html	Partial interface Window: member names are unique
+hr-time/idlharness.any.html	Partial interface mixin WindowOrWorkerGlobalScope: member names are unique
+hr-time/idlharness.any.html	Partial interface mixin WindowOrWorkerGlobalScope: original interface mixin defined
+hr-time/idlharness.any.html	Performance interface object length
+hr-time/idlharness.any.html	Performance interface object name
+hr-time/idlharness.any.html	Performance interface: attribute timeOrigin
+hr-time/idlharness.any.html	Performance interface: existence and properties of interface prototype object
+hr-time/idlharness.any.html	Performance interface: existence and properties of interface prototype object's "constructor" property
+hr-time/idlharness.any.html	Performance interface: existence and properties of interface prototype object's @@unscopables property
+hr-time/idlharness.any.html	Performance interface: operation now()
+hr-time/idlharness.any.html	Performance interface: operation toJSON()
+hr-time/idlharness.any.html	Performance interface: performance must inherit property "now()" with the proper type
+hr-time/idlharness.any.html	Performance interface: performance must inherit property "timeOrigin" with the proper type
+hr-time/idlharness.any.html	Performance interface: performance must inherit property "toJSON()" with the proper type
+hr-time/idlharness.any.html	Performance must be primary interface of performance
+hr-time/idlharness.any.html	Stringification of performance
+hr-time/idlharness.any.html	Window includes AnimationFrameProvider: member names are unique
+hr-time/idlharness.any.html	Window includes GlobalEventHandlers: member names are unique
+hr-time/idlharness.any.html	Window includes WindowEventHandlers: member names are unique
+hr-time/idlharness.any.html	Window includes WindowLocalStorage: member names are unique
+hr-time/idlharness.any.html	Window includes WindowOrWorkerGlobalScope: member names are unique
+hr-time/idlharness.any.html	Window includes WindowSessionStorage: member names are unique
+hr-time/idlharness.any.html	Window interface: attribute performance
+hr-time/idlharness.any.html	Window interface: self must inherit property "performance" with the proper type
+hr-time/idlharness.any.html	WorkerGlobalScope includes WindowOrWorkerGlobalScope: member names are unique
+hr-time/idlharness.any.html	idl_test setup
+hr-time/idlharness.any.html	idl_test validation
+hr-time/monotonic-clock.any.html	self.performance.now() difference is not negative
+hr-time/raf-coarsened-time.https.html	raf-coarsened-time
+hr-time/test_cross_frame_start.html	Setup the frame
+hr-time/test_cross_frame_start.html	parent performance.now() > 0
+hr-time/timeOrigin.html	Window and worker timeOrigins are close when created one after another.
+hr-time/timeOrigin.html	Window and worker timeOrigins differ when worker is created after a delay.
 html/browsers/origin/api/file-scheme-origin.tentative.any.html	`Origin.from('file://')` opaque origins.
 html/browsers/origin/api/origin-comparison.any.html	Comparison of `Origin.from(<url-string>)` opaque origins.
 html/browsers/origin/api/origin-comparison.any.html	Comparison of `new Origin()` opaque origins.
@@ -69291,14 +69346,17 @@ html/dom/historical.html	document.all cannot find applet
 html/dom/historical.html	window cannot find applet
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	AudioTrackList interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	AudioTrackList interface object name
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	AudioTrackList interface: attribute length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	AudioTrackList interface: attribute onaddtrack
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	AudioTrackList interface: attribute onchange
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	AudioTrackList interface: attribute onremovetrack
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	AudioTrackList interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	AudioTrackList interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	AudioTrackList interface: existence and properties of interface prototype object's @@unscopables property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	AudioTrackList interface: operation getTrackById(DOMString)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	BarProp interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	BarProp interface object name
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	BarProp interface: attribute visible
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	BarProp interface: existence and properties of interface object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	BarProp interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	BarProp interface: existence and properties of interface prototype object's "constructor" property
@@ -69561,6 +69619,9 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	CustomElementReg
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	CustomElementRegistry interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	CustomElementRegistry interface: existence and properties of interface prototype object's @@unscopables property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	CustomElementRegistry interface: operation define(DOMString, CustomElementConstructor, optional ElementDefinitionOptions)
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	CustomElementRegistry interface: operation get(DOMString)
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	CustomElementRegistry interface: operation getName(CustomElementConstructor)
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	CustomElementRegistry interface: operation upgrade(Node)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	CustomElementRegistry interface: operation whenDefined(DOMString)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	DOMParser interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	DOMParser interface object name
@@ -69570,6 +69631,7 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	DOMParser interf
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	DOMParser interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	DOMParser interface: existence and properties of interface prototype object's @@unscopables property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	DOMParser interface: new DOMParser() must inherit property "parseFromString((TrustedHTML or DOMString), DOMParserSupportedType)" with the proper type
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	DOMParser interface: operation parseFromString((TrustedHTML or DOMString), DOMParserSupportedType)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	DOMParser must be primary interface of new DOMParser()
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	DOMStringList interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	DOMStringList interface object name
@@ -69632,6 +69694,8 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	External interfa
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	External interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	External interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	External interface: existence and properties of interface prototype object's @@unscopables property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	External interface: operation AddSearchProvider()
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	External interface: operation IsSearchProviderInstalled()
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	External interface: window.external must inherit property "AddSearchProvider()" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	External interface: window.external must inherit property "IsSearchProviderInstalled()" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	External must be primary interface of window.external
@@ -69642,6 +69706,9 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	HashChangeEvent 
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	HashChangeEvent interface: existence and properties of interface prototype object's @@unscopables property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface object name
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: attribute length
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: attribute scrollRestoration
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: attribute state
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: calling go(optional long) on window.history with too few arguments must throw TypeError
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: calling pushState(any, DOMString, optional USVString?) on window.history with too few arguments must throw TypeError
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: calling replaceState(any, DOMString, optional USVString?) on window.history with too few arguments must throw TypeError
@@ -69649,6 +69716,11 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interfac
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: existence and properties of interface prototype object's @@unscopables property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: operation back()
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: operation forward()
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: operation go(optional long)
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: operation pushState(any, DOMString, optional USVString?)
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: operation replaceState(any, DOMString, optional USVString?)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: window.history must inherit property "back()" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: window.history must inherit property "forward()" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	History interface: window.history must inherit property "go(optional long)" with the proper type
@@ -69747,11 +69819,32 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator includ
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator includes NavigatorPlugins: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface object name
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute appCodeName
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute appName
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute appVersion
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute cookieEnabled
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute hardwareConcurrency
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute language
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute languages
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute mimeTypes
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute onLine
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute oscpu
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute pdfViewerEnabled
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute platform
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute plugins
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute product
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute productSub
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute userActivation
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute userAgent
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute vendor
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: attribute vendorSub
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: calling registerProtocolHandler(DOMString, USVString) on window.navigator with too few arguments must throw TypeError
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: existence and properties of interface object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: existence and properties of interface prototype object's @@unscopables property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: operation javaEnabled()
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: operation registerProtocolHandler(DOMString, USVString)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: window.navigator must inherit property "appCodeName" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: window.navigator must inherit property "appName" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Navigator interface: window.navigator must inherit property "appVersion" with the proper type
@@ -69905,6 +69998,8 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement inter
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onloadedmetadata
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onloadstart
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onmousedown
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onmouseenter
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onmouseleave
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onmousemove
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onmouseout
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onmouseover
@@ -70016,6 +70111,7 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextMetrics inte
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextMetrics interface: existence and properties of interface prototype object's @@unscopables property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface object name
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface: attribute length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface: attribute onaddtrack
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface: attribute onchange
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface: attribute onremovetrack
@@ -70028,6 +70124,7 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList in
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface: existence and properties of interface prototype object's @@unscopables property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface: operation getTrackById(DOMString)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList must be primary interface of document.createElement("video").textTracks
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TimeRanges interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TimeRanges interface object name
@@ -70056,18 +70153,22 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ToggleEvent inte
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ToggleEvent must be primary interface of new ToggleEvent("beforetoggle")
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface object name
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface: attribute hasBeenActive
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface: attribute isActive
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface: existence and properties of interface object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	UserActivation interface: existence and properties of interface prototype object's @@unscopables property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface object name
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface: attribute length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface: attribute onaddtrack
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface: attribute onchange
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface: attribute onremovetrack
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface: existence and properties of interface prototype object's @@unscopables property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	VideoTrackList interface: operation getTrackById(DOMString)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Window includes AnimationFrameProvider: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Window includes GlobalEventHandlers: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Window includes WindowEventHandlers: member names are unique
@@ -70112,6 +70213,7 @@ html/dom/idlharness.https.html?include=(Document|Window)	Document interface: att
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute images
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute lastModified
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute links
+html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute onreadystatechange
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute onvisibilitychange
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute plugins
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute readyState
@@ -70724,6 +70826,8 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLElement interface: attribute o
 html/dom/idlharness.https.html?include=HTML.+	HTMLElement interface: attribute onloadedmetadata
 html/dom/idlharness.https.html?include=HTML.+	HTMLElement interface: attribute onloadstart
 html/dom/idlharness.https.html?include=HTML.+	HTMLElement interface: attribute onmousedown
+html/dom/idlharness.https.html?include=HTML.+	HTMLElement interface: attribute onmouseenter
+html/dom/idlharness.https.html?include=HTML.+	HTMLElement interface: attribute onmouseleave
 html/dom/idlharness.https.html?include=HTML.+	HTMLElement interface: attribute onmousemove
 html/dom/idlharness.https.html?include=HTML.+	HTMLElement interface: attribute onmouseout
 html/dom/idlharness.https.html?include=HTML.+	HTMLElement interface: attribute onmouseover
@@ -71206,6 +71310,7 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLImageElement interface: new Im
 html/dom/idlharness.https.html?include=HTML.+	HTMLImageElement interface: new Image() must inherit property "useMap" with the proper type
 html/dom/idlharness.https.html?include=HTML.+	HTMLImageElement interface: new Image() must inherit property "vspace" with the proper type
 html/dom/idlharness.https.html?include=HTML.+	HTMLImageElement interface: new Image() must inherit property "width" with the proper type
+html/dom/idlharness.https.html?include=HTML.+	HTMLImageElement interface: operation decode()
 html/dom/idlharness.https.html?include=HTML.+	HTMLImageElement must be primary interface of document.createElement("img")
 html/dom/idlharness.https.html?include=HTML.+	HTMLImageElement must be primary interface of new Image()
 html/dom/idlharness.https.html?include=HTML.+	HTMLInputElement includes PopoverTargetAttributes: member names are unique
@@ -72934,6 +73039,7 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLMediaElement interface: new Au
 html/dom/idlharness.https.html?include=HTML.+	HTMLMediaElement interface: operation canPlayType(DOMString)
 html/dom/idlharness.https.html?include=HTML.+	HTMLMediaElement interface: operation load()
 html/dom/idlharness.https.html?include=HTML.+	HTMLMediaElement interface: operation pause()
+html/dom/idlharness.https.html?include=HTML.+	HTMLMediaElement interface: operation play()
 html/dom/idlharness.https.html?include=HTML.+	HTMLMenuElement interface object length
 html/dom/idlharness.https.html?include=HTML.+	HTMLMenuElement interface object name
 html/dom/idlharness.https.html?include=HTML.+	HTMLMenuElement interface: attribute compact
@@ -135951,6 +136057,7 @@ media-capabilities/idlharness.any.html	Navigator includes NavigatorID: member na
 media-capabilities/idlharness.any.html	Navigator includes NavigatorLanguage: member names are unique
 media-capabilities/idlharness.any.html	Navigator includes NavigatorOnLine: member names are unique
 media-capabilities/idlharness.any.html	Navigator includes NavigatorPlugins: member names are unique
+media-capabilities/idlharness.any.html	Navigator interface: attribute mediaCapabilities
 media-capabilities/idlharness.any.html	Navigator interface: navigator must inherit property "mediaCapabilities" with the proper type
 media-capabilities/idlharness.any.html	Partial interface Navigator: member names are unique
 media-capabilities/idlharness.any.html	Partial interface Navigator: original interface defined
@@ -136168,6 +136275,7 @@ mediacapture-streams/idlharness.https.window.html	MediaDevices interface: naviga
 mediacapture-streams/idlharness.https.window.html	MediaDevices interface: navigator.mediaDevices must inherit property "getSupportedConstraints()" with the proper type
 mediacapture-streams/idlharness.https.window.html	MediaDevices interface: navigator.mediaDevices must inherit property "getUserMedia(optional MediaStreamConstraints)" with the proper type
 mediacapture-streams/idlharness.https.window.html	MediaDevices interface: navigator.mediaDevices must inherit property "ondevicechange" with the proper type
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface: operation getSupportedConstraints()
 mediacapture-streams/idlharness.https.window.html	MediaDevices interface: operation getUserMedia(optional MediaStreamConstraints)
 mediacapture-streams/idlharness.https.window.html	MediaDevices must be primary interface of navigator.mediaDevices
 mediacapture-streams/idlharness.https.window.html	Navigator includes NavigatorConcurrentHardware: member names are unique
@@ -136177,6 +136285,7 @@ mediacapture-streams/idlharness.https.window.html	Navigator includes NavigatorID
 mediacapture-streams/idlharness.https.window.html	Navigator includes NavigatorLanguage: member names are unique
 mediacapture-streams/idlharness.https.window.html	Navigator includes NavigatorOnLine: member names are unique
 mediacapture-streams/idlharness.https.window.html	Navigator includes NavigatorPlugins: member names are unique
+mediacapture-streams/idlharness.https.window.html	Navigator interface: attribute mediaDevices
 mediacapture-streams/idlharness.https.window.html	Navigator interface: navigator must inherit property "mediaDevices" with the proper type
 mediacapture-streams/idlharness.https.window.html	Partial interface MediaDevices: member names are unique
 mediacapture-streams/idlharness.https.window.html	Partial interface MediaDevices: original interface defined
@@ -136227,6 +136336,7 @@ mediasession/idlharness.window.html	Navigator includes NavigatorID: member names
 mediasession/idlharness.window.html	Navigator includes NavigatorLanguage: member names are unique
 mediasession/idlharness.window.html	Navigator includes NavigatorOnLine: member names are unique
 mediasession/idlharness.window.html	Navigator includes NavigatorPlugins: member names are unique
+mediasession/idlharness.window.html	Navigator interface: attribute mediaSession
 mediasession/idlharness.window.html	Navigator interface: navigator must inherit property "mediaSession" with the proper type
 mediasession/idlharness.window.html	Partial interface Navigator: member names are unique
 mediasession/idlharness.window.html	Partial interface Navigator: original interface defined
@@ -136281,6 +136391,21 @@ mediasession/setactionhandler.html	Test that setActionHandler("togglemicrophone"
 mediasession/setactionhandler.html	Test that setActionHandler("togglescreenshare") succeeds
 mediasession/setactionhandler.html	Test that setActionHandler("voiceactivity") succeeds
 mediasession/setactionhandler.html	Test that setActionHandler() throws exception for unsupported actions
+performance-timeline/buffered-flag-with-entryTypes-observer.tentative.any.html	PerformanceObserver without buffered flag set to false cannot see past entries.
+performance-timeline/case-sensitivity.any.html	observe() and case sensitivity for types/entryTypes and buffered.
+performance-timeline/idlharness.any.html	idl_test validation
+performance-timeline/navigation-id-detached-frame.tentative.html	The navigation_id getter does not crash a window of detached frame
+performance-timeline/observer-buffered-false.any.html	PerformanceObserver without buffered flag set to false cannot see past entries.
+performance-timeline/performanceentry-tojson.any.html	Test toJSON() in PerformanceEntry
+performance-timeline/po-disconnect.any.html	An observer disconnected after a mark must not have its callback invoked
+performance-timeline/po-disconnect.any.html	disconnected callbacks must not be invoked
+performance-timeline/po-disconnect.any.html	disconnecting an unconnected observer is a no-op
+performance-timeline/po-observe-type.any.html	Passing in unknown values to type does throw an exception.
+performance-timeline/po-observe.any.html	Empty sequence entryTypes does not throw an exception.
+performance-timeline/po-observe.any.html	Filter unsupported entryType entryType names within the entryTypes sequence
+performance-timeline/po-observe.any.html	Unknown entryTypes do not throw an exception.
+performance-timeline/supportedEntryTypes-cross-realm-access.html	Cross-realm access of supportedEntryTypes returns Array of another realm
+performance-timeline/timing-removed-iframe.html	Test that a removed iframe which timing is accessed does not crash the renderer.
 permissions/all-permissions.html	Query "accelerometer" permission
 permissions/all-permissions.html	Query "ambient-light-sensor" permission
 permissions/all-permissions.html	Query "background-fetch" permission
@@ -136307,6 +136432,7 @@ permissions/idlharness.any.html	Navigator includes NavigatorID: member names are
 permissions/idlharness.any.html	Navigator includes NavigatorLanguage: member names are unique
 permissions/idlharness.any.html	Navigator includes NavigatorOnLine: member names are unique
 permissions/idlharness.any.html	Navigator includes NavigatorPlugins: member names are unique
+permissions/idlharness.any.html	Navigator interface: attribute permissions
 permissions/idlharness.any.html	Navigator interface: navigator must inherit property "permissions" with the proper type
 permissions/idlharness.any.html	Partial interface Navigator: member names are unique
 permissions/idlharness.any.html	Partial interface Navigator: original interface defined
@@ -136318,7 +136444,9 @@ permissions/idlharness.any.html	Partial interface WorkerNavigator: valid exposur
 permissions/idlharness.any.html	Partial interface mixin NavigatorID: member names are unique
 permissions/idlharness.any.html	PermissionStatus interface object length
 permissions/idlharness.any.html	PermissionStatus interface object name
+permissions/idlharness.any.html	PermissionStatus interface: attribute name
 permissions/idlharness.any.html	PermissionStatus interface: attribute onchange
+permissions/idlharness.any.html	PermissionStatus interface: attribute state
 permissions/idlharness.any.html	PermissionStatus interface: existence and properties of interface prototype object
 permissions/idlharness.any.html	PermissionStatus interface: existence and properties of interface prototype object's "constructor" property
 permissions/idlharness.any.html	PermissionStatus interface: existence and properties of interface prototype object's @@unscopables property
@@ -136358,6 +136486,7 @@ picture-in-picture/idlharness.window.html	Document interface: attribute pictureI
 picture-in-picture/idlharness.window.html	Document interface: document must inherit property "exitPictureInPicture()" with the proper type
 picture-in-picture/idlharness.window.html	Document interface: document must inherit property "pictureInPictureElement" with the proper type
 picture-in-picture/idlharness.window.html	Document interface: document must inherit property "pictureInPictureEnabled" with the proper type
+picture-in-picture/idlharness.window.html	Document interface: operation exitPictureInPicture()
 picture-in-picture/idlharness.window.html	DocumentFragment includes NonElementParentNode: member names are unique
 picture-in-picture/idlharness.window.html	DocumentFragment includes ParentNode: member names are unique
 picture-in-picture/idlharness.window.html	DocumentOrShadowRoot interface: document must inherit property "pictureInPictureElement" with the proper type
@@ -136371,6 +136500,7 @@ picture-in-picture/idlharness.window.html	HTMLElement includes HTMLOrSVGOrMathML
 picture-in-picture/idlharness.window.html	HTMLVideoElement interface: attribute disablePictureInPicture
 picture-in-picture/idlharness.window.html	HTMLVideoElement interface: attribute onenterpictureinpicture
 picture-in-picture/idlharness.window.html	HTMLVideoElement interface: attribute onleavepictureinpicture
+picture-in-picture/idlharness.window.html	HTMLVideoElement interface: operation requestPictureInPicture()
 picture-in-picture/idlharness.window.html	Partial interface Document: member names are unique
 picture-in-picture/idlharness.window.html	Partial interface Document: original interface defined
 picture-in-picture/idlharness.window.html	Partial interface Document[2]: member names are unique
@@ -136390,6 +136520,7 @@ screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorID: me
 screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorLanguage: member names are unique
 screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorOnLine: member names are unique
 screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorPlugins: member names are unique
+screen-wake-lock/idlharness.https.window.html	Navigator interface: attribute wakeLock
 screen-wake-lock/idlharness.https.window.html	Navigator interface: navigator must inherit property "wakeLock" with the proper type
 screen-wake-lock/idlharness.https.window.html	Partial interface Navigator: member names are unique
 screen-wake-lock/idlharness.https.window.html	Partial interface Navigator: original interface defined
@@ -136477,6 +136608,7 @@ storage/idlharness.https.any.html	Navigator includes NavigatorLanguage: member n
 storage/idlharness.https.any.html	Navigator includes NavigatorOnLine: member names are unique
 storage/idlharness.https.any.html	Navigator includes NavigatorPlugins: member names are unique
 storage/idlharness.https.any.html	Navigator includes NavigatorStorage: member names are unique
+storage/idlharness.https.any.html	Navigator interface: attribute storage
 storage/idlharness.https.any.html	Navigator interface: navigator must inherit property "storage" with the proper type
 storage/idlharness.https.any.html	Partial interface Navigator: member names are unique
 storage/idlharness.https.any.html	Partial interface mixin NavigatorID: member names are unique
@@ -145424,6 +145556,91 @@ url/urlsearchparams-stringifier.any.html	Serialize 💩
 url/urlsearchparams-stringifier.any.html	URLSearchParams connected to URL
 url/urlsearchparams-stringifier.any.html	URLSearchParams must not do newline normalization
 url/urlsearchparams-stringifier.any.html	URLSearchParams.toString
+user-timing/case-sensitivity.any.html	getEntriesByType values are case sensitive
+user-timing/clearMarks.html	First loop: checking entries after removing "". Entries in entrylist should be in order.
+user-timing/clearMarks.html	First loop: checking entries after removing "1". Entries in entrylist should be in order.
+user-timing/clearMarks.html	First loop: checking entries after removing "abc". Entries in entrylist should be in order.
+user-timing/clearMarks.html	First loop: checking entries after removing "abc". There should be 0 entries.
+user-timing/clearMarks.html	First loop: marks that we cleared for "" should not exist anymore.
+user-timing/clearMarks.html	First loop: marks that we cleared for "1" should not exist anymore.
+user-timing/clearMarks.html	First loop: marks that we cleared for "abc" should not exist anymore.
+user-timing/clearMarks.html	No marks should exist after we clear all.
+user-timing/clearMarks.html	No marks should exist when we clear all.
+user-timing/clearMarks.html	Nothing should happen if we clear a non-exist mark.
+user-timing/clearMarks.html	Second loop: checking entries after removing "". Entries in entrylist should be in order.
+user-timing/clearMarks.html	Second loop: checking entries after removing "1". Entries in entrylist should be in order.
+user-timing/clearMarks.html	Second loop: checking entries after removing "abc". Entries in entrylist should be in order.
+user-timing/clearMarks.html	Second loop: checking entries after removing "abc". There should be 0 entries.
+user-timing/clearMarks.html	Second loop: marks that we cleared for "" should not exist anymore.
+user-timing/clearMarks.html	Second loop: marks that we cleared for "1" should not exist anymore.
+user-timing/clearMarks.html	Second loop: marks that we cleared for "abc" should not exist anymore.
+user-timing/clearMeasures.html	First loop: checking entries after removing "". Entries in entrylist should be in order.
+user-timing/clearMeasures.html	First loop: checking entries after removing "2". Entries in entrylist should be in order.
+user-timing/clearMeasures.html	First loop: checking entries after removing "aaa". Entries in entrylist should be in order.
+user-timing/clearMeasures.html	First loop: checking entries after removing "aaa". There should be 0 entries.
+user-timing/clearMeasures.html	First loop: measure "" should not exist anymore after we cleared it.
+user-timing/clearMeasures.html	First loop: measure "2" should not exist anymore after we cleared it.
+user-timing/clearMeasures.html	First loop: measure "aaa" should not exist anymore after we cleared it.
+user-timing/clearMeasures.html	No measures should exist after we clear all (after first loop).
+user-timing/clearMeasures.html	No measures should exist when we clear all (after second loop).
+user-timing/clearMeasures.html	Nothing should happen if we clear a non-exist measure
+user-timing/clearMeasures.html	Second loop: checking entries after removing "". Entries in entrylist should be in order.
+user-timing/clearMeasures.html	Second loop: checking entries after removing "2". Entries in entrylist should be in order.
+user-timing/clearMeasures.html	Second loop: checking entries after removing "aaa". Entries in entrylist should be in order.
+user-timing/clearMeasures.html	Second loop: checking entries after removing "aaa". There should be 0 entries.
+user-timing/clearMeasures.html	Second loop: measure "" should not exist anymore after we cleared it.
+user-timing/clearMeasures.html	Second loop: measure "2" should not exist anymore after we cleared it.
+user-timing/clearMeasures.html	Second loop: measure "aaa" should not exist anymore after we cleared it.
+user-timing/idlharness.any.html	Partial interface Performance: member names are unique
+user-timing/idlharness.any.html	Partial interface Performance: original interface defined
+user-timing/idlharness.any.html	Performance interface: calling clearMarks(optional DOMString) on performance with too few arguments must throw TypeError
+user-timing/idlharness.any.html	Performance interface: calling clearMeasures(optional DOMString) on performance with too few arguments must throw TypeError
+user-timing/idlharness.any.html	Performance interface: operation clearMarks(optional DOMString)
+user-timing/idlharness.any.html	Performance interface: operation clearMeasures(optional DOMString)
+user-timing/idlharness.any.html	Performance interface: performance must inherit property "clearMarks(optional DOMString)" with the proper type
+user-timing/idlharness.any.html	Performance interface: performance must inherit property "clearMeasures(optional DOMString)" with the proper type
+user-timing/idlharness.any.html	Performance interface: performance must inherit property "mark(DOMString, optional PerformanceMarkOptions)" with the proper type
+user-timing/idlharness.any.html	Performance interface: performance must inherit property "measure(DOMString, optional (DOMString or PerformanceMeasureOptions), optional DOMString)" with the proper type
+user-timing/idlharness.any.html	idl_test setup
+user-timing/idlharness.any.html	idl_test validation
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute connectEnd
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute connectStart
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute domComplete
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute domContentLoadedEventEnd
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute domContentLoadedEventStart
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute domInteractive
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute domLoading
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute domainLookupEnd
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute domainLookupStart
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute fetchStart
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute loadEventEnd
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute loadEventStart
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute navigationStart
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute redirectEnd
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute redirectStart
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute requestStart
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute responseEnd
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute responseStart
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute secureConnectionStart
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute unloadEventEnd
+user-timing/invoke_with_timing_attributes.html	performance.measure should not throw if used with timing attribute unloadEventStart
+user-timing/mark-errors.any.html	[performance.mark]: Infinity should be rejected as the mark-options.
+user-timing/mark-errors.any.html	[performance.mark]: NaN should be rejected as the mark-options.
+user-timing/mark-errors.any.html	[performance.mark]: Negative startTime in mark-options should be rejected
+user-timing/mark-errors.any.html	[performance.mark]: Number should be rejected as the mark-options.
+user-timing/mark-errors.any.html	[performance.mark]: String should be rejected as the mark-options.
+user-timing/mark.html	Checking all doubly marked entries.Entries in entrylist should be in order.
+user-timing/mark.html	Checking all entries.Entries in entrylist should be in order.
+user-timing/mark.html	There should be 0 marks
+user-timing/measure.html	window.performance is defined
+user-timing/measure_navigation_timing.html	window.performance is defined
+user-timing/measures.html	Checking all doubly measured entries.Entries in entrylist should be in order.
+user-timing/measures.html	Checking all entries.Entries in entrylist should be in order.
+user-timing/measures.html	There should be 0 entries returned.
+user-timing/user_timing_exists.any.html	self.performance.clearMarks is defined.
+user-timing/user_timing_exists.any.html	self.performance.clearMeasures is defined.
+user-timing/user_timing_exists.any.html	self.performance.mark is defined.
+user-timing/user_timing_exists.any.html	self.performance.measure is defined.
 web-share/canShare-files.https.html	canShare with empty file list
 web-share/disabled-by-permissions-policy-cross-origin.https.sub.html	canShare() not allowed to share by default permissions policy cross-origin
 web-share/disabled-by-permissions-policy.https.sub.html	canShare() can be disabled by permissions policy

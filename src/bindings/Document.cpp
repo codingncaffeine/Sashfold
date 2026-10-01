@@ -200,15 +200,15 @@ Native start_view_transition(Realm::Internals& internals, Args args)
 void install_view_transition(Realm::Internals& in)
 {
     js::Object* view_transition = define_interface(in, "ViewTransition", nullptr);
-    define_getter(in, *view_transition, "updateCallbackDone", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_promise_getter(in, *view_transition, "updateCallbackDone", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<ViewTransitionObject*> const found = this_transition(interp, this_value);
         return found ? Native((*found)->update_done.promise) : std::nullopt;
     });
-    define_getter(in, *view_transition, "ready", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_promise_getter(in, *view_transition, "ready", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<ViewTransitionObject*> const found = this_transition(interp, this_value);
         return found ? Native((*found)->ready.promise) : std::nullopt;
     });
-    define_getter(in, *view_transition, "finished", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+    define_promise_getter(in, *view_transition, "finished", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<ViewTransitionObject*> const found = this_transition(interp, this_value);
         return found ? Native((*found)->finished.promise) : std::nullopt;
     });
@@ -407,18 +407,9 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         "fullscreenchange", "fullscreenerror", "pointerlockchange", "pointerlockerror", "prerenderingchange", "readystatechange",
         "resume", "search", "visibilitychange", "webkitfullscreenchange", "webkitfullscreenerror" };
     define_event_handlers(in, *document, document_event_types);
-    // Everything ParentNode gives an element, the document has too.
-    for (std::string_view const name : { "children", "childElementCount", "firstElementChild", "lastElementChild" }) {
-        std::optional<js::PropertyDescriptor> const descriptor = in.prototype("Element")->get_own_property(interpreter.key(name));
-        if (descriptor && descriptor->get)
-            document->put_accessor(interpreter.key(name), *descriptor->get, descriptor->set.value_or(nullptr), js::Enumerable | js::Configurable);
-    }
-    for (std::string_view const name : { "append", "prepend", "replaceChildren", "querySelector", "querySelectorAll", "getElementsByTagName",
-             "getElementsByTagNameNS", "getElementsByClassName" }) {
-        std::optional<js::PropertyDescriptor> const descriptor = in.prototype("Element")->get_own_property(interpreter.key(name));
-        if (descriptor && descriptor->value)
-            document->put(interpreter.key(name), *descriptor->value, js::Writable | js::Enumerable | js::Configurable);
-    }
+    // Everything ParentNode gives an element, the document has too: its own
+    // members, which answer for documents.
+    install_parent_node(in, *document, true);
 
     document_getter(in, *document, "documentElement", [](Realm::Internals& internals, dom::Document& d) -> Native { return internals.realm.wrap_or_null(document_element(d)); });
     document_getter(in, *document, "head", [](Realm::Internals& internals, dom::Document& d) -> Native { return internals.realm.wrap_or_null(head_element(d)); });
@@ -694,9 +685,9 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     js::Object* font_face_set = define_interface(in, "FontFaceSet", in.prototype("EventTarget"));
     define_getter(in, *font_face_set, "status", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return internals_of(interp).string("loaded"); });
     define_getter(in, *font_face_set, "size", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
-    define_getter(in, *font_face_set, "ready", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native { return resolved_promise(interp, this_value); });
+    define_promise_getter(in, *font_face_set, "ready", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native { return resolved_promise(interp, this_value); });
     define_operation(interpreter, *font_face_set, "check", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
-    define_operation(interpreter, *font_face_set, "load", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    define_promise_operation(interpreter, *font_face_set, "load", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return resolved_promise(interp, js::Value::object(interp.new_array()));
     });
     define_operation(interpreter, *font_face_set, "add", 1, [](js::Interpreter&, js::Value const& this_value, Args) -> Native { return this_value; });
@@ -947,10 +938,10 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     // or on the page's host — the jar is closed to every other frame, the
     // third parties — and asking for them changes nothing here, so a frame
     // that has none is refused.
-    document_method(in, *document, "hasStorageAccess", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
+    document_promise_method(in, *document, "hasStorageAccess", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
         return resolved_promise(internals.interpreter, js::Value::boolean(has_storage_access(internals)));
     });
-    document_method(in, *document, "requestStorageAccess", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
+    document_promise_method(in, *document, "requestStorageAccess", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
         if (has_storage_access(internals))
             return resolved_promise(internals.interpreter, js::Value::undefined());
         return rejected_promise(internals.interpreter,
@@ -959,7 +950,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_method(in, *document, "execCommand", 1, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(false); });
     document_method(in, *document, "queryCommandSupported", 1, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(false); });
     document_method(in, *document, "queryCommandEnabled", 1, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(false); });
-    document_method(in, *document, "exitFullscreen", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
+    document_promise_method(in, *document, "exitFullscreen", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
         return exit_fullscreen_promise(internals);
     });
     for (std::string_view const name : { "webkitExitFullscreen", "webkitCancelFullScreen" }) {
@@ -973,7 +964,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             return js::Value::undefined();
         });
     }
-    document_method(in, *document, "exitPictureInPicture", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
+    document_promise_method(in, *document, "exitPictureInPicture", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
         return rejected_promise(internals.interpreter,
             dom_exception_value(internals, "InvalidStateError", "There is no Picture-in-Picture element in this document."));
     });

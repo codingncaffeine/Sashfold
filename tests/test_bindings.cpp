@@ -4052,6 +4052,60 @@ void test_trusted_types()
     CHECK_EQ(page->console, std::string(""));
 }
 
+// Members called on the wrong object (WebIDL's receiver check).
+void test_interface_receivers()
+{
+    auto page = loaded("<!DOCTYPE html><body></body>");
+    // A member on an interface's prototype answers for the interface's
+    // objects alone (WebIDL §3.7.6, §3.7.7): not for a plain object, not for
+    // the prototype itself, not for no object, not for another interface's.
+    CHECK(page->boolean("Object.getOwnPropertyDescriptor(Navigator.prototype, 'userAgent').get.call(navigator) === navigator.userAgent"));
+    CHECK(page->throws("Object.getOwnPropertyDescriptor(Navigator.prototype, 'userAgent').get.call({})") == "TypeError: Illegal invocation");
+    CHECK(page->throws("Navigator.prototype.userAgent") == "TypeError: Illegal invocation");
+    CHECK(page->throws("Object.getOwnPropertyDescriptor(Navigator.prototype, 'hardwareConcurrency').get.call(undefined)") == "TypeError: Illegal invocation");
+    CHECK(page->throws("Object.getOwnPropertyDescriptor(History.prototype, 'length').get.call(navigator)") == "TypeError: Illegal invocation");
+    CHECK(page->throws("Object.getOwnPropertyDescriptor(BarProp.prototype, 'visible').get.call({})") == "TypeError: Illegal invocation");
+    CHECK(page->boolean("locationbar.visible === true && history.length >= 1 && document.createElement('video').audioTracks.length === 0"));
+    // Setters too; and the receiver is judged before the arguments are counted.
+    CHECK(page->throws("Object.getOwnPropertyDescriptor(History.prototype, 'scrollRestoration').set.call({}, 'auto')") == "TypeError: Illegal invocation");
+    CHECK(page->throws("History.prototype.pushState.call({})") == "TypeError: Failed to execute 'pushState' on 'History': Illegal invocation");
+    CHECK(page->throws("history.pushState()").starts_with("TypeError: Failed to execute 'pushState' on 'History': 2 arguments"));
+    // A call with no receiver reaches the global object when it implements
+    // the interface; the window's proxy stands for its window.
+    CHECK(page->boolean("(function () { var add = EventTarget.prototype.addEventListener; var n = 0; add('x', function () { ++n; });"
+                        " window.dispatchEvent(new Event('x')); window.addEventListener('y', function () { ++n; }); window.dispatchEvent(new Event('y')); return n === 2; })()"));
+    CHECK(page->throws("EventTarget.prototype.addEventListener.call({}, 'x', function () {})") == "TypeError: Illegal invocation");
+    // Another realm's copy of a member knows this realm's object by its
+    // interface's name.
+    CHECK(page->boolean("(function () { var f = document.createElement('iframe'); document.body.appendChild(f); var w = f.contentWindow;"
+                        " var get = Object.getOwnPropertyDescriptor(w.Navigator.prototype, 'userAgent').get;"
+                        " return get.call(navigator) === navigator.userAgent && get.call(w.navigator) === navigator.userAgent; })()"));
+    // A member of Promise type rejects instead, for a wrong receiver and
+    // for too few arguments alike; a lenient attribute answers undefined;
+    // EventTarget's refusal is the short one; a value iterator's methods
+    // are the Array prototype's.
+    page->eval("var outcomes = [];"
+               " Permissions.prototype.query.call({}, {}).catch(function (e) { outcomes.push('query ' + e.name + ': ' + e.message); });"
+               " Permissions.prototype.query.call(navigator.permissions).catch(function (e) { outcomes.push('count ' + e.message); });"
+               " Object.getOwnPropertyDescriptor(FontFaceSet.prototype, 'ready').get.call({}).catch(function (e) { outcomes.push('ready ' + e.message); });"
+               " HTMLMediaElement.prototype.play.call({}).catch(function (e) { outcomes.push('play ' + e.name); });");
+    for (int i = 0; i < 20 && page->realm->run_pending(); ++i) { }
+    CHECK_EQ(page->string("outcomes.join('|')"),
+        "query TypeError: Failed to execute 'query' on 'Permissions': Illegal invocation"
+        "|count Failed to execute 'query' on 'Permissions': 1 argument required, but only 0 present."
+        "|ready Failed to read the 'ready' property from 'FontFaceSet': Illegal invocation|play TypeError");
+    CHECK(page->boolean("Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'onmouseenter').get.call({}) === undefined"
+                        " && Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'onmouseenter').set.call({}, function () {}) === undefined"
+                        " && Object.getOwnPropertyDescriptor(Document.prototype, 'onreadystatechange').get.call({}) === undefined"
+                        " && document.body.onmouseenter === null"));
+    CHECK(page->throws("Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'onclick').get.call({})") == "TypeError: Illegal invocation");
+    CHECK(page->throws("EventTarget.prototype.dispatchEvent.call({}, new Event('x'))") == "TypeError: Illegal invocation");
+    CHECK(page->boolean("DOMTokenList.prototype.entries === Array.prototype.entries && DOMTokenList.prototype.forEach === Array.prototype.forEach"
+                        " && DOMTokenList.prototype[Symbol.iterator] === Array.prototype.values"
+                        " && (document.body.className = 'a b', Array.from(document.body.classList.keys()).join() === '0,1'"
+                        " && Array.from(document.body.classList).join() === 'a,b' && Array.from(document.body.classList.entries()).join('|') === '0,a|1,b')"));
+}
+
 // The objects hanging off navigator that answer for themselves: each the
 // standard's shape and the same object every read; the answers of an
 // engine with no device, no permission granted and no system integration.
@@ -5408,6 +5462,7 @@ int main()
     test_interfaces_that_promise();
     test_the_small_things_a_page_asks_for();
     test_rejections_are_events();
+    test_interface_receivers();
     test_navigator_objects();
     test_trusted_types();
     test_scripts_that_must_not_run_again();

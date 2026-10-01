@@ -2588,7 +2588,7 @@ void install_indexeddb(Realm::Internals& in)
     define_operation(interpreter, *factory, "deleteDatabase", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         return factory_open(interp, this_value, args, true);
     });
-    define_operation(interpreter, *factory, "databases", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    define_promise_operation(interpreter, *factory, "databases", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         IdbRealm& state = realm_state(internals);
         if (state.opaque || !state.storage)

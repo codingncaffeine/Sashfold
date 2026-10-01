@@ -1474,7 +1474,7 @@ void install_window(Realm::Internals& in)
         return internals.string(landscape ? "landscape-primary" : "portrait-primary");
     });
     define_getter(in, *orientation_proto, "angle", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
-    define_operation(interpreter, *orientation_proto, "lock", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    define_promise_operation(interpreter, *orientation_proto, "lock", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return rejected_promise(interp, dom_exception_value(internals_of(interp), "NotSupportedError", "screen.orientation.lock() is not available on this device."));
     });
     define_operation(interpreter, *orientation_proto, "unlock", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });

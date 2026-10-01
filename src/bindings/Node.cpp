@@ -1067,6 +1067,8 @@ void install_node(Realm::Internals& in, js::Object& node)
 
 // --- ParentNode and ChildNode mixins --------------------------------------------------------
 
+} // namespace
+
 // ParentNode (DOM §4.2.6) on a prototype; the collections by tag and class
 // name are Element's and Document's, not a fragment's.
 void install_parent_node(Realm::Internals& in, js::Object& proto, bool with_collections_by_name)
@@ -1196,6 +1198,8 @@ void install_parent_node(Realm::Internals& in, js::Object& proto, bool with_coll
         return list;
     });
 }
+
+namespace {
 
 void install_child_node(Realm::Internals& in, js::Object& proto)
 {
@@ -1588,7 +1592,7 @@ void install_element(Realm::Internals& in, js::Object& element)
     });
     // requestFullscreen(): shown over the whole screen when the shell agrees
     // (Fullscreen.cpp).
-    element_method(in, element, "requestFullscreen", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+    element_promise_method(in, element, "requestFullscreen", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         return request_fullscreen(internals, e);
     });
     // The prefixed names pages still write (Fullscreen §5, legacy): the
@@ -1848,23 +1852,15 @@ void install_nodes(Realm::Internals& in)
     js::Object* mathml_element = define_interface(in, "MathMLElement", element);
     define_event_handlers(in, *mathml_element, global_event_handler_types());
     install_html_elements(in, *html_element);
-    // HTMLOrSVGElement (HTML §4.?): dataset, nonce, autofocus, tabIndex,
+    // HTMLOrSVGElement (HTML §3.2.7): dataset, nonce, autofocus, tabIndex,
     // focus and blur are an SVG element's and a MathML element's as they
-    // are an HTML element's — the same accessors, which take any element;
-    // and a MathML element's inline style is as an SVG element's.
-    for (js::Object* proto : { svg_element, mathml_element }) {
-        for (std::string_view const name : { "dataset", "nonce", "autofocus", "tabIndex", "focus", "blur" }) {
-            std::optional<js::PropertyDescriptor> const descriptor = html_element->get_own_property(interpreter.key(name));
-            if (!descriptor)
-                continue;
-            if (descriptor->get)
-                proto->put_accessor(interpreter.key(name), *descriptor->get, descriptor->set.value_or(nullptr), js::Enumerable | js::Configurable);
-            else if (descriptor->value)
-                proto->put(interpreter.key(name), *descriptor->value, js::Writable | js::Enumerable | js::Configurable);
-        }
-    }
-    if (std::optional<js::PropertyDescriptor> const style = svg_element->get_own_property(interpreter.key("style")); style && style->get)
-        mathml_element->put_accessor(interpreter.key("style"), *style->get, style->set.value_or(nullptr), js::Enumerable | js::Configurable);
+    // are an HTML element's — members of their own on each prototype; and a
+    // MathML element's inline style is as an SVG element's.
+    install_html_or_svg_element(in, *svg_element, true);
+    install_html_or_svg_element(in, *mathml_element, true);
+    element_forwarding_getter(
+        in, *mathml_element, "style",
+        [](Realm::Internals& internals, dom::Element& e) -> Native { return make_style_declaration(internals, &e, false); }, "cssText");
 
     js::Object* character_data = define_interface(in, "CharacterData", node);
     js::Object* text = define_interface(in, "Text", character_data,

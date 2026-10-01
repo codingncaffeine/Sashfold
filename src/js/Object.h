@@ -423,6 +423,11 @@ public:
     // state it works on is the receiver's. A built-in of the language runs
     // in its own realm whatever it is called on (§10.3.1).
     void run_in_receivers_realm() { m_in_receivers_realm = true; }
+    // A host's member as it was before the host put its receiver check in
+    // front of it (bindings: define_attribute, define_operation): what a
+    // second interface sharing the member is defined with, so that it gets
+    // a check of its own. Empty for every other native.
+    Callback unwrapped;
 
 private:
     Callback m_call;
