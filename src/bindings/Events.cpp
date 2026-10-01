@@ -1,4 +1,5 @@
 #include "bindings/Internal.h"
+#include "bindings/NodeSupport.h"
 
 // Events (DOM §2): the dispatch algorithm over the capture, target and
 // bubble phases, addEventListener and its options, the on<type> handlers
@@ -14,21 +15,53 @@ namespace sashfold::bindings {
 
 namespace {
 
+// HTML's GlobalEventHandlers (§8.1.8.2), with what the other specifications
+// add to the set — the pointer, animation, transition, selection, scroll
+// snap and content-visibility handlers — and the webkit-prefixed animation
+// names every engine keeps for the pages that write them.
+constexpr std::string_view global_event_handler_names[] = { "abort", "animationcancel", "animationend", "animationiteration",
+    "animationstart", "auxclick", "beforeinput", "beforematch", "beforetoggle", "beforexrselect", "blur", "cancel", "canplay",
+    "canplaythrough", "change", "click", "close", "command", "contentvisibilityautostatechange", "contextlost", "contextmenu",
+    "contextrestored", "copy", "cuechange", "cut", "dblclick", "drag", "dragend", "dragenter", "dragleave", "dragover", "dragstart",
+    "drop", "durationchange", "emptied", "ended", "error", "focus", "formdata", "gotpointercapture", "input", "invalid", "keydown",
+    "keypress", "keyup", "load", "loadeddata", "loadedmetadata", "loadstart", "lostpointercapture", "mousedown", "mouseenter",
+    "mouseleave", "mousemove", "mouseout", "mouseover", "mouseup", "mousewheel", "paste", "pause", "play", "playing", "pointercancel",
+    "pointerdown", "pointerenter", "pointerleave", "pointermove", "pointerout", "pointerover", "pointerrawupdate", "pointerup",
+    "progress", "ratechange", "reset", "resize", "scroll", "scrollend", "scrollsnapchange", "scrollsnapchanging",
+    "securitypolicyviolation", "seeked", "seeking", "select", "selectionchange", "selectstart", "slotchange", "stalled", "submit",
+    "suspend", "timeupdate", "toggle", "transitioncancel", "transitionend", "transitionrun", "transitionstart", "volumechange",
+    "waiting", "webkitanimationend", "webkitanimationiteration", "webkitanimationstart", "webkittransitionend", "wheel" };
+
+// HTML's WindowEventHandlers (§8.1.8.2): the window's own set, which the
+// body and frameset elements forward to it.
+constexpr std::string_view window_event_handler_names[] = { "afterprint", "beforeprint", "beforeunload", "hashchange",
+    "languagechange", "message", "messageerror", "offline", "online", "pagehide", "pagereveal", "pageshow", "pageswap", "popstate",
+    "rejectionhandled", "storage", "unhandledrejection", "unload" };
+
+// The six GlobalEventHandlers a body's attribute gives the window as well.
+constexpr std::string_view body_window_handler_names[] = { "blur", "error", "focus", "load", "resize", "scroll" };
+
 // Event types whose body attribute handler belongs to the window (HTML
-// §8.1.8.2, the WindowEventHandlers set).
+// §8.1.8.2).
 bool is_window_event_type(std::string_view type)
 {
-    static constexpr std::string_view types[] = {
-        "afterprint", "beforeprint", "beforeunload", "hashchange", "languagechange", "message", "messageerror",
-        "offline", "online", "pagehide", "pageshow", "popstate", "rejectionhandled", "storage",
-        "unhandledrejection", "unload", "blur", "error", "focus", "load", "resize", "scroll"
-    };
-    for (std::string_view const candidate : types) {
+    for (std::string_view const candidate : window_event_handler_names) {
+        if (candidate == type)
+            return true;
+    }
+    for (std::string_view const candidate : body_window_handler_names) {
         if (candidate == type)
             return true;
     }
     return false;
 }
+
+} // namespace
+
+std::span<std::string_view const> global_event_handler_types() { return global_event_handler_names; }
+std::span<std::string_view const> window_event_handler_types() { return window_event_handler_names; }
+
+namespace {
 
 std::optional<EventObject*> this_event(js::Interpreter& interpreter, js::Value const& this_value)
 {
@@ -80,43 +113,60 @@ js::Value handler_value(Realm::Internals& in, js::Object* target, std::string_vi
         if (wrapper != nullptr && wrapper->realm().internals().document != &element->document())
             element = nullptr;
     }
+    // Compiles an attribute's text into the map's entry for this type
+    // (§8.1.8.1 "getting the current value of the event handler"). A
+    // handler the page's policy refuses, or that does not compile, is
+    // remembered with a null function: asked once, not at every dispatch.
+    auto const compile = [&](std::string const& source, bool for_window, bool another_body) {
+        EventHandler handler;
+        handler.from_attribute = true;
+        handler.source = source;
+        handler.from_another_body = another_body;
+        handler.function = js::Value::null();
+        if (in.scripts_sandboxed() || in.inline_refused(net::InlineKind::ScriptAttribute, {}, source)) {
+            ++in.stats.scripts_refused;
+        } else {
+            std::u16string const body = js::utf16_from_utf8(source);
+            // The window's onerror, which the body's attribute is, takes
+            // the error's five parts by name (HTML §8.1.8.1).
+            bool const window_onerror = for_window && key == "error";
+            std::optional<js::Value> compiled
+                = in.interpreter.compile_function(window_onerror ? u"event, source, lineno, colno, error" : u"event", body);
+            if (compiled) {
+                handler.function = *compiled;
+            } else {
+                js::Value const thrown = in.interpreter.take_exception();
+                in.report_uncaught(thrown, for_window ? "<body on" + key + ">" : "on" + key + " attribute");
+            }
+        }
+        (*map)[key] = handler;
+    };
     if (element) {
         dom::Attr const* attribute = element->find_attribute("on" + key);
         auto it = map->find(key);
         if (attribute) {
-            if (it == map->end() || (it->second.from_attribute && it->second.source != attribute->value)) {
-                EventHandler handler;
-                handler.from_attribute = true;
-                handler.source = attribute->value;
-                // A handler the page's policy refuses is remembered with
-                // no function: asked once, not at every dispatch.
-                if (in.scripts_sandboxed() || in.inline_refused(net::InlineKind::ScriptAttribute, {}, attribute->value)) {
-                    ++in.stats.scripts_refused;
-                } else {
-                    std::u16string const body = js::utf16_from_utf8(attribute->value);
-                    // The window's onerror, which the body's attribute is, takes
-                    // the error's five parts by name (HTML §8.1.8.1).
-                    bool const window_onerror = from_body && key == "error";
-                    std::optional<js::Value> compiled
-                        = in.interpreter.compile_function(window_onerror ? u"event, source, lineno, colno, error" : u"event", body);
-                    if (compiled) {
-                        handler.function = *compiled;
-                    } else {
-                        js::Value const thrown = in.interpreter.take_exception();
-                        in.report_uncaught(thrown, from_body ? "<body on" + key + ">" : "on" + key + " attribute");
-                    }
-                }
-                (*map)[key] = handler;
-            }
-        } else if (it != map->end() && it->second.from_attribute) {
+            // The attribute's text, compiled when it is new, changed, or
+            // stored raw by window_handler_attribute_written.
+            if (it == map->end()
+                || (it->second.from_attribute && (it->second.source != attribute->value || it->second.function.is_undefined())))
+                compile(attribute->value, from_body, false);
+        } else if (it != map->end() && it->second.from_attribute && !it->second.from_another_body) {
             map->erase(it);
         }
+    }
+    if (auto const raw = map->find(key);
+        raw != map->end() && raw->second.from_attribute && raw->second.from_another_body && raw->second.function.is_undefined()) {
+        // The attribute of a body other than the document's, stored raw as
+        // it was set: the window's handler all the same (§8.1.8.2).
+        std::string const source = raw->second.source;
+        compile(source, true, true);
     }
     auto const it = map->find(key);
     if (it == map->end() || !js::Interpreter::is_callable(it->second.function))
         return js::Value::null();
     return it->second.function;
 }
+
 
 // Calls the target's handler for the event, if it has one; a `false`
 // return cancels the event (§8.1.8.1 step 5, except for error events).
@@ -644,6 +694,37 @@ bool Realm::Internals::dispatch(EventObject& event, js::Object* target)
 }
 
 // --- Handler accessors ---------------------------------------------------------------------
+
+js::Value event_handler_of(Realm::Internals& in, js::Object* target, std::string_view type)
+{
+    return handler_value(in, target, type);
+}
+
+// A body's or frameset's on<type> content attribute for a window event is
+// the window's handler (HTML §8.1.8.2, "determining the target of an event
+// handler"): set, it is stored raw in the window's map and compiled when
+// first read; removed, it goes. (The document's own body is read lazily by
+// handler_value as well, so a parser-set attribute needs no hook.)
+void window_handler_attribute_written(Realm::Internals& in, dom::Element& element, std::string_view local_name)
+{
+    if (!local_name.starts_with("on") || &element.document() != in.document)
+        return;
+    if (!element.is_html("body") && !element.is_html("frameset"))
+        return;
+    std::string_view const type = local_name.substr(2);
+    if (!is_window_event_type(type))
+        return;
+    std::string const key(type);
+    if (dom::Attr const* const attribute = element.find_attribute(local_name)) {
+        EventHandler handler;
+        handler.from_attribute = true;
+        handler.source = attribute->value;
+        handler.from_another_body = body_element(*in.document) != &element;
+        in.window_handlers[key] = handler;
+    } else if (auto const it = in.window_handlers.find(key); it != in.window_handlers.end() && it->second.from_attribute) {
+        in.window_handlers.erase(it);
+    }
+}
 
 void define_event_handlers(Realm::Internals& in, js::Object& target, std::span<std::string_view const> types)
 {

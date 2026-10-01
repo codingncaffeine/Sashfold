@@ -208,6 +208,28 @@ void test_wrapper_identity_and_expandos_survive_collection()
     CHECK(page->boolean("document.body.firstChild instanceof HTMLElement && document.body.firstChild instanceof Element && document.body.firstChild instanceof Node && document.body.firstChild instanceof EventTarget"));
     CHECK(page->boolean("document instanceof Document && document instanceof HTMLDocument"));
     CHECK_EQ(page->string("Object.prototype.toString.call(document.body)"), "[object HTMLBodyElement]");
+    // An HTML document is an HTMLDocument, an XML one an XMLDocument, and
+    // `new Document()` a Document: three interfaces, one chain.
+    CHECK_EQ(page->string("Object.prototype.toString.call(document)"), "[object HTMLDocument]");
+    CHECK(page->boolean("Object.getPrototypeOf(HTMLDocument.prototype) === Document.prototype && Object.getPrototypeOf(XMLDocument.prototype) === Document.prototype"));
+    CHECK(page->boolean("Object.getPrototypeOf(new Document()) === Document.prototype && !(new Document() instanceof XMLDocument) && !(new Document() instanceof HTMLDocument)"));
+    CHECK(page->boolean("document.implementation.createHTMLDocument('') instanceof HTMLDocument && document.implementation.createDocument(null, 'r') instanceof XMLDocument && new DOMParser().parseFromString('<r/>', 'text/xml') instanceof XMLDocument"));
+    CHECK(page->throws("new HTMLDocument()").starts_with("TypeError"));
+    // HTML's GlobalEventHandlers belong to the HTML, SVG and MathML element
+    // interfaces, the document and the window — not to Element, which has
+    // the Fullscreen pair of its own; the window's own set is forwarded by
+    // the body (HTML §8.1.8.2).
+    CHECK(page->boolean("'onclick' in HTMLElement.prototype && !Element.prototype.hasOwnProperty('onclick') && Object.getOwnPropertyDescriptor(HTMLElement.prototype, 'onclick').enumerable"));
+    CHECK(page->boolean("document.createElementNS('http://www.w3.org/2000/svg', 'svg').onclick === null && document.createElementNS('http://www.w3.org/1998/Math/MathML', 'math') instanceof MathMLElement && 'onload' in MathMLElement.prototype"));
+    CHECK(page->boolean("Element.prototype.hasOwnProperty('onfullscreenchange') && Document.prototype.hasOwnProperty('onreadystatechange') && Document.prototype.hasOwnProperty('onclick') && !('onfocusin' in document) && !('ontouchstart' in window) && !('onreadystatechange' in HTMLElement.prototype)"));
+    CHECK(page->boolean("window.hasOwnProperty('onhashchange') && !('onhashchange' in HTMLElement.prototype) && HTMLBodyElement.prototype.hasOwnProperty('onhashchange') && HTMLFrameSetElement.prototype.hasOwnProperty('onunload')"));
+    // Any body or frameset whose node document is the active one forwards;
+    // one in a document without a window answers null and takes nothing.
+    page->eval("var bf = function () {}; document.body.onhashchange = bf; var bf2 = function () {}; var otherBody = document.createElement('body'); otherBody.onload = bf2; var windowless = document.implementation.createHTMLDocument('').body; windowless.onload = bf;");
+    CHECK(page->boolean("window.onhashchange === bf && document.body.onhashchange === bf && window.onload === bf2 && otherBody.onload === bf2 && windowless.onload === null"));
+    page->eval("otherBody.setAttribute('onresize', 'window.resized = 1'); var fromAttribute = typeof window.onresize === 'function' && window.onresize === otherBody.onresize; otherBody.removeAttribute('onresize');");
+    CHECK(page->boolean("fromAttribute && window.onresize === null && otherBody.onresize === null"));
+    CHECK(page->boolean("'onslotchange' in ShadowRoot.prototype && 'onencrypted' in HTMLMediaElement.prototype && 'onenterpictureinpicture' in HTMLVideoElement.prototype && 'onchange' in Screen.prototype"));
 }
 
 void test_tree_mutation_and_serialization()

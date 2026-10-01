@@ -243,6 +243,7 @@ void attribute_written(Realm::Internals& in, dom::Element& element, std::string_
     // and new: a component that compares the two ignores a change that
     // reports none, so a removal must say what was removed.
     custom_element_attribute_changed(in, element, local_name, old_value);
+    window_handler_attribute_written(in, element, local_name);
     switch (container_kind(element)) {
     case ContainerKind::IFrame:
         if (local_name == "srcdoc" || (local_name == "src" && !element.find_attribute("srcdoc")))
@@ -847,8 +848,12 @@ js::Value Realm::Internals::make_dom_exception(std::string_view name, std::strin
 js::Object* Realm::Internals::prototype_for(dom::Node const& node) const
 {
     switch (node.type()) {
-    case dom::NodeType::Document:
-        return prototype("Document");
+    case dom::NodeType::Document: {
+        // An HTML document is an HTMLDocument, an XML one an XMLDocument, and
+        // one `new Document()` made a Document (DOM §4.5.1).
+        auto const& wrapped = static_cast<dom::Document const&>(node);
+        return prototype(wrapped.plain ? "Document" : wrapped.xml ? "XMLDocument" : "HTMLDocument");
+    }
     case dom::NodeType::DocumentFragment:
         return prototype("DocumentFragment");
     case dom::NodeType::Text:
@@ -871,6 +876,8 @@ js::Object* Realm::Internals::prototype_for(dom::Node const& node) const
         }
         if (element.namespace_uri() == dom::ns::svg)
             return prototype(element.local_name() == "a" ? "SVGAElement" : "SVGElement");
+        if (element.namespace_uri() == dom::ns::mathml)
+            return prototype("MathMLElement");
         return prototype("Element");
     }
     }

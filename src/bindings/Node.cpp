@@ -804,21 +804,6 @@ dom::Text* split_text(Realm::Internals& in, dom::Text& node, std::size_t offset)
 
 namespace {
 
-// The GlobalEventHandlers set every element and the document expose.
-constexpr std::string_view global_event_types[] = {
-    "abort", "animationend", "animationiteration", "animationstart", "auxclick", "beforeinput", "blur", "cancel", "canplay",
-    "canplaythrough", "change", "click", "close", "contextmenu", "copy", "cuechange", "cut", "dblclick", "drag", "dragend",
-    "dragenter", "dragleave", "dragover", "dragstart", "drop", "durationchange", "emptied", "ended", "error", "focus",
-    "focusin", "focusout", "formdata", "input", "invalid", "keydown", "keypress", "keyup", "load", "loadeddata",
-    "loadedmetadata", "loadstart", "mousedown", "mouseenter", "mouseleave", "mousemove", "mouseout", "mouseover",
-    "mouseup", "paste", "pause", "play", "playing", "pointercancel", "pointerdown", "pointerenter", "pointerleave",
-    "pointermove", "pointerout", "pointerover", "pointerup", "progress", "ratechange", "reset", "resize", "scroll",
-    "scrollend", "securitypolicyviolation", "seeked", "seeking", "select", "selectionchange", "selectstart",
-    "slotchange", "stalled", "submit", "suspend", "timeupdate", "toggle", "touchcancel", "touchend", "touchmove",
-    "touchstart", "transitioncancel", "transitionend", "transitionrun", "transitionstart", "volumechange", "waiting",
-    "wheel"
-};
-
 // --- Node ----------------------------------------------------------------------------------
 
 void install_node(Realm::Internals& in, js::Object& node)
@@ -1784,10 +1769,18 @@ void install_nodes(Realm::Internals& in)
 
     js::Object* element = define_interface(in, "Element", node);
     install_element(in, *element);
-    define_event_handlers(in, *element, global_event_types);
+    // Element's own handlers: the Fullscreen API's pair (with the prefixed
+    // names pages still write) and the clipboard's before- events. HTML's
+    // GlobalEventHandlers belong to the HTML, SVG and MathML element
+    // interfaces below, not to Element (HTML §8.1.8.2).
+    static constexpr std::string_view element_event_types[] = { "beforecopy", "beforecut", "beforepaste", "fullscreenchange",
+        "fullscreenerror", "search", "webkitfullscreenchange", "webkitfullscreenerror" };
+    define_event_handlers(in, *element, element_event_types);
 
     js::Object* html_element = define_interface(in, "HTMLElement", element);
     js::Object* svg_element = define_interface(in, "SVGElement", element);
+    define_event_handlers(in, *html_element, global_event_handler_types());
+    define_event_handlers(in, *svg_element, global_event_handler_types());
     // An SVG element has an inline style of its own, the same as an HTML
     // one: both include ElementCSSInlineStyle (CSSOM §6.4). Pages that draw
     // their icons in SVG set it constantly, and without it every such line
@@ -1796,7 +1789,8 @@ void install_nodes(Realm::Internals& in)
         in, *svg_element, "style",
         [](Realm::Internals& internals, dom::Element& e) -> Native { return make_style_declaration(internals, &e, false); }, "cssText");
     install_svg_links(in, *svg_element);
-    define_interface(in, "MathMLElement", element);
+    js::Object* mathml_element = define_interface(in, "MathMLElement", element);
+    define_event_handlers(in, *mathml_element, global_event_handler_types());
     install_html_elements(in, *html_element);
 
     js::Object* character_data = define_interface(in, "CharacterData", node);
@@ -1840,7 +1834,9 @@ void install_nodes(Realm::Internals& in)
     // ShadowRoot: the interface object alone. attachShadow refuses with
     // NotSupportedError, so no page gets one, but a library's
     // `node instanceof ShadowRoot` must be a question, not a ReferenceError.
-    define_interface(in, "ShadowRoot", fragment);
+    js::Object* shadow_root = define_interface(in, "ShadowRoot", fragment);
+    static constexpr std::string_view shadow_root_event_types[] = { "slotchange" };
+    define_event_handlers(in, *shadow_root, shadow_root_event_types);
     node_method(in, *fragment, "getElementById", 1, [](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
         std::optional<std::string> const id = string_argument(internals, args, 0);
         if (!id)

@@ -441,6 +441,39 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     generated::install_reflected_attributes(in);
     auto const proto_of = [&](std::string_view name) -> js::Object& { return *in.prototype(name); };
 
+    // The body's and frameset's WindowEventHandlers, and their onblur,
+    // onerror, onfocus, onload, onresize and onscroll, are the window's
+    // (HTML §8.1.8.2 "determining the target of an event handler"): read
+    // and written through any body or frameset element whose node document
+    // is the active one, null and inert on one in a document without a
+    // window.
+    for (std::string_view const name : { "HTMLBodyElement", "HTMLFrameSetElement" }) {
+        js::Object& proto = proto_of(name);
+        auto const forward = [&](std::string_view type) {
+            element_accessor(
+                in, proto, "on" + std::string(type),
+                [type = std::string(type)](Realm::Internals& internals, dom::Element& e) -> Native {
+                    if (&e.document() != internals.document)
+                        return js::Value::null();
+                    return event_handler_of(internals, internals.window_proxy(), type);
+                },
+                [type = std::string(type)](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
+                    if (&e.document() == internals.document) {
+                        EventHandler handler;
+                        if (value.is_object())
+                            handler.function = value;
+                        internals.window_handlers[type] = handler;
+                    }
+                    return js::Value::undefined();
+                });
+        };
+        for (std::string_view const type : window_event_handler_types())
+            forward(type);
+        static constexpr std::string_view body_window_types[] = { "blur", "error", "focus", "load", "resize", "scroll" };
+        for (std::string_view const type : body_window_types)
+            forward(type);
+    }
+
     // Anchors and areas.
     for (std::string_view const name : { "HTMLAnchorElement", "HTMLAreaElement" }) {
         js::Object& proto = proto_of(name);

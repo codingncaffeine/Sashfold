@@ -183,22 +183,23 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             Realm::Internals& internals = internals_of(interp);
             dom::Document& made = new_extra_document(internals);
             made.xml = true;
+            made.plain = true;
             made.content_type = "application/xml";
             return js::Value::object(internals.wrap(made));
         });
-    in.prototypes["HTMLDocument"] = document;
-    interpreter.global()->put(interpreter.key("HTMLDocument"),
-        *interpreter.global()->get(interpreter, interpreter.key("Document"), js::Value::object(interpreter.global())), js::builtin_attributes);
-    in.prototypes["XMLDocument"] = document;
+    // An HTML document is an HTMLDocument and an XML one an XMLDocument (DOM
+    // §4.5.1): interfaces of their own with nothing of their own, so that a
+    // page sees the chain a browser gives it; neither can be constructed.
+    define_interface(in, "HTMLDocument", document);
+    define_interface(in, "XMLDocument", document);
 
-    // ParentNode over the document, and the on<type> handlers.
-    static constexpr std::string_view document_event_types[] = { "readystatechange", "visibilitychange", "selectionchange", "click",
-        "dblclick", "mousedown", "mouseup", "mousemove", "mouseover", "mouseout", "mouseenter", "mouseleave", "keydown", "keyup",
-        "keypress", "input", "change", "submit", "reset", "focus", "blur", "focusin", "focusout", "scroll", "wheel", "contextmenu",
-        "touchstart", "touchend", "touchmove", "touchcancel", "pointerdown", "pointerup", "pointermove", "pointerover", "pointerout",
-        "pointerenter", "pointerleave", "pointercancel", "load", "error", "copy", "cut", "paste", "drag", "dragstart", "dragend",
-        "dragover", "dragenter", "dragleave", "drop", "animationend", "animationstart", "animationiteration", "transitionend",
-        "fullscreenchange", "fullscreenerror", "securitypolicyviolation", "beforeinput", "toggle", "select" };
+    // ParentNode over the document, and the on<type> handlers: HTML's
+    // GlobalEventHandlers, then the document's own (HTML §8.1.8.2, the
+    // Fullscreen, Pointer Lock, Page Lifecycle and Prerendering sets).
+    define_event_handlers(in, *document, global_event_handler_types());
+    static constexpr std::string_view document_event_types[] = { "beforecopy", "beforecut", "beforepaste", "freeze",
+        "fullscreenchange", "fullscreenerror", "pointerlockchange", "pointerlockerror", "prerenderingchange", "readystatechange",
+        "resume", "search", "visibilitychange", "webkitfullscreenchange", "webkitfullscreenerror" };
     define_event_handlers(in, *document, document_event_types);
     // Everything ParentNode gives an element, the document has too.
     for (std::string_view const name : { "children", "childElementCount", "firstElementChild", "lastElementChild" }) {

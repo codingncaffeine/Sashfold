@@ -1382,6 +1382,8 @@ void install_window(Realm::Internals& in)
 
     // Screen.
     js::Object* screen_proto = define_interface(in, "Screen", nullptr);
+    static constexpr std::string_view screen_event_types[] = { "change" };
+    define_event_handlers(in, *screen_proto, screen_event_types);
     for (std::string_view const name : { "width", "availWidth" })
         define_getter(in, *screen_proto, name, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(static_cast<double>(internals_of(interp).hooks.viewport_width)); });
     for (std::string_view const name : { "height", "availHeight" })
@@ -2045,19 +2047,14 @@ void install_window(Realm::Internals& in)
         });
     }
 
-    // The window's event handlers: the element set plus the window's own.
-    static constexpr std::string_view window_event_types[] = { "load", "error", "resize", "scroll", "unload", "beforeunload", "hashchange",
-        "popstate", "pageshow", "pagehide", "storage", "message", "messageerror", "online", "offline", "languagechange", "rejectionhandled",
-        "unhandledrejection", "focus", "blur", "click", "dblclick", "mousedown", "mouseup", "mousemove", "mouseover", "mouseout", "mouseenter",
-        "mouseleave", "keydown", "keyup", "keypress", "input", "change", "submit", "reset", "wheel", "contextmenu", "touchstart", "touchend",
-        "touchmove", "touchcancel", "pointerdown", "pointerup", "pointermove", "pointerover", "pointerout", "pointerenter", "pointerleave",
-        "pointercancel", "scrollend", "animationend", "animationstart", "animationiteration", "transitionend", "afterprint", "beforeprint",
-        "select", "abort", "auxclick", "copy", "cut", "paste", "drag", "dragstart", "dragend", "dragover", "dragenter", "dragleave", "drop",
-        "orientationchange", "devicemotion", "deviceorientation", "gamepadconnected", "gamepaddisconnected", "cancel", "canplay",
-        "canplaythrough", "close", "cuechange", "durationchange", "emptied", "ended", "invalid", "loadeddata", "loadedmetadata", "loadstart",
-        "pause", "play", "playing", "progress", "ratechange", "seeked", "seeking", "stalled", "suspend", "timeupdate", "volumechange",
-        "waiting" };
-    define_event_handlers(in, *global, window_event_types);
+    // The window's event handlers: HTML's GlobalEventHandlers, its
+    // WindowEventHandlers, and the device, gamepad and install sets the
+    // other specifications put on the window alone.
+    define_event_handlers(in, *global, global_event_handler_types());
+    define_event_handlers(in, *global, window_event_handler_types());
+    static constexpr std::string_view window_only_event_types[] = { "appinstalled", "beforeinstallprompt", "devicemotion",
+        "deviceorientation", "deviceorientationabsolute", "gamepadconnected", "gamepaddisconnected", "search" };
+    define_event_handlers(in, *global, window_only_event_types);
 
     // The window's bars (HTML §7.2.2.2): a browser's location bar, menu bar
     // and the rest, each visible, as a page with a browser around it sees

@@ -48,9 +48,14 @@ struct ListenerEntry {
 // or the one compiled from an on<type> content attribute, remembered with
 // the attribute text it came from so a changed attribute recompiles.
 struct EventHandler {
-    js::Value function; // undefined = null handler
+    js::Value function; // undefined = null handler, or not compiled yet when from_attribute
     std::string source; // the attribute text, when from_attribute
     bool from_attribute = false;
+    // A window handler whose attribute sits on a body or frameset element
+    // other than the document's body (HTML §8.1.8.2 forwards from every
+    // one in the active document): the check of the body's own attribute
+    // leaves it alone; the attribute's removal clears it.
+    bool from_another_body = false;
 };
 
 using HandlerMap = std::unordered_map<std::string, EventHandler>;
@@ -1593,6 +1598,18 @@ std::optional<double> parse_html_double(std::string_view);
 // Defines the on<type> handler accessors for these event types on a
 // prototype or the global.
 void define_event_handlers(Realm::Internals&, js::Object& target, std::span<std::string_view const> types);
+// HTML's GlobalEventHandlers (§8.1.8.2): the set every HTML, SVG and MathML
+// element, the document and the window expose.
+std::span<std::string_view const> global_event_handler_types();
+// HTML's WindowEventHandlers: the window's own, which the body and frameset
+// elements forward to it.
+std::span<std::string_view const> window_event_handler_types();
+// The current value of a target's on<type> handler (HTML §8.1.8.1), the
+// content attribute compiled when that is what it is; null for none.
+js::Value event_handler_of(Realm::Internals&, js::Object* target, std::string_view type);
+// Told of every attribute written on an element: a body's or frameset's
+// on<type> attribute for a window event becomes the window's handler.
+void window_handler_attribute_written(Realm::Internals&, dom::Element&, std::string_view local_name);
 
 // Attribute helpers that count as mutations. set_attribute and
 // remove_attribute find the first attribute by its qualified name, in any

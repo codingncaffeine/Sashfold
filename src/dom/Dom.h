@@ -285,6 +285,9 @@ public:
     // the content type a document made by script reports; a loaded
     // document's content type is its realm's.
     bool xml = false;
+    // Made by `new Document()`: a Document to script, neither an
+    // HTMLDocument nor an XMLDocument (DOM §4.5.1).
+    bool plain = false;
     std::string content_type = "text/html";
 
     template<typename T, typename... Args>

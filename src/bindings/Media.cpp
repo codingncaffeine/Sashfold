@@ -2127,6 +2127,12 @@ void install_media_element(Realm::Internals& in)
 
     js::Object& element = *in.prototype("HTMLMediaElement");
     js::Object& video_element = *in.prototype("HTMLVideoElement");
+    // The handlers Encrypted Media puts on a media element and Picture-in-
+    // Picture on a video, beside the GlobalEventHandlers every element has.
+    static constexpr std::string_view media_event_types[] = { "encrypted", "waitingforkey" };
+    static constexpr std::string_view video_event_types[] = { "enterpictureinpicture", "leavepictureinpicture" };
+    define_event_handlers(in, element, media_event_types);
+    define_event_handlers(in, video_element, video_event_types);
     element_getter(in, element, "currentSrc", [](Realm::Internals& internals, dom::Element& e) -> Native {
         return internals.string(live_state_of(internals, e).current_src);
     });
