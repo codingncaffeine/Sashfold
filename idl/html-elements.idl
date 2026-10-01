@@ -186,7 +186,6 @@ interface HTMLDListElement : HTMLElement {
 [Tags=(embed)]
 interface HTMLEmbedElement : HTMLElement {
   [Reflect, URL] attribute USVString src;
-  [Reflect, URL] attribute USVString data;
   [Reflect] attribute DOMString type;
   [Reflect] attribute DOMString width;
   [Reflect] attribute DOMString height;

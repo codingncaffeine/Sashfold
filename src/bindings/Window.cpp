@@ -669,9 +669,11 @@ void install_observer(Realm::Internals& in, std::string_view name, bool intersec
         (*observer)->targets.clear();
         return js::Value::undefined();
     });
-    define_operation(interpreter, *proto, "takeRecords", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-        return js::Value::object(interp.new_array());
-    });
+    if (intersection) { // a ResizeObserver has no takeRecords
+        define_operation(interpreter, *proto, "takeRecords", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+            return js::Value::object(interp.new_array());
+        });
+    }
     if (intersection) {
         define_getter(in, *proto, "root", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::null(); });
         define_getter(in, *proto, "rootMargin", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return internals_of(interp).string("0px 0px 0px 0px"); });
@@ -833,6 +835,16 @@ std::string random_uuid()
 
 // --- install_window ---------------------------------------------------------------------------------
 
+Native empty_iterator(js::Interpreter& interp, js::Value const&, Args)
+{
+    js::Interpreter::Roots const roots(interp);
+    js::Value const array = interp.root(js::Value::object(interp.new_array()));
+    std::optional<js::Value> const method = interp.get(array, js::PropertyKey::symbol(interp.atoms().symbol_iterator));
+    if (!method)
+        return std::nullopt;
+    return interp.call(*method, array, std::span<js::Value const>());
+}
+
 bool apply_url_part(net::Url& target, std::string_view part, std::string const& text)
 {
     if (part == "href") {
@@ -987,14 +999,29 @@ void install_window(Realm::Internals& in)
         js::Value const current = internals_of(interp).current_event;
         return current.is_object() ? current : js::Value::undefined();
     });
+    // VisualViewport (Visual Viewport API), an EventTarget: the layout
+    // viewport's size at scale 1, its scroll as the page offsets.
+    js::Object* viewport_proto = define_interface(in, "VisualViewport", in.prototype("EventTarget"));
+    define_getter(in, *viewport_proto, "width", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(static_cast<double>(internals_of(interp).hooks.viewport_width)); });
+    define_getter(in, *viewport_proto, "height", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(static_cast<double>(internals_of(interp).hooks.viewport_height)); });
+    define_getter(in, *viewport_proto, "scale", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(1); });
+    for (std::string_view const name : { "offsetLeft", "offsetTop" })
+        define_getter(in, *viewport_proto, name, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
+    for (auto const& [name, vertical] : { std::pair { "pageLeft", false }, std::pair { "pageTop", true } }) {
+        define_getter(in, *viewport_proto, name, [vertical](js::Interpreter& interp, js::Value const&, Args) -> Native {
+            Realm::Internals& internals = internals_of(interp);
+            std::pair<int, int> const scroll
+                = internals.hooks.scroll_position ? internals.hooks.scroll_position(*internals.document) : std::pair<int, int> { 0, 0 };
+            return js::Value::number(vertical ? scroll.second : scroll.first);
+        });
+    }
+    static constexpr std::string_view viewport_event_types[] = { "resize", "scroll", "scrollend" };
+    define_event_handlers(in, *viewport_proto, viewport_event_types);
     define_getter(in, *global, "visualViewport", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
-        std::pair<int, int> const scroll
-            = internals.hooks.scroll_position ? internals.hooks.scroll_position(*internals.document) : std::pair<int, int> { 0, 0 };
-        return js::Value::object(object_with(internals, { { "width", js::Value::number(static_cast<double>(internals.hooks.viewport_width)) },
-            { "height", js::Value::number(static_cast<double>(internals.hooks.viewport_height)) }, { "scale", js::Value::number(1) },
-            { "offsetLeft", js::Value::number(0) }, { "offsetTop", js::Value::number(0) }, { "pageLeft", js::Value::number(scroll.first) },
-            { "pageTop", js::Value::number(scroll.second) } }));
+        return js::Value::object(same_object(internals, "visualViewport", [&] {
+            return internals.interpreter.heap().allocate<EventTargetObject>(internals.prototype("VisualViewport"));
+        }));
     });
 
     // Timers.
@@ -1403,7 +1430,7 @@ void install_window(Realm::Internals& in)
     global->put(interpreter.key("clientInformation"), *global->get(interpreter, interpreter.key("navigator"), js::Value::object(global)), js::builtin_attributes);
 
     // Screen.
-    js::Object* screen_proto = define_interface(in, "Screen", nullptr);
+    js::Object* screen_proto = define_interface(in, "Screen", in.prototype("EventTarget"));
     static constexpr std::string_view screen_event_types[] = { "change" };
     define_event_handlers(in, *screen_proto, screen_event_types);
     for (std::string_view const name : { "width", "availWidth" })
@@ -1414,12 +1441,28 @@ void install_window(Realm::Internals& in)
         define_getter(in, *screen_proto, name, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(24); });
     for (std::string_view const name : { "availLeft", "availTop" })
         define_getter(in, *screen_proto, name, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
-    define_getter(in, *screen_proto, "orientation", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    // ScreenOrientation (Screen Orientation §3): the screen's, the same
+    // object every time; nothing here locks a screen, so lock() refuses.
+    js::Object* orientation_proto = define_interface(in, "ScreenOrientation", in.prototype("EventTarget"));
+    define_getter(in, *orientation_proto, "type", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         bool const landscape = internals.hooks.viewport_width >= internals.hooks.viewport_height;
-        return js::Value::object(object_with(internals, { { "type", internals.string(landscape ? "landscape-primary" : "portrait-primary") }, { "angle", js::Value::number(0) } }));
+        return internals.string(landscape ? "landscape-primary" : "portrait-primary");
     });
-    global->put(interpreter.key("screen"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(screen_proto, in.realm_record)), js::builtin_attributes);
+    define_getter(in, *orientation_proto, "angle", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
+    define_operation(interpreter, *orientation_proto, "lock", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        return rejected_promise(interp, dom_exception_value(internals_of(interp), "NotSupportedError", "screen.orientation.lock() is not available on this device."));
+    });
+    define_operation(interpreter, *orientation_proto, "unlock", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    static constexpr std::string_view orientation_event_types[] = { "change" };
+    define_event_handlers(in, *orientation_proto, orientation_event_types);
+    define_getter(in, *screen_proto, "orientation", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        return js::Value::object(same_object(internals, "screen.orientation", [&] {
+            return internals.interpreter.heap().allocate<EventTargetObject>(internals.prototype("ScreenOrientation"));
+        }));
+    });
+    global->put(interpreter.key("screen"), js::Value::object(interpreter.heap().allocate<EventTargetObject>(screen_proto)), js::builtin_attributes);
 
     // Storage.
     js::Object* storage_proto = define_interface(in, "Storage", nullptr);
@@ -1515,25 +1558,64 @@ void install_window(Realm::Internals& in)
     });
 
     // Performance.
-    js::Object* performance = interpreter.new_object();
-    global->put(interpreter.key("performance"), js::Value::object(performance), js::builtin_attributes);
-    define_operation(interpreter, *performance, "now", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    // Performance (High Resolution Time, Performance Timeline), an
+    // EventTarget, with the PerformanceTiming, PerformanceNavigation and
+    // EventCounts it hands out — each the same object every time. Nothing
+    // records entries yet: the lists are empty and the counts zero.
+    js::Object* performance_proto = define_interface(in, "Performance", in.prototype("EventTarget"));
+    define_operation(interpreter, *performance_proto, "now", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         return js::Value::number(internals.now() - internals.time_origin);
     });
-    performance->put(interpreter.key("timeOrigin"), js::Value::number(in.time_origin), js::builtin_attributes);
+    define_getter(in, *performance_proto, "timeOrigin", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(internals_of(interp).time_origin); });
     for (std::string_view const name : { "mark", "measure", "clearMarks", "clearMeasures", "clearResourceTimings", "setResourceTimingBufferSize" })
-        define_operation(interpreter, *performance, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+        define_operation(interpreter, *performance_proto, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
     for (std::string_view const name : { "getEntries", "getEntriesByType", "getEntriesByName" })
-        define_operation(interpreter, *performance, name, 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_array()); });
-    define_operation(interpreter, *performance, "toJSON", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_object()); });
-    performance->put(interpreter.key("timing"), js::Value::object(object_with(in, { { "navigationStart", js::Value::number(in.time_origin) },
-        { "fetchStart", js::Value::number(in.time_origin) }, { "domLoading", js::Value::number(in.time_origin) },
-        { "responseEnd", js::Value::number(in.time_origin) }, { "domInteractive", js::Value::number(0) }, { "domContentLoadedEventStart", js::Value::number(0) },
-        { "domContentLoadedEventEnd", js::Value::number(0) }, { "domComplete", js::Value::number(0) }, { "loadEventStart", js::Value::number(0) },
-        { "loadEventEnd", js::Value::number(0) } })), js::builtin_attributes);
-    performance->put(interpreter.key("navigation"), js::Value::object(object_with(in, { { "type", js::Value::number(0) }, { "redirectCount", js::Value::number(0) } })), js::builtin_attributes);
-    performance->put(interpreter.key("eventCounts"), js::Value::object(object_with(in, { { "size", js::Value::number(0) } })), js::builtin_attributes);
+        define_operation(interpreter, *performance_proto, name, 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_array()); });
+    define_operation(interpreter, *performance_proto, "toJSON", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_object()); });
+    static constexpr std::string_view performance_event_types[] = { "resourcetimingbufferfull" };
+    define_event_handlers(in, *performance_proto, performance_event_types);
+    js::Object* timing_proto = define_interface(in, "PerformanceTiming", nullptr);
+    for (std::string_view const name : { "navigationStart", "fetchStart", "domainLookupStart", "domainLookupEnd", "connectStart", "connectEnd",
+             "requestStart", "responseStart", "responseEnd", "domLoading" })
+        define_getter(in, *timing_proto, name, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(internals_of(interp).time_origin); });
+    for (std::string_view const name : { "unloadEventStart", "unloadEventEnd", "redirectStart", "redirectEnd", "secureConnectionStart", "domInteractive",
+             "domContentLoadedEventStart", "domContentLoadedEventEnd", "domComplete", "loadEventStart", "loadEventEnd" })
+        define_getter(in, *timing_proto, name, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
+    define_operation(interpreter, *timing_proto, "toJSON", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_object()); });
+    js::Object* navigation_proto = define_interface(in, "PerformanceNavigation", nullptr);
+    define_getter(in, *navigation_proto, "type", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
+    define_getter(in, *navigation_proto, "redirectCount", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
+    define_operation(interpreter, *navigation_proto, "toJSON", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_object()); });
+    {
+        std::optional<js::Value> const constructor = navigation_proto->get(interpreter, interpreter.key("constructor"), js::Value::object(navigation_proto));
+        for (auto const& [name, value] : { std::pair { "TYPE_NAVIGATE", 0.0 }, std::pair { "TYPE_RELOAD", 1.0 }, std::pair { "TYPE_BACK_FORWARD", 2.0 },
+                 std::pair { "TYPE_RESERVED", 255.0 } }) {
+            navigation_proto->put(interpreter.key(name), js::Value::number(value), js::Enumerable);
+            if (constructor && constructor->is_object())
+                constructor->as_object()->put(interpreter.key(name), js::Value::number(value), js::Enumerable);
+        }
+    }
+    js::Object* event_counts_proto = define_interface(in, "EventCounts", nullptr);
+    define_getter(in, *event_counts_proto, "size", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
+    define_operation(interpreter, *event_counts_proto, "get", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    define_operation(interpreter, *event_counts_proto, "has", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
+    define_operation(interpreter, *event_counts_proto, "forEach", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    for (std::string_view const name : { "entries", "keys", "values" })
+        define_operation(interpreter, *event_counts_proto, name, 0, empty_iterator);
+    if (std::optional<js::Value> const entries = event_counts_proto->get(interpreter, interpreter.key("entries"), js::Value::object(event_counts_proto)))
+        event_counts_proto->put(js::PropertyKey::symbol(interpreter.atoms().symbol_iterator), *entries, js::Writable | js::Configurable);
+    for (auto const& [name, interface] : { std::pair { "timing", "PerformanceTiming" }, std::pair { "navigation", "PerformanceNavigation" },
+             std::pair { "eventCounts", "EventCounts" } }) {
+        define_getter(in, *performance_proto, name,
+            [key = std::string(name), interface_name = std::string(interface)](js::Interpreter& interp, js::Value const&, Args) -> Native {
+                Realm::Internals& internals = internals_of(interp);
+                return js::Value::object(same_object(internals, "performance." + key, [&] {
+                    return internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype(interface_name), internals.realm_record);
+                }));
+            });
+    }
+    global->put(interpreter.key("performance"), js::Value::object(interpreter.heap().allocate<EventTargetObject>(performance_proto)), js::builtin_attributes);
 
     // Observers. IntersectionObserver is its own machinery (Intersection.cpp),
     // installed with the element machinery.
@@ -1563,15 +1645,21 @@ void install_window(Realm::Internals& in)
     // customElements is installed with the rest of its machinery
     // (CustomElements.cpp), after the element interfaces it builds on.
 
-    // crypto: randomUUID and getRandomValues over an array-like.
-    js::Object* crypto = interpreter.new_object();
-    global->put(interpreter.key("crypto"), js::Value::object(crypto), js::builtin_attributes);
+    // Crypto (Web Crypto §10): randomUUID and getRandomValues over an
+    // array-like, and subtle, the same SubtleCrypto object every time.
+    js::Object* crypto = define_interface(in, "Crypto", nullptr);
     // crypto.subtle (Web Crypto §14): digest() over the SHA-2 family, which
     // is what a page hashes with — a checksum, a proof of work — and would
     // otherwise do in script, a thousand times slower. Every other operation
     // is a promise refused, NotSupportedError, until keys are written.
-    js::Object* subtle = interpreter.new_object();
-    crypto->put(interpreter.key("subtle"), js::Value::object(subtle), js::builtin_attributes);
+    js::Object* subtle = define_interface(in, "SubtleCrypto", nullptr);
+    define_getter(in, *crypto, "subtle", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        return js::Value::object(same_object(internals, "crypto.subtle", [&] {
+            return internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("SubtleCrypto"), internals.realm_record);
+        }));
+    });
+    global->put(interpreter.key("crypto"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(crypto, in.realm_record)), js::builtin_attributes);
     define_operation(interpreter, *subtle, "digest", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         // The algorithm: its name, or an object with one; matched without case.

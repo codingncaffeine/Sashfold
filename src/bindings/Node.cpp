@@ -1067,7 +1067,9 @@ void install_node(Realm::Internals& in, js::Object& node)
 
 // --- ParentNode and ChildNode mixins --------------------------------------------------------
 
-void install_parent_node(Realm::Internals& in, js::Object& proto)
+// ParentNode (DOM §4.2.6) on a prototype; the collections by tag and class
+// name are Element's and Document's, not a fragment's.
+void install_parent_node(Realm::Internals& in, js::Object& proto, bool with_collections_by_name)
 {
     node_getter(in, proto, "children", [](Realm::Internals& internals, dom::Node& n) -> Native {
         dom::Node& container = n.is_element() ? content_container(static_cast<dom::Element&>(n)) : n;
@@ -1129,6 +1131,8 @@ void install_parent_node(Realm::Internals& in, js::Object& proto)
             return std::nullopt;
         return node_list(internals, query_all(n, *list, false));
     });
+    if (!with_collections_by_name)
+        return;
     node_method(in, proto, "getElementsByTagName", 1, [](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
         std::optional<std::string> const name = string_argument(internals, args, 0);
         if (!name)
@@ -1242,7 +1246,7 @@ void install_child_node(Realm::Internals& in, js::Object& proto)
 
 void install_element(Realm::Internals& in, js::Object& element)
 {
-    install_parent_node(in, element);
+    install_parent_node(in, element, true);
     install_child_node(in, element);
     element_getter(in, element, "tagName", [](Realm::Internals& internals, dom::Element& e) -> Native { return internals.string(tag_name_of(e)); });
     element_getter(in, element, "localName", [](Realm::Internals& internals, dom::Element& e) -> Native { return internals.string(e.local_name()); });
@@ -1886,7 +1890,7 @@ void install_nodes(Realm::Internals& in)
             Realm::Internals& internals = internals_of(interp);
             return js::Value::object(internals.wrap(*internals.document->create<dom::DocumentFragment>()));
         });
-    install_parent_node(in, *fragment);
+    install_parent_node(in, *fragment, false);
     // ShadowRoot: the interface object alone. attachShadow refuses with
     // NotSupportedError, so no page gets one, but a library's
     // `node instanceof ShadowRoot` must be a question, not a ReferenceError.

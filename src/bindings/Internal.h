@@ -1127,6 +1127,10 @@ struct Realm::Internals {
     std::unordered_map<dom::Element const*, bool> fallback_checked;
     dom::Element const* fallback_focus = nullptr;
     js::Object* location = nullptr;
+    // The objects an attribute marked [SameObject] hands out — crypto.subtle,
+    // screen.orientation, document.fonts and the rest — made once each and
+    // kept here with the realm's roots (see same_object).
+    std::unordered_map<std::string, js::Object*> same_objects;
     js::Object* local_storage_object = nullptr;
     js::Object* session_storage_object = nullptr;
     js::Object* history_state_holder = nullptr;
@@ -1613,6 +1617,23 @@ js::Value event_handler_of(Realm::Internals&, js::Object* target, std::string_vi
 // Told of every attribute written on an element: a body's or frameset's
 // on<type> attribute for a window event becomes the window's handler.
 void window_handler_attribute_written(Realm::Internals&, dom::Element&, std::string_view local_name);
+
+// An attribute marked [SameObject] (WebIDL): the object `make` builds the
+// first time, kept with the realm's roots under `key` and handed out again.
+template<typename Make>
+js::Object* same_object(Realm::Internals& in, std::string_view key, Make make)
+{
+    auto const it = in.same_objects.find(std::string(key));
+    if (it != in.same_objects.end())
+        return it->second;
+    js::Object* const made = make();
+    in.same_objects.emplace(std::string(key), made);
+    return made;
+}
+
+// An iterator over nothing, for a set- or map-like interface with nothing
+// in it (document.fonts, performance.eventCounts).
+Native empty_iterator(js::Interpreter&, js::Value const&, Args);
 
 // Sets one part of a URL as the URL interface's setters do (URL §6.4):
 // href, protocol, host, hostname, port, pathname, search, hash, username

@@ -219,7 +219,9 @@ void install_labels(Realm::Internals& in, js::Object& proto)
 }
 
 // form, validity and the validation methods every control carries.
-void install_form_control_common(Realm::Internals& in, js::Object& proto)
+// What every form-associated element has; `labelable` is false for the
+// ones no label can be for (a fieldset), which have no labels.
+void install_form_control_common(Realm::Internals& in, js::Object& proto, bool labelable = true)
 {
     element_getter(in, proto, "form", [](Realm::Internals& internals, dom::Element& e) -> Native {
         if (dom::Attr const* form_id = e.find_attribute("form")) {
@@ -246,7 +248,8 @@ void install_form_control_common(Realm::Internals& in, js::Object& proto)
     element_method(in, proto, "checkValidity", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(true); });
     element_method(in, proto, "reportValidity", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(true); });
     element_method(in, proto, "setCustomValidity", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
-    install_labels(in, proto);
+    if (labelable)
+        install_labels(in, proto);
 }
 
 void install_value_accessor(Realm::Internals& in, js::Object& proto)
@@ -987,7 +990,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             }
             return js::Value::null();
         });
-        install_form_control_common(in, proto_of("HTMLFieldSetElement"));
+        install_form_control_common(in, proto_of("HTMLFieldSetElement"), false);
         element_getter(in, proto_of("HTMLFieldSetElement"), "type", [](Realm::Internals& internals, dom::Element&) -> Native { return internals.string("fieldset"); });
         element_getter(in, proto_of("HTMLFieldSetElement"), "elements", [](Realm::Internals& internals, dom::Element& e) -> Native {
             std::vector<dom::Node*> descendants;
@@ -1070,11 +1073,6 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 return js::Value::object(frame->wrap(frame->document()));
             });
         }
-        // An embed has no contentWindow or contentDocument in HTML's IDL; both
-        // answer null, as before.
-        js::Object& embed = proto_of("HTMLEmbedElement");
-        element_getter(in, embed, "contentWindow", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
-        element_getter(in, embed, "contentDocument", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
         // getContext, toDataURL and toBlob are the 2D context's (Canvas.cpp).
         js::Object& canvas = proto_of("HTMLCanvasElement");
         element_method(in, canvas, "captureStream", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::null(); });
@@ -1265,7 +1263,8 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                     return js::Value::undefined();
                 });
         }
-        element_getter(in, proto, "position", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(-1); });
+        if (!meter) // a progress bar's position; a meter has none
+            element_getter(in, proto, "position", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(-1); });
     }
     element_getter(in, proto_of("HTMLTemplateElement"), "content", [](Realm::Internals& internals, dom::Element& e) -> Native {
         return js::Value::object(internals.wrap(content_container(e)));

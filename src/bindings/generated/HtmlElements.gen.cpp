@@ -314,7 +314,6 @@ void install_reflected_attributes(Realm::Internals& in)
     {
         js::Object& proto = *in.prototype("HTMLEmbedElement");
         reflect_url(in, proto, "src", "src");
-        reflect_url(in, proto, "data", "data");
         reflect_string(in, proto, "type", "type");
         reflect_string(in, proto, "width", "width");
         reflect_string(in, proto, "height", "height");

@@ -468,34 +468,54 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_getter(in, *document, "styleSheets", [](Realm::Internals& internals, dom::Document&) -> Native {
         return js::Value::object(internals.interpreter.new_array());
     });
+    // FontFaceSet (CSS Font Loading §4), an EventTarget and a set with
+    // nothing in it: the page's fonts are loaded by the layout, not through
+    // here, so load() answers at once with no faces and ready is already so.
+    js::Object* font_face_set = define_interface(in, "FontFaceSet", in.prototype("EventTarget"));
+    define_getter(in, *font_face_set, "status", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return internals_of(interp).string("loaded"); });
+    define_getter(in, *font_face_set, "size", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
+    define_getter(in, *font_face_set, "ready", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native { return resolved_promise(interp, this_value); });
+    define_operation(interpreter, *font_face_set, "check", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
+    define_operation(interpreter, *font_face_set, "load", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        return resolved_promise(interp, js::Value::object(interp.new_array()));
+    });
+    define_operation(interpreter, *font_face_set, "add", 1, [](js::Interpreter&, js::Value const& this_value, Args) -> Native { return this_value; });
+    define_operation(interpreter, *font_face_set, "delete", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
+    define_operation(interpreter, *font_face_set, "has", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
+    define_operation(interpreter, *font_face_set, "clear", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    define_operation(interpreter, *font_face_set, "forEach", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    for (std::string_view const name : { "entries", "keys", "values" })
+        define_operation(interpreter, *font_face_set, name, 0, empty_iterator);
+    if (std::optional<js::Value> const values = font_face_set->get(interpreter, interpreter.key("values"), js::Value::object(font_face_set)))
+        font_face_set->put(js::PropertyKey::symbol(interpreter.atoms().symbol_iterator), *values, js::Writable | js::Configurable);
+    static constexpr std::string_view font_face_set_event_types[] = { "loading", "loadingdone", "loadingerror" };
+    define_event_handlers(in, *font_face_set, font_face_set_event_types);
     document_getter(in, *document, "fonts", [](Realm::Internals& internals, dom::Document&) -> Native {
-        js::Heap::NoCollect const no_collect(internals.interpreter.heap());
-        js::Object* fonts = internals.interpreter.new_object();
-        fonts->put(internals.interpreter.key("status"), internals.string("loaded"));
-        fonts->put(internals.interpreter.key("size"), js::Value::number(0));
-        define_operation(internals.interpreter, *fonts, "check", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
-        // The page's fonts are loaded by the layout, not through here: load()
-        // answers at once with no faces, and ready is already so.
-        define_operation(internals.interpreter, *fonts, "load", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-            return resolved_promise(interp, js::Value::object(interp.new_array()));
-        });
-        define_attribute(internals.interpreter, *fonts, "ready", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
-            return resolved_promise(interp, this_value);
-        });
-        define_operation(internals.interpreter, *fonts, "addEventListener", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-        define_operation(internals.interpreter, *fonts, "removeEventListener", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-        return js::Value::object(fonts);
+        return js::Value::object(same_object(internals, "document.fonts", [&] {
+            return internals.interpreter.heap().allocate<EventTargetObject>(internals.prototype("FontFaceSet"));
+        }));
     });
     document_getter(in, *document, "implementation", [](Realm::Internals& internals, dom::Document&) -> Native {
         js::Heap::NoCollect const no_collect(internals.interpreter.heap());
         js::Object* implementation = internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("DOMImplementation"), internals.realm_record);
         return js::Value::object(implementation);
     });
+    // AnimationTimeline and DocumentTimeline (Web Animations §4): the
+    // document's time, in milliseconds since its origin; the document's own
+    // is the same object every time, and a page may make more.
+    js::Object* animation_timeline = define_interface(in, "AnimationTimeline", nullptr);
+    define_getter(in, *animation_timeline, "currentTime", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        return js::Value::number(internals.now() - internals.time_origin);
+    });
+    define_interface(in, "DocumentTimeline", animation_timeline, [](js::Interpreter& interp, Args, js::Object*) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        return js::Value::object(interp.heap().allocate<PlainPlatformObject>(internals.prototype("DocumentTimeline"), internals.realm_record));
+    });
     document_getter(in, *document, "timeline", [](Realm::Internals& internals, dom::Document&) -> Native {
-        js::Heap::NoCollect const no_collect(internals.interpreter.heap());
-        js::Object* timeline = internals.interpreter.new_object();
-        timeline->put(internals.interpreter.key("currentTime"), js::Value::number(internals.now() - internals.time_origin));
-        return js::Value::object(timeline);
+        return js::Value::object(same_object(internals, "document.timeline", [&] {
+            return internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("DocumentTimeline"), internals.realm_record);
+        }));
     });
 
     // The element collections.

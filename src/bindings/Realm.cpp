@@ -3089,6 +3089,8 @@ void Realm::trace_roots(js::Tracer& tracer)
     tracer.visit(in.current_event);
     tracer.visit(in.history_state);
     tracer.visit(in.location);
+    for (auto const& [key, object] : in.same_objects)
+        tracer.visit(object);
     tracer.visit(in.local_storage_object);
     tracer.visit(in.session_storage_object);
     for (auto const& [name, prototype] : in.prototypes)
