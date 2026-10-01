@@ -95,6 +95,7 @@ std::string class_name(Object const& object)
     // reports in a message).
     case Object::Class::Proxy: return "Object";
     case Object::Class::Intl: return std::string(intl_kind_name(static_cast<IntlObject const&>(object).kind()));
+    case Object::Class::DisposableStack: return "DisposableStack";
     }
     return "Object";
 }

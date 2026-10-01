@@ -1592,6 +1592,8 @@ void install_symbol(Interpreter& in)
         { "species", atoms.symbol_species },
         { "unscopables", atoms.symbol_unscopables },
         { "asyncIterator", atoms.symbol_async_iterator },
+        { "dispose", atoms.symbol_dispose },
+        { "asyncDispose", atoms.symbol_async_dispose },
     };
     for (WellKnown const& entry : well_known)
         constructor->put(in.key(entry.name), Value::symbol(entry.symbol), frozen_attributes);
@@ -1698,6 +1700,7 @@ void install_intrinsics(Interpreter& in)
     install_typed_arrays(in);
     install_data_view(in);
     install_promise(in);
+    install_disposable(in);
     install_generators(in);
     install_reflect(in);
     install_proxy(in);

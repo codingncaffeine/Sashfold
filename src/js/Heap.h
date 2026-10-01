@@ -274,6 +274,8 @@ struct WellKnownAtoms {
     Symbol* symbol_species = nullptr;
     Symbol* symbol_unscopables = nullptr;
     Symbol* symbol_async_iterator = nullptr;
+    Symbol* symbol_dispose = nullptr;
+    Symbol* symbol_async_dispose = nullptr;
 };
 
 class Persistent;

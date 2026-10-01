@@ -402,6 +402,125 @@ void test_conversions_through_script()
     CHECK_JS_TRUE(in, "(function () { var o = { get length() { return 3; } }; Object.setPrototypeOf(o, Array.prototype); return Array.prototype.isPrototypeOf(o); })()");
 }
 
+// Runs a script, drains the job queue, and answers `out.join(' ')`.
+std::string settled(js::Interpreter& in, std::string_view source)
+{
+    test::JsRun const run = test::run_js(in, source);
+    if (!run.ok)
+        return "threw " + run.thrown;
+    in.run_jobs([&in](js::Value const& thrown) {
+        test::fail("a job threw: " + in.describe(thrown), __FILE__, __LINE__);
+    });
+    return test::eval_string(in, "out.join(' ')");
+}
+
+// Explicit resource management: the two symbols, SuppressedError, the
+// stacks that dispose in reverse and carry every error, the iterator
+// prototypes' dispose methods.
+void test_explicit_resource_management()
+{
+    js::Interpreter& in = fresh();
+    CHECK_JS_TRUE(in, "typeof Symbol.dispose === 'symbol' && Symbol.dispose.description === 'Symbol.dispose' && Symbol.asyncDispose.description === 'Symbol.asyncDispose'");
+    CHECK_JS_TRUE(in, "(function () { var d = Object.getOwnPropertyDescriptor(Symbol, 'dispose'); return !d.writable && !d.enumerable && !d.configurable; })()");
+    // SuppressedError.
+    CHECK_JS_TRUE(in, "(function () { var e = new SuppressedError(1, 2, 'm'); return e.error === 1 && e.suppressed === 2 && e.message === 'm' && e.name === 'SuppressedError'"
+                      " && e instanceof SuppressedError && e instanceof Error && Object.getPrototypeOf(SuppressedError) === Error && SuppressedError.length === 3; })()");
+    CHECK_JS_TRUE(in, "(function () { var e = SuppressedError(1, 2); return e instanceof SuppressedError && Object.getOwnPropertyNames(e).indexOf('message') === -1 && e.message === ''; })()");
+    CHECK_JS_TRUE(in, "(function () { var e = new SuppressedError(1, 2, 'm', { cause: 3 }); var d = Object.getOwnPropertyDescriptor(e, 'error'); return e.cause === 3 && d.writable && !d.enumerable && d.configurable; })()");
+    CHECK_JS_TRUE(in, "String(new SuppressedError(1, 2, 'why')) === 'SuppressedError: why' && SuppressedError.prototype.message === '' && typeof new SuppressedError().stack === 'string'");
+    // DisposableStack: reverse order, use/adopt/defer, disposed, move.
+    CHECK_JS_TRUE(in, R"JS((function () {
+        var out = [];
+        var s = new DisposableStack();
+        var a = { [Symbol.dispose]() { out.push('a ' + (this === a)); } };
+        if (s.use(a) !== a || s.use(null) !== null || s.use(undefined) !== undefined) return false;
+        if (s.adopt(7, function (v) { 'use strict'; out.push('adopt ' + v + ' ' + (this === undefined)); }) !== 7) return false;
+        if (s.defer(function () { out.push('defer ' + arguments.length); }) !== undefined) return false;
+        if (s.disposed) return false;
+        s.dispose();
+        s.dispose();
+        return s.disposed && out.join(',') === 'defer 0,adopt 7 true,a true' && s[Symbol.dispose] === DisposableStack.prototype.dispose
+            && Object.prototype.toString.call(s) === '[object DisposableStack]' && DisposableStack.length === 0;
+    })())JS");
+    CHECK_JS_THROWS(in, "new DisposableStack().use({})", "TypeError");
+    CHECK_JS_THROWS(in, "new DisposableStack().adopt(1, 2)", "TypeError");
+    CHECK_JS_THROWS(in, "new DisposableStack().defer()", "TypeError");
+    CHECK_JS_THROWS(in, "DisposableStack()", "TypeError");
+    CHECK_JS_THROWS(in, "(function () { var s = new DisposableStack(); s.dispose(); s.defer(function () {}); })()", "ReferenceError");
+    CHECK_JS_THROWS(in, "(function () { var s = new DisposableStack(); s.dispose(); s.move(); })()", "ReferenceError");
+    CHECK_JS_THROWS(in, "DisposableStack.prototype.dispose.call({})", "TypeError");
+    CHECK_JS_TRUE(in, R"JS((function () {
+        var out = [];
+        var s = new DisposableStack();
+        s.defer(function () { out.push('one'); });
+        var t = s.move();
+        if (!s.disposed || t.disposed || !(t instanceof DisposableStack)) return false;
+        s.dispose();
+        if (out.length !== 0) return false;
+        t.dispose();
+        return out.join() === 'one' && t.disposed;
+    })())JS");
+    // Every error is kept: the later wraps the earlier.
+    CHECK_JS_TRUE(in, R"JS((function () {
+        var s = new DisposableStack();
+        s.defer(function () { throw 1; });
+        s.defer(function () { throw 2; });
+        s.defer(function () { throw 3; });
+        try { s.dispose(); } catch (e) {
+            return e instanceof SuppressedError && e.error === 1 && e.suppressed instanceof SuppressedError && e.suppressed.error === 2
+                && e.suppressed.suppressed === 3 && e.message === 'An error was suppressed during disposal' && s.disposed;
+        }
+        return false;
+    })())JS");
+    CHECK_JS_TRUE(in, "(function () { var s = new DisposableStack(); s.defer(function () { throw 'only'; }); try { s.dispose(); } catch (e) { return e === 'only'; } return false; })()");
+    // The iterator prototypes' dispose methods call return.
+    CHECK_JS_TRUE(in, R"JS((function () {
+        var proto = Object.getPrototypeOf(Object.getPrototypeOf([][Symbol.iterator]()));
+        if (typeof proto[Symbol.dispose] !== 'function' || proto[Symbol.dispose].name !== '[Symbol.dispose]') return false;
+        var closed = 0;
+        var it = { __proto__: proto, return: function () { closed++; return {}; } };
+        var bare = { __proto__: proto };
+        it[Symbol.dispose]();
+        bare[Symbol.dispose]();
+        return closed === 1;
+    })())JS");
+    // AsyncDisposableStack: each dispose awaited in turn, the promise at the end.
+    CHECK_EQ(settled(in, R"JS(
+        var out = [];
+        var s = new AsyncDisposableStack();
+        s.use({ [Symbol.asyncDispose]() { out.push('async'); return new Promise(function (r) { out.push('pending'); r(); }); } });
+        s.use({ [Symbol.dispose]() { out.push('sync'); return { then: function () { out.push('never'); } }; } });
+        s.defer(function () { out.push('defer'); });
+        var p = s.disposeAsync();
+        out.push('returned ' + (p instanceof Promise) + ' ' + s.disposed);
+        p.then(function (v) { out.push('done ' + v); });
+        s.disposeAsync().then(function () { out.push('again'); });
+        var q = AsyncDisposableStack.prototype.disposeAsync.call({});
+        q.catch(function (e) { out.push('bad ' + e.name); });
+        out.push('order');
+    )JS"), "defer returned true true order sync again bad TypeError async pending done undefined");
+    CHECK_EQ(settled(in, R"JS(
+        var out = [];
+        var s = new AsyncDisposableStack();
+        s.defer(function () { throw 'first'; });
+        s.adopt('v', function (v) { out.push('adopt ' + v); return Promise.reject('second'); });
+        s.defer(function () { return Promise.reject('third'); });
+        s.disposeAsync().catch(function (e) { out.push(e.error + ' ' + e.suppressed.error + ' ' + e.suppressed.suppressed + ' ' + (e instanceof SuppressedError)); });
+        out.push(s[Symbol.asyncDispose] === AsyncDisposableStack.prototype.disposeAsync);
+    )JS"), "true adopt v first second third true");
+    CHECK_JS_TRUE(in, "Object.prototype.toString.call(new AsyncDisposableStack()) === '[object AsyncDisposableStack]' && AsyncDisposableStack.prototype.use.length === 1");
+    CHECK_JS_THROWS(in, "new AsyncDisposableStack().use({ [Symbol.iterator]() {} })", "TypeError");
+    CHECK_EQ(settled(in, R"JS(
+        var out = [];
+        var proto = Object.getPrototypeOf(Object.getPrototypeOf(Object.getPrototypeOf((async function* () {})())));
+        if (typeof proto[Symbol.asyncDispose] !== 'function' || proto.return !== undefined) out.push('wrong prototype');
+        var it = { __proto__: proto, return: function () { out.push('return'); return Promise.resolve('r'); } };
+        it[Symbol.asyncDispose]().then(function (v) { out.push('disposed ' + v); });
+        var bare = { __proto__: proto };
+        bare[Symbol.asyncDispose]().then(function (v) { out.push('bare ' + v); });
+    )JS"), "return bare undefined disposed undefined");
+}
+
 } // namespace
 
 int main()
@@ -416,5 +535,6 @@ int main()
     test_math();
     test_global_functions();
     test_conversions_through_script();
+    test_explicit_resource_management();
     return sashfold::test::report("js_runtime");
 }

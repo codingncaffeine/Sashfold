@@ -103,6 +103,11 @@ struct Intrinsics {
     Function* promise_constructor = nullptr;
     Object* aggregate_error_prototype = nullptr;
     Function* aggregate_error_constructor = nullptr;
+    // Explicit resource management (§20.5.9, §27.4, §27.5).
+    Object* suppressed_error_prototype = nullptr;
+    Function* suppressed_error_constructor = nullptr;
+    Object* disposable_stack_prototype = nullptr;
+    Object* async_disposable_stack_prototype = nullptr;
     // Generators and async functions (§27.3–§27.7): the function
     // prototypes each kind of function object hangs off, the constructors
     // that make one from source text, and the prototypes their instances

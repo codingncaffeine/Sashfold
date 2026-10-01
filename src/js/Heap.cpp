@@ -235,6 +235,8 @@ void Heap::collect()
     tracer.visit(m_well_known.symbol_species);
     tracer.visit(m_well_known.symbol_unscopables);
     tracer.visit(m_well_known.symbol_async_iterator);
+    tracer.visit(m_well_known.symbol_dispose);
+    tracer.visit(m_well_known.symbol_async_dispose);
     for (RootProvider* provider : m_root_providers)
         provider->trace_roots(tracer);
     for (Persistent const* persistent : m_persistents)
@@ -545,6 +547,8 @@ void Heap::intern_well_known()
     a.symbol_species = symbol(atom(std::string_view("Symbol.species")));
     a.symbol_unscopables = symbol(atom(std::string_view("Symbol.unscopables")));
     a.symbol_async_iterator = symbol(atom(std::string_view("Symbol.asyncIterator")));
+    a.symbol_dispose = symbol(atom(std::string_view("Symbol.dispose")));
+    a.symbol_async_dispose = symbol(atom(std::string_view("Symbol.asyncDispose")));
 }
 
 // ------------------------------------------------------------ Persistent

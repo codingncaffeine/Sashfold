@@ -33,6 +33,7 @@ void install_date(Interpreter&); // Date — RuntimeDate.cpp
 void install_iterators(Interpreter&); // %IteratorPrototype%, the array and string iterators, Array.prototype.values and kin — RuntimeIterator.cpp
 void install_collections(Interpreter&); // Map, Set, WeakMap, WeakSet, their iterators, Map.groupBy and Object.groupBy — RuntimeCollections.cpp
 void install_promise(Interpreter&); // Promise, AggregateError, and the job queue's definitions — RuntimePromise.cpp
+void install_disposable(Interpreter&); // SuppressedError, DisposableStack, AsyncDisposableStack, @@dispose on the iterator prototypes — RuntimeDisposable.cpp
 void install_generators(Interpreter&); // %GeneratorFunction%, %GeneratorPrototype%, %AsyncFunction% — RuntimeGenerator.cpp
 void install_array_buffer(Interpreter&); // ArrayBuffer — RuntimeArrayBuffer.cpp
 void install_typed_arrays(Interpreter&); // %TypedArray% and its nine kinds — RuntimeTypedArray.cpp

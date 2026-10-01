@@ -78,6 +78,9 @@ test/built-ins/TypedArrayConstructors
 test/built-ins/undefined
 test/built-ins/WeakMap
 test/built-ins/WeakSet
+test/built-ins/DisposableStack
+test/built-ins/AsyncDisposableStack
+test/built-ins/SuppressedError
 test/built-ins/eval
 test/built-ins/decodeURI
 test/built-ins/decodeURIComponent

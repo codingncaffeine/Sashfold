@@ -129,6 +129,7 @@ public:
         ModuleNamespace, // a module namespace exotic object (§10.4.6): a module's exports as live properties
         Proxy, // a proxy exotic object (§10.5): every internal method is a call to a handler's trap
         Intl, // an object an ECMA-402 constructor made (js/Intl.h: IntlObject, its kind says which)
+        DisposableStack, // §27.4 and §27.5: a stack of resources to dispose of, sync or async
     };
 
     explicit Object(Object* prototype, Class class_id = Class::Object)

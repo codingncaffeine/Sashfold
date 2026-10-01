@@ -2394,6 +2394,10 @@ void RealmRecord::trace(Tracer& tracer)
     tracer.visit(i.promise_constructor);
     tracer.visit(i.aggregate_error_prototype);
     tracer.visit(i.aggregate_error_constructor);
+    tracer.visit(i.suppressed_error_prototype);
+    tracer.visit(i.suppressed_error_constructor);
+    tracer.visit(i.disposable_stack_prototype);
+    tracer.visit(i.async_disposable_stack_prototype);
     tracer.visit(i.generator_function_prototype);
     tracer.visit(i.generator_function);
     tracer.visit(i.generator_prototype);
