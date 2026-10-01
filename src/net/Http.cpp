@@ -776,6 +776,7 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
             return { std::nullopt, "could not decode response body" };
         response.body = std::move(*decoded);
         response.redirected = redirected;
+        response.sent_headers = sent_headers;
         if (options.cache && method == "GET" && response.status == 200)
             options.cache->store(current, response, unix_now(), &sent_headers);
         return { std::move(response), "" };

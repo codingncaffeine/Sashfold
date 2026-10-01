@@ -32,6 +32,9 @@ struct FetchResponse {
     Url final_url; // where the redirect chain landed
     bool from_cache = false; // served by the HttpCache, no network touched
     bool redirected = false; // at least one redirect was followed on the way
+    // The request's headers as they went out on the last hop — the caller's,
+    // the referrer, the cookies — for the net trace to show what was sent.
+    std::vector<Header> sent_headers;
 };
 
 // A request a page's script makes (fetch, XMLHttpRequest), as the loader

@@ -10,6 +10,7 @@
 #include <fstream>
 #include <iostream>
 #include <sstream>
+#include <string_view>
 #include <vector>
 
 namespace sashfold::ui {
@@ -66,6 +67,27 @@ void trace_request(std::string const& method, net::Url const& url, std::vector<s
             keep_bytes(stem + ".req", sent);
         if (result.response)
             keep_bytes(stem + ".res", result.response->body);
+        if (result.response) {
+            // The headers sent, a cookie by its name alone: what the jar sent
+            // matters here, not what it holds.
+            std::ofstream header_file(stem + ".hdr", std::ios::binary);
+            for (net::Header const& field : result.response->sent_headers) {
+                if (field.name == "Cookie" || field.name == "cookie") {
+                    header_file << "Cookie:";
+                    std::string_view rest = field.value;
+                    while (!rest.empty()) {
+                        std::size_t const semicolon = rest.find(';');
+                        std::string_view const pair = rest.substr(0, semicolon);
+                        rest = semicolon == std::string_view::npos ? std::string_view {} : rest.substr(semicolon + 1);
+                        std::string_view const name = pair.substr(0, pair.find('='));
+                        header_file << ' ' << (name.starts_with(' ') ? name.substr(1) : name);
+                    }
+                    header_file << '\n';
+                    continue;
+                }
+                header_file << field.name << ": " << field.value << '\n';
+            }
+        }
     }
     if (result.response) {
         std::cerr << "net: " << trace_stamp() << label << method << " " << result.response->status << " " << shown << " ("
