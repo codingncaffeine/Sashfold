@@ -57,4 +57,11 @@ struct Url {
 // nullopt == failure.
 std::optional<Url> parse_url(std::string_view input, Url const* base = nullptr);
 
+// The parts a setter of the URL interface, of a hyperlink element or of
+// the location changes (URL §6.4), each applied under its own rules by the
+// parser run with that part's state override. A value that cannot apply
+// leaves the URL as it was.
+enum class UrlPart { Protocol, Username, Password, Host, Hostname, Port, Pathname, Search, Hash };
+void apply_url_setter(Url& url, UrlPart part, std::string_view value);
+
 }

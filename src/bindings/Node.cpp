@@ -522,6 +522,23 @@ std::optional<LayoutBox> client_box(Realm::Internals& in, dom::Element const& el
     return box;
 }
 
+// A DOMRectReadOnly or DOMRect: the four numbers in slots, read and written
+// through the prototypes' accessors (Geometry Interfaces §4).
+class RectObject final : public js::Object {
+public:
+    RectObject(js::Object* prototype, js::RealmRecord* realm, double left, double top, double w, double h);
+    js::RealmRecord* home_realm() const override { return m_realm; }
+    void trace(js::Tracer&) override;
+
+    double x;
+    double y;
+    double width;
+    double height;
+
+private:
+    js::RealmRecord* m_realm;
+};
+
 js::Value make_rect(Realm::Internals& in, LayoutBox const& box)
 {
     return make_rect(in, static_cast<double>(box.x), static_cast<double>(box.y), static_cast<double>(box.width), static_cast<double>(box.height));
@@ -531,12 +548,23 @@ js::Value make_rect(Realm::Internals& in, double x, double y, double width, doub
 {
     js::Interpreter& interpreter = in.interpreter;
     js::Heap::NoCollect const guard(interpreter.heap());
-    js::Object* rect = interpreter.new_object(in.prototype("DOMRect"));
-    rect->put(interpreter.key("x"), js::Value::number(x));
-    rect->put(interpreter.key("y"), js::Value::number(y));
-    rect->put(interpreter.key("width"), js::Value::number(width));
-    rect->put(interpreter.key("height"), js::Value::number(height));
-    return js::Value::object(rect);
+    return js::Value::object(interpreter.heap().allocate<RectObject>(in.prototype("DOMRect"), in.realm_record, x, y, width, height));
+}
+
+RectObject::RectObject(js::Object* prototype, js::RealmRecord* realm, double left, double top, double w, double h)
+    : Object(prototype)
+    , x(left)
+    , y(top)
+    , width(w)
+    , height(h)
+    , m_realm(realm)
+{
+}
+
+void RectObject::trace(js::Tracer& tracer)
+{
+    Object::trace(tracer);
+    tracer.visit(m_realm);
 }
 
 // --- Argument helpers ---------------------------------------------------------------------
@@ -1457,7 +1485,6 @@ void install_element(Realm::Internals& in, js::Object& element)
     };
     element_method(in, element, "matches", 1, matches_native);
     element_method(in, element, "webkitMatchesSelector", 1, matches_native);
-    element_method(in, element, "msMatchesSelector", 1, matches_native);
     element_method(in, element, "closest", 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
         std::optional<std::string> const text = string_argument(internals, args, 0);
         if (!text)
@@ -1789,9 +1816,38 @@ void install_nodes(Realm::Internals& in)
         in, *svg_element, "style",
         [](Realm::Internals& internals, dom::Element& e) -> Native { return make_style_declaration(internals, &e, false); }, "cssText");
     install_svg_links(in, *svg_element);
+    // The nearest svg element above an SVG element, or null for the
+    // outermost one (SVG §5.9); the viewport one is the same here, as no
+    // symbol, pattern or marker establishes a viewport of its own yet.
+    for (std::string_view const name : { "ownerSVGElement", "viewportElement" }) {
+        element_getter(in, *svg_element, name, [](Realm::Internals& internals, dom::Element& e) -> Native {
+            for (dom::Node* at = e.parent(); at; at = at->parent()) {
+                if (at->is_element() && static_cast<dom::Element*>(at)->is_svg("svg"))
+                    return js::Value::object(internals.wrap(*at));
+            }
+            return js::Value::null();
+        });
+    }
     js::Object* mathml_element = define_interface(in, "MathMLElement", element);
     define_event_handlers(in, *mathml_element, global_event_handler_types());
     install_html_elements(in, *html_element);
+    // HTMLOrSVGElement (HTML §4.?): dataset, nonce, autofocus, tabIndex,
+    // focus and blur are an SVG element's and a MathML element's as they
+    // are an HTML element's — the same accessors, which take any element;
+    // and a MathML element's inline style is as an SVG element's.
+    for (js::Object* proto : { svg_element, mathml_element }) {
+        for (std::string_view const name : { "dataset", "nonce", "autofocus", "tabIndex", "focus", "blur" }) {
+            std::optional<js::PropertyDescriptor> const descriptor = html_element->get_own_property(interpreter.key(name));
+            if (!descriptor)
+                continue;
+            if (descriptor->get)
+                proto->put_accessor(interpreter.key(name), *descriptor->get, descriptor->set.value_or(nullptr), js::Enumerable | js::Configurable);
+            else if (descriptor->value)
+                proto->put(interpreter.key(name), *descriptor->value, js::Writable | js::Enumerable | js::Configurable);
+        }
+    }
+    if (std::optional<js::PropertyDescriptor> const style = svg_element->get_own_property(interpreter.key("style")); style && style->get)
+        mathml_element->put_accessor(interpreter.key("style"), *style->get, style->set.value_or(nullptr), js::Enumerable | js::Configurable);
 
     js::Object* character_data = define_interface(in, "CharacterData", node);
     js::Object* text = define_interface(in, "Text", character_data,
@@ -1914,9 +1970,23 @@ void install_nodes(Realm::Internals& in)
         return js::Value::null();
     });
 
-    // DOMRect.
-    js::Object* rect = define_interface(in, "DOMRect", nullptr,
-        [](js::Interpreter& interp, Args args, js::Object*) -> Native {
+    // DOMRectReadOnly and DOMRect (Geometry Interfaces §4): a rectangle's
+    // four numbers in slots of the object, read through accessors on the
+    // prototypes, the read-only interface's without setters; the edges
+    // derived from them; fromRect on both interface objects.
+    auto const this_rect = [](js::Interpreter& interp, js::Value const& this_value) -> std::optional<RectObject*> {
+        if (this_value.is_object()) {
+            if (auto* rect = dynamic_cast<RectObject*>(this_value.as_object()))
+                return rect;
+        }
+        return interp.throw_type_error("Illegal invocation");
+    };
+    auto const new_rect = [](js::Interpreter& interp, std::string_view which, double x, double y, double width, double height) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        return js::Value::object(interp.heap().allocate<RectObject>(internals.prototype(which), internals.realm_record, x, y, width, height));
+    };
+    auto const rect_constructor = [new_rect](std::string_view which) {
+        return [new_rect, which](js::Interpreter& interp, Args args, js::Object*) -> Native {
             double values[4] = { 0, 0, 0, 0 };
             for (std::size_t i = 0; i < 4 && i < args.size(); ++i) {
                 std::optional<double> const number = interp.to_number(args[i]);
@@ -1924,42 +1994,96 @@ void install_nodes(Realm::Internals& in)
                     return std::nullopt;
                 values[i] = *number;
             }
-            return make_rect(internals_of(interp), values[0], values[1], values[2], values[3]);
-        },
-        0);
-    in.prototypes["DOMRectReadOnly"] = rect;
-    auto const rect_side = [](std::string_view a, std::string_view b, bool sum, bool minimum) {
-        return [a, b, sum, minimum](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
-            std::optional<js::Value> const first = interp.get(this_value, a);
-            std::optional<js::Value> const second = interp.get(this_value, b);
-            if (!first || !second)
-                return std::nullopt;
-            std::optional<double> const x = interp.to_number(*first);
-            std::optional<double> const y = interp.to_number(*second);
-            if (!x || !y)
-                return std::nullopt;
-            if (!sum)
-                return js::Value::number(minimum ? std::min(*x, *x + *y) : *x);
-            return js::Value::number(std::max(*x, *x + *y));
+            return new_rect(interp, which, values[0], values[1], values[2], values[3]);
         };
     };
-    define_getter(in, *rect, "top", rect_side("y", "height", false, true));
-    define_getter(in, *rect, "left", rect_side("x", "width", false, true));
-    define_getter(in, *rect, "bottom", rect_side("y", "height", true, false));
-    define_getter(in, *rect, "right", rect_side("x", "width", true, false));
-    define_operation(interpreter, *rect, "toJSON", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
-        Realm::Internals& internals = internals_of(interp);
+    js::Object* read_only = define_interface(in, "DOMRectReadOnly", nullptr, rect_constructor("DOMRectReadOnly"), 0);
+    js::Object* rect = define_interface(in, "DOMRect", read_only, rect_constructor("DOMRect"), 0);
+    auto const slot = [this_rect](double RectObject::* member) {
+        return [this_rect, member](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+            std::optional<RectObject*> const r = this_rect(interp, this_value);
+            if (!r)
+                return std::nullopt;
+            return js::Value::number((*r)->*member);
+        };
+    };
+    auto const set_slot = [this_rect](double RectObject::* member) {
+        return [this_rect, member](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+            std::optional<RectObject*> const r = this_rect(interp, this_value);
+            if (!r)
+                return std::nullopt;
+            std::optional<double> const number = interp.to_number(js::argument(args, 0));
+            if (!number)
+                return std::nullopt;
+            (*r)->*member = *number;
+            return js::Value::undefined();
+        };
+    };
+    for (auto const& [name, member] : { std::pair { "x", &RectObject::x }, std::pair { "y", &RectObject::y },
+             std::pair { "width", &RectObject::width }, std::pair { "height", &RectObject::height } }) {
+        define_getter(in, *read_only, name, slot(member));
+        define_getter(in, *rect, name, slot(member), set_slot(member));
+    }
+    auto const rect_side = [this_rect](bool vertical, bool far) {
+        return [this_rect, vertical, far](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+            std::optional<RectObject*> const r = this_rect(interp, this_value);
+            if (!r)
+                return std::nullopt;
+            double const start = vertical ? (*r)->y : (*r)->x;
+            double const extent = vertical ? (*r)->height : (*r)->width;
+            return js::Value::number(far ? std::max(start, start + extent) : std::min(start, start + extent));
+        };
+    };
+    define_getter(in, *read_only, "top", rect_side(true, false));
+    define_getter(in, *read_only, "left", rect_side(false, false));
+    define_getter(in, *read_only, "bottom", rect_side(true, true));
+    define_getter(in, *read_only, "right", rect_side(false, true));
+    define_operation(interpreter, *read_only, "toJSON", 0, [this_rect](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        std::optional<RectObject*> const r = this_rect(interp, this_value);
+        if (!r)
+            return std::nullopt;
         js::Interpreter::Roots const roots(interp);
         js::Object* json = interp.new_object();
         interp.root(js::Value::object(json));
-        for (std::string_view const name : { "x", "y", "width", "height", "top", "right", "bottom", "left" }) {
-            std::optional<js::Value> const value = interp.get(this_value, name);
-            if (!value)
-                return std::nullopt;
-            json->put(internals.interpreter.key(name), *value);
-        }
+        double const x = (*r)->x;
+        double const y = (*r)->y;
+        double const width = (*r)->width;
+        double const height = (*r)->height;
+        for (auto const& [name, value] : { std::pair { "x", x }, std::pair { "y", y }, std::pair { "width", width }, std::pair { "height", height },
+                 std::pair { "top", std::min(y, y + height) }, std::pair { "right", std::max(x, x + width) },
+                 std::pair { "bottom", std::max(y, y + height) }, std::pair { "left", std::min(x, x + width) } })
+            json->put(interp.key(name), js::Value::number(value));
         return js::Value::object(json);
     });
+    // fromRect(init): a rectangle from a dictionary, each member 0 when absent.
+    for (auto const& [which, proto] : { std::pair { "DOMRectReadOnly", read_only }, std::pair { "DOMRect", rect } }) {
+        std::optional<js::Value> const constructor = proto->get(interpreter, interpreter.key("constructor"), js::Value::object(proto));
+        if (!constructor || !constructor->is_object())
+            continue;
+        define_operation(interpreter, *constructor->as_object(), "fromRect", 0,
+            [new_rect, which](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+                js::Value const init = js::argument(args, 0);
+                if (!init.is_undefined() && !init.is_object())
+                    return interp.throw_type_error(std::string("Failed to execute 'fromRect' on '") + which + "': parameter 1 is not of type 'Object'.");
+                double values[4] = { 0, 0, 0, 0 };
+                if (init.is_object()) {
+                    std::size_t i = 0;
+                    for (std::string_view const name : { "x", "y", "width", "height" }) {
+                        std::optional<js::Value> const member = interp.get(init, name);
+                        if (!member)
+                            return std::nullopt;
+                        if (!member->is_undefined()) {
+                            std::optional<double> const number = interp.to_number(*member);
+                            if (!number)
+                                return std::nullopt;
+                            values[i] = *number;
+                        }
+                        ++i;
+                    }
+                }
+                return new_rect(interp, which, values[0], values[1], values[2], values[3]);
+            });
+    }
 }
 
 }

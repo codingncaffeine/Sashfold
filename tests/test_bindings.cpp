@@ -230,6 +230,31 @@ void test_wrapper_identity_and_expandos_survive_collection()
     page->eval("otherBody.setAttribute('onresize', 'window.resized = 1'); var fromAttribute = typeof window.onresize === 'function' && window.onresize === otherBody.onresize; otherBody.removeAttribute('onresize');");
     CHECK(page->boolean("fromAttribute && window.onresize === null && otherBody.onresize === null"));
     CHECK(page->boolean("'onslotchange' in ShadowRoot.prototype && 'onencrypted' in HTMLMediaElement.prototype && 'onenterpictureinpicture' in HTMLVideoElement.prototype && 'onchange' in Screen.prototype"));
+    // Shapes against the standard: a DOMRect over DOMRectReadOnly with its
+    // numbers behind accessors, NodeFilter a bare function of constants, the
+    // table's parts, a select's length and a link's URL parts settable, the
+    // HTMLOrSVGElement members on SVG and MathML elements.
+    CHECK(page->boolean("Object.getPrototypeOf(DOMRect.prototype) === DOMRectReadOnly.prototype && new DOMRectReadOnly(1, 2, 3, 4).right === 4 && !Object.getOwnPropertyDescriptor(DOMRectReadOnly.prototype, 'x').set && !!Object.getOwnPropertyDescriptor(DOMRect.prototype, 'x').set"));
+    page->eval("var r = DOMRect.fromRect({ x: 5, width: -2 }); r.y = 7;");
+    CHECK(page->boolean("r.x === 5 && r.y === 7 && r.width === -2 && r.left === 3 && r.right === 5 && JSON.stringify(r) === JSON.stringify({ x: 5, y: 7, width: -2, height: 0, top: 7, right: 5, bottom: 7, left: 3 }) && !document.body.getBoundingClientRect().hasOwnProperty('x') && DOMRectReadOnly.fromRect() instanceof DOMRectReadOnly"));
+    CHECK(page->boolean("typeof NodeFilter === 'function' && NodeFilter.prototype === undefined && NodeFilter.SHOW_ELEMENT === 1 && (function () { try { new NodeFilter(); return false; } catch (e) { return e instanceof TypeError; } })()"));
+    page->eval("var tbl = document.createElement('table'); tbl.innerHTML = '<tbody><tr><td>1</td></tr></tbody>'; var th = document.createElement('thead'); tbl.tHead = th; var cap = document.createElement('caption'); tbl.caption = cap; var tf = document.createElement('tfoot'); tbl.tFoot = tf; var threw = false; try { tbl.tHead = document.createElement('div'); } catch (e) { threw = e.name === 'HierarchyRequestError'; }");
+    CHECK(page->boolean("tbl.firstChild === cap && tbl.childNodes[1] === th && tbl.lastChild === tf && threw && (tbl.caption = null, tbl.caption === null && tbl.firstChild === th)"));
+    page->eval("var sel = document.createElement('select'); sel.length = 3; var grew = sel.length; sel.length = 1;");
+    CHECK(page->boolean("grew === 3 && sel.length === 1 && sel.options[0].tagName === 'OPTION'"));
+    page->eval("var a = document.createElement('a'); a.href = 'https://example.test/path?q=1#h'; a.search = 'x=2'; a.hash = 'frag'; a.pathname = 'other'; a.port = '8443';");
+    CHECK_EQ(page->string("a.getAttribute('href')"), "https://example.test:8443/other?x=2#frag");
+    // The setters follow the URL standard's state overrides: a special
+    // scheme cannot become a plain one, a port takes its leading digits, a
+    // hostname refuses a port, a host that is no host changes nothing, and
+    // an opaque path has no host to set.
+    page->eval("var u = new URL('https://example.net/path?q=1#h'); u.protocol = 'b'; var keptSpecial = u.href === 'https://example.net/path?q=1#h'; u.port = '8080abc'; u.hostname = 'example.com:9'; u.host = 'x@x';");
+    CHECK(page->boolean("keptSpecial && u.port === '8080' && u.hostname === 'example.net' && u.host === 'example.net:8080'"));
+    page->eval("var d = new URL('data:text/plain,Stuff'); d.host = 'example.net'; d.search = 'a#b'; d.hash = '';");
+    CHECK_EQ(page->string("d.href"), "data:text/plain,Stuff?a%23b");
+    CHECK(page->boolean("typeof document.createElementNS('http://www.w3.org/2000/svg', 'rect').tabIndex === 'number' && typeof document.createElementNS('http://www.w3.org/1998/Math/MathML', 'mi').focus === 'function' && 'style' in MathMLElement.prototype && 'dataset' in SVGElement.prototype"));
+    page->eval("var svgRoot = document.createElementNS('http://www.w3.org/2000/svg', 'svg'); var svgRect = document.createElementNS('http://www.w3.org/2000/svg', 'rect'); svgRoot.appendChild(svgRect); document.designMode = 'ON';");
+    CHECK(page->boolean("svgRect.ownerSVGElement === svgRoot && svgRoot.ownerSVGElement === null && document.designMode === 'on' && typeof Object.getOwnPropertyDescriptor(PerformanceObserver, 'supportedEntryTypes').get === 'function' && !('msMatchesSelector' in Element.prototype) && !HTMLInputElement.prototype.hasOwnProperty('autofocus') && HTMLElement.prototype.hasOwnProperty('autofocus')"));
 }
 
 void test_tree_mutation_and_serialization()

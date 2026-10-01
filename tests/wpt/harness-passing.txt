@@ -1391,6 +1391,7 @@ IndexedDB/structured-clone.any.html	BigInt: -12345678901234567890
 IndexedDB/structured-clone.any.html	BigInt: 0
 IndexedDB/structured-clone.any.html	BigInt: 1
 IndexedDB/structured-clone.any.html	BigInt: 12345678901234567890
+IndexedDB/structured-clone.any.html	Blob: [object Blob]
 IndexedDB/structured-clone.any.html	Boolean: false
 IndexedDB/structured-clone.any.html	Boolean: true
 IndexedDB/structured-clone.any.html	Date: Mon Jan 12 1970 06:46:40 GMT-0700
@@ -1408,13 +1409,20 @@ IndexedDB/structured-clone.any.html	Error: Error
 IndexedDB/structured-clone.any.html	Error: Error: abc
 IndexedDB/structured-clone.any.html	EvalError: EvalError
 IndexedDB/structured-clone.any.html	EvalError: EvalError: ghi
+IndexedDB/structured-clone.any.html	File: [object File]
 IndexedDB/structured-clone.any.html	Float16Array: -Infinity,-1.5,-1,-0.5,0,0.5,1,1.5,Infinity,NaN
 IndexedDB/structured-clone.any.html	Float32Array: -Infinity,-1.5,-1,-0.5,0,0.5,1,1.5,Infinity,NaN
 IndexedDB/structured-clone.any.html	Float64Array: -Infinity,-1.7976931348623157e+308,-5e-324,0,5e-324,1.7976931348623157e+308,Infinity,NaN
+IndexedDB/structured-clone.any.html	ImageData: [object ImageData]
 IndexedDB/structured-clone.any.html	Int16Array: 0,1,-2,-1
 IndexedDB/structured-clone.any.html	Int32Array: 0,1,-2,-1
 IndexedDB/structured-clone.any.html	Int8Array: 0,1,-2,-1
 IndexedDB/structured-clone.any.html	Map: [object Map]
+IndexedDB/structured-clone.any.html	Not serializable: Event: [object Event]
+IndexedDB/structured-clone.any.html	Not serializable: MessageChannel: [object MessageChannel]
+IndexedDB/structured-clone.any.html	Not serializable: Window: [object Window]
+IndexedDB/structured-clone.any.html	Not serializable: function: function() {}
+IndexedDB/structured-clone.any.html	Not serializable: symbol: Symbol(desc)
 IndexedDB/structured-clone.any.html	Number: -0
 IndexedDB/structured-clone.any.html	Number: -1
 IndexedDB/structured-clone.any.html	Number: -1.7976931348623157e+308
@@ -5059,6 +5067,7 @@ css/cssom/idlharness.html	HTMLStyleElement interface: attribute sheet
 css/cssom/idlharness.html	MathMLElement includes ElementCSSInlineStyle: member names are unique
 css/cssom/idlharness.html	MathMLElement includes GlobalEventHandlers: member names are unique
 css/cssom/idlharness.html	MathMLElement includes HTMLOrSVGOrMathMLElement: member names are unique
+css/cssom/idlharness.html	MathMLElement interface: attribute style
 css/cssom/idlharness.html	Partial interface CSSStyleSheet: member names are unique
 css/cssom/idlharness.html	Partial interface CSSStyleSheet: original interface defined
 css/cssom/idlharness.html	Partial interface Element: member names are unique
@@ -6211,7 +6220,11 @@ custom-elements/reactions/HTMLElement.html	tabIndex on HTMLElement must enqueue 
 custom-elements/reactions/HTMLElement.html	title on HTMLElement must enqueue an attributeChanged reaction when adding title content attribute
 custom-elements/reactions/HTMLElement.html	title on HTMLElement must enqueue an attributeChanged reaction when replacing an existing attribute
 custom-elements/reactions/HTMLSelectElement.html	add on HTMLSelectElement must enqueue connectedCallback when inserting a custom element
+custom-elements/reactions/HTMLSelectElement.html	length on HTMLSelectElement must enqueue disconnectedCallback when removing a custom element
 custom-elements/reactions/HTMLSelectElement.html	remove on HTMLSelectElement must enqueue disconnectedCallback when removing a custom element
+custom-elements/reactions/HTMLTableElement.html	caption on HTMLTableElement must enqueue disconnectedCallback when removing a custom element
+custom-elements/reactions/HTMLTableElement.html	tFoot on HTMLTableElement must enqueue disconnectedCallback when removing a custom element
+custom-elements/reactions/HTMLTableElement.html	tHead on HTMLTableElement must enqueue disconnectedCallback when removing a custom element
 custom-elements/reactions/Node.html	appendChild on ChildNode must enqueue a connected reaction
 custom-elements/reactions/Node.html	cloneNode on Node must enqueue an attributeChanged reaction when cloning an element only for observed attributes
 custom-elements/reactions/Node.html	cloneNode on Node must enqueue an attributeChanged reaction when cloning an element with an observed attribute
@@ -68470,6 +68483,8 @@ html/dom/elements/global-attributes/dataset-set.html	Setting element.dataset['à
 html/dom/elements/global-attributes/dataset-set.html	Setting element.dataset[';foo'] should not throw.
 html/dom/elements/global-attributes/dataset-set.html	Setting element.dataset['ெfoo'] should also change the value of element.getAttribute('ெfoo')
 html/dom/elements/global-attributes/dataset.html	HTML elements should have a .dataset
+html/dom/elements/global-attributes/dataset.html	MathML elements should have a .dataset
+html/dom/elements/global-attributes/dataset.html	SVG elements should have a .dataset
 html/dom/elements/global-attributes/dataset.html	Should not have a .dataset on random elements
 html/dom/elements/global-attributes/dataset.html	Should return 'undefined' after removing an attribute
 html/dom/elements/global-attributes/dataset.html	Should return 'undefined' before setting an attribute
@@ -69610,6 +69625,9 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Range interface:
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement includes ElementCSSInlineStyle: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement includes GlobalEventHandlers: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement includes HTMLOrSVGOrMathMLElement: member names are unique
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute autofocus
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute dataset
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute nonce
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onabort
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onauxclick
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onbeforeinput
@@ -69684,6 +69702,9 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement inter
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onwebkitanimationstart
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onwebkittransitionend
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute onwheel
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: attribute tabIndex
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: operation blur()
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGElement interface: operation focus(optional FocusOptions)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGGraphicsElement includes SVGTests: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGImageElement includes SVGURIReference: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGSVGElement includes SVGFitToViewBox: member names are unique
@@ -69830,6 +69851,7 @@ html/dom/idlharness.https.html?include=(Document|Window)	Document interface: att
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute cookie
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute currentScript
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute defaultView
+html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute designMode
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute dir
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute domain
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute embeds
@@ -70088,15 +70110,22 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface object
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute charset
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute coords
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute download
+html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute hash
+html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute host
+html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute hostname
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute href
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute hreflang
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute name
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute origin
+html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute pathname
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute ping
+html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute port
+html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute protocol
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute referrerPolicy
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute rel
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute relList
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute rev
+html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute search
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute shape
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute target
 html/dom/idlharness.https.html?include=HTML.+	HTMLAnchorElement interface: attribute text
@@ -70136,14 +70165,21 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface object n
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute alt
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute coords
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute download
+html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute hash
+html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute host
+html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute hostname
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute href
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute hreflang
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute noHref
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute origin
+html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute pathname
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute ping
+html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute port
+html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute protocol
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute referrerPolicy
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute rel
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute relList
+html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute search
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute shape
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute target
 html/dom/idlharness.https.html?include=HTML.+	HTMLAreaElement interface: attribute type
@@ -70932,6 +70968,7 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLInputElement interface: attrib
 html/dom/idlharness.https.html?include=HTML.+	HTMLInputElement interface: attribute defaultValue
 html/dom/idlharness.https.html?include=HTML.+	HTMLInputElement interface: attribute dirName
 html/dom/idlharness.https.html?include=HTML.+	HTMLInputElement interface: attribute disabled
+html/dom/idlharness.https.html?include=HTML.+	HTMLInputElement interface: attribute files
 html/dom/idlharness.https.html?include=HTML.+	HTMLInputElement interface: attribute form
 html/dom/idlharness.https.html?include=HTML.+	HTMLInputElement interface: attribute formAction
 html/dom/idlharness.https.html?include=HTML.+	HTMLInputElement interface: attribute formEnctype
@@ -72930,6 +72967,7 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLSelectElement interface: attri
 html/dom/idlharness.https.html?include=HTML.+	HTMLSelectElement interface: attribute disabled
 html/dom/idlharness.https.html?include=HTML.+	HTMLSelectElement interface: attribute form
 html/dom/idlharness.https.html?include=HTML.+	HTMLSelectElement interface: attribute labels
+html/dom/idlharness.https.html?include=HTML.+	HTMLSelectElement interface: attribute length
 html/dom/idlharness.https.html?include=HTML.+	HTMLSelectElement interface: attribute multiple
 html/dom/idlharness.https.html?include=HTML.+	HTMLSelectElement interface: attribute name
 html/dom/idlharness.https.html?include=HTML.+	HTMLSelectElement interface: attribute options
@@ -73116,6 +73154,7 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface object 
 html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute align
 html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute bgColor
 html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute border
+html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute caption
 html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute cellPadding
 html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute cellSpacing
 html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute frame
@@ -73123,6 +73162,8 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attrib
 html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute rules
 html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute summary
 html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute tBodies
+html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute tFoot
+html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute tHead
 html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: attribute width
 html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: document.createElement("table") must inherit property "align" with the proper type
 html/dom/idlharness.https.html?include=HTML.+	HTMLTableElement interface: document.createElement("table") must inherit property "bgColor" with the proper type
@@ -130533,6 +130574,8 @@ html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encodin
 html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=x-cp1251	location.assign()
 html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=x-cp1251	location.href
 html/infrastructure/urls/resolving-urls/query-encoding/location.sub.html?encoding=x-cp1251	location.replace()
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=hyperlink-search	<a>.search
+html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=hyperlink-search	<area>.search
 html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme bitcoin (getting <a>.href)
 html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme data (getting <a>.href)
 html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme ftps (getting <a>.href)
@@ -130562,6 +130605,8 @@ html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme
 html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=scheme	Scheme xmpp (getting <a>.href)
 html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=url	URL constructor, base
 html/infrastructure/urls/resolving-urls/query-encoding/utf-8.html?include=url	URL constructor, url
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=hyperlink-search	<a>.search
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=hyperlink-search	<area>.search
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme bitcoin (getting <a>.href)
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme data (getting <a>.href)
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme ftps (getting <a>.href)
@@ -130591,6 +130636,8 @@ html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=scheme	Scheme xmpp (getting <a>.href)
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=url	URL constructor, base
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1251.html?include=url	URL constructor, url
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=hyperlink-search	<a>.search
+html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=hyperlink-search	<area>.search
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme bitcoin (getting <a>.href)
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme data (getting <a>.href)
 html/infrastructure/urls/resolving-urls/query-encoding/windows-1252.html?include=scheme	Scheme ftps (getting <a>.href)
@@ -135707,6 +135754,13 @@ shadow-dom/offsetTop-offsetLeft-across-shadow-boundaries.html	Verifies that HTML
 url/IdnaTestV2-removed.any.html	Loading data…
 url/IdnaTestV2-removed.any.html	ToASCII("-ᢗ‌🄄.𑜢") C1; P1; V5; V6; V3 (ignored)
 url/IdnaTestV2-removed.any.html	ToASCII("-󠉖ꡧ．󠊂񇆃🄉") P1; V6; V3 (ignored)
+url/IdnaTestV2-removed.any.html	ToASCII("ݖ。ᅠ‍Σ") C2; P1; V6
+url/IdnaTestV2-removed.any.html	ToASCII("ݖ。ᅠ‍ς") C2; P1; V6
+url/IdnaTestV2-removed.any.html	ToASCII("ݖ。ᅠ‍σ") C2; P1; V6
+url/IdnaTestV2-removed.any.html	ToASCII("ݖ。ㅤ‍Σ") C2; P1; V6
+url/IdnaTestV2-removed.any.html	ToASCII("ݖ。ㅤ‍ς") C2; P1; V6
+url/IdnaTestV2-removed.any.html	ToASCII("ݖ。ㅤ‍σ") C2; P1; V6
+url/IdnaTestV2-removed.any.html	ToASCII("ᡯ⚉姶🄉．۷‍🎪‍") C2; P1; V6
 url/IdnaTestV2-removed.any.html	ToASCII("ᰲ🄈⾛֦．‍򯥤߽") C2; P1; V5; V6
 url/IdnaTestV2-removed.any.html	ToASCII("꙽‌霣🄆｡‌𑁂ᬁ") C1; P1; V5; V6
 url/IdnaTestV2-removed.any.html	ToASCII("꙽‌霣🄆｡‌𑁂ᬁ") C1; P1; V5; V6
@@ -135741,20 +135795,25 @@ url/IdnaTestV2.any.html	ToASCII("-0.xn--r4e872ah77nghm") V6; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-18.xn--rx9c.xn--382h") V6; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-3.xn--fbf115j") V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-3.xn--fbf739aq5o") C2; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("-3.‍ヌᢕ") C2; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-ᢗ‌3,.𑜢") C1; V6; V3 (ignored); U1 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-ᢗ‌🄄.𑜢") C1; V6; V3 (ignored); U1 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-᮫。‍.񒶈񥹓") C2; V7; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-᮫︒‍.񒶈񥹓") C2; V7; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-‌18.𐫥。𝨵") C1; V6; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-‌⒙𐫥｡𝨵") C1; V6; V7; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("-‍.Ⴞ𐋷") C2; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("-‍.ⴞ𐋷") C2; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-⾆．꫶") V6; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-。ᢘ") V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("-。‍") C2; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-。⺐") V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-。。") V3 (ignored); A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-。䏛") V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-。򕌀‍❡") C2; V7; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-舌.꫶") V6; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-｡ᢘ") V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("-｡‍") C2; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-｡⺐") V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-｡䏛") V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("-｡︒") V7; V3 (ignored)
@@ -135830,10 +135889,18 @@ url/IdnaTestV2.any.html	ToASCII("0。甯")
 url/IdnaTestV2.any.html	ToASCII("1.2h")
 url/IdnaTestV2.any.html	ToASCII("1.ASSBCSSSSSSSSDΣΣSSSSSSSSSSSSSSSSESSSSSSSSSSSSSSSSSSSSXSSSSSSSSSSSSSSSSSSSSYSSSSSSSSSSSSSSSŜSSZ") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("1.ASSBCSSSSSSSSDΣΣSSSSSSSSSSSSSSSSESSSSSSSSSSSSSSSSSSSSXSSSSSSSSSSSSSSSSSSSSYSSSSSSSSSSSSSSSŜSSZ") A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("1.ASS‌‍B‌‍CSSSSSSSSDΣΣSSSSSSSSSSSSSSSSESSSSSSSSSSSSSSSSSSSSXSSSSSSSSSSSSSSSSSSSSYSSSSSSSSSSSSSSSŜSSZ") C1; C2; A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("1.ASS‌‍B‌‍CSSSSSSSSDΣΣSSSSSSSSSSSSSSSSESSSSSSSSSSSSSSSSSSSSXSSSSSSSSSSSSSSSSSSSSYSSSSSSSSSSSSSSSŜSSZ") C1; C2; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("1.Assbcssssssssdσσssssssssssssssssessssssssssssssssssssxssssssssssssssssssssysssssssssssssssŝssz") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("1.Assbcssssssssdσσssssssssssssssssessssssssssssssssssssxssssssssssssssssssssysssssssssssssssŝssz") A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("1.Ass‌‍b‌‍cssssssssdσσssssssssssssssssessssssssssssssssssssxssssssssssssssssssssysssssssssssssssŝssz") C1; C2; A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("1.Ass‌‍b‌‍cssssssssdσσssssssssssssssssessssssssssssssssssssxssssssssssssssssssssysssssssssssssssŝssz") C1; C2; A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("1.Aß‌‍b‌‍cßßßßdςσßßßßßßßßeßßßßßßßßßßxßßßßßßßßßßyßßßßßßßß̂ßz") C1; C2; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("1.assbcssssssssdσσssssssssssssssssessssssssssssssssssssxssssssssssssssssssssysssssssssssssssŝssz") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("1.assbcssssssssdσσssssssssssssssssessssssssssssssssssssxssssssssssssssssssssysssssssssssssssŝssz") A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("1.ass‌‍b‌‍cssssssssdσσssssssssssssssssessssssssssssssssssssxssssssssssssssssssssysssssssssssssssŝssz") C1; C2; A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("1.ass‌‍b‌‍cssssssssdσσssssssssssssssssessssssssssssssssssssxssssssssssssssssssssysssssssssssssssŝssz") C1; C2; A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("1.aß‌‍b‌‍cßßßßdςσßßßßßßßßeßßßßßßßßßßxßßßßßßßßßßyßßßßßßßß̂ßz") C1; C2; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("1.xn----tgnz80r.xn--kp5b") C2; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("1.xn----zw5a.xn--kp5b") V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("1.xn--0ug7185c..xn--mfc") C1; V6; A4_2 (ignored)
@@ -135850,6 +135917,8 @@ url/IdnaTestV2.any.html	ToASCII("1.xn--t1c6981c.xn--4c9a21133d") V6; V7
 url/IdnaTestV2.any.html	ToASCII("1.ූ焅.󗡙‍ꡟ") C2; V6; V7
 url/IdnaTestV2.any.html	ToASCII("1.‌ꫬ。.્") C1; V6; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("1.✌򟬟.9񠱣") V7
+url/IdnaTestV2.any.html	ToASCII("1.䰹‍-。웈") C2; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("1.䰹‍-。웈") C2; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("1.酫。。ࣖ") V6; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("11.xn--uz1d59632bxujd.xn----x310m") V7; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("11.򨘙򳳠𑓀.-󞡊") V7; V3 (ignored)
@@ -135907,11 +135976,13 @@ url/IdnaTestV2.any.html	ToASCII("1234567890Ä12345678901234567890123456789012345
 url/IdnaTestV2.any.html	ToASCII("1234567890ä1234567890123456789012345678901234567890123456") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("14.xn--7hb713l3v90n.-") V7; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("14.∝ٟ򓤦.-󠄯") V7; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("1。‍2‍7") C2
 url/IdnaTestV2.any.html	ToASCII("1꫶SS𑲥。ᷘ") V6
 url/IdnaTestV2.any.html	ToASCII("1꫶Ss𑲥。ᷘ") V6
 url/IdnaTestV2.any.html	ToASCII("1꫶ss𑲥。ᷘ") V6
 url/IdnaTestV2.any.html	ToASCII("1꫶ß𑲥。ᷘ") V6
 url/IdnaTestV2.any.html	ToASCII("1𝨙⸖.") A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("1𝨙⸖.‍") C2
 url/IdnaTestV2.any.html	ToASCII("2.xn--1chz4101l.xn--45iz7d6b") V7
 url/IdnaTestV2.any.html	ToASCII("2.xn--1chz4101l.xn--gnd9b297j") V7
 url/IdnaTestV2.any.html	ToASCII("2.󠊓≠。Ⴟ⬣Ⴈ") V7
@@ -135940,6 +136011,7 @@ url/IdnaTestV2.any.html	ToASCII("5☱2򥰵。𝪮񐡳") V6; V7
 url/IdnaTestV2.any.html	ToASCII("5。ۗ") V6
 url/IdnaTestV2.any.html	ToASCII("6,伐。.𜙚꣄") V7; U1 (ignored); A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("84𝈻.𐋵⛧")
+url/IdnaTestV2.any.html	ToASCII("84󠇗𝈻.‍𐋵⛧‍") C2
 url/IdnaTestV2.any.html	ToASCII("8≮.") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("8≮.") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("9.≯-。。򩑣-񞛠") V7; V3 (ignored); A4_2 (ignored)
@@ -135947,6 +136019,7 @@ url/IdnaTestV2.any.html	ToASCII("9.xn----ogo..xn----xj54d1s69k") V7; V3 (ignored
 url/IdnaTestV2.any.html	ToASCII("9.xn--dbf91222q") V7
 url/IdnaTestV2.any.html	ToASCII("9.≯-。。򩑣-񞛠") V7; V3 (ignored); A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("9隁⯮.") A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("9隁⯮.᠍‌") C1
 url/IdnaTestV2.any.html	ToASCII("9󠇥.󪴴ᢓ") V7
 url/IdnaTestV2.any.html	ToASCII("9󠇥．󪴴ᢓ") V7
 url/IdnaTestV2.any.html	ToASCII("≮7.謖SS≯")
@@ -135962,12 +136035,14 @@ url/IdnaTestV2.any.html	ToASCII("≮𝟕．謖ß≯")
 url/IdnaTestV2.any.html	ToASCII("≠")
 url/IdnaTestV2.any.html	ToASCII("≠.") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("≠.ᠿ")
+url/IdnaTestV2.any.html	ToASCII("≠.‍") C2
 url/IdnaTestV2.any.html	ToASCII("≠.🞳6")
 url/IdnaTestV2.any.html	ToASCII("≠ᢙ≯.솣-ᡴႠ")
 url/IdnaTestV2.any.html	ToASCII("≠ᢙ≯.솣-ᡴⴀ")
 url/IdnaTestV2.any.html	ToASCII("≠。🞳6")
 url/IdnaTestV2.any.html	ToASCII("≠。🞳𝟲")
 url/IdnaTestV2.any.html	ToASCII("≠膣。ྃ") V6
+url/IdnaTestV2.any.html	ToASCII("≠．‍") C2
 url/IdnaTestV2.any.html	ToASCII("≯1.。SS") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("≯1.。Ss") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("≯1.。ss") A4_2 (ignored)
@@ -136005,12 +136080,16 @@ url/IdnaTestV2.any.html	ToASCII("Ä.b-.C") V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("Ä.bc--De.f") V2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("Ä.­.C") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("Ä1234567890123456789012345678901234567890123456789012345")
+url/IdnaTestV2.any.html	ToASCII("Å둄-.‌") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("Å둄-．‌") C1; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("A्B")
 url/IdnaTestV2.any.html	ToASCII("A्b")
 url/IdnaTestV2.any.html	ToASCII("A्‌B")
 url/IdnaTestV2.any.html	ToASCII("A्‌b")
 url/IdnaTestV2.any.html	ToASCII("A्‍B")
 url/IdnaTestV2.any.html	ToASCII("A्‍b")
+url/IdnaTestV2.any.html	ToASCII("A‍B") C2
+url/IdnaTestV2.any.html	ToASCII("A‍b") C2
 url/IdnaTestV2.any.html	ToASCII("A⒈COM") V7
 url/IdnaTestV2.any.html	ToASCII("A⒈Com") V7
 url/IdnaTestV2.any.html	ToASCII("A。。B") A4_2 (ignored)
@@ -136027,6 +136106,7 @@ url/IdnaTestV2.any.html	ToASCII("ÖBB")
 url/IdnaTestV2.any.html	ToASCII("Öbb")
 url/IdnaTestV2.any.html	ToASCII("SS.𐋳Ⴌྸ")
 url/IdnaTestV2.any.html	ToASCII("SS۫.") A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("SS۫。‍") C2
 url/IdnaTestV2.any.html	ToASCII("SSুᷭ.ؠ85")
 url/IdnaTestV2.any.html	ToASCII("SSুᷭ。ؠ85")
 url/IdnaTestV2.any.html	ToASCII("SSুᷭ。ؠ8₅")
@@ -136042,6 +136122,7 @@ url/IdnaTestV2.any.html	ToASCII("SS𰀻񆬗。𝩨🕮SS") V6; V7
 url/IdnaTestV2.any.html	ToASCII("SS𰀻񆬗｡𝩨🕮SS") V6; V7
 url/IdnaTestV2.any.html	ToASCII("Ss.𐋳Ⴌྸ")
 url/IdnaTestV2.any.html	ToASCII("Ss۫.") A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("Ss۫。‍") C2
 url/IdnaTestV2.any.html	ToASCII("Ssুᷭ.ؠ85")
 url/IdnaTestV2.any.html	ToASCII("Ssুᷭ。ؠ85")
 url/IdnaTestV2.any.html	ToASCII("Ssুᷭ。ؠ8₅")
@@ -136098,9 +136179,12 @@ url/IdnaTestV2.any.html	ToASCII("ä.b-.c") V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ä.bc--de.f") V2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ä.­.c") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ä1234567890123456789012345678901234567890123456789012345")
+url/IdnaTestV2.any.html	ToASCII("å둄-.‌") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("å둄-．‌") C1; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("a्b")
 url/IdnaTestV2.any.html	ToASCII("a्‌b")
 url/IdnaTestV2.any.html	ToASCII("a्‍b")
+url/IdnaTestV2.any.html	ToASCII("a‍b") C2
 url/IdnaTestV2.any.html	ToASCII("a⒈com") V7
 url/IdnaTestV2.any.html	ToASCII("a。。b") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("bücher.de")
@@ -136118,6 +136202,7 @@ url/IdnaTestV2.any.html	ToASCII("ss.xn--lgd10cu829c") V7
 url/IdnaTestV2.any.html	ToASCII("ss.xn--lgd921mvv0m")
 url/IdnaTestV2.any.html	ToASCII("ss.𐋳ⴌྸ")
 url/IdnaTestV2.any.html	ToASCII("ss۫.") A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("ss۫。‍") C2
 url/IdnaTestV2.any.html	ToASCII("ssুᷭ.ؠ85")
 url/IdnaTestV2.any.html	ToASCII("ssুᷭ。ؠ85")
 url/IdnaTestV2.any.html	ToASCII("ssুᷭ。ؠ8₅")
@@ -137009,6 +137094,8 @@ url/IdnaTestV2.any.html	ToASCII("Ä.b-.C") V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("Ä.bc--De.f") V2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("Ä.­.C") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("Ä1234567890123456789012345678901234567890123456789012345")
+url/IdnaTestV2.any.html	ToASCII("Å둄-.‌") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("Å둄-．‌") C1; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ÖBB")
 url/IdnaTestV2.any.html	ToASCII("Öbb")
 url/IdnaTestV2.any.html	ToASCII("Ü.XN--TDA")
@@ -137017,6 +137104,7 @@ url/IdnaTestV2.any.html	ToASCII("Ü.xn--tda")
 url/IdnaTestV2.any.html	ToASCII("Ü.Ü")
 url/IdnaTestV2.any.html	ToASCII("Ü.ü")
 url/IdnaTestV2.any.html	ToASCII("ß.𐋳ⴌྸ")
+url/IdnaTestV2.any.html	ToASCII("ß۫。‍") C2
 url/IdnaTestV2.any.html	ToASCII("ßুᷭ.ؠ85")
 url/IdnaTestV2.any.html	ToASCII("ßুᷭ。ؠ85")
 url/IdnaTestV2.any.html	ToASCII("ßুᷭ。ؠ8₅")
@@ -137036,6 +137124,8 @@ url/IdnaTestV2.any.html	ToASCII("ä.b-.c") V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ä.bc--de.f") V2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ä.­.c") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ä1234567890123456789012345678901234567890123456789012345")
+url/IdnaTestV2.any.html	ToASCII("å둄-.‌") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("å둄-．‌") C1; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("öbb")
 url/IdnaTestV2.any.html	ToASCII("ü.xn--tda")
 url/IdnaTestV2.any.html	ToASCII("ü.ü")
@@ -137059,10 +137149,13 @@ url/IdnaTestV2.any.html	ToASCII("Βόλος")
 url/IdnaTestV2.any.html	ToASCII("Βόλος.com")
 url/IdnaTestV2.any.html	ToASCII("Βόλοσ")
 url/IdnaTestV2.any.html	ToASCII("Βόλοσ.com")
+url/IdnaTestV2.any.html	ToASCII("Σ-。‌1-") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("Σ-。‌𝟭-") C1; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("Σ.فمي🞛1.") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("Σ.꧀꣄") V6
 url/IdnaTestV2.any.html	ToASCII("ΣჅ.ݚ")
 url/IdnaTestV2.any.html	ToASCII("ΣჅ。ݚ")
+url/IdnaTestV2.any.html	ToASCII("Σ‍-.Ⴣ𦟙") C2; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("Σⴥ.ݚ")
 url/IdnaTestV2.any.html	ToASCII("Σⴥ。ݚ")
 url/IdnaTestV2.any.html	ToASCII("Σ。꧀ۧ") V6
@@ -137081,9 +137174,13 @@ url/IdnaTestV2.any.html	ToASCII("βόλος")
 url/IdnaTestV2.any.html	ToASCII("βόλος.com")
 url/IdnaTestV2.any.html	ToASCII("βόλοσ")
 url/IdnaTestV2.any.html	ToASCII("βόλοσ.com")
+url/IdnaTestV2.any.html	ToASCII("ς-。‌1-") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("ς-。‌𝟭-") C1; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ς.فمي🞛1.") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ς.꧀꣄") V6
 url/IdnaTestV2.any.html	ToASCII("ςჅ。ݚ")
+url/IdnaTestV2.any.html	ToASCII("ς‍-.Ⴣ𦟙") C2; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("ς‍-.ⴣ𦟙") C2; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ςⴥ.ݚ")
 url/IdnaTestV2.any.html	ToASCII("ςⴥ。ݚ")
 url/IdnaTestV2.any.html	ToASCII("ς。꧀ۧ") V6
@@ -137094,8 +137191,11 @@ url/IdnaTestV2.any.html	ToASCII("ς𑐽𵢈𑜫。𞬩‌𐫄") C1; V7
 url/IdnaTestV2.any.html	ToASCII("ς𑐽𵢈𑜫｡𞬩‌𐫄") C1; V7
 url/IdnaTestV2.any.html	ToASCII("ς򅜌8.𞭤") V7
 url/IdnaTestV2.any.html	ToASCII("ς򅜌８.𞭤") V7
+url/IdnaTestV2.any.html	ToASCII("σ-。‌1-") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("σ-。‌𝟭-") C1; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("σ.فمي🞛1.") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("σ.꧀꣄") V6
+url/IdnaTestV2.any.html	ToASCII("σ‍-.ⴣ𦟙") C2; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("σⴥ.ݚ")
 url/IdnaTestV2.any.html	ToASCII("σⴥ。ݚ")
 url/IdnaTestV2.any.html	ToASCII("σ。꧀ۧ") V6
@@ -137205,6 +137305,7 @@ url/IdnaTestV2.any.html	ToASCII("ஹ")
 url/IdnaTestV2.any.html	ToASCII("ஹ்")
 url/IdnaTestV2.any.html	ToASCII("ஹ்‌")
 url/IdnaTestV2.any.html	ToASCII("ஹ்‍")
+url/IdnaTestV2.any.html	ToASCII("ஹ‍") C2
 url/IdnaTestV2.any.html	ToASCII("்󥫅򌉑.ႢႵ") V6; V7
 url/IdnaTestV2.any.html	ToASCII("்󥫅򌉑.Ⴂⴕ") V6; V7
 url/IdnaTestV2.any.html	ToASCII("்󥫅򌉑.ⴂⴕ") V6; V7
@@ -137247,9 +137348,13 @@ url/IdnaTestV2.any.html	ToASCII("Ⴉ猕󹛫≮.。") V7; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("Ⴉ猕󹛫≮．︒") V7
 url/IdnaTestV2.any.html	ToASCII("Ⴉ猕󹛫≮.。") V7; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("Ⴉ猕󹛫≮．︒") V7
+url/IdnaTestV2.any.html	ToASCII("Ⴋ≮𱲆。‍ާ𐋣") C2
+url/IdnaTestV2.any.html	ToASCII("Ⴋ≮𱲆。‍ާ𐋣") C2
 url/IdnaTestV2.any.html	ToASCII("Ⴍ.񍇦‌") C1; V7
 url/IdnaTestV2.any.html	ToASCII("Ⴍ．񍇦‌") C1; V7
 url/IdnaTestV2.any.html	ToASCII("Ⴍ𿣍ꡨ֮。Ⴞ‌‌") C1; V7
+url/IdnaTestV2.any.html	ToASCII("Ⴏ󠅋-.‍Ⴉ") C2; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("Ⴏ󠅋-．‍Ⴉ") C2; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("Ⴓ𑜫‍򗭓.ڧ𑰶") V7
 url/IdnaTestV2.any.html	ToASCII("Ⴓ𑜫‍򗭓．ڧ𑰶") V7
 url/IdnaTestV2.any.html	ToASCII("Ⴔ𝨨3󠁦.7𑂹ஂ") V7
@@ -137362,6 +137467,8 @@ url/IdnaTestV2.any.html	ToASCII("ᡙ.≯𐋲≠")
 url/IdnaTestV2.any.html	ToASCII("ᡙ.≯𐋲≠")
 url/IdnaTestV2.any.html	ToASCII("ᡨ-。󠻋1") V7; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ᡨ-｡󠻋𝟷") V7; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("ᡯ⚉姶8,.۷‍🎪‍") C2; U1 (ignored)
+url/IdnaTestV2.any.html	ToASCII("ᡯ⚉姶🄉．۷‍🎪‍") C2; U1 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ᢌ.-࡚") V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ᢌ．-࡚") V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ᢔ≠􋉂.‍𐋢") C2; V7
@@ -137407,19 +137514,60 @@ url/IdnaTestV2.any.html	ToASCII("ᵬ󠆠.핒11.1.􈄦") V7
 url/IdnaTestV2.any.html	ToASCII("ᵬ󠆠．핒⒒⒈􈄦") V7
 url/IdnaTestV2.any.html	ToASCII("ᵬ󠆠．핒⒒⒈􈄦") V7
 url/IdnaTestV2.any.html	ToASCII("်्᷽．≠‍㇛") C2; V6
+url/IdnaTestV2.any.html	ToASCII("‌") C1
+url/IdnaTestV2.any.html	ToASCII("‌.≯") C1
+url/IdnaTestV2.any.html	ToASCII("‌.SSႩ-") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("‌.Ssⴉ-") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("‌.ssⴉ-") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("‌.ßႩ-") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("‌.ßⴉ-") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("‌.‌") C1
+url/IdnaTestV2.any.html	ToASCII("‌.≯") C1
 url/IdnaTestV2.any.html	ToASCII("‌.񟛤") C1; V7
 url/IdnaTestV2.any.html	ToASCII("‌1.𤮍.󢓋᩠") C1; V7
+url/IdnaTestV2.any.html	ToASCII("‌X‍N‌-‍-BSS") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌X‍n‌-‍-Bss") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌X‍n‌-‍-Bß") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌x‍n‌-‍-bss") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌x‍n‌-‍-bß") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌Ⴁ畝‍.≮") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌Ⴁ畝‍.≮") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌Ⴁ畝‍．≮") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌Ⴁ畝‍．≮") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌Ⴚ。Σ") C1
+url/IdnaTestV2.any.html	ToASCII("‌Ⴚ。ς") C1
+url/IdnaTestV2.any.html	ToASCII("‌Ⴚ｡Σ") C1
+url/IdnaTestV2.any.html	ToASCII("‌Ⴚ｡ς") C1
+url/IdnaTestV2.any.html	ToASCII("‌긃.榶-") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("‌‌。1.≯9") C1
+url/IdnaTestV2.any.html	ToASCII("‌‌。1.≯9") C1
 url/IdnaTestV2.any.html	ToASCII("‌‌ㄤ.̮󕨑ূ") C1; V6; V7
 url/IdnaTestV2.any.html	ToASCII("‌‌ㄤ．̮󕨑ূ") C1; V6; V7
 url/IdnaTestV2.any.html	ToASCII("‌‌｡⒈≯𝟵") C1; V7
 url/IdnaTestV2.any.html	ToASCII("‌‌｡⒈≯𝟵") C1; V7
 url/IdnaTestV2.any.html	ToASCII("‌⒈𤮍.󢓋᩠") C1; V7
+url/IdnaTestV2.any.html	ToASCII("‌ⴁ畝‍.≮") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌ⴁ畝‍.≮") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌ⴁ畝‍．≮") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌ⴁ畝‍．≮") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‌ⴚ。ς") C1
+url/IdnaTestV2.any.html	ToASCII("‌ⴚ。σ") C1
+url/IdnaTestV2.any.html	ToASCII("‌ⴚ｡ς") C1
+url/IdnaTestV2.any.html	ToASCII("‌ⴚ｡σ") C1
+url/IdnaTestV2.any.html	ToASCII("‌。≠") C1
 url/IdnaTestV2.any.html	ToASCII("‌。͔") C1; V6
 url/IdnaTestV2.any.html	ToASCII("‌。ᅠ྄ྖ") C1; V6
+url/IdnaTestV2.any.html	ToASCII("‌。≠") C1
+url/IdnaTestV2.any.html	ToASCII("‌。。") C1; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("‌。ﾠ྄ྖ") C1; V6
+url/IdnaTestV2.any.html	ToASCII("‌ꖨ.16.3툒۳") C1
+url/IdnaTestV2.any.html	ToASCII("‌ꖨ.16.3툒۳") C1
 url/IdnaTestV2.any.html	ToASCII("‌ꖨ．⒗３툒۳") C1; V7
 url/IdnaTestV2.any.html	ToASCII("‌ꖨ．⒗３툒۳") C1; V7
+url/IdnaTestV2.any.html	ToASCII("‌긃.榶-") C1; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("‌｡≠") C1
 url/IdnaTestV2.any.html	ToASCII("‌｡͔") C1; V6
+url/IdnaTestV2.any.html	ToASCII("‌｡≠") C1
 url/IdnaTestV2.any.html	ToASCII("‌｡︒") C1; V7
 url/IdnaTestV2.any.html	ToASCII("‌𑓂。1.-􀪛") C1; V7; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("‌𑓂。⒈-􀪛") C1; V7
@@ -137435,11 +137583,20 @@ url/IdnaTestV2.any.html	ToASCII("‌󠉹‍。򌿧≮Ⴉ") C1; C2; V7
 url/IdnaTestV2.any.html	ToASCII("‌󠉹‍。򌿧≮ⴉ") C1; C2; V7
 url/IdnaTestV2.any.html	ToASCII("‌󠉹‍。򌿧≮Ⴉ") C1; C2; V7
 url/IdnaTestV2.any.html	ToASCII("‌󠉹‍。򌿧≮ⴉ") C1; C2; V7
+url/IdnaTestV2.any.html	ToASCII("‍") C2
 url/IdnaTestV2.any.html	ToASCII("‍-ᠹ%.ᷡᤢ") C2; V6; U1 (ignored)
 url/IdnaTestV2.any.html	ToASCII("‍-ᠹ﹪.ᷡᤢ") C2; V6; U1 (ignored)
+url/IdnaTestV2.any.html	ToASCII("‍.F") C2
+url/IdnaTestV2.any.html	ToASCII("‍.J") C2
+url/IdnaTestV2.any.html	ToASCII("‍.f") C2
+url/IdnaTestV2.any.html	ToASCII("‍.j") C2
 url/IdnaTestV2.any.html	ToASCII("‍.􀸨") C2; V7
+url/IdnaTestV2.any.html	ToASCII("‍51.。≯8‍") C2; A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("‍51.。≯8‍") C2; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("‍≮.󠟪𹫏-") C2; V7; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("‍≮．󠟪𹫏-") C2; V7; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("‍≠ᢙ≯.솣-ᡴႠ") C2
+url/IdnaTestV2.any.html	ToASCII("‍≠ᢙ≯.솣-ᡴⴀ") C2
 url/IdnaTestV2.any.html	ToASCII("‍ΣSSܱ.்") C2; V6
 url/IdnaTestV2.any.html	ToASCII("‍ΣSSܱ．்") C2; V6
 url/IdnaTestV2.any.html	ToASCII("‍Σssܱ.்") C2; V6
@@ -137454,20 +137611,44 @@ url/IdnaTestV2.any.html	ToASCII("‍σßܱ.்") C2; V6
 url/IdnaTestV2.any.html	ToASCII("‍σßܱ．்") C2; V6
 url/IdnaTestV2.any.html	ToASCII("‍‌。2䫷󠧷") C1; C2; V7
 url/IdnaTestV2.any.html	ToASCII("‍‌。２䫷󠧷") C1; C2; V7
+url/IdnaTestV2.any.html	ToASCII("‍‌󠆪。SS𑓃") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‍‌󠆪。Ss𑓃") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‍‌󠆪。ss𑓃") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‍‌󠆪。ß𑓃") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‍‌󠆪｡SS𑓃") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‍‌󠆪｡Ss𑓃") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‍‌󠆪｡ss𑓃") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‍‌󠆪｡ß𑓃") C1; C2
 url/IdnaTestV2.any.html	ToASCII("‍‍襔。Ⴜ5ꡮ񵝏") C2; V7
 url/IdnaTestV2.any.html	ToASCII("‍‍襔。ⴜ5ꡮ񵝏") C2; V7
 url/IdnaTestV2.any.html	ToASCII("‍₅⒈。≯𝟴‍") C2; V7
 url/IdnaTestV2.any.html	ToASCII("‍₅⒈。≯𝟴‍") C2; V7
+url/IdnaTestV2.any.html	ToASCII("‍≠ᢙ≯.솣-ᡴႠ") C2
+url/IdnaTestV2.any.html	ToASCII("‍≠ᢙ≯.솣-ᡴⴀ") C2
 url/IdnaTestV2.any.html	ToASCII("‍≮.󠟪𹫏-") C2; V7; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("‍≮．󠟪𹫏-") C2; V7; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("‍┮󠇐.ఀ్᜴‍") C2; V6
 url/IdnaTestV2.any.html	ToASCII("‍┮󠇐．ఀ్᜴‍") C2; V6
+url/IdnaTestV2.any.html	ToASCII("‍⾕。‌꥓̐ꡎ") C1; C2
+url/IdnaTestV2.any.html	ToASCII("‍⾕。‌꥓̐ꡎ") C1; C2
 url/IdnaTestV2.any.html	ToASCII("‍。Σ󠁉") C2; V7
 url/IdnaTestV2.any.html	ToASCII("‍。ς󠁉") C2; V7
 url/IdnaTestV2.any.html	ToASCII("‍。σ󠁉") C2; V7
+url/IdnaTestV2.any.html	ToASCII("‍。‌") C1; C2
 url/IdnaTestV2.any.html	ToASCII("‍。𞀘1.ꡍ擉") C2; V6
 url/IdnaTestV2.any.html	ToASCII("‍。𞀘⒈ꡍ擉") C2; V6; V7
 url/IdnaTestV2.any.html	ToASCII("‍。񅁛") C2; V7
+url/IdnaTestV2.any.html	ToASCII("‍㨲。SS") C2
+url/IdnaTestV2.any.html	ToASCII("‍㨲。Ss") C2
+url/IdnaTestV2.any.html	ToASCII("‍㨲。ss") C2
+url/IdnaTestV2.any.html	ToASCII("‍㨲。ß") C2
+url/IdnaTestV2.any.html	ToASCII("‍㨲｡SS") C2
+url/IdnaTestV2.any.html	ToASCII("‍㨲｡Ss") C2
+url/IdnaTestV2.any.html	ToASCII("‍㨲｡ss") C2
+url/IdnaTestV2.any.html	ToASCII("‍㨲｡ß") C2
+url/IdnaTestV2.any.html	ToASCII("‍攌꯭。ᢖ-Ⴘ") C2
+url/IdnaTestV2.any.html	ToASCII("‍攌꯭。ᢖ-ⴘ") C2
+url/IdnaTestV2.any.html	ToASCII("‍谷。‌꥓̐ꡎ") C1; C2
 url/IdnaTestV2.any.html	ToASCII("‍．𝟗") C2
 url/IdnaTestV2.any.html	ToASCII("‍．􀸨") C2; V7
 url/IdnaTestV2.any.html	ToASCII("‍｡񅁛") C2; V7
@@ -137483,12 +137664,20 @@ url/IdnaTestV2.any.html	ToASCII("⃫≮.𝨖") V6
 url/IdnaTestV2.any.html	ToASCII("⃫≮.𝨖") V6
 url/IdnaTestV2.any.html	ToASCII("Ⅎ្.≠")
 url/IdnaTestV2.any.html	ToASCII("Ⅎ្.≠")
+url/IdnaTestV2.any.html	ToASCII("Ⅎ្‍。≠‍‌") C1; C2
+url/IdnaTestV2.any.html	ToASCII("Ⅎ្‍。≠‍‌") C1; C2
+url/IdnaTestV2.any.html	ToASCII("Ⅎ្‍｡≠‍‌") C1; C2
+url/IdnaTestV2.any.html	ToASCII("Ⅎ្‍｡≠‍‌") C1; C2
 url/IdnaTestV2.any.html	ToASCII("Ⅎ󠅺񝵒。≯⾑") V7
 url/IdnaTestV2.any.html	ToASCII("Ⅎ󠅺񝵒。≯襾") V7
 url/IdnaTestV2.any.html	ToASCII("Ⅎ󠅺񝵒。≯⾑") V7
 url/IdnaTestV2.any.html	ToASCII("Ⅎ󠅺񝵒。≯襾") V7
 url/IdnaTestV2.any.html	ToASCII("ⅎ្.≠")
 url/IdnaTestV2.any.html	ToASCII("ⅎ្.≠")
+url/IdnaTestV2.any.html	ToASCII("ⅎ្‍。≠‍‌") C1; C2
+url/IdnaTestV2.any.html	ToASCII("ⅎ្‍。≠‍‌") C1; C2
+url/IdnaTestV2.any.html	ToASCII("ⅎ្‍｡≠‍‌") C1; C2
+url/IdnaTestV2.any.html	ToASCII("ⅎ្‍｡≠‍‌") C1; C2
 url/IdnaTestV2.any.html	ToASCII("ⅎ󠅺񝵒。≯⾑") V7
 url/IdnaTestV2.any.html	ToASCII("ⅎ󠅺񝵒。≯襾") V7
 url/IdnaTestV2.any.html	ToASCII("ⅎ󠅺񝵒。≯⾑") V7
@@ -137496,12 +137685,14 @@ url/IdnaTestV2.any.html	ToASCII("ⅎ󠅺񝵒。≯襾") V7
 url/IdnaTestV2.any.html	ToASCII("≠")
 url/IdnaTestV2.any.html	ToASCII("≠.") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("≠.ᠿ")
+url/IdnaTestV2.any.html	ToASCII("≠.‍") C2
 url/IdnaTestV2.any.html	ToASCII("≠.🞳6")
 url/IdnaTestV2.any.html	ToASCII("≠ᢙ≯.솣-ᡴႠ")
 url/IdnaTestV2.any.html	ToASCII("≠ᢙ≯.솣-ᡴⴀ")
 url/IdnaTestV2.any.html	ToASCII("≠。🞳6")
 url/IdnaTestV2.any.html	ToASCII("≠。🞳𝟲")
 url/IdnaTestV2.any.html	ToASCII("≠膣。ྃ") V6
+url/IdnaTestV2.any.html	ToASCII("≠．‍") C2
 url/IdnaTestV2.any.html	ToASCII("≮7.謖SS≯")
 url/IdnaTestV2.any.html	ToASCII("≮7.謖Ss≯")
 url/IdnaTestV2.any.html	ToASCII("≮7.謖ss≯")
@@ -137589,9 +137780,13 @@ url/IdnaTestV2.any.html	ToASCII("ⴉ猕󹛫≮.。") V7; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ⴉ猕󹛫≮．︒") V7
 url/IdnaTestV2.any.html	ToASCII("ⴉ猕󹛫≮.。") V7; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ⴉ猕󹛫≮．︒") V7
+url/IdnaTestV2.any.html	ToASCII("ⴋ≮𱲆。‍ާ𐋣") C2
+url/IdnaTestV2.any.html	ToASCII("ⴋ≮𱲆。‍ާ𐋣") C2
 url/IdnaTestV2.any.html	ToASCII("ⴍ.񍇦‌") C1; V7
 url/IdnaTestV2.any.html	ToASCII("ⴍ．񍇦‌") C1; V7
 url/IdnaTestV2.any.html	ToASCII("ⴍ𿣍ꡨ֮。ⴞ‌‌") C1; V7
+url/IdnaTestV2.any.html	ToASCII("ⴏ󠅋-.‍ⴉ") C2; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("ⴏ󠅋-．‍ⴉ") C2; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ⴓ𑜫‍򗭓.ڧ𑰶") V7
 url/IdnaTestV2.any.html	ToASCII("ⴓ𑜫‍򗭓．ڧ𑰶") V7
 url/IdnaTestV2.any.html	ToASCII("ⴔ𝨨3󠁦.7𑂹ஂ") V7
@@ -137649,6 +137844,9 @@ url/IdnaTestV2.any.html	ToASCII("。") A4_1 (ignored); A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("。.𑑂︯") V6; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("。.򚠡ᩙ") V7; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("。صىืلا。岓᯲󠾃ᡂ") V7; A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("。Ⴖͦ.‌") C1; A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("。‌ヶ䒩.ꡪ") C1; A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("。ⴖͦ.‌") C1; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("。。Ⴃ≯") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("。。Ⴃ≯") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("。。᭄ᡉ") V6; A4_2 (ignored)
@@ -137677,6 +137875,8 @@ url/IdnaTestV2.any.html	ToASCII("兎。ᠼ󠴜𑚶𑰿") V7
 url/IdnaTestV2.any.html	ToASCII("兎｡ᠼ󠴜𑚶𑰿") V7
 url/IdnaTestV2.any.html	ToASCII("夙")
 url/IdnaTestV2.any.html	ToASCII("夡夞夜夙")
+url/IdnaTestV2.any.html	ToASCII("嬃𝍌.‍ୄ") C2
+url/IdnaTestV2.any.html	ToASCII("嬃𝍌．‍ୄ") C2
 url/IdnaTestV2.any.html	ToASCII("攌꯭.ᢖ-Ⴘ")
 url/IdnaTestV2.any.html	ToASCII("攌꯭.ᢖ-ⴘ")
 url/IdnaTestV2.any.html	ToASCII("日本語.JP")
@@ -137689,11 +137889,14 @@ url/IdnaTestV2.any.html	ToASCII("日本語。ＪＰ")
 url/IdnaTestV2.any.html	ToASCII("日本語。Ｊｐ")
 url/IdnaTestV2.any.html	ToASCII("日本語。ｊｐ")
 url/IdnaTestV2.any.html	ToASCII("梉.") A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("梉。‌") C1
 url/IdnaTestV2.any.html	ToASCII("淽.ᠾ")
 url/IdnaTestV2.any.html	ToASCII("淽。ᠾ")
 url/IdnaTestV2.any.html	ToASCII("爕򳙑.4気") V7
 url/IdnaTestV2.any.html	ToASCII("爕򳙑．𝟰気") V7
 url/IdnaTestV2.any.html	ToASCII("璼𝨭.") A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("璼𝨭。‌󠇟") C1
+url/IdnaTestV2.any.html	ToASCII("璼𝨭｡‌󠇟") C1
 url/IdnaTestV2.any.html	ToASCII("箃Ⴡ-󠁝。≠-🤖") V7
 url/IdnaTestV2.any.html	ToASCII("箃Ⴡ-󠁝。≠-🤖") V7
 url/IdnaTestV2.any.html	ToASCII("箃Ⴡ-󠁝｡≠-🤖") V7
@@ -137730,6 +137933,7 @@ url/IdnaTestV2.any.html	ToASCII("锣。੍󠘻󠚆") V6; V7
 url/IdnaTestV2.any.html	ToASCII("陋㛼当𤎫竮䗗")
 url/IdnaTestV2.any.html	ToASCII("電𡍪弳䎫窮䵗")
 url/IdnaTestV2.any.html	ToASCII("鱊.") A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("鱊。‌") C1
 url/IdnaTestV2.any.html	ToASCII("齙--4.SS")
 url/IdnaTestV2.any.html	ToASCII("齙--4.Ss")
 url/IdnaTestV2.any.html	ToASCII("齙--4.ss")
@@ -137758,6 +137962,7 @@ url/IdnaTestV2.any.html	ToASCII("ꡕ≠ၞ󮿱｡𐵧󠄫ﾠ") V7
 url/IdnaTestV2.any.html	ToASCII("ꡠ.۲")
 url/IdnaTestV2.any.html	ToASCII("ꡠ．۲")
 url/IdnaTestV2.any.html	ToASCII("ꡣ.ߏ")
+url/IdnaTestV2.any.html	ToASCII("ꡦᡑ‍1.。𐋣-") C2; V3 (ignored); A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("ꡦᡑ‍⒈。𐋣-") C2; V7; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("꡽≯.򻲀򒳄") V7
 url/IdnaTestV2.any.html	ToASCII("꡽≯．򻲀򒳄") V7
@@ -137835,6 +138040,7 @@ url/IdnaTestV2.any.html	ToASCII("￹‌｡曳⾑𐋰≯") C1; V7
 url/IdnaTestV2.any.html	ToASCII("￹‌｡曳⾑𐋰≯") C1; V7
 url/IdnaTestV2.any.html	ToASCII("𐋰。󑓱") V7
 url/IdnaTestV2.any.html	ToASCII("𐋷.") A4_2 (ignored)
+url/IdnaTestV2.any.html	ToASCII("𐋷。‍") C2
 url/IdnaTestV2.any.html	ToASCII("𐋸󮘋Ⴢ.Ⴁ") V7
 url/IdnaTestV2.any.html	ToASCII("𐋸󮘋Ⴢ.ⴁ") V7
 url/IdnaTestV2.any.html	ToASCII("𐋸󮘋ⴢ.ⴁ") V7
@@ -137890,13 +138096,17 @@ url/IdnaTestV2.any.html	ToASCII("𑲘󠄒𓑡｡𝟪ⴜ") V6
 url/IdnaTestV2.any.html	ToASCII("𝅵。9𞀈䬺1.") A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("𝅵｡𝟫𞀈䬺⒈") V7; A4_2 (ignored)
 url/IdnaTestV2.any.html	ToASCII("𝟎。甯")
+url/IdnaTestV2.any.html	ToASCII("𝟏𝨙⸖.‍") C2
 url/IdnaTestV2.any.html	ToASCII("𝟓☱𝟐򥰵｡𝪮񐡳") V6; V7
 url/IdnaTestV2.any.html	ToASCII("𝟓。ۗ") V6
+url/IdnaTestV2.any.html	ToASCII("𝟙｡‍𝟸‍⁷") C2
 url/IdnaTestV2.any.html	ToASCII("𝟛꣄𝆪｡꣪-") V6; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("𝟛．笠")
 url/IdnaTestV2.any.html	ToASCII("𝟛．笠")
 url/IdnaTestV2.any.html	ToASCII("𝟛꣄𝆪｡꣪-") V6; V3 (ignored)
+url/IdnaTestV2.any.html	ToASCII("𝟠4󠇗𝈻．‍𐋵⛧‍") C2
 url/IdnaTestV2.any.html	ToASCII("𝟥♮𑜫࣭．្𑜫8󠆏") V6
+url/IdnaTestV2.any.html	ToASCII("𝟵隁⯮．᠍‌") C1
 url/IdnaTestV2.any.html	ToASCII("𝨥。⫟𑈾") V6
 url/IdnaTestV2.any.html	ToASCII("𝩜。-୍Ⴋ") V6; V3 (ignored)
 url/IdnaTestV2.any.html	ToASCII("𝩜。-୍ⴋ") V6; V3 (ignored)
@@ -140036,6 +140246,7 @@ url/idlharness.any.html	URL interface: attribute hash
 url/idlharness.any.html	URL interface: attribute host
 url/idlharness.any.html	URL interface: attribute hostname
 url/idlharness.any.html	URL interface: attribute href
+url/idlharness.any.html	URL interface: attribute origin
 url/idlharness.any.html	URL interface: attribute password
 url/idlharness.any.html	URL interface: attribute pathname
 url/idlharness.any.html	URL interface: attribute port
@@ -140111,150 +140322,267 @@ url/toascii.window.html	lookout.net (using URL)
 url/toascii.window.html	lookout.net (using URL.host)
 url/toascii.window.html	lookout.net (using URL.hostname)
 url/toascii.window.html	-foo.bar.com (using <a>)
+url/toascii.window.html	-foo.bar.com (using <a>.host)
+url/toascii.window.html	-foo.bar.com (using <a>.hostname)
 url/toascii.window.html	-foo.bar.com (using <area>)
+url/toascii.window.html	-foo.bar.com (using <area>.host)
+url/toascii.window.html	-foo.bar.com (using <area>.hostname)
 url/toascii.window.html	-foo.bar.com (using URL)
 url/toascii.window.html	-foo.bar.com (using URL.host)
 url/toascii.window.html	-foo.bar.com (using URL.hostname)
 url/toascii.window.html	-x (using <a>)
+url/toascii.window.html	-x (using <a>.host)
+url/toascii.window.html	-x (using <a>.hostname)
 url/toascii.window.html	-x (using <area>)
+url/toascii.window.html	-x (using <area>.host)
+url/toascii.window.html	-x (using <area>.hostname)
 url/toascii.window.html	-x (using URL)
 url/toascii.window.html	-x (using URL.host)
 url/toascii.window.html	-x (using URL.hostname)
 url/toascii.window.html	-x.xn--zca (using <a>)
+url/toascii.window.html	-x.xn--zca (using <a>.host)
+url/toascii.window.html	-x.xn--zca (using <a>.hostname)
 url/toascii.window.html	-x.xn--zca (using <area>)
+url/toascii.window.html	-x.xn--zca (using <area>.host)
+url/toascii.window.html	-x.xn--zca (using <area>.hostname)
 url/toascii.window.html	-x.xn--zca (using URL)
 url/toascii.window.html	-x.xn--zca (using URL.host)
 url/toascii.window.html	-x.xn--zca (using URL.hostname)
 url/toascii.window.html	-x.ß (using <a>)
+url/toascii.window.html	-x.ß (using <a>.host)
+url/toascii.window.html	-x.ß (using <a>.hostname)
 url/toascii.window.html	-x.ß (using <area>)
+url/toascii.window.html	-x.ß (using <area>.host)
+url/toascii.window.html	-x.ß (using <area>.hostname)
 url/toascii.window.html	-x.ß (using URL)
 url/toascii.window.html	-x.ß (using URL.host)
 url/toascii.window.html	-x.ß (using URL.hostname)
 url/toascii.window.html	-† (using <a>)
+url/toascii.window.html	-† (using <a>.host)
+url/toascii.window.html	-† (using <a>.hostname)
 url/toascii.window.html	-† (using <area>)
+url/toascii.window.html	-† (using <area>.host)
+url/toascii.window.html	-† (using <area>.hostname)
 url/toascii.window.html	-† (using URL)
 url/toascii.window.html	-† (using URL.host)
 url/toascii.window.html	-† (using URL.hostname)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.x (using <a>)
+url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.x (using <a>.host)
+url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.x (using <a>.hostname)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.x (using <area>)
+url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.x (using <area>.host)
+url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.x (using <area>.hostname)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.x (using URL)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.x (using URL.host)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.x (using URL.hostname)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.xn--zca (using <a>)
+url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.xn--zca (using <a>.host)
+url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.xn--zca (using <a>.hostname)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.xn--zca (using <area>)
+url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.xn--zca (using <area>.host)
+url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.xn--zca (using <area>.hostname)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.xn--zca (using URL)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.xn--zca (using URL.host)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.xn--zca (using URL.hostname)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.ß (using <a>)
+url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.ß (using <a>.host)
+url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.ß (using <a>.hostname)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.ß (using <area>)
+url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.ß (using <area>.host)
+url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.ß (using <area>.hostname)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.ß (using URL)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.ß (using URL.host)
 url/toascii.window.html	01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.01234567890123456789012345678901234567890123456789.0123456789012345678901234567890123456789012345678.ß (using URL.hostname)
 url/toascii.window.html	<­̸ (using <a>)
+url/toascii.window.html	<­̸ (using <a>.host)
+url/toascii.window.html	<­̸ (using <a>.hostname)
 url/toascii.window.html	<­̸ (using <area>)
+url/toascii.window.html	<­̸ (using <area>.host)
+url/toascii.window.html	<­̸ (using <area>.hostname)
 url/toascii.window.html	<­̸ (using URL)
 url/toascii.window.html	<­̸ (using URL.host)
 url/toascii.window.html	<­̸ (using URL.hostname)
 url/toascii.window.html	≮ (using <a>)
+url/toascii.window.html	≮ (using <a>.host)
+url/toascii.window.html	≮ (using <a>.hostname)
 url/toascii.window.html	≮ (using <area>)
+url/toascii.window.html	≮ (using <area>.host)
+url/toascii.window.html	≮ (using <area>.hostname)
 url/toascii.window.html	≮ (using URL)
 url/toascii.window.html	≮ (using URL.host)
 url/toascii.window.html	≮ (using URL.hostname)
 url/toascii.window.html	=­̸ (using <a>)
+url/toascii.window.html	=­̸ (using <a>.host)
+url/toascii.window.html	=­̸ (using <a>.hostname)
 url/toascii.window.html	=­̸ (using <area>)
+url/toascii.window.html	=­̸ (using <area>.host)
+url/toascii.window.html	=­̸ (using <area>.hostname)
 url/toascii.window.html	=­̸ (using URL)
 url/toascii.window.html	=­̸ (using URL.host)
 url/toascii.window.html	=­̸ (using URL.hostname)
 url/toascii.window.html	≠ (using <a>)
+url/toascii.window.html	≠ (using <a>.host)
+url/toascii.window.html	≠ (using <a>.hostname)
 url/toascii.window.html	≠ (using <area>)
+url/toascii.window.html	≠ (using <area>.host)
+url/toascii.window.html	≠ (using <area>.hostname)
 url/toascii.window.html	≠ (using URL)
 url/toascii.window.html	≠ (using URL.host)
 url/toascii.window.html	≠ (using URL.hostname)
 url/toascii.window.html	>­̸ (using <a>)
+url/toascii.window.html	>­̸ (using <a>.host)
+url/toascii.window.html	>­̸ (using <a>.hostname)
 url/toascii.window.html	>­̸ (using <area>)
+url/toascii.window.html	>­̸ (using <area>.host)
+url/toascii.window.html	>­̸ (using <area>.hostname)
 url/toascii.window.html	>­̸ (using URL)
 url/toascii.window.html	>­̸ (using URL.host)
 url/toascii.window.html	>­̸ (using URL.hostname)
 url/toascii.window.html	≯ (using <a>)
+url/toascii.window.html	≯ (using <a>.host)
+url/toascii.window.html	≯ (using <a>.hostname)
 url/toascii.window.html	≯ (using <area>)
+url/toascii.window.html	≯ (using <area>.host)
+url/toascii.window.html	≯ (using <area>.hostname)
 url/toascii.window.html	≯ (using URL)
 url/toascii.window.html	≯ (using URL.host)
 url/toascii.window.html	≯ (using URL.hostname)
 url/toascii.window.html	Bücher.de (using <a>)
+url/toascii.window.html	Bücher.de (using <a>.host)
+url/toascii.window.html	Bücher.de (using <a>.hostname)
 url/toascii.window.html	Bücher.de (using <area>)
+url/toascii.window.html	Bücher.de (using <area>.host)
+url/toascii.window.html	Bücher.de (using <area>.hostname)
 url/toascii.window.html	Bücher.de (using URL)
 url/toascii.window.html	Bücher.de (using URL.host)
 url/toascii.window.html	Bücher.de (using URL.hostname)
 url/toascii.window.html	Loading data…
 url/toascii.window.html	aa-- (using <a>)
+url/toascii.window.html	aa-- (using <a>.host)
+url/toascii.window.html	aa-- (using <a>.hostname)
 url/toascii.window.html	aa-- (using <area>)
+url/toascii.window.html	aa-- (using <area>.host)
+url/toascii.window.html	aa-- (using <area>.hostname)
 url/toascii.window.html	aa-- (using URL)
 url/toascii.window.html	aa-- (using URL.host)
 url/toascii.window.html	aa-- (using URL.hostname)
 url/toascii.window.html	ab--c (using <a>)
+url/toascii.window.html	ab--c (using <a>.host)
+url/toascii.window.html	ab--c (using <a>.hostname)
 url/toascii.window.html	ab--c (using <area>)
+url/toascii.window.html	ab--c (using <area>.host)
+url/toascii.window.html	ab--c (using <area>.hostname)
 url/toascii.window.html	ab--c (using URL)
 url/toascii.window.html	ab--c (using URL.host)
 url/toascii.window.html	ab--c (using URL.hostname)
 url/toascii.window.html	ab--c.xn--zca (using <a>)
+url/toascii.window.html	ab--c.xn--zca (using <a>.host)
+url/toascii.window.html	ab--c.xn--zca (using <a>.hostname)
 url/toascii.window.html	ab--c.xn--zca (using <area>)
+url/toascii.window.html	ab--c.xn--zca (using <area>.host)
+url/toascii.window.html	ab--c.xn--zca (using <area>.hostname)
 url/toascii.window.html	ab--c.xn--zca (using URL)
 url/toascii.window.html	ab--c.xn--zca (using URL.host)
 url/toascii.window.html	ab--c.xn--zca (using URL.hostname)
 url/toascii.window.html	ab--c.ß (using <a>)
+url/toascii.window.html	ab--c.ß (using <a>.host)
+url/toascii.window.html	ab--c.ß (using <a>.hostname)
 url/toascii.window.html	ab--c.ß (using <area>)
+url/toascii.window.html	ab--c.ß (using <area>.host)
+url/toascii.window.html	ab--c.ß (using <area>.hostname)
 url/toascii.window.html	ab--c.ß (using URL)
 url/toascii.window.html	ab--c.ß (using URL.host)
 url/toascii.window.html	ab--c.ß (using URL.hostname)
 url/toascii.window.html	ab--cd.com (using <a>)
+url/toascii.window.html	ab--cd.com (using <a>.host)
+url/toascii.window.html	ab--cd.com (using <a>.hostname)
 url/toascii.window.html	ab--cd.com (using <area>)
+url/toascii.window.html	ab--cd.com (using <area>.host)
+url/toascii.window.html	ab--cd.com (using <area>.hostname)
 url/toascii.window.html	ab--cd.com (using URL)
 url/toascii.window.html	ab--cd.com (using URL.host)
 url/toascii.window.html	ab--cd.com (using URL.hostname)
 url/toascii.window.html	a­b (using <a>)
+url/toascii.window.html	a­b (using <a>.host)
+url/toascii.window.html	a­b (using <a>.hostname)
 url/toascii.window.html	a­b (using <area>)
+url/toascii.window.html	a­b (using <area>.host)
+url/toascii.window.html	a­b (using <area>.hostname)
 url/toascii.window.html	a­b (using URL)
 url/toascii.window.html	a­b (using URL.host)
 url/toascii.window.html	a­b (using URL.hostname)
 url/toascii.window.html	a†-- (using <a>)
+url/toascii.window.html	a†-- (using <a>.host)
+url/toascii.window.html	a†-- (using <a>.hostname)
 url/toascii.window.html	a†-- (using <area>)
+url/toascii.window.html	a†-- (using <area>.host)
+url/toascii.window.html	a†-- (using <area>.hostname)
 url/toascii.window.html	a†-- (using URL)
 url/toascii.window.html	a†-- (using URL.host)
 url/toascii.window.html	a†-- (using URL.hostname)
 url/toascii.window.html	faß.de (using <a>)
+url/toascii.window.html	faß.de (using <a>.host)
+url/toascii.window.html	faß.de (using <a>.hostname)
 url/toascii.window.html	faß.de (using <area>)
+url/toascii.window.html	faß.de (using <area>.host)
+url/toascii.window.html	faß.de (using <area>.hostname)
 url/toascii.window.html	faß.de (using URL)
 url/toascii.window.html	faß.de (using URL.host)
 url/toascii.window.html	faß.de (using URL.hostname)
 url/toascii.window.html	foo-.bar.com (using <a>)
+url/toascii.window.html	foo-.bar.com (using <a>.host)
+url/toascii.window.html	foo-.bar.com (using <a>.hostname)
 url/toascii.window.html	foo-.bar.com (using <area>)
+url/toascii.window.html	foo-.bar.com (using <area>.host)
+url/toascii.window.html	foo-.bar.com (using <area>.hostname)
 url/toascii.window.html	foo-.bar.com (using URL)
 url/toascii.window.html	foo-.bar.com (using URL.host)
 url/toascii.window.html	foo-.bar.com (using URL.hostname)
 url/toascii.window.html	foò.bar.com (using <a>)
+url/toascii.window.html	foò.bar.com (using <a>.host)
+url/toascii.window.html	foò.bar.com (using <a>.hostname)
 url/toascii.window.html	foò.bar.com (using <area>)
+url/toascii.window.html	foò.bar.com (using <area>.host)
+url/toascii.window.html	foò.bar.com (using <area>.hostname)
 url/toascii.window.html	foò.bar.com (using URL)
 url/toascii.window.html	foò.bar.com (using URL.host)
 url/toascii.window.html	foò.bar.com (using URL.hostname)
 url/toascii.window.html	gOoGle.com (using <a>)
+url/toascii.window.html	gOoGle.com (using <a>.host)
+url/toascii.window.html	gOoGle.com (using <a>.hostname)
 url/toascii.window.html	gOoGle.com (using <area>)
+url/toascii.window.html	gOoGle.com (using <area>.host)
+url/toascii.window.html	gOoGle.com (using <area>.hostname)
 url/toascii.window.html	gOoGle.com (using URL)
 url/toascii.window.html	gOoGle.com (using URL.host)
 url/toascii.window.html	gOoGle.com (using URL.hostname)
 url/toascii.window.html	looḱout.net (using <a>)
+url/toascii.window.html	looḱout.net (using <a>.host)
+url/toascii.window.html	looḱout.net (using <a>.hostname)
 url/toascii.window.html	looḱout.net (using <area>)
+url/toascii.window.html	looḱout.net (using <area>.host)
+url/toascii.window.html	looḱout.net (using <area>.hostname)
 url/toascii.window.html	looḱout.net (using URL)
 url/toascii.window.html	looḱout.net (using URL.host)
 url/toascii.window.html	looḱout.net (using URL.hostname)
 url/toascii.window.html	look͏out.net (using <a>)
+url/toascii.window.html	look͏out.net (using <a>.host)
+url/toascii.window.html	look͏out.net (using <a>.hostname)
 url/toascii.window.html	look͏out.net (using <area>)
+url/toascii.window.html	look͏out.net (using <area>.host)
+url/toascii.window.html	look͏out.net (using <area>.hostname)
 url/toascii.window.html	look͏out.net (using URL)
 url/toascii.window.html	look͏out.net (using URL.host)
 url/toascii.window.html	look͏out.net (using URL.hostname)
+url/toascii.window.html	look־out.net (using <a>)
 url/toascii.window.html	look־out.net (using <a>.host)
 url/toascii.window.html	look־out.net (using <a>.hostname)
+url/toascii.window.html	look־out.net (using <area>)
 url/toascii.window.html	look־out.net (using <area>.host)
 url/toascii.window.html	look־out.net (using <area>.hostname)
+url/toascii.window.html	look־out.net (using URL)
+url/toascii.window.html	look־out.net (using URL.host)
+url/toascii.window.html	look־out.net (using URL.hostname)
 url/toascii.window.html	look۝out.net (using <a>)
 url/toascii.window.html	look۝out.net (using <a>.host)
 url/toascii.window.html	look۝out.net (using <a>.hostname)
@@ -140265,7 +140593,11 @@ url/toascii.window.html	look۝out.net (using URL)
 url/toascii.window.html	look۝out.net (using URL.host)
 url/toascii.window.html	look۝out.net (using URL.hostname)
 url/toascii.window.html	look᠎out.net (using <a>)
+url/toascii.window.html	look᠎out.net (using <a>.host)
+url/toascii.window.html	look᠎out.net (using <a>.hostname)
 url/toascii.window.html	look᠎out.net (using <area>)
+url/toascii.window.html	look᠎out.net (using <area>.host)
+url/toascii.window.html	look᠎out.net (using <area>.hostname)
 url/toascii.window.html	look᠎out.net (using URL)
 url/toascii.window.html	look᠎out.net (using URL.host)
 url/toascii.window.html	look᠎out.net (using URL.hostname)
@@ -140279,12 +140611,20 @@ url/toascii.window.html	look‮out.net (using URL)
 url/toascii.window.html	look‮out.net (using URL.host)
 url/toascii.window.html	look‮out.net (using URL.hostname)
 url/toascii.window.html	look⁠out.net (using <a>)
+url/toascii.window.html	look⁠out.net (using <a>.host)
+url/toascii.window.html	look⁠out.net (using <a>.hostname)
 url/toascii.window.html	look⁠out.net (using <area>)
+url/toascii.window.html	look⁠out.net (using <area>.host)
+url/toascii.window.html	look⁠out.net (using <area>.hostname)
 url/toascii.window.html	look⁠out.net (using URL)
 url/toascii.window.html	look⁠out.net (using URL.host)
 url/toascii.window.html	look⁠out.net (using URL.hostname)
 url/toascii.window.html	look⁫out.net (using <a>)
+url/toascii.window.html	look⁫out.net (using <a>.host)
+url/toascii.window.html	look⁫out.net (using <a>.hostname)
 url/toascii.window.html	look⁫out.net (using <area>)
+url/toascii.window.html	look⁫out.net (using <area>.host)
+url/toascii.window.html	look⁫out.net (using <area>.hostname)
 url/toascii.window.html	look⁫out.net (using URL)
 url/toascii.window.html	look⁫out.net (using URL.host)
 url/toascii.window.html	look⁫out.net (using URL.hostname)
@@ -140298,7 +140638,11 @@ url/toascii.window.html	look⿰out.net (using URL)
 url/toascii.window.html	look⿰out.net (using URL.host)
 url/toascii.window.html	look⿰out.net (using URL.hostname)
 url/toascii.window.html	look﻿out.net (using <a>)
+url/toascii.window.html	look﻿out.net (using <a>.host)
+url/toascii.window.html	look﻿out.net (using <a>.hostname)
 url/toascii.window.html	look﻿out.net (using <area>)
+url/toascii.window.html	look﻿out.net (using <area>.host)
+url/toascii.window.html	look﻿out.net (using <area>.hostname)
 url/toascii.window.html	look﻿out.net (using URL)
 url/toascii.window.html	look﻿out.net (using URL.host)
 url/toascii.window.html	look﻿out.net (using URL.hostname)
@@ -140348,17 +140692,29 @@ url/toascii.window.html	www.lookout.net⩴80 (using URL)
 url/toascii.window.html	www.lookout.net⩴80 (using URL.host)
 url/toascii.window.html	www.lookout.net⩴80 (using URL.hostname)
 url/toascii.window.html	www.lookout.сом (using <a>)
+url/toascii.window.html	www.lookout.сом (using <a>.host)
+url/toascii.window.html	www.lookout.сом (using <a>.hostname)
 url/toascii.window.html	www.lookout.сом (using <area>)
+url/toascii.window.html	www.lookout.сом (using <area>.host)
+url/toascii.window.html	www.lookout.сом (using <area>.hostname)
 url/toascii.window.html	www.lookout.сом (using URL)
 url/toascii.window.html	www.lookout.сом (using URL.host)
 url/toascii.window.html	www.lookout.сом (using URL.hostname)
 url/toascii.window.html	www.lookout‧net (using <a>)
+url/toascii.window.html	www.lookout‧net (using <a>.host)
+url/toascii.window.html	www.lookout‧net (using <a>.hostname)
 url/toascii.window.html	www.lookout‧net (using <area>)
+url/toascii.window.html	www.lookout‧net (using <area>.host)
+url/toascii.window.html	www.lookout‧net (using <area>.hostname)
 url/toascii.window.html	www.lookout‧net (using URL)
 url/toascii.window.html	www.lookout‧net (using URL.host)
 url/toascii.window.html	www.lookout‧net (using URL.hostname)
 url/toascii.window.html	www.looĸout.net (using <a>)
+url/toascii.window.html	www.looĸout.net (using <a>.host)
+url/toascii.window.html	www.looĸout.net (using <a>.hostname)
 url/toascii.window.html	www.looĸout.net (using <area>)
+url/toascii.window.html	www.looĸout.net (using <area>.host)
+url/toascii.window.html	www.looĸout.net (using <area>.hostname)
 url/toascii.window.html	www.looĸout.net (using URL)
 url/toascii.window.html	www.looĸout.net (using URL.host)
 url/toascii.window.html	www.looĸout.net (using URL.hostname)
@@ -140381,67 +140737,119 @@ url/toascii.window.html	www‥lookout.net (using URL)
 url/toascii.window.html	www‥lookout.net (using URL.host)
 url/toascii.window.html	www‥lookout.net (using URL.hostname)
 url/toascii.window.html	x-.xn--zca (using <a>)
+url/toascii.window.html	x-.xn--zca (using <a>.host)
+url/toascii.window.html	x-.xn--zca (using <a>.hostname)
 url/toascii.window.html	x-.xn--zca (using <area>)
+url/toascii.window.html	x-.xn--zca (using <area>.host)
+url/toascii.window.html	x-.xn--zca (using <area>.hostname)
 url/toascii.window.html	x-.xn--zca (using URL)
 url/toascii.window.html	x-.xn--zca (using URL.host)
 url/toascii.window.html	x-.xn--zca (using URL.hostname)
 url/toascii.window.html	x-.ß (using <a>)
+url/toascii.window.html	x-.ß (using <a>.host)
+url/toascii.window.html	x-.ß (using <a>.hostname)
 url/toascii.window.html	x-.ß (using <area>)
+url/toascii.window.html	x-.ß (using <area>.host)
+url/toascii.window.html	x-.ß (using <area>.hostname)
 url/toascii.window.html	x-.ß (using URL)
 url/toascii.window.html	x-.ß (using URL.host)
 url/toascii.window.html	x-.ß (using URL.hostname)
 url/toascii.window.html	x..xn--zca (using <a>)
+url/toascii.window.html	x..xn--zca (using <a>.host)
+url/toascii.window.html	x..xn--zca (using <a>.hostname)
 url/toascii.window.html	x..xn--zca (using <area>)
+url/toascii.window.html	x..xn--zca (using <area>.host)
+url/toascii.window.html	x..xn--zca (using <area>.hostname)
 url/toascii.window.html	x..xn--zca (using URL)
 url/toascii.window.html	x..xn--zca (using URL.host)
 url/toascii.window.html	x..xn--zca (using URL.hostname)
 url/toascii.window.html	x..ß (using <a>)
+url/toascii.window.html	x..ß (using <a>.host)
+url/toascii.window.html	x..ß (using <a>.hostname)
 url/toascii.window.html	x..ß (using <area>)
+url/toascii.window.html	x..ß (using <area>.host)
+url/toascii.window.html	x..ß (using <area>.hostname)
 url/toascii.window.html	x..ß (using URL)
 url/toascii.window.html	x..ß (using URL.host)
 url/toascii.window.html	x..ß (using URL.hostname)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x (using <a>)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x (using <a>.host)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x (using <a>.hostname)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x (using <area>)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x (using <area>.host)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x (using <area>.hostname)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x (using URL)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x (using URL.host)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x (using URL.hostname)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.xn--zca (using <a>)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.xn--zca (using <a>.host)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.xn--zca (using <a>.hostname)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.xn--zca (using <area>)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.xn--zca (using <area>.host)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.xn--zca (using <area>.hostname)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.xn--zca (using URL)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.xn--zca (using URL.host)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.xn--zca (using URL.hostname)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.ß (using <a>)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.ß (using <a>.host)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.ß (using <a>.hostname)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.ß (using <area>)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.ß (using <area>.host)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.ß (using <area>.hostname)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.ß (using URL)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.ß (using URL.host)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901x.ß (using URL.hostname)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901† (using <a>)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901† (using <a>.host)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901† (using <a>.hostname)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901† (using <area>)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901† (using <area>.host)
+url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901† (using <area>.hostname)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901† (using URL)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901† (using URL.host)
 url/toascii.window.html	x01234567890123456789012345678901234567890123456789012345678901† (using URL.hostname)
 url/toascii.window.html	xn--0.com (using <a>)
+url/toascii.window.html	xn--0.com (using <a>.host)
+url/toascii.window.html	xn--0.com (using <a>.hostname)
 url/toascii.window.html	xn--0.com (using <area>)
+url/toascii.window.html	xn--0.com (using <area>.host)
+url/toascii.window.html	xn--0.com (using <area>.hostname)
 url/toascii.window.html	xn--0.com (using URL)
 url/toascii.window.html	xn--0.com (using URL.host)
 url/toascii.window.html	xn--0.com (using URL.hostname)
 url/toascii.window.html	xn--1ug.example (using <a>)
+url/toascii.window.html	xn--1ug.example (using <a>.host)
+url/toascii.window.html	xn--1ug.example (using <a>.hostname)
 url/toascii.window.html	xn--1ug.example (using <area>)
+url/toascii.window.html	xn--1ug.example (using <area>.host)
+url/toascii.window.html	xn--1ug.example (using <area>.hostname)
 url/toascii.window.html	xn--1ug.example (using URL)
 url/toascii.window.html	xn--1ug.example (using URL.host)
 url/toascii.window.html	xn--1ug.example (using URL.hostname)
 url/toascii.window.html	xn--a (using <a>)
+url/toascii.window.html	xn--a (using <a>.host)
+url/toascii.window.html	xn--a (using <a>.hostname)
 url/toascii.window.html	xn--a (using <area>)
+url/toascii.window.html	xn--a (using <area>.host)
+url/toascii.window.html	xn--a (using <area>.hostname)
 url/toascii.window.html	xn--a (using URL)
 url/toascii.window.html	xn--a (using URL.host)
 url/toascii.window.html	xn--a (using URL.hostname)
 url/toascii.window.html	xn--a-yoc (using <a>)
+url/toascii.window.html	xn--a-yoc (using <a>.host)
+url/toascii.window.html	xn--a-yoc (using <a>.hostname)
 url/toascii.window.html	xn--a-yoc (using <area>)
+url/toascii.window.html	xn--a-yoc (using <area>.host)
+url/toascii.window.html	xn--a-yoc (using <area>.hostname)
 url/toascii.window.html	xn--a-yoc (using URL)
 url/toascii.window.html	xn--a-yoc (using URL.host)
 url/toascii.window.html	xn--a-yoc (using URL.hostname)
 url/toascii.window.html	xn--a.xn--zca (using <a>)
+url/toascii.window.html	xn--a.xn--zca (using <a>.host)
+url/toascii.window.html	xn--a.xn--zca (using <a>.hostname)
 url/toascii.window.html	xn--a.xn--zca (using <area>)
+url/toascii.window.html	xn--a.xn--zca (using <area>.host)
+url/toascii.window.html	xn--a.xn--zca (using <area>.hostname)
 url/toascii.window.html	xn--a.xn--zca (using URL)
 url/toascii.window.html	xn--a.xn--zca (using URL.host)
 url/toascii.window.html	xn--a.xn--zca (using URL.hostname)
@@ -140455,7 +140863,11 @@ url/toascii.window.html	xn--a.ß (using URL)
 url/toascii.window.html	xn--a.ß (using URL.host)
 url/toascii.window.html	xn--a.ß (using URL.hostname)
 url/toascii.window.html	xn--ls8h= (using <a>)
+url/toascii.window.html	xn--ls8h= (using <a>.host)
+url/toascii.window.html	xn--ls8h= (using <a>.hostname)
 url/toascii.window.html	xn--ls8h= (using <area>)
+url/toascii.window.html	xn--ls8h= (using <area>.host)
+url/toascii.window.html	xn--ls8h= (using <area>.hostname)
 url/toascii.window.html	xn--ls8h= (using URL)
 url/toascii.window.html	xn--ls8h= (using URL.host)
 url/toascii.window.html	xn--ls8h= (using URL.hostname)
@@ -140469,17 +140881,29 @@ url/toascii.window.html	xn--tešla (using URL)
 url/toascii.window.html	xn--tešla (using URL.host)
 url/toascii.window.html	xn--tešla (using URL.hostname)
 url/toascii.window.html	xn--zca.xn--zca (using <a>)
+url/toascii.window.html	xn--zca.xn--zca (using <a>.host)
+url/toascii.window.html	xn--zca.xn--zca (using <a>.hostname)
 url/toascii.window.html	xn--zca.xn--zca (using <area>)
+url/toascii.window.html	xn--zca.xn--zca (using <area>.host)
+url/toascii.window.html	xn--zca.xn--zca (using <area>.hostname)
 url/toascii.window.html	xn--zca.xn--zca (using URL)
 url/toascii.window.html	xn--zca.xn--zca (using URL.host)
 url/toascii.window.html	xn--zca.xn--zca (using URL.hostname)
 url/toascii.window.html	xn--zca.ß (using <a>)
+url/toascii.window.html	xn--zca.ß (using <a>.host)
+url/toascii.window.html	xn--zca.ß (using <a>.hostname)
 url/toascii.window.html	xn--zca.ß (using <area>)
+url/toascii.window.html	xn--zca.ß (using <area>.host)
+url/toascii.window.html	xn--zca.ß (using <area>.hostname)
 url/toascii.window.html	xn--zca.ß (using URL)
 url/toascii.window.html	xn--zca.ß (using URL.host)
 url/toascii.window.html	xn--zca.ß (using URL.hostname)
 url/toascii.window.html	xn--zn7c.com (using <a>)
+url/toascii.window.html	xn--zn7c.com (using <a>.host)
+url/toascii.window.html	xn--zn7c.com (using <a>.hostname)
 url/toascii.window.html	xn--zn7c.com (using <area>)
+url/toascii.window.html	xn--zn7c.com (using <area>.host)
+url/toascii.window.html	xn--zn7c.com (using <area>.hostname)
 url/toascii.window.html	xn--zn7c.com (using URL)
 url/toascii.window.html	xn--zn7c.com (using URL.host)
 url/toascii.window.html	xn--zn7c.com (using URL.hostname)
@@ -140493,46 +140917,83 @@ url/toascii.window.html	͸.net (using URL)
 url/toascii.window.html	͸.net (using URL.host)
 url/toascii.window.html	͸.net (using URL.hostname)
 url/toascii.window.html	βόλος.com (using <a>)
+url/toascii.window.html	βόλος.com (using <a>.host)
+url/toascii.window.html	βόλος.com (using <a>.hostname)
 url/toascii.window.html	βόλος.com (using <area>)
+url/toascii.window.html	βόλος.com (using <area>.host)
+url/toascii.window.html	βόλος.com (using <area>.hostname)
 url/toascii.window.html	βόλος.com (using URL)
 url/toascii.window.html	βόλος.com (using URL.host)
 url/toascii.window.html	βόλος.com (using URL.hostname)
 url/toascii.window.html	Ӏ.com (using <a>)
+url/toascii.window.html	Ӏ.com (using <a>.host)
+url/toascii.window.html	Ӏ.com (using <a>.hostname)
 url/toascii.window.html	Ӏ.com (using <area>)
+url/toascii.window.html	Ӏ.com (using <area>.host)
+url/toascii.window.html	Ӏ.com (using <area>.hostname)
 url/toascii.window.html	Ӏ.com (using URL)
 url/toascii.window.html	Ӏ.com (using URL.host)
 url/toascii.window.html	Ӏ.com (using URL.hostname)
 url/toascii.window.html	نامه‌ای (using <a>)
+url/toascii.window.html	نامه‌ای (using <a>.host)
+url/toascii.window.html	نامه‌ای (using <a>.hostname)
 url/toascii.window.html	نامه‌ای (using <area>)
+url/toascii.window.html	نامه‌ای (using <area>.host)
+url/toascii.window.html	نامه‌ای (using <area>.hostname)
 url/toascii.window.html	نامه‌ای (using URL)
 url/toascii.window.html	نامه‌ای (using URL.host)
 url/toascii.window.html	نامه‌ای (using URL.hostname)
 url/toascii.window.html	نامه‌ای.com (using <a>)
+url/toascii.window.html	نامه‌ای.com (using <a>.host)
+url/toascii.window.html	نامه‌ای.com (using <a>.hostname)
 url/toascii.window.html	نامه‌ای.com (using <area>)
+url/toascii.window.html	نامه‌ای.com (using <area>.host)
+url/toascii.window.html	نامه‌ای.com (using <area>.hostname)
 url/toascii.window.html	نامه‌ای.com (using URL)
 url/toascii.window.html	نامه‌ای.com (using URL.host)
 url/toascii.window.html	نامه‌ای.com (using URL.hostname)
+url/toascii.window.html	يa (using <a>)
 url/toascii.window.html	يa (using <a>.host)
 url/toascii.window.html	يa (using <a>.hostname)
+url/toascii.window.html	يa (using <area>)
 url/toascii.window.html	يa (using <area>.host)
 url/toascii.window.html	يa (using <area>.hostname)
+url/toascii.window.html	يa (using URL)
+url/toascii.window.html	يa (using URL.host)
+url/toascii.window.html	يa (using URL.hostname)
 url/toascii.window.html	ড়.com (using <a>)
+url/toascii.window.html	ড়.com (using <a>.host)
+url/toascii.window.html	ড়.com (using <a>.hostname)
 url/toascii.window.html	ড়.com (using <area>)
+url/toascii.window.html	ড়.com (using <area>.host)
+url/toascii.window.html	ড়.com (using <area>.hostname)
 url/toascii.window.html	ড়.com (using URL)
 url/toascii.window.html	ড়.com (using URL.host)
 url/toascii.window.html	ড়.com (using URL.hostname)
 url/toascii.window.html	ශ්‍රී (using <a>)
+url/toascii.window.html	ශ්‍රී (using <a>.host)
+url/toascii.window.html	ශ්‍රී (using <a>.hostname)
 url/toascii.window.html	ශ්‍රී (using <area>)
+url/toascii.window.html	ශ්‍රී (using <area>.host)
+url/toascii.window.html	ශ්‍රී (using <area>.hostname)
 url/toascii.window.html	ශ්‍රී (using URL)
 url/toascii.window.html	ශ්‍රී (using URL.host)
 url/toascii.window.html	ශ්‍රී (using URL.hostname)
 url/toascii.window.html	ශ්‍රී.com (using <a>)
+url/toascii.window.html	ශ්‍රී.com (using <a>.host)
+url/toascii.window.html	ශ්‍රී.com (using <a>.hostname)
 url/toascii.window.html	ශ්‍රී.com (using <area>)
+url/toascii.window.html	ශ්‍රී.com (using <area>.host)
+url/toascii.window.html	ශ්‍රී.com (using <area>.hostname)
 url/toascii.window.html	ශ්‍රී.com (using URL)
 url/toascii.window.html	ශ්‍රී.com (using URL.host)
 url/toascii.window.html	ශ්‍රී.com (using URL.hostname)
 url/toascii.window.html	ᗯᗯᗯ.lookout.net (using <a>)
+url/toascii.window.html	ᗯᗯᗯ.lookout.net (using <a>.host)
+url/toascii.window.html	ᗯᗯᗯ.lookout.net (using <a>.hostname)
 url/toascii.window.html	ᗯᗯᗯ.lookout.net (using <area>)
+url/toascii.window.html	ᗯᗯᗯ.lookout.net (using <area>.host)
+url/toascii.window.html	ᗯᗯᗯ.lookout.net (using <area>.hostname)
 url/toascii.window.html	ᗯᗯᗯ.lookout.net (using URL)
 url/toascii.window.html	ᗯᗯᗯ.lookout.net (using URL.host)
 url/toascii.window.html	ᗯᗯᗯ.lookout.net (using URL.hostname)
@@ -140546,41 +141007,74 @@ url/toascii.window.html	 lookout.net (using URL)
 url/toascii.window.html	 lookout.net (using URL.host)
 url/toascii.window.html	 lookout.net (using URL.hostname)
 url/toascii.window.html	ẞ.com (using <a>)
+url/toascii.window.html	ẞ.com (using <a>.host)
+url/toascii.window.html	ẞ.com (using <a>.hostname)
 url/toascii.window.html	ẞ.com (using <area>)
+url/toascii.window.html	ẞ.com (using <area>.host)
+url/toascii.window.html	ẞ.com (using <area>.hostname)
 url/toascii.window.html	ẞ.com (using URL)
 url/toascii.window.html	ẞ.com (using URL.host)
 url/toascii.window.html	ẞ.com (using URL.hostname)
 url/toascii.window.html	ẞ.foo.com (using <a>)
+url/toascii.window.html	ẞ.foo.com (using <a>.host)
+url/toascii.window.html	ẞ.foo.com (using <a>.hostname)
 url/toascii.window.html	ẞ.foo.com (using <area>)
+url/toascii.window.html	ẞ.foo.com (using <area>.host)
+url/toascii.window.html	ẞ.foo.com (using <area>.hostname)
 url/toascii.window.html	ẞ.foo.com (using URL)
 url/toascii.window.html	ẞ.foo.com (using URL.host)
 url/toascii.window.html	ẞ.foo.com (using URL.hostname)
+url/toascii.window.html	‍.example (using <a>)
 url/toascii.window.html	‍.example (using <a>.host)
 url/toascii.window.html	‍.example (using <a>.hostname)
+url/toascii.window.html	‍.example (using <area>)
 url/toascii.window.html	‍.example (using <area>.host)
 url/toascii.window.html	‍.example (using <area>.hostname)
+url/toascii.window.html	‍.example (using URL)
+url/toascii.window.html	‍.example (using URL.host)
+url/toascii.window.html	‍.example (using URL.hostname)
 url/toascii.window.html	Ↄ.com (using <a>)
+url/toascii.window.html	Ↄ.com (using <a>.host)
+url/toascii.window.html	Ↄ.com (using <a>.hostname)
 url/toascii.window.html	Ↄ.com (using <area>)
+url/toascii.window.html	Ↄ.com (using <area>.host)
+url/toascii.window.html	Ↄ.com (using <area>.hostname)
 url/toascii.window.html	Ↄ.com (using URL)
 url/toascii.window.html	Ↄ.com (using URL.host)
 url/toascii.window.html	Ↄ.com (using URL.hostname)
 url/toascii.window.html	≠ (using <a>)
+url/toascii.window.html	≠ (using <a>.host)
+url/toascii.window.html	≠ (using <a>.hostname)
 url/toascii.window.html	≠ (using <area>)
+url/toascii.window.html	≠ (using <area>.host)
+url/toascii.window.html	≠ (using <area>.hostname)
 url/toascii.window.html	≠ (using URL)
 url/toascii.window.html	≠ (using URL.host)
 url/toascii.window.html	≠ (using URL.hostname)
 url/toascii.window.html	≮ (using <a>)
+url/toascii.window.html	≮ (using <a>.host)
+url/toascii.window.html	≮ (using <a>.hostname)
 url/toascii.window.html	≮ (using <area>)
+url/toascii.window.html	≮ (using <area>.host)
+url/toascii.window.html	≮ (using <area>.hostname)
 url/toascii.window.html	≮ (using URL)
 url/toascii.window.html	≮ (using URL.host)
 url/toascii.window.html	≮ (using URL.hostname)
 url/toascii.window.html	≯ (using <a>)
+url/toascii.window.html	≯ (using <a>.host)
+url/toascii.window.html	≯ (using <a>.hostname)
 url/toascii.window.html	≯ (using <area>)
+url/toascii.window.html	≯ (using <area>.host)
+url/toascii.window.html	≯ (using <area>.hostname)
 url/toascii.window.html	≯ (using URL)
 url/toascii.window.html	≯ (using URL.host)
 url/toascii.window.html	≯ (using URL.hostname)
 url/toascii.window.html	♥.net (using <a>)
+url/toascii.window.html	♥.net (using <a>.host)
+url/toascii.window.html	♥.net (using <a>.hostname)
 url/toascii.window.html	♥.net (using <area>)
+url/toascii.window.html	♥.net (using <area>.host)
+url/toascii.window.html	♥.net (using <area>.hostname)
 url/toascii.window.html	♥.net (using URL)
 url/toascii.window.html	♥.net (using URL.host)
 url/toascii.window.html	♥.net (using URL.hostname)
@@ -140594,7 +141088,11 @@ url/toascii.window.html	�.com (using URL)
 url/toascii.window.html	�.com (using URL.host)
 url/toascii.window.html	�.com (using URL.hostname)
 url/toascii.window.html	㛼.com (using <a>)
+url/toascii.window.html	㛼.com (using <a>.host)
+url/toascii.window.html	㛼.com (using <a>.hostname)
 url/toascii.window.html	㛼.com (using <area>)
+url/toascii.window.html	㛼.com (using <area>.host)
+url/toascii.window.html	㛼.com (using <area>.hostname)
 url/toascii.window.html	㛼.com (using URL)
 url/toascii.window.html	㛼.com (using URL.host)
 url/toascii.window.html	㛼.com (using URL.hostname)
@@ -141910,22 +142408,53 @@ url/url-searchparams.any.html	URL.searchParams updating, clearing
 url/url-setters-a-area.window.html	<a>: Setting <a://example.net>.protocol = '' The empty string is not a valid scheme. Setter leaves the URL unchanged.
 url/url-setters-a-area.window.html	<a>: Setting <a://example.net>.protocol = '+b' No leading punctuation
 url/url-setters-a-area.window.html	<a>: Setting <a://example.net>.protocol = '0b' No leading digit
+url/url-setters-a-area.window.html	<a>: Setting <a://example.net>.protocol = 'B' Upper-case ASCII is lower-cased
+url/url-setters-a-area.window.html	<a>: Setting <a://example.net>.protocol = 'b'
 url/url-setters-a-area.window.html	<a>: Setting <a://example.net>.protocol = 'b,c' Only some punctuation is acceptable
+url/url-setters-a-area.window.html	<a>: Setting <a://example.net>.protocol = 'bC0+-.'
 url/url-setters-a-area.window.html	<a>: Setting <a://example.net>.protocol = 'bé' Non-ASCII is rejected
 url/url-setters-a-area.window.html	<a>: Setting <a://example.net>.protocol = 'é' Non-ASCII is rejected
+url/url-setters-a-area.window.html	<a>: Setting <a:/>.hash = ' \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' Simple percent-encoding; tabs and newlines are removed
+url/url-setters-a-area.window.html	<a>: Setting <a:/>.pathname = ' \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' UTF-8 percent encoding with the default encode set. Tabs and newlines are removed.
+url/url-setters-a-area.window.html	<a>: Setting <a:/>.search = ' \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' UTF-8 percent encoding with the query encode set. Tabs and newlines are removed.
+url/url-setters-a-area.window.html	<a>: Setting <a:/foo>.host = 'example.net' Path-only URLs can gain a host
+url/url-setters-a-area.window.html	<a>: Setting <a:/foo>.hostname = 'example.net' Path-only URLs can gain a host
+url/url-setters-a-area.window.html	<a>: Setting <about:blank>.hash = '# \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' Fragment percent-encode set on about:blank; tabs and newlines are removed
+url/url-setters-a-area.window.html	<a>: Setting <about:blank>.hash = '#<foo> <bar>' Fragment with <> on about:blank
+url/url-setters-a-area.window.html	<a>: Setting <data:/nospace>.pathname = 'space ' Non-special URLs with non-opaque paths percent-encode U+0020
 url/url-setters-a-area.window.html	<a>: Setting <data:original>.pathname = 'new value'
+url/url-setters-a-area.window.html	<a>: Setting <data:space                                                                                                                                  #fragment>.hash = '' Trailing spaces and opaque paths
+url/url-setters-a-area.window.html	<a>: Setting <data:space  ?query#fragment>.hash = '' Trailing spaces and opaque paths
+url/url-setters-a-area.window.html	<a>: Setting <data:space  ?query#fragment>.search = '' Trailing spaces and opaque paths
+url/url-setters-a-area.window.html	<a>: Setting <data:space ?query>.search = '' Trailing spaces and opaque paths
+url/url-setters-a-area.window.html	<a>: Setting <data:text/html,<p>Test>.protocol = 'view-source+data:foo : bar' Stuff after the first ':' is ignored
 url/url-setters-a-area.window.html	<a>: Setting <data:text/plain,Stuff>.host = 'example.net' Cannot-be-a-base means no host
 url/url-setters-a-area.window.html	<a>: Setting <data:text/plain,Stuff>.hostname = 'example.net' Cannot-be-a-base means no host
+url/url-setters-a-area.window.html	<a>: Setting <data:text/plain,test>.hash = '# \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' Fragment percent-encode set on data: URI; tabs and newlines are removed
+url/url-setters-a-area.window.html	<a>: Setting <data:text/plain,test>.hash = '#<foo> <bar>' Fragment with <> on data: URI
+url/url-setters-a-area.window.html	<a>: Setting <file:///some/path>.pathname = '' Special URLs cannot have their paths erased
 url/url-setters-a-area.window.html	<a>: Setting <file:///test>.protocol = 'https'
+url/url-setters-a-area.window.html	<a>: Setting <file:///unicorn>.pathname = '//\\/' File URLs and (back)slashes
+url/url-setters-a-area.window.html	<a>: Setting <file:///unicorn>.pathname = '//monkey/..//' File URLs and (back)slashes
 url/url-setters-a-area.window.html	<a>: Setting <file:///var/log/system.log>.href = 'http://0300.168.0xF0'
 url/url-setters-a-area.window.html	<a>: Setting <file://hi/path>.protocol = 's'
+url/url-setters-a-area.window.html	<a>: Setting <file://hi/x>.host = ''
+url/url-setters-a-area.window.html	<a>: Setting <file://hi/x>.hostname = ''
 url/url-setters-a-area.window.html	<a>: Setting <file://localhost/>.port = '12'
 url/url-setters-a-area.window.html	<a>: Setting <file://localhost/>.protocol = 'http' Can’t switch from file URL with no host
+url/url-setters-a-area.window.html	<a>: Setting <file://monkey/>.pathname = '\\\\' File URLs and (back)slashes
 url/url-setters-a-area.window.html	<a>: Setting <file://test/>.port = '12'
+url/url-setters-a-area.window.html	<a>: Setting <file://y/>.host = 'loc%41lhost'
 url/url-setters-a-area.window.html	<a>: Setting <file://y/>.host = 'x:123'
+url/url-setters-a-area.window.html	<a>: Setting <file://y/>.hostname = 'loc%41lhost'
 url/url-setters-a-area.window.html	<a>: Setting <file://y/>.hostname = 'x:123'
 url/url-setters-a-area.window.html	<a>: Setting <file:>.protocol = 'wss'
+url/url-setters-a-area.window.html	<a>: Setting <foo:///some/path>.pathname = '' Non-special URLs with an empty host can have their paths erased
 url/url-setters-a-area.window.html	<a>: Setting <foo://path/to>.host = ':80'
+url/url-setters-a-area.window.html	<a>: Setting <foo://path/to>.pathname = '/..'
+url/url-setters-a-area.window.html	<a>: Setting <foo://somehost/some/path>.pathname = '' Non-special URLs can have their paths erased
+url/url-setters-a-area.window.html	<a>: Setting <foo:/some/path>.pathname = '' Path-only URLs cannot have their paths erased
+url/url-setters-a-area.window.html	<a>: Setting <foo:/some/path>.pathname = 'test' Path-only URLs always have an initial slash
 url/url-setters-a-area.window.html	<a>: Setting <ftp://example.net>.protocol = 'test'
 url/url-setters-a-area.window.html	<a>: Setting <http://example.com/>.host = '///bad.com' Leading / is not stripped
 url/url-setters-a-area.window.html	<a>: Setting <http://example.com/>.hostname = '///bad.com' Leading / is not stripped
@@ -141939,73 +142468,243 @@ url/url-setters-a-area.window.html	<a>: Setting <http://example.net/>.hostname =
 url/url-setters-a-area.window.html	<a>: Setting <http://example.net/>.hostname = '[::1.2.]'
 url/url-setters-a-area.window.html	<a>: Setting <http://example.net/>.hostname = '[::1.]'
 url/url-setters-a-area.window.html	<a>: Setting <http://example.net/>.hostname = '[google.com]' Broken IPv6
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/home?lang=fr#nav>.pathname = '\\a\\%2E\\b\\%2e.\\c' \\ is a segment delimiter for 'special' URLs
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.host = 'example.com#stuff' Stuff after a # delimiter is ignored
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.host = 'example.com/stuff' Stuff after a / delimiter is ignored
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.host = 'example.com:65535' Port numbers are 16 bit integers
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.host = 'example.com:8080#stuff' Stuff after a # delimiter is ignored
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.host = 'example.com:8080+2' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.host = 'example.com:8080/stuff' Stuff after a / delimiter is ignored
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.host = 'example.com:8080?stuff' Stuff after a ? delimiter is ignored
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.host = 'example.com:8080\\stuff' Stuff after a \\ delimiter is ignored for special schemes
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.host = 'example.com:8080stuff2' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.host = 'example.com?stuff' Stuff after a ? delimiter is ignored
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.host = 'example.com?stuff:8080' Stuff after a ? delimiter is ignored, trailing 'port'
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.host = 'example.com\\stuff' Stuff after a \\ delimiter is ignored for special schemes
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.hostname = 'example.com#stuff' Stuff after a # delimiter is ignored
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.hostname = 'example.com/stuff' Stuff after a / delimiter is ignored
 url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.hostname = 'example.com:8080' : delimiter invalidates entire value
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.hostname = 'example.com?stuff' Stuff after a ? delimiter is ignored
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.hostname = 'example.com\\stuff' Stuff after a \\ delimiter is ignored for special schemes
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.port = '65535' Port numbers are 16 bit integers
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.port = '8080#stuff' Stuff after a # delimiter is ignored
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.port = '8080+2' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.port = '8080/stuff' Stuff after a / delimiter is ignored
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.port = '8080?stuff' Stuff after a ? delimiter is ignored
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.port = '8080\\stuff' Stuff after a \\ delimiter is ignored for special schemes
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net/path>.port = '8080stuff2' Anything other than ASCII digit stops the port parser in a setter but is not an error
 url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080/path>.hostname = 'example.com:' : delimiter invalidates entire value
 url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080/path>.port = '65536' Port numbers are 16 bit integers, overflowing is an error
 url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080/path>.port = 'randomstring' Setting port to a string that doesn't parse as a number
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080/test>.host = '[::1]' IPv6 without port
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080/test>.host = '[::1]:invalid' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080>.host = 'example.com' Port number is unchanged if not specified in the new value
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080>.host = 'example.com:' Port number is unchanged if not specified
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080>.host = 'example.com:80' Port number is removed if new port is scheme default and existing URL has a non-default port
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080>.host = 'example.com:invalid' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080>.hostname = '0x7F000001' IPv4 address syntax is normalized
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080>.hostname = 'example.com'
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080>.port = '' Port number is removed if empty is the new value
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net:8080>.port = '80' Default port number is removed
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.hash = ' ' Trailing C0 control should be encoded
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.hash = ' ' Trailing space should be encoded
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.hash = '#foo bar'
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.hash = '#foo"bar'
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.hash = '#foo<bar'
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.hash = '#foo>bar'
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.hash = '#foo`bar'
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.hash = '%c3%89té' Bytes already percent-encoded are left as-is
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.hash = 'a b' Percent-encode NULLs in fragment
 url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.host = '' The empty host is not valid for special schemes
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.host = '0x7F000001:8080' IPv4 address syntax is normalized
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.host = '[2001:db8::2]:4002' IPv6 literal address with port, crbug.com/1012416
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.host = '[::0:01]:2' IPv6 address syntax is normalized
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.host = 'example.com:80' Default port number is removed
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.host = 'example.com:8080'
 url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.hostname = '' The empty host is not valid for special schemes
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.hostname = '[::0:01]' IPv6 address syntax is normalized
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.pathname = ' ' Trailing C0 control should be encoded
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.pathname = ' ' Trailing space should be encoded
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.pathname = '#' # needs to be encoded
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.pathname = '%2e%2E%c3%89té' Bytes already percent-encoded are left as-is, including %2E outside dotted segments.
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.pathname = '/#é' # doesn't mess up encoding
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.pathname = '/?é' ? doesn't mess up encoding
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.pathname = '?' ? needs to be encoded
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.port = '8080'
 url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.protocol = 'b' Can’t switch from special scheme to non-special
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.protocol = 'https:foo : bar' Stuff after the first ':' is ignored
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.search = ' ' Trailing C0 control should be encoded
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.search = ' ' Trailing space should be encoded
+url/url-setters-a-area.window.html	<a>: Setting <http://example.net>.search = '%c3%89té' Bytes already percent-encoded are left as-is
+url/url-setters-a-area.window.html	<a>: Setting <http://foo.com:443/>.protocol = 'https' Port is set to null if it is the default for new scheme.
+url/url-setters-a-area.window.html	<a>: Setting <http://test/>.protocol = 'h\r\ntt\tps' Tab and newline are stripped
 url/url-setters-a-area.window.html	<a>: Setting <http://test/>.protocol = 'https ' Non-tab/newline C0 controls result in no-op
 url/url-setters-a-area.window.html	<a>: Setting <http://test/>.protocol = 'https'
 url/url-setters-a-area.window.html	<a>: Setting <http://test/>.protocol = 'https'
 url/url-setters-a-area.window.html	<a>: Setting <http://test/>.protocol = 'https '
+url/url-setters-a-area.window.html	<a>: Setting <http://test/>.protocol = 'https\r'
 url/url-setters-a-area.window.html	<a>: Setting <http://test@example.net>.protocol = 'file' Can’t switch from URL containing username/password/port to file
 url/url-setters-a-area.window.html	<a>: Setting <https://domain.com:3000>.port = '\n\n\t\t'
+url/url-setters-a-area.window.html	<a>: Setting <https://domain.com:3000>.port = '\n\t80\n\t80\n\t'
+url/url-setters-a-area.window.html	<a>: Setting <https://domain.com:443>.port = '\t8080' Leading u0009 on special scheme
 url/url-setters-a-area.window.html	<a>: Setting <https://example.com/>.host = '%C2%AD'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.com/>.host = 'a%C2%ADb'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.com/>.host = 'xn--'
 url/url-setters-a-area.window.html	<a>: Setting <https://example.com/>.host = '­'
 url/url-setters-a-area.window.html	<a>: Setting <https://example.com/>.hostname = '%C2%AD'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.com/>.hostname = 'a%C2%ADb'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.com/>.hostname = 'xn--'
 url/url-setters-a-area.window.html	<a>: Setting <https://example.com/>.hostname = '­'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net#nav>.hash = 'main'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net#nav>.pathname = '../home'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net#nav>.pathname = 'home'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net#nav>.search = 'lang=fr'
 url/url-setters-a-area.window.html	<a>: Setting <https://example.net:1234>.protocol = 'file'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net:4433>.port = '443' Default port number is removed
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net>.hash = 'main'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net>.host = 'example.com:443' Default port number is removed
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net>.host = 'example.com:80' Default port number is only removed for the relevant scheme
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net>.port = '80' Default port number is only removed for the relevant scheme
 url/url-setters-a-area.window.html	<a>: Setting <https://example.net>.protocol = 's'
 url/url-setters-a-area.window.html	<a>: Setting <https://example.net>.search = ''
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net?lang=en-US#nav>.hash = '#'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net?lang=en-US#nav>.hash = '#main'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net?lang=en-US#nav>.hash = ''
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net?lang=en-US#nav>.search = ''
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net?lang=en-US#nav>.search = '?'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net?lang=en-US#nav>.search = '??lang=fr'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net?lang=en-US#nav>.search = '?lang=fr'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net?lang=en-US#nav>.search = 'lang=fr'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net?lang=en-US>.hash = '##nav'
+url/url-setters-a-area.window.html	<a>: Setting <https://example.net?lang=en-US>.search = ''
+url/url-setters-a-area.window.html	<a>: Setting <https://test.invalid/>.host = '*'
 url/url-setters-a-area.window.html	<a>: Setting <https://test.invalid/>.host = '><'
+url/url-setters-a-area.window.html	<a>: Setting <https://test.invalid/>.host = 'foo\t\r\nbar'
+url/url-setters-a-area.window.html	<a>: Setting <https://test.invalid/>.host = 'test/:aaa'
+url/url-setters-a-area.window.html	<a>: Setting <https://test.invalid/>.host = 'test/@aaa'
 url/url-setters-a-area.window.html	<a>: Setting <https://test.invalid/>.host = 'x@x'
+url/url-setters-a-area.window.html	<a>: Setting <https://test.invalid/>.hostname = '*'
 url/url-setters-a-area.window.html	<a>: Setting <https://test.invalid/>.hostname = '><'
+url/url-setters-a-area.window.html	<a>: Setting <https://test.invalid/>.hostname = 'foo\t\r\nbar'
+url/url-setters-a-area.window.html	<a>: Setting <https://test.invalid/>.hostname = 'test/:aaa'
+url/url-setters-a-area.window.html	<a>: Setting <https://test.invalid/>.hostname = 'test/@aaa'
 url/url-setters-a-area.window.html	<a>: Setting <https://test.invalid/>.hostname = 'x@x'
+url/url-setters-a-area.window.html	<a>: Setting <https://www.google.com:4343>.port = '4wpt' Should use all ascii prefixed characters as port
+url/url-setters-a-area.window.html	<a>: Setting <https://x/>.host = 'ß' IDNA Nontransitional_Processing
+url/url-setters-a-area.window.html	<a>: Setting <javascript://x/>.port = '12'
+url/url-setters-a-area.window.html	<a>: Setting <javascript:alert(1)>.hash = 'castle'
+url/url-setters-a-area.window.html	<a>: Setting <javascript:alert(1)>.protocol = 'defuse'
 url/url-setters-a-area.window.html	<a>: Setting <mailto:me@example.net>.host = 'example.com' Cannot-be-a-base means no host
 url/url-setters-a-area.window.html	<a>: Setting <mailto:me@example.net>.hostname = 'example.com' Cannot-be-a-base means no host
 url/url-setters-a-area.window.html	<a>: Setting <mailto:me@example.net>.pathname = '/foo' Opaque paths cannot be set
 url/url-setters-a-area.window.html	<a>: Setting <mailto:me@example.net>.protocol = 'http' Cannot-be-a-base URL doesn’t have a host, but URL in a special scheme must.
 url/url-setters-a-area.window.html	<a>: Setting <non-base:value>.port = '12'
+url/url-setters-a-area.window.html	<a>: Setting <non-spec:/.//>.pathname = 'p' Drop /. from path
+url/url-setters-a-area.window.html	<a>: Setting <non-spec:/.//p>.hostname = ''
+url/url-setters-a-area.window.html	<a>: Setting <non-spec:/.//p>.hostname = 'h' Drop /. from path
+url/url-setters-a-area.window.html	<a>: Setting <non-spec:/>.hash = 'a b' Percent-encode NULLs in fragment
+url/url-setters-a-area.window.html	<a>: Setting <non-spec:/>.pathname = '/..//p'
+url/url-setters-a-area.window.html	<a>: Setting <non-spec:/>.pathname = '/.//p' Serialize /. in path
+url/url-setters-a-area.window.html	<a>: Setting <non-spec:/>.pathname = '//p'
 url/url-setters-a-area.window.html	<a>: Setting <non-special://example.net:8080/path>.port = '65536' Port numbers are 16 bit integers, overflowing is an error
 url/url-setters-a-area.window.html	<a>: Setting <nonsense:///test>.protocol = 'https'
 url/url-setters-a-area.window.html	<a>: Setting <sc:///>.port = '12'
+url/url-setters-a-area.window.html	<a>: Setting <sc://example.com/>.host = '///bad.com' Leading / is not stripped
+url/url-setters-a-area.window.html	<a>: Setting <sc://example.com/>.hostname = '///bad.com' Leading / is not stripped
+url/url-setters-a-area.window.html	<a>: Setting <sc://example.net>.pathname = '#' # needs to be encoded, non-special scheme
+url/url-setters-a-area.window.html	<a>: Setting <sc://example.net>.pathname = '?' ? needs to be encoded, non-special scheme
 url/url-setters-a-area.window.html	<a>: Setting <sc://test:12/>.host = ''
 url/url-setters-a-area.window.html	<a>: Setting <sc://test:12/>.hostname = ''
 url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.host = ' ' Non-special scheme
 url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.host = ' '
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.host = '#'
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.host = '/'
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.host = '?'
 url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.host = '@'
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.host = '\n'
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.host = '\r'
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.host = '\t'
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.host = 'ß'
 url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.hostname = ' ' Non-special scheme
 url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.hostname = ' '
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.hostname = '#'
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.hostname = '/'
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.hostname = '?'
 url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.hostname = '@'
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.hostname = '\n'
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.hostname = '\r'
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.hostname = '\t'
+url/url-setters-a-area.window.html	<a>: Setting <sc://x/>.port = '12'
+url/url-setters-a-area.window.html	<a>: Setting <sc:/nospace>.pathname = 'space '
 url/url-setters-a-area.window.html	<a>: Setting <sc:original>.pathname = 'new value'
+url/url-setters-a-area.window.html	<a>: Setting <sc:space    #fragment>.hash = ''
+url/url-setters-a-area.window.html	<a>: Setting <sc:space  ?query#fragment>.hash = ''
+url/url-setters-a-area.window.html	<a>: Setting <sc:space  ?query#fragment>.search = ''
+url/url-setters-a-area.window.html	<a>: Setting <sc:space ?query>.search = ''
 url/url-setters-a-area.window.html	<a>: Setting <ssh://example.net>.protocol = 'file'
 url/url-setters-a-area.window.html	<a>: Setting <ssh://me@example.net>.protocol = 'file'
 url/url-setters-a-area.window.html	<a>: Setting <ssh://me@example.net>.protocol = 'http' Can’t switch from non-special scheme to special
 url/url-setters-a-area.window.html	<a>: Setting <ssh://me@example.net>.protocol = 'https'
+url/url-setters-a-area.window.html	<a>: Setting <unix:/run/foo.socket?timeout=10>.pathname = '/var/log/../run/bar.socket'
+url/url-setters-a-area.window.html	<a>: Setting <view-source+http://example.net/foo>.host = '' The empty host is OK for non-special schemes
+url/url-setters-a-area.window.html	<a>: Setting <view-source+http://example.net/foo>.hostname = '' The empty host is OK for non-special schemes
+url/url-setters-a-area.window.html	<a>: Setting <view-source+http://example.net/home?lang=fr#nav>.pathname = '\\a\\%2E\\b\\%2e.\\c' \\ is *not* a segment delimiter for non-'special' URLs
+url/url-setters-a-area.window.html	<a>: Setting <view-source+http://example.net/path>.host = 'example.com:8080stuff2' Anything other than ASCII digit stops the port parser in a setter but is not an error
 url/url-setters-a-area.window.html	<a>: Setting <view-source+http://example.net/path>.host = 'example.com\\stuff' \\ is not a delimiter for non-special schemes, but still forbidden in hosts
 url/url-setters-a-area.window.html	<a>: Setting <view-source+http://example.net/path>.hostname = 'example.com\\stuff' \\ is not a delimiter for non-special schemes, but still forbidden in hosts
+url/url-setters-a-area.window.html	<a>: Setting <view-source+http://example.net/path>.port = '8080stuff2' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters-a-area.window.html	<a>: Setting <wpt++://domain.com:443>.port = '\t8080' Leading u0009 on non-special scheme
 url/url-setters-a-area.window.html	<a>: Setting <wss://x:x@example.net:1234>.protocol = 'file'
 url/url-setters-a-area.window.html	<area>: Setting <a://example.net>.protocol = '' The empty string is not a valid scheme. Setter leaves the URL unchanged.
 url/url-setters-a-area.window.html	<area>: Setting <a://example.net>.protocol = '+b' No leading punctuation
 url/url-setters-a-area.window.html	<area>: Setting <a://example.net>.protocol = '0b' No leading digit
+url/url-setters-a-area.window.html	<area>: Setting <a://example.net>.protocol = 'B' Upper-case ASCII is lower-cased
+url/url-setters-a-area.window.html	<area>: Setting <a://example.net>.protocol = 'b'
 url/url-setters-a-area.window.html	<area>: Setting <a://example.net>.protocol = 'b,c' Only some punctuation is acceptable
+url/url-setters-a-area.window.html	<area>: Setting <a://example.net>.protocol = 'bC0+-.'
 url/url-setters-a-area.window.html	<area>: Setting <a://example.net>.protocol = 'bé' Non-ASCII is rejected
 url/url-setters-a-area.window.html	<area>: Setting <a://example.net>.protocol = 'é' Non-ASCII is rejected
+url/url-setters-a-area.window.html	<area>: Setting <a:/>.hash = ' \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' Simple percent-encoding; tabs and newlines are removed
+url/url-setters-a-area.window.html	<area>: Setting <a:/>.pathname = ' \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' UTF-8 percent encoding with the default encode set. Tabs and newlines are removed.
+url/url-setters-a-area.window.html	<area>: Setting <a:/>.search = ' \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' UTF-8 percent encoding with the query encode set. Tabs and newlines are removed.
+url/url-setters-a-area.window.html	<area>: Setting <a:/foo>.host = 'example.net' Path-only URLs can gain a host
+url/url-setters-a-area.window.html	<area>: Setting <a:/foo>.hostname = 'example.net' Path-only URLs can gain a host
+url/url-setters-a-area.window.html	<area>: Setting <about:blank>.hash = '# \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' Fragment percent-encode set on about:blank; tabs and newlines are removed
+url/url-setters-a-area.window.html	<area>: Setting <about:blank>.hash = '#<foo> <bar>' Fragment with <> on about:blank
+url/url-setters-a-area.window.html	<area>: Setting <data:/nospace>.pathname = 'space ' Non-special URLs with non-opaque paths percent-encode U+0020
 url/url-setters-a-area.window.html	<area>: Setting <data:original>.pathname = 'new value'
+url/url-setters-a-area.window.html	<area>: Setting <data:space                                                                                                                                  #fragment>.hash = '' Trailing spaces and opaque paths
+url/url-setters-a-area.window.html	<area>: Setting <data:space  ?query#fragment>.hash = '' Trailing spaces and opaque paths
+url/url-setters-a-area.window.html	<area>: Setting <data:space  ?query#fragment>.search = '' Trailing spaces and opaque paths
+url/url-setters-a-area.window.html	<area>: Setting <data:space ?query>.search = '' Trailing spaces and opaque paths
+url/url-setters-a-area.window.html	<area>: Setting <data:text/html,<p>Test>.protocol = 'view-source+data:foo : bar' Stuff after the first ':' is ignored
 url/url-setters-a-area.window.html	<area>: Setting <data:text/plain,Stuff>.host = 'example.net' Cannot-be-a-base means no host
 url/url-setters-a-area.window.html	<area>: Setting <data:text/plain,Stuff>.hostname = 'example.net' Cannot-be-a-base means no host
+url/url-setters-a-area.window.html	<area>: Setting <data:text/plain,test>.hash = '# \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' Fragment percent-encode set on data: URI; tabs and newlines are removed
+url/url-setters-a-area.window.html	<area>: Setting <data:text/plain,test>.hash = '#<foo> <bar>' Fragment with <> on data: URI
+url/url-setters-a-area.window.html	<area>: Setting <file:///some/path>.pathname = '' Special URLs cannot have their paths erased
 url/url-setters-a-area.window.html	<area>: Setting <file:///test>.protocol = 'https'
+url/url-setters-a-area.window.html	<area>: Setting <file:///unicorn>.pathname = '//\\/' File URLs and (back)slashes
+url/url-setters-a-area.window.html	<area>: Setting <file:///unicorn>.pathname = '//monkey/..//' File URLs and (back)slashes
 url/url-setters-a-area.window.html	<area>: Setting <file:///var/log/system.log>.href = 'http://0300.168.0xF0'
 url/url-setters-a-area.window.html	<area>: Setting <file://hi/path>.protocol = 's'
+url/url-setters-a-area.window.html	<area>: Setting <file://hi/x>.host = ''
+url/url-setters-a-area.window.html	<area>: Setting <file://hi/x>.hostname = ''
 url/url-setters-a-area.window.html	<area>: Setting <file://localhost/>.port = '12'
 url/url-setters-a-area.window.html	<area>: Setting <file://localhost/>.protocol = 'http' Can’t switch from file URL with no host
+url/url-setters-a-area.window.html	<area>: Setting <file://monkey/>.pathname = '\\\\' File URLs and (back)slashes
 url/url-setters-a-area.window.html	<area>: Setting <file://test/>.port = '12'
+url/url-setters-a-area.window.html	<area>: Setting <file://y/>.host = 'loc%41lhost'
 url/url-setters-a-area.window.html	<area>: Setting <file://y/>.host = 'x:123'
+url/url-setters-a-area.window.html	<area>: Setting <file://y/>.hostname = 'loc%41lhost'
 url/url-setters-a-area.window.html	<area>: Setting <file://y/>.hostname = 'x:123'
 url/url-setters-a-area.window.html	<area>: Setting <file:>.protocol = 'wss'
+url/url-setters-a-area.window.html	<area>: Setting <foo:///some/path>.pathname = '' Non-special URLs with an empty host can have their paths erased
 url/url-setters-a-area.window.html	<area>: Setting <foo://path/to>.host = ':80'
+url/url-setters-a-area.window.html	<area>: Setting <foo://path/to>.pathname = '/..'
+url/url-setters-a-area.window.html	<area>: Setting <foo://somehost/some/path>.pathname = '' Non-special URLs can have their paths erased
+url/url-setters-a-area.window.html	<area>: Setting <foo:/some/path>.pathname = '' Path-only URLs cannot have their paths erased
+url/url-setters-a-area.window.html	<area>: Setting <foo:/some/path>.pathname = 'test' Path-only URLs always have an initial slash
 url/url-setters-a-area.window.html	<area>: Setting <ftp://example.net>.protocol = 'test'
 url/url-setters-a-area.window.html	<area>: Setting <http://example.com/>.host = '///bad.com' Leading / is not stripped
 url/url-setters-a-area.window.html	<area>: Setting <http://example.com/>.hostname = '///bad.com' Leading / is not stripped
@@ -142019,64 +142718,254 @@ url/url-setters-a-area.window.html	<area>: Setting <http://example.net/>.hostnam
 url/url-setters-a-area.window.html	<area>: Setting <http://example.net/>.hostname = '[::1.2.]'
 url/url-setters-a-area.window.html	<area>: Setting <http://example.net/>.hostname = '[::1.]'
 url/url-setters-a-area.window.html	<area>: Setting <http://example.net/>.hostname = '[google.com]' Broken IPv6
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/home?lang=fr#nav>.pathname = '\\a\\%2E\\b\\%2e.\\c' \\ is a segment delimiter for 'special' URLs
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.host = 'example.com#stuff' Stuff after a # delimiter is ignored
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.host = 'example.com/stuff' Stuff after a / delimiter is ignored
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.host = 'example.com:65535' Port numbers are 16 bit integers
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.host = 'example.com:8080#stuff' Stuff after a # delimiter is ignored
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.host = 'example.com:8080+2' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.host = 'example.com:8080/stuff' Stuff after a / delimiter is ignored
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.host = 'example.com:8080?stuff' Stuff after a ? delimiter is ignored
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.host = 'example.com:8080\\stuff' Stuff after a \\ delimiter is ignored for special schemes
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.host = 'example.com:8080stuff2' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.host = 'example.com?stuff' Stuff after a ? delimiter is ignored
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.host = 'example.com?stuff:8080' Stuff after a ? delimiter is ignored, trailing 'port'
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.host = 'example.com\\stuff' Stuff after a \\ delimiter is ignored for special schemes
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.hostname = 'example.com#stuff' Stuff after a # delimiter is ignored
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.hostname = 'example.com/stuff' Stuff after a / delimiter is ignored
 url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.hostname = 'example.com:8080' : delimiter invalidates entire value
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.hostname = 'example.com?stuff' Stuff after a ? delimiter is ignored
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.hostname = 'example.com\\stuff' Stuff after a \\ delimiter is ignored for special schemes
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.port = '65535' Port numbers are 16 bit integers
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.port = '8080#stuff' Stuff after a # delimiter is ignored
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.port = '8080+2' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.port = '8080/stuff' Stuff after a / delimiter is ignored
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.port = '8080?stuff' Stuff after a ? delimiter is ignored
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.port = '8080\\stuff' Stuff after a \\ delimiter is ignored for special schemes
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net/path>.port = '8080stuff2' Anything other than ASCII digit stops the port parser in a setter but is not an error
 url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080/path>.hostname = 'example.com:' : delimiter invalidates entire value
 url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080/path>.port = '65536' Port numbers are 16 bit integers, overflowing is an error
 url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080/path>.port = 'randomstring' Setting port to a string that doesn't parse as a number
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080/test>.host = '[::1]' IPv6 without port
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080/test>.host = '[::1]:invalid' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080>.host = 'example.com' Port number is unchanged if not specified in the new value
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080>.host = 'example.com:' Port number is unchanged if not specified
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080>.host = 'example.com:80' Port number is removed if new port is scheme default and existing URL has a non-default port
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080>.host = 'example.com:invalid' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080>.hostname = '0x7F000001' IPv4 address syntax is normalized
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080>.hostname = 'example.com'
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080>.port = '' Port number is removed if empty is the new value
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net:8080>.port = '80' Default port number is removed
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.hash = ' ' Trailing C0 control should be encoded
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.hash = ' ' Trailing space should be encoded
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.hash = '#foo bar'
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.hash = '#foo"bar'
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.hash = '#foo<bar'
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.hash = '#foo>bar'
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.hash = '#foo`bar'
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.hash = '%c3%89té' Bytes already percent-encoded are left as-is
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.hash = 'a b' Percent-encode NULLs in fragment
 url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.host = '' The empty host is not valid for special schemes
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.host = '0x7F000001:8080' IPv4 address syntax is normalized
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.host = '[2001:db8::2]:4002' IPv6 literal address with port, crbug.com/1012416
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.host = '[::0:01]:2' IPv6 address syntax is normalized
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.host = 'example.com:80' Default port number is removed
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.host = 'example.com:8080'
 url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.hostname = '' The empty host is not valid for special schemes
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.hostname = '[::0:01]' IPv6 address syntax is normalized
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.pathname = ' ' Trailing C0 control should be encoded
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.pathname = ' ' Trailing space should be encoded
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.pathname = '#' # needs to be encoded
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.pathname = '%2e%2E%c3%89té' Bytes already percent-encoded are left as-is, including %2E outside dotted segments.
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.pathname = '/#é' # doesn't mess up encoding
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.pathname = '/?é' ? doesn't mess up encoding
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.pathname = '?' ? needs to be encoded
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.port = '8080'
 url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.protocol = 'b' Can’t switch from special scheme to non-special
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.protocol = 'https:foo : bar' Stuff after the first ':' is ignored
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.search = ' ' Trailing C0 control should be encoded
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.search = ' ' Trailing space should be encoded
+url/url-setters-a-area.window.html	<area>: Setting <http://example.net>.search = '%c3%89té' Bytes already percent-encoded are left as-is
+url/url-setters-a-area.window.html	<area>: Setting <http://foo.com:443/>.protocol = 'https' Port is set to null if it is the default for new scheme.
+url/url-setters-a-area.window.html	<area>: Setting <http://test/>.protocol = 'h\r\ntt\tps' Tab and newline are stripped
 url/url-setters-a-area.window.html	<area>: Setting <http://test/>.protocol = 'https ' Non-tab/newline C0 controls result in no-op
 url/url-setters-a-area.window.html	<area>: Setting <http://test/>.protocol = 'https'
 url/url-setters-a-area.window.html	<area>: Setting <http://test/>.protocol = 'https'
 url/url-setters-a-area.window.html	<area>: Setting <http://test/>.protocol = 'https '
+url/url-setters-a-area.window.html	<area>: Setting <http://test/>.protocol = 'https\r'
 url/url-setters-a-area.window.html	<area>: Setting <http://test@example.net>.protocol = 'file' Can’t switch from URL containing username/password/port to file
 url/url-setters-a-area.window.html	<area>: Setting <https://domain.com:3000>.port = '\n\n\t\t'
+url/url-setters-a-area.window.html	<area>: Setting <https://domain.com:3000>.port = '\n\t80\n\t80\n\t'
+url/url-setters-a-area.window.html	<area>: Setting <https://domain.com:443>.port = '\t8080' Leading u0009 on special scheme
 url/url-setters-a-area.window.html	<area>: Setting <https://example.com/>.host = '%C2%AD'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.com/>.host = 'a%C2%ADb'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.com/>.host = 'xn--'
 url/url-setters-a-area.window.html	<area>: Setting <https://example.com/>.host = '­'
 url/url-setters-a-area.window.html	<area>: Setting <https://example.com/>.hostname = '%C2%AD'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.com/>.hostname = 'a%C2%ADb'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.com/>.hostname = 'xn--'
 url/url-setters-a-area.window.html	<area>: Setting <https://example.com/>.hostname = '­'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net#nav>.hash = 'main'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net#nav>.pathname = '../home'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net#nav>.pathname = 'home'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net#nav>.search = 'lang=fr'
 url/url-setters-a-area.window.html	<area>: Setting <https://example.net:1234>.protocol = 'file'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net:4433>.port = '443' Default port number is removed
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net>.hash = 'main'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net>.host = 'example.com:443' Default port number is removed
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net>.host = 'example.com:80' Default port number is only removed for the relevant scheme
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net>.port = '80' Default port number is only removed for the relevant scheme
 url/url-setters-a-area.window.html	<area>: Setting <https://example.net>.protocol = 's'
 url/url-setters-a-area.window.html	<area>: Setting <https://example.net>.search = ''
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net?lang=en-US#nav>.hash = '#'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net?lang=en-US#nav>.hash = '#main'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net?lang=en-US#nav>.hash = ''
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net?lang=en-US#nav>.search = ''
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net?lang=en-US#nav>.search = '?'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net?lang=en-US#nav>.search = '??lang=fr'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net?lang=en-US#nav>.search = '?lang=fr'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net?lang=en-US#nav>.search = 'lang=fr'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net?lang=en-US>.hash = '##nav'
+url/url-setters-a-area.window.html	<area>: Setting <https://example.net?lang=en-US>.search = ''
+url/url-setters-a-area.window.html	<area>: Setting <https://test.invalid/>.host = '*'
 url/url-setters-a-area.window.html	<area>: Setting <https://test.invalid/>.host = '><'
+url/url-setters-a-area.window.html	<area>: Setting <https://test.invalid/>.host = 'foo\t\r\nbar'
+url/url-setters-a-area.window.html	<area>: Setting <https://test.invalid/>.host = 'test/:aaa'
+url/url-setters-a-area.window.html	<area>: Setting <https://test.invalid/>.host = 'test/@aaa'
 url/url-setters-a-area.window.html	<area>: Setting <https://test.invalid/>.host = 'x@x'
+url/url-setters-a-area.window.html	<area>: Setting <https://test.invalid/>.hostname = '*'
 url/url-setters-a-area.window.html	<area>: Setting <https://test.invalid/>.hostname = '><'
+url/url-setters-a-area.window.html	<area>: Setting <https://test.invalid/>.hostname = 'foo\t\r\nbar'
+url/url-setters-a-area.window.html	<area>: Setting <https://test.invalid/>.hostname = 'test/:aaa'
+url/url-setters-a-area.window.html	<area>: Setting <https://test.invalid/>.hostname = 'test/@aaa'
 url/url-setters-a-area.window.html	<area>: Setting <https://test.invalid/>.hostname = 'x@x'
+url/url-setters-a-area.window.html	<area>: Setting <https://www.google.com:4343>.port = '4wpt' Should use all ascii prefixed characters as port
+url/url-setters-a-area.window.html	<area>: Setting <https://x/>.host = 'ß' IDNA Nontransitional_Processing
+url/url-setters-a-area.window.html	<area>: Setting <javascript://x/>.port = '12'
+url/url-setters-a-area.window.html	<area>: Setting <javascript:alert(1)>.hash = 'castle'
+url/url-setters-a-area.window.html	<area>: Setting <javascript:alert(1)>.protocol = 'defuse'
 url/url-setters-a-area.window.html	<area>: Setting <mailto:me@example.net>.host = 'example.com' Cannot-be-a-base means no host
 url/url-setters-a-area.window.html	<area>: Setting <mailto:me@example.net>.hostname = 'example.com' Cannot-be-a-base means no host
 url/url-setters-a-area.window.html	<area>: Setting <mailto:me@example.net>.pathname = '/foo' Opaque paths cannot be set
 url/url-setters-a-area.window.html	<area>: Setting <mailto:me@example.net>.protocol = 'http' Cannot-be-a-base URL doesn’t have a host, but URL in a special scheme must.
 url/url-setters-a-area.window.html	<area>: Setting <non-base:value>.port = '12'
+url/url-setters-a-area.window.html	<area>: Setting <non-spec:/.//>.pathname = 'p' Drop /. from path
+url/url-setters-a-area.window.html	<area>: Setting <non-spec:/.//p>.hostname = ''
+url/url-setters-a-area.window.html	<area>: Setting <non-spec:/.//p>.hostname = 'h' Drop /. from path
+url/url-setters-a-area.window.html	<area>: Setting <non-spec:/>.hash = 'a b' Percent-encode NULLs in fragment
+url/url-setters-a-area.window.html	<area>: Setting <non-spec:/>.pathname = '/..//p'
+url/url-setters-a-area.window.html	<area>: Setting <non-spec:/>.pathname = '/.//p' Serialize /. in path
+url/url-setters-a-area.window.html	<area>: Setting <non-spec:/>.pathname = '//p'
 url/url-setters-a-area.window.html	<area>: Setting <non-special://example.net:8080/path>.port = '65536' Port numbers are 16 bit integers, overflowing is an error
 url/url-setters-a-area.window.html	<area>: Setting <nonsense:///test>.protocol = 'https'
 url/url-setters-a-area.window.html	<area>: Setting <sc:///>.port = '12'
+url/url-setters-a-area.window.html	<area>: Setting <sc://example.com/>.host = '///bad.com' Leading / is not stripped
+url/url-setters-a-area.window.html	<area>: Setting <sc://example.com/>.hostname = '///bad.com' Leading / is not stripped
+url/url-setters-a-area.window.html	<area>: Setting <sc://example.net>.pathname = '#' # needs to be encoded, non-special scheme
+url/url-setters-a-area.window.html	<area>: Setting <sc://example.net>.pathname = '?' ? needs to be encoded, non-special scheme
 url/url-setters-a-area.window.html	<area>: Setting <sc://test:12/>.host = ''
 url/url-setters-a-area.window.html	<area>: Setting <sc://test:12/>.hostname = ''
 url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.host = ' ' Non-special scheme
 url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.host = ' '
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.host = '#'
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.host = '/'
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.host = '?'
 url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.host = '@'
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.host = '\n'
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.host = '\r'
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.host = '\t'
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.host = 'ß'
 url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.hostname = ' ' Non-special scheme
 url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.hostname = ' '
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.hostname = '#'
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.hostname = '/'
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.hostname = '?'
 url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.hostname = '@'
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.hostname = '\n'
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.hostname = '\r'
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.hostname = '\t'
+url/url-setters-a-area.window.html	<area>: Setting <sc://x/>.port = '12'
+url/url-setters-a-area.window.html	<area>: Setting <sc:/nospace>.pathname = 'space '
 url/url-setters-a-area.window.html	<area>: Setting <sc:original>.pathname = 'new value'
+url/url-setters-a-area.window.html	<area>: Setting <sc:space    #fragment>.hash = ''
+url/url-setters-a-area.window.html	<area>: Setting <sc:space  ?query#fragment>.hash = ''
+url/url-setters-a-area.window.html	<area>: Setting <sc:space  ?query#fragment>.search = ''
+url/url-setters-a-area.window.html	<area>: Setting <sc:space ?query>.search = ''
 url/url-setters-a-area.window.html	<area>: Setting <ssh://example.net>.protocol = 'file'
 url/url-setters-a-area.window.html	<area>: Setting <ssh://me@example.net>.protocol = 'file'
 url/url-setters-a-area.window.html	<area>: Setting <ssh://me@example.net>.protocol = 'http' Can’t switch from non-special scheme to special
 url/url-setters-a-area.window.html	<area>: Setting <ssh://me@example.net>.protocol = 'https'
+url/url-setters-a-area.window.html	<area>: Setting <unix:/run/foo.socket?timeout=10>.pathname = '/var/log/../run/bar.socket'
+url/url-setters-a-area.window.html	<area>: Setting <view-source+http://example.net/foo>.host = '' The empty host is OK for non-special schemes
+url/url-setters-a-area.window.html	<area>: Setting <view-source+http://example.net/foo>.hostname = '' The empty host is OK for non-special schemes
+url/url-setters-a-area.window.html	<area>: Setting <view-source+http://example.net/home?lang=fr#nav>.pathname = '\\a\\%2E\\b\\%2e.\\c' \\ is *not* a segment delimiter for non-'special' URLs
+url/url-setters-a-area.window.html	<area>: Setting <view-source+http://example.net/path>.host = 'example.com:8080stuff2' Anything other than ASCII digit stops the port parser in a setter but is not an error
 url/url-setters-a-area.window.html	<area>: Setting <view-source+http://example.net/path>.host = 'example.com\\stuff' \\ is not a delimiter for non-special schemes, but still forbidden in hosts
 url/url-setters-a-area.window.html	<area>: Setting <view-source+http://example.net/path>.hostname = 'example.com\\stuff' \\ is not a delimiter for non-special schemes, but still forbidden in hosts
+url/url-setters-a-area.window.html	<area>: Setting <view-source+http://example.net/path>.port = '8080stuff2' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters-a-area.window.html	<area>: Setting <wpt++://domain.com:443>.port = '\t8080' Leading u0009 on non-special scheme
 url/url-setters-a-area.window.html	<area>: Setting <wss://x:x@example.net:1234>.protocol = 'file'
 url/url-setters-a-area.window.html	Loading data…
+url/url-setters-stripping.any.html	Setting hash with leading U+0000 (https:)
+url/url-setters-stripping.any.html	Setting hash with leading U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with leading U+0009 (https:)
+url/url-setters-stripping.any.html	Setting hash with leading U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with leading U+000A (https:)
+url/url-setters-stripping.any.html	Setting hash with leading U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with leading U+000D (https:)
+url/url-setters-stripping.any.html	Setting hash with leading U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with leading U+001F (https:)
+url/url-setters-stripping.any.html	Setting hash with leading U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with middle U+0000 (https:)
+url/url-setters-stripping.any.html	Setting hash with middle U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with middle U+0009 (https:)
+url/url-setters-stripping.any.html	Setting hash with middle U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with middle U+000A (https:)
+url/url-setters-stripping.any.html	Setting hash with middle U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with middle U+000D (https:)
+url/url-setters-stripping.any.html	Setting hash with middle U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with middle U+001F (https:)
+url/url-setters-stripping.any.html	Setting hash with middle U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with trailing U+0000 (https:)
+url/url-setters-stripping.any.html	Setting hash with trailing U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with trailing U+0009 (https:)
+url/url-setters-stripping.any.html	Setting hash with trailing U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with trailing U+000A (https:)
+url/url-setters-stripping.any.html	Setting hash with trailing U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with trailing U+000D (https:)
+url/url-setters-stripping.any.html	Setting hash with trailing U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting hash with trailing U+001F (https:)
+url/url-setters-stripping.any.html	Setting hash with trailing U+001F (wpt++:)
 url/url-setters-stripping.any.html	Setting host with leading U+0000 (https:)
 url/url-setters-stripping.any.html	Setting host with leading U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting host with leading U+0009 (https:)
+url/url-setters-stripping.any.html	Setting host with leading U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting host with leading U+000A (https:)
+url/url-setters-stripping.any.html	Setting host with leading U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting host with leading U+000D (https:)
+url/url-setters-stripping.any.html	Setting host with leading U+000D (wpt++:)
 url/url-setters-stripping.any.html	Setting host with leading U+001F (https:)
+url/url-setters-stripping.any.html	Setting host with leading U+001F (wpt++:)
 url/url-setters-stripping.any.html	Setting host with middle U+0000 (https:)
 url/url-setters-stripping.any.html	Setting host with middle U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting host with middle U+0009 (https:)
+url/url-setters-stripping.any.html	Setting host with middle U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting host with middle U+000A (https:)
+url/url-setters-stripping.any.html	Setting host with middle U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting host with middle U+000D (https:)
+url/url-setters-stripping.any.html	Setting host with middle U+000D (wpt++:)
 url/url-setters-stripping.any.html	Setting host with middle U+001F (https:)
+url/url-setters-stripping.any.html	Setting host with middle U+001F (wpt++:)
 url/url-setters-stripping.any.html	Setting host with trailing U+0000 (https:)
 url/url-setters-stripping.any.html	Setting host with trailing U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting host with trailing U+0009 (https:)
+url/url-setters-stripping.any.html	Setting host with trailing U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting host with trailing U+000A (https:)
+url/url-setters-stripping.any.html	Setting host with trailing U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting host with trailing U+000D (https:)
+url/url-setters-stripping.any.html	Setting host with trailing U+000D (wpt++:)
 url/url-setters-stripping.any.html	Setting host with trailing U+001F (https:)
+url/url-setters-stripping.any.html	Setting host with trailing U+001F (wpt++:)
 url/url-setters-stripping.any.html	Setting hostname with leading U+0000 (https:)
 url/url-setters-stripping.any.html	Setting hostname with leading U+0000 (wpt++:)
 url/url-setters-stripping.any.html	Setting hostname with leading U+0009 (https:)
@@ -142107,6 +142996,36 @@ url/url-setters-stripping.any.html	Setting hostname with trailing U+000D (https:
 url/url-setters-stripping.any.html	Setting hostname with trailing U+000D (wpt++:)
 url/url-setters-stripping.any.html	Setting hostname with trailing U+001F (https:)
 url/url-setters-stripping.any.html	Setting hostname with trailing U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting password with leading U+0000 (https:)
+url/url-setters-stripping.any.html	Setting password with leading U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting password with leading U+0009 (https:)
+url/url-setters-stripping.any.html	Setting password with leading U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting password with leading U+000A (https:)
+url/url-setters-stripping.any.html	Setting password with leading U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting password with leading U+000D (https:)
+url/url-setters-stripping.any.html	Setting password with leading U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting password with leading U+001F (https:)
+url/url-setters-stripping.any.html	Setting password with leading U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting password with middle U+0000 (https:)
+url/url-setters-stripping.any.html	Setting password with middle U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting password with middle U+0009 (https:)
+url/url-setters-stripping.any.html	Setting password with middle U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting password with middle U+000A (https:)
+url/url-setters-stripping.any.html	Setting password with middle U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting password with middle U+000D (https:)
+url/url-setters-stripping.any.html	Setting password with middle U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting password with middle U+001F (https:)
+url/url-setters-stripping.any.html	Setting password with middle U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting password with trailing U+0000 (https:)
+url/url-setters-stripping.any.html	Setting password with trailing U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting password with trailing U+0009 (https:)
+url/url-setters-stripping.any.html	Setting password with trailing U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting password with trailing U+000A (https:)
+url/url-setters-stripping.any.html	Setting password with trailing U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting password with trailing U+000D (https:)
+url/url-setters-stripping.any.html	Setting password with trailing U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting password with trailing U+001F (https:)
+url/url-setters-stripping.any.html	Setting password with trailing U+001F (wpt++:)
 url/url-setters-stripping.any.html	Setting pathname with leading U+0000 (https:)
 url/url-setters-stripping.any.html	Setting pathname with leading U+0000 (wpt++:)
 url/url-setters-stripping.any.html	Setting pathname with leading U+0009 (https:)
@@ -142127,12 +143046,16 @@ url/url-setters-stripping.any.html	Setting pathname with middle U+000D (https:)
 url/url-setters-stripping.any.html	Setting pathname with middle U+000D (wpt++:)
 url/url-setters-stripping.any.html	Setting pathname with middle U+001F (https:)
 url/url-setters-stripping.any.html	Setting pathname with middle U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting pathname with trailing U+0000 (https:)
+url/url-setters-stripping.any.html	Setting pathname with trailing U+0000 (wpt++:)
 url/url-setters-stripping.any.html	Setting pathname with trailing U+0009 (https:)
 url/url-setters-stripping.any.html	Setting pathname with trailing U+0009 (wpt++:)
 url/url-setters-stripping.any.html	Setting pathname with trailing U+000A (https:)
 url/url-setters-stripping.any.html	Setting pathname with trailing U+000A (wpt++:)
 url/url-setters-stripping.any.html	Setting pathname with trailing U+000D (https:)
 url/url-setters-stripping.any.html	Setting pathname with trailing U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting pathname with trailing U+001F (https:)
+url/url-setters-stripping.any.html	Setting pathname with trailing U+001F (wpt++:)
 url/url-setters-stripping.any.html	Setting port with leading U+0000 (https:)
 url/url-setters-stripping.any.html	Setting port with leading U+0000 (wpt++:)
 url/url-setters-stripping.any.html	Setting port with leading U+0009 (https:)
@@ -142143,18 +143066,26 @@ url/url-setters-stripping.any.html	Setting port with leading U+000D (https:)
 url/url-setters-stripping.any.html	Setting port with leading U+000D (wpt++:)
 url/url-setters-stripping.any.html	Setting port with leading U+001F (https:)
 url/url-setters-stripping.any.html	Setting port with leading U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting port with middle U+0000 (https:)
+url/url-setters-stripping.any.html	Setting port with middle U+0000 (wpt++:)
 url/url-setters-stripping.any.html	Setting port with middle U+0009 (https:)
 url/url-setters-stripping.any.html	Setting port with middle U+0009 (wpt++:)
 url/url-setters-stripping.any.html	Setting port with middle U+000A (https:)
 url/url-setters-stripping.any.html	Setting port with middle U+000A (wpt++:)
 url/url-setters-stripping.any.html	Setting port with middle U+000D (https:)
 url/url-setters-stripping.any.html	Setting port with middle U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting port with middle U+001F (https:)
+url/url-setters-stripping.any.html	Setting port with middle U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting port with trailing U+0000 (https:)
+url/url-setters-stripping.any.html	Setting port with trailing U+0000 (wpt++:)
 url/url-setters-stripping.any.html	Setting port with trailing U+0009 (https:)
 url/url-setters-stripping.any.html	Setting port with trailing U+0009 (wpt++:)
 url/url-setters-stripping.any.html	Setting port with trailing U+000A (https:)
 url/url-setters-stripping.any.html	Setting port with trailing U+000A (wpt++:)
 url/url-setters-stripping.any.html	Setting port with trailing U+000D (https:)
 url/url-setters-stripping.any.html	Setting port with trailing U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting port with trailing U+001F (https:)
+url/url-setters-stripping.any.html	Setting port with trailing U+001F (wpt++:)
 url/url-setters-stripping.any.html	Setting protocol with U+0000 before inserted colon (https:)
 url/url-setters-stripping.any.html	Setting protocol with U+0000 before inserted colon (wpt++:)
 url/url-setters-stripping.any.html	Setting protocol with U+0009 before inserted colon (https:)
@@ -142165,12 +143096,76 @@ url/url-setters-stripping.any.html	Setting protocol with U+000D before inserted 
 url/url-setters-stripping.any.html	Setting protocol with U+000D before inserted colon (wpt++:)
 url/url-setters-stripping.any.html	Setting protocol with U+001F before inserted colon (https:)
 url/url-setters-stripping.any.html	Setting protocol with U+001F before inserted colon (wpt++:)
+url/url-setters-stripping.any.html	Setting protocol with leading U+0000 (https:)
+url/url-setters-stripping.any.html	Setting protocol with leading U+0000 (wpt++:)
 url/url-setters-stripping.any.html	Setting protocol with leading U+0009 (https:)
 url/url-setters-stripping.any.html	Setting protocol with leading U+0009 (wpt++:)
 url/url-setters-stripping.any.html	Setting protocol with leading U+000A (https:)
 url/url-setters-stripping.any.html	Setting protocol with leading U+000A (wpt++:)
 url/url-setters-stripping.any.html	Setting protocol with leading U+000D (https:)
 url/url-setters-stripping.any.html	Setting protocol with leading U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting protocol with leading U+001F (https:)
+url/url-setters-stripping.any.html	Setting protocol with leading U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting search with leading U+0000 (https:)
+url/url-setters-stripping.any.html	Setting search with leading U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting search with leading U+0009 (https:)
+url/url-setters-stripping.any.html	Setting search with leading U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting search with leading U+000A (https:)
+url/url-setters-stripping.any.html	Setting search with leading U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting search with leading U+000D (https:)
+url/url-setters-stripping.any.html	Setting search with leading U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting search with leading U+001F (https:)
+url/url-setters-stripping.any.html	Setting search with leading U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting search with middle U+0000 (https:)
+url/url-setters-stripping.any.html	Setting search with middle U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting search with middle U+0009 (https:)
+url/url-setters-stripping.any.html	Setting search with middle U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting search with middle U+000A (https:)
+url/url-setters-stripping.any.html	Setting search with middle U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting search with middle U+000D (https:)
+url/url-setters-stripping.any.html	Setting search with middle U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting search with middle U+001F (https:)
+url/url-setters-stripping.any.html	Setting search with middle U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting search with trailing U+0000 (https:)
+url/url-setters-stripping.any.html	Setting search with trailing U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting search with trailing U+0009 (https:)
+url/url-setters-stripping.any.html	Setting search with trailing U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting search with trailing U+000A (https:)
+url/url-setters-stripping.any.html	Setting search with trailing U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting search with trailing U+000D (https:)
+url/url-setters-stripping.any.html	Setting search with trailing U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting search with trailing U+001F (https:)
+url/url-setters-stripping.any.html	Setting search with trailing U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting username with leading U+0000 (https:)
+url/url-setters-stripping.any.html	Setting username with leading U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting username with leading U+0009 (https:)
+url/url-setters-stripping.any.html	Setting username with leading U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting username with leading U+000A (https:)
+url/url-setters-stripping.any.html	Setting username with leading U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting username with leading U+000D (https:)
+url/url-setters-stripping.any.html	Setting username with leading U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting username with leading U+001F (https:)
+url/url-setters-stripping.any.html	Setting username with leading U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting username with middle U+0000 (https:)
+url/url-setters-stripping.any.html	Setting username with middle U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting username with middle U+0009 (https:)
+url/url-setters-stripping.any.html	Setting username with middle U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting username with middle U+000A (https:)
+url/url-setters-stripping.any.html	Setting username with middle U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting username with middle U+000D (https:)
+url/url-setters-stripping.any.html	Setting username with middle U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting username with middle U+001F (https:)
+url/url-setters-stripping.any.html	Setting username with middle U+001F (wpt++:)
+url/url-setters-stripping.any.html	Setting username with trailing U+0000 (https:)
+url/url-setters-stripping.any.html	Setting username with trailing U+0000 (wpt++:)
+url/url-setters-stripping.any.html	Setting username with trailing U+0009 (https:)
+url/url-setters-stripping.any.html	Setting username with trailing U+0009 (wpt++:)
+url/url-setters-stripping.any.html	Setting username with trailing U+000A (https:)
+url/url-setters-stripping.any.html	Setting username with trailing U+000A (wpt++:)
+url/url-setters-stripping.any.html	Setting username with trailing U+000D (https:)
+url/url-setters-stripping.any.html	Setting username with trailing U+000D (wpt++:)
+url/url-setters-stripping.any.html	Setting username with trailing U+001F (https:)
+url/url-setters-stripping.any.html	Setting username with trailing U+001F (wpt++:)
 url/url-setters.any.html	Loading data…
 url/url-setters.any.html	URL: Setting <a://example.net>.protocol = '' The empty string is not a valid scheme. Setter leaves the URL unchanged.
 url/url-setters.any.html	URL: Setting <a://example.net>.protocol = '+b' No leading punctuation
@@ -142181,29 +143176,56 @@ url/url-setters.any.html	URL: Setting <a://example.net>.protocol = 'b,c' Only so
 url/url-setters.any.html	URL: Setting <a://example.net>.protocol = 'bC0+-.'
 url/url-setters.any.html	URL: Setting <a://example.net>.protocol = 'bé' Non-ASCII is rejected
 url/url-setters.any.html	URL: Setting <a://example.net>.protocol = 'é' Non-ASCII is rejected
+url/url-setters.any.html	URL: Setting <a:/>.hash = ' \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' Simple percent-encoding; tabs and newlines are removed
+url/url-setters.any.html	URL: Setting <a:/>.pathname = ' \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' UTF-8 percent encoding with the default encode set. Tabs and newlines are removed.
+url/url-setters.any.html	URL: Setting <a:/>.search = ' \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' UTF-8 percent encoding with the query encode set. Tabs and newlines are removed.
+url/url-setters.any.html	URL: Setting <a:/foo>.host = 'example.net' Path-only URLs can gain a host
+url/url-setters.any.html	URL: Setting <a:/foo>.hostname = 'example.net' Path-only URLs can gain a host
+url/url-setters.any.html	URL: Setting <about:blank>.hash = '# \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' Fragment percent-encode set on about:blank; tabs and newlines are removed
+url/url-setters.any.html	URL: Setting <about:blank>.hash = '#<foo> <bar>' Fragment with <> on about:blank
+url/url-setters.any.html	URL: Setting <data:/nospace>.pathname = 'space ' Non-special URLs with non-opaque paths percent-encode U+0020
 url/url-setters.any.html	URL: Setting <data:original>.pathname = 'new value'
 url/url-setters.any.html	URL: Setting <data:space                                                                                                                                  #fragment>.hash = '' Trailing spaces and opaque paths
 url/url-setters.any.html	URL: Setting <data:space  ?query#fragment>.hash = '' Trailing spaces and opaque paths
 url/url-setters.any.html	URL: Setting <data:space  ?query#fragment>.search = '' Trailing spaces and opaque paths
 url/url-setters.any.html	URL: Setting <data:space ?query>.search = '' Trailing spaces and opaque paths
+url/url-setters.any.html	URL: Setting <data:text/html,<p>Test>.protocol = 'view-source+data:foo : bar' Stuff after the first ':' is ignored
+url/url-setters.any.html	URL: Setting <data:text/plain,Stuff>.host = 'example.net' Cannot-be-a-base means no host
+url/url-setters.any.html	URL: Setting <data:text/plain,Stuff>.hostname = 'example.net' Cannot-be-a-base means no host
+url/url-setters.any.html	URL: Setting <data:text/plain,test>.hash = '# \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' Fragment percent-encode set on data: URI; tabs and newlines are removed
+url/url-setters.any.html	URL: Setting <data:text/plain,test>.hash = '#<foo> <bar>' Fragment with <> on data: URI
+url/url-setters.any.html	URL: Setting <file:///home/me/index.html>.password = 'secret' No host means no password
+url/url-setters.any.html	URL: Setting <file:///home/you/index.html>.username = 'me' No host means no username
 url/url-setters.any.html	URL: Setting <file:///some/path>.pathname = '' Special URLs cannot have their paths erased
+url/url-setters.any.html	URL: Setting <file:///test>.protocol = 'https'
+url/url-setters.any.html	URL: Setting <file:///unicorn>.pathname = '//\\/' File URLs and (back)slashes
+url/url-setters.any.html	URL: Setting <file:///unicorn>.pathname = '//monkey/..//' File URLs and (back)slashes
 url/url-setters.any.html	URL: Setting <file:///var/log/system.log>.href = 'http://0300.168.0xF0'
+url/url-setters.any.html	URL: Setting <file://hi/path>.protocol = 's'
 url/url-setters.any.html	URL: Setting <file://hi/x>.host = ''
 url/url-setters.any.html	URL: Setting <file://hi/x>.hostname = ''
 url/url-setters.any.html	URL: Setting <file://localhost/>.port = '12'
 url/url-setters.any.html	URL: Setting <file://localhost/>.protocol = 'http' Can’t switch from file URL with no host
+url/url-setters.any.html	URL: Setting <file://monkey/>.pathname = '\\\\' File URLs and (back)slashes
+url/url-setters.any.html	URL: Setting <file://test/>.password = 'test'
 url/url-setters.any.html	URL: Setting <file://test/>.port = '12'
+url/url-setters.any.html	URL: Setting <file://test/>.username = 'test'
 url/url-setters.any.html	URL: Setting <file://y/>.host = 'loc%41lhost'
 url/url-setters.any.html	URL: Setting <file://y/>.host = 'x:123'
 url/url-setters.any.html	URL: Setting <file://y/>.hostname = 'loc%41lhost'
 url/url-setters.any.html	URL: Setting <file://y/>.hostname = 'x:123'
 url/url-setters.any.html	URL: Setting <file:>.protocol = 'wss'
+url/url-setters.any.html	URL: Setting <foo:///some/path>.pathname = '' Non-special URLs with an empty host can have their paths erased
 url/url-setters.any.html	URL: Setting <foo://path/to>.host = ':80'
 url/url-setters.any.html	URL: Setting <foo://path/to>.pathname = '/..'
+url/url-setters.any.html	URL: Setting <foo://somehost/some/path>.pathname = '' Non-special URLs can have their paths erased
 url/url-setters.any.html	URL: Setting <foo:/some/path>.pathname = '' Path-only URLs cannot have their paths erased
 url/url-setters.any.html	URL: Setting <foo:/some/path>.pathname = 'test' Path-only URLs always have an initial slash
+url/url-setters.any.html	URL: Setting <ftp://example.net>.protocol = 'test'
 url/url-setters.any.html	URL: Setting <http://:secret@example.net>.password = ''
 url/url-setters.any.html	URL: Setting <http://:secret@example.net>.username = 'me'
+url/url-setters.any.html	URL: Setting <http://example.com/>.host = '///bad.com' Leading / is not stripped
+url/url-setters.any.html	URL: Setting <http://example.com/>.hostname = '///bad.com' Leading / is not stripped
 url/url-setters.any.html	URL: Setting <http://example.net/>.host = '[::1.2.3.4x]'
 url/url-setters.any.html	URL: Setting <http://example.net/>.host = '[::1.2.3.]'
 url/url-setters.any.html	URL: Setting <http://example.net/>.host = '[::1.2.]'
@@ -142214,16 +143236,53 @@ url/url-setters.any.html	URL: Setting <http://example.net/>.hostname = '[::1.2.3
 url/url-setters.any.html	URL: Setting <http://example.net/>.hostname = '[::1.2.]'
 url/url-setters.any.html	URL: Setting <http://example.net/>.hostname = '[::1.]'
 url/url-setters.any.html	URL: Setting <http://example.net/>.hostname = '[google.com]' Broken IPv6
+url/url-setters.any.html	URL: Setting <http://example.net/home?lang=fr#nav>.pathname = '\\a\\%2E\\b\\%2e.\\c' \\ is a segment delimiter for 'special' URLs
+url/url-setters.any.html	URL: Setting <http://example.net/path>.host = 'example.com#stuff' Stuff after a # delimiter is ignored
+url/url-setters.any.html	URL: Setting <http://example.net/path>.host = 'example.com/stuff' Stuff after a / delimiter is ignored
 url/url-setters.any.html	URL: Setting <http://example.net/path>.host = 'example.com:65535' Port numbers are 16 bit integers
+url/url-setters.any.html	URL: Setting <http://example.net/path>.host = 'example.com:8080#stuff' Stuff after a # delimiter is ignored
+url/url-setters.any.html	URL: Setting <http://example.net/path>.host = 'example.com:8080+2' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters.any.html	URL: Setting <http://example.net/path>.host = 'example.com:8080/stuff' Stuff after a / delimiter is ignored
+url/url-setters.any.html	URL: Setting <http://example.net/path>.host = 'example.com:8080?stuff' Stuff after a ? delimiter is ignored
+url/url-setters.any.html	URL: Setting <http://example.net/path>.host = 'example.com:8080\\stuff' Stuff after a \\ delimiter is ignored for special schemes
+url/url-setters.any.html	URL: Setting <http://example.net/path>.host = 'example.com:8080stuff2' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters.any.html	URL: Setting <http://example.net/path>.host = 'example.com?stuff' Stuff after a ? delimiter is ignored
+url/url-setters.any.html	URL: Setting <http://example.net/path>.host = 'example.com?stuff:8080' Stuff after a ? delimiter is ignored, trailing 'port'
+url/url-setters.any.html	URL: Setting <http://example.net/path>.host = 'example.com\\stuff' Stuff after a \\ delimiter is ignored for special schemes
+url/url-setters.any.html	URL: Setting <http://example.net/path>.hostname = 'example.com#stuff' Stuff after a # delimiter is ignored
+url/url-setters.any.html	URL: Setting <http://example.net/path>.hostname = 'example.com/stuff' Stuff after a / delimiter is ignored
+url/url-setters.any.html	URL: Setting <http://example.net/path>.hostname = 'example.com:8080' : delimiter invalidates entire value
+url/url-setters.any.html	URL: Setting <http://example.net/path>.hostname = 'example.com?stuff' Stuff after a ? delimiter is ignored
+url/url-setters.any.html	URL: Setting <http://example.net/path>.hostname = 'example.com\\stuff' Stuff after a \\ delimiter is ignored for special schemes
 url/url-setters.any.html	URL: Setting <http://example.net/path>.port = '65535' Port numbers are 16 bit integers
+url/url-setters.any.html	URL: Setting <http://example.net/path>.port = '8080#stuff' Stuff after a # delimiter is ignored
+url/url-setters.any.html	URL: Setting <http://example.net/path>.port = '8080+2' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters.any.html	URL: Setting <http://example.net/path>.port = '8080/stuff' Stuff after a / delimiter is ignored
+url/url-setters.any.html	URL: Setting <http://example.net/path>.port = '8080?stuff' Stuff after a ? delimiter is ignored
+url/url-setters.any.html	URL: Setting <http://example.net/path>.port = '8080\\stuff' Stuff after a \\ delimiter is ignored for special schemes
+url/url-setters.any.html	URL: Setting <http://example.net/path>.port = '8080stuff2' Anything other than ASCII digit stops the port parser in a setter but is not an error
 url/url-setters.any.html	URL: Setting <http://example.net:8080/path>.hostname = 'example.com:' : delimiter invalidates entire value
 url/url-setters.any.html	URL: Setting <http://example.net:8080/path>.port = '65536' Port numbers are 16 bit integers, overflowing is an error
 url/url-setters.any.html	URL: Setting <http://example.net:8080/path>.port = 'randomstring' Setting port to a string that doesn't parse as a number
+url/url-setters.any.html	URL: Setting <http://example.net:8080/test>.host = '[::1]' IPv6 without port
+url/url-setters.any.html	URL: Setting <http://example.net:8080/test>.host = '[::1]:invalid' Anything other than ASCII digit stops the port parser in a setter but is not an error
+url/url-setters.any.html	URL: Setting <http://example.net:8080>.host = 'example.com' Port number is unchanged if not specified in the new value
+url/url-setters.any.html	URL: Setting <http://example.net:8080>.host = 'example.com:' Port number is unchanged if not specified
 url/url-setters.any.html	URL: Setting <http://example.net:8080>.host = 'example.com:80' Port number is removed if new port is scheme default and existing URL has a non-default port
+url/url-setters.any.html	URL: Setting <http://example.net:8080>.host = 'example.com:invalid' Anything other than ASCII digit stops the port parser in a setter but is not an error
 url/url-setters.any.html	URL: Setting <http://example.net:8080>.hostname = '0x7F000001' IPv4 address syntax is normalized
 url/url-setters.any.html	URL: Setting <http://example.net:8080>.hostname = 'example.com'
 url/url-setters.any.html	URL: Setting <http://example.net:8080>.port = '' Port number is removed if empty is the new value
 url/url-setters.any.html	URL: Setting <http://example.net:8080>.port = '80' Default port number is removed
+url/url-setters.any.html	URL: Setting <http://example.net>.hash = ' ' Trailing C0 control should be encoded
+url/url-setters.any.html	URL: Setting <http://example.net>.hash = ' ' Trailing space should be encoded
+url/url-setters.any.html	URL: Setting <http://example.net>.hash = '#foo bar'
+url/url-setters.any.html	URL: Setting <http://example.net>.hash = '#foo"bar'
+url/url-setters.any.html	URL: Setting <http://example.net>.hash = '#foo<bar'
+url/url-setters.any.html	URL: Setting <http://example.net>.hash = '#foo>bar'
+url/url-setters.any.html	URL: Setting <http://example.net>.hash = '#foo`bar'
+url/url-setters.any.html	URL: Setting <http://example.net>.hash = '%c3%89té' Bytes already percent-encoded are left as-is
+url/url-setters.any.html	URL: Setting <http://example.net>.hash = 'a b' Percent-encode NULLs in fragment
 url/url-setters.any.html	URL: Setting <http://example.net>.host = '' The empty host is not valid for special schemes
 url/url-setters.any.html	URL: Setting <http://example.net>.host = '0x7F000001:8080' IPv4 address syntax is normalized
 url/url-setters.any.html	URL: Setting <http://example.net>.host = '[2001:db8::2]:4002' IPv6 literal address with port, crbug.com/1012416
@@ -142232,9 +143291,24 @@ url/url-setters.any.html	URL: Setting <http://example.net>.host = 'example.com:8
 url/url-setters.any.html	URL: Setting <http://example.net>.host = 'example.com:8080'
 url/url-setters.any.html	URL: Setting <http://example.net>.hostname = '' The empty host is not valid for special schemes
 url/url-setters.any.html	URL: Setting <http://example.net>.hostname = '[::0:01]' IPv6 address syntax is normalized
+url/url-setters.any.html	URL: Setting <http://example.net>.password = ' \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' UTF-8 percent encoding with the userinfo encode set.
+url/url-setters.any.html	URL: Setting <http://example.net>.password = '%c3%89té' Bytes already percent-encoded are left as-is.
 url/url-setters.any.html	URL: Setting <http://example.net>.password = 'secret'
+url/url-setters.any.html	URL: Setting <http://example.net>.pathname = ' ' Trailing C0 control should be encoded
+url/url-setters.any.html	URL: Setting <http://example.net>.pathname = ' ' Trailing space should be encoded
+url/url-setters.any.html	URL: Setting <http://example.net>.pathname = '#' # needs to be encoded
 url/url-setters.any.html	URL: Setting <http://example.net>.pathname = '%2e%2E%c3%89té' Bytes already percent-encoded are left as-is, including %2E outside dotted segments.
+url/url-setters.any.html	URL: Setting <http://example.net>.pathname = '/#é' # doesn't mess up encoding
+url/url-setters.any.html	URL: Setting <http://example.net>.pathname = '/?é' ? doesn't mess up encoding
+url/url-setters.any.html	URL: Setting <http://example.net>.pathname = '?' ? needs to be encoded
 url/url-setters.any.html	URL: Setting <http://example.net>.port = '8080'
+url/url-setters.any.html	URL: Setting <http://example.net>.protocol = 'b' Can’t switch from special scheme to non-special
+url/url-setters.any.html	URL: Setting <http://example.net>.protocol = 'https:foo : bar' Stuff after the first ':' is ignored
+url/url-setters.any.html	URL: Setting <http://example.net>.search = ' ' Trailing C0 control should be encoded
+url/url-setters.any.html	URL: Setting <http://example.net>.search = ' ' Trailing space should be encoded
+url/url-setters.any.html	URL: Setting <http://example.net>.search = '%c3%89té' Bytes already percent-encoded are left as-is
+url/url-setters.any.html	URL: Setting <http://example.net>.username = ' \t\n\r !"#$%&'()*+,-./09:;<=>?@AZ[\\]^_`az{|}~Éé' UTF-8 percent encoding with the userinfo encode set.
+url/url-setters.any.html	URL: Setting <http://example.net>.username = '%c3%89té' Bytes already percent-encoded are left as-is.
 url/url-setters.any.html	URL: Setting <http://example.net>.username = 'me'
 url/url-setters.any.html	URL: Setting <http://foo.com:443/>.protocol = 'https' Port is set to null if it is the default for new scheme.
 url/url-setters.any.html	URL: Setting <http://me:secret@example.net>.password = ''
@@ -142248,6 +143322,7 @@ url/url-setters.any.html	URL: Setting <http://test/>.protocol = 'https'
 url/url-setters.any.html	URL: Setting <http://test/>.protocol = 'https '
 url/url-setters.any.html	URL: Setting <http://test/>.protocol = 'https\r'
 url/url-setters.any.html	URL: Setting <http://test@example.net>.protocol = 'file' Can’t switch from URL containing username/password/port to file
+url/url-setters.any.html	URL: Setting <https://domain.com:3000>.port = '\n\n\t\t'
 url/url-setters.any.html	URL: Setting <https://domain.com:3000>.port = '\n\t80\n\t80\n\t'
 url/url-setters.any.html	URL: Setting <https://domain.com:443>.port = '\t8080' Leading u0009 on special scheme
 url/url-setters.any.html	URL: Setting <https://example.com/>.host = '%C2%AD'
@@ -142268,10 +143343,13 @@ url/url-setters.any.html	URL: Setting <https://example.net>.hash = 'main'
 url/url-setters.any.html	URL: Setting <https://example.net>.host = 'example.com:443' Default port number is removed
 url/url-setters.any.html	URL: Setting <https://example.net>.host = 'example.com:80' Default port number is only removed for the relevant scheme
 url/url-setters.any.html	URL: Setting <https://example.net>.port = '80' Default port number is only removed for the relevant scheme
+url/url-setters.any.html	URL: Setting <https://example.net>.protocol = 's'
 url/url-setters.any.html	URL: Setting <https://example.net>.search = ''
+url/url-setters.any.html	URL: Setting <https://example.net?lang=en-US#nav>.hash = '#'
 url/url-setters.any.html	URL: Setting <https://example.net?lang=en-US#nav>.hash = '#main'
 url/url-setters.any.html	URL: Setting <https://example.net?lang=en-US#nav>.hash = ''
 url/url-setters.any.html	URL: Setting <https://example.net?lang=en-US#nav>.search = ''
+url/url-setters.any.html	URL: Setting <https://example.net?lang=en-US#nav>.search = '?'
 url/url-setters.any.html	URL: Setting <https://example.net?lang=en-US#nav>.search = '??lang=fr'
 url/url-setters.any.html	URL: Setting <https://example.net?lang=en-US#nav>.search = '?lang=fr'
 url/url-setters.any.html	URL: Setting <https://example.net?lang=en-US#nav>.search = 'lang=fr'
@@ -142280,25 +143358,55 @@ url/url-setters.any.html	URL: Setting <https://example.net?lang=en-US>.search = 
 url/url-setters.any.html	URL: Setting <https://test.invalid/>.host = '*'
 url/url-setters.any.html	URL: Setting <https://test.invalid/>.host = '><'
 url/url-setters.any.html	URL: Setting <https://test.invalid/>.host = 'foo\t\r\nbar'
+url/url-setters.any.html	URL: Setting <https://test.invalid/>.host = 'test/:aaa'
+url/url-setters.any.html	URL: Setting <https://test.invalid/>.host = 'test/@aaa'
+url/url-setters.any.html	URL: Setting <https://test.invalid/>.host = 'x@x'
 url/url-setters.any.html	URL: Setting <https://test.invalid/>.hostname = '*'
 url/url-setters.any.html	URL: Setting <https://test.invalid/>.hostname = '><'
 url/url-setters.any.html	URL: Setting <https://test.invalid/>.hostname = 'foo\t\r\nbar'
+url/url-setters.any.html	URL: Setting <https://test.invalid/>.hostname = 'test/:aaa'
+url/url-setters.any.html	URL: Setting <https://test.invalid/>.hostname = 'test/@aaa'
+url/url-setters.any.html	URL: Setting <https://test.invalid/>.hostname = 'x@x'
+url/url-setters.any.html	URL: Setting <https://www.google.com:4343>.port = '4wpt' Should use all ascii prefixed characters as port
 url/url-setters.any.html	URL: Setting <https://x/>.host = 'ß' IDNA Nontransitional_Processing
 url/url-setters.any.html	URL: Setting <javascript://x/>.password = 'bowser'
 url/url-setters.any.html	URL: Setting <javascript://x/>.port = '12'
 url/url-setters.any.html	URL: Setting <javascript://x/>.username = 'wario'
 url/url-setters.any.html	URL: Setting <javascript:alert(1)>.hash = 'castle'
 url/url-setters.any.html	URL: Setting <javascript:alert(1)>.protocol = 'defuse'
+url/url-setters.any.html	URL: Setting <javascript:alert(1)>.username = 'wario'
+url/url-setters.any.html	URL: Setting <mailto:me@example.net>.host = 'example.com' Cannot-be-a-base means no host
+url/url-setters.any.html	URL: Setting <mailto:me@example.net>.hostname = 'example.com' Cannot-be-a-base means no host
+url/url-setters.any.html	URL: Setting <mailto:me@example.net>.password = 'secret' Cannot-be-a-base means no password
 url/url-setters.any.html	URL: Setting <mailto:me@example.net>.pathname = '/foo' Opaque paths cannot be set
+url/url-setters.any.html	URL: Setting <mailto:me@example.net>.protocol = 'http' Cannot-be-a-base URL doesn’t have a host, but URL in a special scheme must.
+url/url-setters.any.html	URL: Setting <mailto:you@example.net>.username = 'me' Cannot-be-a-base means no username
 url/url-setters.any.html	URL: Setting <non-base:value>.port = '12'
 url/url-setters.any.html	URL: Setting <non-spec:/.//>.pathname = 'p' Drop /. from path
+url/url-setters.any.html	URL: Setting <non-spec:/.//p>.hostname = ''
+url/url-setters.any.html	URL: Setting <non-spec:/.//p>.hostname = 'h' Drop /. from path
+url/url-setters.any.html	URL: Setting <non-spec:/>.hash = 'a b' Percent-encode NULLs in fragment
 url/url-setters.any.html	URL: Setting <non-spec:/>.pathname = '/..//p'
 url/url-setters.any.html	URL: Setting <non-spec:/>.pathname = '/.//p' Serialize /. in path
+url/url-setters.any.html	URL: Setting <non-spec:/>.pathname = '//p'
 url/url-setters.any.html	URL: Setting <non-special://example.net:8080/path>.port = '65536' Port numbers are 16 bit integers, overflowing is an error
+url/url-setters.any.html	URL: Setting <nonsense:///test>.protocol = 'https'
+url/url-setters.any.html	URL: Setting <sc:///>.password = 'x'
 url/url-setters.any.html	URL: Setting <sc:///>.port = '12'
+url/url-setters.any.html	URL: Setting <sc:///>.username = 'x'
+url/url-setters.any.html	URL: Setting <sc://example.com/>.host = '///bad.com' Leading / is not stripped
+url/url-setters.any.html	URL: Setting <sc://example.com/>.hostname = '///bad.com' Leading / is not stripped
+url/url-setters.any.html	URL: Setting <sc://example.net>.pathname = '#' # needs to be encoded, non-special scheme
+url/url-setters.any.html	URL: Setting <sc://example.net>.pathname = '?' ? needs to be encoded, non-special scheme
+url/url-setters.any.html	URL: Setting <sc://test:12/>.host = ''
 url/url-setters.any.html	URL: Setting <sc://test:12/>.hostname = ''
+url/url-setters.any.html	URL: Setting <sc://test@test/>.host = ''
+url/url-setters.any.html	URL: Setting <sc://test@test/>.hostname = ''
 url/url-setters.any.html	URL: Setting <sc://x/>.host = ' ' Non-special scheme
 url/url-setters.any.html	URL: Setting <sc://x/>.host = ' '
+url/url-setters.any.html	URL: Setting <sc://x/>.host = '#'
+url/url-setters.any.html	URL: Setting <sc://x/>.host = '/'
+url/url-setters.any.html	URL: Setting <sc://x/>.host = '?'
 url/url-setters.any.html	URL: Setting <sc://x/>.host = '@'
 url/url-setters.any.html	URL: Setting <sc://x/>.host = '\n'
 url/url-setters.any.html	URL: Setting <sc://x/>.host = '\r'
@@ -142306,23 +143414,34 @@ url/url-setters.any.html	URL: Setting <sc://x/>.host = '\t'
 url/url-setters.any.html	URL: Setting <sc://x/>.host = 'ß'
 url/url-setters.any.html	URL: Setting <sc://x/>.hostname = ' ' Non-special scheme
 url/url-setters.any.html	URL: Setting <sc://x/>.hostname = ' '
+url/url-setters.any.html	URL: Setting <sc://x/>.hostname = '#'
+url/url-setters.any.html	URL: Setting <sc://x/>.hostname = '/'
+url/url-setters.any.html	URL: Setting <sc://x/>.hostname = '?'
 url/url-setters.any.html	URL: Setting <sc://x/>.hostname = '@'
 url/url-setters.any.html	URL: Setting <sc://x/>.hostname = '\n'
 url/url-setters.any.html	URL: Setting <sc://x/>.hostname = '\r'
 url/url-setters.any.html	URL: Setting <sc://x/>.hostname = '\t'
 url/url-setters.any.html	URL: Setting <sc://x/>.port = '12'
+url/url-setters.any.html	URL: Setting <sc:/nospace>.pathname = 'space '
 url/url-setters.any.html	URL: Setting <sc:original>.pathname = 'new value'
 url/url-setters.any.html	URL: Setting <sc:space    #fragment>.hash = ''
 url/url-setters.any.html	URL: Setting <sc:space  ?query#fragment>.hash = ''
 url/url-setters.any.html	URL: Setting <sc:space  ?query#fragment>.search = ''
 url/url-setters.any.html	URL: Setting <sc:space ?query>.search = ''
+url/url-setters.any.html	URL: Setting <ssh://example.net>.protocol = 'file'
 url/url-setters.any.html	URL: Setting <ssh://me@example.net>.protocol = 'file'
+url/url-setters.any.html	URL: Setting <ssh://me@example.net>.protocol = 'http' Can’t switch from non-special scheme to special
+url/url-setters.any.html	URL: Setting <ssh://me@example.net>.protocol = 'https'
+url/url-setters.any.html	URL: Setting <unix:/run/foo.socket>.password = 'secret' No host means no password
+url/url-setters.any.html	URL: Setting <unix:/run/foo.socket>.username = 'me' No host means no username
 url/url-setters.any.html	URL: Setting <unix:/run/foo.socket?timeout=10>.pathname = '/var/log/../run/bar.socket'
 url/url-setters.any.html	URL: Setting <view-source+http://example.net/foo>.host = '' The empty host is OK for non-special schemes
 url/url-setters.any.html	URL: Setting <view-source+http://example.net/foo>.hostname = '' The empty host is OK for non-special schemes
 url/url-setters.any.html	URL: Setting <view-source+http://example.net/home?lang=fr#nav>.pathname = '\\a\\%2E\\b\\%2e.\\c' \\ is *not* a segment delimiter for non-'special' URLs
+url/url-setters.any.html	URL: Setting <view-source+http://example.net/path>.host = 'example.com:8080stuff2' Anything other than ASCII digit stops the port parser in a setter but is not an error
 url/url-setters.any.html	URL: Setting <view-source+http://example.net/path>.host = 'example.com\\stuff' \\ is not a delimiter for non-special schemes, but still forbidden in hosts
 url/url-setters.any.html	URL: Setting <view-source+http://example.net/path>.hostname = 'example.com\\stuff' \\ is not a delimiter for non-special schemes, but still forbidden in hosts
+url/url-setters.any.html	URL: Setting <view-source+http://example.net/path>.port = '8080stuff2' Anything other than ASCII digit stops the port parser in a setter but is not an error
 url/url-setters.any.html	URL: Setting <wpt++://domain.com:443>.port = '\t8080' Leading u0009 on non-special scheme
 url/url-setters.any.html	URL: Setting <wss://x:x@example.net:1234>.protocol = 'file'
 url/url-statics-canparse.any.html	URL.canParse(a, https://b/)

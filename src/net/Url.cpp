@@ -495,16 +495,25 @@ bool Url::is_special() const
     return is_special_scheme(scheme);
 }
 
-std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
+namespace {
+
+// The basic URL parser (URL §4.4) with its two optional arguments: a URL
+// to modify in place of a new one, and a state to start in — the pair a
+// setter of one part passes, so that the value is parsed under that part's
+// rules alone (`hostname_only` is the hostname state, which the host state
+// serves with a port refused). Without them, the whole of an input.
+std::optional<Url> parse(std::string_view raw_input, Url const* base, Url const* given, std::optional<State> state_override, bool hostname_only)
 {
-    // Preprocessing: strip leading/trailing C0 controls and space, then all
-    // tabs and newlines.
+    // Preprocessing: a new URL's input loses its leading and trailing C0
+    // controls and spaces; every input loses its tabs and newlines.
     std::size_t begin = 0;
     std::size_t end = raw_input.size();
-    while (begin < end && static_cast<unsigned char>(raw_input[begin]) <= 0x20)
-        ++begin;
-    while (end > begin && static_cast<unsigned char>(raw_input[end - 1]) <= 0x20)
-        --end;
+    if (!given) {
+        while (begin < end && static_cast<unsigned char>(raw_input[begin]) <= 0x20)
+            ++begin;
+        while (end > begin && static_cast<unsigned char>(raw_input[end - 1]) <= 0x20)
+            --end;
+    }
     std::string filtered;
     filtered.reserve(end - begin);
     for (std::size_t i = begin; i < end; ++i) {
@@ -514,8 +523,9 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
     }
     std::u32string const input = decode_utf8(filtered);
 
-    Url url;
-    State state = State::SchemeStart;
+    Url url = given ? *given : Url();
+    bool const overriding = state_override.has_value();
+    State state = state_override.value_or(State::SchemeStart);
     std::u32string buffer;
     bool at_sign_seen = false;
     bool password_token_seen = false;
@@ -538,9 +548,11 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
             if (is_ascii_alpha(c())) {
                 buffer.push_back(to_ascii_lowercase(c()));
                 state = State::Scheme;
-            } else {
+            } else if (!overriding) {
                 state = State::NoScheme;
                 --pointer;
+            } else {
+                return std::nullopt;
             }
             break;
 
@@ -548,6 +560,25 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
             if (is_ascii_alphanumeric(c()) || c() == U'+' || c() == U'-' || c() == U'.') {
                 buffer.push_back(to_ascii_lowercase(c()));
             } else if (c() == U':') {
+                if (overriding) {
+                    // A scheme set on a URL: a special one stays special and
+                    // the rest stay the rest; file takes no credentials or
+                    // port, and a file URL with an empty host keeps its
+                    // scheme. The port goes when the new scheme makes it
+                    // the default.
+                    std::string const candidate = to_utf8(buffer);
+                    if (url.is_special() != is_special_scheme(candidate))
+                        return url;
+                    if ((url.includes_credentials() || url.port) && candidate == "file")
+                        return url;
+                    if (url.scheme == "file" && url.host_kind == Url::HostKind::Empty)
+                        return url;
+                    url.scheme = candidate;
+                    if (std::optional<std::uint16_t> const default_port = default_port_of(url.scheme);
+                        default_port && url.port && *default_port == *url.port)
+                        url.port.reset();
+                    return url;
+                }
                 url.scheme = to_utf8(buffer);
                 buffer.clear();
                 if (url.scheme == "file") {
@@ -564,10 +595,12 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
                     url.path = { "" };
                     state = State::OpaquePath;
                 }
-            } else {
+            } else if (!overriding) {
                 buffer.clear();
                 state = State::NoScheme;
                 pointer = static_cast<std::size_t>(-1); // start over
+            } else {
+                return std::nullopt;
             }
             break;
 
@@ -697,9 +730,14 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
             break;
 
         case State::Host:
-            if (c() == U':' && !inside_brackets) {
+            if (overriding && url.scheme == "file") {
+                --pointer;
+                state = State::FileHost;
+            } else if (c() == U':' && !inside_brackets) {
                 if (buffer.empty())
                     return std::nullopt;
+                if (overriding && hostname_only)
+                    return url; // a hostname takes no port
                 auto host = parse_host(buffer, !url.is_special());
                 if (!host)
                     return std::nullopt;
@@ -712,6 +750,9 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
                 --pointer;
                 if (url.is_special() && buffer.empty())
                     return std::nullopt;
+                // An empty host cannot be set on a URL with credentials or a port.
+                if (overriding && buffer.empty() && (url.includes_credentials() || url.port))
+                    return url;
                 auto host = parse_host(buffer, !url.is_special());
                 if (!host)
                     return std::nullopt;
@@ -719,6 +760,8 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
                 url.host = std::move(host->serialized);
                 buffer.clear();
                 state = State::PathStart;
+                if (overriding)
+                    return url;
             } else {
                 if (c() == U'[')
                     inside_brackets = true;
@@ -732,7 +775,7 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
             if (is_ascii_digit(c())) {
                 buffer.push_back(c());
             } else if (c() == eof_sentinel || c() == U'/' || c() == U'?' || c() == U'#'
-                || (url.is_special() && c() == U'\\')) {
+                || (url.is_special() && c() == U'\\') || overriding) {
                 if (!buffer.empty()) {
                     std::uint32_t port_value = 0;
                     for (char32_t const digit : buffer) {
@@ -747,6 +790,8 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
                         url.port = static_cast<std::uint16_t>(port_value);
                     buffer.clear();
                 }
+                if (overriding)
+                    return url; // a port set takes its leading digits, whatever follows
                 state = State::PathStart;
                 --pointer;
             } else {
@@ -808,11 +853,13 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
         case State::FileHost:
             if (c() == eof_sentinel || c() == U'/' || c() == U'\\' || c() == U'?' || c() == U'#') {
                 --pointer;
-                if (is_windows_drive_letter(buffer)) {
+                if (!overriding && is_windows_drive_letter(buffer)) {
                     state = State::Path; // buffer survives into path state
                 } else if (buffer.empty()) {
                     url.host_kind = Url::HostKind::Empty;
                     url.host.clear();
+                    if (overriding)
+                        return url;
                     state = State::PathStart;
                 } else {
                     auto host = parse_host(buffer, !url.is_special());
@@ -824,6 +871,8 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
                     }
                     url.host_kind = host->kind;
                     url.host = std::move(host->serialized);
+                    if (overriding)
+                        return url;
                     buffer.clear();
                     state = State::PathStart;
                 }
@@ -837,22 +886,24 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
                 state = State::Path;
                 if (c() != U'/' && c() != U'\\')
                     --pointer;
-            } else if (c() == U'?') {
+            } else if (!overriding && c() == U'?') {
                 url.query = "";
                 state = State::Query;
-            } else if (c() == U'#') {
+            } else if (!overriding && c() == U'#') {
                 url.fragment = "";
                 state = State::Fragment;
             } else if (c() != eof_sentinel) {
                 state = State::Path;
                 if (c() != U'/')
                     --pointer;
+            } else if (overriding && !url.has_host()) {
+                url.path.push_back("");
             }
             break;
 
         case State::Path:
             if (c() == eof_sentinel || c() == U'/' || (url.is_special() && c() == U'\\')
-                || c() == U'?' || c() == U'#') {
+                || (!overriding && (c() == U'?' || c() == U'#'))) {
                 std::string segment = to_utf8(buffer);
                 if (is_double_dot(segment)) {
                     shorten_path(url);
@@ -903,7 +954,7 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
             break;
 
         case State::Query:
-            if (c() == U'#' || c() == eof_sentinel) {
+            if ((!overriding && c() == U'#') || c() == eof_sentinel) {
                 EncodeSet const set
                     = url.is_special() ? EncodeSet::SpecialQuery : EncodeSet::Query;
                 std::string encoded;
@@ -934,6 +985,106 @@ std::optional<Url> parse_url(std::string_view raw_input, Url const* base)
         ++pointer;
     }
     return url;
+}
+
+// Percent-encodes a credential with the userinfo set (URL §4.2).
+std::string encode_userinfo(std::string_view value)
+{
+    std::string out;
+    for (char32_t const code_point : decode_utf8(std::string(value)))
+        percent_encode_utf8(code_point, EncodeSet::Userinfo, out);
+    return out;
+}
+
+} // namespace
+
+std::optional<Url> parse_url(std::string_view input, Url const* base)
+{
+    return parse(input, base, nullptr, std::nullopt, false);
+}
+
+void apply_url_setter(Url& url, UrlPart part, std::string_view value)
+{
+    // URL §6.4. A URL cannot have a username, password or port when its
+    // host is null or empty, or its scheme is file.
+    bool const no_credentials = !url.has_host() || url.host_kind == Url::HostKind::Empty || url.scheme == "file";
+    // "Potentially strip trailing spaces from an opaque path": with no
+    // query and no fragment left to mark where the path ends.
+    auto const strip_trailing_spaces = [&url] {
+        if (url.has_opaque_path && !url.query && !url.fragment && !url.path.empty()) {
+            while (!url.path[0].empty() && url.path[0].back() == ' ')
+                url.path[0].pop_back();
+        }
+    };
+    // The parser over a copy, under the part's state: the URL changes only
+    // when the value applied.
+    auto const run = [&url](std::string_view input, State state, bool hostname_only, Url copy) {
+        if (std::optional<Url> result = parse(input, nullptr, &copy, state, hostname_only))
+            url = std::move(*result);
+    };
+    switch (part) {
+    case UrlPart::Protocol:
+        run(std::string(value) + ":", State::SchemeStart, false, url);
+        break;
+    case UrlPart::Username:
+        if (!no_credentials)
+            url.username = encode_userinfo(value);
+        break;
+    case UrlPart::Password:
+        if (!no_credentials)
+            url.password = encode_userinfo(value);
+        break;
+    case UrlPart::Host:
+        if (!url.has_opaque_path)
+            run(value, State::Host, false, url);
+        break;
+    case UrlPart::Hostname:
+        if (!url.has_opaque_path)
+            run(value, State::Host, true, url);
+        break;
+    case UrlPart::Port:
+        if (no_credentials)
+            break;
+        if (value.empty())
+            url.port.reset();
+        else
+            run(value, State::Port, false, url);
+        break;
+    case UrlPart::Pathname: {
+        if (url.has_opaque_path)
+            break;
+        Url emptied = url;
+        emptied.path.clear();
+        run(value, State::PathStart, false, std::move(emptied));
+        break;
+    }
+    case UrlPart::Search: {
+        if (value.empty()) {
+            url.query.reset();
+            strip_trailing_spaces();
+            break;
+        }
+        if (value.front() == '?')
+            value.remove_prefix(1);
+        Url begun = url;
+        begun.query = "";
+        run(value, State::Query, false, std::move(begun));
+        break;
+    }
+    case UrlPart::Hash: {
+        if (value.empty()) {
+            url.fragment.reset();
+            strip_trailing_spaces();
+            break;
+        }
+        if (value.front() == '#')
+            value.remove_prefix(1);
+        Url begun = url;
+        begun.fragment = "";
+        run(value, State::Fragment, false, std::move(begun));
+        break;
+    }
+    }
 }
 
 // --- Serializers --------------------------------------------------------------

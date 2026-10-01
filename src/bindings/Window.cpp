@@ -833,6 +833,28 @@ std::string random_uuid()
 
 // --- install_window ---------------------------------------------------------------------------------
 
+bool apply_url_part(net::Url& target, std::string_view part, std::string const& text)
+{
+    if (part == "href") {
+        std::optional<net::Url> parsed = net::parse_url(text);
+        if (!parsed)
+            return false;
+        target = std::move(*parsed);
+        return true;
+    }
+    static constexpr std::pair<std::string_view, net::UrlPart> parts[] = { { "protocol", net::UrlPart::Protocol },
+        { "username", net::UrlPart::Username }, { "password", net::UrlPart::Password }, { "host", net::UrlPart::Host },
+        { "hostname", net::UrlPart::Hostname }, { "port", net::UrlPart::Port }, { "pathname", net::UrlPart::Pathname },
+        { "search", net::UrlPart::Search }, { "hash", net::UrlPart::Hash } };
+    for (auto const& [name, which] : parts) {
+        if (name == part) {
+            net::apply_url_setter(target, which, text);
+            break;
+        }
+    }
+    return true;
+}
+
 void install_window(Realm::Internals& in)
 {
     js::Interpreter& interpreter = in.interpreter;
@@ -1347,8 +1369,8 @@ void install_window(Realm::Internals& in)
     constant_string(*navigator_proto, "vendor", "");
     constant_string(*navigator_proto, "vendorSub", "");
     constant_string(*navigator_proto, "platform", platform_name());
+    constant_string(*navigator_proto, "oscpu", platform_name()); // NavigatorID (HTML §8.9.1.1)
     constant_string(*navigator_proto, "language", "en-US");
-    constant_string(*navigator_proto, "oscpu", platform_name());
     define_getter(in, *navigator_proto, "languages", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Interpreter::Roots const roots(interp);
@@ -1531,8 +1553,11 @@ void install_window(Realm::Internals& in)
     define_operation(interpreter, *performance_observer, "takeRecords", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_array()); });
     {
         std::optional<js::Value> const constructor = performance_observer->get(interpreter, interpreter.key("constructor"), js::Value::object(performance_observer));
+        // A static attribute: an accessor on the interface object, as WebIDL
+        // puts it. Nothing records entries yet, so the list is empty.
         if (constructor && constructor->is_object())
-            constructor->as_object()->put(interpreter.key("supportedEntryTypes"), js::Value::object(interpreter.new_array()), js::builtin_attributes);
+            define_getter(in, *constructor->as_object(), "supportedEntryTypes",
+                [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_array()); });
     }
 
     // customElements is installed with the rest of its machinery
@@ -1683,14 +1708,18 @@ void install_window(Realm::Internals& in)
         1);
     for (std::string_view const part : { "href", "protocol", "host", "hostname", "port", "pathname", "search", "hash", "origin", "username", "password" }) {
         std::string const part_name(part);
+        js::NativeFunction::Callback const getter = [part_name](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+            std::optional<UrlObject*> const url = this_url(interp, this_value);
+            if (!url)
+                return std::nullopt;
+            return internals_of(interp).string(url_part((*url)->url, part_name));
+        };
+        if (part == "origin") { // read-only (URL §6.4)
+            define_getter(in, *url_proto, part, getter);
+            continue;
+        }
         define_getter(
-            in, *url_proto, part,
-            [part_name](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
-                std::optional<UrlObject*> const url = this_url(interp, this_value);
-                if (!url)
-                    return std::nullopt;
-                return internals_of(interp).string(url_part((*url)->url, part_name));
-            },
+            in, *url_proto, part, getter,
             [part_name](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
                 std::optional<UrlObject*> const url = this_url(interp, this_value);
                 if (!url)
@@ -1700,55 +1729,10 @@ void install_window(Realm::Internals& in)
                 if (!text)
                     return std::nullopt;
                 net::Url& target = (*url)->url;
-                if (part_name == "href") {
-                    std::optional<net::Url> parsed = net::parse_url(*text);
-                    if (!parsed)
-                        return interp.throw_type_error("Failed to set the 'href' property on 'URL': Invalid URL");
-                    target = std::move(*parsed);
-                } else if (part_name == "hash") {
-                    std::string fragment = *text;
-                    if (fragment.starts_with('#'))
-                        fragment.erase(0, 1);
-                    target.fragment = fragment.empty() ? std::nullopt : std::optional<std::string>(fragment);
-                } else if (part_name == "search") {
-                    std::string query = *text;
-                    if (query.starts_with('?'))
-                        query.erase(0, 1);
-                    target.query = query.empty() ? std::nullopt : std::optional<std::string>(query);
-                    if ((*url)->search_params)
-                        static_cast<SearchParamsObject*>((*url)->search_params)->pairs = parse_query(query);
-                } else if (part_name == "pathname") {
-                    std::optional<net::Url> const parsed = net::parse_url(text->starts_with('/') ? *text : "/" + *text, &target);
-                    if (parsed) {
-                        target.path = parsed->path;
-                        target.has_opaque_path = parsed->has_opaque_path;
-                    }
-                } else if (part_name == "protocol") {
-                    std::string scheme = *text;
-                    if (scheme.ends_with(':'))
-                        scheme.pop_back();
-                    std::optional<net::Url> const parsed = net::parse_url(scheme + target.serialize().substr(target.scheme.size()));
-                    if (parsed)
-                        target = *parsed;
-                } else if (part_name == "host" || part_name == "hostname" || part_name == "port") {
-                    std::string const serialized = target.serialize();
-                    std::string const authority = target.host_with_port();
-                    std::size_t const at = serialized.find(authority);
-                    if (at != std::string::npos) {
-                        std::string replacement = *text;
-                        if (part_name == "hostname")
-                            replacement = *text + (target.port ? ":" + target.port_string() : "");
-                        else if (part_name == "port")
-                            replacement = target.serialize_host() + (text->empty() ? "" : ":" + *text);
-                        std::optional<net::Url> const parsed = net::parse_url(serialized.substr(0, at) + replacement + serialized.substr(at + authority.size()));
-                        if (parsed)
-                            target = *parsed;
-                    }
-                } else if (part_name == "username") {
-                    target.username = *text;
-                } else if (part_name == "password") {
-                    target.password = *text;
-                }
+                if (!apply_url_part(target, part_name, *text))
+                    return interp.throw_type_error("Failed to set the 'href' property on 'URL': Invalid URL");
+                if (part_name == "search" && (*url)->search_params)
+                    static_cast<SearchParamsObject*>((*url)->search_params)->pairs = parse_query(target.query.value_or(""));
                 return js::Value::undefined();
             });
     }

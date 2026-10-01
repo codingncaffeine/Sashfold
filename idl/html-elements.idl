@@ -130,7 +130,6 @@ interface HTMLBRElement : HTMLElement {
 interface HTMLButtonElement : HTMLElement {
   [Reflect] attribute boolean disabled;
   [Reflect] attribute DOMString name;
-  [Reflect] attribute boolean autofocus;
   [Reflect] attribute DOMString value;
   [Reflect=formaction, URL, OrDocumentUrl] attribute USVString formAction;
   [Reflect=formenctype, Enum=("application/x-www-form-urlencoded", "multipart/form-data", "text/plain"),
@@ -200,7 +199,6 @@ interface HTMLEmbedElement : HTMLElement {
 interface HTMLFieldSetElement : HTMLElement {
   [Reflect] attribute boolean disabled;
   [Reflect] attribute DOMString name;
-  [Reflect] attribute boolean autofocus;
 };
 
 // Obsolete (HTML §16.3.2): the <font> element.
@@ -322,7 +320,6 @@ interface HTMLImageElement : HTMLElement {
 interface HTMLInputElement : HTMLElement {
   [Reflect] attribute boolean disabled;
   [Reflect] attribute DOMString name;
-  [Reflect] attribute boolean autofocus;
   [Reflect=value] attribute DOMString defaultValue;
   [Reflect=checked] attribute boolean defaultChecked;
   [Reflect] attribute DOMString placeholder;
@@ -442,7 +439,6 @@ interface HTMLModElement : HTMLElement {
 
 [Tags=(object)]
 interface HTMLObjectElement : HTMLElement {
-  [Reflect, URL] attribute USVString src;
   [Reflect, URL] attribute USVString data;
   [Reflect] attribute DOMString type;
   [Reflect] attribute DOMString width;
@@ -486,9 +482,7 @@ interface HTMLOptionElement : HTMLElement {
 
 [Tags=(output)]
 interface HTMLOutputElement : HTMLElement {
-  [Reflect] attribute boolean disabled;
   [Reflect] attribute DOMString name;
-  [Reflect] attribute boolean autofocus;
   [Reflect=value] attribute DOMString defaultValue;
 };
 
@@ -550,7 +544,6 @@ interface HTMLScriptElement : HTMLElement {
 interface HTMLSelectElement : HTMLElement {
   [Reflect] attribute boolean disabled;
   [Reflect] attribute DOMString name;
-  [Reflect] attribute boolean autofocus;
   [Reflect] attribute boolean multiple;
   [Reflect] attribute boolean required;
   [Reflect] attribute DOMString autocomplete;
@@ -659,7 +652,6 @@ interface HTMLTemplateElement : HTMLElement {
 interface HTMLTextAreaElement : HTMLElement {
   [Reflect] attribute boolean disabled;
   [Reflect] attribute DOMString name;
-  [Reflect] attribute boolean autofocus;
   [Reflect] attribute DOMString placeholder;
   [Reflect] attribute DOMString wrap;
   [Reflect] attribute DOMString autocomplete;

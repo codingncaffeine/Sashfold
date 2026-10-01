@@ -469,21 +469,20 @@ void install_traversal(Realm::Internals& in)
     js::Interpreter& interpreter = in.interpreter;
     js::Heap::NoCollect const guard(interpreter.heap());
 
-    // NodeFilter is a callback interface: an object to read the constants
-    // from, which nothing is an instance of.
-    js::Object* const node_filter = define_interface(in, "NodeFilter", nullptr);
-    std::optional<js::Value> const filter_constructor
-        = node_filter->get(interpreter, interpreter.key("constructor"), js::Value::object(node_filter));
+    // NodeFilter is a callback interface (WebIDL §3.7.3): a function to read
+    // the constants from, which nothing is an instance of, with no prototype
+    // and no way to call or construct it.
+    js::NativeFunction* const node_filter = interpreter.new_native(
+        "NodeFilter", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return interp.throw_type_error("Illegal constructor"); },
+        [](js::Interpreter& interp, Args, js::Object*) -> Native { return interp.throw_type_error("Illegal constructor"); });
     for (auto const& [name, value] : { std::pair<char const*, double> { "FILTER_ACCEPT", 1 }, { "FILTER_REJECT", 2 },
              { "FILTER_SKIP", 3 }, { "SHOW_ALL", 4294967295.0 }, { "SHOW_ELEMENT", 0x1 }, { "SHOW_ATTRIBUTE", 0x2 },
              { "SHOW_TEXT", 0x4 }, { "SHOW_CDATA_SECTION", 0x8 }, { "SHOW_ENTITY_REFERENCE", 0x10 },
              { "SHOW_ENTITY", 0x20 }, { "SHOW_PROCESSING_INSTRUCTION", 0x40 }, { "SHOW_COMMENT", 0x80 },
              { "SHOW_DOCUMENT", 0x100 }, { "SHOW_DOCUMENT_TYPE", 0x200 }, { "SHOW_DOCUMENT_FRAGMENT", 0x400 },
-             { "SHOW_NOTATION", 0x800 } }) {
+             { "SHOW_NOTATION", 0x800 } })
         node_filter->put(interpreter.key(name), js::Value::number(value), js::Enumerable);
-        if (filter_constructor && filter_constructor->is_object())
-            filter_constructor->as_object()->put(interpreter.key(name), js::Value::number(value), js::Enumerable);
-    }
+    interpreter.global()->put(interpreter.key("NodeFilter"), js::Value::object(node_filter), js::builtin_attributes);
 
     js::Object* const walker = define_interface(in, "TreeWalker", nullptr);
     traversal_getter<TreeWalkerObject>(in, *walker, "root", [](Realm::Internals& internals, TreeWalkerObject& w) -> Native {

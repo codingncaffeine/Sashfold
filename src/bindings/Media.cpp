@@ -1916,7 +1916,9 @@ void install_media_source(Realm::Internals& in)
         trace("isTypeSupported " + *type + " -> " + (type_support(*type) > 0 ? "yes" : "no"));
         return js::Value::boolean(type_support(*type) > 0);
     });
-    constructor.as_object()->put(interpreter.key("canConstructInDedicatedWorker"), js::Value::boolean(false), js::Enumerable);
+    // A static attribute: an accessor on the interface object (WebIDL).
+    define_getter(in, *constructor.as_object(), "canConstructInDedicatedWorker",
+        [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
 
     define_getter(in, *proto, "readyState", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<MediaSourceObject*> const found = this_as<MediaSourceObject>(interp, this_value);

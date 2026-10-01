@@ -270,7 +270,6 @@ void install_reflected_attributes(Realm::Internals& in)
         js::Object& proto = *in.prototype("HTMLButtonElement");
         reflect_boolean(in, proto, "disabled", "disabled");
         reflect_string(in, proto, "name", "name");
-        reflect_boolean(in, proto, "autofocus", "autofocus");
         reflect_string(in, proto, "value", "value");
         reflect_url(in, proto, "formAction", "formaction", true);
         reflect_enum(in, proto, "formEnctype", "formenctype",
@@ -326,7 +325,6 @@ void install_reflected_attributes(Realm::Internals& in)
         js::Object& proto = *in.prototype("HTMLFieldSetElement");
         reflect_boolean(in, proto, "disabled", "disabled");
         reflect_string(in, proto, "name", "name");
-        reflect_boolean(in, proto, "autofocus", "autofocus");
     }
     {
         js::Object& proto = *in.prototype("HTMLFontElement");
@@ -441,7 +439,6 @@ void install_reflected_attributes(Realm::Internals& in)
         js::Object& proto = *in.prototype("HTMLInputElement");
         reflect_boolean(in, proto, "disabled", "disabled");
         reflect_string(in, proto, "name", "name");
-        reflect_boolean(in, proto, "autofocus", "autofocus");
         reflect_string(in, proto, "defaultValue", "value");
         reflect_boolean(in, proto, "defaultChecked", "checked");
         reflect_string(in, proto, "placeholder", "placeholder");
@@ -556,7 +553,6 @@ void install_reflected_attributes(Realm::Internals& in)
     }
     {
         js::Object& proto = *in.prototype("HTMLObjectElement");
-        reflect_url(in, proto, "src", "src");
         reflect_url(in, proto, "data", "data");
         reflect_string(in, proto, "type", "type");
         reflect_string(in, proto, "width", "width");
@@ -594,9 +590,7 @@ void install_reflected_attributes(Realm::Internals& in)
     }
     {
         js::Object& proto = *in.prototype("HTMLOutputElement");
-        reflect_boolean(in, proto, "disabled", "disabled");
         reflect_string(in, proto, "name", "name");
-        reflect_boolean(in, proto, "autofocus", "autofocus");
         reflect_string(in, proto, "defaultValue", "value");
     }
     {
@@ -647,7 +641,6 @@ void install_reflected_attributes(Realm::Internals& in)
         js::Object& proto = *in.prototype("HTMLSelectElement");
         reflect_boolean(in, proto, "disabled", "disabled");
         reflect_string(in, proto, "name", "name");
-        reflect_boolean(in, proto, "autofocus", "autofocus");
         reflect_boolean(in, proto, "multiple", "multiple");
         reflect_boolean(in, proto, "required", "required");
         reflect_string(in, proto, "autocomplete", "autocomplete");
@@ -734,7 +727,6 @@ void install_reflected_attributes(Realm::Internals& in)
         js::Object& proto = *in.prototype("HTMLTextAreaElement");
         reflect_boolean(in, proto, "disabled", "disabled");
         reflect_string(in, proto, "name", "name");
-        reflect_boolean(in, proto, "autofocus", "autofocus");
         reflect_string(in, proto, "placeholder", "placeholder");
         reflect_string(in, proto, "wrap", "wrap");
         reflect_string(in, proto, "autocomplete", "autocomplete");

@@ -174,8 +174,25 @@ void install_url_parts(Realm::Internals& in, js::Object& proto)
             return internals.string(url->serialize());
         };
     };
-    for (std::string_view const name : { "protocol", "host", "hostname", "port", "pathname", "search", "hash", "origin" })
-        element_getter(in, proto, name, part(name));
+    // Setting a part (HTML §4.6.3 HTMLHyperlinkElementUtils) sets it on the
+    // href's URL and writes the URL back to the attribute; an href that is
+    // missing or no URL takes nothing.
+    for (std::string_view const name : { "protocol", "host", "hostname", "port", "pathname", "search", "hash" }) {
+        element_accessor(
+            in, proto, name, part(name), [name = std::string(name)](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
+                std::optional<std::string> const text = internals.to_utf8(value);
+                if (!text)
+                    return std::nullopt;
+                dom::Attr const* href = e.find_attribute("href");
+                std::optional<net::Url> url = href ? net::parse_url(href->value, &internals.base_url()) : std::nullopt;
+                if (!url)
+                    return js::Value::undefined();
+                if (apply_url_part(*url, name, *text))
+                    set_attribute(internals, e, "href", url->serialize());
+                return js::Value::undefined();
+            });
+    }
+    element_getter(in, proto, "origin", part("origin"));
     element_method(in, proto, "toString", 0, [part](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         return part("href")(internals, e);
     });
@@ -469,7 +486,8 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         };
         for (std::string_view const type : window_event_handler_types())
             forward(type);
-        static constexpr std::string_view body_window_types[] = { "blur", "error", "focus", "load", "resize", "scroll" };
+        static constexpr std::string_view body_window_types[] = { "blur", "error", "focus", "load", "resize", "scroll", "gamepadconnected",
+            "gamepaddisconnected" };
         for (std::string_view const type : body_window_types)
             forward(type);
     }
@@ -599,7 +617,11 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 set_control_checked_of(internals, e, js::Interpreter::to_boolean(value));
                 return js::Value::undefined();
             });
-        element_getter(in, proto, "files", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
+        // No file is ever chosen here, so the list is null; a FileList
+        // assigned (or null) is taken without effect.
+        element_accessor(
+            in, proto, "files", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); },
+            [](Realm::Internals&, dom::Element&, js::Value const&) -> Native { return js::Value::undefined(); });
         element_getter(in, proto, "list", [](Realm::Internals& internals, dom::Element& e) -> Native {
             dom::Attr const* list = e.find_attribute("list");
             return internals.realm.wrap_or_null(list ? element_by_id(*internals.document, list->value) : nullptr);
@@ -674,9 +696,30 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             list.as_object()->set_prototype(internals.prototype("HTMLCollection"));
             return list;
         });
-        element_getter(in, proto, "length", [](Realm::Internals&, dom::Element& e) -> Native {
-            return js::Value::number(static_cast<double>(options_of(e).size()));
-        });
+        element_accessor(
+            in, proto, "length", [](Realm::Internals&, dom::Element& e) -> Native { return js::Value::number(static_cast<double>(options_of(e).size())); },
+            [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
+                // HTML §4.10.7: a shorter length removes the last options, a
+                // longer one appends empty ones — up to 100,000 more, as the
+                // specification caps it.
+                std::optional<double> const number = internals.interpreter.to_number(value);
+                if (!number)
+                    return std::nullopt;
+                std::size_t const wanted = to_unsigned_long(*number);
+                std::vector<dom::Element*> const options = options_of(e);
+                if (wanted < options.size()) {
+                    for (std::size_t i = options.size(); i-- > wanted;)
+                        remove_node(internals, *options[i]);
+                } else if (wanted - options.size() <= 100000) {
+                    for (std::size_t i = options.size(); i < wanted; ++i) {
+                        dom::Element* option = e.document().create<dom::Element>(std::string(dom::ns::html), "option");
+                        Native const inserted = pre_insert(internals, e, *option, nullptr);
+                        if (!inserted)
+                            return std::nullopt;
+                    }
+                }
+                return js::Value::undefined();
+            });
         element_getter(in, proto, "selectedOptions", [](Realm::Internals& internals, dom::Element& e) -> Native {
             std::string const value = control_value_of(internals, e);
             std::vector<dom::Node*> nodes;
@@ -1070,13 +1113,59 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         });
         for (auto const& [property, tag] : { std::pair { "tHead", "thead" }, std::pair { "tFoot", "tfoot" }, std::pair { "caption", "caption" } }) {
             std::string const tag_name(tag);
-            element_getter(in, table, property, [tag_name](Realm::Internals& internals, dom::Element& e) -> Native {
-                for (dom::Node* child : e.children()) {
-                    if (child->is_element() && static_cast<dom::Element*>(child)->is_html(tag_name))
-                        return js::Value::object(internals.wrap(*child));
-                }
-                return js::Value::null();
-            });
+            element_accessor(
+                in, table, property,
+                [tag_name](Realm::Internals& internals, dom::Element& e) -> Native {
+                    for (dom::Node* child : e.children()) {
+                        if (child->is_element() && static_cast<dom::Element*>(child)->is_html(tag_name))
+                            return js::Value::object(internals.wrap(*child));
+                    }
+                    return js::Value::null();
+                },
+                [tag_name, property_name = std::string(property)](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
+                    // HTML §4.9.1: null or an element of the part's kind — a
+                    // caption's type is the IDL's (TypeError), a thead's or
+                    // tfoot's a HierarchyRequestError; the one there is
+                    // removed, the new one put where its kind goes: a caption
+                    // first, a thead before the first child that is no
+                    // caption, colgroup or thead, a tfoot last.
+                    dom::Node* replacement = nullptr;
+                    if (!value.is_null()) {
+                        NodeWrapper* const wrapper = internals.wrapper_of(value);
+                        bool const fits = wrapper && wrapper->node().is_element() && static_cast<dom::Element&>(wrapper->node()).is_html(tag_name);
+                        if (!fits && tag_name == "caption")
+                            return internals.interpreter.throw_type_error("Failed to set the 'caption' property on 'HTMLTableElement': The provided value is not of type 'HTMLTableCaptionElement'.");
+                        if (!fits)
+                            return internals.throw_dom_exception("HierarchyRequestError", "The new " + property_name + " must be a " + tag_name + " element.");
+                        replacement = &wrapper->node();
+                    }
+                    for (dom::Node* child : std::vector<dom::Node*>(e.children())) {
+                        if (child->is_element() && static_cast<dom::Element*>(child)->is_html(tag_name)) {
+                            remove_node(internals, *child);
+                            break;
+                        }
+                    }
+                    if (!replacement)
+                        return js::Value::undefined();
+                    dom::Node* before = nullptr;
+                    if (tag_name == "caption") {
+                        before = e.children().empty() ? nullptr : e.children().front();
+                    } else if (tag_name == "thead") {
+                        for (dom::Node* child : e.children()) {
+                            if (!child->is_element())
+                                continue;
+                            auto const& section = static_cast<dom::Element const&>(*child);
+                            if (!section.is_html("caption") && !section.is_html("colgroup") && !section.is_html("thead")) {
+                                before = child;
+                                break;
+                            }
+                        }
+                    }
+                    Native const inserted = pre_insert(internals, e, *replacement, before);
+                    if (!inserted)
+                        return std::nullopt;
+                    return js::Value::undefined();
+                });
         }
         js::Object& section = proto_of("HTMLTableSectionElement");
         element_getter(in, section, "rows", [rows_of](Realm::Internals& internals, dom::Element& e) -> Native { return rows_of(internals, e, true); });

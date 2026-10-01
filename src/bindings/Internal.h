@@ -1083,6 +1083,9 @@ struct Realm::Internals {
     // window, and the interpreter made it, so they live beside it.
     std::vector<ListenerEntry> window_listeners;
     HandlerMap window_handlers;
+    // document.designMode (HTML §7.7.2): kept as the page sets it; nothing
+    // here edits a page yet, so it changes nothing but what is read back.
+    bool design_mode = false;
 
     // Queues a task on the agent's event loop, as this realm's.
     void post_task(std::function<void()> task);
@@ -1610,6 +1613,12 @@ js::Value event_handler_of(Realm::Internals&, js::Object* target, std::string_vi
 // Told of every attribute written on an element: a body's or frameset's
 // on<type> attribute for a window event becomes the window's handler.
 void window_handler_attribute_written(Realm::Internals&, dom::Element&, std::string_view local_name);
+
+// Sets one part of a URL as the URL interface's setters do (URL §6.4):
+// href, protocol, host, hostname, port, pathname, search, hash, username
+// or password. False only for an href that is no URL, which leaves the
+// URL as it was; a part that cannot be applied leaves it as it was too.
+bool apply_url_part(net::Url& target, std::string_view part, std::string const& text);
 
 // Attribute helpers that count as mutations. set_attribute and
 // remove_attribute find the first attribute by its qualified name, in any

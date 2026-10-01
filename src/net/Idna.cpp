@@ -1,5 +1,6 @@
 #include "net/Idna.h"
 
+#include "core/BidiData.h"
 #include "core/Unicode.h"
 #include "net/IdnaData.h"
 
@@ -7,6 +8,7 @@
 #include <cstdint>
 #include <iterator>
 #include <limits>
+#include <vector>
 
 namespace sashfold::net {
 
@@ -181,17 +183,111 @@ IdnaRange const* find_idna_range(char32_t code_point)
 // The UTS #46 §4.1 validity criteria under our parameters, applied to one
 // label already in NFC: no leading "xn--" (the criterion that replaces the
 // hyphen rules when CheckHyphens=false), no leading combining mark, every
-// code point valid. (CheckBidi/CheckJoiners are the documented gap in Idna.h.)
+// code point valid. (CheckJoiners is the documented gap in Idna.h; CheckBidi
+// is labels_satisfy_bidi below, over the whole domain.)
 bool label_is_valid(std::u32string_view label)
 {
     if (label.starts_with(U"xn--"))
         return false;
     if (!label.empty() && is_combining_mark(label[0]))
         return false;
-    for (char32_t const code_point : label) {
+    for (std::size_t i = 0; i < label.size(); ++i) {
+        char32_t const code_point = label[i];
         IdnaRange const* const range = find_idna_range(code_point);
         if (!range || range->status != IdnaStatus::Valid)
             return false;
+        // CheckJoiners (RFC 5892 Appendix A): a zero width joiner stands
+        // only after a virama; a zero width non-joiner after a virama too,
+        // or between joining letters — which, with no joining-type data,
+        // is taken on trust once anything precedes it, so that only the
+        // certain failure, a non-joiner that begins its label, is refused.
+        if (code_point == U'‍' || code_point == U'‌') {
+            bool const after_virama = i > 0 && canonical_combining_class(label[i - 1]) == 9;
+            if (code_point == U'‍' ? !after_virama : i == 0)
+                return false;
+        }
+    }
+    return true;
+}
+
+BidiClass bidi_class_of(char32_t code_point)
+{
+    auto const it = std::upper_bound(std::begin(bidi_class_ranges), std::end(bidi_class_ranges), code_point,
+        [](char32_t value, BidiRange const& range) { return value < range.first; });
+    if (it == std::begin(bidi_class_ranges))
+        return BidiClass::L;
+    BidiRange const& range = *std::prev(it);
+    return code_point <= range.last ? range.klass : BidiClass::L;
+}
+
+// CheckBidi (UTS #46 §4.1 step 4.5): a domain with any right-to-left
+// character — class R, AL or AN in any label — is a Bidi domain name, and
+// every one of its labels must then satisfy the six conditions of RFC 5893
+// §2: it begins with L, R or AL; a right-to-left label holds only R, AL,
+// AN, EN, ES, CS, ET, ON, BN and NSM, ends (before any NSM) in R, AL, EN
+// or AN, and has not both EN and AN; a left-to-right label holds only L,
+// EN, ES, CS, ET, ON, BN and NSM and ends in L or EN.
+bool labels_satisfy_bidi(std::vector<std::u32string> const& labels)
+{
+    bool bidi_domain = false;
+    for (std::u32string const& label : labels) {
+        for (char32_t const code_point : label) {
+            BidiClass const klass = bidi_class_of(code_point);
+            if (klass == BidiClass::R || klass == BidiClass::AL || klass == BidiClass::AN)
+                bidi_domain = true;
+        }
+    }
+    if (!bidi_domain)
+        return true;
+    for (std::u32string const& label : labels) {
+        if (label.empty())
+            continue;
+        BidiClass const first = bidi_class_of(label[0]);
+        if (first != BidiClass::L && first != BidiClass::R && first != BidiClass::AL)
+            return false;
+        bool const right_to_left = first != BidiClass::L;
+        bool seen_en = false;
+        bool seen_an = false;
+        BidiClass last = first;
+        for (char32_t const code_point : label) {
+            BidiClass const klass = bidi_class_of(code_point);
+            bool allowed = false;
+            switch (klass) {
+            case BidiClass::EN:
+            case BidiClass::ES:
+            case BidiClass::CS:
+            case BidiClass::ET:
+            case BidiClass::ON:
+            case BidiClass::BN:
+            case BidiClass::NSM:
+                allowed = true;
+                break;
+            case BidiClass::L:
+                allowed = !right_to_left;
+                break;
+            case BidiClass::R:
+            case BidiClass::AL:
+            case BidiClass::AN:
+                allowed = right_to_left;
+                break;
+            default:
+                break;
+            }
+            if (!allowed)
+                return false;
+            seen_en = seen_en || klass == BidiClass::EN;
+            seen_an = seen_an || klass == BidiClass::AN;
+            if (klass != BidiClass::NSM)
+                last = klass;
+        }
+        if (right_to_left) {
+            if (last != BidiClass::R && last != BidiClass::AL && last != BidiClass::EN && last != BidiClass::AN)
+                return false;
+            if (seen_en && seen_an)
+                return false;
+        } else if (last != BidiClass::L && last != BidiClass::EN) {
+            return false;
+        }
     }
     return true;
 }
@@ -237,8 +333,10 @@ std::optional<std::string> domain_to_ascii(std::string_view domain_utf8)
     // 2. Normalize.
     std::u32string const normalized = nfc(mapped);
 
-    // 3-4. Break at U+002E, validate each label, convert.
+    // 3-4. Break at U+002E, validate each label, convert; the labels in
+    // Unicode form kept for the bidi check over the whole domain.
     std::string result;
+    std::vector<std::u32string> unicode_labels;
     std::size_t label_start = 0;
     bool first = true;
     for (std::size_t i = 0; i <= normalized.size(); ++i) {
@@ -264,9 +362,11 @@ std::optional<std::string> domain_to_ascii(std::string_view domain_utf8)
             if (!decoded || nfc(*decoded) != *decoded || !label_is_valid(*decoded))
                 return std::nullopt;
             result += ascii_label;
+            unicode_labels.push_back(*decoded);
         } else if (ascii) {
             for (char32_t const c : label)
                 result += static_cast<char>(c);
+            unicode_labels.emplace_back(label);
         } else {
             if (!label_is_valid(label))
                 return std::nullopt;
@@ -274,8 +374,11 @@ std::optional<std::string> domain_to_ascii(std::string_view domain_utf8)
             if (!encoded)
                 return std::nullopt;
             result += "xn--" + *encoded;
+            unicode_labels.emplace_back(label);
         }
     }
+    if (!labels_satisfy_bidi(unicode_labels))
+        return std::nullopt;
     return result;
 }
 

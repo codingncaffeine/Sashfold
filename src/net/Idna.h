@@ -5,9 +5,11 @@
 // anything else takes UTS #46 processing (UseSTD3ASCIIRules=false,
 // CheckHyphens=false, Transitional_Processing=false, VerifyDnsLength=false,
 // IgnoreInvalidPunycode=false) over the generated mapping table (IdnaData.h,
-// tools/gen-unicode) and NFC. Honest gaps: CheckBidi and CheckJoiners await
-// their data tables (they join with complex-script support; no vendored
-// WPT case exercises them yet).
+// tools/gen-unicode) and NFC. CheckBidi runs over the whole domain with the
+// bidi classes of core/BidiData.h (RFC 5893 §2). CheckJoiners holds a zero
+// width joiner to its virama rule exactly; the non-joiner's joining-letter
+// rule awaits the joining-type data, so a non-joiner is refused only where
+// it certainly fails, at the start of a label.
 
 #include <optional>
 #include <string>

@@ -3,6 +3,7 @@
 // The Document interface (DOM §4.5, HTML §3.1), DOMParser, and the
 // DOMImplementation behind document.implementation.
 
+#include "core/Ascii.h"
 #include "core/Unicode.h"
 #include "html/Serializer.h"
 #include "html/TreeBuilder.h"
@@ -433,7 +434,20 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
                 return js::Value::undefined();
             });
     }
-    document_getter(in, *document, "designMode", [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string("off"); });
+    document_accessor(
+        in, *document, "designMode",
+        [](Realm::Internals& internals, dom::Document&) -> Native { return internals.string(internals.design_mode ? "on" : "off"); },
+        [](Realm::Internals& internals, dom::Document&, js::Value const& value) -> Native {
+            // "on" or "off" in any case; anything else is ignored (HTML §7.7.2).
+            std::optional<std::string> const text = internals.to_utf8(value);
+            if (!text)
+                return std::nullopt;
+            if (ascii_ci_equals(*text, "on"))
+                internals.design_mode = true;
+            else if (ascii_ci_equals(*text, "off"))
+                internals.design_mode = false;
+            return js::Value::undefined();
+        });
     document_getter(in, *document, "activeElement", [](Realm::Internals& internals, dom::Document& d) -> Native {
         dom::Element const* focused = focused_element(internals);
         if (focused && focused->is_connected())
