@@ -4000,6 +4000,93 @@ void test_rejections_are_events()
     CHECK_EQ(page->console, std::string("error:Uncaught (in promise) print|"));
 }
 
+// The objects hanging off navigator that answer for themselves: each the
+// standard's shape and the same object every read; the answers of an
+// engine with no device, no permission granted and no system integration.
+void test_navigator_objects()
+{
+    auto page = loaded("<!DOCTYPE html><body></body>");
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    CHECK(page->boolean("navigator.mediaCapabilities instanceof MediaCapabilities && navigator.mediaCapabilities === navigator.mediaCapabilities"
+                        " && navigator.mediaSession instanceof MediaSession && navigator.mediaSession === navigator.mediaSession"
+                        " && navigator.storage instanceof StorageManager && navigator.permissions instanceof Permissions && navigator.geolocation instanceof Geolocation"
+                        " && navigator.mediaDevices instanceof MediaDevices && navigator.mediaDevices instanceof EventTarget && 'ondevicechange' in navigator.mediaDevices"
+                        " && navigator.wakeLock instanceof WakeLock && navigator.credentials instanceof CredentialsContainer"));
+    CHECK(page->boolean("GeolocationPositionError.PERMISSION_DENIED === 1 && GeolocationPositionError.prototype.TIMEOUT === 3 && typeof GeolocationPosition === 'function'"));
+    CHECK(page->boolean("navigator.getGamepads().length === 0 && navigator.canShare({ url: 'https://a.test/' }) === false && navigator.canShare() === false"
+                        " && typeof navigator.setAppBadge === 'function' && typeof navigator.requestMediaKeySystemAccess === 'function'"));
+    // MediaMetadata and the session's state.
+    CHECK(page->boolean("(function () { var m = new MediaMetadata({ title: 'T', artist: 'A', artwork: [{ src: 'art.png', sizes: '96x96' }] });"
+                        " return m.title === 'T' && m.artist === 'A' && m.album === '' && m.artwork.length === 1 && m.artwork[0].src === 'https://example.test/dir/art.png'"
+                        " && m.artwork[0].sizes === '96x96' && m.artwork[0].type === '' && Object.isFrozen(m.artwork) && Object.isFrozen(m.artwork[0])"
+                        " && new MediaMetadata().artwork.length === 0 && (m.title = 'U', m.title === 'U') && (m.artwork = [], m.artwork.length === 0); })()"));
+    CHECK(page->throws("new MediaMetadata({ artwork: [{}] })").starts_with("TypeError"));
+    CHECK(page->throws("new MediaMetadata({ artwork: [{ src: 'http://[' }] })").starts_with("TypeError"));
+    CHECK(page->throws("new MediaMetadata(5)").starts_with("TypeError"));
+    CHECK(page->boolean("(function () { var s = navigator.mediaSession; var m = new MediaMetadata(); s.metadata = m; if (s.metadata !== m) return false; s.metadata = null;"
+                        " if (s.metadata !== null) return false; s.playbackState = 'playing'; s.playbackState = 'bogus'; if (s.playbackState !== 'playing') return false;"
+                        " s.setActionHandler('play', function () {}); s.setActionHandler('play', null); s.setPositionState({ duration: 10, position: 3, playbackRate: 1 });"
+                        " s.setPositionState(); s.setPositionState({}); return true; })()"));
+    CHECK(page->throws("navigator.mediaSession.metadata = {}").starts_with("TypeError"));
+    CHECK(page->throws("navigator.mediaSession.setActionHandler('bogus', function () {})").starts_with("TypeError"));
+    CHECK(page->throws("navigator.mediaSession.setActionHandler('pause', 1)").starts_with("TypeError"));
+    CHECK(page->throws("navigator.mediaSession.setPositionState({ duration: -1 })").starts_with("TypeError"));
+    CHECK(page->throws("navigator.mediaSession.setPositionState({ duration: 5, position: 6 })").starts_with("TypeError"));
+    CHECK(page->throws("navigator.mediaSession.setPositionState({ duration: 5, playbackRate: 0 })").starts_with("TypeError"));
+    CHECK(page->throws("navigator.mediaSession.setPositionState({ position: 1 })").starts_with("TypeError"));
+    CHECK(page->throws("navigator.geolocation.getCurrentPosition()").starts_with("TypeError"));
+    CHECK(page->throws("navigator.geolocation.getCurrentPosition(function () {}, 1)").starts_with("TypeError"));
+    // The promises, in the order their reactions are queued; the position
+    // refusals come through the error callbacks in tasks, last.
+    page->eval(R"JS(
+        var out = [];
+        var caps = navigator.mediaCapabilities;
+        caps.decodingInfo({ type: 'file', audio: { contentType: 'audio/wav' } }).then(function (i) { out.push('cap ' + i.supported + ' ' + i.smooth + ' ' + i.powerEfficient + ' ' + (i.configuration.type === 'file')); });
+        caps.decodingInfo({ type: 'webrtc', audio: { contentType: 'audio/wav' } }).then(function (i) { out.push('rtc ' + i.supported); });
+        caps.decodingInfo({ type: 'file', video: { contentType: 'video/webm' } }).catch(function (e) { out.push('novideo ' + e.name); });
+        caps.decodingInfo({ type: 'file' }).catch(function (e) { out.push('neither ' + e.name); });
+        caps.decodingInfo({ type: 'bogus', audio: { contentType: 'audio/wav' } }).catch(function (e) { out.push('type ' + e.name); });
+        caps.decodingInfo({ type: 'file', audio: { contentType: 'audio/wav; foo=1' } }).catch(function (e) { out.push('param ' + e.name); });
+        caps.decodingInfo().catch(function (e) { out.push('none ' + e.name); });
+        caps.encodingInfo({ type: 'record', audio: { contentType: 'audio/wav' } }).then(function (i) { out.push('enc ' + i.supported); });
+        navigator.storage.estimate().then(function (e) { out.push('est ' + (e.quota > 0) + ' ' + e.usage); });
+        navigator.storage.persisted().then(function (v) { out.push('persisted ' + v); });
+        navigator.storage.persist().then(function (v) { out.push('persist ' + v); });
+        navigator.permissions.query({ name: 'geolocation' }).then(function (s) { out.push('perm ' + s.state + ' ' + s.name + ' ' + (s instanceof PermissionStatus) + ' ' + ('onchange' in s)); });
+        navigator.permissions.query({ name: 'bogus' }).catch(function (e) { out.push('permbad ' + e.name); });
+        navigator.permissions.query().catch(function (e) { out.push('permnone ' + e.name); });
+        navigator.mediaDevices.enumerateDevices().then(function (d) { out.push('devices ' + d.length); });
+        navigator.mediaDevices.getUserMedia({ audio: true }).catch(function (e) { out.push('gum ' + e.name); });
+        navigator.mediaDevices.getUserMedia({}).catch(function (e) { out.push('gum0 ' + e.name); });
+        navigator.mediaDevices.getDisplayMedia().catch(function (e) { out.push('gdm ' + e.name); });
+        navigator.wakeLock.request('screen').catch(function (e) { out.push('wake ' + e.name); });
+        navigator.wakeLock.request('bogus').catch(function (e) { out.push('wakebad ' + e.name); });
+        navigator.credentials.get().catch(function (e) { out.push('cred ' + e.name); });
+        navigator.credentials.store(1).catch(function (e) { out.push('store ' + e.name); });
+        navigator.credentials.preventSilentAccess().then(function (v) { out.push('silent ' + v); });
+        navigator.share({ title: 'x' }).catch(function (e) { out.push('share ' + e.name); });
+        navigator.setAppBadge(3).then(function () { out.push('badge'); });
+        navigator.requestMediaKeySystemAccess('com.widevine.alpha', [{}]).catch(function (e) { out.push('eme ' + e.name); });
+        navigator.requestMediaKeySystemAccess('', [{}]).catch(function (e) { out.push('emeempty ' + e.name); });
+        navigator.requestMediaKeySystemAccess('x', []).catch(function (e) { out.push('emenone ' + e.name); });
+        navigator.geolocation.getCurrentPosition(function () { out.push('pos'); }, function (e) { out.push('geo ' + e.code + ' ' + (e.code === e.PERMISSION_DENIED) + ' ' + e.message); });
+        var w = navigator.geolocation.watchPosition(function () { out.push('pos'); }, function (e) { out.push('watch ' + e.code); });
+        out.push('watch id ' + (typeof w === 'number'));
+        navigator.geolocation.clearWatch(w);
+        navigator.geolocation.getCurrentPosition(function () { out.push('pos'); });
+    )JS");
+    pump();
+    CHECK_EQ(page->string("out.join(' | ')"),
+        "watch id true | cap true true true true | rtc false | novideo TypeError | neither TypeError | type TypeError | param TypeError | none TypeError"
+        " | enc false | est true 0 | persisted false | persist false | perm denied geolocation true true | permbad TypeError | permnone TypeError"
+        " | devices 0 | gum NotAllowedError | gum0 TypeError | gdm NotAllowedError | wake NotAllowedError | wakebad TypeError | cred NotSupportedError"
+        " | store TypeError | silent undefined | share AbortError | badge | eme NotSupportedError | emeempty TypeError | emenone TypeError"
+        " | geo 1 true User denied Geolocation | watch 1");
+    CHECK_EQ(page->console, std::string(""));
+}
+
 } // namespace
 
 // MutationObserver: what changed in a part of the tree, in one batch at the
@@ -5269,6 +5356,7 @@ int main()
     test_interfaces_that_promise();
     test_the_small_things_a_page_asks_for();
     test_rejections_are_events();
+    test_navigator_objects();
     test_scripts_that_must_not_run_again();
     test_mutation_observer();
     test_intersection_observer();

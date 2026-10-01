@@ -75,3 +75,18 @@ html/semantics/embedded-content/the-audio-element
 # Most need a reader's click through the test driver and say so by failing.
 html/user-activation
 picture-in-picture
+
+# Added 2026-10-01 with the objects hanging off navigator that answer for
+# themselves: their own suites. Many of their tests need a device, a
+# permission granted, or a reader's gesture, and say so by failing.
+media-capabilities
+mediasession
+storage
+permissions
+geolocation
+mediacapture-streams
+screen-wake-lock
+credential-management
+badging
+web-share
+gamepad

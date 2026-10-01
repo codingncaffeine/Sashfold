@@ -1653,6 +1653,16 @@ bool notify_rejection(Realm::Internals&, js::PromiseObject&, std::string_view ty
 // toggle event task (HTML §4.11.1), one at a time per element, the queued
 // one taking the newest state.
 void details_open_written(Realm::Internals&, dom::Element&, bool was_open);
+// What the media element says of a MIME type (Media.cpp, the answer
+// behind canPlayType and isTypeSupported): 0 for no, 1 for maybe, 2 for
+// probably.
+int media_type_support(std::string_view type);
+// The objects hanging off navigator that answer for themselves
+// (Navigator.cpp): mediaCapabilities, mediaSession, storage, permissions,
+// geolocation, mediaDevices, wakeLock, credentials, and the operations
+// getGamepads, share/canShare, setAppBadge/clearAppBadge,
+// requestMediaKeySystemAccess.
+void install_navigator_objects(Realm::Internals&, js::Object& navigator_prototype);
 
 // An attribute marked [SameObject] (WebIDL): the object `make` builds the
 // first time, kept with the realm's roots under `key` and handed out again.

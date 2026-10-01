@@ -2400,6 +2400,11 @@ void install_media_element(Realm::Internals& in)
 
 }
 
+int media_type_support(std::string_view type)
+{
+    return type_support(type);
+}
+
 void install_media(Realm::Internals& in)
 {
     install_media_element(in);

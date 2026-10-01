@@ -1449,6 +1449,7 @@ void install_window(Realm::Internals& in)
     define_operation(interpreter, *navigator_proto, "sendBeacon", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
     define_operation(interpreter, *navigator_proto, "vibrate", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
     define_operation(interpreter, *navigator_proto, "registerProtocolHandler", 2, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    install_navigator_objects(in, *navigator_proto);
     global->put(interpreter.key("navigator"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(navigator_proto, in.realm_record)), js::builtin_attributes);
     global->put(interpreter.key("clientInformation"), *global->get(interpreter, interpreter.key("navigator"), js::Value::object(global)), js::builtin_attributes);
 

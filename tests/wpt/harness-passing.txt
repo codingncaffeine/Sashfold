@@ -1564,6 +1564,89 @@ IndexedDB/value_recursive.any.html	Recursive value - array indirectly contains s
 IndexedDB/value_recursive.any.html	Recursive value - array member contains self
 IndexedDB/worker-termination-aborts-upgrade.window.html	Worker Termination Aborts a Pending Upgrade
 IndexedDB/writer-starvation.any.html	IDB read requests should not starve write requests
+badging/badge-error.https.any.html	Sequential badge operations work correctly
+badging/badge-success.https.any.html	Badging API interface exists
+badging/badge-success.https.any.html	Resolves successfully for boolean input cases
+badging/badge-success.https.any.html	Resolves successfully for number input cases
+badging/badge-success.https.any.html	Resolves successfully for string input cases
+badging/badge-success.https.any.html	clearAppBadge resolves successfully
+badging/badge-success.https.any.html	setAppBadge with no arguments succeeds (flag mode)
+badging/idlharness.https.any.html	Navigator includes NavigatorBadge: member names are unique
+badging/idlharness.https.any.html	Navigator includes NavigatorConcurrentHardware: member names are unique
+badging/idlharness.https.any.html	Navigator includes NavigatorContentUtils: member names are unique
+badging/idlharness.https.any.html	Navigator includes NavigatorCookies: member names are unique
+badging/idlharness.https.any.html	Navigator includes NavigatorID: member names are unique
+badging/idlharness.https.any.html	Navigator includes NavigatorLanguage: member names are unique
+badging/idlharness.https.any.html	Navigator includes NavigatorOnLine: member names are unique
+badging/idlharness.https.any.html	Navigator includes NavigatorPlugins: member names are unique
+badging/idlharness.https.any.html	Navigator interface: calling setAppBadge(optional unsigned long long) on navigator with too few arguments must throw TypeError
+badging/idlharness.https.any.html	Navigator interface: navigator must inherit property "clearAppBadge()" with the proper type
+badging/idlharness.https.any.html	Navigator interface: navigator must inherit property "setAppBadge(optional unsigned long long)" with the proper type
+badging/idlharness.https.any.html	Partial interface Navigator: member names are unique
+badging/idlharness.https.any.html	Partial interface mixin NavigatorID: member names are unique
+badging/idlharness.https.any.html	WorkerNavigator includes NavigatorBadge: member names are unique
+badging/idlharness.https.any.html	WorkerNavigator includes NavigatorConcurrentHardware: member names are unique
+badging/idlharness.https.any.html	WorkerNavigator includes NavigatorID: member names are unique
+badging/idlharness.https.any.html	WorkerNavigator includes NavigatorLanguage: member names are unique
+badging/idlharness.https.any.html	WorkerNavigator includes NavigatorOnLine: member names are unique
+badging/idlharness.https.any.html	idl_test setup
+badging/idlharness.https.any.html	idl_test validation
+credential-management/credentialscontainer-create-basics.https.html	navigator.credentials.create() with bogus data
+credential-management/credentialscontainer-create-basics.https.html	navigator.credentials.create() with both PasswordCredentialData and FederatedCredentialData
+credential-management/credentialscontainer-create-basics.https.html	navigator.credentials.create() with empty argument.
+credential-management/credentialscontainer-create-basics.https.html	navigator.credentials.create() with no argument.
+credential-management/credentialscontainer-get-basics.https.html	Calling navigator.credentials.get() with invalid combinations of credential types.
+credential-management/credentialscontainer-get-basics.https.html	Calling navigator.credentials.get() without a valid matching interface.
+credential-management/credentialscontainer-prevent-silent-access.https.html	navigator.credentials.preventSilentAccess() resolves with undefined.
+credential-management/idlharness.https.window.html	CredentialsContainer interface object length
+credential-management/idlharness.https.window.html	CredentialsContainer interface object name
+credential-management/idlharness.https.window.html	CredentialsContainer interface: calling create(optional CredentialCreationOptions) on navigator.credentials with too few arguments must throw TypeError
+credential-management/idlharness.https.window.html	CredentialsContainer interface: calling get(optional CredentialRequestOptions) on navigator.credentials with too few arguments must throw TypeError
+credential-management/idlharness.https.window.html	CredentialsContainer interface: calling store(Credential) on navigator.credentials with too few arguments must throw TypeError
+credential-management/idlharness.https.window.html	CredentialsContainer interface: existence and properties of interface object
+credential-management/idlharness.https.window.html	CredentialsContainer interface: existence and properties of interface prototype object
+credential-management/idlharness.https.window.html	CredentialsContainer interface: existence and properties of interface prototype object's "constructor" property
+credential-management/idlharness.https.window.html	CredentialsContainer interface: existence and properties of interface prototype object's @@unscopables property
+credential-management/idlharness.https.window.html	CredentialsContainer interface: navigator.credentials must inherit property "create(optional CredentialCreationOptions)" with the proper type
+credential-management/idlharness.https.window.html	CredentialsContainer interface: navigator.credentials must inherit property "get(optional CredentialRequestOptions)" with the proper type
+credential-management/idlharness.https.window.html	CredentialsContainer interface: navigator.credentials must inherit property "preventSilentAccess()" with the proper type
+credential-management/idlharness.https.window.html	CredentialsContainer interface: navigator.credentials must inherit property "store(Credential)" with the proper type
+credential-management/idlharness.https.window.html	CredentialsContainer interface: operation create(optional CredentialCreationOptions)
+credential-management/idlharness.https.window.html	CredentialsContainer interface: operation get(optional CredentialRequestOptions)
+credential-management/idlharness.https.window.html	CredentialsContainer interface: operation store(Credential)
+credential-management/idlharness.https.window.html	CredentialsContainer must be primary interface of navigator.credentials
+credential-management/idlharness.https.window.html	Element includes ChildNode: member names are unique
+credential-management/idlharness.https.window.html	Element includes NonDocumentTypeChildNode: member names are unique
+credential-management/idlharness.https.window.html	Element includes ParentNode: member names are unique
+credential-management/idlharness.https.window.html	Element includes Slottable: member names are unique
+credential-management/idlharness.https.window.html	FederatedCredential includes CredentialUserData: member names are unique
+credential-management/idlharness.https.window.html	HTMLElement includes ElementContentEditable: member names are unique
+credential-management/idlharness.https.window.html	HTMLElement includes GlobalEventHandlers: member names are unique
+credential-management/idlharness.https.window.html	HTMLElement includes HTMLOrSVGOrMathMLElement: member names are unique
+credential-management/idlharness.https.window.html	Navigator includes NavigatorConcurrentHardware: member names are unique
+credential-management/idlharness.https.window.html	Navigator includes NavigatorContentUtils: member names are unique
+credential-management/idlharness.https.window.html	Navigator includes NavigatorCookies: member names are unique
+credential-management/idlharness.https.window.html	Navigator includes NavigatorID: member names are unique
+credential-management/idlharness.https.window.html	Navigator includes NavigatorLanguage: member names are unique
+credential-management/idlharness.https.window.html	Navigator includes NavigatorOnLine: member names are unique
+credential-management/idlharness.https.window.html	Navigator includes NavigatorPlugins: member names are unique
+credential-management/idlharness.https.window.html	Partial dictionary CredentialCreationOptions: member names are unique
+credential-management/idlharness.https.window.html	Partial dictionary CredentialCreationOptions: original dictionary defined
+credential-management/idlharness.https.window.html	Partial dictionary CredentialCreationOptions[2]: member names are unique
+credential-management/idlharness.https.window.html	Partial dictionary CredentialCreationOptions[2]: original dictionary defined
+credential-management/idlharness.https.window.html	Partial dictionary CredentialRequestOptions: member names are unique
+credential-management/idlharness.https.window.html	Partial dictionary CredentialRequestOptions: original dictionary defined
+credential-management/idlharness.https.window.html	Partial dictionary CredentialRequestOptions[2]: member names are unique
+credential-management/idlharness.https.window.html	Partial dictionary CredentialRequestOptions[2]: original dictionary defined
+credential-management/idlharness.https.window.html	Partial interface Element: member names are unique
+credential-management/idlharness.https.window.html	Partial interface Navigator: member names are unique
+credential-management/idlharness.https.window.html	Partial interface Navigator: original interface defined
+credential-management/idlharness.https.window.html	Partial interface Navigator[2]: member names are unique
+credential-management/idlharness.https.window.html	Partial interface mixin NavigatorID: member names are unique
+credential-management/idlharness.https.window.html	PasswordCredential includes CredentialUserData: member names are unique
+credential-management/idlharness.https.window.html	Stringification of navigator.credentials
+credential-management/idlharness.https.window.html	idl_test setup
+credential-management/idlharness.https.window.html	idl_test validation
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature(  anchor-position-follows-transforms  bar) should be false
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature(  foo   anchor-position-follows-transforms  ) should be false
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature( anchor-position-follows-transforms ) should be false
@@ -65251,6 +65334,133 @@ dom/traversal/TreeWalker.html	document.createTreeWalker(xmlTextNode, NodeFilter.
 dom/traversal/TreeWalker.html	document.createTreeWalker(xmlTextNode, NodeFilter.SHOW_ELEMENT, (function(node) { return node.nodeName[0] == '#' }))
 dom/traversal/TreeWalker.html	document.createTreeWalker(xmlTextNode, NodeFilter.SHOW_ELEMENT, (function(node) { return true }))
 dom/traversal/TreeWalker.html	document.createTreeWalker(xmlTextNode, NodeFilter.SHOW_ELEMENT, null)
+gamepad/gamepad-permissions-policy-event-listener.html	Adding gamepad event listeners in an iframe with gamepad denied should not crash.
+gamepad/idlharness-extensions.https.window.html	Partial interface Gamepad: member names are unique
+gamepad/idlharness-extensions.https.window.html	Partial interface Gamepad: original interface defined
+gamepad/idlharness-extensions.https.window.html	Partial interface GamepadHapticActuator: member names are unique
+gamepad/idlharness-extensions.https.window.html	Partial interface GamepadHapticActuator: original interface defined
+gamepad/idlharness-extensions.https.window.html	Partial interface GamepadHapticActuator: valid exposure set
+gamepad/idlharness-extensions.https.window.html	idl_test setup
+gamepad/idlharness-extensions.https.window.html	idl_test validation
+gamepad/idlharness.window.html	Element includes ChildNode: member names are unique
+gamepad/idlharness.window.html	Element includes NonDocumentTypeChildNode: member names are unique
+gamepad/idlharness.window.html	Element includes ParentNode: member names are unique
+gamepad/idlharness.window.html	Element includes Slottable: member names are unique
+gamepad/idlharness.window.html	HTMLBodyElement includes WindowEventHandlers: member names are unique
+gamepad/idlharness.window.html	HTMLBodyElement interface: attribute ongamepadconnected
+gamepad/idlharness.window.html	HTMLBodyElement interface: attribute ongamepaddisconnected
+gamepad/idlharness.window.html	HTMLElement includes ElementContentEditable: member names are unique
+gamepad/idlharness.window.html	HTMLElement includes GlobalEventHandlers: member names are unique
+gamepad/idlharness.window.html	HTMLElement includes HTMLOrSVGOrMathMLElement: member names are unique
+gamepad/idlharness.window.html	HTMLFrameSetElement includes WindowEventHandlers: member names are unique
+gamepad/idlharness.window.html	HTMLFrameSetElement interface: attribute ongamepadconnected
+gamepad/idlharness.window.html	HTMLFrameSetElement interface: attribute ongamepaddisconnected
+gamepad/idlharness.window.html	Navigator includes NavigatorConcurrentHardware: member names are unique
+gamepad/idlharness.window.html	Navigator includes NavigatorContentUtils: member names are unique
+gamepad/idlharness.window.html	Navigator includes NavigatorCookies: member names are unique
+gamepad/idlharness.window.html	Navigator includes NavigatorID: member names are unique
+gamepad/idlharness.window.html	Navigator includes NavigatorLanguage: member names are unique
+gamepad/idlharness.window.html	Navigator includes NavigatorOnLine: member names are unique
+gamepad/idlharness.window.html	Navigator includes NavigatorPlugins: member names are unique
+gamepad/idlharness.window.html	Navigator interface: navigator must inherit property "getGamepads()" with the proper type
+gamepad/idlharness.window.html	Partial interface Element: member names are unique
+gamepad/idlharness.window.html	Partial interface HTMLBodyElement: member names are unique
+gamepad/idlharness.window.html	Partial interface Navigator: member names are unique
+gamepad/idlharness.window.html	Partial interface Navigator: original interface defined
+gamepad/idlharness.window.html	Partial interface Navigator: valid exposure set
+gamepad/idlharness.window.html	Partial interface Navigator[2]: member names are unique
+gamepad/idlharness.window.html	Partial interface Window: member names are unique
+gamepad/idlharness.window.html	Partial interface mixin NavigatorID: member names are unique
+gamepad/idlharness.window.html	Partial interface mixin WindowEventHandlers: member names are unique
+gamepad/idlharness.window.html	Partial interface mixin WindowEventHandlers: original interface mixin defined
+gamepad/idlharness.window.html	Window includes AnimationFrameProvider: member names are unique
+gamepad/idlharness.window.html	Window includes GlobalEventHandlers: member names are unique
+gamepad/idlharness.window.html	Window includes WindowEventHandlers: member names are unique
+gamepad/idlharness.window.html	Window includes WindowLocalStorage: member names are unique
+gamepad/idlharness.window.html	Window includes WindowOrWorkerGlobalScope: member names are unique
+gamepad/idlharness.window.html	Window includes WindowSessionStorage: member names are unique
+gamepad/idlharness.window.html	idl_test setup
+gamepad/idlharness.window.html	idl_test validation
+gamepad/not-fully-active.html	calling getGamepads() in a non-fully-active document
+geolocation/clearWatch_TypeError.https.html	Test that calling clearWatch with invalid watch ID (-1) does not cause an exception
+geolocation/clearWatch_TypeError.https.html	Test that calling clearWatch with invalid watch ID (-Infinity) does not cause an exception
+geolocation/clearWatch_TypeError.https.html	Test that calling clearWatch with invalid watch ID (0) does not cause an exception
+geolocation/clearWatch_TypeError.https.html	Test that calling clearWatch with invalid watch ID (1) does not cause an exception
+geolocation/clearWatch_TypeError.https.html	Test that calling clearWatch with invalid watch ID (2147483648) does not cause an exception
+geolocation/clearWatch_TypeError.https.html	Test that calling clearWatch with invalid watch ID (Infinity) does not cause an exception
+geolocation/clearWatch_TypeError.https.html	Test that calling clearWatch with invalid watch ID (NaN) does not cause an exception
+geolocation/getCurrentPosition_TypeError.https.html	Call getCurrentPosition with null success and error callbacks, check that exception is thrown
+geolocation/getCurrentPosition_TypeError.https.html	Call getCurrentPosition with null success callback, check that exception is thrown
+geolocation/getCurrentPosition_TypeError.https.html	Call getCurrentPosition without arguments, check that exception is thrown
+geolocation/getCurrentPosition_TypeError.https.html	Call getCurrentPosition() with wrong type for first argument. Exception expected.
+geolocation/getCurrentPosition_TypeError.https.html	Call getCurrentPosition() with wrong type for second argument. Exception expected.
+geolocation/getCurrentPosition_TypeError.https.html	Call getCurrentPosition() with wrong type for third argument. Exception expected.
+geolocation/getCurrentPosition_TypeError.https.html	Calling getCurrentPosition() with a legacy event handler objects.
+geolocation/idlharness.https.window.html	Geolocation interface object length
+geolocation/idlharness.https.window.html	Geolocation interface object name
+geolocation/idlharness.https.window.html	Geolocation interface: calling clearWatch(long) on navigator.geolocation with too few arguments must throw TypeError
+geolocation/idlharness.https.window.html	Geolocation interface: calling getCurrentPosition(PositionCallback, optional PositionErrorCallback?, optional PositionOptions) on navigator.geolocation with too few arguments must throw TypeError
+geolocation/idlharness.https.window.html	Geolocation interface: calling watchPosition(PositionCallback, optional PositionErrorCallback?, optional PositionOptions) on navigator.geolocation with too few arguments must throw TypeError
+geolocation/idlharness.https.window.html	Geolocation interface: existence and properties of interface object
+geolocation/idlharness.https.window.html	Geolocation interface: existence and properties of interface prototype object
+geolocation/idlharness.https.window.html	Geolocation interface: existence and properties of interface prototype object's "constructor" property
+geolocation/idlharness.https.window.html	Geolocation interface: existence and properties of interface prototype object's @@unscopables property
+geolocation/idlharness.https.window.html	Geolocation interface: navigator.geolocation must inherit property "clearWatch(long)" with the proper type
+geolocation/idlharness.https.window.html	Geolocation interface: navigator.geolocation must inherit property "getCurrentPosition(PositionCallback, optional PositionErrorCallback?, optional PositionOptions)" with the proper type
+geolocation/idlharness.https.window.html	Geolocation interface: navigator.geolocation must inherit property "watchPosition(PositionCallback, optional PositionErrorCallback?, optional PositionOptions)" with the proper type
+geolocation/idlharness.https.window.html	Geolocation interface: operation getCurrentPosition(PositionCallback, optional PositionErrorCallback?, optional PositionOptions)
+geolocation/idlharness.https.window.html	Geolocation interface: operation watchPosition(PositionCallback, optional PositionErrorCallback?, optional PositionOptions)
+geolocation/idlharness.https.window.html	Geolocation must be primary interface of navigator.geolocation
+geolocation/idlharness.https.window.html	GeolocationCoordinates interface object length
+geolocation/idlharness.https.window.html	GeolocationCoordinates interface object name
+geolocation/idlharness.https.window.html	GeolocationCoordinates interface: existence and properties of interface object
+geolocation/idlharness.https.window.html	GeolocationCoordinates interface: existence and properties of interface prototype object
+geolocation/idlharness.https.window.html	GeolocationCoordinates interface: existence and properties of interface prototype object's "constructor" property
+geolocation/idlharness.https.window.html	GeolocationCoordinates interface: existence and properties of interface prototype object's @@unscopables property
+geolocation/idlharness.https.window.html	GeolocationPosition interface object length
+geolocation/idlharness.https.window.html	GeolocationPosition interface object name
+geolocation/idlharness.https.window.html	GeolocationPosition interface: existence and properties of interface object
+geolocation/idlharness.https.window.html	GeolocationPosition interface: existence and properties of interface prototype object
+geolocation/idlharness.https.window.html	GeolocationPosition interface: existence and properties of interface prototype object's "constructor" property
+geolocation/idlharness.https.window.html	GeolocationPosition interface: existence and properties of interface prototype object's @@unscopables property
+geolocation/idlharness.https.window.html	GeolocationPositionError interface object length
+geolocation/idlharness.https.window.html	GeolocationPositionError interface object name
+geolocation/idlharness.https.window.html	GeolocationPositionError interface: constant PERMISSION_DENIED on interface object
+geolocation/idlharness.https.window.html	GeolocationPositionError interface: constant PERMISSION_DENIED on interface prototype object
+geolocation/idlharness.https.window.html	GeolocationPositionError interface: constant POSITION_UNAVAILABLE on interface object
+geolocation/idlharness.https.window.html	GeolocationPositionError interface: constant POSITION_UNAVAILABLE on interface prototype object
+geolocation/idlharness.https.window.html	GeolocationPositionError interface: constant TIMEOUT on interface object
+geolocation/idlharness.https.window.html	GeolocationPositionError interface: constant TIMEOUT on interface prototype object
+geolocation/idlharness.https.window.html	GeolocationPositionError interface: existence and properties of interface object
+geolocation/idlharness.https.window.html	GeolocationPositionError interface: existence and properties of interface prototype object
+geolocation/idlharness.https.window.html	GeolocationPositionError interface: existence and properties of interface prototype object's "constructor" property
+geolocation/idlharness.https.window.html	GeolocationPositionError interface: existence and properties of interface prototype object's @@unscopables property
+geolocation/idlharness.https.window.html	Navigator includes NavigatorConcurrentHardware: member names are unique
+geolocation/idlharness.https.window.html	Navigator includes NavigatorContentUtils: member names are unique
+geolocation/idlharness.https.window.html	Navigator includes NavigatorCookies: member names are unique
+geolocation/idlharness.https.window.html	Navigator includes NavigatorID: member names are unique
+geolocation/idlharness.https.window.html	Navigator includes NavigatorLanguage: member names are unique
+geolocation/idlharness.https.window.html	Navigator includes NavigatorOnLine: member names are unique
+geolocation/idlharness.https.window.html	Navigator includes NavigatorPlugins: member names are unique
+geolocation/idlharness.https.window.html	Partial interface Navigator: member names are unique
+geolocation/idlharness.https.window.html	Partial interface Navigator: original interface defined
+geolocation/idlharness.https.window.html	Partial interface Navigator[2]: member names are unique
+geolocation/idlharness.https.window.html	Partial interface mixin NavigatorID: member names are unique
+geolocation/idlharness.https.window.html	Stringification of navigator.geolocation
+geolocation/idlharness.https.window.html	idl_test setup
+geolocation/idlharness.https.window.html	idl_test validation
+geolocation/non-secure-contexts.http.html	When in a non-secure context, getCurrentPosition()'s errorCallback is asynchronously called.
+geolocation/non-secure-contexts.http.html	When in a non-secure context, the getCurrentPosition() errorCallBack gets a GeolocationPositionError with the correct error code.
+geolocation/non-secure-contexts.http.html	When in a non-secure context, the watchPosition() errorCallBack gets a GeolocationPositionError with the correct error code.
+geolocation/non-secure-contexts.http.html	When in a non-secure context, watchPosition()'s errorCallback is asynchronously called.
+geolocation/permission.https.html	Query "geolocation" powerful feature
+geolocation/watchPosition_TypeError.https.html	Call watchPosition with null success and error callbacks, check that exception is thrown
+geolocation/watchPosition_TypeError.https.html	Call watchPosition with null success callback, check that exception is thrown
+geolocation/watchPosition_TypeError.https.html	Call watchPosition without arguments, check that exception is thrown
+geolocation/watchPosition_TypeError.https.html	Call watchPosition() with wrong type for first argument. Exception expected.
+geolocation/watchPosition_TypeError.https.html	Call watchPosition() with wrong type for second argument. Exception expected.
+geolocation/watchPosition_TypeError.https.html	Call watchPosition() with wrong type for third argument. Exception expected.
+geolocation/watchPosition_TypeError.https.html	Calling watchPosition() with a legacy event handler object.
 html/browsers/origin/api/file-scheme-origin.tentative.any.html	`Origin.from('file://')` opaque origins.
 html/browsers/origin/api/origin-comparison.any.html	Comparison of `Origin.from(<url-string>)` opaque origins.
 html/browsers/origin/api/origin-comparison.any.html	Comparison of `new Origin()` opaque origins.
@@ -135659,6 +135869,100 @@ html/webappapis/timers/setinterval-settimeout-clamping.any.html	setTimeout(0) be
 html/webappapis/timers/settimeout-detached-iframe.html	setTimeout() on a detached iframe's window does not throw and its callback never runs
 html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html	Test requires performance.now() to measure approximate timing of callbacks.
 html/webappapis/timers/timer-nesting-not-inherited-in-microtask.html	Test that a timer scheduled during a microtask checkpoint does not inherit the timer nesting level of the task that just ran.
+media-capabilities/decodingInfo-webrtc.any.html	Test that decodingInfo rejects if the audio configuration contenType doesn't parse
+media-capabilities/decodingInfo-webrtc.any.html	Test that decodingInfo rejects if the audio configuration contentType doesn't parse
+media-capabilities/decodingInfo-webrtc.any.html	Test that decodingInfo rejects if the configuration doesn't have an audio or video field
+media-capabilities/decodingInfo-webrtc.any.html	Test that decodingInfo rejects if the video configuration contentType doesn't parse
+media-capabilities/decodingInfo-webrtc.any.html	Test that decodingInfo rejects if the video configuration contentType has more than one parameter
+media-capabilities/decodingInfo-webrtc.any.html	Test that decodingInfo rejects if the video configuration contentType has one parameter that isn't codecs
+media-capabilities/decodingInfo-webrtc.any.html	Test that decodingInfo rejects if the video configuration has a framerate set to 0
+media-capabilities/decodingInfo-webrtc.any.html	Test that decodingInfo rejects if the video configuration has a framerate set to Infinity
+media-capabilities/decodingInfo-webrtc.any.html	Test that decodingInfo rejects if the video configuration has a negative framerate
+media-capabilities/decodingInfo-webrtc.any.html	Test that decodingInfo returns supported, smooth, and powerEfficient set to false for non-webrtc video content type.
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if it doesn't get a configuration
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the MediaConfiguration does not have a type
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the MediaConfiguration does not have a valid type
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the MediaConfiguration isn't valid
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the audio configuration contentType doesn't parse
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the audio configuration contentType has more than one parameter
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the audio configuration contentType has one parameter that isn't codecs
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the configuration doesn't have an audio or video field
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the video configuration contentType doesn't parse
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the video configuration contentType has more than one parameter
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the video configuration contentType has one parameter that isn't codecs
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the video configuration has a framerate set to 0
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the video configuration has a framerate set to Infinity
+media-capabilities/decodingInfo.any.html	Test that decodingInfo rejects if the video configuration has a negative framerate
+media-capabilities/decodingInfo.any.html	Test that decodingInfo with type media-source accepts colorGamut and transferFunction
+media-capabilities/decodingInfoEncryptedMedia.https.html	Test that decodingInfo accepts a key system configuration with audio info.
+media-capabilities/decodingInfoEncryptedMedia.https.html	Test that decodingInfo accepts a key system configuration with video info.
+media-capabilities/decodingInfoEncryptedMedia.https.html	Test that decodingInfo accepts a stub key system configuration (w/audio).
+media-capabilities/decodingInfoEncryptedMedia.https.html	Test that decodingInfo accepts a stub key system configuration (w/video).
+media-capabilities/decodingInfoEncryptedMedia.https.html	Test that decodingInfo does not reject when properties are set to unexpected values.
+media-capabilities/decodingInfoEncryptedMedia.https.html	Test that keySystemAccess is only null when not supported if keySystemConfiguration was used.
+media-capabilities/encodingInfo-webrtc.any.html	Test that encodingInfo rejects if the audio configuration contentType doesn't parse
+media-capabilities/encodingInfo-webrtc.any.html	Test that encodingInfo rejects if the audio configuration contentType has more than one parameters
+media-capabilities/encodingInfo-webrtc.any.html	Test that encodingInfo rejects if the audio configuration contentType has one parameter that isn't codecs
+media-capabilities/encodingInfo-webrtc.any.html	Test that encodingInfo rejects if the configuration doesn't have an audio or video field
+media-capabilities/encodingInfo-webrtc.any.html	Test that encodingInfo rejects if the video configuration contentType doesn't parse
+media-capabilities/encodingInfo-webrtc.any.html	Test that encodingInfo rejects if the video configuration contentType has more than one parameter
+media-capabilities/encodingInfo-webrtc.any.html	Test that encodingInfo rejects if the video configuration contentType has one parameter that isn't codecs
+media-capabilities/encodingInfo-webrtc.any.html	Test that encodingInfo rejects if the video configuration has a framerate set to 0
+media-capabilities/encodingInfo-webrtc.any.html	Test that encodingInfo rejects if the video configuration has a framerate set to Infinity
+media-capabilities/encodingInfo-webrtc.any.html	Test that encodingInfo rejects if the video configuration has a negative framerate
+media-capabilities/encodingInfo-webrtc.any.html	Test that encodingInfo returns supported, smooth, and powerEfficient set to false for non-webrtc video content type.
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if it doesn't get a configuration
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the MediaConfiguration does not have a type
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the MediaConfiguration does not have a valid type
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the MediaConfiguration isn't valid
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the audio configuration contenType doesn't parse
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the audio configuration contentType has more than one parameters
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the audio configuration contentType has one parameter that isn't codecs
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the configuration doesn't have an audio or video field
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the video configuration contentType doesn't parse
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the video configuration contentType has more than one parameter
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the video configuration contentType has one parameter that isn't codecs
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the video configuration has a framerate set to 0
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the video configuration has a framerate set to Infinity
+media-capabilities/encodingInfo.any.html	Test that encodingInfo rejects if the video configuration has a negative framerate
+media-capabilities/encodingInfo.any.html	Test that encodingInfo returns a valid MediaCapabilitiesInfo object for record type
+media-capabilities/idlharness.any.html	MediaCapabilities interface object length
+media-capabilities/idlharness.any.html	MediaCapabilities interface object name
+media-capabilities/idlharness.any.html	MediaCapabilities interface: calling decodingInfo(MediaDecodingConfiguration) on navigator.mediaCapabilities with too few arguments must throw TypeError
+media-capabilities/idlharness.any.html	MediaCapabilities interface: calling encodingInfo(MediaEncodingConfiguration) on navigator.mediaCapabilities with too few arguments must throw TypeError
+media-capabilities/idlharness.any.html	MediaCapabilities interface: existence and properties of interface object
+media-capabilities/idlharness.any.html	MediaCapabilities interface: existence and properties of interface prototype object
+media-capabilities/idlharness.any.html	MediaCapabilities interface: existence and properties of interface prototype object's "constructor" property
+media-capabilities/idlharness.any.html	MediaCapabilities interface: existence and properties of interface prototype object's @@unscopables property
+media-capabilities/idlharness.any.html	MediaCapabilities interface: navigator.mediaCapabilities must inherit property "decodingInfo(MediaDecodingConfiguration)" with the proper type
+media-capabilities/idlharness.any.html	MediaCapabilities interface: navigator.mediaCapabilities must inherit property "encodingInfo(MediaEncodingConfiguration)" with the proper type
+media-capabilities/idlharness.any.html	MediaCapabilities interface: operation decodingInfo(MediaDecodingConfiguration)
+media-capabilities/idlharness.any.html	MediaCapabilities interface: operation encodingInfo(MediaEncodingConfiguration)
+media-capabilities/idlharness.any.html	MediaCapabilities must be primary interface of navigator.mediaCapabilities
+media-capabilities/idlharness.any.html	Navigator includes NavigatorConcurrentHardware: member names are unique
+media-capabilities/idlharness.any.html	Navigator includes NavigatorContentUtils: member names are unique
+media-capabilities/idlharness.any.html	Navigator includes NavigatorCookies: member names are unique
+media-capabilities/idlharness.any.html	Navigator includes NavigatorID: member names are unique
+media-capabilities/idlharness.any.html	Navigator includes NavigatorLanguage: member names are unique
+media-capabilities/idlharness.any.html	Navigator includes NavigatorOnLine: member names are unique
+media-capabilities/idlharness.any.html	Navigator includes NavigatorPlugins: member names are unique
+media-capabilities/idlharness.any.html	Navigator interface: navigator must inherit property "mediaCapabilities" with the proper type
+media-capabilities/idlharness.any.html	Partial interface Navigator: member names are unique
+media-capabilities/idlharness.any.html	Partial interface Navigator: original interface defined
+media-capabilities/idlharness.any.html	Partial interface Navigator: valid exposure set
+media-capabilities/idlharness.any.html	Partial interface Navigator[2]: member names are unique
+media-capabilities/idlharness.any.html	Partial interface WorkerNavigator: member names are unique
+media-capabilities/idlharness.any.html	Partial interface WorkerNavigator: original interface defined
+media-capabilities/idlharness.any.html	Partial interface WorkerNavigator: valid exposure set
+media-capabilities/idlharness.any.html	Partial interface mixin NavigatorID: member names are unique
+media-capabilities/idlharness.any.html	Stringification of navigator.mediaCapabilities
+media-capabilities/idlharness.any.html	WorkerNavigator includes NavigatorConcurrentHardware: member names are unique
+media-capabilities/idlharness.any.html	WorkerNavigator includes NavigatorID: member names are unique
+media-capabilities/idlharness.any.html	WorkerNavigator includes NavigatorLanguage: member names are unique
+media-capabilities/idlharness.any.html	WorkerNavigator includes NavigatorOnLine: member names are unique
+media-capabilities/idlharness.any.html	idl_test setup
+media-capabilities/idlharness.any.html	idl_test validation
+media-capabilities/idlharness.any.html	idlharness
 media-source/URL-createObjectURL-null.html	URL.createObjectURL(null)
 media-source/URL-createObjectURL-revoke.html	Check no auto-revoking behavior with URL.createObjectURL(MediaSource).
 media-source/URL-createObjectURL-revoke.html	Check revoking behavior of URL.revokeObjectURL(url).
@@ -135816,6 +136120,227 @@ media-source/mediasource-preload.html	sourceopen occurs with element preload=aut
 media-source/mediasource-preload.html	sourceopen occurs with element preload=metadata
 media-source/mediasource-preload.html	sourceopen occurs with element preload=none
 media-source/mediasource-removesourcebuffer.html	Test removeSourceBuffer() with null
+mediacapture-streams/GUM-api.https.html	mediaDevices.getUserMedia() is present on navigator
+mediacapture-streams/GUM-empty-option-param.https.html	Tests that getUserMedia is rejected with a TypeError when used with an empty options parameter
+mediacapture-streams/GUM-unknownkey-option-param.https.html	Tests that getUserMedia is rejected with a TypeError when used with an unknown constraint
+mediacapture-streams/MediaDevices-enumerateDevices-not-allowed-camera.https.html	Camera is not exposed in mediaDevices.enumerateDevices() when blocked by Permissions-Policy header
+mediacapture-streams/MediaDevices-enumerateDevices-not-allowed-mic.https.html	Microphone is not exposed in mediaDevices.enumerateDevices() when blocked by Permissions-Policy
+mediacapture-streams/MediaDevices-enumerateDevices-returned-objects.https.html	enumerateDevices exposes mostly empty objects ahead of successful getUserMedia call
+mediacapture-streams/MediaDevices-enumerateDevices.https.html	InputDeviceInfo is supported
+mediacapture-streams/MediaDevices-enumerateDevices.https.html	mediaDevices.enumerateDevices() is present and working - before capture
+mediacapture-streams/MediaDevices-getSupportedConstraints.https.html	navigator.mediaDevices.getSupportedConstraints exists
+mediacapture-streams/MediaDevices-getUserMedia.https.html	mediaDevices.getUserMedia() is present on navigator
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup audio InputDeviceInfo getCapabilities() test for autoGainControl
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup audio InputDeviceInfo getCapabilities() test for channelCount
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup audio InputDeviceInfo getCapabilities() test for deviceId
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup audio InputDeviceInfo getCapabilities() test for echoCancellation
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup audio InputDeviceInfo getCapabilities() test for groupId
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup audio InputDeviceInfo getCapabilities() test for latency
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup audio InputDeviceInfo getCapabilities() test for noiseSuppression
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup audio InputDeviceInfo getCapabilities() test for sampleRate
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup audio InputDeviceInfo getCapabilities() test for sampleSize
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup audio InputDeviceInfo getCapabilities() test for voiceIsolation
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup video InputDeviceInfo getCapabilities() test for aspectRatio
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup video InputDeviceInfo getCapabilities() test for deviceId
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup video InputDeviceInfo getCapabilities() test for facingMode
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup video InputDeviceInfo getCapabilities() test for frameRate
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup video InputDeviceInfo getCapabilities() test for groupId
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup video InputDeviceInfo getCapabilities() test for height
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup video InputDeviceInfo getCapabilities() test for resizeMode
+mediacapture-streams/MediaStreamTrack-getCapabilities.https.html	Setup video InputDeviceInfo getCapabilities() test for width
+mediacapture-streams/historical.https.html	navigator.getUserMedia should not exist
+mediacapture-streams/historical.https.html	navigator.mozGetUserMedia should not exist
+mediacapture-streams/historical.https.html	navigator.webkitGetUserMedia should not exist
+mediacapture-streams/historical.https.html	webkitMediaStream interface should not exist
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface object length
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface object name
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface: attribute ondevicechange
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface: calling getUserMedia(optional MediaStreamConstraints) on navigator.mediaDevices with too few arguments must throw TypeError
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface: existence and properties of interface prototype object
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface: existence and properties of interface prototype object's "constructor" property
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface: existence and properties of interface prototype object's @@unscopables property
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface: navigator.mediaDevices must inherit property "enumerateDevices()" with the proper type
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface: navigator.mediaDevices must inherit property "getSupportedConstraints()" with the proper type
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface: navigator.mediaDevices must inherit property "getUserMedia(optional MediaStreamConstraints)" with the proper type
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface: navigator.mediaDevices must inherit property "ondevicechange" with the proper type
+mediacapture-streams/idlharness.https.window.html	MediaDevices interface: operation getUserMedia(optional MediaStreamConstraints)
+mediacapture-streams/idlharness.https.window.html	MediaDevices must be primary interface of navigator.mediaDevices
+mediacapture-streams/idlharness.https.window.html	Navigator includes NavigatorConcurrentHardware: member names are unique
+mediacapture-streams/idlharness.https.window.html	Navigator includes NavigatorContentUtils: member names are unique
+mediacapture-streams/idlharness.https.window.html	Navigator includes NavigatorCookies: member names are unique
+mediacapture-streams/idlharness.https.window.html	Navigator includes NavigatorID: member names are unique
+mediacapture-streams/idlharness.https.window.html	Navigator includes NavigatorLanguage: member names are unique
+mediacapture-streams/idlharness.https.window.html	Navigator includes NavigatorOnLine: member names are unique
+mediacapture-streams/idlharness.https.window.html	Navigator includes NavigatorPlugins: member names are unique
+mediacapture-streams/idlharness.https.window.html	Navigator interface: navigator must inherit property "mediaDevices" with the proper type
+mediacapture-streams/idlharness.https.window.html	Partial interface MediaDevices: member names are unique
+mediacapture-streams/idlharness.https.window.html	Partial interface MediaDevices: original interface defined
+mediacapture-streams/idlharness.https.window.html	Partial interface Navigator: member names are unique
+mediacapture-streams/idlharness.https.window.html	Partial interface Navigator: original interface defined
+mediacapture-streams/idlharness.https.window.html	Partial interface Navigator[2]: member names are unique
+mediacapture-streams/idlharness.https.window.html	Partial interface mixin NavigatorID: member names are unique
+mediacapture-streams/idlharness.https.window.html	Stringification of navigator.mediaDevices
+mediacapture-streams/idlharness.https.window.html	idl_test setup
+mediacapture-streams/idlharness.https.window.html	idl_test validation
+mediasession/artwork-url-encoding-euc-kr.html	artwork-url-encoding-euc-kr
+mediasession/idlharness.window.html	MediaMetadata interface object length
+mediasession/idlharness.window.html	MediaMetadata interface object name
+mediasession/idlharness.window.html	MediaMetadata interface: attribute album
+mediasession/idlharness.window.html	MediaMetadata interface: attribute artist
+mediasession/idlharness.window.html	MediaMetadata interface: attribute artwork
+mediasession/idlharness.window.html	MediaMetadata interface: attribute title
+mediasession/idlharness.window.html	MediaMetadata interface: existence and properties of interface object
+mediasession/idlharness.window.html	MediaMetadata interface: existence and properties of interface prototype object
+mediasession/idlharness.window.html	MediaMetadata interface: existence and properties of interface prototype object's "constructor" property
+mediasession/idlharness.window.html	MediaMetadata interface: existence and properties of interface prototype object's @@unscopables property
+mediasession/idlharness.window.html	MediaMetadata interface: new MediaMetadata() must inherit property "album" with the proper type
+mediasession/idlharness.window.html	MediaMetadata interface: new MediaMetadata() must inherit property "artist" with the proper type
+mediasession/idlharness.window.html	MediaMetadata interface: new MediaMetadata() must inherit property "artwork" with the proper type
+mediasession/idlharness.window.html	MediaMetadata interface: new MediaMetadata() must inherit property "title" with the proper type
+mediasession/idlharness.window.html	MediaMetadata must be primary interface of new MediaMetadata()
+mediasession/idlharness.window.html	MediaSession interface object length
+mediasession/idlharness.window.html	MediaSession interface object name
+mediasession/idlharness.window.html	MediaSession interface: attribute metadata
+mediasession/idlharness.window.html	MediaSession interface: attribute playbackState
+mediasession/idlharness.window.html	MediaSession interface: calling setActionHandler(MediaSessionAction, MediaSessionActionHandler?) on navigator.mediaSession with too few arguments must throw TypeError
+mediasession/idlharness.window.html	MediaSession interface: calling setPositionState(optional MediaPositionState) on navigator.mediaSession with too few arguments must throw TypeError
+mediasession/idlharness.window.html	MediaSession interface: existence and properties of interface object
+mediasession/idlharness.window.html	MediaSession interface: existence and properties of interface prototype object
+mediasession/idlharness.window.html	MediaSession interface: existence and properties of interface prototype object's "constructor" property
+mediasession/idlharness.window.html	MediaSession interface: existence and properties of interface prototype object's @@unscopables property
+mediasession/idlharness.window.html	MediaSession interface: navigator.mediaSession must inherit property "metadata" with the proper type
+mediasession/idlharness.window.html	MediaSession interface: navigator.mediaSession must inherit property "playbackState" with the proper type
+mediasession/idlharness.window.html	MediaSession interface: navigator.mediaSession must inherit property "setActionHandler(MediaSessionAction, MediaSessionActionHandler?)" with the proper type
+mediasession/idlharness.window.html	MediaSession interface: navigator.mediaSession must inherit property "setPositionState(optional MediaPositionState)" with the proper type
+mediasession/idlharness.window.html	MediaSession interface: operation setActionHandler(MediaSessionAction, MediaSessionActionHandler?)
+mediasession/idlharness.window.html	MediaSession interface: operation setPositionState(optional MediaPositionState)
+mediasession/idlharness.window.html	MediaSession must be primary interface of navigator.mediaSession
+mediasession/idlharness.window.html	Navigator includes NavigatorConcurrentHardware: member names are unique
+mediasession/idlharness.window.html	Navigator includes NavigatorContentUtils: member names are unique
+mediasession/idlharness.window.html	Navigator includes NavigatorCookies: member names are unique
+mediasession/idlharness.window.html	Navigator includes NavigatorID: member names are unique
+mediasession/idlharness.window.html	Navigator includes NavigatorLanguage: member names are unique
+mediasession/idlharness.window.html	Navigator includes NavigatorOnLine: member names are unique
+mediasession/idlharness.window.html	Navigator includes NavigatorPlugins: member names are unique
+mediasession/idlharness.window.html	Navigator interface: navigator must inherit property "mediaSession" with the proper type
+mediasession/idlharness.window.html	Partial interface Navigator: member names are unique
+mediasession/idlharness.window.html	Partial interface Navigator: original interface defined
+mediasession/idlharness.window.html	Partial interface Navigator: valid exposure set
+mediasession/idlharness.window.html	Partial interface Navigator[2]: member names are unique
+mediasession/idlharness.window.html	Partial interface mixin NavigatorID: member names are unique
+mediasession/idlharness.window.html	Stringification of navigator.mediaSession
+mediasession/idlharness.window.html	Stringification of new MediaMetadata()
+mediasession/idlharness.window.html	idl_test setup
+mediasession/idlharness.window.html	idl_test validation
+mediasession/mediametadata.html	Test MediaImage default values
+mediasession/mediametadata.html	Test that MediaMetadata constructor can take no parameter
+mediasession/mediametadata.html	Test that MediaMetadata is constructed using a dictionary
+mediasession/mediametadata.html	Test that MediaMetadata.artwork can't be modified
+mediasession/mediametadata.html	Test that MediaMetadata.artwork is Frozen
+mediasession/mediametadata.html	Test that MediaMetadata.artwork returns parsed urls
+mediasession/mediametadata.html	Test that MediaMetadata.artwork will not expose unknown properties
+mediasession/mediametadata.html	Test that changes to metadata propagate properly
+mediasession/mediametadata.html	Test that mediaSession.metadata is properly set
+mediasession/mediametadata.html	Test that passing unknown values to the dictionary is a no-op
+mediasession/mediametadata.html	Test that resetting metadata to null is reflected
+mediasession/mediametadata.html	Test that the base URL of MediaImage is the base URL of entry setting object
+mediasession/playbackstate.html	Test that playbackState is initialized as "none"
+mediasession/playbackstate.html	Test that playbackState is read/write
+mediasession/playbackstate.html	Test that warning is thrown when setting invalid playbackState
+mediasession/positionstate.html	Test setPositionState throws a TypeError if duration is less than position
+mediasession/positionstate.html	Test setPositionState throws a TypeError if duration is negative
+mediasession/positionstate.html	Test setPositionState throws a TypeError if duration is not specified
+mediasession/positionstate.html	Test setPositionState throws a TypeError if playback rate is zero
+mediasession/positionstate.html	Test setPositionState throws a TypeError if position is negative
+mediasession/positionstate.html	Test setPositionState with a valid value for forward playback
+mediasession/positionstate.html	Test setPositionState with negative playback rate
+mediasession/positionstate.html	Test setPositionState with only duration
+mediasession/positionstate.html	Test setPositionState with optional playback rate
+mediasession/positionstate.html	Test setPositionState with optional position
+mediasession/positionstate.html	Test setPositionState with zero duration
+mediasession/setactionhandler.html	Test that setActionHandler("enterpictureinpicture") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("hangup") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("nextslide") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("nexttrack") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("pause") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("play") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("previousslide") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("previoustrack") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("seekbackward") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("seekforward") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("seekto") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("skipad") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("stop") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("togglecamera") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("togglemicrophone") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("togglescreenshare") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler("voiceactivity") succeeds
+mediasession/setactionhandler.html	Test that setActionHandler() throws exception for unsupported actions
+permissions/all-permissions.html	Query "accelerometer" permission
+permissions/all-permissions.html	Query "ambient-light-sensor" permission
+permissions/all-permissions.html	Query "background-fetch" permission
+permissions/all-permissions.html	Query "background-sync" permission
+permissions/all-permissions.html	Query "bluetooth" permission
+permissions/all-permissions.html	Query "camera" permission
+permissions/all-permissions.html	Query "display-capture" permission
+permissions/all-permissions.html	Query "geolocation" permission
+permissions/all-permissions.html	Query "gyroscope" permission
+permissions/all-permissions.html	Query "magnetometer" permission
+permissions/all-permissions.html	Query "microphone" permission
+permissions/all-permissions.html	Query "midi" permission
+permissions/all-permissions.html	Query "nfc" permission
+permissions/all-permissions.html	Query "notifications" permission
+permissions/all-permissions.html	Query "persistent-storage" permission
+permissions/all-permissions.html	Query "push" permission
+permissions/all-permissions.html	Query "screen-wake-lock" permission
+permissions/all-permissions.html	Query "xr-spatial-tracking" permission
+permissions/edge-cases.https.html	Query with an unsupported name rejects with TypeError
+permissions/idlharness.any.html	Navigator includes NavigatorConcurrentHardware: member names are unique
+permissions/idlharness.any.html	Navigator includes NavigatorContentUtils: member names are unique
+permissions/idlharness.any.html	Navigator includes NavigatorCookies: member names are unique
+permissions/idlharness.any.html	Navigator includes NavigatorID: member names are unique
+permissions/idlharness.any.html	Navigator includes NavigatorLanguage: member names are unique
+permissions/idlharness.any.html	Navigator includes NavigatorOnLine: member names are unique
+permissions/idlharness.any.html	Navigator includes NavigatorPlugins: member names are unique
+permissions/idlharness.any.html	Navigator interface: navigator must inherit property "permissions" with the proper type
+permissions/idlharness.any.html	Partial interface Navigator: member names are unique
+permissions/idlharness.any.html	Partial interface Navigator: original interface defined
+permissions/idlharness.any.html	Partial interface Navigator: valid exposure set
+permissions/idlharness.any.html	Partial interface Navigator[2]: member names are unique
+permissions/idlharness.any.html	Partial interface WorkerNavigator: member names are unique
+permissions/idlharness.any.html	Partial interface WorkerNavigator: original interface defined
+permissions/idlharness.any.html	Partial interface WorkerNavigator: valid exposure set
+permissions/idlharness.any.html	Partial interface mixin NavigatorID: member names are unique
+permissions/idlharness.any.html	PermissionStatus interface object length
+permissions/idlharness.any.html	PermissionStatus interface object name
+permissions/idlharness.any.html	PermissionStatus interface: attribute onchange
+permissions/idlharness.any.html	PermissionStatus interface: existence and properties of interface prototype object
+permissions/idlharness.any.html	PermissionStatus interface: existence and properties of interface prototype object's "constructor" property
+permissions/idlharness.any.html	PermissionStatus interface: existence and properties of interface prototype object's @@unscopables property
+permissions/idlharness.any.html	PermissionStatus interface: permissionStatus must inherit property "name" with the proper type
+permissions/idlharness.any.html	PermissionStatus interface: permissionStatus must inherit property "onchange" with the proper type
+permissions/idlharness.any.html	PermissionStatus interface: permissionStatus must inherit property "state" with the proper type
+permissions/idlharness.any.html	PermissionStatus must be primary interface of permissionStatus
+permissions/idlharness.any.html	Permissions interface object length
+permissions/idlharness.any.html	Permissions interface object name
+permissions/idlharness.any.html	Permissions interface: calling query(object) on navigator.permissions with too few arguments must throw TypeError
+permissions/idlharness.any.html	Permissions interface: existence and properties of interface object
+permissions/idlharness.any.html	Permissions interface: existence and properties of interface prototype object
+permissions/idlharness.any.html	Permissions interface: existence and properties of interface prototype object's "constructor" property
+permissions/idlharness.any.html	Permissions interface: existence and properties of interface prototype object's @@unscopables property
+permissions/idlharness.any.html	Permissions interface: navigator.permissions must inherit property "query(object)" with the proper type
+permissions/idlharness.any.html	Permissions interface: operation query(object)
+permissions/idlharness.any.html	Permissions must be primary interface of navigator.permissions
+permissions/idlharness.any.html	Stringification of navigator.permissions
+permissions/idlharness.any.html	Stringification of permissionStatus
+permissions/idlharness.any.html	WorkerNavigator includes NavigatorConcurrentHardware: member names are unique
+permissions/idlharness.any.html	WorkerNavigator includes NavigatorID: member names are unique
+permissions/idlharness.any.html	WorkerNavigator includes NavigatorLanguage: member names are unique
+permissions/idlharness.any.html	WorkerNavigator includes NavigatorOnLine: member names are unique
+permissions/idlharness.any.html	idl_test setup
+permissions/idlharness.any.html	idl_test validation
+permissions/permissions-query-permissions-policy-attribute.https.sub.html	Permission.state is "denied" in cross-origin iframes.
+permissions/permissionsstatus-name.html	Test PermissionStatus's name attribute.
 picture-in-picture/disable-picture-in-picture.html	Test disablePictureInPicture IDL attribute
 picture-in-picture/exit-picture-in-picture.html	Exit Picture-in-Picture rejects when there is no Picture-in-Picture video
 picture-in-picture/idlharness.window.html	Document includes DocumentOrShadowRoot: member names are unique
@@ -135853,6 +136378,35 @@ picture-in-picture/idlharness.window.html	Partial interface mixin DocumentOrShad
 picture-in-picture/idlharness.window.html	Partial interface mixin DocumentOrShadowRoot[2]: member names are unique
 picture-in-picture/idlharness.window.html	ShadowRoot includes DocumentOrShadowRoot: member names are unique
 picture-in-picture/idlharness.window.html	idl_test validation
+screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorConcurrentHardware: member names are unique
+screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorContentUtils: member names are unique
+screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorCookies: member names are unique
+screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorID: member names are unique
+screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorLanguage: member names are unique
+screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorOnLine: member names are unique
+screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorPlugins: member names are unique
+screen-wake-lock/idlharness.https.window.html	Navigator interface: navigator must inherit property "wakeLock" with the proper type
+screen-wake-lock/idlharness.https.window.html	Partial interface Navigator: member names are unique
+screen-wake-lock/idlharness.https.window.html	Partial interface Navigator: original interface defined
+screen-wake-lock/idlharness.https.window.html	Partial interface Navigator[2]: member names are unique
+screen-wake-lock/idlharness.https.window.html	Partial interface mixin NavigatorID: member names are unique
+screen-wake-lock/idlharness.https.window.html	Stringification of navigator.wakeLock
+screen-wake-lock/idlharness.https.window.html	WakeLock interface object length
+screen-wake-lock/idlharness.https.window.html	WakeLock interface object name
+screen-wake-lock/idlharness.https.window.html	WakeLock interface: calling request(optional WakeLockType) on navigator.wakeLock with too few arguments must throw TypeError
+screen-wake-lock/idlharness.https.window.html	WakeLock interface: existence and properties of interface object
+screen-wake-lock/idlharness.https.window.html	WakeLock interface: existence and properties of interface prototype object
+screen-wake-lock/idlharness.https.window.html	WakeLock interface: existence and properties of interface prototype object's "constructor" property
+screen-wake-lock/idlharness.https.window.html	WakeLock interface: existence and properties of interface prototype object's @@unscopables property
+screen-wake-lock/idlharness.https.window.html	WakeLock interface: navigator.wakeLock must inherit property "request(optional WakeLockType)" with the proper type
+screen-wake-lock/idlharness.https.window.html	WakeLock interface: operation request(optional WakeLockType)
+screen-wake-lock/idlharness.https.window.html	WakeLock must be primary interface of navigator.wakeLock
+screen-wake-lock/idlharness.https.window.html	idl_test validation
+screen-wake-lock/wakelock-active-document.https.window.html	navigator.wakeLock.request() aborts if the document becomes not active.
+screen-wake-lock/wakelock-active-document.https.window.html	navigator.wakeLock.request() aborts if the document is active, but not fully active.
+screen-wake-lock/wakelock-active-document.https.window.html	navigator.wakeLock.request() aborts if the document is not fully active.
+screen-wake-lock/wakelock-disabled-by-permissions-policy.https.html	Permissions-Policy header "screen-wake-lock=()" disallows the top-level document.
+screen-wake-lock/wakelock-type.https.window.html	'TypeError' is thrown when set an invalid wake lock type
 shadow-dom/Document-caretPositionFromPoint.tentative.html	document.caretPositionFromPoint() throws when called without the correct parameters
 shadow-dom/Document-prototype-importNode.html	importNode on a shadow root in closed mode must throw a NotSupportedError
 shadow-dom/Document-prototype-importNode.html	importNode on a shadow root in open mode must throw a NotSupportedError
@@ -135892,6 +136446,64 @@ shadow-dom/historical.html	text.getDestinationInsertionPoints should not exist
 shadow-dom/imperative-slot-api.html	throw TypeError if the passed values are neither Element nor Text
 shadow-dom/input-element-list.html	Input element's list attribute should point to the datalist element.
 shadow-dom/offsetTop-offsetLeft-across-shadow-boundaries.html	Verifies that HTMLElement.offsetLeft accounts for shadow boundaries.
+storage/buckets/idlharness-worker.https.any.html	Navigator includes NavigatorConcurrentHardware: member names are unique
+storage/buckets/idlharness-worker.https.any.html	Navigator includes NavigatorContentUtils: member names are unique
+storage/buckets/idlharness-worker.https.any.html	Navigator includes NavigatorCookies: member names are unique
+storage/buckets/idlharness-worker.https.any.html	Navigator includes NavigatorID: member names are unique
+storage/buckets/idlharness-worker.https.any.html	Navigator includes NavigatorLanguage: member names are unique
+storage/buckets/idlharness-worker.https.any.html	Navigator includes NavigatorOnLine: member names are unique
+storage/buckets/idlharness-worker.https.any.html	Navigator includes NavigatorPlugins: member names are unique
+storage/buckets/idlharness-worker.https.any.html	Navigator includes NavigatorStorageBuckets: member names are unique
+storage/buckets/idlharness-worker.https.any.html	Partial interface Navigator: member names are unique
+storage/buckets/idlharness-worker.https.any.html	Partial interface mixin NavigatorID: member names are unique
+storage/buckets/idlharness-worker.https.any.html	WorkerNavigator includes NavigatorConcurrentHardware: member names are unique
+storage/buckets/idlharness-worker.https.any.html	WorkerNavigator includes NavigatorID: member names are unique
+storage/buckets/idlharness-worker.https.any.html	WorkerNavigator includes NavigatorLanguage: member names are unique
+storage/buckets/idlharness-worker.https.any.html	WorkerNavigator includes NavigatorOnLine: member names are unique
+storage/buckets/idlharness-worker.https.any.html	WorkerNavigator includes NavigatorStorageBuckets: member names are unique
+storage/buckets/idlharness-worker.https.any.html	idl_test setup
+storage/buckets/idlharness-worker.https.any.html	idl_test validation
+storage/estimate-parallel.https.any.html	Multiple estimate() calls in parallel should complete
+storage/idlharness.https.any.html	Navigator includes NavigatorConcurrentHardware: member names are unique
+storage/idlharness.https.any.html	Navigator includes NavigatorContentUtils: member names are unique
+storage/idlharness.https.any.html	Navigator includes NavigatorCookies: member names are unique
+storage/idlharness.https.any.html	Navigator includes NavigatorID: member names are unique
+storage/idlharness.https.any.html	Navigator includes NavigatorLanguage: member names are unique
+storage/idlharness.https.any.html	Navigator includes NavigatorOnLine: member names are unique
+storage/idlharness.https.any.html	Navigator includes NavigatorPlugins: member names are unique
+storage/idlharness.https.any.html	Navigator includes NavigatorStorage: member names are unique
+storage/idlharness.https.any.html	Navigator interface: navigator must inherit property "storage" with the proper type
+storage/idlharness.https.any.html	Partial interface Navigator: member names are unique
+storage/idlharness.https.any.html	Partial interface mixin NavigatorID: member names are unique
+storage/idlharness.https.any.html	StorageManager interface object length
+storage/idlharness.https.any.html	StorageManager interface object name
+storage/idlharness.https.any.html	StorageManager interface: existence and properties of interface object
+storage/idlharness.https.any.html	StorageManager interface: existence and properties of interface prototype object
+storage/idlharness.https.any.html	StorageManager interface: existence and properties of interface prototype object's "constructor" property
+storage/idlharness.https.any.html	StorageManager interface: existence and properties of interface prototype object's @@unscopables property
+storage/idlharness.https.any.html	StorageManager interface: navigator.storage must inherit property "estimate()" with the proper type
+storage/idlharness.https.any.html	StorageManager interface: navigator.storage must inherit property "persist()" with the proper type
+storage/idlharness.https.any.html	StorageManager interface: navigator.storage must inherit property "persisted()" with the proper type
+storage/idlharness.https.any.html	StorageManager must be primary interface of navigator.storage
+storage/idlharness.https.any.html	Stringification of navigator.storage
+storage/idlharness.https.any.html	WorkerNavigator includes NavigatorConcurrentHardware: member names are unique
+storage/idlharness.https.any.html	WorkerNavigator includes NavigatorID: member names are unique
+storage/idlharness.https.any.html	WorkerNavigator includes NavigatorLanguage: member names are unique
+storage/idlharness.https.any.html	WorkerNavigator includes NavigatorOnLine: member names are unique
+storage/idlharness.https.any.html	WorkerNavigator includes NavigatorStorage: member names are unique
+storage/idlharness.https.any.html	idl_test setup
+storage/idlharness.https.any.html	idl_test validation
+storage/opaque-origin.https.window.html	navigator.storage.estimate() in non-sandboxed iframe should not reject
+storage/opaque-origin.https.window.html	navigator.storage.persist() in non-sandboxed iframe should not reject
+storage/opaque-origin.https.window.html	navigator.storage.persisted() in non-sandboxed iframe should not reject
+storage/permission-query.https.any.html	The "persistent-storage" permission is recognized
+storage/persisted.https.any.html	persisted() method exists and returns a Promise
+storage/persisted.https.any.html	persisted() returns a promise and resolves as boolean with false
+storage/storagemanager-estimate.https.any.html	estimate() method exists and returns a Promise
+storage/storagemanager-estimate.https.any.html	estimate() resolves to dictionary with members
+storage/storagemanager-persist-persisted-match.https.window.html	navigator.storage.persist() resolves to a value that matches navigator.storage.persisted()
+storage/storagemanager-persist.https.window.html	navigator.storage.persist() returns a promise that resolves.
+storage/storagemanager-persisted.https.any.html	navigator.storage.persisted() returns a promise that resolves.
 url/IdnaTestV2-removed.any.html	Loading data…
 url/IdnaTestV2-removed.any.html	ToASCII("-ᢗ‌🄄.𑜢") C1; P1; V5; V6; V3 (ignored)
 url/IdnaTestV2-removed.any.html	ToASCII("-󠉖ꡧ．󠊂񇆃🄉") P1; V6; V3 (ignored)
@@ -143720,3 +144332,26 @@ url/urlsearchparams-stringifier.any.html	Serialize 💩
 url/urlsearchparams-stringifier.any.html	URLSearchParams connected to URL
 url/urlsearchparams-stringifier.any.html	URLSearchParams must not do newline normalization
 url/urlsearchparams-stringifier.any.html	URLSearchParams.toString
+web-share/canShare-files.https.html	canShare with empty file list
+web-share/disabled-by-permissions-policy-cross-origin.https.sub.html	canShare() not allowed to share by default permissions policy cross-origin
+web-share/disabled-by-permissions-policy.https.sub.html	canShare() can be disabled by permissions policy
+web-share/idlharness.https.window.html	Navigator includes NavigatorConcurrentHardware: member names are unique
+web-share/idlharness.https.window.html	Navigator includes NavigatorContentUtils: member names are unique
+web-share/idlharness.https.window.html	Navigator includes NavigatorCookies: member names are unique
+web-share/idlharness.https.window.html	Navigator includes NavigatorID: member names are unique
+web-share/idlharness.https.window.html	Navigator includes NavigatorLanguage: member names are unique
+web-share/idlharness.https.window.html	Navigator includes NavigatorOnLine: member names are unique
+web-share/idlharness.https.window.html	Navigator includes NavigatorPlugins: member names are unique
+web-share/idlharness.https.window.html	Navigator interface: calling canShare(optional ShareData) on navigator with too few arguments must throw TypeError
+web-share/idlharness.https.window.html	Navigator interface: calling share(optional ShareData) on navigator with too few arguments must throw TypeError
+web-share/idlharness.https.window.html	Navigator interface: navigator must inherit property "canShare(optional ShareData)" with the proper type
+web-share/idlharness.https.window.html	Navigator interface: navigator must inherit property "share(optional ShareData)" with the proper type
+web-share/idlharness.https.window.html	Navigator interface: operation canShare(optional ShareData)
+web-share/idlharness.https.window.html	Navigator interface: operation share(optional ShareData)
+web-share/idlharness.https.window.html	Partial interface Navigator: member names are unique
+web-share/idlharness.https.window.html	Partial interface Navigator: original interface defined
+web-share/idlharness.https.window.html	Partial interface Navigator[2]: member names are unique
+web-share/idlharness.https.window.html	Partial interface mixin NavigatorID: member names are unique
+web-share/idlharness.https.window.html	idl_test setup
+web-share/idlharness.https.window.html	idl_test validation
+web-share/share-file-url-with-base-tag.https.html	canShare() rejects file:// URLs even with a file: base URL
