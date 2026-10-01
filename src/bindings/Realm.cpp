@@ -1252,6 +1252,7 @@ void install_interfaces(Realm::Internals& in)
     install_xhr(in);
     install_tasks(in);
     install_origin(in);
+    install_trusted_types(in);
     if (in.worker != nullptr) {
         // A worker's scope is its own global object: no WindowProxy stands in
         // front of it, and no other origin ever reaches it.
@@ -1309,6 +1310,19 @@ void install_rejection_tracker(Realm::Internals& in)
     };
 }
 
+// HostGetCodeForEval (Trusted Types): eval of a TrustedScript runs the code
+// it carries, as a page under require-trusted-types-for hands eval its code.
+void install_eval_hook(Realm::Internals& in)
+{
+    js::Interpreter& interpreter = in.interpreter;
+    interpreter.on_code_for_eval = [&interpreter](js::Value const& value) -> std::optional<js::JsString*> {
+        std::optional<std::string> const code = trusted_script_code(value);
+        if (!code)
+            return std::nullopt;
+        return interpreter.string(*code);
+    };
+}
+
 // Lets every wrapper of a document's nodes go of its node, the document's own
 // and those of every node it owns, in its tree or not: the realm ending before
 // the heap they live in takes the document with it.
@@ -1342,6 +1356,7 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     // would compile.
     interpreter.on_compile_strings = [&interpreter]() { return internals_of(interpreter).compile_strings_refusal(); };
     install_rejection_tracker(in);
+    install_eval_hook(in);
     // The module map is the document's: its keys are URLs, and the realm
     // resolves and fetches modules for the engine (§8.1.7).
     in.install_module_hooks();
@@ -1414,6 +1429,7 @@ Realm::Realm(WorkerScope scope, dom::Document& document, net::Url url, HostHooks
     };
     interpreter.on_compile_strings = [&interpreter]() { return internals_of(interpreter).compile_strings_refusal(); };
     install_rejection_tracker(in);
+    install_eval_hook(in);
     if (in.hooks.should_stop)
         interpreter.set_interrupt([this] { return m_internals->hooks.should_stop(); });
     // A worker's heap is its own, under a ceiling of the same height as its page's.

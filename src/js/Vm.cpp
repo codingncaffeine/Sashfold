@@ -459,14 +459,22 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
     };
     auto direct_eval = [&](Args arguments) -> std::optional<Value> {
         // §13.3.6.1 step 6: a direct eval of a string runs in this scope;
-        // anything else is returned as it is.
+        // anything else is returned as it is — unless the host reads code
+        // out of it (HostGetCodeForEval: a TrustedScript).
         if (arguments.empty())
             return Value::undefined();
-        if (!arguments[0].is_string())
-            return arguments[0];
+        Value source = arguments[0];
+        if (!source.is_string()) {
+            std::optional<JsString*> const host_code = self.on_code_for_eval ? self.on_code_for_eval(source) : std::nullopt;
+            if (!host_code)
+                return source;
+            source = Value::string(*host_code);
+        }
+        Interpreter::Roots const roots(self);
+        self.root(source);
         if (!step())
             return std::nullopt;
-        return perform_eval(arguments[0].as_string()->view(), frame.envs.back(), frame.strict, Value::empty(), true, frame.private_environment,
+        return perform_eval(source.as_string()->view(), frame.envs.back(), frame.strict, Value::empty(), true, frame.private_environment,
             frame.program);
     };
     // Resolved bindings. The environment `hops` out from the current one:

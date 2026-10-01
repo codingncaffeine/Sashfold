@@ -672,9 +672,17 @@ void install_global_functions(Interpreter& in)
     in.intrinsics().eval = define_method(in, global, "eval", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {
         // §19.2.1, the indirect form: global scope, sloppy unless the
         // source itself says otherwise.
-        Value const source = argument(args, 0);
-        if (!source.is_string())
-            return source;
+        Value source = argument(args, 0);
+        if (!source.is_string()) {
+            // HostGetCodeForEval: the host may read code out of an object
+            // of its own (a TrustedScript); anything else comes back as is.
+            std::optional<JsString*> const code = interp.on_code_for_eval ? interp.on_code_for_eval(source) : std::nullopt;
+            if (!code)
+                return source;
+            source = Value::string(*code);
+        }
+        Interpreter::Roots const roots(interp);
+        interp.root(source);
         return interp.eval_in(source.as_string()->view(), nullptr, false, Value::empty());
     });
     define_method(in, global, "isFinite", 1, [](Interpreter& interp, Value const&, Args args) -> std::optional<Value> {

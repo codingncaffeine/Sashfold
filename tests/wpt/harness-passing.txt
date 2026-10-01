@@ -69608,8 +69608,12 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interfac
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: attribute outerHTML
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: calling insertAdjacentHTML(DOMString, (TrustedHTML or DOMString)) on document.createElement("div") with too few arguments must throw TypeError
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: calling insertAdjacentHTML(DOMString, (TrustedHTML or DOMString)) on document.createElement("noscript") with too few arguments must throw TypeError
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("div") must inherit property "innerHTML" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("div") must inherit property "insertAdjacentHTML(DOMString, (TrustedHTML or DOMString))" with the proper type
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("div") must inherit property "outerHTML" with the proper type
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("noscript") must inherit property "innerHTML" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("noscript") must inherit property "insertAdjacentHTML(DOMString, (TrustedHTML or DOMString))" with the proper type
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("noscript") must inherit property "outerHTML" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: operation insertAdjacentHTML(DOMString, (TrustedHTML or DOMString))
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ElementInternals includes ARIAMixin: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ErrorEvent interface object length
@@ -71110,6 +71114,7 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLIFrameElement interface: docum
 html/dom/idlharness.https.html?include=HTML.+	HTMLIFrameElement interface: document.createElement("iframe") must inherit property "sandbox" with the proper type
 html/dom/idlharness.https.html?include=HTML.+	HTMLIFrameElement interface: document.createElement("iframe") must inherit property "scrolling" with the proper type
 html/dom/idlharness.https.html?include=HTML.+	HTMLIFrameElement interface: document.createElement("iframe") must inherit property "src" with the proper type
+html/dom/idlharness.https.html?include=HTML.+	HTMLIFrameElement interface: document.createElement("iframe") must inherit property "srcdoc" with the proper type
 html/dom/idlharness.https.html?include=HTML.+	HTMLIFrameElement interface: document.createElement("iframe") must inherit property "width" with the proper type
 html/dom/idlharness.https.html?include=HTML.+	HTMLIFrameElement interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?include=HTML.+	HTMLIFrameElement interface: existence and properties of interface prototype object's "constructor" property
@@ -136504,6 +136509,1093 @@ storage/storagemanager-estimate.https.any.html	estimate() resolves to dictionary
 storage/storagemanager-persist-persisted-match.https.window.html	navigator.storage.persist() resolves to a value that matches navigator.storage.persisted()
 storage/storagemanager-persist.https.window.html	navigator.storage.persist() returns a promise that resolves.
 storage/storagemanager-persisted.https.any.html	navigator.storage.persisted() returns a promise that resolves.
+trusted-types/DOMParser-parseFromString-regression.html	Regression test for TT changes to parseFromString.
+trusted-types/DOMParser-parseFromString.html	document.innerText = null.
+trusted-types/DOMParser-parseFromString.html	document.innerText assigned via policy (successful HTML transformation).
+trusted-types/DedicatedWorker-constructor.https.html	Create Worker via ScriptTestUrl
+trusted-types/Document-execCommand.html	Document.execCommand("insertHTML") works as usual.
+trusted-types/Document-execCommand.html	Document.execCommand("paste") works as usual.
+trusted-types/Document-parseHTMLUnsafe-respects-current-globals-CSP.html	This document's Document.parseHTMLUnsafe() enforces Trusted Types when called from the helper frame.
+trusted-types/Element-insertAdjacentHTML.html	insertAdjacentHTML with html assigned via policy (successful HTML transformation).
+trusted-types/Element-outerHTML.html	outerHTML with html assigned via policy (successful HTML transformation).
+trusted-types/Element-setAttribute.html	a.rel accepts null
+trusted-types/Element-setAttribute.html	a.rel accepts strings
+trusted-types/Element-setAttribute.html	iframe.srcdoc assigned via policy (successful HTML transformation)
+trusted-types/Element-setAttribute.html	script.src assigned via policy (successful ScriptURL transformation)
+trusted-types/Element-setAttribute.html	script.src assigned via policy (successful script transformation)
+trusted-types/Element-toggleAttribute.html	TT should not interfere with toggleAttribute on an event handler
+trusted-types/Element-toggleAttribute.html	TT should not interfere with toggleAttribute on an iframe srcdoc
+trusted-types/GlobalEventHandlers-onclick.html	a.setAttribute('onclick') sets a trusted script.
+trusted-types/HTMLElement-generic.html	TT disabled: div.innerHTML\n            = String on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: div.innerHTML\n            = String on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: div.innerHTML\n            = TrustedHTML on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: div.innerHTML\n            = TrustedHTML on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: iframe.srcdoc\n            = String on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: iframe.srcdoc\n            = String on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: iframe.srcdoc\n            = TrustedHTML on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: iframe.srcdoc\n            = TrustedHTML on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.innerText\n            = String on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.innerText\n            = String on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.innerText\n            = TrustedScript on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.innerText\n            = TrustedScript on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.src\n            = String on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.src\n            = String on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.src\n            = TrustedScript on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.src\n            = TrustedScript on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.textContent\n            = String on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.textContent\n            = String on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.textContent\n            = TrustedScript on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.textContent\n            = TrustedScript on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.text\n            = String on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.text\n            = String on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.text\n            = TrustedScript on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT disabled: script.text\n            = TrustedScript on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT enabled: div.innerHTML\n            = TrustedHTML on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT enabled: div.innerHTML\n            = TrustedHTML on a\n            connected element\n            after removing the "require-trusted-types-for 'script' directive
+trusted-types/HTMLElement-generic.html	TT enabled: div.innerHTML\n            = TrustedHTML on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT enabled: div.innerHTML\n            = TrustedHTML on a\n            non-connected element\n            after removing the "require-trusted-types-for 'script' directive
+trusted-types/HTMLElement-generic.html	TT enabled: iframe.srcdoc\n            = TrustedHTML on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT enabled: iframe.srcdoc\n            = TrustedHTML on a\n            connected element\n            after removing the "require-trusted-types-for 'script' directive
+trusted-types/HTMLElement-generic.html	TT enabled: iframe.srcdoc\n            = TrustedHTML on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT enabled: iframe.srcdoc\n            = TrustedHTML on a\n            non-connected element\n            after removing the "require-trusted-types-for 'script' directive
+trusted-types/HTMLElement-generic.html	TT enabled: script.innerText\n            = TrustedScript on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT enabled: script.innerText\n            = TrustedScript on a\n            connected element\n            after removing the "require-trusted-types-for 'script' directive
+trusted-types/HTMLElement-generic.html	TT enabled: script.innerText\n            = TrustedScript on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT enabled: script.innerText\n            = TrustedScript on a\n            non-connected element\n            after removing the "require-trusted-types-for 'script' directive
+trusted-types/HTMLElement-generic.html	TT enabled: script.textContent\n            = TrustedScript on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT enabled: script.textContent\n            = TrustedScript on a\n            connected element\n            after removing the "require-trusted-types-for 'script' directive
+trusted-types/HTMLElement-generic.html	TT enabled: script.textContent\n            = TrustedScript on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT enabled: script.textContent\n            = TrustedScript on a\n            non-connected element\n            after removing the "require-trusted-types-for 'script' directive
+trusted-types/HTMLElement-generic.html	TT enabled: script.text\n            = TrustedScript on a\n            connected element\n            
+trusted-types/HTMLElement-generic.html	TT enabled: script.text\n            = TrustedScript on a\n            connected element\n            after removing the "require-trusted-types-for 'script' directive
+trusted-types/HTMLElement-generic.html	TT enabled: script.text\n            = TrustedScript on a\n            non-connected element\n            
+trusted-types/HTMLElement-generic.html	TT enabled: script.text\n            = TrustedScript on a\n            non-connected element\n            after removing the "require-trusted-types-for 'script' directive
+trusted-types/HTMLScriptElement-in-xhtml-document.tentative.https.xhtml	Test whether a script element still executes for XHTML documents.
+trusted-types/Node-multiple-arguments-tt-enforced.html	after('createScript #1';,'#2;') on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after('createScript #1';,'#2;') on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after('createScript';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after('createScript';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after('mixed';,'script';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after('mixed';,'script';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after('mixed';,[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after('mixed';,[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after('plain text #1';,'plain text #2';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after('plain text #1';,'plain text #2';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after('plain text';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after('plain text';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after([object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after([object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after([object Text],'script';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after([object Text],'script';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after([object Text],[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	after([object Text],[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append('createScript #1';,'#2;') on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append('createScript #1';,'#2;') on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append('createScript';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append('createScript';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append('mixed';,'script';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append('mixed';,'script';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append('mixed';,[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append('mixed';,[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append('plain text #1';,'plain text #2';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append('plain text #1';,'plain text #2';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append('plain text';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append('plain text';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append([object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append([object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append([object Text],'script';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append([object Text],'script';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append([object Text],[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	append([object Text],[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before('createScript #1';,'#2;') on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before('createScript #1';,'#2;') on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before('createScript';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before('createScript';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before('mixed';,'script';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before('mixed';,'script';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before('mixed';,[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before('mixed';,[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before('plain text #1';,'plain text #2';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before('plain text #1';,'plain text #2';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before('plain text';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before('plain text';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before([object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before([object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before([object Text],'script';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before([object Text],'script';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before([object Text],[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	before([object Text],[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend('createScript #1';,'#2;') on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend('createScript #1';,'#2;') on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend('createScript';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend('createScript';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend('mixed';,'script';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend('mixed';,'script';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend('mixed';,[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend('mixed';,[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend('plain text #1';,'plain text #2';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend('plain text #1';,'plain text #2';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend('plain text';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend('plain text';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend([object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend([object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend([object Text],'script';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend([object Text],'script';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend([object Text],[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	prepend([object Text],[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith('createScript #1';,'#2;') on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith('createScript #1';,'#2;') on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith('createScript';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith('createScript';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith('mixed';,'script';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith('mixed';,'script';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith('mixed';,[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith('mixed';,[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith('plain text #1';,'plain text #2';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith('plain text #1';,'plain text #2';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith('plain text';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith('plain text';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith([object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith([object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith([object Text],'script';) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith([object Text],'script';) on <script> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith([object Text],[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments-tt-enforced.html	replaceWith([object Text],[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	after('createScript #1';,'#2;') on <div> should pass
+trusted-types/Node-multiple-arguments.html	after('createScript #1';,'#2;') on <script> should pass
+trusted-types/Node-multiple-arguments.html	after('createScript';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	after('createScript';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	after('mixed';,'script';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	after('mixed';,'script';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	after('mixed';,[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	after('mixed';,[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	after('plain text #1';,'plain text #2';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	after('plain text #1';,'plain text #2';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	after('plain text';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	after('plain text';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	after([object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	after([object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	after([object Text],'script';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	after([object Text],'script';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	after([object Text],[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	after([object Text],[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	append('createScript #1';,'#2;') on <div> should pass
+trusted-types/Node-multiple-arguments.html	append('createScript #1';,'#2;') on <script> should pass
+trusted-types/Node-multiple-arguments.html	append('createScript';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	append('createScript';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	append('mixed';,'script';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	append('mixed';,'script';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	append('mixed';,[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	append('mixed';,[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	append('plain text #1';,'plain text #2';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	append('plain text #1';,'plain text #2';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	append('plain text';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	append('plain text';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	append([object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	append([object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	append([object Text],'script';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	append([object Text],'script';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	append([object Text],[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	append([object Text],[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	before('createScript #1';,'#2;') on <div> should pass
+trusted-types/Node-multiple-arguments.html	before('createScript #1';,'#2;') on <script> should pass
+trusted-types/Node-multiple-arguments.html	before('createScript';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	before('createScript';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	before('mixed';,'script';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	before('mixed';,'script';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	before('mixed';,[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	before('mixed';,[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	before('plain text #1';,'plain text #2';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	before('plain text #1';,'plain text #2';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	before('plain text';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	before('plain text';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	before([object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	before([object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	before([object Text],'script';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	before([object Text],'script';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	before([object Text],[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	before([object Text],[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	prepend('createScript #1';,'#2;') on <div> should pass
+trusted-types/Node-multiple-arguments.html	prepend('createScript #1';,'#2;') on <script> should pass
+trusted-types/Node-multiple-arguments.html	prepend('createScript';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	prepend('createScript';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	prepend('mixed';,'script';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	prepend('mixed';,'script';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	prepend('mixed';,[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	prepend('mixed';,[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	prepend('plain text #1';,'plain text #2';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	prepend('plain text #1';,'plain text #2';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	prepend('plain text';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	prepend('plain text';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	prepend([object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	prepend([object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	prepend([object Text],'script';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	prepend([object Text],'script';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	prepend([object Text],[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	prepend([object Text],[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith('createScript #1';,'#2;') on <div> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith('createScript #1';,'#2;') on <script> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith('createScript';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith('createScript';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith('mixed';,'script';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith('mixed';,'script';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith('mixed';,[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith('mixed';,[object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith('plain text #1';,'plain text #2';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith('plain text #1';,'plain text #2';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith('plain text';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith('plain text';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith([object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith([object Text]) on <script> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith([object Text],'script';) on <div> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith([object Text],'script';) on <script> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith([object Text],[object Text]) on <div> should pass
+trusted-types/Node-multiple-arguments.html	replaceWith([object Text],[object Text]) on <script> should pass
+trusted-types/Range-createContextualFragment.html	range.createContextualFragment assigned via policy (successful HTML transformation).
+trusted-types/ServiceWorkerContainer-register.https.html	Block ServiceWorker creation via String
+trusted-types/TrustedTypePolicy-CSP-wildcard.html	CSP supports wildcards.
+trusted-types/TrustedTypePolicy-createXXX.html	Attributes without type constraints will work as before.
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedHTML0 (TrustedHTML: s => s)
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedHTML1 (TrustedHTML: s => null)
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedHTML2 (TrustedHTML: s => "well, " + s)
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedHTML3 (TrustedHTML: s => { throw new Error() })
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedHTML4 (TrustedHTML: callback_to_capture_this(s) {\n      return String(this);\n    })
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedHTML5 (TrustedHTML: s => { aGlobalVarForSideEffectTesting = s; return s })
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedHTML6 (TrustedHTML: s => aGlobalVarForSideEffectTesting + s)
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedHTML7 (TrustedHTML: function () { [native code] })
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedHTML8 (TrustedHTML: s => aGlobalFunction(s))
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScript0 (TrustedScript: s => s)
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScript1 (TrustedScript: s => null)
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScript2 (TrustedScript: s => "well, " + s)
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScript3 (TrustedScript: s => { throw new Error() })
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScript4 (TrustedScript: callback_to_capture_this(s) {\n      return String(this);\n    })
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScript5 (TrustedScript: s => { aGlobalVarForSideEffectTesting = s; return s })
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScript6 (TrustedScript: s => aGlobalVarForSideEffectTesting + s)
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScript7 (TrustedScript: function () { [native code] })
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScript8 (TrustedScript: s => aGlobalFunction(s))
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScriptURL0 (TrustedScriptURL: s => s)
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScriptURL1 (TrustedScriptURL: s => null)
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScriptURL2 (TrustedScriptURL: s => s + "#duck")
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScriptURL3 (TrustedScriptURL: s => { throw new Error() })
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScriptURL4 (TrustedScriptURL: callback_to_capture_this(s) {\n      return String(this);\n    })
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScriptURL5 (TrustedScriptURL: s => s + "#" + aGlobalVarForSideEffectTesting)
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScriptURL6 (TrustedScriptURL: function () { [native code] })
+trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedScriptURL7 (TrustedScriptURL: s => anotherGlobalFunction(s))
+trusted-types/TrustedTypePolicy-createXXX.html	calling undefined callbacks throws
+trusted-types/TrustedTypePolicyFactory-constants.html	trustedTypes.emptyHTML cannot be redefined via defineProperty.
+trusted-types/TrustedTypePolicyFactory-constants.html	trustedTypes.emptyHTML cannot be redefined.
+trusted-types/TrustedTypePolicyFactory-constants.html	trustedTypes.emptyHTML returns the intended value.
+trusted-types/TrustedTypePolicyFactory-constants.html	trustedTypes.emptyScript cannot be redefined via defineProperty.
+trusted-types/TrustedTypePolicyFactory-constants.html	trustedTypes.emptyScript cannot be redefined.
+trusted-types/TrustedTypePolicyFactory-constants.html	trustedTypes.emptyScript returns the intended value.
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	Arbitrary number of arguments
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	createHTML defined - calling undefined callbacks throws
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	createScript defined - calling undefined callbacks throws
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	createScriptURL defined - calling undefined callbacks throws
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	html = callback that throws
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	html = identity function
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	html = identity function, global string changed
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	html = null
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	html = string + global string
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	html = this bound to an object
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	html = this without bind
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script = callback that throws
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script = identity function
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script = identity function, global string changed
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script = null
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script = string + global string
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script = this bound to an object
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script = this without bind
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script_url = callback that throws
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script_url = identity function
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script_url = identity function, global string changed
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script_url = null
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script_url = string + global string
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script_url = this bound to an object
+trusted-types/TrustedTypePolicyFactory-createPolicy-createXYZTests.html	script_url = this without bind
+trusted-types/TrustedTypePolicyFactory-createPolicy-cspTests-case.html	Can create a second policy with name 'SomeName'
+trusted-types/TrustedTypePolicyFactory-createPolicy-cspTests-case.html	Can create policy with name 'SomeName'
+trusted-types/TrustedTypePolicyFactory-createPolicy-cspTests-none-none-name.html	Can create policy with name 'SomeName'
+trusted-types/TrustedTypePolicyFactory-createPolicy-cspTests-none-skip.html	Can create a second policy with name 'SomeName'
+trusted-types/TrustedTypePolicyFactory-createPolicy-cspTests-none-skip.html	Can create policy with name 'SomeName'
+trusted-types/TrustedTypePolicyFactory-createPolicy-cspTests-none-skip.html	Can create policy with name 'default'
+trusted-types/TrustedTypePolicyFactory-createPolicy-cspTests-wildcard.html	Wildcard given - policy creation works
+trusted-types/TrustedTypePolicyFactory-createPolicy-cspTests.html	Allowed-name policy creation works.
+trusted-types/TrustedTypePolicyFactory-createPolicy-cspTests.html	Another allowed-name policy creation works.
+trusted-types/TrustedTypePolicyFactory-createPolicy-non-tt-policy-name.html	Creating an empty policy name works.
+trusted-types/TrustedTypePolicyFactory-createPolicy-non-tt-policy-name.html	Creating policy names containing a non-ASCII BMP character works.
+trusted-types/TrustedTypePolicyFactory-createPolicy-non-tt-policy-name.html	Creating policy names containing a non-BMP character works.
+trusted-types/TrustedTypePolicyFactory-createPolicy-non-tt-policy-name.html	Creating policy names made of a single ASCII character works.
+trusted-types/TrustedTypePolicyFactory-createPolicy-non-tt-policy-name.html	Creating policy names made of multiple ASCII characters works.
+trusted-types/TrustedTypePolicyFactory-createPolicy-unenforced.html	Duplicate policy names should be tolerated (unless in enforcing mode)
+trusted-types/TrustedTypePolicyFactory-defaultPolicy.html	defaultPolicy is a read-only property
+trusted-types/TrustedTypePolicyFactory-defaultPolicy.html	defaultPolicy returns the correct default policy
+trusted-types/TrustedTypePolicyFactory-defaultPolicy.html	defaultPolicy with no default created is not an error
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onabort", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onafterprint", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onauxclick", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onbeforeinput", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onbeforematch", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onbeforeprint", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onbeforetoggle", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onbeforeunload", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onblur", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "oncancel", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "oncanplay", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "oncanplaythrough", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onchange", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onclick", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onclose", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "oncommand", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "oncontextlost", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "oncontextmenu", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "oncontextrestored", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "oncopy", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "oncuechange", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "oncut", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "ondblclick", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "ondrag", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "ondragend", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "ondragenter", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "ondragleave", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "ondragover", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "ondragstart", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "ondrop", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "ondurationchange", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onemptied", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onencrypted", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onended", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onerror", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onfocus", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onformdata", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onhashchange", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "oninput", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "oninvalid", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onkeydown", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onkeypress", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onkeyup", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onlanguagechange", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onload", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onloadeddata", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onloadedmetadata", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onloadstart", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onmessage", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onmessageerror", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onmousedown", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onmouseenter", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onmouseleave", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onmousemove", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onmouseout", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onmouseover", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onmouseup", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onoffline", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "ononline", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onpagehide", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onpagereveal", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onpageshow", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onpageswap", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onpaste", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onpause", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onplay", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onplaying", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onpopstate", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onprogress", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onratechange", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onrejectionhandled", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onreset", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onresize", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onscroll", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onscrollend", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onsecuritypolicyviolation", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onseeked", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onseeking", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onselect", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onslotchange", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onstalled", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onstorage", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onsubmit", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onsuspend", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "ontimeupdate", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "ontoggle", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onunhandledrejection", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onunload", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onvolumechange", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onwaiting", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onwaitingforkey", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-event-handler-content-attributes.tentative.html	getAttributeType("dummy", "onwheel", "dummyNs", attrNs)
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	0: getAttributeType with element namespace and empty attribute namespace
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	0: getAttributeType with element namespace and empty attribute namespace.
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	0: getAttributeType with empty and undefined namespace.
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	0: getAttributeType with empty namespaces.
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	0: getAttributeType with full namespace info.
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	0: getAttributeType with undefined and empty namespace.
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	0: getAttributeType without namespaces.
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	1: getAttributeType with element namespace and empty attribute namespace
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	1: getAttributeType with element namespace and empty attribute namespace.
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	1: getAttributeType with empty and undefined namespace.
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	1: getAttributeType with empty namespaces.
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	1: getAttributeType with full namespace info.
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	1: getAttributeType with undefined and empty namespace.
+trusted-types/TrustedTypePolicyFactory-getAttributeType-namespace.html	1: getAttributeType without namespaces.
+trusted-types/TrustedTypePolicyFactory-getAttributeType-svg.html	trustedTypes.getAttributeType html script[href]
+trusted-types/TrustedTypePolicyFactory-getAttributeType-svg.html	trustedTypes.getAttributeType svg script[href] other href
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "DIV",\n          "data-onclick",\n          "http://www.w3.org/1999/xhtml",\n          "null") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "DIV",\n          "onclick",\n          "http://www.w3.org/1999/xhtml",\n          "https://example.com/namespace") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "DIV",\n          "onclick",\n          "http://www.w3.org/1999/xhtml",\n          "null") == "TrustedScript"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "DIV",\n          "src",\n          "http://www.w3.org/1999/xhtml",\n          "null") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "DIV",\n          "srcdoc",\n          "http://www.w3.org/1999/xhtml",\n          "null") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "IFRAME",\n          "data-srcdoc",\n          "http://www.w3.org/1999/xhtml",\n          "null") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "IFRAME",\n          "srcdoc",\n          "http://www.w3.org/1999/xhtml",\n          "https://example.com/namespace") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "IFRAME",\n          "srcdoc",\n          "http://www.w3.org/1999/xhtml",\n          "null") == "TrustedHTML"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "SCRIPT",\n          "data-src",\n          "http://www.w3.org/1999/xhtml",\n          "null") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "SCRIPT",\n          "href",\n          "http://www.w3.org/1999/xhtml",\n          "null") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "SCRIPT",\n          "src",\n          "http://www.w3.org/1999/xhtml",\n          "https://example.com/namespace") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "SCRIPT",\n          "src",\n          "http://www.w3.org/1999/xhtml",\n          "null") == "TrustedScriptURL"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "g",\n          "href",\n          "http://www.w3.org/2000/svg",\n          "null") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "g",\n          "ondblclick",\n          "http://www.w3.org/2000/svg",\n          "null") == "TrustedScript"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "iframe",\n          "srcdoc",\n          "https://example.com/namespace",\n          "null") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "mrow",\n          "onmousedown",\n          "http://www.w3.org/1998/Math/MathML",\n          "null") == "TrustedScript"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "script",\n          "href",\n          "http://www.w3.org/2000/svg",\n          "https://example.com/namespace") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "script",\n          "src",\n          "http://www.w3.org/2000/svg",\n          "null") == "null"
+trusted-types/TrustedTypePolicyFactory-getAttributeType.html	getAttributeType(\n          "script",\n          "src",\n          "https://example.com/namespace",\n          "null") == "null"
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	ASCII case-insensitivity of tag name and attribute parameters
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	IFRAME.SRCDOC is maybe defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	IFRAME.srcDoc is maybe defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	IFRAME.srcdoc is maybe defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	IFRAME[SRCDOC] is defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	IFRAME[srcDoc] is defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	IFRAME[srcdoc] is defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	getAttributeType tests adapted from w3c/trusted-types polyfill
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	getPropertyType tests adapted from w3c/trusted-types polyfill
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	getPropertyType vs getAttributeType for event handler.
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	getPropertyType with an explicit elementNs parameter
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	getPropertyType/getAttributeType with explicit null elementNs/attrNs
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	iFrAmE.SRCDOC is maybe defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	iFrAmE.srcDoc is maybe defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	iFrAmE.srcdoc is maybe defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	iFrAmE[SRCDOC] is defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	iFrAmE[srcDoc] is defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	iFrAmE[srcdoc] is defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	iframe.SRCDOC is maybe defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	iframe.srcDoc is maybe defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	iframe.srcdoc is maybe defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	iframe[SRCDOC] is defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	iframe[srcDoc] is defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	iframe[srcdoc] is defined
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	sanity check trustedTypes.getAttributeType.
+trusted-types/TrustedTypePolicyFactory-getPropertyType.tentative.html	sanity check trustedTypes.getPropertyType for the HTML script element.
+trusted-types/TrustedTypePolicyFactory-isXXX.html	TrustedTypePolicyFactory.isHTML requires the object to be created via policy.
+trusted-types/TrustedTypePolicyFactory-isXXX.html	TrustedTypePolicyFactory.isScript requires the object to be created via policy.
+trusted-types/TrustedTypePolicyFactory-isXXX.html	TrustedTypePolicyFactory.isScriptURL requires the object to be created via policy.
+trusted-types/TrustedTypePolicyFactory-isXXX.html	TrustedTypePolicyFactory.isXXX should accept anything without throwing.
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedHTML on b.id
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedHTML on b.madeup
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedHTML on b.onclick
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedHTML on b.onerror
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedHTML on b.setAttribute(id,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedHTML on b.setAttribute(madeup,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedHTML on madeup.id
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedHTML on madeup.madeup
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedHTML on madeup.onclick
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedHTML on madeup.onerror
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedHTML on madeup.setAttribute(id,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedHTML on madeup.setAttribute(madeup,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on b.id
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on b.madeup
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on b.onclick
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on b.onerror
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on b.setAttribute(id,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on b.setAttribute(madeup,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on b.setAttribute(onclick,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on b.setAttribute(onerror,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on madeup.id
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on madeup.madeup
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on madeup.onclick
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on madeup.onerror
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on madeup.setAttribute(id,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on madeup.setAttribute(madeup,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on madeup.setAttribute(onclick,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScript on madeup.setAttribute(onerror,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScriptURL on b.id
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScriptURL on b.madeup
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScriptURL on b.onclick
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScriptURL on b.onerror
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScriptURL on b.setAttribute(id,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScriptURL on b.setAttribute(madeup,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScriptURL on madeup.id
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScriptURL on madeup.madeup
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScriptURL on madeup.onclick
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScriptURL on madeup.onerror
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScriptURL on madeup.setAttribute(id,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of TrustedScriptURL on madeup.setAttribute(madeup,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of string on b.id
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of string on b.madeup
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of string on b.onclick
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of string on b.onerror
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of string on b.setAttribute(id,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of string on b.setAttribute(madeup,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of string on madeup.id
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of string on madeup.madeup
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of string on madeup.onclick
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of string on madeup.onerror
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of string on madeup.setAttribute(id,..)
+trusted-types/TrustedTypePolicyFactory-metadata.tentative.html	Test assignment of string on madeup.setAttribute(madeup,..)
+trusted-types/Window-TrustedTypes.html	factory = window.trustedTypes
+trusted-types/Window-TrustedTypes.html	factory construction fails
+trusted-types/block-Document-execCommand.html	Document.execCommand("insertHTML") works as usual with a default policy.
+trusted-types/block-Document-execCommand.html	Document.execCommand("insertHTML") works with a TrustedHTML argument.
+trusted-types/block-Document-execCommand.html	Document.execCommand("paste") works as usual with a default policy.
+trusted-types/block-Document-execCommand.html	Document.execCommand("paste") works as usual."
+trusted-types/block-Document-execCommand.html	Document.execCommand("paste") works with a TrustedHTML argument.
+trusted-types/block-string-assignment-to-DOMParser-parseFromString.html	'document.innerText = null' assigned via default policy does not throw
+trusted-types/block-string-assignment-to-DOMParser-parseFromString.html	document.innerText assigned via policy (successful HTML transformation).
+trusted-types/block-string-assignment-to-Document-parseHTMLUnsafe.html	'Document.parseHTMLUnsafe(null)' throws
+trusted-types/block-string-assignment-to-Document-parseHTMLUnsafe.html	`Document.parseHTMLUnsafe(string)` throws.
+trusted-types/block-string-assignment-to-Document-write.html	`document.write` passes the correct sink string to the default policy
+trusted-types/block-string-assignment-to-Document-write.html	`document.writeln` passes the correct sink string to the default policy
+trusted-types/block-string-assignment-to-Element-insertAdjacentHTML.html	`insertAdjacentHTML(null)` assigned via default policy does not throw.
+trusted-types/block-string-assignment-to-Element-insertAdjacentHTML.html	insertAdjacentHTML with html assigned via policy (successful HTML transformation).
+trusted-types/block-string-assignment-to-Element-insertAdjacentHTML.html	insertAdjacentHTML(TrustedHTML) throws SyntaxError DOMException when position invalid.
+trusted-types/block-string-assignment-to-Element-outerHTML.html	`outerHTML = TrustedHTML` throws NoModificationAllowedError when parent is a document.
+trusted-types/block-string-assignment-to-Element-outerHTML.html	outerHTML with html assigned via policy (successful HTML transformation).
+trusted-types/block-string-assignment-to-Element-setAttribute.html	a.rel accepts a Trusted Type
+trusted-types/block-string-assignment-to-Element-setAttribute.html	a.rel accepts null
+trusted-types/block-string-assignment-to-Element-setAttribute.html	a.rel accepts strings
+trusted-types/block-string-assignment-to-Element-setHTMLUnsafe.html	`element.setHTMLUnsafe(string)` throws.
+trusted-types/block-string-assignment-to-HTMLIFrameElement-srcdoc.html	`iframe.srcdoc = null` assigned via default policy does not throw
+trusted-types/block-string-assignment-to-HTMLIFrameElement-srcdoc.html	iframe.srcdoc assigned via policy (successful HTML transformation).
+trusted-types/block-string-assignment-to-Range-createContextualFragment.html	`range.createContextualFragment(null)` assigned via default policy does not throw.
+trusted-types/block-string-assignment-to-Range-createContextualFragment.html	range.createContextualFragment assigned via policy (successful HTML transformation).
+trusted-types/block-string-assignment-to-Window-setTimeout-setInterval.html	Window.setInterval assigned via policy (successful Script transformation).
+trusted-types/block-string-assignment-to-Window-setTimeout-setInterval.html	Window.setTimeout and Window.setInterval pass the correct sink to the default policy
+trusted-types/block-string-assignment-to-Window-setTimeout-setInterval.html	Window.setTimeout assigned via policy (successful Script transformation).
+trusted-types/block-string-assignment-to-Window-setTimeout-setInterval.html	`Window.setTimeout(null)`, `Window.setInterval(null)` via default policy (successful Script transformation).
+trusted-types/block-string-assignment-to-Window-setTimeout-setInterval.html	`Window.setTimeout(string)`, `Window.setInterval(string)` via default policy (successful Script transformation).
+trusted-types/block-string-assignment-to-attribute-via-attribute-node.html	Sanity check: Setting non-TT attributes still works.
+trusted-types/block-string-assignment-to-text-and-url-sinks.html	Setting HTMLDivElement.innerText to a plain string
+trusted-types/block-string-assignment-to-text-and-url-sinks.html	Setting HTMLDivElement.textContent to a plain string
+trusted-types/block-string-assignment-to-text-and-url-sinks.html	Setting SVGScriptElement.innerText to a plain string
+trusted-types/block-string-assignment-to-text-and-url-sinks.html	Setting SVGScriptElement.textContent to a plain string
+trusted-types/block-text-node-insertion-into-script-element.html	Regression test: Bypass via appendChild into live script element.
+trusted-types/block-text-node-insertion-into-script-element.html	Regression test: Bypass via insertAdjacentText, initial comment.
+trusted-types/block-text-node-insertion-into-script-element.html	Regression test: Bypass via insertAdjacentText, textContent.
+trusted-types/block-text-node-insertion-into-svg-script-element.html	Regression test: Bypass via appendChild into live script element. svg:script
+trusted-types/block-text-node-insertion-into-svg-script-element.html	Regression test: Bypass via appendChild into off-document script element. svg:script
+trusted-types/block-text-node-insertion-into-svg-script-element.html	Regression test: Bypass via insertAdjacentText, textContent. svg:script
+trusted-types/default-policy-callback-arguments.html	Test callback arguments, case Element innerHTML
+trusted-types/default-policy-callback-arguments.html	Test callback arguments, case Function
+trusted-types/default-policy-callback-arguments.html	Test callback arguments, case HTMLScriptElement src
+trusted-types/default-policy-callback-arguments.html	Test callback arguments, case HTMLScriptElement textContent
+trusted-types/default-policy-callback-arguments.html	Test callback arguments, case eval
+trusted-types/default-policy-report-only.html	div.innerHTML no default policy
+trusted-types/default-policy-report-only.html	div.innerHTML null
+trusted-types/default-policy-report-only.html	div.innerHTML undefined
+trusted-types/default-policy-report-only.html	script.src no default policy
+trusted-types/default-policy-report-only.html	script.src null
+trusted-types/default-policy-report-only.html	script.src undefined
+trusted-types/default-policy-report-only.html	script.text no default policy
+trusted-types/default-policy-report-only.html	script.text null
+trusted-types/default-policy-report-only.html	script.text undefined
+trusted-types/empty-default-policy-report-only.html	div.innerHTML default
+trusted-types/empty-default-policy-report-only.html	script.src default
+trusted-types/empty-default-policy-report-only.html	script.text default
+trusted-types/eval-csp-no-tt.html	Function constructor of TrustedScript works.
+trusted-types/eval-csp-no-tt.html	Function constructor of string works.
+trusted-types/eval-csp-no-tt.html	eval of !TrustedScript and !string works.
+trusted-types/eval-csp-no-tt.html	eval of TrustedScript works.
+trusted-types/eval-csp-no-tt.html	eval of string works.
+trusted-types/eval-csp-no-tt.html	indirect eval of TrustedScript works.
+trusted-types/eval-csp-no-tt.html	indirect eval of string works.
+trusted-types/eval-csp-tt-default-policy.html	Async Function constructor of TrustedScript works.
+trusted-types/eval-csp-tt-default-policy.html	AsyncFunction constructor of all TrustedScripts works.
+trusted-types/eval-csp-tt-default-policy.html	AsyncFunction constructor of all strings works.
+trusted-types/eval-csp-tt-default-policy.html	AsyncFunction constructor of string and TrustedScript works.
+trusted-types/eval-csp-tt-default-policy.html	AsyncFunction constructor of string works.
+trusted-types/eval-csp-tt-default-policy.html	AsyncGeneratorFunction constructor of TrustedScript works.
+trusted-types/eval-csp-tt-default-policy.html	AsyncGeneratorFunction constructor of all TrustedScripts works.
+trusted-types/eval-csp-tt-default-policy.html	AsyncGeneratorFunction constructor of all strings works.
+trusted-types/eval-csp-tt-default-policy.html	AsyncGeneratorFunction constructor of string and TrustedScript works.
+trusted-types/eval-csp-tt-default-policy.html	AsyncGeneratorFunction constructor of string works.
+trusted-types/eval-csp-tt-default-policy.html	Function constructor of TrustedScript works.
+trusted-types/eval-csp-tt-default-policy.html	Function constructor of all TrustedScripts works.
+trusted-types/eval-csp-tt-default-policy.html	Function constructor of all strings works.
+trusted-types/eval-csp-tt-default-policy.html	Function constructor of string and TrustedScript works.
+trusted-types/eval-csp-tt-default-policy.html	Function constructor of string works.
+trusted-types/eval-csp-tt-default-policy.html	GeneratorFunction constructor of TrustedScript works.
+trusted-types/eval-csp-tt-default-policy.html	GeneratorFunction constructor of all TrustedScripts works.
+trusted-types/eval-csp-tt-default-policy.html	GeneratorFunction constructor of all strings works.
+trusted-types/eval-csp-tt-default-policy.html	GeneratorFunction constructor of string and TrustedScript works.
+trusted-types/eval-csp-tt-default-policy.html	GeneratorFunction constructor of string works.
+trusted-types/eval-csp-tt-default-policy.html	eval of !TrustedScript and !string works.
+trusted-types/eval-csp-tt-default-policy.html	eval of TrustedScript works.
+trusted-types/eval-csp-tt-default-policy.html	eval of string works.
+trusted-types/eval-csp-tt-default-policy.html	indirect eval of TrustedScript works.
+trusted-types/eval-csp-tt-no-default-policy.html	Function constructor of TrustedScript works.
+trusted-types/eval-csp-tt-no-default-policy.html	Function constructor of all TrustedScripts works.
+trusted-types/eval-csp-tt-no-default-policy.html	eval of !TrustedScript and !string works.
+trusted-types/eval-csp-tt-no-default-policy.html	eval of TrustedScript works.
+trusted-types/eval-csp-tt-no-default-policy.html	indirect eval of TrustedScript works.
+trusted-types/eval-function-constructor-untrusted-arguments-and-applying-default-policy.html	plain string at index 0 (default policy leaving the function text unchanged).
+trusted-types/eval-function-constructor-untrusted-arguments-and-applying-default-policy.html	plain string at index 1 (default policy leaving the function text unchanged).
+trusted-types/eval-function-constructor-untrusted-arguments-and-applying-default-policy.html	plain string at index 2 (default policy leaving the function text unchanged).
+trusted-types/eval-function-constructor-untrusted-arguments-and-applying-default-policy.html	plain string at index 3 (default policy leaving the function text unchanged).
+trusted-types/eval-function-constructor.html	Function constructor with mixed plain and trusted strings, mask #15
+trusted-types/eval-no-csp-no-tt-default-policy.html	Function constructor of TrustedScript works.
+trusted-types/eval-no-csp-no-tt-default-policy.html	Function constructor of string works and does not call a default policy.
+trusted-types/eval-no-csp-no-tt-default-policy.html	eval of !TrustedScript and !string works.
+trusted-types/eval-no-csp-no-tt-default-policy.html	eval of TrustedScript works.
+trusted-types/eval-no-csp-no-tt-default-policy.html	eval of string works and does not call a default policy.
+trusted-types/eval-no-csp-no-tt-default-policy.html	indirect eval of TrustedScript works.
+trusted-types/eval-no-csp-no-tt-default-policy.html	indirect eval of string works and does not call a default policy.
+trusted-types/eval-no-csp-no-tt.html	Function constructor of TrustedScript works.
+trusted-types/eval-no-csp-no-tt.html	Function constructor of all TrustedScripts works.
+trusted-types/eval-no-csp-no-tt.html	Function constructor of all strings works.
+trusted-types/eval-no-csp-no-tt.html	Function constructor of string and TrustedScript works.
+trusted-types/eval-no-csp-no-tt.html	Function constructor of string works.
+trusted-types/eval-no-csp-no-tt.html	eval of !TrustedScript and !string works.
+trusted-types/eval-no-csp-no-tt.html	eval of TrustedScript works.
+trusted-types/eval-no-csp-no-tt.html	eval of string works.
+trusted-types/eval-no-csp-no-tt.html	indirect eval of TrustedScript works.
+trusted-types/eval-no-csp-no-tt.html	indirect eval of string works.
+trusted-types/eval-with-permissive-csp.html	eval with TrustedScript and permissive CSP works.
+trusted-types/eval-with-permissive-csp.html	eval with plain string with Trusted Types and permissive CSP works with default policy.
+trusted-types/eval-with-permissive-csp.html	indirect eval with TrustedScript and permissive CSP works.
+trusted-types/eval-with-permissive-csp.html	indirect eval with plain string with Trusted Types and permissive CSP works with default policy.
+trusted-types/eval-with-permissive-csp.html	new Function with TrustedScript and permissive CSP works.
+trusted-types/eval-with-permissive-csp.html	new Function with plain string default policy and permissive CSP works with default policy.
+trusted-types/get-trusted-types-compliant-attribute-value.html	Test sink for div.setAttributeNS(null, onclick)
+trusted-types/get-trusted-types-compliant-attribute-value.html	Test sink for iframe.setAttributeNS(null, srcdoc)
+trusted-types/get-trusted-types-compliant-attribute-value.html	Test sink for script.setAttributeNS(http://www.w3.org/1999/xlink, href)
+trusted-types/get-trusted-types-compliant-attribute-value.html	Test sink for script.setAttributeNS(null, href)
+trusted-types/get-trusted-types-compliant-attribute-value.html	Test sink for script.setAttributeNS(null, src)
+trusted-types/idlharness.window.html	Partial interface Window: member names are unique
+trusted-types/idlharness.window.html	Partial interface mixin WindowOrWorkerGlobalScope: member names are unique
+trusted-types/idlharness.window.html	Partial interface mixin WindowOrWorkerGlobalScope: original interface mixin defined
+trusted-types/idlharness.window.html	Stringification of window.trustedTypes
+trusted-types/idlharness.window.html	Stringification of window.trustedTypes.createPolicy("SomeName", { createHTML: s => s })
+trusted-types/idlharness.window.html	Stringification of window.trustedTypes.createPolicy("SomeName1", { createHTML: s => s }).createHTML("A string")
+trusted-types/idlharness.window.html	Stringification of window.trustedTypes.createPolicy("SomeName2", { createScript: s => s }).createScript("A string")
+trusted-types/idlharness.window.html	Stringification of window.trustedTypes.createPolicy("SomeName3", { createScriptURL: s => s }).createScriptURL("A string")
+trusted-types/idlharness.window.html	TrustedHTML interface object length
+trusted-types/idlharness.window.html	TrustedHTML interface object name
+trusted-types/idlharness.window.html	TrustedHTML interface: existence and properties of interface object
+trusted-types/idlharness.window.html	TrustedHTML interface: existence and properties of interface prototype object
+trusted-types/idlharness.window.html	TrustedHTML interface: existence and properties of interface prototype object's "constructor" property
+trusted-types/idlharness.window.html	TrustedHTML interface: existence and properties of interface prototype object's @@unscopables property
+trusted-types/idlharness.window.html	TrustedHTML interface: operation toJSON()
+trusted-types/idlharness.window.html	TrustedHTML interface: stringifier
+trusted-types/idlharness.window.html	TrustedHTML interface: toJSON operation on window.trustedTypes.createPolicy("SomeName1", { createHTML: s => s }).createHTML("A string")
+trusted-types/idlharness.window.html	TrustedHTML interface: window.trustedTypes.createPolicy("SomeName1", { createHTML: s => s }).createHTML("A string") must inherit property "toJSON()" with the proper type
+trusted-types/idlharness.window.html	TrustedHTML must be primary interface of window.trustedTypes.createPolicy("SomeName1", { createHTML: s => s }).createHTML("A string")
+trusted-types/idlharness.window.html	TrustedScript interface object length
+trusted-types/idlharness.window.html	TrustedScript interface object name
+trusted-types/idlharness.window.html	TrustedScript interface: existence and properties of interface object
+trusted-types/idlharness.window.html	TrustedScript interface: existence and properties of interface prototype object
+trusted-types/idlharness.window.html	TrustedScript interface: existence and properties of interface prototype object's "constructor" property
+trusted-types/idlharness.window.html	TrustedScript interface: existence and properties of interface prototype object's @@unscopables property
+trusted-types/idlharness.window.html	TrustedScript interface: operation toJSON()
+trusted-types/idlharness.window.html	TrustedScript interface: stringifier
+trusted-types/idlharness.window.html	TrustedScript interface: toJSON operation on window.trustedTypes.createPolicy("SomeName2", { createScript: s => s }).createScript("A string")
+trusted-types/idlharness.window.html	TrustedScript interface: window.trustedTypes.createPolicy("SomeName2", { createScript: s => s }).createScript("A string") must inherit property "toJSON()" with the proper type
+trusted-types/idlharness.window.html	TrustedScript must be primary interface of window.trustedTypes.createPolicy("SomeName2", { createScript: s => s }).createScript("A string")
+trusted-types/idlharness.window.html	TrustedScriptURL interface object length
+trusted-types/idlharness.window.html	TrustedScriptURL interface object name
+trusted-types/idlharness.window.html	TrustedScriptURL interface: existence and properties of interface object
+trusted-types/idlharness.window.html	TrustedScriptURL interface: existence and properties of interface prototype object
+trusted-types/idlharness.window.html	TrustedScriptURL interface: existence and properties of interface prototype object's "constructor" property
+trusted-types/idlharness.window.html	TrustedScriptURL interface: existence and properties of interface prototype object's @@unscopables property
+trusted-types/idlharness.window.html	TrustedScriptURL interface: operation toJSON()
+trusted-types/idlharness.window.html	TrustedScriptURL interface: stringifier
+trusted-types/idlharness.window.html	TrustedScriptURL interface: toJSON operation on window.trustedTypes.createPolicy("SomeName3", { createScriptURL: s => s }).createScriptURL("A string")
+trusted-types/idlharness.window.html	TrustedScriptURL interface: window.trustedTypes.createPolicy("SomeName3", { createScriptURL: s => s }).createScriptURL("A string") must inherit property "toJSON()" with the proper type
+trusted-types/idlharness.window.html	TrustedScriptURL must be primary interface of window.trustedTypes.createPolicy("SomeName3", { createScriptURL: s => s }).createScriptURL("A string")
+trusted-types/idlharness.window.html	TrustedTypePolicy interface object length
+trusted-types/idlharness.window.html	TrustedTypePolicy interface object name
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: attribute name
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: calling createHTML(DOMString, any...) on window.trustedTypes.createPolicy("SomeName", { createHTML: s => s }) with too few arguments must throw TypeError
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: calling createScript(DOMString, any...) on window.trustedTypes.createPolicy("SomeName", { createHTML: s => s }) with too few arguments must throw TypeError
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: calling createScriptURL(DOMString, any...) on window.trustedTypes.createPolicy("SomeName", { createHTML: s => s }) with too few arguments must throw TypeError
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: existence and properties of interface object
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: existence and properties of interface prototype object
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: existence and properties of interface prototype object's "constructor" property
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: existence and properties of interface prototype object's @@unscopables property
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: operation createHTML(DOMString, any...)
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: operation createScript(DOMString, any...)
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: operation createScriptURL(DOMString, any...)
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: window.trustedTypes.createPolicy("SomeName", { createHTML: s => s }) must inherit property "createHTML(DOMString, any...)" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: window.trustedTypes.createPolicy("SomeName", { createHTML: s => s }) must inherit property "createScript(DOMString, any...)" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: window.trustedTypes.createPolicy("SomeName", { createHTML: s => s }) must inherit property "createScriptURL(DOMString, any...)" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicy interface: window.trustedTypes.createPolicy("SomeName", { createHTML: s => s }) must inherit property "name" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicy must be primary interface of window.trustedTypes.createPolicy("SomeName", { createHTML: s => s })
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface object length
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface object name
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: attribute defaultPolicy
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: attribute emptyHTML
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: attribute emptyScript
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: calling createPolicy(DOMString, optional TrustedTypePolicyOptions) on window.trustedTypes with too few arguments must throw TypeError
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: calling getAttributeType(DOMString, DOMString, optional DOMString?, optional DOMString?) on window.trustedTypes with too few arguments must throw TypeError
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: calling getPropertyType(DOMString, DOMString, optional DOMString?) on window.trustedTypes with too few arguments must throw TypeError
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: calling isHTML(any) on window.trustedTypes with too few arguments must throw TypeError
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: calling isScript(any) on window.trustedTypes with too few arguments must throw TypeError
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: calling isScriptURL(any) on window.trustedTypes with too few arguments must throw TypeError
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: existence and properties of interface object
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: existence and properties of interface prototype object
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: existence and properties of interface prototype object's "constructor" property
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: existence and properties of interface prototype object's @@unscopables property
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: operation createPolicy(DOMString, optional TrustedTypePolicyOptions)
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: operation getAttributeType(DOMString, DOMString, optional DOMString?, optional DOMString?)
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: operation getPropertyType(DOMString, DOMString, optional DOMString?)
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: operation isHTML(any)
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: operation isScript(any)
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: operation isScriptURL(any)
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: window.trustedTypes must inherit property "createPolicy(DOMString, optional TrustedTypePolicyOptions)" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: window.trustedTypes must inherit property "defaultPolicy" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: window.trustedTypes must inherit property "emptyHTML" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: window.trustedTypes must inherit property "emptyScript" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: window.trustedTypes must inherit property "getAttributeType(DOMString, DOMString, optional DOMString?, optional DOMString?)" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: window.trustedTypes must inherit property "getPropertyType(DOMString, DOMString, optional DOMString?)" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: window.trustedTypes must inherit property "isHTML(any)" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: window.trustedTypes must inherit property "isScript(any)" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory interface: window.trustedTypes must inherit property "isScriptURL(any)" with the proper type
+trusted-types/idlharness.window.html	TrustedTypePolicyFactory must be primary interface of window.trustedTypes
+trusted-types/idlharness.window.html	Window includes AnimationFrameProvider: member names are unique
+trusted-types/idlharness.window.html	Window includes GlobalEventHandlers: member names are unique
+trusted-types/idlharness.window.html	Window includes WindowEventHandlers: member names are unique
+trusted-types/idlharness.window.html	Window includes WindowLocalStorage: member names are unique
+trusted-types/idlharness.window.html	Window includes WindowOrWorkerGlobalScope: member names are unique
+trusted-types/idlharness.window.html	Window includes WindowSessionStorage: member names are unique
+trusted-types/idlharness.window.html	Window interface: attribute trustedTypes
+trusted-types/idlharness.window.html	WorkerGlobalScope includes WindowOrWorkerGlobalScope: member names are unique
+trusted-types/idlharness.window.html	idl_test setup
+trusted-types/idlharness.window.html	idl_test validation
+trusted-types/legacy-trusted-script-urls.html	Legacy TrustedScriptURLs attributes accept arbitrary strings.
+trusted-types/legacy-trusted-script-urls.html	Legacy TrustedScriptURLs properties accept arbitrary strings.
+trusted-types/legacy-trusted-scripts.html	Legacy sinks for TrustedScript accept arbitrary strings.
+trusted-types/modify-attributes-in-callback.html	Ensure setAttribute results in right attribute value.
+trusted-types/modify-attributes-in-callback.html	Ensure setAttributeNS results in right attribute value.
+trusted-types/modify-attributes-in-callback.html	Ensure the deleted attributes is modified (setAttributeNS).
+trusted-types/modify-attributes-in-callback.html	Ensure the deleted attributes is modified.
+trusted-types/modify-attributes-in-callback.html	Ensure the right attributes are modified (setAttributeNS).
+trusted-types/modify-attributes-in-callback.html	Ensure the right attributes are modified.
+trusted-types/modify-attributes-in-callback.html	Ensure toggleAttribute results in an empty attribute.
+trusted-types/no-require-trusted-types-for-report-only.html	div.innerHTML empty default
+trusted-types/no-require-trusted-types-for-report-only.html	div.innerHTML with trusted types
+trusted-types/no-require-trusted-types-for-report-only.html	div.innerHTML without trusted types
+trusted-types/no-require-trusted-types-for-report-only.html	script.src empty default
+trusted-types/no-require-trusted-types-for-report-only.html	script.src with trusted types
+trusted-types/no-require-trusted-types-for-report-only.html	script.src without trusted types
+trusted-types/no-require-trusted-types-for-report-only.html	script.text empty default
+trusted-types/no-require-trusted-types-for-report-only.html	script.text with trusted types
+trusted-types/no-require-trusted-types-for-report-only.html	script.text without trusted types
+trusted-types/no-require-trusted-types-for.html	div.innerHTML empty default
+trusted-types/no-require-trusted-types-for.html	div.innerHTML with trusted types
+trusted-types/no-require-trusted-types-for.html	div.innerHTML without trusted types
+trusted-types/no-require-trusted-types-for.html	script.src empty default
+trusted-types/no-require-trusted-types-for.html	script.src with trusted types
+trusted-types/no-require-trusted-types-for.html	script.src without trusted types
+trusted-types/no-require-trusted-types-for.html	script.text empty default
+trusted-types/no-require-trusted-types-for.html	script.text with trusted types
+trusted-types/no-require-trusted-types-for.html	script.text without trusted types
+trusted-types/policy-without-return-value.sub.html	createHTML with a policy that returns undefined DOMParser
+trusted-types/policy-without-return-value.sub.html	createHTML with a policy that returns undefined iframe.srcdoc
+trusted-types/policy-without-return-value.sub.html	createScript with a policy that returns undefined <div onload>
+trusted-types/policy-without-return-value.sub.html	createScriptURL with a policy that returns undefined script.src
+trusted-types/script-enforcement-001.html	The HTMLScriptElement is initially trusted.
+trusted-types/script-enforcement-002.html	Default policy when normalizing script source via Element.normalize().
+trusted-types/script-enforcement-002.html	Default policy when splitting script source via Text.splitText().
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow, attrName=onmousedown with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=data-onclick with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=onclick with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=ondoesnotexist with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=src with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=srcdoc with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME, attrName=data-srcdoc with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME, attrName=srcdoc with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrName=data-src with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrName=href with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrName=src with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/2000/svg, element=g, attrName=href with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/2000/svg, element=g, attrName=ondblclick with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/2000/svg, element=script, attrName=href with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=http://www.w3.org/2000/svg, element=script, attrName=src with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=https://example.com/namespace, element=foo, attrName=onmouseup with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=https://example.com/namespace, element=iframe, attrName=srcdoc with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttribute works for elementNS=https://example.com/namespace, element=script, attrName=src with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow, attrName=onmousedown with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrNS=https://example.com/namespace, attrName=onclick with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=data-onclick with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=onclick with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=ondoesnotexist with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=src with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=srcdoc with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME, attrNS=https://example.com/namespace, attrName=srcdoc with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME, attrName=data-srcdoc with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME, attrName=srcdoc with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrNS=https://example.com/namespace, attrName=src with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrName=data-src with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrName=href with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrName=src with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=g, attrName=href with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=g, attrName=ondblclick with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink, attrName=href with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=https://example.com/namespace, attrName=href with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=script, attrName=href with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=script, attrName=src with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=https://example.com/namespace, element=foo, attrName=onmouseup with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=https://example.com/namespace, element=iframe, attrName=srcdoc with a plain string
+trusted-types/set-attributes-no-require-trusted-types.html	Element.setAttributeNS works for elementNS=https://example.com/namespace, element=script, attrName=src with a plain string
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown and a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick and a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=data-onclick
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=ondoesnotexist
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=src
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=srcdoc
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc and a TrustedHTML input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME, attrName=data-srcdoc
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src and a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrName=data-src
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrName=href
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick and a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/2000/svg, element=g, attrName=href
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href and a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=http://www.w3.org/2000/svg, element=script, attrName=src
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=https://example.com/namespace, element=foo, attrName=onmouseup
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=https://example.com/namespace, element=iframe, attrName=srcdoc
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttribute does not apply default policy for elementNS=https://example.com/namespace, element=script, attrName=src
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown and a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick and a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrNS=https://example.com/namespace, attrName=onclick
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=data-onclick
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=ondoesnotexist
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=src
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrName=srcdoc
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc and a TrustedHTML input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME, attrNS=https://example.com/namespace, attrName=srcdoc
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME, attrName=data-srcdoc
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src and a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrNS=https://example.com/namespace, attrName=src
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrName=data-src
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrName=href
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick and a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/2000/svg, element=g, attrName=href
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href and a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href and a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=https://example.com/namespace, attrName=href
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=http://www.w3.org/2000/svg, element=script, attrName=src
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=https://example.com/namespace, element=foo, attrName=onmouseup
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=https://example.com/namespace, element=iframe, attrName=srcdoc
+trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=https://example.com/namespace, element=script, attrName=src
+trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setAttributeNode runs Trusted Types check before inuse checks
+trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setAttributeNode runs Trusted Types check before same attribute early return
+trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setAttributeNodeNS runs Trusted Types check before inuse checks
+trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setAttributeNodeNS runs Trusted Types check before same attribute early return
+trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setNamedItem runs Trusted Types check before inuse checks
+trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setNamedItem runs Trusted Types check before same attribute early return
+trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setNamedItemNS runs Trusted Types check before inuse checks
+trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setNamedItemNS runs Trusted Types check before same attribute early return
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=data-onclick with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=ondoesnotexist with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=srcdoc with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=data-srcdoc with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a TrustedHTML input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=data-src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=href with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=href with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=https://example.com/namespace, element=foo,  attrName=onmouseup with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=https://example.com/namespace, element=iframe,  attrName=srcdoc with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttribute works for elementNS=https://example.com/namespace, element=script,  attrName=src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=data-onclick with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=ondoesnotexist with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=srcdoc with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV, attrNS=https://example.com/namespace,  attrName=onclick with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=data-srcdoc with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a TrustedHTML input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME, attrNS=https://example.com/namespace,  attrName=srcdoc with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=data-src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=href with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT, attrNS=https://example.com/namespace,  attrName=src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=href with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=https://example.com/namespace,  attrName=href with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=https://example.com/namespace, element=foo,  attrName=onmouseup with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=https://example.com/namespace, element=iframe,  attrName=srcdoc with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNS works for elementNS=https://example.com/namespace, element=script,  attrName=src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a TrustedHTML input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a TrustedHTML input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a TrustedHTML input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a TrustedHTML input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a TrustedScript input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a plain string
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a TrustedScriptURL input.
+trusted-types/set-attributes-require-trusted-types-no-default-policy.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a plain string
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("ondevicelight", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("ondevicemotion", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("ondeviceorientation", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("ondeviceorientationabsolute", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("ondoesnotexist", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("onopen", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("onreadystatechange", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("onuserproximity", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("onvisibilitychange", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("onvrdisplayactivate", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("onvrdisplayconnect", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("onvrdisplaydeactivate", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("onvrdisplaydisconnect", "unsafe_handler()") does not call default policy
+trusted-types/set-event-handlers-content-attributes.tentative.html	DIV.setAttribute("onvrdisplaypresentchange", "unsafe_handler()") does not call default policy
+trusted-types/trusted-types-duplicate-names-list-report-only.html	TrustedTypePolicyFactory and policy list in CSP.
+trusted-types/trusted-types-duplicate-names-without-enforcement.html	createPolicy - duplicate "default" policy is never allowed.
+trusted-types/trusted-types-duplicate-names-without-enforcement.html	createPolicy - duplicate policies are allowed when Trusted Types are not enforced.
+trusted-types/trusted-types-duplicate-names.html	policy - duplicate names
+trusted-types/trusted-types-event-handlers.html	Non-event handler blubb should not be blocked.
+trusted-types/trusted-types-event-handlers.html	Non-event handler div.align should not be blocked.
+trusted-types/trusted-types-event-handlers.html	Non-event handler div.draggable should not be blocked.
+trusted-types/trusted-types-event-handlers.html	Non-event handler div.inert should not be blocked.
+trusted-types/trusted-types-event-handlers.html	Non-event handler div.title should not be blocked.
+trusted-types/trusted-types-event-handlers.html	Non-event handler oNe should not be blocked.
+trusted-types/trusted-types-event-handlers.html	Non-event handler offIcon should not be blocked.
+trusted-types/trusted-types-event-handlers.html	Non-event handler onIcon should not be blocked.
+trusted-types/trusted-types-event-handlers.html	Non-event handler one should not be blocked.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedHTML.fromLiteral: Object throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedHTML.fromLiteral: String throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedHTML.fromLiteral: frozen non-literal throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedHTML.fromLiteral: non-literal throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedHTML.fromLiteral: non-literal with param throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedHTML.fromLiteral: null throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedHTML.fromLiteral: template literal with expression throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedHTML.fromLiteral: undefined throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScript.fromLiteral: Object throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScript.fromLiteral: String throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScript.fromLiteral: frozen non-literal throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScript.fromLiteral: non-literal throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScript.fromLiteral: non-literal with param throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScript.fromLiteral: null throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScript.fromLiteral: template literal with expression throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScript.fromLiteral: undefined throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScriptURL.fromLiteral: Object throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScriptURL.fromLiteral: String throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScriptURL.fromLiteral: frozen non-literal throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScriptURL.fromLiteral: non-literal throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScriptURL.fromLiteral: non-literal with param throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScriptURL.fromLiteral: null throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScriptURL.fromLiteral: template literal with expression throws.
+trusted-types/trusted-types-from-literal.tentative.html	TrustedScriptURL.fromLiteral: undefined throws.
+trusted-types/trusted-types-reporting-check-report-Window-create-policy.html	Creating policy works for policy in the allowlist.
+trusted-types/trusted-types-reporting-check-report-Window-create-policy.html	Creating policy works for policy in the blocklist, since it's report-only.
+trusted-types/trusted-types-reporting-check-report-Window-sink-mismatch.html	Passing a TrustedScript to setTimeout works.
+trusted-types/trusted-types-reporting-check-report-Window-sink-mismatch.html	Passing a plain string to setTimeout works since it's report-only.
+trusted-types/trusted-types-sandbox-no-allow-scripts.html	Trusted Types CSP directives don't affect the behavior of sandboxed page without allow-scripts.
+trusted-types/trusted-types-secondary-document.html	Document execCommand works with a TrustedHTML
+trusted-types/trusted-types-secondary-document.html	Element insertAdjacentHTML works with a TrustedHTML
+trusted-types/trusted-types-secondary-document.html	Element.setAttribute works for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a TrustedScript input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a TrustedScript input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a TrustedHTML input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttribute works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a TrustedScriptURL input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttribute works for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a TrustedScript input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttribute works for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a TrustedScriptURL input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a TrustedScript input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a TrustedScript input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a TrustedHTML input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNS works for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a TrustedScriptURL input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a TrustedScript input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a TrustedScriptURL input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNS works for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a TrustedScriptURL input.
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNode throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a plain string
+trusted-types/trusted-types-secondary-document.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a plain string
+trusted-types/trusted-types-secondary-document.html	HTMLElement innerHTML works with a TrustedHTML
+trusted-types/trusted-types-secondary-document.html	HTMLElement setHTMLUnsafe throws with a plain string
+trusted-types/trusted-types-secondary-document.html	HTMLIFrameElement srcdoc works with a TrustedHTML
+trusted-types/trusted-types-secondary-document.html	HTMLScriptElement innerText works with a TrustedScript
+trusted-types/trusted-types-secondary-document.html	HTMLScriptElement text works with a TrustedScript
+trusted-types/trusted-types-secondary-document.html	HTMLScriptElement textContent works with a TrustedScript
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItem throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/1998/Math/MathML, element=mrow,  attrName=onmousedown with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/1999/xhtml, element=DIV,  attrName=onclick with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/1999/xhtml, element=IFRAME,  attrName=srcdoc with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/1999/xhtml, element=SCRIPT,  attrName=src with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a plain string
+trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a plain string
+trusted-types/trusted-types-tojson.html	toJSON
 url/IdnaTestV2-removed.any.html	Loading data…
 url/IdnaTestV2-removed.any.html	ToASCII("-ᢗ‌🄄.𑜢") C1; P1; V5; V6; V3 (ignored)
 url/IdnaTestV2-removed.any.html	ToASCII("-󠉖ꡧ．󠊂񇆃🄉") P1; V6; V3 (ignored)

@@ -71,6 +71,7 @@ add_library(sashfold_core STATIC
   src/bindings/Range.cpp
   src/bindings/Reflect.cpp
   src/bindings/Traversal.cpp
+  src/bindings/TrustedTypes.cpp
   src/bindings/Realm.cpp
   src/bindings/Style.cpp
   src/bindings/StructuredClone.cpp

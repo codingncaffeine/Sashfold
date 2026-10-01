@@ -4000,6 +4000,58 @@ void test_rejections_are_events()
     CHECK_EQ(page->console, std::string("error:Uncaught (in promise) print|"));
 }
 
+// Trusted Types: the factory, its policies and the three trusted values,
+// as a page under require-trusted-types-for uses them. (A real Chromium
+// with only window.trustedTypes removed stops the watch page's video the
+// way this engine did, 2026-10-01.)
+void test_trusted_types()
+{
+    auto page = loaded("<!DOCTYPE html><body><div id=d></div></body>");
+    CHECK(page->boolean("trustedTypes instanceof TrustedTypePolicyFactory && window.trustedTypes === trustedTypes && trustedTypes.defaultPolicy === null"
+                        " && typeof TrustedHTML === 'function' && typeof TrustedScript === 'function' && typeof TrustedScriptURL === 'function'"));
+    CHECK(page->boolean(R"JS((function () {
+        var p = trustedTypes.createPolicy('p', { createHTML: function (s, extra) { return '<b>' + s + '</b>' + (extra || ''); }, createScriptURL: function (s) { return null; } });
+        if (!(p instanceof TrustedTypePolicy) || p.name !== 'p') return false;
+        var h = p.createHTML('x', '!');
+        var u = p.createScriptURL('u');
+        return h instanceof TrustedHTML && String(h) === '<b>x</b>!' && h.toJSON() === '<b>x</b>!' && 'a' + h === 'a<b>x</b>!'
+            && trustedTypes.isHTML(h) && !trustedTypes.isScript(h) && !trustedTypes.isHTML('<b>x</b>!') && !trustedTypes.isHTML({})
+            && u instanceof TrustedScriptURL && String(u) === '' && trustedTypes.isScriptURL(u)
+            && (document.getElementById('d').innerHTML = h, document.getElementById('d').innerHTML === '<b>x</b>!');
+    })())JS"));
+    CHECK(page->throws("trustedTypes.createPolicy('q', {}).createScript('s')").starts_with("TypeError"));
+    CHECK(page->throws("trustedTypes.createPolicy('q', { createHTML: 1 })").starts_with("TypeError"));
+    CHECK(page->throws("trustedTypes.createPolicy('q', { createHTML: function () { throw new RangeError('no'); } }).createHTML('x')").starts_with("RangeError"));
+    CHECK(page->throws("new TrustedHTML()").starts_with("TypeError"));
+    CHECK(page->throws("TrustedTypePolicy.prototype.createHTML.call({}, 'x')").starts_with("TypeError"));
+    CHECK(page->boolean(R"JS((function () {
+        var d = trustedTypes.createPolicy('default', { createScript: function (s) { return s + ';'; } });
+        if (trustedTypes.defaultPolicy !== d || String(d.createScript('a')) !== 'a;') return false;
+        try { trustedTypes.createPolicy('default', {}); return false; } catch (e) { if (!(e instanceof TypeError)) return false; }
+        trustedTypes.createPolicy('p', {}); // the same name twice is allowed without a directive
+        return trustedTypes.emptyHTML instanceof TrustedHTML && String(trustedTypes.emptyHTML) === '' && trustedTypes.emptyHTML === trustedTypes.emptyHTML
+            && trustedTypes.emptyScript instanceof TrustedScript && trustedTypes.isScript(trustedTypes.emptyScript);
+    })())JS"));
+    CHECK(page->boolean("trustedTypes.getAttributeType('script', 'src') === 'TrustedScriptURL' && trustedTypes.getAttributeType('SCRIPT', 'SRC') === 'TrustedScriptURL'"
+                        " && trustedTypes.getAttributeType('iframe', 'srcdoc') === 'TrustedHTML' && trustedTypes.getAttributeType('div', 'onclick') === 'TrustedScript'"
+                        " && trustedTypes.getAttributeType('object', 'data') === 'TrustedScriptURL' && trustedTypes.getAttributeType('div', 'title') === null"
+                        " && trustedTypes.getAttributeType('script', 'src', 'http://www.w3.org/2000/svg') === null && trustedTypes.getAttributeType('a', 'href') === null"));
+    // eval runs the code a TrustedScript carries, direct and indirect; any
+    // other object still comes back as it is.
+    CHECK(page->boolean(R"JS((function () {
+        var p = trustedTypes.createPolicy('e', { createScript: function (s) { return s; } });
+        var local = 40;
+        var o = {};
+        return eval(p.createScript('local + 2')) === 42 && (0, eval)(p.createScript('1 + 1')) === 2 && eval(o) === o && (0, eval)(o) === o
+            && eval(p.createScript('typeof local')) === 'number' && (0, eval)(p.createScript('typeof local')) === 'undefined';
+    })())JS"));
+    CHECK(page->boolean("trustedTypes.getPropertyType('div', 'innerHTML') === 'TrustedHTML' && trustedTypes.getPropertyType('span', 'outerHTML') === 'TrustedHTML'"
+                        " && trustedTypes.getPropertyType('script', 'text') === 'TrustedScript' && trustedTypes.getPropertyType('script', 'src') === 'TrustedScriptURL'"
+                        " && trustedTypes.getPropertyType('iframe', 'srcdoc') === 'TrustedHTML' && trustedTypes.getPropertyType('div', 'textContent') === null"
+                        " && trustedTypes.getPropertyType('x', 'innerHTML', 'http://www.w3.org/2000/svg') === 'TrustedHTML'"));
+    CHECK_EQ(page->console, std::string(""));
+}
+
 // The objects hanging off navigator that answer for themselves: each the
 // standard's shape and the same object every read; the answers of an
 // engine with no device, no permission granted and no system integration.
@@ -5357,6 +5409,7 @@ int main()
     test_the_small_things_a_page_asks_for();
     test_rejections_are_events();
     test_navigator_objects();
+    test_trusted_types();
     test_scripts_that_must_not_run_again();
     test_mutation_observer();
     test_intersection_observer();

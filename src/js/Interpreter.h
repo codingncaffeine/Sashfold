@@ -602,6 +602,10 @@ public:
     // message back is the EvalError thrown instead. Unset, every string
     // compiles. The page's Content Security Policy answers it.
     std::function<std::optional<std::string>()> on_compile_strings;
+    // HostGetCodeForEval (§19.2.1.1 step 2, as Trusted Types has it): a
+    // value handed to eval that is not a string is the host's to turn into
+    // code — a TrustedScript's text — or eval answers it unchanged.
+    std::function<std::optional<JsString*>(Value const&)> on_code_for_eval;
     // Every string that becomes code — eval's, direct or indirect, and the
     // parameters and body a Function constructor is given — handed to a
     // watcher as it is compiled, numbered from 1. While a watcher is set, an

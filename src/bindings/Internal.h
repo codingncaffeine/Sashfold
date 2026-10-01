@@ -1663,6 +1663,12 @@ int media_type_support(std::string_view type);
 // getGamepads, share/canShare, setAppBadge/clearAppBadge,
 // requestMediaKeySystemAccess.
 void install_navigator_objects(Realm::Internals&, js::Object& navigator_prototype);
+// Trusted Types (TrustedTypes.cpp): the factory on the global, its policies and
+// the three trusted values; the window's and a worker's alike.
+void install_trusted_types(Realm::Internals&);
+// The code a TrustedScript carries, for eval (HostGetCodeForEval); nothing
+// for any other value.
+std::optional<std::string> trusted_script_code(js::Value const&);
 
 // An attribute marked [SameObject] (WebIDL): the object `make` builds the
 // first time, kept with the realm's roots under `key` and handed out again.

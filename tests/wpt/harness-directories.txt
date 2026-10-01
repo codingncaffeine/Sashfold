@@ -90,3 +90,8 @@ credential-management
 badging
 web-share
 gamepad
+
+# Added 2026-10-01 with Trusted Types: its suite. The tests that need the
+# sinks to refuse a string under require-trusted-types-for say so by failing
+# until the enforcement is written.
+trusted-types
