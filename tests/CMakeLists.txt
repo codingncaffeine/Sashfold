@@ -447,7 +447,9 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/wpt/dom)
       ${CMAKE_CURRENT_SOURCE_DIR}/wpt/harness-directories.txt
       ${CMAKE_CURRENT_SOURCE_DIR}/wpt/harness-passing.txt
       --revision ${CMAKE_CURRENT_SOURCE_DIR}/wpt/REVISION)
-  set_tests_properties(wpt_testharness PROPERTIES TIMEOUT 1800)
+  # Its media tests load the GPU video drivers too (lsan-suppressions.txt).
+  set_tests_properties(wpt_testharness PROPERTIES TIMEOUT 1800
+    ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt")
 endif()
 
 # test262, the ECMAScript conformance suite, scored against the checkout
