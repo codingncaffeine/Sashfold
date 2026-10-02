@@ -834,6 +834,9 @@ struct Browser::Impl {
         bool said_new = false;
         Said said;
         std::shared_ptr<KeptHistory> leave_history; // where its history goes as it ends
+        // The page went full screen (true) or left it (false), said by its
+        // thread the moment it did, ahead of the end of its turn.
+        std::optional<bool> fullscreen_now;
         std::function<void()> wake_shell;
         std::optional<platform::ScriptThread> thread;
         // Held by the page's thread through each turn of its loop, and by
@@ -1807,6 +1810,7 @@ struct Browser::Impl {
             if (!engine || !engine->threaded)
                 continue;
             std::optional<Said> said;
+            std::optional<bool> fullscreen_now;
             {
                 std::lock_guard<std::mutex> const lock(engine->mutex);
                 if (engine->said_new) {
@@ -1814,9 +1818,23 @@ struct Browser::Impl {
                     engine->said = Said {};
                     engine->said_new = false;
                 }
+                fullscreen_now = engine->fullscreen_now;
+                engine->fullscreen_now.reset();
             }
             if (said)
                 hear(tabs[i], std::move(*said));
+            // Full screen comes and goes as soon as the page says so: the
+            // window asks for the screen, or gives it back, and the page is
+            // given the room while it is still answering the change. Heard
+            // after what the page said at the end of its last turn, which
+            // came before it.
+            if (fullscreen_now) {
+                Tab& tab = tabs[i];
+                tab.page_fullscreen = *fullscreen_now;
+                if (&tab == active_tab())
+                    window_request = *fullscreen_now ? Browser::WindowRequest::EnterFullscreen : Browser::WindowRequest::ExitFullscreen;
+                dirty = true;
+            }
         }
         std::erase_if(leaving, [](std::shared_ptr<Engine> const& engine) {
             {
@@ -4028,12 +4046,28 @@ struct Browser::Impl {
             Tab const* const owner = tab_of(document);
             if (!owner || owner != shown_tab())
                 return false;
+            bool turned = false;
             if (enter) {
                 fullscreen_document = document;
-                window_request = Browser::WindowRequest::EnterFullscreen;
+                turned = true;
             } else if (fullscreen_document == document) {
                 fullscreen_document = nullptr;
-                window_request = Browser::WindowRequest::ExitFullscreen;
+                turned = true;
+            }
+            if (turned) {
+                // A page on a thread of its own tells the shell now, not when
+                // its turn ends: the page's own answer to the change may hold
+                // that turn for a while, and the window should not wait on it.
+                if (engine_self && engine_self->threaded) {
+                    {
+                        std::lock_guard<std::mutex> const lock(engine_self->mutex);
+                        engine_self->fullscreen_now = enter;
+                    }
+                    if (engine_self->wake_shell)
+                        engine_self->wake_shell();
+                } else {
+                    window_request = enter ? Browser::WindowRequest::EnterFullscreen : Browser::WindowRequest::ExitFullscreen;
+                }
             }
             dirty = true;
             return true;
