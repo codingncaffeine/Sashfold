@@ -1630,7 +1630,13 @@ struct Browser::Impl {
             std::string said_now;
             {
                 std::lock_guard<std::mutex> const turn(self->turn);
+                // SASHFOLD_TRACE_FRAMES: a turn of this thread of a quarter
+                // of a second or more, and where it went — what the shell
+                // waits on before it hears anything the page said.
+                static bool const traced = [] { char const* const asked = std::getenv("SASHFOLD_TRACE_FRAMES"); return asked && *asked && *asked != '0'; }();
+                steady::time_point const began = steady::now();
                 Impl& page = self->page();
+                Profile const profile_before = page.profile;
                 page.take_room(rect, scale);
                 if (marks) {
                     page.bookmarks = std::move(*marks);
@@ -1638,9 +1644,32 @@ struct Browser::Impl {
                 }
                 for (std::function<void(Browser&)> const& job : batch)
                     job(*self->browser);
+                steady::time_point const jobs_done = steady::now();
                 if (self->browser->load_ready())
                     self->browser->tick();
                 self->browser->run_scripts();
+                steady::time_point const scripts_done = steady::now();
+                struct TurnReport {
+                    bool traced;
+                    steady::time_point began, jobs_done, scripts_done;
+                    std::size_t jobs;
+                    Profile const& before;
+                    Profile const& after;
+                    ~TurnReport()
+                    {
+                        steady::time_point const ended = steady::now();
+                        auto const ms = [](steady::duration d) { return std::chrono::duration<double, std::milli>(d).count(); };
+                        if (traced && ms(ended - began) >= 250)
+                            std::cerr << "engine: " + trace_stamp() + "turn " + std::to_string(ms(ended - began)) + " ms — " + std::to_string(jobs)
+                                    + " jobs " + std::to_string(ms(jobs_done - began)) + " ms, scripts " + std::to_string(ms(scripts_done - jobs_done))
+                                    + " ms, paint and the rest " + std::to_string(ms(ended - scripts_done)) + " ms; of all of it "
+                                    + std::to_string(after.restyles - before.restyles) + " restyles in " + std::to_string(after.restyle_ms - before.restyle_ms)
+                                    + " ms (" + std::to_string(after.restyled_elements - before.restyled_elements) + " elements, "
+                                    + std::to_string(after.whole_restyles - before.whole_restyles) + " whole), " + std::to_string(after.relayouts - before.relayouts)
+                                    + " layouts in " + std::to_string(after.relayout_ms - before.relayout_ms) + " ms, sheets "
+                                    + std::to_string(after.sheets_ms - before.sheets_ms) + " ms\n";
+                    }
+                } const report { traced, began, jobs_done, scripts_done, batch.size(), profile_before, page.profile };
                 if (page.page_shown && self->browser->needs_paint() && steady::now() - painted_at >= frame_interval) {
                     std::uint64_t const paints = page.profile.paints;
                     std::uint64_t const video_paints = page.profile.video_paints;
@@ -3054,6 +3083,11 @@ struct Browser::Impl {
             css::RestyleOutcome const outcome = css::update_styles(*tab.document, *tab.style_set, tab.styles, tab.style_record);
             profile.restyled_elements += outcome.computed;
             profile.whole_restyles += outcome.whole ? 1 : 0;
+            // SASHFOLD_TRACE_FRAMES: why a restyle computed the whole
+            // document, when it did.
+            static bool const traced = [] { char const* const asked = std::getenv("SASHFOLD_TRACE_FRAMES"); return asked && *asked && *asked != '0'; }();
+            if (traced && outcome.whole)
+                std::cerr << "restyle: " + trace_stamp() + "whole, " + std::to_string(outcome.computed) + " elements: " + std::string(outcome.reason) + "\n";
         }
         ++profile.restyles;
     }

@@ -1,4 +1,8 @@
 #include "bindings/Internal.h"
+#include "core/TraceClock.h"
+
+#include <cstdlib>
+#include <iostream>
 
 // The Fullscreen API (WHATWG Fullscreen): an element asks to be shown over
 // the whole screen, the host — the shell — agrees or not (it puts its
@@ -22,8 +26,34 @@ dom::Element* element_of(js::Object* wrapper)
     return node.is_element() ? &static_cast<dom::Element&>(node) : nullptr;
 }
 
+// Under SASHFOLD_MEDIA_TRACE=1, the full screen's account beside the media
+// pipeline's: what was asked of which element, what was fired where, and the
+// viewport the page saw at each.
+void trace(Realm::Internals& in, std::string const& line, js::Object* about = nullptr)
+{
+    static bool const enabled = [] {
+        char const* const value = std::getenv("SASHFOLD_MEDIA_TRACE");
+        return value != nullptr && value[0] == '1';
+    }();
+    if (!enabled)
+        return;
+    std::string text = "fullscreen: " + trace_stamp() + line;
+    if (dom::Element* const element = element_of(about)) {
+        text += " " + element->local_name();
+        if (dom::Attr const* const id = element->find_attribute("id"))
+            text += "#" + id->value;
+    } else if (about != nullptr) {
+        text += " #document";
+    }
+    if (in.hooks.refresh_viewport)
+        in.hooks.refresh_viewport();
+    text += " (viewport " + std::to_string(in.hooks.viewport_width) + "x" + std::to_string(in.hooks.viewport_height) + ")\n";
+    std::cerr << text;
+}
+
 void fire(Realm::Internals& in, js::Object* target, std::string_view type)
 {
+    trace(in, "firing " + std::string(type) + " at", target);
     js::Interpreter::Roots const roots(in.interpreter);
     in.interpreter.root(js::Value::object(target));
     EventObject* event = in.new_event("Event", type, true, false);
@@ -70,6 +100,7 @@ Native request_fullscreen(Realm::Internals& in, dom::Element& element)
     bool const allowed = element.is_connected() && &element.document() == in.document && in.parent_realm == nullptr
         && (!in.hooks.user_activation || in.hooks.user_activation()) && in.hooks.request_fullscreen
         && in.hooks.request_fullscreen(true);
+    trace(in, allowed ? "granted for" : "refused for", wrapper);
     if (!allowed) {
         auto held = std::make_shared<js::Persistent>(interp.heap(), js::Value::object(wrapper));
         in.post_task([&in, held] {
@@ -93,6 +124,7 @@ void exit_fullscreen(Realm::Internals& in, std::optional<js::PromiseCapability> 
     js::Object* const wrapper = in.fullscreen_wrapper;
     if (wrapper == nullptr)
         return;
+    trace(in, "exit from", wrapper);
     in.fullscreen_wrapper = nullptr;
     in.mutations++;
     if (in.hooks.request_fullscreen)

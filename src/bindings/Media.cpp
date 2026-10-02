@@ -106,6 +106,19 @@ std::string called_from(Realm::Internals& in)
     return text + stack;
 }
 
+// Which media element a traced call went to: a player may keep more than one.
+std::string on(dom::Element const& element)
+{
+    if (!tracing())
+        return {};
+    std::ostringstream text;
+    text << " on " << element.local_name();
+    if (dom::Attr const* const classes = element.find_attribute("class"); classes != nullptr && !classes->value.empty())
+        text << "." << classes->value.substr(0, classes->value.find(' '));
+    text << "@" << static_cast<void const*>(&element) << (element.is_connected() ? "" : " (not in a document)");
+    return text.str();
+}
+
 class MediaSourceObject;
 
 class TimeRangesObject final : public js::Object {
@@ -2218,13 +2231,15 @@ void install_media_element(Realm::Internals& in)
         auto const member = rate.member;
         std::string const event = rate.event;
         bool const is_volume = event == "volumechange";
+        std::string const name = rate.name;
         element_accessor(
             in, element, rate.name,
             [member](Realm::Internals& internals, dom::Element& e) -> Native { return js::Value::number(live_state_of(internals, e).*member); },
-            [member, event, is_volume](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
+            [member, event, is_volume, name](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
                 std::optional<double> const number = internals.interpreter.to_number(value);
                 if (!number)
                     return std::nullopt;
+                trace(name + " = " + std::to_string(*number) + on(e) + called_from(internals));
                 if (!std::isfinite(*number))
                     return internals.interpreter.throw_type_error("The provided double value is non-finite.");
                 if (is_volume && (*number < 0 || *number > 1))
@@ -2252,6 +2267,7 @@ void install_media_element(Realm::Internals& in)
         [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
             MediaStateObject& state = live_state_of(internals, e);
             bool const muted = js::Interpreter::to_boolean(value);
+            trace(std::string("muted = ") + (muted ? "true" : "false") + on(e) + called_from(internals));
             if (muted != state.muted) {
                 state.muted = muted;
                 if (state.device)
@@ -2340,7 +2356,7 @@ void install_media_element(Realm::Internals& in)
         return js::Value::undefined();
     });
     element_method(in, element, "pause", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
-        trace("pause()" + called_from(internals));
+        trace("pause()" + on(e) + called_from(internals));
         MediaStateObject& state = live_state_of(internals, e);
         update_media(internals, state);
         if (!state.paused) {
@@ -2355,7 +2371,7 @@ void install_media_element(Realm::Internals& in)
     });
     element_promise_method(in, element, "play", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         js::Interpreter& interp = internals.interpreter;
-        trace("play()" + called_from(internals));
+        trace("play()" + on(e) + called_from(internals));
         MediaStateObject& state = live_state_of(internals, e);
         // Only a source that failed refuses at once (HTML §4.8.11.8 play(),
         // step 2). A source not yet chosen — the selection runs a task after

@@ -293,6 +293,7 @@ bool trace_frames = false;
 // the window's own events use, so what follows is what a reader's hand gets.
 //
 //   click <x> <y>          move <x> <y>          wheel <x> <y> <notches>
+//   press <x> <y>          release <x> <y>       (a drag: a press, moves, a release)
 //   click-text <text>      type <text>           key enter|escape|... or a chord: ctrl+t, ctrl+shift+t, alt+left
 //   navigate <typed>       text <file>           frame <file>
 //
@@ -2295,6 +2296,14 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 }
             } else if (step.command == "move" && numbers >> x >> y) {
                 browser.mouse_move(x, y);
+            } else if (step.command == "press" && numbers >> x >> y) {
+                // A press and its release as steps of their own, with moves
+                // between them: a drag, as a hand makes one.
+                browser.mouse_move(x, y);
+                browser.mouse_down(x, y, 1);
+            } else if (step.command == "release" && numbers >> x >> y) {
+                browser.mouse_move(x, y);
+                browser.mouse_up(x, y, 1);
             } else if (step.command == "dump-dom" || step.command == "dump-layout") {
                 // `<ms> dump-dom <file>` / `<ms> dump-layout <file>`: the
                 // page's document as its scripts left it, or its fragment
