@@ -11,6 +11,9 @@ arch=('x86_64')
 url="https://sashfold.com"
 license=('BSD-2-Clause')
 depends=('glibc')
+optdepends=('vulkan-icd-loader: video decoded on the GPU (Vulkan Video)'
+            'libva: video decoded on the GPU (VA-API)'
+            'pipewire-pulse: sound (or pulseaudio)')
 provides=('sashfold')
 conflicts=('sashfold')
 source=("sashfold-${pkgver}-linux-x64.tar.gz::https://github.com/codingncaffeine/Sashfold/releases/download/v${pkgver}/sashfold-${pkgver}-linux-x64.tar.gz")

@@ -42,6 +42,11 @@ cp "$staged/README.md" "$root/usr/share/doc/sashfold/"
 chmod 755 "$root/opt/sashfold/sashfold" "$root/usr/bin/sashfold"
 chmod 644 "$root/usr/share/applications/sashfold.desktop"
 size=$(du -sk "$root" --exclude=DEBIAN | cut -f1)
+# Recommended, not required: the binary loads the Vulkan loader and VA-API
+# at run time to decode video on the GPU — without them, or without a GPU
+# driver that decodes VP9, pages run and video shows no pictures; its sound
+# goes to a PulseAudio server (PipeWire's or PulseAudio's own) over the
+# protocol, with no client library.
 cat > "$root/DEBIAN/control" <<EOF
 Package: sashfold
 Version: ${version}
@@ -49,6 +54,7 @@ Section: web
 Priority: optional
 Architecture: amd64
 Depends: libc6 (>= ${glibc})
+Recommends: libvulkan1, libva2, libva-drm2, pipewire-pulse | pulseaudio
 Installed-Size: ${size}
 Maintainer: codingncaffeine <codingncaffeine@users.noreply.github.com>
 Homepage: https://sashfold.com
