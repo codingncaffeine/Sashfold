@@ -690,6 +690,24 @@ void test_event_dispatch_order_and_flags()
     // A non-bubbling event stops at the target; the capture phase still runs.
     page->eval("log = []; inner.dispatchEvent(new Event('ping'));");
     CHECK_EQ(page->string("log.join(' ')"), "wc:1:true dc:1:true oc:1:true ic:2:true ib:2:true");
+    // composedPath() is the event's whole path for every listener on it — a
+    // listener on an ancestor reads where the event began from its first
+    // entry — fixed when the dispatch begins, and empty after it.
+    page->eval(R"JS(
+        var paths = [];
+        function names(path) { return path.map(function (n) { return n === window ? 'window' : n === document ? 'document' : n.id || n.localName; }).join(','); }
+        window.addEventListener('trail', function (e) { paths.push('w:' + names(e.composedPath())); }, true);
+        outer.addEventListener('trail', function (e) { paths.push('o:' + names(e.composedPath())); outer.removeChild(inner); });
+        inner.addEventListener('trail', function (e) { paths.push('i:' + names(e.composedPath())); });
+        document.addEventListener('trail', function (e) { paths.push('d:' + names(e.composedPath())); });
+        var trail = new Event('trail', { bubbles: true });
+        inner.dispatchEvent(trail);
+        outer.appendChild(inner);
+    )JS");
+    CHECK_EQ(page->string("paths.join(' ')"),
+        "w:inner,outer,body,html,document,window i:inner,outer,body,html,document,window o:inner,outer,body,html,document,window "
+        "d:inner,outer,body,html,document,window");
+    CHECK(page->boolean("trail.composedPath().length === 0 && new Event('x').composedPath().length === 0"));
     // stopPropagation, stopImmediatePropagation, preventDefault, once, removal during dispatch.
     page->eval(R"JS(
         log = [];

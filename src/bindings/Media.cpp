@@ -84,6 +84,28 @@ void trace(std::string const& line)
         std::cerr << "media: " + trace_stamp() + line + "\n"; // one write: other threads trace too
 }
 
+// The event being dispatched and the page's functions that were running, on
+// one line, for a call the trace names: which of a player's paths asked to
+// play or to pause, and in answer to what.
+std::string called_from(Realm::Internals& in)
+{
+    if (!tracing())
+        return {};
+    std::string text;
+    if (in.current_event.is_object()) {
+        if (auto const* const event = dynamic_cast<EventObject const*>(in.current_event.as_object()))
+            text = " in a " + event->type + " event";
+    }
+    std::string stack = in.interpreter.stack_text(js::Value::undefined(), 64);
+    std::size_t const first_line_end = stack.find('\n');
+    if (first_line_end == std::string::npos)
+        return text;
+    stack = stack.substr(first_line_end);
+    for (std::size_t here = stack.find("\n    at "); here != std::string::npos; here = stack.find("\n    at ", here))
+        stack.replace(here, 8, " <- ");
+    return text + stack;
+}
+
 class MediaSourceObject;
 
 class TimeRangesObject final : public js::Object {
@@ -2318,6 +2340,7 @@ void install_media_element(Realm::Internals& in)
         return js::Value::undefined();
     });
     element_method(in, element, "pause", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+        trace("pause()" + called_from(internals));
         MediaStateObject& state = live_state_of(internals, e);
         update_media(internals, state);
         if (!state.paused) {
@@ -2332,7 +2355,7 @@ void install_media_element(Realm::Internals& in)
     });
     element_promise_method(in, element, "play", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         js::Interpreter& interp = internals.interpreter;
-        trace("play()");
+        trace("play()" + called_from(internals));
         MediaStateObject& state = live_state_of(internals, e);
         // Only a source that failed refuses at once (HTML §4.8.11.8 play(),
         // step 2). A source not yet chosen — the selection runs a task after

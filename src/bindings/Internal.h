@@ -148,6 +148,10 @@ public:
     std::string type;
     js::Value target; // an EventTarget, or undefined before dispatch (read as null)
     js::Value current_target;
+    // The event's path while it is dispatched (DOM §2.9): the target, its
+    // ancestors, the window — fixed when the dispatch begins, whatever its
+    // listeners then do to the tree; empty before and after.
+    std::vector<js::Object*> path;
     js::Value related_target; // MouseEvent, FocusEvent
     js::Value detail_value; // CustomEvent.detail
     Phase phase = Phase::None;

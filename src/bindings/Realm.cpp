@@ -101,6 +101,8 @@ void EventObject::trace(js::Tracer& tracer)
     Object::trace(tracer);
     tracer.visit(target);
     tracer.visit(current_target);
+    for (js::Object* const on_path : path)
+        tracer.visit(on_path);
     tracer.visit(related_target);
     tracer.visit(detail_value);
     tracer.visit(source_value);

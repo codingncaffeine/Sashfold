@@ -681,6 +681,7 @@ bool Realm::Internals::dispatch(EventObject& event, js::Object* target)
             parent = next != nullptr ? next->event_parent() : nullptr;
         }
     }
+    event.path = path;
     js::Value const previous_event = current_event;
     current_event = js::Value::object(&event);
     for (std::size_t i = path.size(); i-- > 1 && !event.stop_propagation;)
@@ -697,6 +698,7 @@ bool Realm::Internals::dispatch(EventObject& event, js::Object* target)
     current_event = previous_event;
     event.phase = EventObject::Phase::None;
     event.current_target = js::Value::null();
+    event.path.clear();
     event.dispatching = false;
     event.stop_propagation = false;
     event.stop_immediate = false;
@@ -908,21 +910,15 @@ void install_events(Realm::Internals& in)
         std::optional<EventObject*> const e = this_event(interp, this_value);
         if (!e)
             return std::nullopt;
-        Realm::Internals& internals = internals_of(interp);
+        // The event's whole path, the same for every listener on it (DOM
+        // §2.9 composedPath(); with no shadow trees nothing on it is
+        // hidden): a listener on an ancestor learns from its first entry
+        // where the event began.
         js::Interpreter::Roots const roots(interp);
         js::ArrayObject* path = interp.new_array();
         interp.root(js::Value::object(path));
-        if ((*e)->dispatching && (*e)->current_target.is_object()) {
-            js::Object* current = (*e)->current_target.as_object();
-            if (NodeWrapper* wrapper = internals.wrapper_of(js::Value::object(current))) {
-                for (dom::Node* node = &wrapper->node(); node; node = node->parent())
-                    path->push(js::Value::object(internals.wrap(*node)));
-                if (&wrapper->node().root() == internals.document && (*e)->type != "load")
-                    path->push(js::Value::object(interp.global_this()));
-            } else {
-                path->push(js::Value::object(current));
-            }
-        }
+        for (js::Object* const on_path : (*e)->path)
+            path->push(js::Value::object(on_path));
         return js::Value::object(path);
     });
     define_operation(interpreter, *event, "initEvent", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {

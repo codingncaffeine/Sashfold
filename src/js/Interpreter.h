@@ -681,8 +681,9 @@ public:
     // What an error's `stack` holds: the "Name: message" line, then a line
     // for each function running now, innermost first — its name, the script
     // it was written in and where in that script it begins (the engine keeps
-    // no position for the instruction itself). Never runs script.
-    std::string stack_text(Value const& error);
+    // no position for the instruction itself). Never runs script. Twelve
+    // functions at most, as an error keeps; a trace may ask for more.
+    std::string stack_text(Value const& error, std::size_t most = 12);
     // The lines of an error's captured stack after its first, each on a line
     // of its own and led by one, when SASHFOLD_ERROR_STACKS is set in the
     // environment; empty otherwise, and for a value that is no error. What a

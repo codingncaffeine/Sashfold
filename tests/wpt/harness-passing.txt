@@ -136562,10 +136562,14 @@ shadow-dom/Node-prototype-cloneNode.html	cloneNode on a shadow root in open mode
 shadow-dom/ShadowRoot-interface.html	Check the existence of ShadowRoot interface
 shadow-dom/ShadowRoot-interface.html	ShadowRoot must inherit from DocumentFragment
 shadow-dom/ShadowRoot-interface.html	ShadowRoot must not be a constructor
+shadow-dom/capturing-and-bubbling-event-listeners-across-shadow-trees.html	Capturing event listeners should be invoked before bubbling event listeners on the target without shadow trees
 shadow-dom/declarative/declarative-parser-interaction.html	Declarative Shadow DOM: Test for crashes and improper parsing
 shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: declarative shadow roots are not supported by the template element
 shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: template containing closed declarative shadow root and UA shadow root
 shadow-dom/declarative/script-access.html	Synchronous mutation events should not be fired during streaming declarative shadow DOM parsing
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. Event should be dispatched even when target and relatedTarget are same.
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. relatedTarget != target.
+shadow-dom/event-composed-path.html	Event Path without ShadowRoots.
 shadow-dom/event-composed.html	A new events composed value should be set to false by default.
 shadow-dom/event-composed.html	Users should be able to set a composed value.
 shadow-dom/event-post-dispatch.html	Event properties post dispatch without ShadowRoots (composed: false).

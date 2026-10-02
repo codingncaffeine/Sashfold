@@ -2254,12 +2254,12 @@ void Interpreter::Impl::trace(Tracer& tracer)
 
 // ------------------------------------------------------- Interpreter
 
-std::string Interpreter::stack_text(Value const& error)
+std::string Interpreter::stack_text(Value const& error, std::size_t most)
 {
     std::string text = describe(error);
     std::vector<Frame*> const& frames = m_impl->vm_frames;
     std::size_t listed = 0;
-    for (auto it = frames.rbegin(); it != frames.rend() && listed < 12; ++it, ++listed) {
+    for (auto it = frames.rbegin(); it != frames.rend() && listed < most; ++it, ++listed) {
         Frame const& frame = **it;
         text += "\n    at ";
         // Where the frame is now, as the browsers give it: the statement
