@@ -44,6 +44,10 @@ struct StyleUses {
     bool nth_of = false; // :nth-child(An+B of S), :nth-last-child(... of S)
     bool empty = false; // :empty
     bool has = false; // :has()
+    // A :has() whose answer a change can turn for an element other than an
+    // ancestor of the changed one: outside the compound that names the
+    // subject, inside another :has(), or with a sibling in its argument.
+    bool has_beyond_ancestors = false;
     bool first_letter = false; // ::first-letter
 };
 

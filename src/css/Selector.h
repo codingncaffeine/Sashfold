@@ -155,4 +155,8 @@ bool selector_list_is_strictly_valid(std::vector<ComponentValue> const& prelude)
 bool matches(SelectorList const& list, dom::Element const& element, Specificity* matched = nullptr);
 bool matches(ComplexSelector const& selector, dom::Element const& element);
 
+// True when the element matches every simple selector of the compound but
+// its :has() ones: an element a :has() in the compound is tested on.
+bool matches_compound_but_has(CompoundSelector const& compound, dom::Element const& element);
+
 }

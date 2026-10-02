@@ -1139,6 +1139,15 @@ bool matches(ComplexSelector const& selector, dom::Element const& element)
     return matches_from(selector, selector.compounds.size() - 1, element);
 }
 
+bool matches_compound_but_has(CompoundSelector const& compound, dom::Element const& element)
+{
+    for (SimpleSelector const& simple : compound.simples) {
+        if (simple.pseudo != SimpleSelector::PseudoKind::Has && !matches_simple(simple, element))
+            return false;
+    }
+    return true;
+}
+
 bool matches(SelectorList const& list, dom::Element const& element, Specificity* matched)
 {
     bool any = false;

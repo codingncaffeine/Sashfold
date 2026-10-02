@@ -2368,17 +2368,57 @@ struct RuleSet {
     }
 
     // What the set's selectors read beyond the element and its ancestors,
-    // down through every selector argument.
+    // down through every selector argument. `subject` says the selector's
+    // last compound names the element being styled (a rule's own, or an
+    // :is/:not/:where in that compound); `in_has`, that it is the argument
+    // of a :has(), relative to the element that :has() is tested on; `top`,
+    // that it is a rule's own selector and no argument.
     StyleUses uses;
-    void note_uses(ComplexSelector const& selector)
+    // The compounds a :has() is tested in above a rule's subject (in the
+    // prepared sheets the set keeps): an element they match but for the
+    // :has() itself, with a change inside it, may have turned its answer,
+    // and everything in it is computed again.
+    std::vector<CompoundSelector const*> has_anchors;
+    static constexpr std::size_t max_has_anchors = 64;
+
+    // Whether a :has() in compound `c` of a rule's own selector, above the
+    // subject and joined to it by descendant and child combinators alone, is
+    // bounded by its anchor; noted when it is.
+    bool note_has_anchor(ComplexSelector const& selector, std::size_t c)
+    {
+        for (std::size_t i = c; i < selector.combinators.size(); ++i) {
+            if (selector.combinators[i] != Combinator::Descendant && selector.combinators[i] != Combinator::Child)
+                return false;
+        }
+        CompoundSelector const& compound = selector.compounds[c];
+        bool const names_something = std::any_of(compound.simples.begin(), compound.simples.end(),
+            [](SimpleSelector const& simple) { return simple.pseudo != SimpleSelector::PseudoKind::Has; });
+        // An anchor that is any element is every ancestor of every change.
+        if (!names_something || has_anchors.size() >= max_has_anchors)
+            return false;
+        if (std::find(has_anchors.begin(), has_anchors.end(), &compound) == has_anchors.end())
+            has_anchors.push_back(&compound);
+        return true;
+    }
+
+    void note_uses(ComplexSelector const& selector, bool subject = true, bool in_has = false, bool top = true, bool relative = false)
     {
         if (selector.pseudo_element == ComplexSelector::PseudoElement::FirstLetter)
             uses.first_letter = true;
-        for (Combinator const combinator : selector.combinators) {
-            if (combinator == Combinator::NextSibling || combinator == Combinator::SubsequentSibling)
+        for (std::size_t i = 0; i < selector.combinators.size(); ++i) {
+            Combinator const combinator = selector.combinators[i];
+            if (combinator == Combinator::NextSibling || combinator == Combinator::SubsequentSibling) {
                 uses.sibling_combinators = true;
+                // A :has() argument that starts beside the element (+ or ~
+                // first): a change outside it turns the answer. Siblings
+                // further on are inside the element, as what they follow is.
+                if (relative && i == 0)
+                    uses.has_beyond_ancestors = true;
+            }
         }
-        for (CompoundSelector const& compound : selector.compounds) {
+        for (std::size_t c = 0; c < selector.compounds.size(); ++c) {
+            CompoundSelector const& compound = selector.compounds[c];
+            bool const subject_compound = subject && c + 1 == selector.compounds.size();
             for (SimpleSelector const& simple : compound.simples) {
                 switch (simple.pseudo) {
                 case SimpleSelector::PseudoKind::FirstChild:
@@ -2401,7 +2441,15 @@ struct RuleSet {
                     uses.empty = true;
                     break;
                 case SimpleSelector::PseudoKind::Has:
+                    // Tested on the subject with descendants in its argument,
+                    // a :has() can only be turned by a change inside the
+                    // element: the restyle computes the changed elements'
+                    // ancestors again. Tested above the subject, on an anchor
+                    // its own selectors name, the anchor's subtree is computed
+                    // again as well. Anywhere else it reaches further.
                     uses.has = true;
+                    if (in_has || (!subject_compound && !(top && note_has_anchor(selector, c))))
+                        uses.has_beyond_ancestors = true;
                     break;
                 case SimpleSelector::PseudoKind::None:
                 case SimpleSelector::PseudoKind::Root:
@@ -2415,8 +2463,9 @@ struct RuleSet {
                     break;
                 }
                 if (simple.argument) {
+                    bool const into_has = simple.pseudo == SimpleSelector::PseudoKind::Has;
                     for (ComplexSelector const& inner : simple.argument->selectors)
-                        note_uses(inner);
+                        note_uses(inner, subject_compound && !into_has, in_has || into_has, false, into_has);
                 }
             }
         }
@@ -6872,9 +6921,13 @@ struct Updater {
     StyleUses const& uses;
     StyleRecord& record;
     std::uint32_t since;
-    // Elements whose direction is read from their own text, with a change
-    // somewhere inside them.
+    // Elements with a change somewhere inside them that their own style
+    // reads: their direction taken from their own text, or — when a :has()
+    // is tested on the subject — whether something inside them matches it.
     std::unordered_set<dom::Element const*> forced;
+    // Elements a :has() above some rule's subject is tested on, with a
+    // change inside them: what they hold is computed again.
+    std::unordered_set<dom::Element const*> forced_subtrees;
     std::size_t computed = 0;
     std::string_view bail;
     bool root_or_body_computed = false;
@@ -6940,21 +6993,33 @@ struct Updater {
 
     bool changed(std::uint32_t stamp) const { return stamp >= since; }
 
-    void find_text_direction_readers(dom::Node const& node)
+    void find_inside_readers(dom::Node const& node)
     {
         dom::Node::StyleMarks const& marks = node.style_marks();
         if (changed(marks.self) || changed(marks.children) || changed(marks.subtree)) {
             for (dom::Node const* up = &node; up; up = up->parent()) {
-                if (up->is_element() && reads_own_text_direction(static_cast<dom::Element const&>(*up)))
-                    forced.insert(static_cast<dom::Element const*>(up));
+                if (!up->is_element())
+                    continue;
+                auto const& element = static_cast<dom::Element const&>(*up);
+                if (uses.has || reads_own_text_direction(element))
+                    forced.insert(&element);
+                // A change in the element itself turns no :has() tested on it.
+                if (up == &node && !changed(marks.children) && !changed(marks.subtree))
+                    continue;
+                for (CompoundSelector const* anchor : resolver.set.has_anchors) {
+                    if (matches_compound_but_has(*anchor, element)) {
+                        forced_subtrees.insert(&element);
+                        break;
+                    }
+                }
             }
         }
-        // A new subtree is computed whole; what reads its text from above
-        // was found on the way up.
+        // A new subtree is computed whole; what reads it from above was
+        // found on the way up.
         if (changed(marks.subtree) || !changed(marks.descendants))
             return;
         for (dom::Node const* child : node.children())
-            find_text_direction_readers(*child);
+            find_inside_readers(*child);
     }
 
     // The style an element's children inherited from: its entry, but for
@@ -7005,7 +7070,7 @@ struct Updater {
             }
             resolver.map.erase(kept);
         }
-        find_text_direction_readers(document);
+        find_inside_readers(document);
         dom::Element const* root = nullptr;
         for (dom::Node const* child : document.children()) {
             if (!child->is_element())
@@ -7065,7 +7130,7 @@ struct Updater {
             bool const arrived = kept == resolver.map.end() || changed(marks.subtree)
                 || (uses.empty && changed(marks.children));
             Redo redo = Redo::None;
-            if (all || after_change || arrived)
+            if (all || after_change || arrived || forced_subtrees.contains(&element))
                 redo = Redo::Subtree;
             else if (changed(marks.self) || forced.contains(&element))
                 redo = Redo::Own;
@@ -7256,8 +7321,8 @@ struct Restyler {
             reason = "the document asked for everything";
         else if (document.style_removals_from() > record.read_at)
             reason = "too many removals to follow";
-        else if (rules.uses.has)
-            reason = ":has() can reach anything";
+        else if (rules.uses.has_beyond_ancestors)
+            reason = "a :has() reaches past the ancestors of a change";
         else if (rules.uses.first_letter)
             reason = "::first-letter styles are handed down";
         else if (!(root_and_body(document) == RootAndBody { record.root, record.body }))
@@ -7267,7 +7332,7 @@ struct Restyler {
         if (reason.empty()) {
             Resolver resolver(rules);
             resolver.map = std::move(styles);
-            Updater updater { resolver, rules.uses, record, since, {}, 0, {}, false };
+            Updater updater { resolver, rules.uses, record, since, {}, {}, 0, {}, false };
             updater.run(document);
             if (updater.bail.empty()) {
                 styles = std::move(resolver.map);

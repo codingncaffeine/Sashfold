@@ -80,6 +80,26 @@ li.pick { color: rgb(0, 128, 0) }
 .row:last-child .tail { padding-bottom: 3px }
 )";
 
+// :has() tested on the subject, or on an anchor above it, with descendants
+// and children in its arguments — and siblings among those: what a change
+// inside an element turns, among inherited and own properties, through :is()
+// and :not().
+constexpr std::string_view has_sheet = R"(
+body { color: rgb(10, 20, 30); font-size: 15px }
+.group:has(.on) { color: rgb(200, 0, 0) }
+.group:has(> .row > .leaf.pick) { padding-left: 6px }
+div:has([data-k="2"]) { font-size: 17px }
+:is(.box, .row):has(#hero) { border-top: 1px solid rgb(0, 0, 9) }
+.row:not(:has(.leaf)) { margin-top: 2px }
+.row:has(.e:empty) { letter-spacing: 1px }
+body:has(.frame .inner) { word-spacing: 3px }
+.leaf { color: inherit }
+.group:has(.on) .leaf { font-style: italic }
+.row:has(> .tail.pick) > .leaf { word-spacing: 1px }
+.row:has(.leaf + .tail.pick) { padding-right: 2px }
+.group:has(.leaf.on ~ .tail) .tail { margin-left: 1px }
+)";
+
 constexpr std::string_view extra_sheet = R"(
 .leaf { background-color: rgb(3, 3, 3) }
 .group { padding-top: 7px }
@@ -598,14 +618,51 @@ void reaches()
     CHECK(!removed.outcome.whole);
     CHECK_EQ(removed.difference.value_or(""), std::string());
 
-    // :has() can reach anything: every update is whole.
+    // A :has() on the subject with descendants in its argument is turned
+    // only by a change inside the element: the changed element and its
+    // ancestors are computed again, and nothing else.
     css::StyleSet with_has(std::vector<css::SheetSource> { { "div:has(.on) { color: red }", std::nullopt } });
     Kept has_kept;
     update_and_check(*document, with_has, has_kept);
     toggle_class(*by_id("s2"), "on");
     Step const has = update_and_check(*document, with_has, has_kept);
-    CHECK(has.outcome.whole);
+    CHECK(!has.outcome.whole);
     CHECK_EQ(has.difference.value_or(""), std::string());
+    std::size_t ancestors = 0;
+    for (dom::Node const* up = by_id("s2"); up && up->is_element(); up = up->parent())
+        ++ancestors;
+    CHECK(has.outcome.computed < count_elements(*document));
+    CHECK(has.outcome.computed >= ancestors);
+    toggle_class(*by_id("s2"), "on");
+    Step const has_back = update_and_check(*document, with_has, has_kept);
+    CHECK(!has_back.outcome.whole);
+    CHECK_EQ(has_back.difference.value_or(""), std::string());
+    // On an anchor above the subject that its own selectors name: the
+    // anchor with the change inside it is computed again, and what it holds.
+    css::StyleSet anchored(std::vector<css::SheetSource> { { "div:has(.on) span { color: red }", std::nullopt } });
+    Kept anchored_kept;
+    update_and_check(*document, anchored, anchored_kept);
+    toggle_class(*by_id("s2"), "on");
+    Step const anchored_step = update_and_check(*document, anchored, anchored_kept);
+    CHECK(!anchored_step.outcome.whole);
+    CHECK_EQ(anchored_step.difference.value_or(""), std::string());
+    toggle_class(*by_id("s2"), "on");
+    Step const anchored_back = update_and_check(*document, anchored, anchored_kept);
+    CHECK(!anchored_back.outcome.whole);
+    CHECK_EQ(anchored_back.difference.value_or(""), std::string());
+    // Siblings in the argument or after the anchor, an anchor that is any
+    // element, or a :has() inside another selector's argument: a change
+    // reaches further, and the update is whole.
+    for (std::string_view const sheet : { "div:has(+ .on) { color: red }", ":has(.on) p { color: red }",
+             "div:has(~ p .on) { color: red }", ":not(div:has(.on)) > p { color: red }", "div:has(.on) + p { color: red }" }) {
+        css::StyleSet wide(std::vector<css::SheetSource> { { std::string(sheet), std::nullopt } });
+        Kept wide_kept;
+        update_and_check(*document, wide, wide_kept);
+        toggle_class(*by_id("s2"), "on");
+        Step const reached = update_and_check(*document, wide, wide_kept);
+        CHECK(reached.outcome.whole);
+        CHECK_EQ(reached.difference.value_or(""), std::string());
+    }
 }
 
 }
@@ -617,5 +674,6 @@ int main()
     reaches();
     random_mutations(page_sheet, 0x1234abcdu);
     random_mutations(argument_sheet, 0x9e3779b9u);
+    random_mutations(has_sheet, 0x51ed27f3u);
     return test::report("test_incremental_restyle");
 }
