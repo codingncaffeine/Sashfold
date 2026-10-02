@@ -2312,5 +2312,80 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- A generated box that is absolutely positioned takes nothing from the flow --
+    // A button's ::before with position: absolute (a hover pill under an
+    // icon, as a video player draws one) is laid out out of flow, placed
+    // from its offsets; the icon after it stays where it was, not a line
+    // lower. The same for an inline context's ::before.
+    {
+        constexpr std::string_view html = R"(<!doctype html>
+<html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 32px }
+  .bar { display: flex; height: 40px }
+  button { border: none; padding: 0; width: 48px; height: 40px; position: relative; line-height: 32px; font: inherit }
+  #b::before { content: ""; position: absolute; display: block; top: 50%; left: 50%;
+               transform: translate(-50%, -50%); width: 40px; height: 32px }
+  .icon { display: inline-block; width: 18px; height: 18px; padding: 7px }
+  #p { position: relative; height: 60px }
+  #p::before { content: ""; position: absolute; left: 10px; top: 10px; width: 20px; height: 20px }
+</style></head><body>
+<div class=bar><button id=a><span id=ia class=icon></span></button><button id=b><span id=ib class=icon></span></button></div>
+<p id=p><span id=t>text</span></p>
+</body></html>)";
+        Page const page = lay_out(html, 300);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            if (f.element && !f.out_of_flow) {
+                dom::Attr const* attribute = f.element->find_attribute("id");
+                if (attribute && attribute->value == id)
+                    return &f;
+            }
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* found = find(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find_generated
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            if (f.element && f.out_of_flow) {
+                dom::Attr const* attribute = f.element->find_attribute("id");
+                if (attribute && attribute->value == id)
+                    return &f;
+            }
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* found = find_generated(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::Fragment const* const a = find(page.result.root, "a");
+        layout::Fragment const* const ia = find(page.result.root, "ia");
+        layout::Fragment const* const b = find(page.result.root, "b");
+        layout::Fragment const* const ib = find(page.result.root, "ib");
+        layout::Fragment const* const pill = find_generated(page.result.root, "b");
+        if (CHECK(a && ia && b && ib && pill)) {
+            CHECK_EQ(ib->y - b->y, ia->y - a->y); // the icon sits where it does without the pill
+            CHECK_EQ(ib->x - b->x, ia->x - a->x);
+            CHECK(pill->out_of_flow);
+            CHECK_EQ(pill->width, 40.0f);
+            CHECK_EQ(pill->height, 32.0f);
+            CHECK_EQ(pill->x - b->x, 4.0f); // centred by its offsets and its translation
+            CHECK_EQ(pill->y - b->y, 4.0f);
+        }
+        layout::Fragment const* const p = find(page.result.root, "p");
+        layout::Fragment const* const mark = find_generated(page.result.root, "p");
+        std::vector<layout::TextRun const*> runs;
+        if (p)
+            collect(*p, runs);
+        if (CHECK(p && mark && runs.size() == 1)) {
+            CHECK(mark->out_of_flow);
+            CHECK_EQ(mark->x - p->x, 10.0f);
+            CHECK_EQ(mark->y - p->y, 10.0f);
+            CHECK_EQ(runs[0]->x - p->x, 0.0f); // the text starts at the paragraph's edge, not after the box
+            CHECK(runs[0]->baseline_y < p->y + 40); // and on the first line, not a line lower
+        }
+    }
+
     return test::report("layout");
 }

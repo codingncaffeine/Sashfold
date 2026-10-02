@@ -2502,6 +2502,12 @@ struct Layouter {
                 append_text(text, &box.style, items, &element);
             return;
         }
+        if (box.style.out_of_flow()) {
+            // Absolutely positioned: out of the line, placed from where it
+            // would have been, as an element child is.
+            items.push_back(InlineItem { InlineItem::Kind::Absolute, {}, &box.style, &element });
+            return;
+        }
         if (is_floating(box.style)) {
             items.push_back(InlineItem { InlineItem::Kind::Float, {}, &box.style, &element });
             return;
@@ -5338,6 +5344,13 @@ struct Layouter {
         // `owner` is the element the box is generated for: this one, or a
         // display: contents one whose boxes stand among this one's.
         auto const place_or_append = [&](css::GeneratedBox const& box, dom::Element const& owner) {
+            if (!is_contents(box.style) && box.style.out_of_flow()) {
+                // An absolutely positioned generated box takes nothing from
+                // the flow: it goes with the inline content as an element
+                // child would, placed from where it would have been.
+                pending_inline.push_back(InlineItem { InlineItem::Kind::Absolute, {}, &box.style, &owner });
+                return;
+            }
             if (!is_contents(box.style) && is_floating(box.style)) {
                 // As a float child: with the inline content when there is
                 // some, else placed here between the blocks.
