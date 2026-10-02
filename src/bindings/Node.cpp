@@ -1,4 +1,5 @@
 #include "bindings/NodeSupport.h"
+#include "core/TraceClock.h"
 
 // The Node, Element and CharacterData interfaces (DOM §4), the tree
 // algorithms behind them, NodeList and HTMLCollection, and DOMRect. The
@@ -9,6 +10,8 @@
 #include "html/Serializer.h"
 #include "html/TreeBuilder.h"
 
+#include <cstdlib>
+#include <iostream>
 #include <algorithm>
 #include <cmath>
 #include <string>
@@ -234,6 +237,47 @@ void insert_one(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::N
     parent.insert_before(node, reference);
     in.realm.note_mutation();
     mutation_children_changed(in, parent, moved, {}, node.previous_sibling(), next_sibling_of(node));
+    // SASHFOLD_INSERT_TRACE=<local name>: every insertion of an element of
+    // that name, where it went and the functions that were running — the
+    // instrument for a page that builds a part of itself twice.
+    static char const* const traced = std::getenv("SASHFOLD_INSERT_TRACE");
+    if (traced != nullptr && traced[0] != '\0' && node.is_element() && static_cast<dom::Element&>(node).local_name() == traced) {
+        auto const name_of = [](dom::Node const& n) {
+            if (!n.is_element())
+                return std::string("#") + (n.is_text() ? "text" : "node");
+            auto const& e = static_cast<dom::Element const&>(n);
+            std::string name = e.local_name();
+            if (dom::Attr const* const id = e.find_attribute("id"))
+                name += "#" + id->value;
+            return name;
+        };
+        std::string where = in.interpreter.stack_text(js::Value::undefined());
+        if (std::size_t const first_line_end = where.find('\n'); first_line_end != std::string::npos)
+            where = where.substr(first_line_end);
+        for (std::size_t here = where.find("\n    at "); here != std::string::npos; here = where.find("\n    at ", here))
+            where.replace(here, 8, "  <- ");
+        // The first class token naming a content id below the node, for a
+        // page that labels its items that way.
+        std::string label;
+        std::vector<dom::Node const*> pending { &node };
+        while (!pending.empty() && label.empty()) {
+            dom::Node const* const at = pending.back();
+            pending.pop_back();
+            if (at->is_element()) {
+                if (dom::Attr const* const classes = static_cast<dom::Element const&>(*at).find_attribute("class")) {
+                    if (std::size_t const found = classes->value.find("content-id-"); found != std::string::npos)
+                        label = classes->value.substr(found, classes->value.find(' ', found) - found);
+                }
+            }
+            for (dom::Node const* child : at->children())
+                pending.push_back(child);
+        }
+        std::cerr << "inserted: " << trace_stamp() << name_of(node) << "@" << static_cast<void const*>(&node) << (label.empty() ? "" : " " + label)
+                  << " into " << name_of(parent) << "@" << static_cast<void const*>(&parent) << " (now " << parent.children().size() << " children) after "
+                  << (node.previous_sibling() ? name_of(*node.previous_sibling()) : std::string("nothing"))
+                  << (left_behind != nullptr ? " (moved from " + name_of(*left_behind) + "@" + std::to_string(reinterpret_cast<std::uintptr_t>(left_behind)) + ")" : "")
+                  << where << "\n";
+    }
     // A script element inserted into the document runs (§4.12.1, the
     // insertion steps), unless it was already started — a fragment's are;
     // an iframe inserted navigates, in a task after the script.

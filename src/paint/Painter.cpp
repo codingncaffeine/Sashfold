@@ -4,6 +4,8 @@
 #include "text/Face.h"
 #include "text/FontManager.h"
 
+#include <cstdlib>
+#include <iostream>
 #include <algorithm>
 #include <cmath>
 #include <cstddef>
@@ -901,6 +903,19 @@ void draw_picture(Context& context, Fragment::ImageBox const& box, Rect drawn)
     else
         context.target.draw_scaled(*box.bitmap, drawn);
     note_picture(context, *box.bitmap, drawn);
+    // SASHFOLD_PAINT_TRACE=1: every picture drawn — its size, where, and
+    // how many of its pixels are not transparent — the instrument for an
+    // image laid out and not seen: rasterized empty, or drawn and covered.
+    static bool const traced = [] { char const* const set = std::getenv("SASHFOLD_PAINT_TRACE"); return set != nullptr && set[0] == '1'; }();
+    if (traced) {
+        unsigned opaque = 0;
+        for (int y = 0; y < box.bitmap->height(); ++y) {
+            for (int x = 0; x < box.bitmap->width(); ++x)
+                opaque += box.bitmap->pixel(x, y).a != 0 ? 1u : 0u;
+        }
+        std::cerr << "paint: " << (box.video ? "video " : "image ") << box.bitmap->width() << "x" << box.bitmap->height() << " at " << drawn.x << "," << drawn.y
+                  << " " << drawn.width << "x" << drawn.height << " opaque " << opaque << (apart ? " (shown apart)" : "") << "\n";
+    }
 }
 
 // The box's replaced content: its picture or its control. Appendix E

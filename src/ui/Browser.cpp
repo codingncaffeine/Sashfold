@@ -11660,6 +11660,28 @@ void write_fragments(std::ostream& out, layout::Fragment const& fragment, int de
         flags += " image";
     if (fragment.control)
         flags += " control";
+    // What the box paints with: its colour, its opacity when below one, its
+    // SVG fill when it is an image box — for an icon laid out and not seen.
+    if (fragment.style != nullptr) {
+        auto const hex = [](Color const& c) {
+            char text[16];
+            std::snprintf(text, sizeof text, "#%02x%02x%02x", c.r, c.g, c.b);
+            return std::string(text) + (c.a == 255 ? std::string() : "/" + std::to_string(c.a));
+        };
+        flags += " color=" + hex(fragment.style->color);
+        if (fragment.style->opacity < 1)
+            flags += " opacity=" + std::to_string(fragment.style->opacity);
+        if (fragment.style->hidden())
+            flags += " hidden";
+        if (fragment.image) {
+            css::SvgPaint const& fill = fragment.style->fill;
+            flags += std::string(" fill=")
+                + (fill.kind == css::SvgPaint::Kind::None            ? std::string("none")
+                      : fill.kind == css::SvgPaint::Kind::CurrentColor ? std::string("currentColor")
+                      : fill.kind == css::SvgPaint::Kind::Reference    ? "url(#" + fill.reference + ")"
+                                                                        : hex(fill.color));
+        }
+    }
     out << indent << name << " @ " << fragment.x << "," << fragment.y << " " << fragment.width << "x" << fragment.height << flags << "\n";
     for (layout::TextRun const& run : fragment.runs)
         out << indent << "  \"" << to_utf8(run.text) << "\" @ " << run.x << "," << run.baseline_y << " w " << run.width << "\n";
