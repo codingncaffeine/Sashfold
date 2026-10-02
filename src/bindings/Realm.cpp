@@ -1778,15 +1778,15 @@ std::vector<VideoFrame> Realm::video_frames()
     return frames;
 }
 
-void Realm::image_settled(dom::Element const& image, bool available)
+void Realm::resource_settled(dom::Element const& element, bool available)
 {
     Internals& in = *m_internals;
-    if (in.ended || in.document == nullptr || &image.root() != in.document)
+    if (in.ended || in.document == nullptr || &element.root() != in.document)
         return;
-    // The element's wrapper is held until the task runs, so an image a
-    // script let go of still hears how its picture went.
+    // The element's wrapper is held until the task runs, so an element a
+    // script let go of still hears how its resource went.
     js::Heap::NoCollect const guard(in.interpreter.heap());
-    auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(in.wrap(const_cast<dom::Element&>(image))));
+    auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(in.wrap(const_cast<dom::Element&>(element))));
     in.post_task([&in, held, type = std::string(available ? "load" : "error")] {
         Internals::Entry const entry(in);
         js::Interpreter::Roots const roots(in.interpreter);

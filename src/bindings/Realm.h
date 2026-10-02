@@ -518,12 +518,13 @@ public:
     // The pictures this document's video elements show now (not its
     // frames'): what a host draws them with, and watches to repaint.
     std::vector<VideoFrame> video_frames();
-    // The host has the picture an <img> of this document names now, or knows
-    // it cannot be had or read: the element's load or error event, fired in
-    // a task of the event loop as HTML §4.8.4.3.4 queues it — never while the
-    // script that set the source is still running. The host tells each
+    // The host has the resource an element of this document names now — an
+    // <img>'s picture, a <link rel=stylesheet>'s sheet — or knows it cannot
+    // be had or read: the element's load or error event, fired in a task of
+    // the event loop as HTML §4.8.4.3.4 and §4.6.7 queue it — never while
+    // the script that set the source is still running. The host tells each
     // source it takes once.
-    void image_settled(dom::Element const& image, bool available);
+    void resource_settled(dom::Element const& element, bool available);
     // For a host on a virtual clock, which moves faster than pictures are
     // made: waits, up to `timeout_ms` of real time, until every video shows
     // the frame due at its position. How many do.

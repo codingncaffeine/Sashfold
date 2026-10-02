@@ -599,6 +599,9 @@ struct Browser::Impl {
         // The source each <img> in `images` was had for, so that a source a
         // script changes afterwards is fetched again (and heard of again).
         std::unordered_map<dom::Element const*, std::string> image_sources;
+        // The sheet each <link rel=stylesheet> was last heard of for: a link
+        // inserted, or given another href, hears of its sheet again.
+        std::unordered_map<dom::Element const*, std::string> link_sheets;
         // Where each picture fetched for the page came from, by the source
         // asked for, for a canvas that draws one and must know whether it
         // is the page's own. Shared with the fetchers, as the policy is.
@@ -3834,7 +3837,7 @@ struct Browser::Impl {
                 continue;
             tab.image_sources[element] = image_source_key(*element, *base);
             if (tab.realm)
-                tab.realm->image_settled(*element, available);
+                tab.realm->resource_settled(*element, available);
         }
     }
 
@@ -4261,7 +4264,18 @@ struct Browser::Impl {
                     return !policy->inline_refusal(net::InlineKind::Style, nonce ? nonce->value : std::string(), text);
                 };
             }
-            tab.sheets = css::collect_stylesheets(*tab.document, &page_url, fetch_sheet, media_context(), inline_check);
+            std::vector<css::LinkSheetOutcome> links;
+            tab.sheets = css::collect_stylesheets(*tab.document, &page_url, fetch_sheet, media_context(), inline_check, &links);
+            // Each stylesheet link's load or error event, once for each sheet
+            // it names (HTML §4.6.7): the page may be waiting on it.
+            std::unordered_map<dom::Element const*, std::string> heard;
+            for (css::LinkSheetOutcome& link : links) {
+                auto const before = tab.link_sheets.find(link.element);
+                if ((before == tab.link_sheets.end() || before->second != link.url) && tab.realm)
+                    tab.realm->resource_settled(*link.element, link.loaded);
+                heard.emplace(link.element, std::move(link.url));
+            }
+            tab.link_sheets = std::move(heard);
             // The lists' element-hiding rules for this page, last, so their
             // !important beats the page's own.
             if (net::Blocklists const* const lists = loader.content_lists()) {
@@ -4462,6 +4476,7 @@ struct Browser::Impl {
         tab.tree_scroll = 0;
         tab.images.clear();
         tab.image_sources.clear();
+        tab.link_sheets.clear();
         tab.picture_origins->clear();
         tab.pictures_coming.clear(); // the pictures of the page that is going
         tab.pictures_asked_ahead = false;

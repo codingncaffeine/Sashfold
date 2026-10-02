@@ -190,6 +190,10 @@ add_test(NAME shell_fullscreen
 add_test(NAME shell_image_events
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/image-events.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+# A stylesheet link's load and error events, in tasks of their own, once
+# for each sheet it names.
+add_test(NAME shell_link_events
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/link-events.script)
 # A fetched stylesheet's bytes are decoded once for the page, however
 # often a script's added sheets have its stylesheets collected again.
 add_test(NAME shell_sheet_cache

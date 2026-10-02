@@ -2677,7 +2677,7 @@ void trace_canvases(Realm::Internals const& in, js::Tracer& tracer)
 void image_source_changed(Realm::Internals& in, dom::Element& image)
 {
     // An image in the document of a host that fetches pictures is the
-    // host's to load, and to tell the realm of (Realm::image_settled).
+    // host's to load, and to tell the realm of (Realm::resource_settled).
     if (in.hooks.image_state && &image.root() == in.document)
         return;
     // Only this realm's own document's images: one of a frame's document,

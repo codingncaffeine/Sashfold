@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <map>
 #include <mutex>
-#include <set>
 #include <string>
 #include <vector>
 
@@ -83,18 +82,24 @@ struct Collector {
     std::vector<SheetSource>& out;
     MediaContext const& media;
     InlineSheetCheck const& check;
-    std::set<std::string> visited;
+    std::vector<LinkSheetOutcome>* links;
+    std::map<std::string, bool> visited; // each sheet asked for, and whether it came
 
-    void add_fetched(net::Url const& url, int depth, std::string_view nonce)
+    // Whether the sheet came, or nothing when it was not asked for.
+    std::optional<bool> add_fetched(net::Url const& url, int depth, std::string_view nonce)
     {
         std::string const key = url.serialize(true);
-        if (visited.contains(key) || out.size() >= max_sheets || !fetch)
-            return;
-        visited.insert(key);
+        if (auto const asked = visited.find(key); asked != visited.end())
+            return asked->second;
+        if (out.size() >= max_sheets || !fetch)
+            return std::nullopt;
+        visited.emplace(key, false);
         std::optional<FetchedSheet> const fetched = fetch(url, nonce);
         if (!fetched)
-            return;
+            return false;
+        visited[key] = true;
         add_text(fetched->text ? *fetched->text : decode_stylesheet(fetched->bytes, fetched->content_type), url, depth);
+        return true;
     }
 
     void add_text(std::string text, std::optional<net::Url> const& url, int depth)
@@ -155,8 +160,11 @@ void walk(dom::Node const& node, net::Url const* base, Collector& collector)
             std::string const href = attribute(element, "href");
             if (href.empty())
                 return;
-            if (std::optional<net::Url> const target = net::parse_url(href, base))
-                collector.add_fetched(*target, 0, attribute(element, "nonce"));
+            if (std::optional<net::Url> const target = net::parse_url(href, base)) {
+                std::optional<bool> const loaded = collector.add_fetched(*target, 0, attribute(element, "nonce"));
+                if (loaded && collector.links)
+                    collector.links->push_back(LinkSheetOutcome { &element, target->serialize(true), *loaded });
+            }
             return;
         }
     }
@@ -167,10 +175,10 @@ void walk(dom::Node const& node, net::Url const* base, Collector& collector)
 } // namespace
 
 std::vector<SheetSource> collect_stylesheets(dom::Document const& document, net::Url const* base,
-    SheetFetcher const& fetch, MediaContext const& media, InlineSheetCheck const& check)
+    SheetFetcher const& fetch, MediaContext const& media, InlineSheetCheck const& check, std::vector<LinkSheetOutcome>* links)
 {
     std::vector<SheetSource> sheets;
-    Collector collector { fetch, sheets, media, check, {} };
+    Collector collector { fetch, sheets, media, check, links, {} };
     // `base` is the document's own URL; what it names is resolved against
     // the document base URL, which a base element moves (HTML §2.4.3).
     std::optional<net::Url> const named_against

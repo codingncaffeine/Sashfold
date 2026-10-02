@@ -78,13 +78,24 @@ struct MediaContext {
     float device_scale = 1;
 };
 
+// A <link rel=stylesheet> the collection asked for its sheet, and whether
+// the sheet came: what decides the element's load or error event (HTML
+// §4.6.7). A second link to a sheet already asked for has the first's answer.
+struct LinkSheetOutcome {
+    dom::Element const* element = nullptr;
+    std::string url;
+    bool loaded = false;
+};
+
 // Relative references resolve against `base` (the document's URL); with no
 // base or no fetcher, only <style> elements contribute. A sheet that cannot
 // be fetched is simply absent; imports go a few levels deep and never twice.
 // Sheets whose media condition the context fails are left out, and so is
-// a <style> the check refuses.
+// a <style> the check refuses. `links`, when given, receives the outcome of
+// each stylesheet link asked for.
 std::vector<SheetSource> collect_stylesheets(dom::Document const& document, net::Url const* base,
-    SheetFetcher const& fetch, MediaContext const& media = {}, InlineSheetCheck const& check = {});
+    SheetFetcher const& fetch, MediaContext const& media = {}, InlineSheetCheck const& check = {},
+    std::vector<LinkSheetOutcome>* links = nullptr);
 
 std::string decode_stylesheet(std::vector<std::uint8_t> const& bytes, std::string_view content_type);
 

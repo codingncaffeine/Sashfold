@@ -1,0 +1,34 @@
+<!DOCTYPE html>
+<html><head><title>waiting</title>
+<link rel="stylesheet" href="link-events-a.css" onload="heard('parsed:load')">
+</head><body><p>link events</p>
+<script>
+var lines = [];
+function heard(line) { lines.push(line); }
+function link(name, href) {
+  var element = document.createElement('link');
+  element.rel = 'stylesheet';
+  element.href = href;
+  element.addEventListener('load', function () { heard(name + ':load'); });
+  element.addEventListener('error', function () { heard(name + ':error'); });
+  return element;
+}
+// Inserted: a sheet already had, a new one, one that is not there; each
+// heard of in a task after this one, never while it runs.
+var again = link('again', 'link-events-a.css');
+var fresh = link('fresh', 'link-events-b.css');
+var missing = link('missing', 'link-events-none.css');
+document.head.appendChild(again);
+document.head.appendChild(fresh);
+document.head.appendChild(missing);
+var during = lines.length;
+// A new href is a new sheet, heard of again.
+setTimeout(function () {
+  var moved = link('moved', 'link-events-a.css');
+  document.head.appendChild(moved);
+  setTimeout(function () { moved.href = 'link-events-b.css'; }, 100);
+}, 100);
+setTimeout(function () {
+  document.title = 'during ' + during + ' | ' + lines.slice().sort().join(' | ');
+}, 500);
+</script></body></html>

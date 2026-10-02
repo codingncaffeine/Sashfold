@@ -1,0 +1,11 @@
+# A stylesheet link's load and error events (HTML §4.6.7): one in the
+# markup, three inserted by script — a sheet the page already has, a new
+# one, one that is not there — each heard of in a task of its own (`during`
+# is how many were heard while the script that inserted them ran: none), and
+# a link whose href changes, heard of once for each sheet it names.
+# link-events.html writes what it heard into its title half a second in,
+# sorted. The clock moves in steps, as a window's turns do.
+resize 800 600
+open link-events.html
+advance 100 7
+assert-title during 0 | again:load | fresh:load | missing:error | moved:load | moved:load | parsed:load
