@@ -2295,6 +2295,13 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 }
             } else if (step.command == "move" && numbers >> x >> y) {
                 browser.mouse_move(x, y);
+            } else if (step.command == "dump-dom" || step.command == "dump-layout") {
+                // `<ms> dump-dom <file>` / `<ms> dump-layout <file>`: the
+                // page's document as its scripts left it, or its fragment
+                // tree, written at that moment of the driven run.
+                std::string const text = step.command == "dump-dom" ? browser.page_html() : browser.layout_text();
+                std::ofstream(step.argument, std::ios::binary) << text;
+                std::cerr << " (" << text.size() << " bytes)";
             } else if (step.command == "wheel" && numbers >> x >> y >> notches) {
                 browser.mouse_move(x, y);
                 browser.wheel(x, y, notches);

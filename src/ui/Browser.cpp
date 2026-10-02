@@ -3,10 +3,12 @@
 #include "ui/Frames.h"
 
 #include "html/PreloadScanner.h"
+#include "html/Serializer.h"
 
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
 #include "core/AnimatedImage.h"
+#include "core/TraceClock.h"
 #include "core/Ascii.h"
 #include "core/Json.h"
 #include "core/Unicode.h"
@@ -37,6 +39,7 @@
 #include "ui/ThemeGallery.h"
 #include "ui/ThemeImport.h"
 
+#include <iostream>
 #include <algorithm>
 #include <cctype>
 #include <chrono>
@@ -1048,6 +1051,16 @@ struct Browser::Impl {
 
     int mouse_x = -1;
     int mouse_y = -1;
+    // The pointer as the page last heard of it (pointer_moved): where, so
+    // that a page changing under a still pointer gets the boundary events
+    // and not a move; and the realm that heard the press, which hears the
+    // release when the pointer has left the page.
+    int pointer_sent_x = -1;
+    int pointer_sent_y = -1;
+    bindings::Realm* pointer_realm = nullptr;
+    bindings::Realm* pressed_realm = nullptr;
+    dom::Element const* pointer_traced = nullptr; // the last element the pointer trace named
+    platform::Modifiers press_modifiers;
     Hover hover = Hover::None;
     std::size_t hover_index = 0;
     std::size_t hover_level = 0; // which of the open menus, for Hover::MenuRow
@@ -6016,6 +6029,102 @@ struct Browser::Impl {
             static_cast<float>(y - c.content.y + tab->scroll_y) };
     }
 
+    // What the page has under a window point, for the events the pointer
+    // sends it: the element, the realm it belongs to (a frame's own, for a
+    // point inside one), and the point in that document's client
+    // coordinates. Nothing when the point is off the page or on no element.
+    struct PageHit {
+        Tab* tab = nullptr;
+        FrameView* view = nullptr;
+        bindings::Realm* realm = nullptr;
+        dom::Element* element = nullptr;
+        bindings::MouseInit init;
+    };
+    std::optional<PageHit> page_hit(int x, int y)
+    {
+        Tab* const tab = active_tab();
+        if (!tab || !tab->document)
+            return std::nullopt;
+        std::optional<std::pair<float, float>> const point = page_point(x, y);
+        if (!point)
+            return std::nullopt;
+        std::vector<FrameStep> const chain = frames_at(*tab, point->first, point->second);
+        FrameView* const view = chain.empty() ? nullptr : chain.back().view;
+        bindings::Realm* const realm = view ? view->realm : tab->realm.get();
+        if (!realm)
+            return std::nullopt;
+        layout::Fragment const& root = view ? view->layout.root : tab->layout.root;
+        float const px = view ? chain.back().x : point->first;
+        float const py = view ? chain.back().y : point->second;
+        dom::Element const* const target = target_at(root, px, py);
+        if (!target)
+            return std::nullopt;
+        ChromeLayout const chrome = layout_chrome();
+        PageHit hit;
+        hit.tab = tab;
+        hit.view = view;
+        hit.realm = realm;
+        hit.element = const_cast<dom::Element*>(target);
+        hit.init.client_x = static_cast<int>(std::lround(to_css_px(view ? px : static_cast<float>(x - chrome.content.x))));
+        hit.init.client_y = static_cast<int>(std::lround(to_css_px(view ? py - static_cast<float>(view->scroll_y) : static_cast<float>(y - chrome.content.y))));
+        return hit;
+    }
+
+    // The page hears where the pointer is (Realm::pointer_moved): the
+    // element under it, or none when it is off the page; a realm the
+    // pointer left (another frame's) hears that first. Only the engine of
+    // a page does this; a shell that keeps the chrome alone forwards the
+    // point to the engine (update_hover).
+    void tell_page_pointer(int x, int y)
+    {
+        if (pages_in_engines)
+            return;
+        Tab* const tab = active_tab();
+        if (!tab || !tab->document)
+            return;
+        bool const moved = x != pointer_sent_x || y != pointer_sent_y;
+        pointer_sent_x = x;
+        pointer_sent_y = y;
+        std::optional<PageHit> const hit = hover == Hover::Content ? page_hit(x, y) : std::nullopt;
+        bindings::Realm* const realm = hit ? hit->realm : nullptr;
+        // SASHFOLD_POINTER_TRACE=1: which element the page is told the
+        // pointer is over, each time that changes — the instrument for a
+        // page that does not react to the pointer.
+        static bool const trace = [] { char const* const set = std::getenv("SASHFOLD_POINTER_TRACE"); return set != nullptr && set[0] == '1'; }();
+        if (trace && (hit ? hit->element : nullptr) != pointer_traced) {
+            pointer_traced = hit ? hit->element : nullptr;
+            std::string name = "nothing";
+            if (pointer_traced != nullptr) {
+                name = pointer_traced->local_name();
+                if (dom::Attr const* const id = pointer_traced->find_attribute("id"))
+                    name += "#" + id->value;
+                if (dom::Attr const* const classes = pointer_traced->find_attribute("class"))
+                    name += "." + classes->value.substr(0, 60);
+            }
+            std::cerr << "pointer: " << trace_stamp() << "over " << name << " at " << x << "," << y << (hit ? " client " + std::to_string(hit->init.client_x) + "," + std::to_string(hit->init.client_y) : std::string()) << "\n";
+        }
+        if (pointer_realm != nullptr && pointer_realm != realm && realm_alive(*tab, pointer_realm))
+            pointer_realm->pointer_moved(nullptr, bindings::MouseInit {}, false);
+        pointer_realm = realm;
+        if (realm != nullptr)
+            realm->pointer_moved(hit->element, hit->init, moved);
+    }
+
+    // Whether a realm the pointer or a press was told of is still a
+    // document's of this tab: the page's own, or one of its frames'.
+    static bool realm_in_frames(DrawnFrames const& frames, bindings::Realm const* realm)
+    {
+        for (auto const& [element, drawn] : frames) {
+            if (drawn.view && (drawn.view->realm == realm || realm_in_frames(drawn.view->frames, realm)))
+                return true;
+        }
+        return false;
+    }
+    static bool realm_alive(Tab const& tab, bindings::Realm const* realm)
+    {
+        return realm != nullptr && (tab.realm.get() == realm || realm_in_frames(tab.frames, realm));
+    }
+
     // The control under a window point: its own box, or the control a
     // <label> whose text was hit stands for.
     dom::Element const* control_at(int x, int y)
@@ -6287,6 +6396,7 @@ struct Browser::Impl {
         }
         if (!menus.empty())
             follow_pointer_in_menus(from_x, from_y);
+        tell_page_pointer(x, y);
         if (pages_in_engines) {
             // The page hears where the pointer is over it, at the point of
             // its own frame, and that it has left.
@@ -7863,6 +7973,50 @@ struct Browser::Impl {
             if (!menus.empty() && hover == Hover::MenuRow && travelled >= slide)
                 choose_menu_item_at(hover_level, hover_index, false);
         }
+        release_on_page(button);
+    }
+
+    // The button comes up over the page (the engine's part): pointerup,
+    // mouseup and the click, then what the click does — a control
+    // pressed, a link followed, with Ctrl a tab of its own — unless the
+    // page canceled the click. The realm that heard the press hears the
+    // release, over nothing when the pointer has left it.
+    void release_on_page(int button)
+    {
+        if (pages_in_engines || pressed_realm == nullptr)
+            return;
+        bindings::Realm* const realm = pressed_realm;
+        pressed_realm = nullptr;
+        Tab* const tab = active_tab();
+        if (!tab || !tab->document || !realm_alive(*tab, realm))
+            return;
+        std::optional<PageHit> const hit = hover == Hover::Content ? page_hit(mouse_x, mouse_y) : std::nullopt;
+        bool const same_document = hit && hit->realm == realm;
+        bindings::MouseInit init = same_document ? hit->init : bindings::MouseInit {};
+        init.button = button == 1 ? 0 : button == 2 ? 1 : 2;
+        init.ctrl = press_modifiers.ctrl;
+        init.shift = press_modifiers.shift;
+        init.alt = press_modifiers.alt;
+        script_started = std::chrono::steady_clock::now();
+        bindings::PointerRelease const release = realm->pointer_released(same_document ? hit->element : nullptr, init);
+        ensure_fresh(*tab);
+        dirty = true;
+        if (button != 1 || !release.proceed || !tab->document || !same_document)
+            return;
+        update_hover(mouse_x, mouse_y); // the page may have changed under the pointer
+        if (dom::Element const* const control = control_at(mouse_x, mouse_y)) {
+            activate_control(*control);
+        } else if (hover_link && press_modifiers.ctrl && is_navigable_scheme(hover_link->scheme)) {
+            net::Url const url = *hover_link; // the hover moves with the tabs
+            // Ctrl with the click: a tab of its own, behind the page; with
+            // Shift as well, in front of it.
+            if (press_modifiers.shift)
+                open_in_front(url);
+            else
+                open_in_new_tab(url);
+        } else if (hover_link) {
+            follow_link();
+        }
     }
 
     void select_all_text(Tab& tab)
@@ -9196,8 +9350,12 @@ struct Browser::Impl {
                             init.alt = modifiers.alt;
                             dom::Element& element = const_cast<dom::Element&>(*target);
                             script_started = std::chrono::steady_clock::now();
-                            realm->dispatch_mouse_event(element, "mousedown", init);
-                            bool const proceed = realm->dispatch_mouse_event(element, "click", init);
+                            // The press: pointerdown and mousedown now; the
+                            // click, and what it does, when the button
+                            // comes up (mouse_up → release_on_page).
+                            pressed_realm = realm;
+                            press_modifiers = modifiers;
+                            bool const proceed = realm->pointer_pressed(element, init);
                             ensure_fresh(*tab);
                             dirty = true;
                             if (!proceed || !tab->document)
@@ -9206,22 +9364,15 @@ struct Browser::Impl {
                         }
                     }
                 }
-                if (dom::Element const* const control = control_at(x, y)) {
-                    activate_control(*control);
-                } else {
+                // What a press does on its own: the focus leaves a control
+                // pressed outside of, and a drag on plain text starts a
+                // selection. A control's activation and a link's following
+                // wait for the click, at the release.
+                if (!control_at(x, y)) {
                     blur_control();
-                    if (hover_link && modifiers.ctrl && is_navigable_scheme(hover_link->scheme)) {
-                        net::Url const url = *hover_link; // the hover moves with the tabs
-                        // Ctrl with the click: a tab of its own, behind the
-                        // page; with Shift as well, in front of it.
-                        if (modifiers.shift)
-                            open_in_front(url);
-                        else
-                            open_in_new_tab(url);
-                    } else if (hover_link) {
-                        follow_link();
-                    } else if (Tab* const tab = active_tab()) {
-                        start_selection(*tab, x, y);
+                    if (!hover_link) {
+                        if (Tab* const tab = active_tab())
+                            start_selection(*tab, x, y);
                     }
                 }
                 break;
@@ -11473,6 +11624,61 @@ std::string Browser::page_title() const
 {
     HistoryEntry const* const entry = current_entry();
     return entry ? entry->title : std::string();
+}
+
+std::string Browser::page_html() const
+{
+    if (Impl::FrontPage const page = m_impl->front_page())
+        return page->page_html();
+    Impl::Tab const* const tab = m_impl->active_tab();
+    return tab && tab->document ? html::serialize_children(*tab->document) : std::string();
+}
+
+namespace {
+
+// The fragment tree as --dump-layout prints it: one box per line with its
+// element, position, size and flags, then its text runs.
+void write_fragments(std::ostream& out, layout::Fragment const& fragment, int depth)
+{
+    std::string const indent(static_cast<std::size_t>(depth) * 2, ' ');
+    std::string name = "anonymous";
+    if (fragment.element) {
+        name = fragment.element->local_name();
+        if (dom::Attr const* id = fragment.element->find_attribute("id"))
+            name += "#" + id->value;
+        if (dom::Attr const* class_attribute = fragment.element->find_attribute("class"))
+            name += "." + class_attribute->value;
+    }
+    std::string flags;
+    if (fragment.floating)
+        flags += " float";
+    if (fragment.positioned)
+        flags += fragment.out_of_flow ? " out-of-flow" : " positioned";
+    if (fragment.stacking_context)
+        flags += " stacking-context";
+    if (fragment.image)
+        flags += " image";
+    if (fragment.control)
+        flags += " control";
+    out << indent << name << " @ " << fragment.x << "," << fragment.y << " " << fragment.width << "x" << fragment.height << flags << "\n";
+    for (layout::TextRun const& run : fragment.runs)
+        out << indent << "  \"" << to_utf8(run.text) << "\" @ " << run.x << "," << run.baseline_y << " w " << run.width << "\n";
+    for (layout::Fragment const& child : fragment.children)
+        write_fragments(out, child, depth + 1);
+}
+
+}
+
+std::string Browser::layout_text() const
+{
+    if (Impl::FrontPage const page = m_impl->front_page())
+        return page->layout_text();
+    Impl::Tab const* const tab = m_impl->active_tab();
+    if (!tab || !tab->document)
+        return {};
+    std::ostringstream out;
+    write_fragments(out, tab->layout.root, 0);
+    return out.str();
 }
 
 std::string Browser::page_text() const

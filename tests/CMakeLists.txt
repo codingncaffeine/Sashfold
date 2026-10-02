@@ -314,6 +314,9 @@ add_test(NAME shell_addresses
 add_test(NAME shell_pointing
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pointing.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_pointer_events
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pointer-events.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_tabs
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/tabs.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

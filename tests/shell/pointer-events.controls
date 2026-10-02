@@ -1,0 +1,15 @@
+# Planted-fault controls for tests/shell/pointer-events.script: the page hears where the pointer is, and the click comes with the release.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/pointer-events.script
+
+# The window never tells the page where the pointer is: no boundary events, no moves — and the click still fires at the pressed element with nothing before it.
+control nomove
+file src/ui/Browser.cpp
+fails 18 21 27 34 40 46
+plant s~        tell_page_pointer\(x, y\);\n~~
+
+# The release tells the page nothing: no pointerup, no mouseup, no click — the reset text's click never clears the log, a link pressed and released is not followed (so Back then leaves the links page for the first one), and a canceled click cannot say so.
+control norelease
+file src/ui/Browser.cpp
+fails 27 34 40 46 54 56 58
+plant s~        release_on_page\(button\);\n~~

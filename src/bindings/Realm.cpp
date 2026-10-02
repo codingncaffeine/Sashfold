@@ -3040,9 +3040,10 @@ bool Realm::dispatch_mouse_event(dom::Node& target, std::string_view type, Mouse
     Internals::HostEntry const host(in.agent);
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     js::Interpreter::Roots const roots(in.interpreter);
-    bool const bubbles = type != "mouseenter" && type != "mouseleave";
-    bool const cancelable = type != "mouseenter" && type != "mouseleave" && type != "mousemove";
-    EventObject* event = in.new_event("MouseEvent", type, bubbles, cancelable);
+    // The enter and leave pairs neither bubble nor cancel (UI Events
+    // §5.3.3); every other mouse event does both.
+    bool const boundary_pair = type == "mouseenter" || type == "mouseleave" || type == "pointerenter" || type == "pointerleave";
+    EventObject* event = in.new_event(init.pointer ? "PointerEvent" : "MouseEvent", type, !boundary_pair, !boundary_pair);
     in.interpreter.root(js::Value::object(event));
     event->is_trusted = true;
     event->composed = true;
@@ -3051,16 +3052,174 @@ bool Realm::dispatch_mouse_event(dom::Node& target, std::string_view type, Mouse
     event->screen_x = init.client_x;
     event->screen_y = init.client_y;
     event->button = init.button;
-    event->buttons = type == "mousedown" ? (init.button == 0 ? 1 : init.button == 1 ? 4 : 2) : 0;
+    event->buttons = init.buttons;
+    event->movement_x = init.movement_x;
+    event->movement_y = init.movement_y;
     event->detail = init.detail;
     event->ctrl_key = init.ctrl;
     event->shift_key = init.shift;
     event->alt_key = init.alt;
     event->meta_key = init.meta;
+    event->related_target = init.related_target != nullptr ? js::Value::object(in.wrap(*init.related_target)) : js::Value::undefined();
     // A button pressed is an activation-triggering input event (HTML §6.4.1).
-    if (type == "mousedown")
+    if (type == "mousedown" || type == "pointerdown")
         in.has_been_active = true;
     return in.dispatch(*event, in.wrap(target));
+}
+
+namespace {
+
+// An element and its element ancestors, innermost first.
+std::vector<dom::Element*> element_chain(dom::Element* element)
+{
+    std::vector<dom::Element*> chain;
+    for (dom::Node* node = element; node != nullptr; node = node->parent()) {
+        if (node->is_element())
+            chain.push_back(static_cast<dom::Element*>(node));
+    }
+    return chain;
+}
+
+// How many elements two chains share at their outer ends.
+std::size_t shared_tail(std::vector<dom::Element*> const& a, std::vector<dom::Element*> const& b)
+{
+    std::size_t shared = 0;
+    while (shared < a.size() && shared < b.size() && a[a.size() - 1 - shared] == b[b.size() - 1 - shared])
+        ++shared;
+    return shared;
+}
+
+int button_bit(int button)
+{
+    return button == 0 ? 1 : button == 2 ? 2 : button == 1 ? 4 : 0;
+}
+
+}
+
+void Realm::pointer_moved(dom::Element* target, MouseInit const& given, bool moved)
+{
+    Internals& in = *m_internals;
+    dom::Element* const old = in.pointer_target;
+    MouseInit init = given;
+    init.buttons = in.buttons_down;
+    init.detail = 0;
+    // How far the pointer came since the last move the page heard of.
+    if (moved && target != nullptr) {
+        init.movement_x = in.pointer_x < 0 ? 0 : given.client_x - in.pointer_x;
+        init.movement_y = in.pointer_y < 0 ? 0 : given.client_y - in.pointer_y;
+        in.pointer_x = given.client_x;
+        in.pointer_y = given.client_y;
+    }
+    if (old != target) {
+        // What the pointer left and what it entered, innermost first; the
+        // elements both chains share at the top are left and entered by
+        // neither (UI Events §5.3.1: the enter and leave pairs).
+        std::vector<dom::Element*> const left = element_chain(old);
+        std::vector<dom::Element*> const entered = element_chain(target);
+        std::size_t const shared = shared_tail(left, entered);
+        for (bool const pointer : { true, false }) {
+            init.pointer = pointer;
+            if (old != nullptr) {
+                init.related_target = target;
+                dispatch_mouse_event(*old, pointer ? "pointerout" : "mouseout", init);
+                for (std::size_t i = 0; i + shared < left.size(); ++i)
+                    dispatch_mouse_event(*left[i], pointer ? "pointerleave" : "mouseleave", init);
+            }
+            if (target != nullptr) {
+                init.related_target = old;
+                dispatch_mouse_event(*target, pointer ? "pointerover" : "mouseover", init);
+                for (std::size_t i = entered.size() - shared; i-- > 0;)
+                    dispatch_mouse_event(*entered[i], pointer ? "pointerenter" : "mouseenter", init);
+            }
+        }
+        in.pointer_target = target;
+    }
+    if (target == nullptr || !moved)
+        return;
+    init.related_target = nullptr;
+    init.pointer = true;
+    dispatch_mouse_event(*target, "pointermove", init);
+    if (!in.mouse_suppressed) {
+        init.pointer = false;
+        dispatch_mouse_event(*target, "mousemove", init);
+    }
+}
+
+bool Realm::pointer_pressed(dom::Element& target, MouseInit const& given)
+{
+    Internals& in = *m_internals;
+    in.buttons_down |= button_bit(given.button);
+    in.pressed_target = &target;
+    // The count a press carries is the click it is about to be (UI Events
+    // §5.3.3): one more than the last click, when it is close enough in
+    // time and place to count as the same series.
+    double const now = in.now();
+    bool const same_series = in.last_click_target == &target && now - in.last_click_at <= 500 && std::abs(given.client_x - in.last_click_x) <= 4
+        && std::abs(given.client_y - in.last_click_y) <= 4;
+    MouseInit init = given;
+    init.buttons = in.buttons_down;
+    init.detail = same_series ? in.click_count + 1 : 1;
+    init.pointer = true;
+    in.mouse_suppressed = !dispatch_mouse_event(target, "pointerdown", init);
+    if (in.mouse_suppressed)
+        return true;
+    init.pointer = false;
+    return dispatch_mouse_event(target, "mousedown", init);
+}
+
+PointerRelease Realm::pointer_released(dom::Element* target, MouseInit const& given)
+{
+    Internals& in = *m_internals;
+    in.buttons_down &= ~button_bit(given.button);
+    dom::Element* const pressed = in.pressed_target;
+    in.pressed_target = nullptr;
+    PointerRelease result;
+    dom::Element* const at = target != nullptr ? target : pressed;
+    if (at == nullptr) {
+        in.mouse_suppressed = false;
+        return result;
+    }
+    MouseInit init = given;
+    init.buttons = in.buttons_down;
+    init.detail = in.click_count;
+    init.pointer = true;
+    dispatch_mouse_event(*at, "pointerup", init);
+    if (!in.mouse_suppressed) {
+        init.pointer = false;
+        dispatch_mouse_event(*at, "mouseup", init);
+    }
+    in.mouse_suppressed = false;
+    // The click fires where both the press and the release happened: the
+    // nearest ancestor the two elements share (UI Events §5.3.3), the
+    // release's own when the pressed one is gone from the tree.
+    dom::Element* click_at = at;
+    if (pressed != nullptr && target != nullptr && pressed != target) {
+        std::vector<dom::Element*> const down = element_chain(pressed);
+        std::vector<dom::Element*> const up = element_chain(target);
+        std::size_t const shared = shared_tail(down, up);
+        click_at = shared > 0 ? up[up.size() - shared] : target;
+    }
+    double const now = in.now();
+    bool const same_series = in.last_click_target == click_at && now - in.last_click_at <= 500 && std::abs(given.client_x - in.last_click_x) <= 4
+        && std::abs(given.client_y - in.last_click_y) <= 4;
+    in.click_count = same_series ? in.click_count + 1 : 1;
+    in.last_click_target = click_at;
+    in.last_click_at = now;
+    in.last_click_x = given.client_x;
+    in.last_click_y = given.client_y;
+    init.detail = in.click_count;
+    init.pointer = true; // click and auxclick are PointerEvents (Pointer Events §5.2.1)
+    result.click_target = click_at;
+    if (given.button == 0) {
+        result.proceed = dispatch_mouse_event(*click_at, "click", init);
+        if (in.click_count == 2) {
+            init.pointer = false;
+            dispatch_mouse_event(*click_at, "dblclick", init);
+        }
+    } else {
+        dispatch_mouse_event(*click_at, "auxclick", init);
+    }
+    return result;
 }
 
 bool Realm::dispatch_key_event(dom::Node* target, std::string_view type, KeyInit const& init)

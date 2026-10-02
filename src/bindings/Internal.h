@@ -170,6 +170,8 @@ public:
     int screen_y = 0;
     int button = 0;
     int buttons = 0;
+    int movement_x = 0; // since the last mousemove (Pointer Lock §4)
+    int movement_y = 0;
     bool ctrl_key = false;
     bool shift_key = false;
     bool alt_key = false;
@@ -1009,6 +1011,26 @@ struct Realm::Internals {
     // navigator.userActivation.hasBeenActive answers. The transient kind
     // is the host's to say (hooks.user_activation).
     bool has_been_active = false;
+    // The pointer over this document (Realm::pointer_moved, pointer_pressed,
+    // pointer_released): the element under it, the one the first button
+    // went down on, the buttons held, and the last click for the count a
+    // click carries. Elements are the document's for its lifetime, so a
+    // removed one is still an address; is_connected() says whether it is
+    // still in the tree.
+    dom::Element* pointer_target = nullptr;
+    dom::Element* pressed_target = nullptr;
+    int pointer_x = -1; // where the last move was, for movementX/Y
+    int pointer_y = -1;
+    int buttons_down = 0;
+    // A pointerdown canceled suppresses the compatibility mouse events
+    // (mousedown, mousemove, mouseup) until the button comes up (Pointer
+    // Events §5.2.5); the click still fires.
+    bool mouse_suppressed = false;
+    int click_count = 0;
+    dom::Element* last_click_target = nullptr;
+    double last_click_at = 0; // the host's clock, ms
+    int last_click_x = 0;
+    int last_click_y = 0;
     // The details elements whose toggle event task is queued (HTML §4.11.1,
     // the "details toggle task tracker"), by wrapper — which the task keeps
     // alive until it runs — with the state the event will say they are in.

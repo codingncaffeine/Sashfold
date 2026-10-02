@@ -1,0 +1,58 @@
+# What the pointer tells a page (UI Events §5.3, Pointer Events §5.2): the
+# boundary events when it crosses from one element to another — out and
+# leave up the chain it left, over and enter down the chain it entered,
+# the pointer kind before the mouse kind — the move, the press, the
+# release, and the click where both halves happened. The window is 800 by
+# 600; the page starts 76 px down it. The page writes what it heard into
+# its title, in order; a click on the "reset" text clears it, and leaves
+# the pointer on that text (r), where the next crossing starts from.
+resize 800 600
+
+# --- Crossing: two boxes side by side in one parent ---
+# Listeners sit on the parent and the two boxes alone, so the enter and
+# leave events of the document's own elements do not show; the events the
+# boxes bubble to the parent are counted at the box.
+open data:text/html,<title>-</title><style>body{margin:0}%23c{padding:20px}%23a,%23b{width:200px;height:100px;display:inline-block}%23a{background:silver}%23b{background:gray}</style><div id=c><div id=a></div><div id=b></div></div><p id=r>reset</p><script>var log=[];function on(e){var t=e.target.id,s=e.type+':'+t;if(e.type==='click'||e.type==='auxclick')s+=(e instanceof PointerEvent?'P':'M')+e.detail+'b'+e.buttons;if(e.type==='mousedown')s+='b'+e.buttons;if(/over|out|enter|leave/.test(e.type))s+='/'+(e.relatedTarget?e.relatedTarget.id:'-');log.push(s);document.title=log.join(' ')}['pointerover','pointerout','pointerenter','pointerleave','pointermove','mouseover','mouseout','mouseenter','mouseleave','mousemove','pointerdown','mousedown','pointerup','mouseup','click','dblclick','auxclick'].forEach(function(t){['c','a','b'].forEach(function(i){var el=document.getElementById(i);el.addEventListener(t,function(e){if(e.currentTarget===e.target||/enter|leave/.test(t))on(e)})})});document.getElementById('r').onclick=function(){log=[];document.title='-'}</script>
+# Into A from nowhere: over and enter, outermost first, then the move.
+move 100 150
+assert-title pointerover:a/- pointerenter:c/- pointerenter:a/- mouseover:a/- mouseenter:c/- mouseenter:a/- pointermove:a mousemove:a
+# A still pointer hears nothing more.
+move 100 150
+assert-title pointerover:a/- pointerenter:c/- pointerenter:a/- mouseover:a/- mouseenter:c/- mouseenter:a/- pointermove:a mousemove:a
+# From A to B: out and leave A, over and enter B; the parent they share is
+# neither left nor entered. (From r into A first: the parent is entered.)
+click-text reset
+move 100 150
+move 320 150
+assert-title pointerover:a/r pointerenter:c/r pointerenter:a/r mouseover:a/r mouseenter:c/r mouseenter:a/r pointermove:a mousemove:a pointerout:a/b pointerleave:a/b pointerover:b/a pointerenter:b/a mouseout:a/b mouseleave:a/b mouseover:b/a mouseenter:b/a pointermove:b mousemove:b
+
+# --- The press and the release ---
+# Down and up on B: the click is a PointerEvent with a count of one; the
+# button held shows on the press and is gone by the release.
+click-text reset
+click 320 150
+assert-title pointerover:b/r pointerenter:c/r pointerenter:b/r mouseover:b/r mouseenter:c/r mouseenter:b/r pointermove:b mousemove:b pointerdown:b mousedown:bb1 pointerup:b mouseup:b click:bP1b0
+# Pressed on A, released on B: the click lands on the parent they share.
+click-text reset
+press 100 150
+move 320 150
+release
+assert-title pointerover:a/r pointerenter:c/r pointerenter:a/r mouseover:a/r mouseenter:c/r mouseenter:a/r pointermove:a mousemove:a pointerdown:a mousedown:ab1 pointerout:a/b pointerleave:a/b pointerover:b/a pointerenter:b/a mouseout:a/b mouseleave:a/b mouseover:b/a mouseenter:b/a pointermove:b mousemove:b pointerup:b mouseup:b click:cP1b0
+# Two clicks in one place: the second counts two and brings dblclick; the
+# pointer standing still between them moves nothing.
+click-text reset
+click 320 150
+click 320 150
+assert-title pointerover:b/r pointerenter:c/r pointerenter:b/r mouseover:b/r mouseenter:c/r mouseenter:b/r pointermove:b mousemove:b pointerdown:b mousedown:bb1 pointerup:b mouseup:b click:bP1b0 pointerdown:b mousedown:bb1 pointerup:b mouseup:b click:bP2b0 dblclick:b
+
+# --- A click's default action waits for the release ---
+# A link pressed and released follows; one whose click is canceled does not.
+open data:text/html,<title>Links</title><style>body{margin:0}a{display:block;height:50px}</style><a href="data:text/html,<title>Followed</title>">go</a><a id=x href="data:text/html,<title>Wrong</title>" onclick="event.preventDefault();document.title='Held'">stay</a>
+press 40 100
+assert-title Links
+release
+assert-title Followed
+back
+assert-title Links
+click 40 150
+assert-title Held

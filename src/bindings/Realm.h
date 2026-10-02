@@ -314,11 +314,23 @@ struct MouseInit {
     int client_x = 0;
     int client_y = 0;
     int button = 0; // 0 left, 1 middle, 2 right
+    int buttons = 0; // the buttons held while the event fires (UI Events §5.3.3)
+    int movement_x = 0; // since the last move (Pointer Lock §4); the realm fills these in
+    int movement_y = 0;
     int detail = 1; // the click count
     bool ctrl = false;
     bool shift = false;
     bool alt = false;
     bool meta = false;
+    bool pointer = false; // a PointerEvent (pointerId 1, "mouse") rather than a MouseEvent
+    dom::Element* related_target = nullptr; // mouseover/out, enter/leave: the other element
+};
+// What a release gave: the click, where it fired (the nearest common
+// ancestor of where the button went down and came up), and whether its
+// default action — following a link, pressing a control — may proceed.
+struct PointerRelease {
+    dom::Element* click_target = nullptr;
+    bool proceed = true;
 };
 struct KeyInit {
     std::string key; // "a", "Enter", "ArrowLeft"
@@ -453,6 +465,25 @@ public:
     // the default action.
     bool dispatch_event(dom::Node* target, std::string_view type, EventInit init = {});
     bool dispatch_mouse_event(dom::Node& target, std::string_view type, MouseInit const&);
+    // The pointer over the page (UI Events §5.3, Pointer Events §5.2): the
+    // host says which element is under it now, or none, and where; the
+    // realm fires what moved — pointerout and pointerleave up the chain the
+    // pointer left, pointerover and pointerenter down the chain it entered,
+    // the mouse counterparts of each after them, then pointermove and
+    // mousemove — and keeps the element for next time.
+    // `moved` false: the pointer stood still and the page changed under it
+    // — the boundary events fire, the move events do not.
+    void pointer_moved(dom::Element* target, MouseInit const&, bool moved = true);
+    // A button pressed over an element: pointerdown, then mousedown unless
+    // the pointerdown was canceled. False when the mousedown was canceled:
+    // the host then skips what a press does on its own (focus, selection).
+    bool pointer_pressed(dom::Element& target, MouseInit const&);
+    // The button released over an element, or over nothing: pointerup and
+    // mouseup there (at the pressed element when over nothing), then the
+    // click at the nearest common ancestor of the pressed and the released
+    // element — auxclick for a button other than the first; dblclick after
+    // a second click within half a second and a few pixels.
+    PointerRelease pointer_released(dom::Element* target, MouseInit const&);
     bool dispatch_key_event(dom::Node* target, std::string_view type, KeyInit const&);
     bool dispatch_input_event(dom::Node& target, std::string_view type, InputInit const& init = {});
     // The host navigates this window to `target` as the document would

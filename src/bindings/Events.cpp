@@ -1007,8 +1007,8 @@ void install_events(Realm::Internals& in)
     });
     event_getter(in, *mouse_event, "offsetX", [](Realm::Internals& internals, EventObject& e) { return js::Value::number(offset_in_target(internals, e).first); });
     event_getter(in, *mouse_event, "offsetY", [](Realm::Internals& internals, EventObject& e) { return js::Value::number(offset_in_target(internals, e).second); });
-    event_getter(in, *mouse_event, "movementX", [](Realm::Internals&, EventObject&) { return js::Value::number(0); });
-    event_getter(in, *mouse_event, "movementY", [](Realm::Internals&, EventObject&) { return js::Value::number(0); });
+    event_getter(in, *mouse_event, "movementX", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.movement_x); });
+    event_getter(in, *mouse_event, "movementY", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.movement_y); });
     event_getter(in, *mouse_event, "button", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.button); });
     event_getter(in, *mouse_event, "buttons", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.buttons); });
     event_getter(in, *mouse_event, "relatedTarget", [](Realm::Internals&, EventObject& e) { return e.related_target.is_undefined() ? js::Value::null() : e.related_target; });

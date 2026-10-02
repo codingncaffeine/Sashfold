@@ -658,6 +658,8 @@ public:
     std::string status_text() const;
     std::string page_title() const;
     std::string page_text() const; // the laid-out text, runs joined by spaces
+    std::string page_html() const; // the page's document as its scripts left it, serialized
+    std::string layout_text() const; // the page's fragment tree, one box per line (as --dump-layout prints it)
     std::size_t blocked_requests() const; // refused by the loader's blocklists, this session
     std::size_t pictures() const; // the active page's pictures decoded so far
     // For a host on a virtual clock, faster than video pictures are made:

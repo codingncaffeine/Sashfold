@@ -340,11 +340,14 @@ struct Runner {
         } else if (command == "set-clipboard") {
             platform::write_clipboard_text(argument);
         } else if (command == "move") {
+            // `move <x> <y>`: the pointer goes there, and the page hears it
+            // (the boundary and move events) before the next step.
             auto const x = int_arg(0);
             auto const y = int_arg(1);
             if (!x || !y)
                 return fail("move: needs x y");
             browser.mouse_move(*x, *y);
+            settle();
         } else if (command == "wheel") {
             auto const notches = int_arg(0);
             if (!notches)
@@ -654,6 +657,14 @@ struct Runner {
         } else if (command == "screenshot") {
             if (!write_file(resolve(argument), encode_png(browser.frame())))
                 fail("screenshot: cannot write " + argument);
+        } else if (command == "dump-dom" || command == "dump-layout") {
+            // `dump-dom <file>`: the page's document as its scripts left it;
+            // `dump-layout <file>`: its fragment tree, as --dump-layout
+            // prints it — for whoever is writing a test to read what a page
+            // built and where it put it.
+            std::string const text = command == "dump-dom" ? browser.page_html() : browser.layout_text();
+            if (!write_file(resolve(argument), std::vector<std::uint8_t>(text.begin(), text.end())))
+                fail(command + ": cannot write " + argument);
         } else if (command == "assert-golden") {
             std::filesystem::path const golden = resolve(argument);
             std::vector<std::uint8_t> const actual = encode_png(browser.frame());
