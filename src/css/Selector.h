@@ -89,7 +89,8 @@ struct SimpleSelector {
         AnyLink,
         Link,
         // logical
-        Scope,
+        Scope, // what a :has() argument is relative to (internal)
+        ScopeRoot, // :scope, and `&` outside a nested rule: the scoping root
         Has,
         Not,
         Is,
@@ -104,7 +105,9 @@ struct SimpleSelector {
     AttributeSelector attribute; // Kind::Attribute
     // :not/:is/:where and :has take a selector list; :nth-child and
     // :nth-last-child take the `of S` one, which counts their siblings.
-    std::unique_ptr<SelectorList> argument;
+    // Shared and never changed once read: the `&` of every rule nested in
+    // one parent holds that parent's list, which is read once.
+    std::shared_ptr<SelectorList const> argument;
     int nth_a = 0; // :nth-*(an+b)
     int nth_b = 0;
 };
@@ -144,6 +147,20 @@ struct ComplexSelector {
 // Parses a rule prelude as a selector list. nullopt when any selector in the
 // list is invalid (the caller drops the rule).
 std::optional<SelectorList> parse_selector_list(std::vector<ComponentValue> const& prelude);
+
+// A nested style rule's prelude (css-nesting-1 §2): a relative selector
+// list, each selector made absolute against the parent rule's list. `&`
+// stands for that list as :is() would; a selector that opens with a
+// combinator, or writes no `&` at all, gets `& ` (or `& <combinator>`) in
+// front. nullopt when any selector is invalid.
+std::optional<SelectorList> parse_nested_selector_list(
+    std::vector<ComponentValue> const& prelude, SelectorList const& parent);
+
+// The element `:scope` (and `&` in a rule nested in nothing) means while
+// the current thread matches: the root of an @scope, or nothing, which is
+// the document's root element. Set and restored by the caller.
+void set_scope_root(dom::Element const* root);
+dom::Element const* scope_root();
 
 // @supports selector(...) (css-conditional-3 §6): true when `prelude` is
 // exactly one complex selector, valid down to every :is()/:where() argument

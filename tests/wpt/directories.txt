@@ -24,3 +24,8 @@ html/rendering
 # The canvas element's reference tests: pictures a script draws, matched
 # against pages that draw the same thing another way.
 html/canvas/element
+
+# Added 2026-10-03 with CSS Nesting, cascade layers and container queries:
+# the rule families the cascade used to drop whole.
+css/css-nesting
+css/css-conditional

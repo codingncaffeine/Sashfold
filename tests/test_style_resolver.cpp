@@ -91,11 +91,114 @@ void test_prepared_sheets_from_many_threads()
     CHECK_EQ(wrong.load(), 0);
 }
 
+// css-nesting-1 and css-cascade-5's layers: each element's colour says
+// which rule won.
+void test_nesting_and_layers()
+{
+    std::unique_ptr<dom::Document> document = html::parse_document(std::string_view(R"(<!doctype html>
+<div class=card id=card><p id=in-card>x</p><span class=t id=title>t</span><b id=after-b>b</b></div>
+<b id=lone-b>b</b>
+<section id=sec><p id=sec-p>x</p></section>
+<div class=a id=amp><i id=amp-i>i</i></div>
+<div class="x y" id=xy>xy</div>
+<div class=m id=media-nested>m</div>
+<div class=decl id=decl-order>d</div>
+<div class=before-gen id=pe>p</div>
+<p id=bad-parent>b</p>
+<div id=layered class=layered>l</div>
+<div id=imp class=imp>i</div>
+<div id=anon class=anon>a</div>
+<div id=sub class=sub>s</div>
+<div id=from-import class=from-import>f</div>
+<div id=hint class=hint><font id=font color=#010203>f</font></div>
+<div id=top-amp>t</div>
+<div id=dotted>d</div>
+<div class="forgive t1" id=forgive>f</div>
+<ul id=has-outer><li id=has-inner><strong>s</strong></li></ul>
+)"));
+    css::SheetSource imported;
+    imported.text = "@layer one { .from-import { color: rgb(70, 0, 0) } } .from-import { color: rgb(71, 0, 0) }";
+    imported.layer = "imported";
+    imported.layers_first = { "zero", "imported" };
+    css::SheetSource page;
+    page.text = R"CSS(
+.card {
+  color: rgb(1, 0, 0);
+  p { color: rgb(2, 0, 0) }
+  & > .t { color: rgb(3, 0, 0) }
+  + b { color: rgb(4, 0, 0) }
+  > b { color: rgb(5, 0, 0) }
+}
+section { p & { color: rgb(9, 9, 9) } & p { color: rgb(6, 0, 0) } }
+.a { &:has(i) { color: rgb(7, 0, 0) } .b, i { color: rgb(8, 0, 0) } }
+.x { &.y { color: rgb(10, 0, 0) } }
+.m { color: rgb(11, 0, 0); @media (min-width: 1px) { color: rgb(12, 0, 0) } @media (max-width: 1px) { color: rgb(13, 0, 0) } }
+.decl { color: rgb(14, 0, 0); & { color: rgb(15, 0, 0) } color: rgb(16, 0, 0) }
+.before-gen::before { content: "x"; & { color: rgb(17, 0, 0) } }
+.before-gen { color: rgb(18, 0, 0) }
+p:bogus { color: red; & { color: red } }
+#bad-parent { color: rgb(19, 0, 0) }
+
+@layer base, theme;
+@layer theme { #layered { color: rgb(20, 0, 0) } }
+@layer base { .layered.layered.layered { color: rgb(21, 0, 0) } }
+@layer base { #imp { color: rgb(22, 0, 0) !important } }
+@layer theme { #imp { color: rgb(23, 0, 0) !important } }
+#imp { color: rgb(24, 0, 0) !important }
+@layer { .anon { color: rgb(25, 0, 0) } }
+@layer { .anon { color: rgb(26, 0, 0) } }
+.anon { color: rgb(27, 0, 0) }
+@layer theme.inner { #sub { color: rgb(28, 0, 0) } }
+@layer theme.inner { #dotted { color: rgb(32, 0, 0) } }
+@layer theme { #dotted { color: rgb(33, 0, 0) !important } }
+@layer theme.inner { #dotted { color: rgb(34, 0, 0) !important } }
+.nowhere { :is(.t1, !&) { color: rgb(35, 0, 0) } }
+li:has(strong) { :has(> &) { color: rgb(255, 0, 0) } }
+#has-outer { color: rgb(36, 0, 0) }
+@layer theme { .sub { color: rgb(29, 0, 0) } }
+@layer zero { .from-import { color: rgb(72, 0, 0) } }
+@layer x { #font { color: rgb(30, 0, 0) } }
+& { color: rgb(31, 0, 0) }
+#top-amp { color: inherit }
+)CSS";
+    css::StyleSet const set({ imported, page });
+    css::StyleMap const styles = css::resolve_styles(*document, set);
+    auto const color_of = [&](std::string_view id) {
+        dom::Element* const element = find_by_id(*document, id);
+        auto const it = element ? styles.find(element) : styles.end();
+        return it == styles.end() ? Color::rgb(255, 255, 255) : it->second.color;
+    };
+    CHECK(color_of("card") == Color::rgb(1, 0, 0));
+    CHECK(color_of("in-card") == Color::rgb(2, 0, 0)); // `p` is `& p`
+    CHECK(color_of("title") == Color::rgb(3, 0, 0)); // `& > .t`
+    CHECK(color_of("lone-b") == Color::rgb(4, 0, 0)); // `+ b` is `& + b`
+    CHECK(color_of("after-b") == Color::rgb(5, 0, 0)); // `> b`
+    CHECK(color_of("sec-p") == Color::rgb(6, 0, 0)); // `& p`; `p &` matches no section
+    CHECK(color_of("amp") == Color::rgb(7, 0, 0)); // `&:has(i)`
+    CHECK(color_of("amp-i") == Color::rgb(8, 0, 0)); // a list, each made relative
+    CHECK(color_of("xy") == Color::rgb(10, 0, 0)); // `&.y` is `.x.y`
+    CHECK(color_of("media-nested") == Color::rgb(12, 0, 0)); // a nested @media's declarations
+    CHECK(color_of("decl-order") == Color::rgb(16, 0, 0)); // declarations after a nested rule come later
+    CHECK(color_of("pe") == Color::rgb(18, 0, 0)); // `&` stands for no pseudo-element
+    CHECK(color_of("bad-parent") == Color::rgb(19, 0, 0)); // an invalid parent takes its nested rules with it
+    CHECK(color_of("layered") == Color::rgb(20, 0, 0)); // a later layer beats specificity
+    CHECK(color_of("imp") == Color::rgb(22, 0, 0)); // !important: the earliest layer wins
+    CHECK(color_of("anon") == Color::rgb(27, 0, 0)); // no layer beats every layer
+    CHECK(color_of("sub") == Color::rgb(29, 0, 0)); // a layer's own rules beat its sublayers
+    CHECK(color_of("from-import") == Color::rgb(71, 0, 0)); // the import's layer after `zero`, its own rules last in it
+    CHECK(color_of("font") == Color::rgb(30, 0, 0)); // a presentational hint is below every layer
+    CHECK(color_of("top-amp") == Color::rgb(31, 0, 0)); // `&` in no rule is :scope, the root
+    CHECK(color_of("dotted") == Color::rgb(34, 0, 0)); // a dotted sublayer, which is EARLIER than its parent: its !important wins
+    CHECK(color_of("forgive") == Color::rgb(35, 0, 0)); // `&` written in a dropped piece still counts: not made relative
+    CHECK(color_of("has-outer") == Color::rgb(36, 0, 0)); // a :has() that `&` brings into a :has() matches nothing
+}
+
 } // namespace
 
 int main()
 {
     test_prepared_sheets_from_many_threads();
+    test_nesting_and_layers();
     g_document = html::parse_document(std::string_view(R"(
 <!doctype html>
 <html><head><style>

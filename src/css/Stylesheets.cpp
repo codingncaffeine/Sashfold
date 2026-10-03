@@ -3,6 +3,7 @@
 #include "core/Ascii.h"
 #include "core/Unicode.h"
 #include "css/Parser.h"
+#include "css/StyleResolver.h"
 #include "css/Tokenizer.h"
 #include "dom/Dom.h"
 #include "html/DocumentBase.h"
@@ -15,6 +16,7 @@
 #include <map>
 #include <mutex>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace sashfold::css {
@@ -84,9 +86,12 @@ struct Collector {
     InlineSheetCheck const& check;
     std::vector<LinkSheetOutcome>* links;
     std::map<std::string, bool> visited; // each sheet asked for, and whether it came
+    int anonymous_layers = 0; // the anonymous layers imports have opened so far
 
-    // Whether the sheet came, or nothing when it was not asked for.
-    std::optional<bool> add_fetched(net::Url const& url, int depth, std::string_view nonce)
+    // Whether the sheet came, or nothing when it was not asked for. `layer`
+    // is the cascade layer an @import put it in, dotted.
+    std::optional<bool> add_fetched(net::Url const& url, int depth, std::string_view nonce,
+        std::optional<std::string> const& layer = std::nullopt, std::vector<std::string> const& layers_first = {})
     {
         std::string const key = url.serialize(true);
         if (auto const asked = visited.find(key); asked != visited.end())
@@ -98,19 +103,36 @@ struct Collector {
         if (!fetched)
             return false;
         visited[key] = true;
-        add_text(fetched->text ? *fetched->text : decode_stylesheet(fetched->bytes, fetched->content_type), url, depth);
+        add_text(fetched->text ? *fetched->text : decode_stylesheet(fetched->bytes, fetched->content_type), url, depth,
+            layer, layers_first);
         return true;
     }
 
-    void add_text(std::string text, std::optional<net::Url> const& url, int depth)
+    void add_text(std::string text, std::optional<net::Url> const& url, int depth,
+        std::optional<std::string> const& layer = std::nullopt, std::vector<std::string> const& layers_first = {})
     {
         if (depth < max_import_depth) {
-            for (std::string const& href : import_urls(text, media)) {
-                if (std::optional<net::Url> const target = net::parse_url(href, url ? &*url : nullptr))
-                    add_fetched(*target, depth + 1, {});
+            // An imported sheet's layers sit inside the importing sheet's.
+            auto const within = [&](std::string const& name) { return layer ? *layer + "." + name : name; };
+            for (ImportRule const& import : import_rules(text, media)) {
+                std::optional<net::Url> const target = net::parse_url(import.url, url ? &*url : nullptr);
+                if (!target)
+                    continue;
+                std::optional<std::string> inner = layer;
+                if (import.layer) {
+                    // An anonymous layer: a segment no page can write.
+                    inner = within(import.layer->empty() ? "\x01" + std::to_string(++anonymous_layers) : *import.layer);
+                }
+                std::vector<std::string> first = layers_first;
+                for (std::string const& name : import.layers_before)
+                    first.push_back(within(name));
+                add_fetched(*target, depth + 1, {}, inner, first);
             }
         }
-        out.push_back(SheetSource { std::move(text), url });
+        SheetSource source { std::move(text), url };
+        source.layer = layer;
+        source.layers_first = layers_first;
+        out.push_back(std::move(source));
     }
 };
 
@@ -216,20 +238,40 @@ std::string decode_stylesheet(std::vector<std::uint8_t> const& bytes, std::strin
     return to_utf8(decoded);
 }
 
-std::vector<std::string> import_urls(std::string_view sheet_text, MediaContext const& media)
+std::vector<ImportRule> import_rules(std::string_view sheet_text, MediaContext const& media)
 {
-    std::vector<std::string> urls;
+    std::vector<ImportRule> imports;
+    std::vector<std::string> layers_before;
     std::shared_ptr<Stylesheet const> const sheet = parse_stylesheet_shared(sheet_text);
     for (Rule const& rule : sheet->rules) {
         if (!rule.is_at_rule())
             break; // imports precede every other rule
         AtRule const& at = rule.at_rule();
         std::string const name = lowercased(at.name);
-        if (name == "charset" || name == "layer")
+        if (name == "charset")
             continue;
+        if (name == "layer") {
+            // `@layer a, b;` ahead of the imports puts those layers first.
+            if (at.has_block)
+                break;
+            std::string current;
+            for (ComponentValue const& value : at.prelude) {
+                if (value.is_token(Token::Type::Ident))
+                    current += value.token().value;
+                else if (value.is_token(Token::Type::Delim) && value.token().delim == U'.')
+                    current += '.';
+                else if (value.is_token(Token::Type::Comma) && !current.empty())
+                    layers_before.push_back(std::exchange(current, {}));
+            }
+            if (!current.empty())
+                layers_before.push_back(std::move(current));
+            continue;
+        }
         if (name != "import")
             break;
-        std::optional<std::string> url;
+        ImportRule import;
+        bool has_url = false;
+        bool supported = true;
         std::vector<ComponentValue> conditions;
         bool first = true;
         for (ComponentValue const& value : at.prelude) {
@@ -238,32 +280,69 @@ std::vector<std::string> import_urls(std::string_view sheet_text, MediaContext c
             if (first) {
                 first = false;
                 if (value.is_token(Token::Type::String) || value.is_token(Token::Type::Url)) {
-                    url = value.token().value;
+                    import.url = value.token().value;
+                    has_url = true;
                 } else if (value.is_function() && lowercased(value.function().name) == "url") {
                     for (ComponentValue const& inner : value.function().values) {
                         if (inner.is_token(Token::Type::String) || inner.is_token(Token::Type::Ident)) {
-                            url = inner.token().value;
+                            import.url = inner.token().value;
+                            has_url = true;
                             break;
                         }
                     }
                 }
                 continue;
             }
-            // layer / layer() / supports() precede the media list and are
-            // not conditions this cascade evaluates.
+            // layer / layer() / supports() precede the media list.
             if (value.is_token(Token::Type::Ident) && lowercased(value.token().value) == "layer"
-                && conditions.empty())
+                && conditions.empty() && !import.layer) {
+                import.layer = std::string();
                 continue;
+            }
             if (value.is_function() && conditions.empty()) {
                 std::string const function = lowercased(value.function().name);
-                if (function == "layer" || function == "supports")
+                if (function == "layer" && !import.layer) {
+                    std::string layer;
+                    for (ComponentValue const& inner : value.function().values) {
+                        if (inner.is_token(Token::Type::Ident))
+                            layer += inner.token().value;
+                        else if (inner.is_token(Token::Type::Delim) && inner.token().delim == U'.')
+                            layer += '.';
+                        else if (!inner.is_token(Token::Type::Whitespace))
+                            has_url = false; // not a layer name: the rule is invalid
+                    }
+                    if (layer.empty())
+                        has_url = false;
+                    import.layer = std::move(layer);
                     continue;
+                }
+                if (function == "supports") {
+                    // css-cascade-5 §2.1: a declaration alone, or a condition.
+                    std::vector<ComponentValue> wrapped;
+                    SimpleBlock block;
+                    block.open = Token::Type::OpenParen;
+                    block.values = value.function().values;
+                    wrapped.emplace_back(ComponentValue { std::move(block) });
+                    supported = supports_condition_matches(value.function().values)
+                        || supports_condition_matches(wrapped);
+                    continue;
+                }
             }
             conditions.push_back(value);
         }
-        if (url && media_prelude_matches(conditions, media))
-            urls.push_back(*url);
+        if (has_url && supported && media_prelude_matches(conditions, media)) {
+            import.layers_before = layers_before;
+            imports.push_back(std::move(import));
+        }
     }
+    return imports;
+}
+
+std::vector<std::string> import_urls(std::string_view sheet_text, MediaContext const& media)
+{
+    std::vector<std::string> urls;
+    for (ImportRule& import : import_rules(sheet_text, media))
+        urls.push_back(std::move(import.url));
     return urls;
 }
 

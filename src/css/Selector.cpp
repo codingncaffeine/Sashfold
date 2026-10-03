@@ -26,6 +26,47 @@ thread_local bool t_selectors_unforgiving = false;
 // :is()/:where() too — :has(:is(:has(a))) is exactly as invalid.
 thread_local bool t_inside_has = false;
 
+// css-nesting-1 §3: what `&` stands for while a nested rule's selector is
+// read — its parent rule's list, less the selectors that address a
+// pseudo-element (which `&` cannot represent) — and the most specific of
+// them, which is what `&` weighs, as :is() would. Null outside a nested
+// rule, where `&` is the scoping root and weighs nothing.
+thread_local std::shared_ptr<SelectorList const> t_nest_parent;
+thread_local Specificity t_nest_specificity;
+
+// Whether `&` is written anywhere in the values, inside functions and
+// brackets too: such a selector is not made relative a second time.
+bool writes_nesting(std::vector<ComponentValue> const& values)
+{
+    for (ComponentValue const& value : values) {
+        if (value.is_token(Token::Type::Delim) && value.token().delim == U'&')
+            return true;
+        if (value.is_function() && writes_nesting(value.function().values))
+            return true;
+        if (value.is_block() && writes_nesting(value.block().values))
+            return true;
+    }
+    return false;
+}
+
+// The simple selector `&` is read as.
+SimpleSelector nesting_selector()
+{
+    SimpleSelector simple;
+    simple.kind = SimpleSelector::Kind::PseudoClass;
+    simple.name = "&";
+    if (t_nest_parent) {
+        simple.pseudo = SimpleSelector::PseudoKind::Is;
+        simple.argument = t_nest_parent;
+    } else {
+        simple.pseudo = SimpleSelector::PseudoKind::ScopeRoot;
+    }
+    return simple;
+}
+
+// What :scope means while matching: see set_scope_root.
+thread_local dom::Element const* t_scope_root = nullptr;
+
 struct Cursor {
     std::vector<ComponentValue> const& values;
     std::size_t index = 0;
@@ -285,7 +326,7 @@ constexpr PseudoName pseudo_classes[] = {
     { "placeholder-shown", SimpleSelector::PseudoKind::NeverMatches },
     { "default", SimpleSelector::PseudoKind::NeverMatches },
     { "indeterminate", SimpleSelector::PseudoKind::NeverMatches },
-    { "scope", SimpleSelector::PseudoKind::NeverMatches },
+    { "scope", SimpleSelector::PseudoKind::ScopeRoot },
 };
 
 constexpr std::string_view pseudo_elements[] = {
@@ -330,6 +371,16 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
         if (value->is_token(Token::Type::Whitespace) || value->is_token(Token::Type::Comma) || is_delim(value, U'>')
             || is_delim(value, U'+') || is_delim(value, U'~'))
             break;
+
+        // The nesting selector, anywhere in the compound. A type selector
+        // may still follow it (`&div` is `div&`), so `first` stands.
+        if (is_delim(value, U'&')) {
+            cursor.consume();
+            compound.simples.push_back(nesting_selector());
+            if (t_nest_parent)
+                specificity = specificity + t_nest_specificity;
+            continue;
+        }
 
         // Universal or type (first position only).
         if (is_delim(value, U'*')) {
@@ -1039,8 +1090,17 @@ bool matches_simple(SimpleSelector const& simple, dom::Element const& element)
         return false;
     case SimpleSelector::PseudoKind::Scope:
         return relative_to == &element;
+    case SimpleSelector::PseudoKind::ScopeRoot:
+        // selectors-4 §14.3: the scoping root, which with no @scope
+        // around the rule is the document's root element.
+        if (t_scope_root)
+            return t_scope_root == &element;
+        return !parent_element(element) && element.parent() != nullptr;
     case SimpleSelector::PseudoKind::Has: {
-        if (!simple.argument)
+        // A :has() inside another's argument cannot be written, but `&` can
+        // bring one there from a parent rule; it matches nothing (csswg
+        // issue 9600, as Gecko and Blink do).
+        if (!simple.argument || relative_to)
             return false;
         // Each selector in the list already carries the :scope compound and
         // the leading combinator, so a candidate answers it only by walking
@@ -1119,6 +1179,80 @@ std::optional<SelectorList> parse_selector_list(std::vector<ComponentValue> cons
 {
     return parse_selector_list_internal(prelude, false);
 }
+
+std::optional<SelectorList> parse_nested_selector_list(
+    std::vector<ComponentValue> const& prelude, SelectorList const& parent)
+{
+    // What `&` stands for: the parent's selectors that address an element.
+    auto stands_for = std::make_shared<SelectorList>();
+    Specificity weight;
+    for (ComplexSelector const& selector : parent.selectors) {
+        if (selector.pseudo_element != ComplexSelector::PseudoElement::None)
+            continue;
+        stands_for->selectors.push_back(selector);
+        weight = std::max(weight, selector.specificity);
+    }
+    struct Restore {
+        std::shared_ptr<SelectorList const> parent = t_nest_parent;
+        Specificity specificity = t_nest_specificity;
+        ~Restore()
+        {
+            t_nest_parent = std::move(parent);
+            t_nest_specificity = specificity;
+        }
+    } const restore;
+    t_nest_parent = stands_for;
+    t_nest_specificity = weight;
+
+    SelectorList list;
+    auto const one = [&](std::size_t from, std::size_t to) {
+        while (from < to && prelude[from].is_token(Token::Type::Whitespace))
+            ++from;
+        std::optional<Combinator> lead;
+        ComponentValue const* const first = from < to ? &prelude[from] : nullptr;
+        if (is_delim(first, U'>'))
+            lead = Combinator::Child;
+        else if (is_delim(first, U'+'))
+            lead = Combinator::NextSibling;
+        else if (is_delim(first, U'~'))
+            lead = Combinator::SubsequentSibling;
+        if (lead)
+            ++from;
+        std::vector<ComponentValue> const rest(prelude.begin() + static_cast<std::ptrdiff_t>(from),
+            prelude.begin() + static_cast<std::ptrdiff_t>(to));
+        std::optional<SelectorList> parsed = parse_selector_list_internal(rest, false);
+        if (!parsed || parsed->selectors.size() != 1)
+            return false;
+        ComplexSelector selector = std::move(parsed->selectors.front());
+        // §2: a selector that opens with a combinator, or that writes no
+        // `&`, is relative to the parent: `& ` (or the combinator) in front.
+        // Written anywhere counts, even in a piece a forgiving :is() drops.
+        if (lead || !writes_nesting(rest)) {
+            CompoundSelector anchor;
+            anchor.simples.push_back(nesting_selector());
+            selector.compounds.insert(selector.compounds.begin(), std::move(anchor));
+            selector.combinators.insert(selector.combinators.begin(), lead.value_or(Combinator::Descendant));
+            selector.specificity = selector.specificity + weight;
+        }
+        list.selectors.push_back(std::move(selector));
+        return true;
+    };
+    std::size_t start = 0;
+    for (std::size_t i = 0; i < prelude.size(); ++i) {
+        if (!prelude[i].is_token(Token::Type::Comma))
+            continue;
+        if (!one(start, i))
+            return std::nullopt;
+        start = i + 1;
+    }
+    if (!one(start, prelude.size()))
+        return std::nullopt;
+    return list;
+}
+
+void set_scope_root(dom::Element const* root) { t_scope_root = root; }
+
+dom::Element const* scope_root() { return t_scope_root; }
 
 // @supports selector( <complex-selector> ) (css-conditional-3 §6): a single
 // complex selector, not a list, and with :is()/:where() held to their

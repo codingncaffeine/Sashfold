@@ -365,6 +365,22 @@ int main()
     // The <link media> and @import gates see the same evaluator.
     CHECK(css::import_urls("@import url(a.css) (min-width: 600px);", narrow).empty());
     CHECK_EQ(css::import_urls("@import url(a.css) layer(base) screen and (min-width: 600px);", wide).size(), 1u);
+    // css-cascade-5 §2: the layer an import goes into, the layers named
+    // ahead of it, and a supports() condition that keeps it out.
+    {
+        std::vector<css::ImportRule> const rules = css::import_rules(
+            "@layer reset, theme.dark; @import 'a.css' layer(theme.dark); @import 'b.css' layer;"
+            " @import 'c.css' supports(display: grid); @import 'd.css' supports(not (display: grid));"
+            " @import 'e.css' supports(made-up: 1) layer(x);",
+            wide);
+        CHECK_EQ(rules.size(), 3u);
+        if (rules.size() == 3) {
+            CHECK(rules[0].url == "a.css" && rules[0].layer == std::optional<std::string>("theme.dark"));
+            CHECK(rules[0].layers_before == std::vector<std::string>({ "reset", "theme.dark" }));
+            CHECK(rules[1].url == "b.css" && rules[1].layer == std::optional<std::string>(""));
+            CHECK(rules[2].url == "c.css" && !rules[2].layer);
+        }
+    }
 
     // --- @media blocks in the cascade ---------------------------------------------------------
     auto const responsive = html::parse_document(std::string_view(R"(<!doctype html>

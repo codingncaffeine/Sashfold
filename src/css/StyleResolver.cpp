@@ -238,16 +238,35 @@ enum class CascadeRank : int {
 struct PreparedSheet {
     std::shared_ptr<Stylesheet const> sheet; // the parser's kept parse, shared with every other reader
     std::unordered_map<QualifiedRule const*, std::optional<SelectorList>> selectors;
+    // css-nesting-1 §3.2: a run of declarations among a style rule's nested
+    // rules (or inside an at-rule nested in one) applies to what that rule
+    // matches — its list, kept here. Absent for a run with no style rule
+    // around it, or under one whose selector was invalid.
+    std::unordered_map<NestedDeclarations const*, SelectorList const*> nested_parents;
 };
 
-void prepare_rules(std::vector<Rule> const& rules, PreparedSheet& prepared)
+// `parent` is the nearest style rule's selector list around these rules;
+// `nested` says there is one at all, even an invalid one, whose rules then
+// all go with it.
+void prepare_rules(std::vector<Rule> const& rules, PreparedSheet& prepared, SelectorList const* parent = nullptr,
+    bool nested = false)
 {
     for (Rule const& rule : rules) {
-        if (rule.is_at_rule())
-            prepare_rules(std::get<AtRule>(rule.value).child_rules, prepared);
-        else if (rule.is_qualified())
-            prepared.selectors.emplace(&std::get<QualifiedRule>(rule.value),
-                parse_selector_list(std::get<QualifiedRule>(rule.value).prelude));
+        if (rule.is_at_rule()) {
+            prepare_rules(std::get<AtRule>(rule.value).child_rules, prepared, parent, nested);
+        } else if (rule.is_qualified()) {
+            QualifiedRule const& qualified = std::get<QualifiedRule>(rule.value);
+            std::optional<SelectorList> list;
+            if (!nested)
+                list = parse_selector_list(qualified.prelude);
+            else if (parent)
+                list = parse_nested_selector_list(qualified.prelude, *parent);
+            auto const [kept, added] = prepared.selectors.emplace(&qualified, std::move(list));
+            if (!qualified.child_rules.empty())
+                prepare_rules(qualified.child_rules, prepared, kept->second ? &*kept->second : nullptr, true);
+        } else if (rule.is_nested_declarations() && parent) {
+            prepared.nested_parents.emplace(&rule.nested_declarations(), parent);
+        }
     }
 }
 
@@ -282,6 +301,10 @@ struct CompiledRule {
     std::vector<Declaration> const* declarations = nullptr;
     bool user_agent = false;
     int order = 0; // rule order across all sheets
+    // css-cascade-5 §6.4: the cascade layer's place among the layers, the
+    // later the stronger for normal declarations; the rules in no layer
+    // come last of all. While the sheets are compiled, the layer's node.
+    int layer = 0;
     std::shared_ptr<net::Url const> base; // the sheet's URL: what its url() values resolve against
 };
 
@@ -289,9 +312,19 @@ struct MatchedDeclaration {
     Declaration const* declaration = nullptr;
     net::Url const* base = nullptr; // for the URLs in the declaration
     int rank = 0;
+    int layer = 0;
     Specificity specificity;
     int order = 0;
 };
+
+// The ranks whose declarations are important: for those the cascade
+// layers count the other way round (css-cascade-5 §6.4).
+bool important_rank(int rank)
+{
+    return rank == static_cast<int>(CascadeRank::AuthorImportant)
+        || rank == static_cast<int>(CascadeRank::StyleAttributeImportant)
+        || rank == static_cast<int>(CascadeRank::UserAgentImportant);
+}
 
 // --- The ancestor filter -------------------------------------------------------
 
@@ -355,6 +388,8 @@ bool cascades_before(MatchedDeclaration const& a, MatchedDeclaration const& b)
 {
     if (a.rank != b.rank)
         return a.rank < b.rank;
+    if (a.layer != b.layer)
+        return important_rank(a.rank) ? a.layer > b.layer : a.layer < b.layer;
     if (a.specificity != b.specificity)
         return a.specificity < b.specificity;
     return a.order < b.order;
@@ -2456,6 +2491,7 @@ struct RuleSet {
                 case SimpleSelector::PseudoKind::AnyLink:
                 case SimpleSelector::PseudoKind::Link:
                 case SimpleSelector::PseudoKind::Scope:
+                case SimpleSelector::PseudoKind::ScopeRoot:
                 case SimpleSelector::PseudoKind::Not:
                 case SimpleSelector::PseudoKind::Is:
                 case SimpleSelector::PseudoKind::Where:
@@ -2491,45 +2527,212 @@ struct RuleSet {
     std::optional<net::Url> document_url; // the base for style attributes' URLs
     StyleAttributeCheck attribute_check; // the page's say on each style attribute; none passes all
 
+    // A sheet's rules, in the cascade layer `layer` names (dotted, as
+    // `@import ... layer(a.b)` writes it, with an anonymous layer's segment
+    // a name no page can write) when it was imported into one; the layers
+    // `layers_first` names are put in order before it, as the importing
+    // sheet's `@layer a, b;` statements ahead of its @import do.
     void compile_sheet(std::string_view text, bool user_agent, int& order,
-        std::shared_ptr<net::Url const> const& base)
+        std::shared_ptr<net::Url const> const& base, std::optional<std::string> const& layer = std::nullopt,
+        std::vector<std::string> const& layers_first = {})
     {
         std::shared_ptr<PreparedSheet const> prepared = prepared_sheet(text);
-        compile_rules(*prepared, prepared->sheet->rules, user_agent, order, base);
+        for (std::string const& name : layers_first)
+            layer_path(0, name);
+        Context context;
+        context.user_agent = user_agent;
+        context.base = base;
+        if (layer)
+            context.layer = layer_path(0, *layer);
+        compile_rules(*prepared, prepared->sheet->rules, context, order);
         sheets_kept.push_back(std::move(prepared));
     }
 
     // The prepared sheets the rules point into.
     std::vector<std::shared_ptr<PreparedSheet const>> sheets_kept;
 
-    void compile_rules(PreparedSheet const& prepared, std::vector<Rule> const& source, bool user_agent, int& order,
-        std::shared_ptr<net::Url const> const& base)
+    // css-cascade-5 §6.4.3: the cascade layers, a tree in the order each
+    // was first named. Node 0 is the outermost, which holds the rules in no
+    // layer; a layer's sublayers come before the rules directly in it.
+    struct LayerNode {
+        std::vector<int> children; // in the order they were first named
+        std::unordered_map<std::string, int> named; // the named ones among them
+    };
+    std::vector<LayerNode> layers { LayerNode {} };
+
+    int layer_child(int parent, std::string const& name)
+    {
+        if (auto const found = layers[static_cast<std::size_t>(parent)].named.find(name);
+            found != layers[static_cast<std::size_t>(parent)].named.end())
+            return found->second;
+        int const node = static_cast<int>(layers.size());
+        layers.emplace_back();
+        layers[static_cast<std::size_t>(parent)].children.push_back(node);
+        layers[static_cast<std::size_t>(parent)].named.emplace(name, node);
+        return node;
+    }
+
+    int anonymous_layer(int parent)
+    {
+        int const node = static_cast<int>(layers.size());
+        layers.emplace_back();
+        layers[static_cast<std::size_t>(parent)].children.push_back(node);
+        return node;
+    }
+
+    // A dotted name, segment by segment, below `parent`.
+    int layer_path(int parent, std::string_view dotted)
+    {
+        int node = parent;
+        while (!dotted.empty()) {
+            std::size_t const dot = dotted.find('.');
+            node = layer_child(node, std::string(dotted.substr(0, dot)));
+            if (dot == std::string_view::npos)
+                break;
+            dotted.remove_prefix(dot + 1);
+        }
+        return node;
+    }
+
+    // `@layer`'s prelude: comma-separated layer names, each identifiers
+    // joined by dots with nothing between (`a.b`). nullopt when it is not
+    // that; an empty list when it names nothing (an anonymous block).
+    static std::optional<std::vector<std::string>> layer_names(std::vector<ComponentValue> const& prelude)
+    {
+        std::vector<std::string> names;
+        std::string current;
+        bool want_ident = true; // at a name's start, or after its dot
+        bool ended = false; // whitespace after a name: only a comma may come
+        for (ComponentValue const& value : prelude) {
+            if (value.is_token(Token::Type::Whitespace)) {
+                if (!current.empty())
+                    ended = true;
+                if (!current.empty() && want_ident)
+                    return std::nullopt; // `a. b`
+                continue;
+            }
+            if (value.is_token(Token::Type::Comma)) {
+                if (current.empty() || want_ident)
+                    return std::nullopt;
+                names.push_back(std::move(current));
+                current.clear();
+                want_ident = true;
+                ended = false;
+                continue;
+            }
+            if (ended)
+                return std::nullopt;
+            if (want_ident && value.is_token(Token::Type::Ident)) {
+                current += value.token().value;
+                want_ident = false;
+                continue;
+            }
+            if (!want_ident && value.is_token(Token::Type::Delim) && value.token().delim == U'.') {
+                current += '.';
+                want_ident = true;
+                continue;
+            }
+            return std::nullopt;
+        }
+        if (!current.empty()) {
+            if (want_ident)
+                return std::nullopt;
+            names.push_back(std::move(current));
+        } else if (!names.empty()) {
+            return std::nullopt; // a trailing comma
+        }
+        return names;
+    }
+
+    // Each rule's layer node becomes the layer's place in the cascade: a
+    // walk of the tree that puts every layer's sublayers before it, so the
+    // outermost (no layer) comes last of all.
+    void finish_layers()
+    {
+        if (layers.size() == 1)
+            return; // no layers: every rule is in the outermost, place 0
+        std::vector<int> place(layers.size(), 0);
+        int next = 0;
+        auto const visit = [&](auto const& self, int node) -> void {
+            for (int const child : layers[static_cast<std::size_t>(node)].children)
+                self(self, child);
+            place[static_cast<std::size_t>(node)] = next++;
+        };
+        visit(visit, 0);
+        for (CompiledRule& rule : rules)
+            rule.layer = place[static_cast<std::size_t>(rule.layer)];
+    }
+
+    // What the rules being compiled sit inside.
+    struct Context {
+        bool user_agent = false;
+        std::shared_ptr<net::Url const> base;
+        int layer = 0; // the layer node
+    };
+
+    void add_rule(SelectorList const* selectors, std::vector<Declaration> const* declarations, Context const& context,
+        int& order)
+    {
+        CompiledRule compiled;
+        compiled.selectors = selectors;
+        compiled.declarations = declarations;
+        compiled.user_agent = context.user_agent;
+        compiled.order = order++;
+        compiled.layer = context.layer;
+        compiled.base = context.base;
+        rules.push_back(std::move(compiled));
+    }
+
+    void compile_rules(PreparedSheet const& prepared, std::vector<Rule> const& source, Context const& context, int& order)
     {
         for (Rule const& rule : source) {
             if (rule.is_at_rule()) {
                 // @media and @supports blocks whose condition the engine
                 // meets contribute their rules in place — the two nest
                 // inside each other freely, since this recurses either way;
-                // other at-rules (@font-face, @keyframes, @layer) are not
-                // supported yet.
+                // @layer puts its rules in a layer. Other at-rules
+                // (@font-face, @keyframes) are read elsewhere or not yet.
                 auto const& at = std::get<AtRule>(rule.value);
                 if (ascii_ci_equals(at.name, "media")) {
                     bool const matches = media_prelude_matches(at.prelude, media);
                     if (at.has_block)
                         media_conditions.emplace_back(at.prelude, matches);
                     if (at.has_block && matches)
-                        compile_rules(prepared, at.child_rules, user_agent, order, base);
+                        compile_rules(prepared, at.child_rules, context, order);
                 } else if (ascii_ci_equals(at.name, "supports")) {
                     // Never a --gaps entry, matched or not: an unmet
                     // condition is exactly as unremarkable as an unmet
                     // @media one, not a construct the engine failed to read.
                     if (at.has_block && supports_condition_matches(at.prelude))
-                        compile_rules(prepared, at.child_rules, user_agent, order, base);
+                        compile_rules(prepared, at.child_rules, context, order);
+                } else if (ascii_ci_equals(at.name, "layer")) {
+                    std::optional<std::vector<std::string>> const names = layer_names(at.prelude);
+                    if (!names)
+                        continue;
+                    if (!at.has_block) {
+                        // A statement: the layers it names take their places now.
+                        for (std::string const& name : *names)
+                            layer_path(context.layer, name);
+                        continue;
+                    }
+                    if (names->size() > 1)
+                        continue; // a block belongs to one layer
+                    Context inner = context;
+                    inner.layer = names->empty() ? anonymous_layer(context.layer) : layer_path(context.layer, names->front());
+                    compile_rules(prepared, at.child_rules, inner, order);
                 } else if (gap_sink() && !ascii_ci_equals(at.name, "font-face") && !ascii_ci_equals(at.name, "import")
                     && !ascii_ci_equals(at.name, "charset")) {
                     // @font-face and @import are read where the sheets and fonts are collected.
                     note_gap("css at-rule", "@" + lowercase_copy(at.name));
                 }
+                continue;
+            }
+            if (rule.is_nested_declarations()) {
+                // Declarations among a style rule's nested rules: that
+                // rule's selectors, at this point in the order.
+                auto const parent = prepared.nested_parents.find(&rule.nested_declarations());
+                if (parent != prepared.nested_parents.end() && !rule.nested_declarations().declarations.empty())
+                    add_rule(parent->second, &rule.nested_declarations().declarations, context, order);
                 continue;
             }
             if (!rule.is_qualified())
@@ -2539,16 +2742,14 @@ struct RuleSet {
             if (read == prepared.selectors.end() || !read->second) {
                 if (gap_sink())
                     note_gap("css selector", unparsed_selector_part(qualified.prelude));
-                continue;
+                continue; // and every rule nested in it with it
             }
-            CompiledRule compiled;
-            compiled.selectors = &*read->second;
-            compiled.declarations = &qualified.declarations;
-            compiled.user_agent = user_agent;
-            compiled.order = order++;
-            compiled.base = base;
-            rules.push_back(std::move(compiled));
-            // Nested child rules wait for the nesting-aware resolver.
+            if (!qualified.declarations.empty() || qualified.child_rules.empty())
+                add_rule(&*read->second, &qualified.declarations, context, order);
+            // css-nesting-1 §3: the nested rules follow their parent's own
+            // declarations, in the order written.
+            if (!qualified.child_rules.empty())
+                compile_rules(prepared, qualified.child_rules, context, order);
         }
     }
 };
@@ -3994,6 +4195,7 @@ struct Resolver {
                 entry.base = rule.base.get();
                 entry.specificity = specificity;
                 entry.order = rule.order;
+                entry.layer = rule.layer;
                 if (rule.user_agent) {
                     entry.rank = static_cast<int>(declaration.important
                             ? CascadeRank::UserAgentImportant
@@ -4042,6 +4244,8 @@ struct Resolver {
                     entry.declaration = &declaration;
                     entry.base = set.document_url ? &*set.document_url : nullptr;
                     entry.order = -1;
+                    // Below every author layer (css-cascade-5 §6.4.4).
+                    entry.layer = -1;
                     entry.rank = static_cast<int>(CascadeRank::AuthorNormal);
                     matched.push_back(entry);
                 }
@@ -7779,8 +7983,9 @@ StyleSet::StyleSet(std::vector<SheetSource> const& sheets, MediaContext const& m
     for (SheetSource const& sheet : sheets) {
         std::shared_ptr<net::Url const> const base
             = sheet.url ? std::make_shared<net::Url const>(*sheet.url) : nullptr;
-        m_rules->compile_sheet(sheet.text, false, order, base);
+        m_rules->compile_sheet(sheet.text, false, order, base, sheet.layer, sheet.layers_first);
     }
+    m_rules->finish_layers();
     m_rules->build_index();
 }
 

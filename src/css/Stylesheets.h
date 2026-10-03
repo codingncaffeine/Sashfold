@@ -29,8 +29,22 @@ struct PageFont;
 namespace sashfold::css {
 
 struct SheetSource {
+    SheetSource() = default;
+    SheetSource(std::string sheet_text, std::optional<net::Url> sheet_url)
+        : text(std::move(sheet_text))
+        , url(std::move(sheet_url))
+    {
+    }
+
     std::string text; // UTF-8
     std::optional<net::Url> url; // where it came from: the base for the URLs inside it
+    // css-cascade-5 §6.4.2: the cascade layer an @import put the sheet in,
+    // dotted (`a.b`), an anonymous layer as a segment no page can name;
+    // nothing for a sheet in no layer.
+    std::optional<std::string> layer;
+    // The layers the importing sheet's `@layer a, b;` statements named
+    // ahead of the @import, which take their places before this sheet's.
+    std::vector<std::string> layers_first;
 };
 
 struct FetchedSheet {
@@ -99,8 +113,19 @@ std::vector<SheetSource> collect_stylesheets(dom::Document const& document, net:
 
 std::string decode_stylesheet(std::vector<std::uint8_t> const& bytes, std::string_view content_type);
 
-// The URLs of the @import rules at the head of a sheet, as written, minus
-// those whose media condition the context fails.
+// The @import rules at the head of a sheet, minus those whose media or
+// supports() condition fails: each one's URL as written, the cascade layer
+// it imports into (`layer` alone gives an anonymous one, said here as an
+// empty name), and the layers the sheet's `@layer` statements named before
+// it, in order.
+struct ImportRule {
+    std::string url;
+    std::optional<std::string> layer;
+    std::vector<std::string> layers_before;
+};
+std::vector<ImportRule> import_rules(std::string_view sheet_text, MediaContext const& media = {});
+
+// The same rules' URLs alone.
 std::vector<std::string> import_urls(std::string_view sheet_text, MediaContext const& media = {});
 
 // One source of an @font-face rule: a URL as written (the caller resolves

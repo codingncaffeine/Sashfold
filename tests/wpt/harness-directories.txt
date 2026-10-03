@@ -101,3 +101,10 @@ trusted-types
 user-timing
 performance-timeline
 hr-time
+
+# Added 2026-10-03 with CSS Nesting, cascade layers and container queries:
+# their scripted tests (computed values under each rule family, and the
+# object model's rules for them). css-cascade's reftests are the other
+# runner's already; container queries are css-conditional's, scored above.
+css/css-nesting
+css/css-cascade
