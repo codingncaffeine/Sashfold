@@ -154,6 +154,11 @@ struct HostHooks {
     // replay and the tests give a virtual one so a timer fires when the
     // script says, deterministically.
     std::function<double()> now;
+    // The time origin of a document's realm, on the `now` clock: when its
+    // navigation began (HTML §7.4.2.3, navigation params' time origin),
+    // so performance.now() counts the document's own fetch as every engine
+    // does. Unset, the realm's making is the origin (a frame, a test).
+    std::optional<double> time_origin;
     // Whether a running script should be stopped now (the runners' deadline,
     // the shell's slow-script guard). Polled every few thousand steps.
     std::function<bool()> should_stop;

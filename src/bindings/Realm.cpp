@@ -1562,7 +1562,7 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     // A script's recursion is measured against the stack of the thread the
     // realm is made on, which is the one it runs on.
     interpreter.set_stack_budget(platform::js_stack_budget_for(platform::current_thread_stack_bytes()));
-    in.time_origin = in.now();
+    in.time_origin = in.hooks.time_origin.value_or(in.now());
     install_interfaces(in);
 }
 

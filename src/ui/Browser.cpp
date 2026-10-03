@@ -493,6 +493,7 @@ struct Browser::Impl {
         Pending load;
         std::string referrer;
         std::shared_ptr<net::FetchTicket> document;
+        double started = 0; // on the script clock, for the time origin
         bool fell_back_to_http = false; // what is awaited is the plain-HTTP retry
         std::string first_error; // what the HTTPS try said, should the retry fail too
         std::optional<HistoryEntry> entry;
@@ -3993,6 +3994,10 @@ struct Browser::Impl {
         hooks.local_storage = [this, container](std::string const& origin) { return storage_area(container, origin); };
         hooks.indexed_db = [this, container](std::string const& origin) { return indexed_db_storage(container, origin); };
         hooks.now = [this] { return script_now(); };
+        if (HistoryEntry* const shown = tab.current(); shown && shown->navigation_started > 0) {
+            hooks.time_origin = shown->navigation_started;
+            shown->navigation_started = 0;
+        }
         hooks.should_stop = [this] {
             // (And at once in an engine that has been told to end.)
             return (engine_self && engine_self->stopping.load(std::memory_order_relaxed))
@@ -4267,6 +4272,16 @@ struct Browser::Impl {
         };
         auto realm = std::make_unique<bindings::Realm>(*document, url, std::move(hooks));
         realm->trace_if_asked();
+        // SASHFOLD_PRELUDE=<file.js>: a script run in each page's realm before
+        // the page's own, as a DevTools client adds one to every new document:
+        // the instrument that puts the same marks on the same clock here and
+        // in another browser.
+        if (char const* const prelude = std::getenv("SASHFOLD_PRELUDE"); prelude != nullptr && prelude[0] != '\0') {
+            std::ifstream file(prelude, std::ios::binary);
+            std::string const source((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            if (!source.empty())
+                realm->run(source, "sashfold-prelude");
+        }
         return realm;
     }
 
@@ -4963,6 +4978,7 @@ struct Browser::Impl {
         entry.final_url = load.url;
         bool fell_back_to_http = false;
         std::string download_status;
+        entry.navigation_started = script_now();
 
         if (load.url.scheme == "about" && load.url.serialize_path() == "sashfold") {
             set_document(entry, about_sashfold_page());
@@ -5030,6 +5046,7 @@ struct Browser::Impl {
                     navigating.load = load;
                     navigating.referrer = referrer;
                     navigating.document = std::move(ticket);
+                    navigating.started = entry.navigation_started;
                     tab.navigating = std::move(navigating);
                     dirty = true;
                     return true;
@@ -5198,6 +5215,7 @@ struct Browser::Impl {
                 entry.url = load.url;
                 entry.final_url = load.url;
                 bool fell_back = false;
+                entry.navigation_started = navigating.started;
                 if (navigating.fell_back_to_http) {
                     if (result.response) {
                         entry.url.scheme = "http";
