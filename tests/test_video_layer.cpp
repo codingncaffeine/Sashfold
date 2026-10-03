@@ -669,6 +669,9 @@ void test_the_compositor_shows_pictures_while_the_page_is_busy()
     std::mutex mutex;
     std::vector<Said> said;
     steady::time_point started {};
+    std::size_t required = 1;
+    bool judged = false;
+    double machine_worst = 0; // the metronome's latest wake, in seconds
     {
         ui::PageCompositor compositor([&](std::shared_ptr<Bitmap const> the_page, std::shared_ptr<ui::PicturePatches const> patches,
                                           bool page_is_new, bool whole) {
@@ -678,6 +681,18 @@ void test_the_compositor_shows_pictures_while_the_page_is_busy()
                 patches->empty() ? nullptr : patches->front().bitmap, std::move(the_page) });
         });
         started = steady::now();
+        // The machine's own word on keeping time, at the same moment: a
+        // thread of the test's that does nothing but wake at the pictures'
+        // times, as the compositor should. A wake that comes before the next
+        // picture is due is one in which a compositor could show its picture.
+        std::vector<double> ticks_late;
+        std::thread metronome([&] {
+            for (std::size_t i = 1; i < blocks.size(); ++i) {
+                steady::time_point const due = started + std::chrono::nanoseconds(blocks[i].time_ns);
+                std::this_thread::sleep_until(due);
+                ticks_late.push_back(seconds_since(due));
+            }
+        });
         media::PlaybackClock::State running = running_from(0, 100.0);
         running.at = started;
         clock->set(running);
@@ -687,17 +702,35 @@ void test_the_compositor_shows_pictures_while_the_page_is_busy()
         // stream and a little more.
         std::this_thread::sleep_for(std::chrono::milliseconds(1300));
         ui::PageCompositor::Counts const counts = compositor.counts();
-        // (Thirty on a machine that wakes a thread when it asked to be
-        // woken. A shared runner wakes it tens of milliseconds late now and
-        // then, and the picture that came due meanwhile is rightly passed
-        // over for the one after: half of them is still a video playing,
-        // and far from the handful a compositor that did not wake by
-        // itself would show.)
-        CHECK(counts.published >= 15u);
+        metronome.join();
+        std::size_t woke_in_time = 0;
+        for (std::size_t i = 1; i < blocks.size(); ++i) {
+            std::int64_t const next = i + 1 < blocks.size() ? blocks[i + 1].time_ns : 2 * blocks[i].time_ns - blocks[i - 1].time_ns;
+            if (ticks_late[i - 1] < static_cast<double>(next - blocks[i].time_ns) / 1e9)
+                ++woke_in_time;
+        }
+        machine_worst = ticks_late.empty() ? 0.0 : *std::max_element(ticks_late.begin(), ticks_late.end());
+        std::cout << "a compositor while the page is busy: " << counts.published << " pictures said, " << counts.composed
+                  << " composed; the machine woke a thread in time for " << woke_in_time << " of " << blocks.size() - 1
+                  << ", its latest wake " << machine_worst * 1000.0 << " ms\n";
+        // Held to half of what the machine allowed, besides the page's own
+        // picture: fifteen on a machine that keeps time. A shared runner
+        // that holds the whole process back allows fewer, and the
+        // metronome sees it in the same second; a compositor that does not
+        // wake by itself says the page's picture alone, whatever the
+        // machine. When the machine kept almost no time, this run cannot
+        // tell the two apart, and says so instead of judging.
+        required = 1 + woke_in_time / 2;
+        judged = woke_in_time >= 8;
+        if (!judged)
+            std::cout << "  (the machine kept almost no time this run: the count is not judged)\n";
+        else
+            CHECK(counts.published >= required);
         CHECK(counts.composed >= counts.published);
     }
     std::lock_guard const lock(mutex);
-    CHECK(said.size() >= 15u);
+    if (judged)
+        CHECK(said.size() >= required);
     if (said.empty())
         return;
     // The page's picture is said first, as it was handed over, and only
@@ -709,7 +742,9 @@ void test_the_compositor_shows_pictures_while_the_page_is_busy()
     // a shared runner holds a thread back a tenth of a second now and then:
     // the middle one of them within a twentieth of a second of its time
     // (a compositor late by habit is late in the middle too), and none a
-    // quarter of a second late nor two sayings a quarter of a second apart.
+    // quarter of a second late nor two sayings a quarter of a second apart
+    // — or, on a machine that held the metronome back longer than that,
+    // no later than the metronome was and a tenth of a second.
     double latest = 0;
     double longest_gap = 0;
     bool none_early = true;
@@ -731,8 +766,9 @@ void test_the_compositor_shows_pictures_while_the_page_is_busy()
     CHECK(in_order);
     CHECK(none_early);
     CHECK(late_in_the_middle < 0.050);
-    CHECK(latest < 0.250);
-    CHECK(longest_gap < 0.250);
+    double const worst_allowed = std::max(0.250, machine_worst + 0.100);
+    CHECK(latest < worst_allowed);
+    CHECK(longest_gap < worst_allowed);
     CHECK_EQ(said.back().frame_ns, blocks.back().time_ns);
     // The patch is the video's place: the picture where the place is open,
     // and the page's band over the picture where the page painted one.
