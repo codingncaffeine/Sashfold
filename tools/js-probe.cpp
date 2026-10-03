@@ -6,9 +6,11 @@
 // (--dump-bytecode). A build tool for the script engine's own work, never
 // shipped.
 //
-//   js_probe "<source>" [--module] [--dump-ast] [--dump-scopes] [--dump-bytecode]
+//   js_probe "<source>" [--module] [--dump-ast] [--dump-scopes] [--dump-bytecode] [--no-stress]
 //
 // The source is one argument; a file arrives as "$(cat page.js)". With
+// --no-stress the heap collects as it does in a page, which is how a
+// script is timed here against another engine. With
 // --module it is parsed under the Module goal and evaluated as a module,
 // its imports read as files named by their specifiers relative to the
 // working directory. Exit status: 0 when the script completed (a module:
@@ -50,6 +52,7 @@ int main(int argc, char** argv)
     bool want_scopes = false;
     bool want_bytecode = false;
     bool want_module = false;
+    bool stress = true;
     char const* source = nullptr;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--dump-ast") == 0) {
@@ -60,6 +63,8 @@ int main(int argc, char** argv)
             want_bytecode = true;
         } else if (std::strcmp(argv[i], "--module") == 0) {
             want_module = true;
+        } else if (std::strcmp(argv[i], "--no-stress") == 0) {
+            stress = false;
         } else if (source == nullptr) {
             source = argv[i];
         } else {
@@ -73,7 +78,7 @@ int main(int argc, char** argv)
     // is the depth a page gets.
     js::Interpreter in;
     in.set_stack_budget(platform::js_stack_budget_for(platform::widen_main_thread_stack(platform::script_stack_bytes)));
-    in.heap().set_stress(true);
+    in.heap().set_stress(stress);
     if (want_ast || want_scopes || want_module) {
         js::ParseOptions options;
         options.module = want_module;
