@@ -3,6 +3,7 @@
 #include <cstdio>
 
 #include <pthread.h>
+#include <sys/mman.h>
 #include <sys/resource.h>
 
 #ifdef __APPLE__
@@ -117,5 +118,19 @@ std::uint64_t physical_memory_bytes()
 }
 
 #endif
+
+// An anonymous private mapping: zero-filled pages, each mapped at its first
+// touch. No swap is reserved for it (MAP_NORESERVE), as for any stack.
+void* reserve_zeroed(std::size_t bytes)
+{
+    void* const block = mmap(nullptr, bytes, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS | MAP_NORESERVE, -1, 0);
+    return block == reinterpret_cast<void*>(static_cast<std::intptr_t>(-1)) ? nullptr : block;
+}
+
+void release_zeroed(void* block, std::size_t bytes)
+{
+    if (block != nullptr)
+        munmap(block, bytes);
+}
 
 }

@@ -16,6 +16,7 @@
 #include "js/Evaluator.h"
 #include "js/Runtime.h"
 #include "js/Strings.h"
+#include "platform/Memory.h"
 
 #include <algorithm>
 #include <chrono>
@@ -334,8 +335,8 @@ std::optional<Value> Interpreter::Impl::run_resolved_function(ScriptFunction& fu
 
 // The stacks' sizes: values for a recursion as deep as the call-depth limit
 // allows at a few dozen values a frame, environments a few to a frame. The
-// blocks are zeroed (all-zero bits are the empty value), so their pages
-// cost nothing until a frame reaches them.
+// blocks come zeroed from the OS (all-zero bits are the empty value), so
+// their pages cost nothing until a frame reaches them.
 namespace {
 constexpr std::size_t value_stack_slots = std::size_t { 1 } << 21; // 16 MB of address space
 constexpr std::size_t env_stack_slots = std::size_t { 1 } << 20; // 8 MB
@@ -345,16 +346,16 @@ Interpreter::Impl::VmStacks::~VmStacks()
 {
     for (Frame* frame : frames)
         delete frame;
-    std::free(values);
-    std::free(static_cast<void*>(envs));
+    platform::release_zeroed(values, value_stack_slots * sizeof(Value));
+    platform::release_zeroed(static_cast<void*>(envs), env_stack_slots * sizeof(Environment*));
 }
 
 Frame* Interpreter::Impl::push_frame(CodeBlock const& code, Context const& cx)
 {
     VmStacks& stacks = vm_stacks;
     if (stacks.values == nullptr) {
-        stacks.values = static_cast<Value*>(std::calloc(value_stack_slots, sizeof(Value)));
-        stacks.envs = static_cast<Environment**>(std::calloc(env_stack_slots, sizeof(Environment*)));
+        stacks.values = static_cast<Value*>(platform::reserve_zeroed(value_stack_slots * sizeof(Value)));
+        stacks.envs = static_cast<Environment**>(platform::reserve_zeroed(env_stack_slots * sizeof(Environment*)));
         if (stacks.values == nullptr || stacks.envs == nullptr) {
             std::fprintf(stderr, "internal: the machine's stacks could not be allocated\n");
             std::abort();

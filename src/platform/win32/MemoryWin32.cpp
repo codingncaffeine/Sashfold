@@ -59,4 +59,17 @@ std::size_t widen_main_thread_stack(std::size_t)
     return current_thread_stack_bytes();
 }
 
+// Reserved and committed at once; the system hands a committed page in
+// zeroed at its first touch, and not before.
+void* reserve_zeroed(std::size_t bytes)
+{
+    return VirtualAlloc(nullptr, bytes, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+}
+
+void release_zeroed(void* block, std::size_t)
+{
+    if (block != nullptr)
+        VirtualFree(block, 0, MEM_RELEASE);
+}
+
 }

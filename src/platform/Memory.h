@@ -16,6 +16,17 @@ std::size_t resident_set_bytes();
 // The machine's memory in bytes, or 0 where it cannot be read.
 std::uint64_t physical_memory_bytes();
 
+// A block of zeroed memory straight from the OS, for a stack that reserves
+// far more than most runs reach (the script engine's value and environment
+// stacks): its pages are taken only as they are touched, and given back
+// whole when it is released. calloc promises the zeroes but not that: once
+// the C library has freed one block of a size it serves the next from its
+// own heap and writes every zero itself, which made each interpreter pay
+// for its 24 MB of stacks in time and in resident memory. Null when the OS
+// refuses.
+void* reserve_zeroed(std::size_t bytes);
+void release_zeroed(void* block, std::size_t bytes);
+
 // The ceiling on one page's script heap: a quarter of the machine's memory,
 // no less than 512 MB and no more than 4 GB — the rule the engine under
 // Chrome gives a page its heap by. With the machine's memory unknown, 4 GB
