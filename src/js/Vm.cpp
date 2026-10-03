@@ -8,7 +8,7 @@
 // interpreter it grew beside was proved to agree with it and deleted.
 //
 // Rooting: an instruction's inputs stay on the frame's operand stack —
-// traced through vm_frames — until the operation has finished; only then
+// traced through the frame stack — until the operation has finished; only then
 // are they popped and the result pushed. A value that must be held in a
 // local across an allocation is rooted explicitly.
 
@@ -17,9 +17,13 @@
 #include "js/Runtime.h"
 #include "js/Strings.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
+#include <cstdio>
+#include <cstdlib>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -43,12 +47,10 @@ void ClassBuilder::trace(Tracer& tracer)
         tracer.visit(item.key);
 }
 
-void Frame::trace(Tracer& tracer)
+namespace {
+
+void trace_references(Tracer& tracer, std::vector<Reference> const& refs)
 {
-    for (Value const& value : stack)
-        tracer.visit(value);
-    for (Value const& value : registers)
-        tracer.visit(value);
     for (Reference const& reference : refs) {
         tracer.visit(reference.environment);
         tracer.visit(reference.name);
@@ -57,10 +59,12 @@ void Frame::trace(Tracer& tracer)
         tracer.visit(reference.key_value);
         tracer.visit(reference.this_value);
     }
-    for (Environment* env : envs)
-        tracer.visit(env);
-    for (ClassBuilder* builder : builders)
-        tracer.visit(builder);
+}
+
+}
+
+void FrameState::trace_state(Tracer& tracer) const
+{
     tracer.visit(field_key);
     tracer.visit(variable);
     tracer.visit(function);
@@ -70,6 +74,45 @@ void Frame::trace(Tracer& tracer)
     tracer.visit(function_env);
     tracer.visit(result);
     tracer.visit(resume_value);
+}
+
+void Frame::trace(Tracer& tracer) const
+{
+    trace_state(tracer);
+    for (std::size_t i = 0; i < registers.size(); ++i)
+        tracer.visit(registers[i]);
+    // The operand stack to its depth, which the frame keeps current: the
+    // slots above it are not read before they are pushed to again.
+    for (std::size_t i = 0; i < stack.size(); ++i)
+        tracer.visit(stack[i]);
+    for (std::size_t i = 0; i < envs.size(); ++i)
+        tracer.visit(envs[i]);
+    trace_references(tracer, refs);
+    for (ClassBuilder* builder : builders)
+        tracer.visit(builder);
+}
+
+void SavedFrame::trace(Tracer& tracer)
+{
+    state.trace_state(tracer);
+    for (Value const& value : registers)
+        tracer.visit(value);
+    for (Value const& value : stack)
+        tracer.visit(value);
+    for (Environment* env : envs)
+        tracer.visit(env);
+    trace_references(tracer, refs);
+    for (ClassBuilder* builder : builders)
+        tracer.visit(builder);
+}
+
+void OperandStack::overflow()
+{
+    // The compiler counts every frame's deepest operand stack, and a frame
+    // is pushed only when that much room is free: a push past the end of
+    // the whole value stack is the compiler's miscount, not the page's.
+    std::fprintf(stderr, "internal: the machine's value stack overflowed its end\n");
+    std::abort();
 }
 
 namespace {
@@ -163,14 +206,12 @@ bool Interpreter::Impl::run_parameter_block(FunctionNode const& node, Environmen
     Roots const roots(self);
     Context binding_context = cx;
     binding_context.lexical = env;
-    Frame* frame = nullptr;
-    {
-        Heap::NoCollect const guard(heap());
-        frame = take_frame(*code, binding_context);
-        frame->incoming = arguments;
-    }
+    Frame* frame = push_frame(*code, binding_context);
+    if (frame == nullptr)
+        return false;
+    frame->incoming = arguments;
     RunStatus const status = vm_run(*frame);
-    give_back(*frame);
+    pop_frame(*frame);
     return status == RunStatus::Completed;
 }
 
@@ -183,18 +224,16 @@ std::optional<Value> Interpreter::Impl::run_compiled_node(FunctionNode const& no
     if (code == nullptr)
         return std::nullopt;
     Roots const roots(self);
-    Frame* frame = nullptr;
-    {
-        Heap::NoCollect const guard(heap());
-        frame = take_frame(*code, cx);
-        if (field_key != nullptr)
-            frame->field_key = key_to_value(heap(), *field_key);
-    }
+    Frame* frame = push_frame(*code, cx);
+    if (frame == nullptr)
+        return std::nullopt;
+    if (field_key != nullptr)
+        frame->field_key = key_to_value(heap(), *field_key);
     RunStatus const status = vm_run(*frame);
     Value const result = frame->result.is_empty() ? Value::undefined() : frame->result;
     // Rooted by the caller's scope before the frame that held it is emptied.
     self.root(result);
-    give_back(*frame);
+    pop_frame(*frame);
     if (status == RunStatus::Threw)
         return std::nullopt;
     if (status != RunStatus::Completed)
@@ -245,19 +284,16 @@ std::optional<Value> Interpreter::Impl::run_resolved_function(ScriptFunction& fu
     }
 
     Context const cx { function.scope(), function.scope(), node.program, &function, node.is_strict, function.private_environment() };
-    bool const suspends = node.is_generator || async_capability != nullptr;
-    Frame* frame = nullptr;
-    {
-        Heap::NoCollect const guard(heap());
-        // A body that can suspend keeps a frame of its own; a plain one
-        // takes a pooled frame back after its return.
-        frame = suspends ? new_frame(code, cx) : take_frame(code, cx);
-        frame->incoming = arguments;
-        frame->this_value = this_value;
-        frame->new_target = new_target;
-        if (field_key != nullptr)
-            frame->field_key = key_to_value(heap(), *field_key);
-    }
+    // Every body starts on the stacks; one that suspends is copied out when
+    // it does (start_generator and the rest take the frame from here).
+    Frame* frame = push_frame(code, cx);
+    if (frame == nullptr)
+        return std::nullopt;
+    frame->incoming = arguments;
+    frame->this_value = this_value;
+    frame->new_target = new_target;
+    if (field_key != nullptr)
+        frame->field_key = key_to_value(heap(), *field_key);
     // A generator's prologue runs now and its body at the first next()
     // (§15.5.2, §15.6.2 for the async kind); an async function's body runs
     // to its first await (§15.8.4).
@@ -274,7 +310,7 @@ std::optional<Value> Interpreter::Impl::run_resolved_function(ScriptFunction& fu
     if (frame->function_env != nullptr)
         bound_this = frame->function_env->this_initialized() ? frame->function_env->this_value() : Value::empty();
     self.root(bound_this);
-    give_back(*frame);
+    pop_frame(*frame);
     if (status == RunStatus::Threw)
         return std::nullopt;
     if (status != RunStatus::Completed)
@@ -296,56 +332,71 @@ std::optional<Value> Interpreter::Impl::run_resolved_function(ScriptFunction& fu
     return result;
 }
 
-Frame* Interpreter::Impl::new_frame(CodeBlock const& code, Context const& cx)
-{
-    Frame* frame = heap().allocate<Frame>();
-    frame->code = &code;
-    frame->registers.assign(code.register_count, Value::undefined());
-    frame->stack.reserve(code.max_stack + 1);
-    frame->envs.push_back(cx.lexical);
-    frame->variable = cx.variable;
-    frame->function = cx.function;
-    frame->program = cx.program;
-    frame->private_environment = cx.private_environment;
-    frame->strict = cx.strict;
-    return frame;
+// The stacks' sizes: values for a recursion as deep as the call-depth limit
+// allows at a few dozen values a frame, environments a few to a frame. The
+// blocks are zeroed (all-zero bits are the empty value), so their pages
+// cost nothing until a frame reaches them.
+namespace {
+constexpr std::size_t value_stack_slots = std::size_t { 1 } << 21; // 16 MB of address space
+constexpr std::size_t env_stack_slots = std::size_t { 1 } << 20; // 8 MB
 }
 
-Frame* Interpreter::Impl::take_frame(CodeBlock const& code, Context const& cx)
+Interpreter::Impl::VmStacks::~VmStacks()
 {
-    if (frame_pool.empty())
-        return new_frame(code, cx);
-    Frame* const frame = frame_pool.back();
-    frame_pool.pop_back();
-    // Emptied when it was given back; what a new frame starts with.
-    frame->code = &code;
-    frame->pc = 0;
-    frame->registers.assign(code.register_count, Value::undefined());
-    frame->stack.reserve(code.max_stack + 1);
-    frame->envs.push_back(cx.lexical);
-    frame->variable = cx.variable;
-    frame->function = cx.function;
-    frame->program = cx.program;
-    frame->private_environment = cx.private_environment;
-    frame->strict = cx.strict;
-    return frame;
+    for (Frame* frame : frames)
+        delete frame;
+    std::free(values);
+    std::free(static_cast<void*>(envs));
 }
 
-void Interpreter::Impl::give_back(Frame& frame)
+Frame* Interpreter::Impl::push_frame(CodeBlock const& code, Context const& cx)
 {
-    // Nothing of the call stays reachable through a frame that waits.
-    frame.code = nullptr;
-    frame.stack.clear();
-    frame.registers.clear();
-    frame.refs.clear();
-    frame.envs.clear();
+    VmStacks& stacks = vm_stacks;
+    if (stacks.values == nullptr) {
+        stacks.values = static_cast<Value*>(std::calloc(value_stack_slots, sizeof(Value)));
+        stacks.envs = static_cast<Environment**>(std::calloc(env_stack_slots, sizeof(Environment*)));
+        if (stacks.values == nullptr || stacks.envs == nullptr) {
+            std::fprintf(stderr, "internal: the machine's stacks could not be allocated\n");
+            std::abort();
+        }
+        stacks.value_capacity = value_stack_slots;
+        stacks.env_capacity = env_stack_slots;
+    }
+    // Where the new frame begins: above the top frame's extent (its
+    // registers and operand area, or more if it pushed past the area) and
+    // its environments.
+    Value* value_base = stacks.values;
+    Environment** env_base = stacks.envs;
+    if (stacks.depth > 0) {
+        Frame& below = *stacks.frames[stacks.depth - 1];
+        value_base = below.stack.data() + below.stack.extent();
+        env_base = below.envs.data() + below.envs.size();
+    }
+    Value const* const value_end = stacks.values + stacks.value_capacity;
+    Environment* const* const env_end = stacks.envs + stacks.env_capacity;
+    // Its registers, the operand area the compiler counted (and one more
+    // for the value a resumed body is handed) and its first environment.
+    std::size_t const operand_area = std::size_t { code.max_stack } + 1;
+    std::size_t const slots = std::size_t { code.register_count } + operand_area;
+    if (static_cast<std::size_t>(value_end - value_base) < slots || env_base >= env_end) {
+        self.throw_range_error("Maximum call stack size exceeded");
+        return nullptr;
+    }
+    if (stacks.depth == stacks.frames.size())
+        stacks.frames.push_back(new Frame());
+    Frame& frame = *stacks.frames[stacks.depth];
+    ++stacks.depth;
+    // Every field of the state, once: the slot holds whatever its last call
+    // left, which nothing traced since it was popped.
+    frame.code = &code;
+    frame.pc = 0;
     frame.incoming = {};
-    frame.builders.clear();
     frame.field_key = Value();
-    frame.variable = nullptr;
-    frame.function = nullptr;
-    frame.program = nullptr;
-    frame.private_environment = nullptr;
+    frame.variable = cx.variable;
+    frame.function = cx.function;
+    frame.program = cx.program;
+    frame.private_environment = cx.private_environment;
+    frame.strict = cx.strict;
     frame.this_value = Value();
     frame.new_target = nullptr;
     frame.function_env = nullptr;
@@ -354,9 +405,96 @@ void Interpreter::Impl::give_back(Frame& frame)
     frame.resume_value = Value();
     frame.resume_pending = false;
     frame.result_is_iter_result = false;
-    static constexpr std::size_t kept = 256;
-    if (frame_pool.size() < kept)
-        frame_pool.push_back(&frame);
+    // The registers start undefined; the operand area is read only where it
+    // has been pushed to, and traced to its depth.
+    frame.registers.reset(value_base, code.register_count);
+    for (std::size_t i = 0; i < code.register_count; ++i)
+        value_base[i] = Value::undefined();
+    frame.stack.reset(value_base + code.register_count, static_cast<std::uint32_t>(operand_area), value_end);
+    frame.envs.reset(env_base, env_end);
+    frame.envs.push_back(cx.lexical);
+    frame.refs.clear();
+    frame.builders.clear();
+    return &frame;
+}
+
+void Interpreter::Impl::pop_frame(Frame& frame)
+{
+    VmStacks& stacks = vm_stacks;
+    if (stacks.depth == 0 || stacks.frames[stacks.depth - 1] != &frame) {
+        std::fprintf(stderr, "internal: a frame popped that is not the machine's top one\n");
+        std::abort();
+    }
+    // The slot keeps what the call left: nothing traces a frame above the
+    // depth, and the next push writes every field (and empties the vectors,
+    // whose room it keeps).
+    --stacks.depth;
+}
+
+SavedFrame* Interpreter::Impl::save_and_pop(Frame& frame, SavedFrame* into)
+{
+    SavedFrame* saved = into;
+    if (saved == nullptr) {
+        Heap::NoCollect const guard(heap());
+        saved = heap().allocate<SavedFrame>();
+    }
+    std::size_t const before = saved->size_in_bytes();
+    // The caller's arguments are not kept past the call (a suspended body
+    // has run its prologue, which is all that reads them).
+    saved->state = frame;
+    saved->state.incoming = {};
+    saved->registers.assign(frame.registers.data(), frame.registers.data() + frame.registers.size());
+    saved->stack.assign(frame.stack.data(), frame.stack.data() + frame.stack.size());
+    saved->envs.assign(frame.envs.data(), frame.envs.data() + frame.envs.size());
+    saved->refs = frame.refs;
+    saved->builders = frame.builders;
+    pop_frame(frame);
+    // What the copy grew by, told to the heap as every growing cell tells it.
+    if (std::size_t const after = saved->size_in_bytes(); after > before)
+        heap().grew(after - before);
+    return saved;
+}
+
+Frame* Interpreter::Impl::restore_frame(SavedFrame& saved)
+{
+    CodeBlock const& code = *saved.state.code;
+    Context const cx { saved.envs.empty() ? nullptr : saved.envs.front(), saved.state.variable, saved.state.program,
+        saved.state.function, saved.state.strict, saved.state.private_environment };
+    Frame* frame = push_frame(code, cx);
+    if (frame == nullptr)
+        return nullptr;
+    static_cast<FrameState&>(*frame) = saved.state;
+    for (std::size_t i = 0; i < saved.registers.size() && i < frame->registers.size(); ++i)
+        frame->registers[i] = saved.registers[i];
+    for (Value const& value : saved.stack)
+        frame->stack.push_back(value);
+    frame->envs.clear();
+    for (Environment* env : saved.envs) {
+        if (!frame->envs.has_room()) {
+            pop_frame(*frame);
+            self.throw_range_error("Maximum call stack size exceeded");
+            return nullptr;
+        }
+        frame->envs.push_back(env);
+    }
+    frame->refs = saved.refs;
+    frame->builders = saved.builders;
+    return frame;
+}
+
+SavedFrame* Interpreter::Impl::fresh_saved_frame(CodeBlock const& code, Context const& cx)
+{
+    Heap::NoCollect const guard(heap());
+    auto* saved = heap().allocate<SavedFrame>();
+    saved->state.code = &code;
+    saved->state.variable = cx.variable;
+    saved->state.function = cx.function;
+    saved->state.program = cx.program;
+    saved->state.private_environment = cx.private_environment;
+    saved->state.strict = cx.strict;
+    saved->registers.assign(code.register_count, Value::undefined());
+    saved->envs.push_back(cx.lexical);
+    return saved;
 }
 
 Context Interpreter::Impl::frame_context(Frame const& frame) const
@@ -401,13 +539,23 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
 {
     if (!stack_ok())
         return RunStatus::Threw;
-    struct FrameGuard {
-        std::vector<Frame*>& frames;
-        ~FrameGuard() { frames.pop_back(); }
-    };
-    vm_frames.push_back(&frame);
-    FrameGuard const guard { vm_frames };
+    // The frame is the top one of the stacks (push_frame or restore_frame
+    // put it there), and everything it calls is pushed above it.
     ContextScope const context_scope(*this, frame_context(frame));
+    // The profile (SASHFOLD_VM_PROFILE=1): the loop's own time, a test per
+    // entry when it is off. Each instruction counted by its opcode only in a
+    // build made for it (-DSASHFOLD_VM_COUNTS=ON), since a test on every
+    // instruction costs every page two per cent.
+    Interpreter::ActivityScope const activity(self, &Interpreter::Account::vm_ms);
+#ifdef SASHFOLD_VM_COUNTS
+    std::uint64_t* executed = nullptr;
+    if (self.vm_profiling()) {
+        std::vector<std::uint64_t>& counts = self.account_for_update().executed;
+        if (counts.size() < opcode_count)
+            counts.resize(opcode_count);
+        executed = counts.data();
+    }
+#endif
     if (frame.resume_pending) {
         frame.push(frame.resume_value);
         frame.resume_pending = false;
@@ -495,6 +643,15 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
         }
         return &env->binding_at(slot);
     };
+    // One more environment for this frame: its region grows at the top of
+    // the environment stack, and a full stack is the RangeError a deep
+    // recursion gets.
+    auto env_room = [&]() -> bool {
+        if (frame.envs.has_room())
+            return true;
+        self.throw_range_error("Maximum call stack size exceeded");
+        return false;
+    };
     auto dead_zone = [&](JsString* name) {
         self.throw_reference_error("Cannot access '" + (name ? name->to_utf8() : std::string()) + "' before initialization");
     };
@@ -538,6 +695,10 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
 
     while (true) {
         Instruction const& ins = code.code[frame.pc++];
+#ifdef SASHFOLD_VM_COUNTS
+        if (executed != nullptr) [[unlikely]]
+            ++executed[static_cast<std::size_t>(ins.op)];
+#endif
         bool ok = true;
         switch (ins.op) {
         // ---- stack
@@ -593,12 +754,20 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
 
         // ---- environments
         case Opcode::PushBlockEnv: {
+            if (!env_room()) {
+                ok = false;
+                break;
+            }
             Environment* env = new_environment(frame.envs.back());
             frame.envs.push_back(env);
             instantiate_block(*code.declarations[ins.a], env, frame.private_environment);
             break;
         }
         case Opcode::PushNamesEnv: {
+            if (!env_room()) {
+                ok = false;
+                break;
+            }
             Environment* env = new_environment(frame.envs.back());
             frame.envs.push_back(env);
             for (JsString* name : code.name_lists[ins.a])
@@ -606,6 +775,10 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             break;
         }
         case Opcode::PushWithEnv: {
+            if (!env_room()) {
+                ok = false;
+                break;
+            }
             // §14.11.2: an object environment marked as a with's, so calls
             // through it get the object as `this`.
             std::optional<Object*> const object = self.to_object(frame.top());
@@ -705,6 +878,10 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             break;
         }
         case Opcode::PushEnv: {
+            if (!env_room()) {
+                ok = false;
+                break;
+            }
             // A scope that materializes: its environment with every binding
             // laid out at once. The function's own also holds what the
             // chain is searched for by arrows and eval code: the function,
@@ -1512,6 +1689,10 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             break;
         case Opcode::ClassScope:
         case Opcode::ClassScopeNamedDyn: {
+            if (!env_room()) {
+                ok = false;
+                break;
+            }
             // The class's scope goes on the frame: its environment is the
             // lexical one until ClassFinish, its body strict.
             bool const dynamic = ins.op == Opcode::ClassScopeNamedDyn;
@@ -1820,16 +2001,20 @@ std::optional<Value> Interpreter::Impl::start_generator(ScriptFunction& function
 {
     if (prepared != nullptr) {
         // The prologue runs first (EvaluateGeneratorBody step 1), to the
-        // Suspend that ends it; the object is made with the intrinsic
-        // prototype at once, so the frame is held from here, and given the
-        // function's own `prototype` after (step 2 may run a getter).
-        if (vm_run(*prepared) != RunStatus::Yielded)
+        // Suspend that ends it, on the frame the call pushed; the frame is
+        // then copied out and kept by the object, made with the intrinsic
+        // prototype at once and given the function's own `prototype` after
+        // (step 2 may run a getter).
+        if (vm_run(*prepared) != RunStatus::Yielded) {
+            pop_frame(*prepared);
             return std::nullopt;
+        }
         Roots const roots(self);
         GeneratorObject* generator = nullptr;
         {
             Heap::NoCollect const guard(heap());
-            generator = heap().allocate<GeneratorObject>(self.intrinsics().generator_prototype, prepared);
+            SavedFrame* saved = save_and_pop(*prepared, nullptr);
+            generator = heap().allocate<GeneratorObject>(self.intrinsics().generator_prototype, saved);
         }
         self.root(Value::object(generator));
         std::optional<Object*> const prototype = self.get_prototype_from_constructor(&function, &Intrinsics::generator_prototype);
@@ -1847,8 +2032,8 @@ std::optional<Value> Interpreter::Impl::start_generator(ScriptFunction& function
         return std::nullopt;
     self.root(Value::object(*prototype));
     Heap::NoCollect const guard(heap());
-    Frame* frame = new_frame(*code, cx);
-    GeneratorObject* generator = heap().allocate<GeneratorObject>(*prototype, frame);
+    SavedFrame* saved = fresh_saved_frame(*code, cx);
+    GeneratorObject* generator = heap().allocate<GeneratorObject>(*prototype, saved);
     return Value::object(generator);
 }
 
@@ -1884,36 +2069,46 @@ std::optional<Value> Interpreter::Impl::generator_resume(GeneratorObject& genera
     }
     // The body runs in its function's realm, and so is the result it
     // yields made (GeneratorResume enters the generator's own context).
-    RealmScope const realm_scope(self, generator.frame()->function ? generator.frame()->function->realm() : nullptr, RealmScope::Code::Script);
-    Frame& frame = *generator.frame();
-    frame.resume_kind = kind;
-    frame.resume_value = value;
+    SavedFrame& saved = *generator.frame();
+    RealmScope const realm_scope(self, saved.state.function ? saved.state.function->realm() : nullptr, RealmScope::Code::Script);
+    saved.state.resume_kind = kind;
+    saved.state.resume_value = value;
+    // Back on the stacks to run; a full stack is the RangeError of a deep
+    // recursion, and the generator stays as it was.
+    Frame* frame = restore_frame(saved);
+    if (frame == nullptr)
+        return std::nullopt;
     generator.set_state(GeneratorObject::State::Executing);
-    RunStatus const status = vm_run(frame);
+    RunStatus const status = vm_run(*frame);
     switch (status) {
     case RunStatus::Yielded: {
         generator.set_state(GeneratorObject::State::SuspendedYield);
-        Value const result = frame.result;
-        frame.result = Value::empty();
-        if (frame.result_is_iter_result)
-            return result;
+        Value const result = frame->result;
+        bool const iter_result = frame->result_is_iter_result;
+        frame->result = Value::empty();
         self.root(result);
+        save_and_pop(*frame, &saved);
+        if (iter_result)
+            return result;
         return Value::object(self.create_iter_result(result, false));
     }
     case RunStatus::Completed: {
         generator.set_state(GeneratorObject::State::Completed);
-        Value const result = frame.result;
+        Value const result = frame->result;
         self.root(result);
+        pop_frame(*frame);
         generator.release_frame();
         return Value::object(self.create_iter_result(result, true));
     }
     case RunStatus::Threw:
         generator.set_state(GeneratorObject::State::Completed);
+        pop_frame(*frame);
         generator.release_frame();
         return std::nullopt;
     case RunStatus::Awaiting:
         break;
     }
+    pop_frame(*frame);
     generator.set_state(GeneratorObject::State::Completed);
     generator.release_frame();
     return self.throw_syntax_error("await inside a generator body");
@@ -1957,13 +2152,15 @@ std::optional<Value> Interpreter::Impl::start_async(FunctionNode const& node, Co
     AsyncContextObject* context = nullptr;
     {
         Heap::NoCollect const guard(heap());
-        Frame* frame = prepared ? prepared : new_frame(*code, cx);
-        context = heap().allocate<AsyncContextObject>(nullptr, frame, capability.promise, capability.resolve, capability.reject);
+        // A body the call put on the stacks runs there first; one that never
+        // ran (a module's) is saved from the start and restored.
+        SavedFrame* saved = prepared ? nullptr : fresh_saved_frame(*code, cx);
+        context = heap().allocate<AsyncContextObject>(nullptr, saved, capability.promise, capability.resolve, capability.reject);
     }
     self.root(Value::object(context));
     // A prologue of the body's own runs in this first step, before the
     // first await.
-    async_step(*context);
+    async_step(*context, prepared);
     return capability.promise;
 }
 
@@ -1971,13 +2168,31 @@ std::optional<Value> Interpreter::Impl::start_async(FunctionNode const& node, Co
 // Await): a completion settles the promise; an await hooks the frame's
 // resumption onto the awaited value's promise with reactions that carry
 // no capability of their own, and returns to the caller.
-void Interpreter::Impl::async_step(AsyncContextObject& context)
+void Interpreter::Impl::async_step(AsyncContextObject& context, Frame* running)
 {
     Roots const roots(self);
     self.root(Value::object(&context));
-    Frame* frame = context.frame();
-    if (frame == nullptr)
-        return;
+    // The settlement of the async body's promise: a throw rejects it.
+    auto reject_with_pending = [&] {
+        if (self.m_terminated)
+            return;
+        Value const thrown = self.take_exception();
+        self.root(thrown);
+        Value const reject_arguments[1] = { thrown };
+        self.call(context.reject(), Value::undefined(), reject_arguments);
+    };
+    Frame* frame = running;
+    if (frame == nullptr) {
+        SavedFrame* saved = context.frame();
+        if (saved == nullptr)
+            return;
+        frame = restore_frame(*saved);
+        if (frame == nullptr) {
+            context.release_frame();
+            reject_with_pending();
+            return;
+        }
+    }
     RealmScope const realm_scope(self, frame->function ? frame->function->realm() : nullptr, RealmScope::Code::Script);
     while (true) {
         RunStatus const status = vm_run(*frame);
@@ -1987,13 +2202,11 @@ void Interpreter::Impl::async_step(AsyncContextObject& context)
         if (status == RunStatus::Completed || status == RunStatus::Yielded) {
             Value const result = frame->result;
             self.root(result);
+            pop_frame(*frame);
             context.release_frame();
             if (status == RunStatus::Yielded) {
                 self.throw_syntax_error("yield inside an async function body");
-                Value const thrown = self.take_exception();
-                self.root(thrown);
-                Value const reject_arguments[1] = { thrown };
-                self.call(context.reject(), Value::undefined(), reject_arguments);
+                reject_with_pending();
                 return;
             }
             Value const resolve_arguments[1] = { result };
@@ -2001,13 +2214,9 @@ void Interpreter::Impl::async_step(AsyncContextObject& context)
             return;
         }
         if (status == RunStatus::Threw) {
+            pop_frame(*frame);
             context.release_frame();
-            if (self.m_terminated)
-                return;
-            Value const thrown = self.take_exception();
-            self.root(thrown);
-            Value const reject_arguments[1] = { thrown };
-            self.call(context.reject(), Value::undefined(), reject_arguments);
+            reject_with_pending();
             return;
         }
         // Awaiting.
@@ -2019,6 +2228,7 @@ void Interpreter::Impl::async_step(AsyncContextObject& context)
             // PromiseResolve threw (a `constructor` getter): that is the
             // await's own throw.
             if (self.m_terminated) {
+                pop_frame(*frame);
                 context.release_frame();
                 return;
             }
@@ -2030,9 +2240,9 @@ void Interpreter::Impl::async_step(AsyncContextObject& context)
         auto resume = [](ResumeKind kind) {
             return [kind](Interpreter& in, ClosureFunction& self_function, Value const&, Args arguments) -> std::optional<Value> {
                 auto* async_context = static_cast<AsyncContextObject*>(self_function.slot(0).as_object());
-                if (Frame* resumed = async_context->frame()) {
-                    resumed->resume_kind = kind;
-                    resumed->resume_value = argument(arguments, 0);
+                if (SavedFrame* resumed = async_context->frame()) {
+                    resumed->state.resume_kind = kind;
+                    resumed->state.resume_value = argument(arguments, 0);
                     in.impl().async_step(*async_context);
                 }
                 return Value::undefined();
@@ -2043,6 +2253,9 @@ void Interpreter::Impl::async_step(AsyncContextObject& context)
         ClosureFunction* on_rejected = self.new_closure("", 1, { Value::object(&context) }, resume(ResumeKind::Throw));
         self.root(Value::object(on_rejected));
         perform_then(self, *static_cast<PromiseObject*>(promise->as_object()), Value::object(on_fulfilled), Value::object(on_rejected), std::nullopt);
+        // Off the stacks until a reaction resumes it.
+        Heap::NoCollect const guard(heap());
+        context.set_frame(save_and_pop(*frame, context.frame()));
         return;
     }
 }
@@ -2052,15 +2265,19 @@ void Interpreter::Impl::async_step(AsyncContextObject& context)
 std::optional<Value> Interpreter::Impl::start_async_generator(ScriptFunction& function, Context const& cx, Frame* prepared)
 {
     // §27.6.3.2 AsyncGeneratorStart: the frame waits for the first request,
-    // once a prologue of the body's own has run to its Suspend.
+    // once a prologue of the body's own has run to its Suspend on the frame
+    // the call pushed.
     if (prepared != nullptr) {
-        if (vm_run(*prepared) != RunStatus::Yielded)
+        if (vm_run(*prepared) != RunStatus::Yielded) {
+            pop_frame(*prepared);
             return std::nullopt;
+        }
         Roots const roots(self);
         AsyncGeneratorObject* generator = nullptr;
         {
             Heap::NoCollect const guard(heap());
-            generator = heap().allocate<AsyncGeneratorObject>(self.intrinsics().async_generator_prototype, prepared);
+            SavedFrame* saved = save_and_pop(*prepared, nullptr);
+            generator = heap().allocate<AsyncGeneratorObject>(self.intrinsics().async_generator_prototype, saved);
         }
         self.root(Value::object(generator));
         std::optional<Object*> const prototype = self.get_prototype_from_constructor(&function, &Intrinsics::async_generator_prototype);
@@ -2078,8 +2295,8 @@ std::optional<Value> Interpreter::Impl::start_async_generator(ScriptFunction& fu
         return std::nullopt;
     self.root(Value::object(*prototype));
     Heap::NoCollect const guard(heap());
-    Frame* frame = new_frame(*code, cx);
-    auto* generator = heap().allocate<AsyncGeneratorObject>(*prototype, frame);
+    SavedFrame* saved = fresh_saved_frame(*code, cx);
+    auto* generator = heap().allocate<AsyncGeneratorObject>(*prototype, saved);
     return Value::object(generator);
 }
 
@@ -2169,9 +2386,26 @@ void Interpreter::Impl::async_generator_step(AsyncGeneratorObject& generator)
 {
     Roots const roots(self);
     self.root(Value::object(&generator));
-    Frame* frame = generator.frame();
-    if (frame == nullptr)
+    SavedFrame* saved = generator.frame();
+    if (saved == nullptr)
         return;
+    // A completion of the body by a throw: the front request is answered
+    // with it, and the rest drained.
+    auto complete_with_pending = [&] {
+        if (self.m_terminated)
+            return;
+        Value const thrown = self.take_exception();
+        self.root(thrown);
+        async_generator_complete_step(generator, ResumeKind::Throw, thrown, true);
+        async_generator_drain_queue(generator);
+    };
+    Frame* frame = restore_frame(*saved);
+    if (frame == nullptr) {
+        generator.set_state(AsyncGeneratorObject::State::Completed);
+        generator.release_frame();
+        complete_with_pending();
+        return;
+    }
     RealmScope const realm_scope(self, frame->function ? frame->function->realm() : nullptr, RealmScope::Code::Script);
     while (true) {
         RunStatus const status = vm_run(*frame);
@@ -2182,6 +2416,7 @@ void Interpreter::Impl::async_generator_step(AsyncGeneratorObject& generator)
             async_generator_complete_step(generator, ResumeKind::Normal, value, false);
             if (generator.queue().empty()) {
                 generator.set_state(AsyncGeneratorObject::State::SuspendedYield);
+                save_and_pop(*frame, saved);
                 return;
             }
             // A request that arrived while the body ran resumes it at once
@@ -2195,6 +2430,7 @@ void Interpreter::Impl::async_generator_step(AsyncGeneratorObject& generator)
             generator.set_state(AsyncGeneratorObject::State::Completed);
             Value const result = frame->result;
             self.root(result);
+            pop_frame(*frame);
             generator.release_frame();
             async_generator_complete_step(generator, ResumeKind::Normal, result, true);
             async_generator_drain_queue(generator);
@@ -2202,13 +2438,9 @@ void Interpreter::Impl::async_generator_step(AsyncGeneratorObject& generator)
         }
         if (status == RunStatus::Threw) {
             generator.set_state(AsyncGeneratorObject::State::Completed);
+            pop_frame(*frame);
             generator.release_frame();
-            if (self.m_terminated)
-                return;
-            Value const thrown = self.take_exception();
-            self.root(thrown);
-            async_generator_complete_step(generator, ResumeKind::Throw, thrown, true);
-            async_generator_drain_queue(generator);
+            complete_with_pending();
             return;
         }
         // Awaiting, as an async function does.
@@ -2219,6 +2451,7 @@ void Interpreter::Impl::async_generator_step(AsyncGeneratorObject& generator)
         if (!promise) {
             if (self.m_terminated) {
                 generator.set_state(AsyncGeneratorObject::State::Completed);
+                pop_frame(*frame);
                 generator.release_frame();
                 return;
             }
@@ -2230,9 +2463,9 @@ void Interpreter::Impl::async_generator_step(AsyncGeneratorObject& generator)
         auto resume = [](ResumeKind kind) {
             return [kind](Interpreter& in, ClosureFunction& self_function, Value const&, Args arguments) -> std::optional<Value> {
                 auto* target = static_cast<AsyncGeneratorObject*>(self_function.slot(0).as_object());
-                if (Frame* resumed = target->frame()) {
-                    resumed->resume_kind = kind;
-                    resumed->resume_value = argument(arguments, 0);
+                if (SavedFrame* resumed = target->frame()) {
+                    resumed->state.resume_kind = kind;
+                    resumed->state.resume_value = argument(arguments, 0);
                     in.impl().async_generator_step(*target);
                 }
                 return Value::undefined();
@@ -2243,6 +2476,8 @@ void Interpreter::Impl::async_generator_step(AsyncGeneratorObject& generator)
         ClosureFunction* on_rejected = self.new_closure("", 1, { Value::object(&generator) }, resume(ResumeKind::Throw));
         self.root(Value::object(on_rejected));
         perform_then(self, *static_cast<PromiseObject*>(promise->as_object()), Value::object(on_fulfilled), Value::object(on_rejected), std::nullopt);
+        // Off the stacks until a reaction resumes it.
+        save_and_pop(*frame, saved);
         return;
     }
 }
@@ -2250,12 +2485,12 @@ void Interpreter::Impl::async_generator_step(AsyncGeneratorObject& generator)
 // AsyncGeneratorResume (§27.6.3.4).
 void Interpreter::Impl::async_generator_resume(AsyncGeneratorObject& generator, ResumeKind kind, Value const& value)
 {
-    Frame* frame = generator.frame();
-    if (frame == nullptr)
+    SavedFrame* saved = generator.frame();
+    if (saved == nullptr)
         return;
     generator.set_state(AsyncGeneratorObject::State::Executing);
-    frame->resume_kind = kind;
-    frame->resume_value = value;
+    saved->state.resume_kind = kind;
+    saved->state.resume_value = value;
     async_generator_step(generator);
 }
 

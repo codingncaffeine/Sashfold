@@ -88,6 +88,7 @@ sashfold_test(test_js_lexer)
 sashfold_test(test_js_regex)
 sashfold_test(test_js_heap)
 sashfold_test(test_js_value)
+sashfold_test(test_js_vm_frames)
 # The check on a cell value's address, turned on in every build: linked to
 # nothing of the engine's, whose files have the check as their build has it.
 add_executable(test_js_value_checks test_js_value_checks.cpp)

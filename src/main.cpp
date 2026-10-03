@@ -1310,6 +1310,8 @@ ui::Browser::EngineAccount engine_since(ui::Browser::EngineAccount const& now, u
     d.gc_ms -= base.gc_ms;
     d.collections -= base.collections;
     d.functions_compiled -= base.functions_compiled;
+    d.vm_ms -= base.vm_ms;
+    d.natives_ms -= base.natives_ms;
     return d;
 }
 
@@ -2449,7 +2451,12 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                           << ", scripts " << wall_ms(scripts_done - load_done).count() << " ms"
                           << ", engine " << engine.engine_ms << " ms (parse " << engine.parse_ms << " ms, compile "
                           << engine.compile_ms << " ms, gc " << engine.gc_ms << " ms in " << engine.collections
-                          << ", run " << engine.run_ms() << " ms)"
+                          << ", run " << engine.run_ms() << " ms"
+                          << (engine.vm_ms > 0 || engine.natives_ms > 0
+                                     ? " [bytecode " + std::to_string(static_cast<long>(engine.vm_ms + 0.5)) + " ms, natives "
+                                         + std::to_string(static_cast<long>(engine.natives_ms + 0.5)) + " ms]"
+                                     : std::string())
+                          << ")"
                           << ", frame " << wall_ms(frame_done - scripts_done).count() << " ms [styles " << spent.restyles
                           << " in " << spent.restyle_ms << " ms, layouts " << spent.relayouts << " in " << spent.relayout_ms
                           << " ms, frames' documents " << spent.frames_ms << " ms, sheets " << spent.sheets_ms

@@ -30,6 +30,7 @@
 namespace sashfold::js {
 
 class Frame;
+class SavedFrame;
 class ClassBuilder;
 class GeneratorObject;
 class AsyncContextObject;
@@ -265,20 +266,39 @@ struct Interpreter::Impl {
     // One compiled body per function node, made at the first call; the
     // programs are the realm's for life, so the keys never dangle.
     std::unordered_map<FunctionNode const*, std::unique_ptr<CodeBlock>> code_blocks;
-    std::vector<Frame*> vm_frames; // the frames running now, innermost last; traced
     std::vector<ClassBuilder*> class_builders; // the classes under construction outside a frame; traced
     CodeBlock const* compiled_body(FunctionNode const& node); // null with a SyntaxError pending
-    Frame* new_frame(CodeBlock const& code, Context const& cx);
-    // The frames of plain calls, used again. A plain function's frame is
-    // nothing's once its body has run — no generator keeps it, no closure
-    // reaches it — and a page makes millions: each was a cell for the
-    // collector to find and free, with six vectors to allocate. One that has
-    // finished is emptied and kept here for the next call, its vectors'
-    // room with it. Traced, so that a collection does not free what the
-    // pool still hands out.
-    std::vector<Frame*> frame_pool;
-    Frame* take_frame(CodeBlock const& code, Context const& cx);
-    void give_back(Frame& frame);
+    // The machine's stacks: values (every frame's registers and operand
+    // stack, one extent after another), environments (every frame's region,
+    // one after another) and the frames themselves (slots used again, each
+    // keeping its vectors' room). Each is allocated at the first call and
+    // never moved — natives hold spans of arguments into the values, the
+    // run loop holds its frame — and a page that fills one gets the
+    // RangeError a deep recursion gets. Traced: every frame running now.
+    struct VmStacks {
+        Value* values = nullptr;
+        std::size_t value_capacity = 0;
+        Environment** envs = nullptr;
+        std::size_t env_capacity = 0;
+        std::vector<Frame*> frames; // owned: made by push_frame, deleted with the stacks
+        std::size_t depth = 0; // frames[0 .. depth) are running, innermost last
+        VmStacks() = default;
+        VmStacks(VmStacks const&) = delete;
+        VmStacks& operator=(VmStacks const&) = delete;
+        ~VmStacks();
+    };
+    VmStacks vm_stacks;
+    // A frame for a body, pushed on the stacks with its registers undefined
+    // and its operand area empty: null, with the stack's RangeError pending,
+    // when the stacks are full. The frame popped must be the top one.
+    Frame* push_frame(CodeBlock const& code, Context const& cx);
+    void pop_frame(Frame& frame);
+    // Copy on suspend: a frame copied out into a saved frame (a new one when
+    // `into` is null) and popped; a saved frame put back on the stacks to
+    // run; and a body that has never run, saved from the start.
+    SavedFrame* save_and_pop(Frame& frame, SavedFrame* into);
+    Frame* restore_frame(SavedFrame& saved);
+    SavedFrame* fresh_saved_frame(CodeBlock const& code, Context const& cx);
     Context frame_context(Frame const& frame) const;
     RunStatus vm_run(Frame& frame);
     bool vm_unwind(Frame& frame);
@@ -320,7 +340,9 @@ struct Interpreter::Impl {
     // prologue has already made the environments in `cx`, or a module's
     // InitializeEnvironment has — the body is all that runs here.
     std::optional<Value> start_async(FunctionNode const& node, Context const& cx, PromiseCapability const& capability, Frame* prepared = nullptr);
-    void async_step(AsyncContextObject& context);
+    // `running`: the body's frame when it is already on the stacks (its first
+    // step, from the call); otherwise its saved frame is restored.
+    void async_step(AsyncContextObject& context, Frame* running = nullptr);
     // Async generators (§27.6): the object, the request queue's operations
     // — next/return/throw past validation, AsyncGeneratorCompleteStep,
     // AsyncGeneratorAwaitReturn, AsyncGeneratorDrainQueue — and the body's

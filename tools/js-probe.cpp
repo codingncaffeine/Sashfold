@@ -6,11 +6,12 @@
 // (--dump-bytecode). A build tool for the script engine's own work, never
 // shipped.
 //
-//   js_probe "<source>" [--module] [--dump-ast] [--dump-scopes] [--dump-bytecode] [--no-stress]
+//   js_probe "<source>" [--module] [--dump-ast] [--dump-scopes] [--dump-bytecode] [--no-stress] [--vm-profile]
 //
 // The source is one argument; a file arrives as "$(cat page.js)". With
 // --no-stress the heap collects as it does in a page, which is how a
-// script is timed here against another engine. With
+// script is timed here against another engine; --vm-profile prints where the
+// running went (the run loop, the natives) and the instructions run most. With
 // --module it is parsed under the Module goal and evaluated as a module,
 // its imports read as files named by their specifiers relative to the
 // working directory. Exit status: 0 when the script completed (a module:
@@ -25,6 +26,7 @@
 #include "js/Strings.h"
 #include "platform/Memory.h"
 
+#include <algorithm>
 #include <cstdio>
 #include <cstring>
 #include <fstream>
@@ -33,6 +35,8 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 using namespace sashfold;
 
@@ -46,6 +50,30 @@ int usage()
 
 }
 
+// The run loop's profile: where running went, and the instructions
+// executed most, by opcode.
+void print_profile(js::Interpreter& in)
+{
+    js::Interpreter::Account const& account = in.account();
+    std::uint64_t total = 0;
+    for (std::uint64_t count : account.executed)
+        total += count;
+    std::printf("profile: run loop %.1f ms, natives %.1f ms in %zu calls, %llu instructions\n", account.vm_ms,
+        account.natives_ms, account.native_calls, static_cast<unsigned long long>(total));
+    if (account.executed.empty())
+        std::printf("  (instruction counts: a build made with -DSASHFOLD_VM_COUNTS=ON)\n");
+    std::vector<std::pair<std::uint64_t, std::size_t>> ranked;
+    for (std::size_t op = 0; op < account.executed.size(); ++op) {
+        if (account.executed[op] != 0)
+            ranked.emplace_back(account.executed[op], op);
+    }
+    std::sort(ranked.rbegin(), ranked.rend());
+    for (std::size_t i = 0; i < ranked.size() && i < 25; ++i) {
+        std::printf("  %-26s %12llu  %5.1f%%\n", js::opcode_name(static_cast<js::Opcode>(ranked[i].second)),
+            static_cast<unsigned long long>(ranked[i].first), total ? 100.0 * static_cast<double>(ranked[i].first) / static_cast<double>(total) : 0.0);
+    }
+}
+
 int main(int argc, char** argv)
 {
     bool want_ast = false;
@@ -53,6 +81,7 @@ int main(int argc, char** argv)
     bool want_bytecode = false;
     bool want_module = false;
     bool stress = true;
+    bool want_profile = false;
     char const* source = nullptr;
     for (int i = 1; i < argc; ++i) {
         if (std::strcmp(argv[i], "--dump-ast") == 0) {
@@ -65,6 +94,8 @@ int main(int argc, char** argv)
             want_module = true;
         } else if (std::strcmp(argv[i], "--no-stress") == 0) {
             stress = false;
+        } else if (std::strcmp(argv[i], "--vm-profile") == 0) {
+            want_profile = true;
         } else if (source == nullptr) {
             source = argv[i];
         } else {
@@ -79,6 +110,8 @@ int main(int argc, char** argv)
     js::Interpreter in;
     in.set_stack_budget(platform::js_stack_budget_for(platform::widen_main_thread_stack(platform::script_stack_bytes)));
     in.heap().set_stress(stress);
+    if (want_profile)
+        in.set_vm_profiling(true);
     if (want_ast || want_scopes || want_module) {
         js::ParseOptions options;
         options.module = want_module;
@@ -144,6 +177,8 @@ int main(int argc, char** argv)
         std::printf("a job threw %s\n", in.describe(thrown).c_str());
     });
     std::printf("%s %s\n", outcome.ok ? "ok" : "threw", in.describe(outcome.value).c_str());
+    if (want_profile)
+        print_profile(in);
     if (want_bytecode) {
         for (auto const& [node, code] : in.impl().code_blocks) {
             std::printf("--- %s ---\n", node->name ? node->name->to_utf8().c_str() : "(anonymous)");

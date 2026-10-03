@@ -637,6 +637,10 @@ public:
         std::size_t live_cells = 0;
         std::size_t live_bytes = 0;
         std::size_t functions_compiled = 0;
+        // Under SASHFOLD_VM_PROFILE=1: the run loop's own time and the
+        // natives' (built-ins and bindings), each net of the other.
+        double vm_ms = 0;
+        double natives_ms = 0;
         double run_ms() const
         {
             double const rest = engine_ms - parse_ms - compile_ms - gc_ms;

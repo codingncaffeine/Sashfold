@@ -2243,10 +2243,8 @@ void Interpreter::Impl::trace(Tracer& tracer)
         tracer.visit(context.function);
         tracer.visit(context.private_environment);
     });
-    for (Frame* frame : vm_frames)
-        tracer.visit(frame);
-    for (Frame* frame : frame_pool)
-        tracer.visit(frame);
+    for (std::size_t i = 0; i < vm_stacks.depth; ++i)
+        vm_stacks.frames[i]->trace(tracer);
     for (ClassBuilder* builder : class_builders)
         tracer.visit(builder);
 }
@@ -2257,10 +2255,10 @@ void Interpreter::Impl::trace(Tracer& tracer)
 std::string Interpreter::stack_text(Value const& error, std::size_t most)
 {
     std::string text = describe(error);
-    std::vector<Frame*> const& frames = m_impl->vm_frames;
+    Impl::VmStacks const& stacks = m_impl->vm_stacks;
     std::size_t listed = 0;
-    for (auto it = frames.rbegin(); it != frames.rend() && listed < most; ++it) {
-        Frame const& frame = **it;
+    for (std::size_t at = stacks.depth; at > 0 && listed < most; --at) {
+        Frame const& frame = *stacks.frames[at - 1];
         // The engine's own code written in JS is native to a page: no frame.
         Program const* const program = frame.function != nullptr ? frame.function->node().program : frame.program;
         if (program != nullptr && program->internal)
@@ -2312,6 +2310,12 @@ Interpreter::Interpreter()
     m_heap->add_root_provider(this);
     m_symbol_registry = m_heap->allocate<Object>(nullptr);
     m_realm = create_realm();
+    // SASHFOLD_VM_PROFILE=1: where the running goes, and what it runs.
+    static bool const profile_asked = [] {
+        char const* const value = std::getenv("SASHFOLD_VM_PROFILE");
+        return value != nullptr && value[0] == '1';
+    }();
+    m_vm_profile = profile_asked;
 }
 
 RealmRecord* Interpreter::create_realm()

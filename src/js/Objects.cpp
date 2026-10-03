@@ -1025,6 +1025,9 @@ std::optional<Value> NativeFunction::call(Interpreter& interpreter, Value const&
             running_in = home;
     }
     Interpreter::RealmScope const realm_scope(interpreter, running_in);
+    Interpreter::ActivityScope const activity(interpreter, &Interpreter::Account::natives_ms);
+    if (interpreter.vm_profiling())
+        ++interpreter.account_for_update().native_calls;
     return m_call(interpreter, this_value, arguments);
 }
 
@@ -1033,12 +1036,18 @@ std::optional<Value> NativeFunction::construct(Interpreter& interpreter, std::sp
     if (!m_construct)
         return interpreter.throw_type_error("not a constructor");
     Interpreter::RealmScope const realm_scope(interpreter, realm());
+    Interpreter::ActivityScope const activity(interpreter, &Interpreter::Account::natives_ms);
+    if (interpreter.vm_profiling())
+        ++interpreter.account_for_update().native_calls;
     return m_construct(interpreter, arguments, new_target);
 }
 
 std::optional<Value> ClosureFunction::call(Interpreter& interpreter, Value const& this_value, std::span<Value const> arguments)
 {
     Interpreter::RealmScope const realm_scope(interpreter, realm());
+    Interpreter::ActivityScope const activity(interpreter, &Interpreter::Account::natives_ms);
+    if (interpreter.vm_profiling())
+        ++interpreter.account_for_update().native_calls;
     return m_callback(interpreter, *this, this_value, arguments);
 }
 

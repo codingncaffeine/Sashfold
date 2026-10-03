@@ -11663,6 +11663,8 @@ Browser::EngineAccount Browser::engine_account() const
     account.parse_ms = code.parse_ms;
     account.compile_ms = code.compile_ms;
     account.functions_compiled = code.functions_compiled;
+    account.vm_ms = code.vm_ms;
+    account.natives_ms = code.natives_ms;
     account.gc_ms = heap.collect_ms;
     account.gc_longest_ms = heap.longest_collect_ms;
     account.collections = heap.collections;

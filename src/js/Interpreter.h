@@ -656,8 +656,44 @@ public:
         double parse_ms = 0;
         std::size_t functions_compiled = 0;
         double compile_ms = 0;
+        // Under SASHFOLD_VM_PROFILE=1 alone: where running went — the run
+        // loop's own work, and the natives it called (built-ins and the
+        // host's bindings), each net of the other — the natives called, and
+        // each instruction's count, by opcode.
+        double vm_ms = 0;
+        double natives_ms = 0;
+        std::size_t native_calls = 0;
+        std::vector<std::uint64_t> executed;
     };
     Account const& account() const { return m_account; }
+    Account& account_for_update() { return m_account; }
+    // The profile (SASHFOLD_VM_PROFILE=1 in the environment, or turned on
+    // here): off, it costs the run loop one test per entry.
+    bool vm_profiling() const { return m_vm_profile; }
+    void set_vm_profiling(bool on) { m_vm_profile = on; }
+    // While one lives, the time passes to the account's `into`, and back to
+    // what had it before when it ends: so a native's time is its own, and
+    // the script it calls back is the run loop's.
+    class ActivityScope {
+    public:
+        ActivityScope(Interpreter& interpreter, double Account::* into)
+            : m_interpreter(interpreter.m_vm_profile ? &interpreter : nullptr)
+        {
+            if (m_interpreter != nullptr)
+                m_was = m_interpreter->switch_activity(into);
+        }
+        ~ActivityScope()
+        {
+            if (m_interpreter != nullptr)
+                m_interpreter->switch_activity(m_was);
+        }
+        ActivityScope(ActivityScope const&) = delete;
+        ActivityScope& operator=(ActivityScope const&) = delete;
+
+    private:
+        Interpreter* m_interpreter;
+        double Account::* m_was = nullptr;
+    };
     // A program was parsed from this many code units, from that moment on.
     void note_parsed(std::size_t code_units, std::chrono::steady_clock::time_point started)
     {
@@ -776,6 +812,21 @@ private:
     std::uint64_t m_steps = 0;
     bool m_terminated = false;
     Account m_account;
+    // The profile's clock: which of the account's figures the time now
+    // passing goes to (none outside script), and since when.
+    bool m_vm_profile = false;
+    double Account::* m_activity = nullptr;
+    std::chrono::steady_clock::time_point m_activity_since;
+    double Account::* switch_activity(double Account::* into)
+    {
+        auto const now = std::chrono::steady_clock::now();
+        if (m_activity != nullptr)
+            m_account.*m_activity += std::chrono::duration<double, std::milli>(now - m_activity_since).count();
+        double Account::* const was = m_activity;
+        m_activity = into;
+        m_activity_since = now;
+        return was;
+    }
 };
 
 }

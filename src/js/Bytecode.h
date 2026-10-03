@@ -101,6 +101,10 @@ enum class Opcode : std::uint8_t {
 
 inline constexpr int Var = -1000; // "the compiler accounts for this one by hand"
 
+#define SASHFOLD_OPCODE_COUNT(name, effect) +1
+inline constexpr std::size_t opcode_count = 0 SASHFOLD_OPCODES(SASHFOLD_OPCODE_COUNT);
+#undef SASHFOLD_OPCODE_COUNT
+
 inline constexpr int stack_effect(Opcode op)
 {
     switch (op) {

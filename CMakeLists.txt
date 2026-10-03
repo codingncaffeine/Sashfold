@@ -42,6 +42,7 @@ endif()
 # same runtimes without libFuzzer's main.
 option(SASHFOLD_FUZZ "Build libFuzzer harnesses (requires clang)" OFF)
 option(SASHFOLD_PORTABLE "Link the C++ runtime into the sashfold binary, for a release that runs on older distributions" OFF)
+option(SASHFOLD_VM_COUNTS "Count the script run loop's instructions by opcode, for js_probe --vm-profile (costs every page about 2 per cent)" OFF)
 if(SASHFOLD_FUZZ)
   if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
     message(FATAL_ERROR "SASHFOLD_FUZZ requires a clang toolchain")
@@ -282,6 +283,9 @@ file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/generated/bindings/StreamsSource.h
 target_include_directories(sashfold_core PRIVATE ${CMAKE_BINARY_DIR}/generated)
 # The one place the version lives: the user-agent string and the about page read it from here.
 target_compile_definitions(sashfold_core PUBLIC SASHFOLD_VERSION="${PROJECT_VERSION}")
+if(SASHFOLD_VM_COUNTS)
+  target_compile_definitions(sashfold_core PUBLIC SASHFOLD_VM_COUNTS)
+endif()
 target_link_libraries(sashfold_core PRIVATE sashfold_warnings)
 
 add_executable(sashfold src/main.cpp)
