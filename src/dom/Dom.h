@@ -8,6 +8,7 @@
 // decision (see the plan's DOM-lifetime ADR note).
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <string_view>
@@ -272,6 +273,44 @@ public:
     }
 };
 
+// A stylesheet as the CSS object model has it (CSSOM §6.1), shared between
+// the script's CSSStyleSheet and the document the sheets are collected
+// from: once a script changes the sheet through the object model, its text
+// stands for it in place of what its element carries — for as long as the
+// element still carries `source`, the text the object model read it from
+// (a script that rewrites a <style> element's text replaces the sheet).
+// `disabled` leaves it out of the cascade; `version` moves with every
+// change, so that the sheets are collected again. The text is written only
+// when it is asked for, by `write`: a page inserting rules one by one, as
+// the style-in-script libraries do, asks for it once per collection.
+struct ScriptedSheet {
+    bool changed = false;
+    bool disabled = false;
+    std::uint64_t version = 0;
+    std::string source;
+    std::function<std::string()> write;
+
+    std::string const& text()
+    {
+        if (m_stale && write) {
+            m_text = write();
+            m_stale = false;
+        }
+        return m_text;
+    }
+    // A change through the object model: written again when next asked.
+    void touch()
+    {
+        changed = true;
+        m_stale = true;
+        ++version;
+    }
+
+private:
+    std::string m_text;
+    bool m_stale = false;
+};
+
 class Document : public Node {
 public:
     Document()
@@ -279,6 +318,29 @@ public:
     {
     }
     ~Document() override;
+
+    // The sheets the object model has a say in: those of <style> and
+    // <link> elements, by element (a document's nodes live as long as it
+    // does), and those adopted onto the document or onto a shadow root,
+    // by the root, in the order adopted.
+    std::vector<std::pair<Element const*, std::shared_ptr<ScriptedSheet>>> scripted_sheets;
+    std::vector<std::pair<Node const*, std::vector<std::shared_ptr<ScriptedSheet>>>> adopted_sheets;
+    std::shared_ptr<ScriptedSheet> scripted_sheet(Element const& element) const
+    {
+        for (auto const& [owner, sheet] : scripted_sheets) {
+            if (owner == &element)
+                return sheet;
+        }
+        return nullptr;
+    }
+    std::vector<std::shared_ptr<ScriptedSheet>> const* adopted(Node const& root) const
+    {
+        for (auto const& [owner, sheets] : adopted_sheets) {
+            if (owner == &root)
+                return &sheets;
+        }
+        return nullptr;
+    }
 
     QuirksMode quirks_mode = QuirksMode::No;
     // Whether this is an XML document rather than an HTML one (DOM §4.5), and

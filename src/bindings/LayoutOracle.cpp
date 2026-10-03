@@ -220,7 +220,7 @@ void LayoutOracle::sheets_up_to_date()
 {
     // The sheets are parsed and compiled again only when the elements
     // carrying them changed; every mutation still cascades and lays out.
-    std::string signature = sheet_signature(*m_document);
+    std::string signature = sheet_signature(*m_document) + css::scripted_sheets_signature(*m_document);
     if (!m_style_set || signature != m_sheet_signature) {
         css::InlineSheetCheck check;
         if (m_policy) {

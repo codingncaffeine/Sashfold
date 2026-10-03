@@ -1284,6 +1284,56 @@ struct LaidOutPage {
     }
 };
 
+// The CSS object model's sheets (CSSOM §6), as the style-in-script
+// libraries use them: emotion and styled-components put a page's whole
+// style in through insertRule on a <style> they made, and find its sheet
+// in document.styleSheets by ownerNode.
+void test_cssom_sheets()
+{
+    LaidOutPage laid(R"HTML(<!DOCTYPE html><head><style id=st>p { color: red } @media (min-width: 1px) { #q { color: blue } }</style></head>
+<body><p id=p>p</p><div id=q>q</div><div id=t>t</div><div id=u>u</div><div id=v>v</div></body>)HTML");
+    Page& page = *laid.page;
+    auto const color = [&](std::string_view id) { return page.string("getComputedStyle(document.getElementById('" + std::string(id) + "')).color"); };
+    // A sheet's rules as written.
+    CHECK_EQ(page.string("(function () { var s = document.getElementById('st').sheet; var r = s.cssRules; return [s === document.styleSheets[0], document.styleSheets.length, r.length, r[0].selectorText, r[0].style.color, r[0].type, r[1].media.mediaText, r[1].cssRules[0].cssText, r[0].parentStyleSheet === s, r[0] === r.item(0)].join('|'); })()"),
+        "true|1|2|p|red|1|(min-width: 1px)|#q { color: blue; }|true|true");
+    CHECK_EQ(color("p"), "rgb(255, 0, 0)");
+    // emotion's speedy path: a new <style>, rules through insertRule.
+    CHECK_EQ(page.string("(function () { var tag = document.createElement('style'); document.head.appendChild(tag); var sheet; for (var i = 0; i < document.styleSheets.length; i++) if (document.styleSheets[i].ownerNode === tag) sheet = document.styleSheets[i]; sheet.insertRule('#t { color: rgb(1, 2, 3) }', sheet.cssRules.length); sheet.insertRule('.x, #u { color: rgb(4, 5, 6) }', sheet.cssRules.length); return [sheet === tag.sheet, sheet.cssRules.length, tag.textContent].join('|'); })()"),
+        "true|2|");
+    CHECK_EQ(color("t"), "rgb(1, 2, 3)");
+    CHECK_EQ(color("u"), "rgb(4, 5, 6)");
+    // A rule's style written through, a rule deleted, a sheet disabled.
+    CHECK(page.boolean("(function () { var s = document.styleSheets[1]; s.cssRules[0].style.setProperty('color', 'rgb(7, 8, 9)'); return s.cssRules[0].cssText === '#t { color: rgb(7, 8, 9); }'; })()"));
+    CHECK_EQ(color("t"), "rgb(7, 8, 9)");
+    page.string("String(document.styleSheets[1].deleteRule(1))");
+    CHECK_EQ(color("u"), "rgb(0, 0, 0)");
+    page.string("String(document.styleSheets[0].disabled = true)");
+    CHECK_EQ(color("p"), "rgb(0, 0, 0)");
+    page.string("String(document.styleSheets[0].disabled = false)");
+    CHECK_EQ(color("p"), "rgb(255, 0, 0)");
+    // The object model's errors.
+    CHECK(page.throws("document.styleSheets[1].insertRule('#t {', 0); document.styleSheets[1].insertRule('p:bogus { color: red }')").starts_with("SyntaxError"));
+    CHECK(page.throws("document.styleSheets[1].deleteRule(99)").starts_with("IndexSizeError"));
+    CHECK(page.throws("document.styleSheets[1].insertRule('p { }', 99)").starts_with("IndexSizeError"));
+    CHECK(page.throws("document.styleSheets[1].insertRule('@import url(x.css);', 1)").starts_with("HierarchyRequestError"));
+    // A constructed sheet, adopted onto the document.
+    CHECK(page.boolean("(function () { var s = new CSSStyleSheet(); s.replaceSync('#v { color: rgb(10, 11, 12) }'); document.adoptedStyleSheets = [s]; return document.adoptedStyleSheets[0] === s && s.cssRules.length === 1 && s.ownerNode === null; })()"));
+    CHECK_EQ(color("v"), "rgb(10, 11, 12)");
+    CHECK(page.throws("document.styleSheets[0].replaceSync('p {}')").starts_with("NotAllowedError"));
+    CHECK(page.throws("document.adoptedStyleSheets = [document.styleSheets[0]]").starts_with("NotAllowedError"));
+    // Rewriting a <style>'s text replaces what the object model made of it.
+    page.string("String(document.getElementById('st').sheet.insertRule('#q { color: rgb(13, 14, 15) }', 2))");
+    CHECK_EQ(color("q"), "rgb(13, 14, 15)");
+    page.string("String(document.getElementById('st').textContent = '#q { color: rgb(16, 17, 18) }')");
+    CHECK_EQ(color("q"), "rgb(16, 17, 18)");
+    CHECK_EQ(page.string("String(document.getElementById('st').sheet.cssRules.length)"), "1");
+    // Nesting through the object model.
+    CHECK_EQ(page.string("(function () { var s = new CSSStyleSheet(); s.replaceSync('.a { color: red; & .b { color: blue } }'); var r = s.cssRules[0]; return [r.cssRules.length, r.cssRules[0].selectorText, r.cssRules[0].parentRule === r].join('|'); })()"),
+        "1|& .b|true");
+    CHECK_EQ(page.console, "");
+}
+
 void test_display_contents_geometry()
 {
     // CSS Display 3 §2.5: the element has no box, so no rects, no offset
@@ -5443,6 +5493,7 @@ int main()
     test_window_location_url_storage_navigator();
     test_uncaught_errors_are_reported_and_counted();
     test_layout_and_style_hooks();
+    test_cssom_sheets();
     test_display_contents_geometry();
     test_form_controls_without_a_host();
     test_dom_parser_and_foreign_documents();

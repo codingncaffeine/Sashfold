@@ -128,6 +128,7 @@ void StyleDeclarationObject::trace(js::Tracer& tracer)
 {
     ElementBackedObject::trace(tracer);
     tracer.visit(record);
+    tracer.visit(owner_rule);
 }
 
 void StorageObject::trace(js::Tracer& tracer)
@@ -1413,6 +1414,7 @@ void install_interfaces(Realm::Internals& in)
     install_mutation_observer(in);
     install_intersection_observer(in);
     install_indexeddb(in);
+    install_cssom(in);
     install_window_proxy(in, language_globals);
 }
 

@@ -113,6 +113,11 @@ std::vector<SheetSource> collect_stylesheets(dom::Document const& document, net:
 
 std::string decode_stylesheet(std::vector<std::uint8_t> const& bytes, std::string_view content_type);
 
+// What the object model has done to the document's sheets, as a string
+// that changes whenever a script changes, disables or adopts one: part of
+// the signature that says the sheets must be collected again.
+std::string scripted_sheets_signature(dom::Document const& document);
+
 // The @import rules at the head of a sheet, minus those whose media or
 // supports() condition fails: each one's URL as written, the cascade layer
 // it imports into (`layer` alone gives an anonymous one, said here as an

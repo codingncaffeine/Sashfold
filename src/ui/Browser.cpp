@@ -4318,7 +4318,7 @@ struct Browser::Impl {
         };
         auto const fetch_sheet = fetch_kind(net::ResourceKind::Stylesheet);
         auto const fetch_font = fetch_kind(net::ResourceKind::Font);
-        std::string const signature = sheet_signature(*tab.document);
+        std::string const signature = sheet_signature(*tab.document) + css::scripted_sheets_signature(*tab.document);
         if (signature != tab.sheet_signature || !tab.style_set) {
             Stopwatch const collecting(profile.sheets_ms);
             ++profile.sheet_collections;

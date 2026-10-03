@@ -676,8 +676,8 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     // Picture-in-Picture: no window of this engine floats a video yet.
     document_getter(in, *document, "pictureInPictureEnabled", [](Realm::Internals&, dom::Document&) -> Native { return js::Value::boolean(false); });
     document_getter(in, *document, "pictureInPictureElement", [](Realm::Internals&, dom::Document&) -> Native { return js::Value::null(); });
-    document_getter(in, *document, "styleSheets", [](Realm::Internals& internals, dom::Document&) -> Native {
-        return js::Value::object(internals.interpreter.new_array());
+    document_getter(in, *document, "styleSheets", [](Realm::Internals& internals, dom::Document& d) -> Native {
+        return style_sheet_list(internals, d);
     });
     // FontFaceSet (CSS Font Loading §4), an EventTarget and a set with
     // nothing in it: the page's fonts are loaded by the layout, not through

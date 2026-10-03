@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (10010 of 15375) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (10012 of 15375) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -5611,6 +5611,7 @@ css/css-cascade/all-prop-revert-visited.html
 css/css-cascade/all-prop-unset-color.html
 css/css-cascade/all-prop-unset-visited.html
 css/css-cascade/import-conditional-002.html
+css/css-cascade/import-removal.html
 css/css-cascade/initial-background-color.html
 css/css-cascade/initial-color-background-001.html
 css/css-cascade/layer-media-toggle.html
@@ -8753,6 +8754,7 @@ css/css-values/ex-unit-001.html
 css/css-values/ex-unit-002.html
 css/css-values/ex-unit-003.html
 css/css-values/ex-unit-004.html
+css/css-values/inline-cache-base-uri-cssom.html
 css/css-values/inline-cache-base-uri.html
 css/css-values/lh-unit-same-element-font-size-dependency.html
 css/css-values/lh-unit-same-element-line-height-dependency.html

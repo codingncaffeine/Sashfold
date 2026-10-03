@@ -149,6 +149,17 @@ void walk(dom::Node const& node, net::Url const* base, Collector& collector)
                 if (child->is_text())
                     text += static_cast<dom::Text const*>(child)->data;
             }
+            // A sheet the object model disabled is out; one it changed is
+            // what it made (CSSOM §6.1), which no inline policy judges —
+            // until the element's own text is rewritten, which replaces it.
+            if (std::shared_ptr<dom::ScriptedSheet> const scripted = element.document().scripted_sheet(element)) {
+                if (scripted->disabled)
+                    return;
+                if (scripted->changed && scripted->source == text) {
+                    collector.add_text(scripted->text(), base ? std::optional<net::Url>(*base) : std::nullopt, 0);
+                    return;
+                }
+            }
             // XHTML pages wrap a sheet in a CDATA section; parsed as HTML,
             // the markers arrive as text, and the opening one would swallow
             // the sheet into a bracket block. An XML parser would drop them.
@@ -182,7 +193,14 @@ void walk(dom::Node const& node, net::Url const* base, Collector& collector)
             std::string const href = attribute(element, "href");
             if (href.empty())
                 return;
+            std::shared_ptr<dom::ScriptedSheet> const scripted = element.document().scripted_sheet(element);
+            if (scripted && scripted->disabled)
+                return;
             if (std::optional<net::Url> const target = net::parse_url(href, base)) {
+                if (scripted && scripted->changed) {
+                    collector.add_text(scripted->text(), *target, 0);
+                    return;
+                }
                 std::optional<bool> const loaded = collector.add_fetched(*target, 0, attribute(element, "nonce"));
                 if (loaded && collector.links)
                     collector.links->push_back(LinkSheetOutcome { &element, target->serialize(true), *loaded });
@@ -206,7 +224,28 @@ std::vector<SheetSource> collect_stylesheets(dom::Document const& document, net:
     std::optional<net::Url> const named_against
         = base ? std::optional<net::Url>(html::document_base_url(document, *base)) : std::nullopt;
     walk(document, named_against ? &*named_against : nullptr, collector);
+    // The document's adopted sheets come after its own (CSSOM §6.1).
+    if (std::vector<std::shared_ptr<dom::ScriptedSheet>> const* adopted = document.adopted(document)) {
+        for (std::shared_ptr<dom::ScriptedSheet> const& sheet : *adopted) {
+            if (!sheet->disabled)
+                collector.add_text(sheet->text(), named_against, 0);
+        }
+    }
     return sheets;
+}
+
+std::string scripted_sheets_signature(dom::Document const& document)
+{
+    std::string signature;
+    for (auto const& [owner, sheet] : document.scripted_sheets)
+        signature += std::to_string(sheet->version) + (sheet->disabled ? "d," : ",");
+    if (std::vector<std::shared_ptr<dom::ScriptedSheet>> const* adopted = document.adopted(document)) {
+        signature += "a";
+        for (std::shared_ptr<dom::ScriptedSheet> const& sheet : *adopted)
+            signature += std::to_string(reinterpret_cast<std::uintptr_t>(sheet.get())) + ":" + std::to_string(sheet->version)
+                + (sheet->disabled ? "d," : ",");
+    }
+    return signature;
 }
 
 std::string decode_stylesheet(std::vector<std::uint8_t> const& bytes, std::string_view content_type)

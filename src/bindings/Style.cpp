@@ -159,35 +159,59 @@ std::string css_property_name(std::string_view camel)
     return out;
 }
 
-// Sets or removes one declaration of an element's style attribute.
-void set_declaration(Realm::Internals& in, dom::Element& element, std::string const& name, std::string const& value, bool important)
+// Sets or removes one declaration of a list; whether the list changed.
+bool edit_declaration(std::vector<css::Declaration>& declarations, std::string const& name, std::string const& value, bool important)
 {
-    std::vector<css::Declaration> declarations = declarations_of(element);
     std::string const lower = ascii_lower(name);
     auto const existing = std::find_if(declarations.begin(), declarations.end(),
         [&lower](css::Declaration const& d) { return d.name == lower; });
     if (value.empty()) {
-        if (existing != declarations.end()) {
-            declarations.erase(existing);
-            write_declarations(in, element, declarations);
-        }
-        return;
+        if (existing == declarations.end())
+            return false;
+        declarations.erase(existing);
+        return true;
     }
     std::vector<css::Declaration> parsed = css::parse_declaration_list(lower + ": " + value);
     if (parsed.empty())
-        return; // not a declaration: ignored, as the CSSOM says
+        return false; // not a declaration: ignored, as the CSSOM says
     parsed.front().important = important;
     if (existing != declarations.end())
         *existing = parsed.front();
     else
         declarations.push_back(parsed.front());
-    write_declarations(in, element, declarations);
+    return true;
 }
 
-std::string declaration_value(dom::Element const& element, std::string const& name)
+// The declarations a CSSStyleDeclaration that is not a computed style
+// reads: its rule's, or its element's style attribute.
+std::vector<css::Declaration> declarations_of(StyleDeclarationObject const& style)
+{
+    if (style.store)
+        return style.store->read();
+    dom::Element const* const element = style.element();
+    return element ? declarations_of(*element) : std::vector<css::Declaration> {};
+}
+
+void write_declarations(Realm::Internals& in, StyleDeclarationObject& style, std::vector<css::Declaration> const& declarations)
+{
+    if (style.store)
+        style.store->write(declarations);
+    else if (dom::Element* const element = style.element())
+        write_declarations(in, *element, declarations);
+}
+
+// Sets or removes one declaration of a style attribute or a rule.
+void set_declaration(Realm::Internals& in, StyleDeclarationObject& style, std::string const& name, std::string const& value, bool important)
+{
+    std::vector<css::Declaration> declarations = declarations_of(style);
+    if (edit_declaration(declarations, name, value, important))
+        write_declarations(in, style, declarations);
+}
+
+std::string declaration_value(StyleDeclarationObject const& style, std::string const& name)
 {
     std::string const lower = ascii_lower(name);
-    for (css::Declaration const& declaration : declarations_of(element)) {
+    for (css::Declaration const& declaration : declarations_of(style)) {
         if (declaration.name == lower)
             return value_text(declaration);
     }
@@ -735,27 +759,27 @@ bool StyleDeclarationObject::ordinary_property(js::PropertyKey const& key) const
 
 std::string StyleDeclarationObject::value_of(std::string const& name) const
 {
-    if (!element())
+    if (!element() && !store)
         return {};
     Realm::Internals& in = internals();
     if (computed) {
         css::ComputedStyle const* style = in.hooks.computed_style ? in.hooks.computed_style(*element()) : nullptr;
         return style ? computed_property(in, *element(), *style, name) : std::string();
     }
-    return declaration_value(*element(), name);
+    return declaration_value(*this, name);
 }
 
 std::optional<bool> StyleDeclarationObject::write(std::string const& name, js::Value const& value)
 {
     Realm::Internals& in = internals();
-    if (computed || !element()) {
+    if (!writable()) {
         in.throw_dom_exception("NoModificationAllowedError", "These styles are computed, and therefore the '" + name + "' property is read-only.");
         return std::nullopt;
     }
     std::optional<std::string> const text = value.is_nullish() ? std::optional<std::string>("") : in.to_utf8(value);
     if (!text)
         return std::nullopt;
-    set_declaration(in, *element(), name, *text, false);
+    set_declaration(in, *this, name, *text, false);
     return true;
 }
 
@@ -1074,32 +1098,37 @@ void install_style(Realm::Internals& in)
             std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
             if (!s)
                 return std::nullopt;
-            if ((*s)->computed || !(*s)->element())
+            if (!(*s)->writable())
                 return internals_of(interp).string("");
-            return internals_of(interp).string(serialize_declarations(declarations_of(*(*s)->element())));
+            return internals_of(interp).string(serialize_declarations(declarations_of(**s)));
         },
         [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
             std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
             if (!s)
                 return std::nullopt;
             Realm::Internals& internals = internals_of(interp);
-            if ((*s)->computed || !(*s)->element())
+            if (!(*s)->writable())
                 return internals.throw_dom_exception("NoModificationAllowedError", "These styles are computed, and therefore read-only.");
             std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
             if (!text)
                 return std::nullopt;
-            write_declarations(internals, *(*s)->element(), css::parse_declaration_list(*text));
+            write_declarations(internals, **s, css::parse_declaration_list(*text));
             return js::Value::undefined();
         });
     define_getter(in, *style, "length", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
         if (!s)
             return std::nullopt;
-        if ((*s)->computed || !(*s)->element())
+        if (!(*s)->writable())
             return js::Value::number(0);
-        return js::Value::number(static_cast<double>(declarations_of(*(*s)->element()).size()));
+        return js::Value::number(static_cast<double>(declarations_of(**s).size()));
     });
-    define_getter(in, *style, "parentRule", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::null(); });
+    define_getter(in, *style, "parentRule", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
+        if (!s)
+            return std::nullopt;
+        return (*s)->owner_rule ? js::Value::object((*s)->owner_rule) : js::Value::null();
+    });
     define_operation(interpreter, *style, "item", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
         if (!s)
@@ -1107,9 +1136,9 @@ void install_style(Realm::Internals& in)
         std::optional<double> const index = interp.to_number(js::argument(args, 0));
         if (!index)
             return std::nullopt;
-        if ((*s)->computed || !(*s)->element())
+        if (!(*s)->writable())
             return internals_of(interp).string("");
-        std::vector<css::Declaration> const declarations = declarations_of(*(*s)->element());
+        std::vector<css::Declaration> const declarations = declarations_of(**s);
         if (*index < 0 || *index >= static_cast<double>(declarations.size()))
             return internals_of(interp).string("");
         return internals_of(interp).string(declarations[static_cast<std::size_t>(*index)].name);
@@ -1122,13 +1151,13 @@ void install_style(Realm::Internals& in)
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)
             return std::nullopt;
-        if (!(*s)->element())
+        if (!(*s)->element() && !(*s)->store)
             return internals.string("");
         if ((*s)->computed) {
             css::ComputedStyle const* computed = internals.hooks.computed_style ? internals.hooks.computed_style(*(*s)->element()) : nullptr;
             return internals.string(computed ? computed_property(internals, *(*s)->element(), *computed, ascii_lower(*name)) : "");
         }
-        return internals.string(declaration_value(*(*s)->element(), *name));
+        return internals.string(declaration_value(**s, *name));
     });
     define_operation(interpreter, *style, "getPropertyPriority", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
@@ -1138,9 +1167,9 @@ void install_style(Realm::Internals& in)
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)
             return std::nullopt;
-        if ((*s)->computed || !(*s)->element())
+        if (!(*s)->writable())
             return internals.string("");
-        for (css::Declaration const& declaration : declarations_of(*(*s)->element())) {
+        for (css::Declaration const& declaration : declarations_of(**s)) {
             if (declaration.name == ascii_lower(*name))
                 return internals.string(declaration.important ? "important" : "");
         }
@@ -1151,7 +1180,7 @@ void install_style(Realm::Internals& in)
         if (!s)
             return std::nullopt;
         Realm::Internals& internals = internals_of(interp);
-        if ((*s)->computed || !(*s)->element())
+        if (!(*s)->writable())
             return internals.throw_dom_exception("NoModificationAllowedError", "These styles are computed, and therefore read-only.");
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         js::Value const value_argument = js::argument(args, 1);
@@ -1159,7 +1188,7 @@ void install_style(Realm::Internals& in)
         std::optional<std::string> const priority = js::argument(args, 2).is_undefined() ? std::optional<std::string>("") : internals.to_utf8(js::argument(args, 2));
         if (!name || !value || !priority)
             return std::nullopt;
-        set_declaration(internals, *(*s)->element(), *name, *value, ascii_lower(*priority) == "important");
+        set_declaration(internals, **s, *name, *value, ascii_lower(*priority) == "important");
         return js::Value::undefined();
     });
     define_operation(interpreter, *style, "removeProperty", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
@@ -1167,13 +1196,13 @@ void install_style(Realm::Internals& in)
         if (!s)
             return std::nullopt;
         Realm::Internals& internals = internals_of(interp);
-        if ((*s)->computed || !(*s)->element())
+        if (!(*s)->writable())
             return internals.throw_dom_exception("NoModificationAllowedError", "These styles are computed, and therefore read-only.");
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)
             return std::nullopt;
-        std::string const previous = declaration_value(*(*s)->element(), *name);
-        set_declaration(internals, *(*s)->element(), *name, "", false);
+        std::string const previous = declaration_value(**s, *name);
+        set_declaration(internals, **s, *name, "", false);
         return internals.string(previous);
     });
 
@@ -1250,6 +1279,36 @@ void install_style(Realm::Internals& in)
             return js::Value::object(value);
         });
     }
+}
+
+}
+
+namespace sashfold::bindings {
+
+std::string css_declarations_text(std::vector<css::Declaration> const& declarations)
+{
+    return serialize_declarations(declarations);
+}
+
+std::string css_values_text(std::vector<css::ComponentValue> const& values)
+{
+    std::string out;
+    serialize_values(values, out);
+    return out;
+}
+
+}
+
+namespace sashfold::bindings {
+
+js::Value make_rule_style_declaration(Realm::Internals& in, std::shared_ptr<DeclarationStore> store, js::Object* owner_rule)
+{
+    js::Interpreter::Roots const roots(in.interpreter);
+    in.interpreter.root(js::Value::object(owner_rule));
+    StyleDeclarationObject* style = in.interpreter.heap().allocate<StyleDeclarationObject>(in.prototype("CSSStyleDeclaration"), *in.realm_record, nullptr, false);
+    style->store = std::move(store);
+    style->owner_rule = owner_rule;
+    return js::Value::object(style);
 }
 
 }

@@ -74,10 +74,12 @@ constexpr int deadline_multiplier = 3;
 #else
 constexpr int deadline_multiplier = 1;
 #endif
-constexpr auto test_deadline = std::chrono::seconds(5 * deadline_multiplier);
+// wptrunner's own limits: ten seconds a test, sixty for a long one. A
+// tighter limit here made a big file that needs six seconds fail by turns.
+constexpr auto test_deadline = std::chrono::seconds(10 * deadline_multiplier);
 // A test that declares <meta name="timeout" content="long"> is given six times
 // the time, as wptrunner gives it.
-constexpr auto long_test_deadline = std::chrono::seconds(30 * deadline_multiplier);
+constexpr auto long_test_deadline = std::chrono::seconds(60 * deadline_multiplier);
 constexpr int max_pumps = 20000;
 
 // Layout runs on the process's one font manager, so the tests' layout
@@ -1105,7 +1107,7 @@ int main(int argc, char** argv)
     if (char const* env = std::getenv("SASHFOLD_PRINT_FAILURES"))
         max_printed = std::atoi(env);
     int jobs = static_cast<int>(std::max(1u, std::thread::hardware_concurrency() / 2));
-    long hang_seconds = 60L * deadline_multiplier;
+    long hang_seconds = 90L * deadline_multiplier; // past the long deadline
     int messages = 0;
     int files_ranked = 0;
     bool accept_losses = false;

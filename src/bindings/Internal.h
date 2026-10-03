@@ -6,6 +6,7 @@
 
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
+#include "css/Parser.h"
 #include "js/Object.h"
 #include "js/Runtime.h"
 #include "js/Strings.h"
@@ -254,8 +255,19 @@ public:
     std::optional<js::PropertyDescriptor> get_own_property(js::PropertyKey const&) const override;
 };
 
+// The declarations of a CSS rule, as a CSSStyleDeclaration of the rule
+// (CSSOM §6.6: its owner rule) reads and writes them; a write is a change
+// to the rule's sheet.
+class DeclarationStore {
+public:
+    virtual ~DeclarationStore() = default;
+    virtual std::vector<css::Declaration> read() const = 0;
+    virtual void write(std::vector<css::Declaration> declarations) = 0;
+};
+
 // A CSSStyleDeclaration: an element's style attribute read and written
-// property by property, or — read-only — its computed style.
+// property by property, or — read-only — its computed style, or a rule's
+// declarations (`store`, with `owner_rule` its CSSRule).
 class StyleDeclarationObject final : public ElementBackedObject {
 public:
     StyleDeclarationObject(js::Object* prototype, js::RealmRecord& the_record, NodeWrapper* the_wrapper, bool is_computed)
@@ -266,6 +278,10 @@ public:
     }
     js::RealmRecord* record; // the realm that made it, for a declaration of no element
     bool computed;
+    std::shared_ptr<DeclarationStore> store;
+    js::Object* owner_rule = nullptr;
+    // Whether it has declarations of its own to read and write.
+    bool writable() const { return !computed && (store || element()); }
     js::RealmRecord* home_realm() const override { return wrapper ? wrapper->home_realm() : record; }
     Realm::Internals& internals() const;
     std::optional<js::Value> get(js::Interpreter&, js::PropertyKey const&, js::Value const& receiver) override;
@@ -1391,6 +1407,7 @@ void install_nodes(Realm::Internals&); // Node.cpp
 void install_parent_node(Realm::Internals&, js::Object& prototype, bool with_collections_by_name); // Node.cpp
 void install_html_or_svg_element(Realm::Internals&, js::Object& prototype, bool with_reflected); // HtmlElements.cpp
 void install_style(Realm::Internals&); // Style.cpp
+void install_cssom(Realm::Internals&); // Cssom.cpp
 void install_window(Realm::Internals&); // Window.cpp
 void install_binary(Realm::Internals&); // Binary.cpp: TextEncoder, TextDecoder, Blob, File
 void install_fetch(Realm::Internals&); // Fetch.cpp: Headers, Request, Response, FormData, fetch
@@ -1561,6 +1578,18 @@ std::string const* svg_href(dom::Element const&);
 // Objects the style file makes for the node bindings.
 js::Value make_token_list(Realm::Internals&, dom::Element&, std::string attribute); // classList, relList
 js::Value make_style_declaration(Realm::Internals&, dom::Element*, bool computed); // element.style, getComputedStyle
+// The same over a rule's declarations, its parentRule `owner_rule`.
+js::Value make_rule_style_declaration(Realm::Internals&, std::shared_ptr<DeclarationStore>, js::Object* owner_rule);
+// What the CSS object model writes and reads a declaration block and a
+// run of component values as (Style.cpp).
+std::string css_declarations_text(std::vector<css::Declaration> const&);
+std::string css_values_text(std::vector<css::ComponentValue> const&);
+// The CSSStyleSheet of a <style> or stylesheet <link> element, made the
+// first time it is asked for and the same object after; null for an
+// element that carries none (Cssom.cpp).
+js::Value style_sheet_of(Realm::Internals&, dom::Element&);
+// document.styleSheets: the document's sheets in tree order.
+js::Value style_sheet_list(Realm::Internals&, dom::Document&);
 js::Value make_dataset(Realm::Internals&, dom::Element&);
 // The element's wrapper as the node wrapper it is.
 NodeWrapper& wrapper_for(Realm::Internals&, dom::Node&);

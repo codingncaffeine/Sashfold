@@ -1037,13 +1037,13 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 return js::Value::undefined();
             });
         js::Object& style = proto_of("HTMLStyleElement");
-        element_getter(in, style, "sheet", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
+        element_getter(in, style, "sheet", [](Realm::Internals& internals, dom::Element& e) -> Native { return style_sheet_of(internals, e); });
         js::Object& link = proto_of("HTMLLinkElement");
         element_forwarding_getter(
             in, link, "relList", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "rel"); }, "value");
         element_forwarding_getter(
             in, link, "sizes", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "sizes"); }, "value");
-        element_getter(in, link, "sheet", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
+        element_getter(in, link, "sheet", [](Realm::Internals& internals, dom::Element& e) -> Native { return style_sheet_of(internals, e); });
     }
 
     // Frames, embeds, objects, canvas, media.

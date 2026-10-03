@@ -1653,6 +1653,246 @@ credential-management/idlharness.https.window.html	PasswordCredential includes C
 credential-management/idlharness.https.window.html	Stringification of navigator.credentials
 credential-management/idlharness.https.window.html	idl_test setup
 credential-management/idlharness.https.window.html	idl_test validation
+css/css-cascade/at-scope-parsing.html	@scope ( is not valid
+css/css-cascade/at-scope-parsing.html	@scope ( to (.b) is not valid
+css/css-cascade/at-scope-parsing.html	@scope ( {} is not valid
+css/css-cascade/at-scope-parsing.html	@scope (.a + .b) is valid
+css/css-cascade/at-scope-parsing.html	@scope (.a is not valid
+css/css-cascade/at-scope-parsing.html	@scope (.a to (.b) is not valid
+css/css-cascade/at-scope-parsing.html	@scope (.a) is valid
+css/css-cascade/at-scope-parsing.html	@scope (.a) to (& > &) is valid
+css/css-cascade/at-scope-parsing.html	@scope (.a) to (&) is valid
+css/css-cascade/at-scope-parsing.html	@scope (.a) to (+ .b) is valid
+css/css-cascade/at-scope-parsing.html	@scope (.a) to (.b) is valid
+css/css-cascade/at-scope-parsing.html	@scope (.a) to (.b:hover, #c, div) is valid
+css/css-cascade/at-scope-parsing.html	@scope (.a) to (> .b) is valid
+css/css-cascade/at-scope-parsing.html	@scope (.a) to (~ .b) is valid
+css/css-cascade/at-scope-parsing.html	@scope (.a:hover) is valid
+css/css-cascade/at-scope-parsing.html	@scope (.a:hover, #b, div) is valid
+css/css-cascade/at-scope-parsing.html	@scope (:is(div, span)) is valid
+css/css-cascade/at-scope-parsing.html	@scope is valid
+css/css-cascade/at-scope-parsing.html	@scope to (.a) is valid
+css/css-cascade/at-scope-relative-syntax.html	> .foo in .nest,@scope created by insertRule valid
+css/css-cascade/at-scope-relative-syntax.html	> .foo in .nest,@scope created by string valid
+css/css-cascade/at-scope-relative-syntax.html	> .foo in .nest,@scope,@media screen created by insertRule valid
+css/css-cascade/at-scope-relative-syntax.html	> .foo in .nest,@scope,@media screen created by string valid
+css/css-cascade/idlharness.html	CSSLayerBlockRule interface object length
+css/css-cascade/idlharness.html	CSSLayerBlockRule interface object name
+css/css-cascade/idlharness.html	CSSLayerBlockRule interface: attribute name
+css/css-cascade/idlharness.html	CSSLayerBlockRule interface: block must inherit property "name" with the proper type
+css/css-cascade/idlharness.html	CSSLayerBlockRule interface: existence and properties of interface prototype object
+css/css-cascade/idlharness.html	CSSLayerBlockRule interface: existence and properties of interface prototype object's "constructor" property
+css/css-cascade/idlharness.html	CSSLayerBlockRule interface: existence and properties of interface prototype object's @@unscopables property
+css/css-cascade/idlharness.html	CSSLayerBlockRule must be primary interface of block
+css/css-cascade/idlharness.html	CSSLayerStatementRule interface object length
+css/css-cascade/idlharness.html	CSSLayerStatementRule interface object name
+css/css-cascade/idlharness.html	CSSLayerStatementRule interface: attribute nameList
+css/css-cascade/idlharness.html	CSSLayerStatementRule interface: existence and properties of interface prototype object
+css/css-cascade/idlharness.html	CSSLayerStatementRule interface: existence and properties of interface prototype object's "constructor" property
+css/css-cascade/idlharness.html	CSSLayerStatementRule interface: existence and properties of interface prototype object's @@unscopables property
+css/css-cascade/idlharness.html	CSSLayerStatementRule must be primary interface of statement
+css/css-cascade/idlharness.html	CSSScopeRule interface object length
+css/css-cascade/idlharness.html	CSSScopeRule interface object name
+css/css-cascade/idlharness.html	CSSScopeRule interface: attribute end
+css/css-cascade/idlharness.html	CSSScopeRule interface: attribute start
+css/css-cascade/idlharness.html	CSSScopeRule interface: existence and properties of interface prototype object
+css/css-cascade/idlharness.html	CSSScopeRule interface: existence and properties of interface prototype object's "constructor" property
+css/css-cascade/idlharness.html	CSSScopeRule interface: existence and properties of interface prototype object's @@unscopables property
+css/css-cascade/idlharness.html	CSSScopeRule interface: scope must inherit property "end" with the proper type
+css/css-cascade/idlharness.html	CSSScopeRule interface: scope must inherit property "start" with the proper type
+css/css-cascade/idlharness.html	CSSScopeRule must be primary interface of scope
+css/css-cascade/idlharness.html	Stringification of block
+css/css-cascade/idlharness.html	Stringification of scope
+css/css-cascade/idlharness.html	Stringification of statement
+css/css-cascade/idlharness.html	idl_test setup
+css/css-cascade/idlharness.html	idl_test validation
+css/css-cascade/important-vs-inline-001.html	CSS Cascade: inline style loses to !important
+css/css-cascade/important-vs-inline-001.html	CSS Cascade: inline style loses to !important 1
+css/css-cascade/important-vs-inline-001.html	CSS Cascade: inline style loses to !important 2
+css/css-cascade/important-vs-inline-001.html	CSS Cascade: inline style loses to !important 3
+css/css-cascade/important-vs-inline-002.html	CSS Cascade: inline style loses to !important
+css/css-cascade/important-vs-inline-002.html	CSS Cascade: inline style loses to !important 1
+css/css-cascade/important-vs-inline-002.html	CSS Cascade: inline style loses to !important 2
+css/css-cascade/important-vs-inline-002.html	CSS Cascade: inline style loses to !important 3
+css/css-cascade/important-vs-inline-003.html	CSS Cascade: inline style loses to !important
+css/css-cascade/inherit-initial.html	background-color:inherit on root element should compute to 'rgba(0, 0, 0, 0)'.
+css/css-cascade/inherit-initial.html	overflow:inherit on root element should compute to 'visible'.
+css/css-cascade/inherit-initial.html	position:inherit on root element should compute to 'static'.
+css/css-cascade/inherit-initial.html	z-index:inherit on root element should compute to 'auto'.
+css/css-cascade/inline-style-background.html	inline-style-background
+css/css-cascade/layer-basic.html	A1 Anonymous layers
+css/css-cascade/layer-basic.html	A2 Anonymous layers
+css/css-cascade/layer-basic.html	A3 Anonymous layers
+css/css-cascade/layer-basic.html	A4 Anonymous layers
+css/css-cascade/layer-basic.html	A5 Anonymous layers
+css/css-cascade/layer-basic.html	A6 Anonymous layers
+css/css-cascade/layer-basic.html	A7 Anonymous layers
+css/css-cascade/layer-basic.html	A8 Anonymous layers
+css/css-cascade/layer-basic.html	A9 Anonymous layers
+css/css-cascade/layer-basic.html	B1 Named layers
+css/css-cascade/layer-basic.html	B10 Named layers
+css/css-cascade/layer-basic.html	B2 Named layers
+css/css-cascade/layer-basic.html	B3 Named layers
+css/css-cascade/layer-basic.html	B4 Named layers
+css/css-cascade/layer-basic.html	B5 Named layers
+css/css-cascade/layer-basic.html	B6 Named layers
+css/css-cascade/layer-basic.html	B7 Named layers
+css/css-cascade/layer-basic.html	B8 Named layers
+css/css-cascade/layer-basic.html	B9 Named layers
+css/css-cascade/layer-basic.html	C1 Named layers shorthand
+css/css-cascade/layer-basic.html	C2 Named layers shorthand
+css/css-cascade/layer-basic.html	C3 Named layers shorthand
+css/css-cascade/layer-basic.html	C4 Named layers shorthand
+css/css-cascade/layer-basic.html	C5 Named layers shorthand
+css/css-cascade/layer-basic.html	D1 Mixed named and anonymous layers
+css/css-cascade/layer-basic.html	D2 Mixed named and anonymous layers
+css/css-cascade/layer-basic.html	D3 Mixed named and anonymous layers
+css/css-cascade/layer-basic.html	D4 Mixed named and anonymous layers
+css/css-cascade/layer-basic.html	D5 Mixed named and anonymous layers
+css/css-cascade/layer-basic.html	E1 Statement syntax
+css/css-cascade/layer-basic.html	E2 Statement syntax
+css/css-cascade/layer-basic.html	E3 Statement syntax
+css/css-cascade/layer-basic.html	E4 Statement syntax
+css/css-cascade/layer-basic.html	E5 Statement syntax
+css/css-cascade/layer-cssom-order-reverse-at-property.html	Delete layer invalidates @property
+css/css-cascade/layer-cssom-order-reverse-at-property.html	Insert layer invalidates @property
+css/css-cascade/layer-cssom-order-reverse.html	Delete layer invalidates style
+css/css-cascade/layer-cssom-order-reverse.html	Insert layer invalidates style
+css/css-cascade/layer-font-face-override.html	@font-face unlayered overrides layered
+css/css-cascade/layer-important.html	A1 Unlayered !important style
+css/css-cascade/layer-important.html	B1 Same specificity, layered !important first
+css/css-cascade/layer-important.html	C1 Same specificity, layered !important second
+css/css-cascade/layer-important.html	D1 Same specificity, all !important
+css/css-cascade/layer-important.html	D2 Same specificity, all !important
+css/css-cascade/layer-important.html	D3 Same specificity, all !important
+css/css-cascade/layer-important.html	D4 Same specificity, all !important
+css/css-cascade/layer-important.html	E1 Different specificity, all !important
+css/css-cascade/layer-important.html	E2 Different specificity, all !important
+css/css-cascade/layer-media-query.html	A1 Basic
+css/css-cascade/layer-media-query.html	A2 Basic
+css/css-cascade/layer-media-query.html	C1 Reordering
+css/css-cascade/layer-media-query.html	C2 Reordering
+css/css-cascade/layer-media-query.html	C3 Reordering
+css/css-cascade/layer-replaceSync-clears-stale.html	replaceSync clears stale layer statements
+css/css-cascade/layer-rules-cssom.html	Anonymous layer block name
+css/css-cascade/layer-rules-cssom.html	Basic layer block name
+css/css-cascade/layer-rules-cssom.html	Basic layer statement name
+css/css-cascade/layer-rules-cssom.html	Layer statement with multiple names
+css/css-cascade/layer-rules-cssom.html	Nested layer block names
+css/css-cascade/layer-rules-cssom.html	Nested layer statement name lists
+css/css-cascade/layer-stylesheet-multi-adoption.html	layer-stylesheet-multi-adoption
+css/css-cascade/layer-vs-inline-style.html	Important inline style > important layered style
+css/css-cascade/layer-vs-inline-style.html	Important inline style > normal layered style
+css/css-cascade/layer-vs-inline-style.html	Normal inline style < important layered style
+css/css-cascade/layer-vs-inline-style.html	Normal inline style > normal layered style
+css/css-cascade/parsing/all-valid.html	e.style['all'] = "inherit" should set the property value
+css/css-cascade/parsing/all-valid.html	e.style['all'] = "initial" should set the property value
+css/css-cascade/parsing/all-valid.html	e.style['all'] = "unset" should set the property value
+css/css-cascade/parsing/layer.html	@layer A {\n} should be a valid rule
+css/css-cascade/parsing/layer.html	@layer A, B, C; should be a valid rule
+css/css-cascade/parsing/layer.html	@layer A, B.C.D, C; should be a valid rule
+css/css-cascade/parsing/layer.html	@layer A.A; should be a valid rule
+css/css-cascade/parsing/layer.html	@layer A.B {\n} should be a valid rule
+css/css-cascade/parsing/layer.html	@layer A; should be a valid rule
+css/css-cascade/parsing/layer.html	@layer {\n} should be a valid rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") layer supports(); should be an invalid import rule due to an invalid supports() declaration
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") layer supports(foo: bar); should be an invalid import rule due to an invalid supports() declaration
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") layer(A) supports((display: flex) or (foo: bar)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") layer(A.B) supports((display: flex) and (foo: bar)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports((display: flex) and (display: block)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports((display: flex) or (display: block)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports((display: flex) or (foo: bar)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports((display:flex)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(); should be an invalid import rule due to an invalid supports() declaration
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(at-rule(@doesnotexist)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(at-rule(@import)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(display: block !important); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(display:block); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(font-format(opentype)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(font-tech(color-colrv1)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(foo: bar); should be an invalid import rule due to an invalid supports() declaration
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(not (display: flex)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(selector(a)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(selector(p + a)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(selector(p > a)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports(selector(p a)); should be a valid supports() import rule
+css/css-cascade/parsing/supports-import-parsing.html	@import url("nonexist.css") supports; should still be a valid import rule with an invalid supports() declaration
+css/css-cascade/presentational-hints-cascade.html	Presentational hints have lower precedence than layered style
+css/css-cascade/presentational-hints-cascade.html	Presentational hints have lower precedence than regular author style sheets
+css/css-cascade/presentational-hints-cascade.html	Presentational hints have lower precedence than the style attribute
+css/css-cascade/presentational-hints-rollback.html	#tests > * 10
+css/css-cascade/presentational-hints-rollback.html	#tests > * 12
+css/css-cascade/presentational-hints-rollback.html	#tests > * 15
+css/css-cascade/presentational-hints-rollback.html	#tests > * 5
+css/css-cascade/presentational-hints-rollback.html	#tests > * 6
+css/css-cascade/presentational-hints-rollback.html	#tests > * 7
+css/css-cascade/presentational-hints-rollback.html	#tests > * 8
+css/css-cascade/presentational-hints-rollback.html	#tests > * 9
+css/css-cascade/revert-rule-important.html	revert-rule in !important declaration reverts across layers
+css/css-cascade/revert-val-011.html	CSS Cascade: 'revert' from mutating inline style
+css/css-cascade/revert-val-011.html	CSS Cascade: 'revert' from mutating inline style 1
+css/css-cascade/revert-val-011.html	CSS Cascade: 'revert' from mutating inline style 2
+css/css-cascade/scope-cssom.html	CSSScopeRule is a CSSGroupingRule
+css/css-cascade/scope-cssom.html	CSSScopeRule.cssText, implicit scope
+css/css-cascade/scope-cssom.html	CSSScopeRule.cssText, limit only
+css/css-cascade/scope-cssom.html	CSSScopeRule.cssText, root and limit
+css/css-cascade/scope-cssom.html	CSSScopeRule.cssText, root only
+css/css-cascade/scope-cssom.html	CSSScopeRule.end, implicit scope
+css/css-cascade/scope-cssom.html	CSSScopeRule.end, root and limit
+css/css-cascade/scope-cssom.html	CSSScopeRule.end, root only
+css/css-cascade/scope-cssom.html	CSSScopeRule.start, implicit scope
+css/css-cascade/scope-cssom.html	CSSScopeRule.start, limit only
+css/css-cascade/scope-cssom.html	CSSScopeRule.start, root and limit
+css/css-cascade/scope-cssom.html	CSSScopeRule.start, root only
+css/css-cascade/scope-evaluation.html	:scope direct adjacent sibling
+css/css-cascade/scope-evaluation.html	:scope in two different compounds
+css/css-cascade/scope-evaluation.html	:scope indirect adjacent sibling
+css/css-cascade/scope-evaluation.html	Multiple scopes from same @scope-rule, both limited
+css/css-cascade/scope-evaluation.html	Nested scopes, :has(:scope ...) in inner from-selector
+css/css-cascade/scope-evaluation.html	Nested scopes, inner scoping root must be in the outer scope
+css/css-cascade/scope-evaluation.html	Nested scopes, reverse
+css/css-cascade/scope-evaluation.html	Scope can not match its own root without :scope
+css/css-cascade/scope-evaluation.html	Scope with no elements
+css/css-cascade/scope-implicit.html	@scope with effectively empty :is() must not match anything
+css/css-cascade/scope-implicit.html	Implicit @scope has implicitly added :scope descendant combinator
+css/css-cascade/scope-import-implicit.html	Scope-imported rule does not apply outside of implicit scope
+css/css-cascade/scope-import-inner-scope.html	@scope within scope-imported does not ignore import scope
+css/css-cascade/scope-import-multiple.html	Scope-imported rule does not apply outside of scope
+css/css-cascade/scope-import-scope-end.html	Scope-imported rule does not apply below limit
+css/css-cascade/scope-import-scope-start.html	Scope-imported rule does not apply outside of scope
+css/css-cascade/scope-invalidation.html	Relative selectors set with selectorText are relative to :scope and &
+css/css-cascade/scope-visited-cssom.html	:link as scoping limit
+css/css-cascade/scope-visited-cssom.html	:not(:link) as scoped selector
+css/css-cascade/scope-visited-cssom.html	:not(:link) as scoping root
+css/css-cascade/scope-visited-cssom.html	:not(:link) as scoping root, :scope
+css/css-cascade/scope-visited-cssom.html	:not(:visited) as scoping limit
+css/css-cascade/scope-visited-cssom.html	:visited as scoped selector
+css/css-cascade/scope-visited-cssom.html	:visited as scoping root
+css/css-cascade/scope-visited-cssom.html	:visited as scoping root, :scope
+css/css-conditional/at-media-matches-001.html	"@media all" always matches
+css/css-conditional/at-media-matches-002.html	Change iframe height to 90px, @media (max-height: 100px) now matches
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 11
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 12
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 13
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 14
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 15
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 16
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 17
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 18
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 19
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 20
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 21
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 22
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 23
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 24
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 25
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 3
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 4
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 5
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 6
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 7
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 8
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature(  anchor-position-follows-transforms  bar) should be false
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature(  foo   anchor-position-follows-transforms  ) should be false
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature( anchor-position-follows-transforms ) should be false
@@ -1662,7 +1902,39 @@ css/css-conditional/at-supports-named-feature-001.html	@supports named-feature(c
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature(named-feature) should be false
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature(unknown-feature) should be false
 css/css-conditional/at-supports-named-feature-001.html	can detect whether anchor position follows transforms
+css/css-conditional/at-supports-whitespace.html	@supports ( (a) ) {}
+css/css-conditional/at-supports-whitespace.html	@supports ( (a) and (b) ) {}
+css/css-conditional/at-supports-whitespace.html	@supports ( (a) and (b)) {}
+css/css-conditional/at-supports-whitespace.html	@supports ( (a) or (b) ) {}
+css/css-conditional/at-supports-whitespace.html	@supports ( (a) or (b)) {}
+css/css-conditional/at-supports-whitespace.html	@supports ( (a)) {}
+css/css-conditional/at-supports-whitespace.html	@supports ( not (a) ) {}
+css/css-conditional/at-supports-whitespace.html	@supports ( not (a)) {}
+css/css-conditional/at-supports-whitespace.html	@supports ((a) ) {}
+css/css-conditional/at-supports-whitespace.html	@supports ((a) and (b) ) {}
+css/css-conditional/at-supports-whitespace.html	@supports ((a) and (b)) {}
+css/css-conditional/at-supports-whitespace.html	@supports ((a) or (b) ) {}
+css/css-conditional/at-supports-whitespace.html	@supports ((a) or (b)) {}
+css/css-conditional/at-supports-whitespace.html	@supports ((a)) {}
+css/css-conditional/at-supports-whitespace.html	@supports (not (a) ) {}
+css/css-conditional/at-supports-whitespace.html	@supports (not (a)) {}
+css/css-conditional/container-queries/container-rule-cssom.html	containerQuery without name
 css/css-conditional/container-queries/container-size-rem-change.html	Initially, 1rem equals 16px, less than the container's width
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule interface object length
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule interface object name
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule interface: attribute containerName
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule interface: attribute containerQuery
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule interface: existence and properties of interface prototype object
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule interface: existence and properties of interface prototype object's "constructor" property
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule interface: existence and properties of interface prototype object's @@unscopables property
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule interface: sheet.cssRules[0] must inherit property "containerName" with the proper type
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule interface: sheet.cssRules[0] must inherit property "containerQuery" with the proper type
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule interface: sheet.cssRules[0].cssRules[0] must inherit property "containerName" with the proper type
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule interface: sheet.cssRules[0].cssRules[0] must inherit property "containerQuery" with the proper type
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule must be primary interface of sheet.cssRules[0]
+css/css-conditional/container-queries/idlharness.html	CSSContainerRule must be primary interface of sheet.cssRules[0].cssRules[0]
+css/css-conditional/container-queries/idlharness.html	Stringification of sheet.cssRules[0]
+css/css-conditional/container-queries/idlharness.html	Stringification of sheet.cssRules[0].cssRules[0]
 css/css-conditional/container-queries/idlharness.html	idl_test setup
 css/css-conditional/container-queries/idlharness.html	idl_test validation
 css/css-conditional/container-queries/style-query-custom-attr-change-named-container.html	Initially, container does not match. Target is red.
@@ -1675,11 +1947,44 @@ css/css-conditional/container-queries/style-range-dynamic.html	Initial state: no
 css/css-conditional/idlharness.html	CSS namespace: operation escape(CSSOMString)
 css/css-conditional/idlharness.html	CSS namespace: operation supports(CSSOMString)
 css/css-conditional/idlharness.html	CSS namespace: operation supports(CSSOMString, CSSOMString)
+css/css-conditional/idlharness.html	CSSConditionRule interface object length
+css/css-conditional/idlharness.html	CSSConditionRule interface object name
+css/css-conditional/idlharness.html	CSSConditionRule interface: attribute conditionText
+css/css-conditional/idlharness.html	CSSConditionRule interface: cssMediaRule must inherit property "conditionText" with the proper type
+css/css-conditional/idlharness.html	CSSConditionRule interface: cssSupportsRule must inherit property "conditionText" with the proper type
+css/css-conditional/idlharness.html	CSSConditionRule interface: existence and properties of interface prototype object
+css/css-conditional/idlharness.html	CSSConditionRule interface: existence and properties of interface prototype object's "constructor" property
+css/css-conditional/idlharness.html	CSSConditionRule interface: existence and properties of interface prototype object's @@unscopables property
+css/css-conditional/idlharness.html	CSSMediaRule interface object length
+css/css-conditional/idlharness.html	CSSMediaRule interface object name
+css/css-conditional/idlharness.html	CSSMediaRule interface: attribute matches
+css/css-conditional/idlharness.html	CSSMediaRule interface: cssMediaRule must inherit property "matches" with the proper type
+css/css-conditional/idlharness.html	CSSMediaRule interface: cssMediaRule must inherit property "media" with the proper type
+css/css-conditional/idlharness.html	CSSMediaRule interface: existence and properties of interface prototype object
+css/css-conditional/idlharness.html	CSSMediaRule interface: existence and properties of interface prototype object's "constructor" property
+css/css-conditional/idlharness.html	CSSMediaRule interface: existence and properties of interface prototype object's @@unscopables property
+css/css-conditional/idlharness.html	CSSMediaRule must be primary interface of cssMediaRule
+css/css-conditional/idlharness.html	CSSRule interface: cssMediaRule must inherit property "SUPPORTS_RULE" with the proper type
+css/css-conditional/idlharness.html	CSSRule interface: cssRule must inherit property "SUPPORTS_RULE" with the proper type
+css/css-conditional/idlharness.html	CSSRule interface: cssSupportsRule must inherit property "SUPPORTS_RULE" with the proper type
+css/css-conditional/idlharness.html	CSSSupportsRule interface object length
+css/css-conditional/idlharness.html	CSSSupportsRule interface object name
+css/css-conditional/idlharness.html	CSSSupportsRule interface: existence and properties of interface prototype object
+css/css-conditional/idlharness.html	CSSSupportsRule interface: existence and properties of interface prototype object's "constructor" property
+css/css-conditional/idlharness.html	CSSSupportsRule interface: existence and properties of interface prototype object's @@unscopables property
+css/css-conditional/idlharness.html	CSSSupportsRule must be primary interface of cssSupportsRule
 css/css-conditional/idlharness.html	Partial interface CSSRule: member names are unique
 css/css-conditional/idlharness.html	Partial interface CSSRule: original interface defined
 css/css-conditional/idlharness.html	Partial namespace CSS: member names are unique
 css/css-conditional/idlharness.html	Partial namespace CSS: original namespace defined
+css/css-conditional/idlharness.html	Stringification of cssMediaRule
+css/css-conditional/idlharness.html	Stringification of cssSupportsRule
+css/css-conditional/idlharness.html	idl_test setup
 css/css-conditional/idlharness.html	idl_test validation
+css/css-conditional/js/001.html	Deleting the top level of a nested structue works
+css/css-conditional/js/001.html	Deletion of a nested @supports rule works
+css/css-conditional/js/001.html	Inserting @font-face inside @supports works
+css/css-conditional/js/001.html	The style sheet structure is properly represented
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	-apple-color-filter: _camel_cased_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	-apple-color-filter: _dashed_attribute v. CSS.supports
 css/css-conditional/js/CSS-supports-CSSStyleDeclaration.html	-apple-color-filter: _webkit_cased_attribute must only exist for -webkit-
@@ -3227,6 +3532,36 @@ css/css-conditional/js/CSS-supports-selector-detecting-invalid-in-logical-combin
 css/css-conditional/js/CSS-supports-selector-detecting-invalid-in-logical-combinations.html	Some pseudo elements always fail inside :is(), :where(), :has()
 css/css-conditional/js/CSS-supports-selector-picker.html	::picker with empty argument is not supported
 css/css-conditional/js/CSS-supports-selector-picker.html	::picker without argument is not supported
+css/css-conditional/js/conditional-CSSGroupingRule.html	@media is CSSGroupingRule
+css/css-conditional/js/conditional-CSSGroupingRule.html	@media rule type
+css/css-conditional/js/conditional-CSSGroupingRule.html	@supports is CSSGroupingRule
+css/css-conditional/js/conditional-CSSGroupingRule.html	@supports rule type
+css/css-conditional/js/conditional-CSSGroupingRule.html	Empty @media rule length
+css/css-conditional/js/conditional-CSSGroupingRule.html	Empty @supports rule length
+css/css-conditional/js/conditional-CSSGroupingRule.html	Return value of insertRule into @media
+css/css-conditional/js/conditional-CSSGroupingRule.html	Return value of insertRule into @supports
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule into @media updates length
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule into @supports updates length
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule into empty @media at bad index
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule into empty @supports at bad index
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of @import into @media
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of @import into @supports
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of empty string into @media
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of empty string into @supports
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of invalid @media into @media
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of invalid @media into @supports
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of mutiple valid @media into @media
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of mutiple valid @media into @supports
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of two valid style rules into @media
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of two valid style rules into @supports
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of valid @media into @media
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of valid @media into @supports
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of valid style rule followed by valid @media into @media
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of valid style rule followed by valid @media into @supports
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of valid style rule into @media
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of valid style rule into @supports
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of valid style rulle followed by valid @media into @media
+css/css-conditional/js/conditional-CSSGroupingRule.html	insertRule of valid style rulle followed by valid @media into @supports
 css/css-conditional/js/supports-at-rule.html	@supports at-rule
 css/css-conditional/js/supports-at-rule.html	@supports at-rule 1
 css/css-conditional/js/supports-at-rule.html	@supports at-rule 10
@@ -3249,6 +3584,21 @@ css/css-conditional/js/supports-at-rule.html	@supports at-rule 3
 css/css-conditional/js/supports-at-rule.html	@supports at-rule 5
 css/css-conditional/js/supports-at-rule.html	@supports at-rule 6
 css/css-conditional/js/supports-at-rule.html	@supports at-rule 9
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports (())
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports ((x))
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports ()
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports ([])
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports ([x])
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports (color : red) or ( color:blue )
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports (color: red)
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports (func())
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports (func(x))
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports (x)
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports ({x})
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports ({})
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports func()
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports func(x)
+css/css-conditional/js/supports-conditionText.html	conditionText getter for @supports not (color: red)
 css/css-display/animations/display-interpolation-none.html	CSS Transitions: property <display> from [flex] to [none] at (1) should be [none]
 css/css-display/animations/display-interpolation-none.html	CSS Transitions: property <display> from [none] to [flex] at (-0.3) should be [flex]
 css/css-display/animations/display-interpolation-none.html	CSS Transitions: property <display> from [none] to [flex] at (0) should be [flex]
@@ -3401,6 +3751,81 @@ css/css-display/reading-flow/tentative/reading-order-valid.html	e.style['reading
 css/css-display/reading-flow/tentative/reading-order-valid.html	e.style['reading-order'] = "0" should set the property value
 css/css-display/reading-flow/tentative/reading-order-valid.html	e.style['reading-order'] = "123" should set the property value
 css/css-display/reading-flow/tentative/reading-order-valid.html	e.style['reading-order'] = "calc(34.1)" should set the property value
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that ascent-override: 0% is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that ascent-override: 100000000000% is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that ascent-override: 110% is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that ascent-override: 50% is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that ascent-override: normal is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that descent-override: 0% is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that descent-override: 100000000000% is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that descent-override: 110% is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that descent-override: 50% is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that descent-override: normal is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that line-gap-override: 0% is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that line-gap-override: 100000000000% is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that line-gap-override: 110% is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that line-gap-override: 50% is valid
+css/css-fonts/parsing/font-face-metric-overrides.html	Check that line-gap-override: normal is valid
+css/css-fonts/parsing/font-face-size-adjust.html	Check that size-adjust: 0% is valid
+css/css-fonts/parsing/font-face-size-adjust.html	Check that size-adjust: 100% is valid
+css/css-fonts/parsing/font-face-size-adjust.html	Check that size-adjust: 100000000000% is valid
+css/css-fonts/parsing/font-face-size-adjust.html	Check that size-adjust: 110% is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") dummy(xyzzy), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format("collection") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format("embedded-opentype"), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format("opentype") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format("svg"), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format("truetype") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format("woff") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format("woff2") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format(), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format(collection) is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format(embedded-opentype), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format(none), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format(opentype) is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format(svg), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format(truetype) is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format(woff) is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format(woff2) is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format(xyzz 200px), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") format(xyzz), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf") is valid
+css/css-fonts/parsing/font-face-src-format.html	Check that src: url("foo.ttf"), url("bar.ttf") is valid
+css/css-fonts/parsing/font-face-src-list.html	Check that src: /* an empty component */, url(foo.ttf) is valid
+css/css-fonts/parsing/font-face-src-list.html	Check that src: local(""), url(foo.ttf), unparseable-garbage, local("another font name") is valid
+css/css-fonts/parsing/font-face-src-list.html	Check that src: local("myfont") format(opentype), url(foo.ttf) is valid
+css/css-fonts/parsing/font-face-src-list.html	Check that src: local("myfont"), local(unset) is valid
+css/css-fonts/parsing/font-face-src-list.html	Check that src: local(), url(foo.ttf) is valid
+css/css-fonts/parsing/font-face-src-list.html	Check that src: local(12px monospace), url(foo.ttf) is valid
+css/css-fonts/parsing/font-face-src-list.html	Check that src: local(inherit), url(foo.ttf) is valid
+css/css-fonts/parsing/font-face-src-list.html	Check that src: url(foo.ttf) format(bad), url(foo.ttf) is valid
+css/css-fonts/parsing/font-face-src-list.html	Check that src: url(foo.ttf) tech(color-COLRv0) otherfunc(othervalue), url(foo.ttf) is valid
+css/css-fonts/parsing/font-face-src-list.html	Check that src: url(foo.ttf) tech(unknown), url(foo.ttf) is valid
+css/css-fonts/parsing/font-face-src-list.html	Check that src: url(foo.ttf), url(something.ttf) format(broken) is valid
+css/css-fonts/parsing/font-face-src-list.html	Check that src: url(not a valid url/bar.ttf), url(foo.ttf) is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") format(dummy), url("foo.ttf") tech(variations) is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") format(opentype) tech(features-opentype) is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") tech(color), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") tech(color-SVG), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") tech(color-SVG, features-graphite), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") tech(color-sbix) is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") tech(features-aat) is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") tech(features-graphite), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") tech(features-opentype) is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") tech(incremental), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") tech(incremental, color-SVG, features-graphite, features-aat), url("bar.html") is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") tech(palettes) is valid
+css/css-fonts/parsing/font-face-src-tech.html	Check that src: url("foo.ttf") tech(variations) is valid
+css/css-fonts/parsing/font-face-width.html	font-stretch: 125% is valid
+css/css-fonts/parsing/font-face-width.html	font-stretch: 75% 125% is valid
+css/css-fonts/parsing/font-face-width.html	font-stretch: auto is valid
+css/css-fonts/parsing/font-face-width.html	font-stretch: condensed is valid
+css/css-fonts/parsing/font-face-width.html	font-stretch: normal is valid
+css/css-fonts/parsing/font-face-width.html	font-width: -1% is invalid
+css/css-fonts/parsing/font-face-width.html	font-width: 125 is invalid
+css/css-fonts/parsing/font-face-width.html	font-width: condensed expanded normal is invalid
+css/css-fonts/parsing/font-face-width.html	font-width: normal, expanded is invalid
 css/css-fonts/parsing/font-family-computed.html	Property font-family value '"21st Century", fantasy'
 css/css-fonts/parsing/font-family-computed.html	Property font-family value 'Helvetica, Verdana, sans-serif'
 css/css-fonts/parsing/font-family-computed.html	Property font-family value 'cursive'
@@ -3439,6 +3864,18 @@ css/css-fonts/parsing/font-palette-valid.html	e.style['font-palette'] = "--pitch
 css/css-fonts/parsing/font-palette-valid.html	e.style['font-palette'] = "dark" should set the property value
 css/css-fonts/parsing/font-palette-valid.html	e.style['font-palette'] = "light" should set the property value
 css/css-fonts/parsing/font-palette-valid.html	e.style['font-palette'] = "normal" should set the property value
+css/css-fonts/parsing/font-palette-values-invalid.html	CSS Fonts Module Level 4: parsing @font-palette-values 18
+css/css-fonts/parsing/font-palette-values-valid.html	CSS Fonts Module Level 4: parsing @font-palette-values
+css/css-fonts/parsing/font-palette-values-valid.html	CSS Fonts Module Level 4: parsing @font-palette-values 10
+css/css-fonts/parsing/font-palette-values-valid.html	CSS Fonts Module Level 4: parsing @font-palette-values 12
+css/css-fonts/parsing/font-palette-values-valid.html	CSS Fonts Module Level 4: parsing @font-palette-values 14
+css/css-fonts/parsing/font-palette-values-valid.html	CSS Fonts Module Level 4: parsing @font-palette-values 18
+css/css-fonts/parsing/font-palette-values-valid.html	CSS Fonts Module Level 4: parsing @font-palette-values 20
+css/css-fonts/parsing/font-palette-values-valid.html	CSS Fonts Module Level 4: parsing @font-palette-values 22
+css/css-fonts/parsing/font-palette-values-valid.html	CSS Fonts Module Level 4: parsing @font-palette-values 24
+css/css-fonts/parsing/font-palette-values-valid.html	CSS Fonts Module Level 4: parsing @font-palette-values 26
+css/css-fonts/parsing/font-palette-values-valid.html	CSS Fonts Module Level 4: parsing @font-palette-values 28
+css/css-fonts/parsing/font-palette-values-valid.html	CSS Fonts Module Level 4: parsing @font-palette-values 30
 css/css-fonts/parsing/font-size-adjust-computed.html	CSS Fonts Module Level 5: getComputedStyle().fontSizeAdjust
 css/css-fonts/parsing/font-size-adjust-valid.html	e.style['font-size-adjust'] = "0.5" should set the property value
 css/css-fonts/parsing/font-size-adjust-valid.html	e.style['font-size-adjust'] = "calc(0.5)" should set the property value
@@ -3723,8 +4160,212 @@ css/css-fonts/parsing/font-width-valid.html	e.style['font-width'] = "semi-conden
 css/css-fonts/parsing/font-width-valid.html	e.style['font-width'] = "semi-expanded" should set the property value
 css/css-fonts/parsing/font-width-valid.html	e.style['font-width'] = "ultra-condensed" should set the property value
 css/css-fonts/parsing/font-width-valid.html	e.style['font-width'] = "ultra-expanded" should set the property value
+css/css-nesting/block-skipping.html	CSS Nesting bug: Block ignored after lack of whitespace
+css/css-nesting/cssom.html	Mutating the selectorText of outer rule invalidates inner rules
+css/css-nesting/cssom.html	Simple CSSOM manipulation of subrules
+css/css-nesting/cssom.html	Simple CSSOM manipulation of subrules 1
+css/css-nesting/cssom.html	Simple CSSOM manipulation of subrules 10
+css/css-nesting/cssom.html	Simple CSSOM manipulation of subrules 2
+css/css-nesting/cssom.html	Simple CSSOM manipulation of subrules 3
+css/css-nesting/cssom.html	Simple CSSOM manipulation of subrules 4
+css/css-nesting/cssom.html	Simple CSSOM manipulation of subrules 5
+css/css-nesting/cssom.html	Simple CSSOM manipulation of subrules 6
+css/css-nesting/implicit-nesting-ident-recovery.html	Unknown declaration does not consume subsequent declaration
+css/css-nesting/implicit-nesting-ident-recovery.html	Unknown declaration with blocks does not consume subsequent declaration
+css/css-nesting/implicit-nesting-ident.html	Nested rule starting with tag
+css/css-nesting/invalidation-001.html	CSS Selectors nested invalidation on changed parent
+css/css-nesting/invalidation-002.html	CSS Selectors nested invalidation on changed child
+css/css-nesting/invalidation-003.html	CSS Selectors nested invalidation with :has()
+css/css-nesting/invalidation-004.html	CSS Selectors nested invalidation through @media by selectorText
+css/css-nesting/mixed-declarations-rules.html	Nested declarations and rules should be handled correctly
+css/css-nesting/nested-declarations-cssom.html	Attempting to insert a CSSNestedDeclaration rule into a stylesheet
+css/css-nesting/nested-declarations-cssom.html	Attempting to insert a CSSNestedDeclaration rule into top-level @media rule
+css/css-nesting/nested-declarations-cssom.html	Attempting to insert a CSSNestedDeclaration rule, empty block
+css/css-nesting/nested-declarations-cssom.html	CSSNestedDeclarations.style
+css/css-nesting/nested-declarations-cssom.html	Inserting a CSSNestedDeclaration rule into nested group rule
+css/css-nesting/nested-declarations-cssom.html	Inserting a CSSNestedDeclaration rule into style rule
+css/css-nesting/nested-declarations-cssom.html	Mixed declarations
+css/css-nesting/nested-declarations-cssom.html	Nested @scope rule
+css/css-nesting/nested-declarations-cssom.html	Trailing declarations
+css/css-nesting/nested-error-recovery.html	CSS Nesting: Error recovery
+css/css-nesting/nested-error-recovery.html	CSS Nesting: Error recovery 1
+css/css-nesting/nested-error-recovery.html	CSS Nesting: Error recovery 2
+css/css-nesting/nested-error-recovery.html	CSS Nesting: Error recovery 3
+css/css-nesting/parsing.html	.foo { #id& { color: green; }}
+css/css-nesting/parsing.html	.foo { & .bar & .baz & .qux { color: green; }}
+css/css-nesting/parsing.html	.foo { & .bar { color: green; }}
+css/css-nesting/parsing.html	.foo { & > .bar { color: green; }}
+css/css-nesting/parsing.html	.foo { & > section, & > article { color: green; }}
+css/css-nesting/parsing.html	.foo { & { color: green; }}
+css/css-nesting/parsing.html	.foo { &#id { color: green; }}
+css/css-nesting/parsing.html	.foo { && { color: green; }}
+css/css-nesting/parsing.html	.foo { &.bar { color: green; }}
+css/css-nesting/parsing.html	.foo { &.class { color: green; }}
+css/css-nesting/parsing.html	.foo { &:hover { color: green; }}
+css/css-nesting/parsing.html	.foo { &:is(.bar, &.baz) { color: green; }}
+css/css-nesting/parsing.html	.foo { &:is(.bar, .baz) { color: green; }}
+css/css-nesting/parsing.html	.foo { &:is(div) { color: green; }}
+css/css-nesting/parsing.html	.foo { &[attr] { color: green; }}
+css/css-nesting/parsing.html	.foo { .class& { color: green; }}
+css/css-nesting/parsing.html	.foo { .test > & .bar { color: green; }}
+css/css-nesting/parsing.html	.foo { :hover& { color: green; }}
+css/css-nesting/parsing.html	.foo { :is(.bar, &.baz) { color: green; }}
+css/css-nesting/parsing.html	.foo { :is(div)& { color: green; }}
+css/css-nesting/parsing.html	.foo { [attr]& { color: green; }}
+css/css-nesting/parsing.html	.foo { div& { color: green; }}
+css/css-nesting/parsing.html	.foo, .bar { & + .baz, &.qux { color: green; }}
+css/css-nesting/serialize-group-rules-with-decls.html	Declarations are serialized on one line, rules on two.
+css/css-nesting/serialize-group-rules-with-decls.html	Empty conditional rule
+css/css-nesting/serialize-group-rules-with-decls.html	Empty style inside conditional
+css/css-nesting/serialize-group-rules-with-decls.html	Empty style rule
+css/css-nesting/serialize-group-rules-with-decls.html	Implicit-like rule in style rule
+css/css-nesting/set-selector-text.html	Outer selectorText text mutation with inner @layer rule
+css/css-nesting/set-selector-text.html	Outer selectorText text mutation with inner @media rule
+css/css-nesting/set-selector-text.html	Outer selectorText text mutation with inner @supports rule
+css/css-nesting/set-selector-text.html	Outer selectorText text mutation with inner nested decl. rule
+css/css-nesting/set-selector-text.html	Outer selectorText text mutation with inner style rule
+css/css-nesting/top-level-is-scope.html	& as direct ancestor
+css/css-nesting/top-level-parent-pseudo-specificity.html	CSS Nesting: Specificity of top-level '&'
+css/cssom/CSSConditionRule-conditionText.html	CSSConditionRule.conditionText
+css/cssom/CSSContainerRule.tentative.html	@container (min-width: 100px) {}
+css/cssom/CSSCounterStyleRule.html	CSSCounterStyleRule.cssText doesn't serialize with newlines
+css/cssom/CSSFontFaceRule.html	CSSFontFaceRule.cssText doesn't serialize with newlines
+css/cssom/CSSFontFeatureValuesRule.html	CSSFontFeatureValuesRule family is settable and readable.
+css/cssom/CSSGroupingRule-cssRules.html	[SameObject] is honored
+css/cssom/CSSGroupingRule-insertRule.html	CSS parsing error
+css/cssom/CSSGroupingRule-insertRule.html	constraint violation
+css/cssom/CSSGroupingRule-insertRule.html	disallowed namespace rule
+css/cssom/CSSGroupingRule-insertRule.html	index after final
+css/cssom/CSSGroupingRule-insertRule.html	index before first
+css/cssom/CSSGroupingRule-insertRule.html	index exceeds length
+css/cssom/CSSGroupingRule-insertRule.html	index not specified
+css/cssom/CSSKeyframeRule.html	CSSKeyframeRule: style property
+css/cssom/CSSKeyframeRule.html	CSSKeyframeRule: style property has [PutForwards]
+css/cssom/CSSRuleList.html	CSSOM - CSSRuleList interface
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Can read selectorText value.
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: 
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector:  
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: !!
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: #
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: $
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: (
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: ()
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: -
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: .
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: 123
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: :
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: ::
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: :::
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: ::gibberish
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: :gibberish
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: [
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: []
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: {
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: Invalid CSS selector: {}
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |  #container | isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |#container  | isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |#container| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |#no-match| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |*| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |.style1| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |::after| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |::before| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |::first-letter| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |::first-line| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |:active| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |:not(:active)| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang*="-"]| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang*="ab"]| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang*="h-"]| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang="ab-CD"]| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang="zh-CN"]| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang^="ab"]| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang^="z"]| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[language-no]| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[language]| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang|="ab"]| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang|="z"]| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang|="zh"]| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang|="zh-CN"]| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[segment$="3"]| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[segment$="42"]| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[segment$="43"]| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[segment~="42"]| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[segment~="43"]| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |div > div| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |div div| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |div.style1| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |div:active| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |div:focus:not([lang="zh-CN"])| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |div:not(#non-existing-id)| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |div:not(:active)| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |div[lang="zh-CN"]:not(:focus)| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |div| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |p + div| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |p ~ div| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |span  div  | isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |span + div| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |span > div| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |span div| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |span ~ div| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |ÇĞıİ| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |🤓| isMatch: false
+css/cssom/CSSStyleRule.html	Assigning to CSSStyleRule.style assigns to cssText; CSSStyleRule.style returns the same object
+css/cssom/CSSStyleRule.html	CSSRule and CSSStyleRule types
+css/cssom/CSSStyleRule.html	CSSStyleRule's style has [PutForwards]
+css/cssom/CSSStyleRule.html	Existence and type of CSSStyleRule attributes
+css/cssom/CSSStyleRule.html	Existence of CSSRule attributes
+css/cssom/CSSStyleRule.html	Mutability of CSSStyleRule's style attribute
+css/cssom/CSSStyleRule.html	Type of CSSRule#type and constant values
+css/cssom/CSSStyleRule.html	Values of CSSRule attributes
+css/cssom/CSSStyleRule.html	Values of CSSStyleRule attributes
+css/cssom/CSSStyleRule.html	Writability of CSSRule attributes
+css/cssom/CSSStyleSheet-constructable-cssRules.html	cssRules doesn't change on replace / replaceSync
+css/cssom/CSSStyleSheet-constructable-disallow-import.tentative.html	Inserting an @import rule through insertRule on a constructed stylesheet throws an exception
+css/cssom/CSSStyleSheet-constructable-duplicate.html	Appending duplicate stylesheets yields the correct cascade position in the Document
+css/cssom/CSSStyleSheet-constructable-duplicate.html	Duplicate stylesheets have the right cascade position in the Document
+css/cssom/CSSStyleSheet-constructable-invalidation.html	mutating constructed CSSStyleSheet applied to root invalidates styles
+css/cssom/CSSStyleSheet-constructable-replace-thenable.html	CSSStyleSheet.replace/replaceSync() when stylesheet is a thenable
+css/cssom/CSSStyleSheet-modify-after-removal.html	Modify constructed sheet from removed iframe
+css/cssom/CSSStyleSheet-modify-after-removal.html	Modify sheet from removed iframe
+css/cssom/CSSStyleSheet.html	addRule with #foo selectors
+css/cssom/CSSStyleSheet.html	addRule with @media rule
+css/cssom/CSSStyleSheet.html	addRule with index greater than length throws
+css/cssom/CSSStyleSheet.html	addRule with no argument adds "undefined" selector
+css/cssom/CSSStyleSheet.html	cssRules and rules are the same object
+css/cssom/CSSStyleSheet.html	cssRules returns the same object twice
+css/cssom/CSSStyleSheet.html	deleteRule on empty style sheet throws
+css/cssom/CSSStyleSheet.html	deleteRule with no argument throws
+css/cssom/CSSStyleSheet.html	deleteRule(1)
+css/cssom/CSSStyleSheet.html	insertRule with #bar selector
+css/cssom/CSSStyleSheet.html	insertRule with index greater than length throws
+css/cssom/CSSStyleSheet.html	insertRule with no argument throws
+css/cssom/CSSStyleSheet.html	preconditions
+css/cssom/CSSStyleSheet.html	removeRule on empty style sheet throws
+css/cssom/CSSStyleSheet.html	removeRule with no argument removes first rule
+css/cssom/CSSStyleSheet.html	removeRule(1)
+css/cssom/CSSStyleSheet.html	rules returns the same object twice
 css/cssom/HTMLLinkElement-disabled-001.html	<link disabled> prevents the stylesheet from being in document.styleSheets (from parser)
 css/cssom/MutationObserver-style.html	Updating cssText triggers an observation callback even if the value is the same
+css/cssom/StyleSheetList-constructable-with-style-recalc.html	document.styleSheets does not include adopted style sheets
+css/cssom/StyleSheetList-constructable.html	document.styleSheets does not include adopted style sheets
+css/cssom/StyleSheetList.html	CSSOM - StyleSheetList interface
+css/cssom/adoptedstylesheets-cascade-order.html	Mutating a duplicated adopted stylesheet while inserting a leading sheet updates cascade order
+css/cssom/adoptedstylesheets-cascade-order.html	Reordering a document.adoptedStyleSheets suffix after a replacement updates cascade order
+css/cssom/adoptedstylesheets-cascade-order.html	Reordering adopted stylesheets while inserting one updates cascade order
+css/cssom/adoptedstylesheets-cascade-order.html	Reordering adopted stylesheets while removing one updates cascade order
+css/cssom/adoptedstylesheets-cascade-order.html	Reordering adopted stylesheets with media queries updates cascade order
+css/cssom/adoptedstylesheets-cascade-order.html	Reordering after an unchanged leading adopted stylesheet updates cascade order
+css/cssom/adoptedstylesheets-cascade-order.html	Reordering around a mutated adopted stylesheet updates cascade order
+css/cssom/adoptedstylesheets-cascade-order.html	Reordering document.adoptedStyleSheets updates cascade order
+css/cssom/adoptedstylesheets-cascade-order.html	Reordering duplicated adopted stylesheets updates cascade order
+css/cssom/adoptedstylesheets-cascade-order.html	Rotating document.adoptedStyleSheets updates cascade order
+css/cssom/adoptedstylesheets-modify-array-and-sheet.html	Add the two sheets. Text should be red.
+css/cssom/adoptedstylesheets-modify-array-and-sheet.html	Flip the two sheet. Still red.
+css/cssom/adoptedstylesheets-modify-array-and-sheet.html	Modify the color declaration. Should now be green.
+css/cssom/border-shorthand-serialization.html	Border shorthand is serialized correctly if all border-image-* are set to their initial specified values.
+css/cssom/border-shorthand-serialization.html	Declaration with border longhands and border-image is not serialized to a border shorthand declaration.
+css/cssom/border-shorthand-serialization.html	Declaration with border longhands is not serialized to a border shorthand declaration.
 css/cssom/caretRangeFromPoint.tentative.html	document.caretRangeFromPoint() should return null for a document with no viewport
 css/cssom/caretRangeFromPoint.tentative.html	document.caretRangeFromPoint() should return null if given coordinates outside of the viewport
 css/cssom/computed-style-001.html	inherited_property_values
@@ -3743,8 +4384,18 @@ css/cssom/css-style-attr-decl-block.html	Changes to style attribute should refle
 css/cssom/css-style-attr-decl-block.html	Expansion of all:unset and all:revert treated identically
 css/cssom/css-style-attr-decl-block.html	Style attribute should create CSS declaration block based on its content
 css/cssom/css-style-attribute-modifications.html	Mutating the style declaration doesn't remove the style attribute
+css/cssom/css-style-declaration-modifications.html	Calling CSSStyleDeclaration#setProperty
+css/cssom/css-style-declaration-modifications.html	Reading CSSStyleDeclaration initialized from a style element
+css/cssom/css-style-declaration-modifications.html	Setting CSSStyleDeclaration#cssText
+css/cssom/css-style-declaration-modifications.html	setProperty priority should be case-insensitive
+css/cssom/cssimportrule.html	CSSRule and CSSImportRule types
+css/cssom/cssimportrule.html	CSSStyleDeclaration cssText attribute should be updated due to [PutForwards]
+css/cssom/cssimportrule.html	Existence and writability of CSSRule attributes
+css/cssom/cssimportrule.html	Type of CSSRule#type and constant values
+css/cssom/cssimportrule.html	Values of CSSRule attributes
 css/cssom/cssom-cssText-serialize.html	CSSStyleDeclaration cssText serializes declaration blocks.
 css/cssom/cssom-cssstyledeclaration-set.html	CSSStyleDeclaration on HTMLElement represents inline style changes
+css/cssom/cssom-fontfacerule-constructors.html	@font-face declarations are instances of CSSFontFaceRule
 css/cssom/cssom-getPropertyValue-common-checks.html	All aliases can serialize target property set to 'initial'
 css/cssom/cssom-getPropertyValue-common-checks.html	All aliases can serialize target property set to its initial value
 css/cssom/cssom-getPropertyValue-common-checks.html	All properties (except 'all') can serialize their initial value (computed)
@@ -3756,6 +4407,26 @@ css/cssom/cssom-getPropertyValue-common-checks.html	Can't serialize shorthand se
 css/cssom/cssom-getPropertyValue-common-checks.html	Can't serialize shorthand set to initial value when some longhand is missing
 css/cssom/cssom-getPropertyValue-common-checks.html	Can't serialize shorthand when longhands are set to different css-wide keywords
 css/cssom/cssom-getPropertyValue-common-checks.html	Can't serialize shorthand when longhands have different priority
+css/cssom/cssom-pagerule.html	Page selector 'cssText' is initially the @page { }
+css/cssom/cssom-pagerule.html	Page selector is initially the empty string
+css/cssom/cssom-pagerule.html	Sanity checks
+css/cssom/cssom-pagerule.html	Set cssText to :left pseudo page
+css/cssom/cssom-pagerule.html	Set cssText to named page
+css/cssom/cssom-pagerule.html	Set cssText to named page with :first pseudo page
+css/cssom/cssom-pagerule.html	Set cssText to named page with pseudo pages of :first, :left, :right, :first in order.
+css/cssom/cssom-pagerule.html	Set cssText to named page with two :first pseudo page
+css/cssom/cssom-pagerule.html	Set selectorText to :left pseudo page
+css/cssom/cssom-pagerule.html	Set selectorText to named page
+css/cssom/cssom-pagerule.html	Set selectorText to named page after rule was removed
+css/cssom/cssom-pagerule.html	Set selectorText to named page with :first pseudo page
+css/cssom/cssom-pagerule.html	Set selectorText to named page with pseudo pages of :first, :left, :right, :first in order.
+css/cssom/cssom-pagerule.html	Set selectorText to named page with two :first pseudo page
+css/cssom/cssom-ruleTypeAndOrder.html	Type of #s-0 is expected to be namespace rule
+css/cssom/cssom-ruleTypeAndOrder.html	Type of #s-1 is expected to be @import rule
+css/cssom/cssom-ruleTypeAndOrder.html	Type of #s-2 is expected to be style rule
+css/cssom/cssom-ruleTypeAndOrder.html	Type of #s-4 is expected to be @font-face rule
+css/cssom/cssom-ruleTypeAndOrder.html	Type of #s-5 is expected to be media rule
+css/cssom/cssom-ruleTypeAndOrder.html	Type of #s-6 is expected to be page rule
 css/cssom/cssom-setProperty-shorthand.html	shorthand background can be removed with removeProperty
 css/cssom/cssom-setProperty-shorthand.html	shorthand background can be removed with removeProperty even when set with !important
 css/cssom/cssom-setProperty-shorthand.html	shorthand background can be set with setProperty
@@ -3856,10 +4527,12 @@ css/cssom/cssstyledeclaration-csstext.html	uppercase value
 css/cssom/cssstyledeclaration-csstext.html	use rgb
 css/cssom/cssstyledeclaration-csstext.html	whitespaces in value
 css/cssom/cssstyledeclaration-mutability.html	HTMLElement's CSSStyleDeclaration is mutable
+css/cssom/cssstyledeclaration-mutability.html	StyleSheet's CSSStyleDeclaration is mutable
 css/cssom/cssstyledeclaration-mutability.html	getComputedStyle's CSSStyleDeclaration is not mutable
 css/cssom/cssstyledeclaration-mutationrecord-001.html	CSSStyleDeclaration.setPropertyValue queues a mutation record when serialization is changed
 css/cssom/cssstyledeclaration-mutationrecord-003.html	CSSStyleDeclaration.removeProperty doesn't queue a mutation record when not actually removed, invoked from setPropertyValue
 css/cssom/cssstyledeclaration-mutationrecord-004.html	CSSStyleDeclaration.removeProperty doesn't queue a mutation record when not actually removed
+css/cssom/cssstyledeclaration-nested.html	CSSNestedDeclarationBlock cssom interactions
 css/cssom/cssstyledeclaration-properties.html	CSS Test: CSSStyleDeclaration properties are defined as WebIDL attributes, not using getOwnPropertyNames()
 css/cssom/cssstyledeclaration-removeProperty-all.html	CSSStyleDeclaration.removeProperty("all") 1
 css/cssom/cssstyledeclaration-setter-form-controls.html	button element
@@ -3879,6 +4552,7 @@ css/cssom/escape.html	Number prefix
 css/cssom/escape.html	Replacement character
 css/cssom/escape.html	String conversion
 css/cssom/escape.html	Surrogates
+css/cssom/flex-serialization.html	Single value flex with CSS-wide keyword should serialize correctly.
 css/cssom/font-family-serialization-001.html	Serialization of NonGenericFontFamilyName,-webkit-body,-webkit-standard,-webkit-pictograph,emoji,fangsong,BlinkMacSystemFont
 css/cssom/font-family-serialization-001.html	Specified: digit-starting family name stays quoted
 css/cssom/font-family-serialization-001.html	Specified: double-space family name stays quoted
@@ -5072,24 +5746,161 @@ css/cssom/idlharness.html	CSS namespace: has no name property
 css/cssom/idlharness.html	CSS namespace: operation escape(CSSOMString)
 css/cssom/idlharness.html	CSS namespace: property descriptor
 css/cssom/idlharness.html	CSS namespace: typeof is "object"
+css/cssom/idlharness.html	CSSGroupingRule interface object length
+css/cssom/idlharness.html	CSSGroupingRule interface object name
+css/cssom/idlharness.html	CSSGroupingRule interface: attribute cssRules
+css/cssom/idlharness.html	CSSGroupingRule interface: calling deleteRule(unsigned long) on sheet.cssRules[2] with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSGroupingRule interface: calling deleteRule(unsigned long) on sheet.cssRules[4] with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSGroupingRule interface: calling insertRule(CSSOMString, optional unsigned long) on sheet.cssRules[2] with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSGroupingRule interface: calling insertRule(CSSOMString, optional unsigned long) on sheet.cssRules[4] with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSGroupingRule interface: existence and properties of interface prototype object
+css/cssom/idlharness.html	CSSGroupingRule interface: existence and properties of interface prototype object's "constructor" property
+css/cssom/idlharness.html	CSSGroupingRule interface: existence and properties of interface prototype object's @@unscopables property
+css/cssom/idlharness.html	CSSGroupingRule interface: operation deleteRule(unsigned long)
+css/cssom/idlharness.html	CSSGroupingRule interface: operation insertRule(CSSOMString, optional unsigned long)
+css/cssom/idlharness.html	CSSGroupingRule interface: sheet.cssRules[2] must inherit property "cssRules" with the proper type
+css/cssom/idlharness.html	CSSGroupingRule interface: sheet.cssRules[2] must inherit property "deleteRule(unsigned long)" with the proper type
+css/cssom/idlharness.html	CSSGroupingRule interface: sheet.cssRules[2] must inherit property "insertRule(CSSOMString, optional unsigned long)" with the proper type
+css/cssom/idlharness.html	CSSGroupingRule interface: sheet.cssRules[4] must inherit property "cssRules" with the proper type
+css/cssom/idlharness.html	CSSGroupingRule interface: sheet.cssRules[4] must inherit property "deleteRule(unsigned long)" with the proper type
+css/cssom/idlharness.html	CSSGroupingRule interface: sheet.cssRules[4] must inherit property "insertRule(CSSOMString, optional unsigned long)" with the proper type
+css/cssom/idlharness.html	CSSImportRule interface object length
+css/cssom/idlharness.html	CSSImportRule interface object name
+css/cssom/idlharness.html	CSSImportRule interface: attribute href
+css/cssom/idlharness.html	CSSImportRule interface: attribute styleSheet
+css/cssom/idlharness.html	CSSImportRule interface: existence and properties of interface prototype object
+css/cssom/idlharness.html	CSSImportRule interface: existence and properties of interface prototype object's "constructor" property
+css/cssom/idlharness.html	CSSImportRule interface: existence and properties of interface prototype object's @@unscopables property
+css/cssom/idlharness.html	CSSImportRule interface: sheet.cssRules[0] must inherit property "href" with the proper type
+css/cssom/idlharness.html	CSSImportRule interface: sheet.cssRules[0] must inherit property "styleSheet" with the proper type
+css/cssom/idlharness.html	CSSImportRule must be primary interface of sheet.cssRules[0]
+css/cssom/idlharness.html	CSSNamespaceRule interface object length
+css/cssom/idlharness.html	CSSNamespaceRule interface object name
+css/cssom/idlharness.html	CSSNamespaceRule interface: attribute namespaceURI
+css/cssom/idlharness.html	CSSNamespaceRule interface: attribute prefix
+css/cssom/idlharness.html	CSSNamespaceRule interface: existence and properties of interface prototype object
+css/cssom/idlharness.html	CSSNamespaceRule interface: existence and properties of interface prototype object's "constructor" property
+css/cssom/idlharness.html	CSSNamespaceRule interface: existence and properties of interface prototype object's @@unscopables property
+css/cssom/idlharness.html	CSSNamespaceRule interface: sheet.cssRules[1] must inherit property "namespaceURI" with the proper type
+css/cssom/idlharness.html	CSSNamespaceRule interface: sheet.cssRules[1] must inherit property "prefix" with the proper type
+css/cssom/idlharness.html	CSSNamespaceRule must be primary interface of sheet.cssRules[1]
+css/cssom/idlharness.html	CSSPageDescriptors interface: sheet.cssRules[2].style must inherit property "margin" with the proper type
+css/cssom/idlharness.html	CSSPageDescriptors interface: sheet.cssRules[2].style must inherit property "margin-bottom" with the proper type
+css/cssom/idlharness.html	CSSPageDescriptors interface: sheet.cssRules[2].style must inherit property "margin-left" with the proper type
+css/cssom/idlharness.html	CSSPageDescriptors interface: sheet.cssRules[2].style must inherit property "margin-right" with the proper type
+css/cssom/idlharness.html	CSSPageDescriptors interface: sheet.cssRules[2].style must inherit property "margin-top" with the proper type
+css/cssom/idlharness.html	CSSPageDescriptors interface: sheet.cssRules[2].style must inherit property "marginBottom" with the proper type
+css/cssom/idlharness.html	CSSPageDescriptors interface: sheet.cssRules[2].style must inherit property "marginLeft" with the proper type
+css/cssom/idlharness.html	CSSPageDescriptors interface: sheet.cssRules[2].style must inherit property "marginRight" with the proper type
+css/cssom/idlharness.html	CSSPageDescriptors interface: sheet.cssRules[2].style must inherit property "marginTop" with the proper type
+css/cssom/idlharness.html	CSSPageRule interface object length
+css/cssom/idlharness.html	CSSPageRule interface object name
+css/cssom/idlharness.html	CSSPageRule interface: attribute selectorText
+css/cssom/idlharness.html	CSSPageRule interface: attribute style
+css/cssom/idlharness.html	CSSPageRule interface: existence and properties of interface prototype object
+css/cssom/idlharness.html	CSSPageRule interface: existence and properties of interface prototype object's "constructor" property
+css/cssom/idlharness.html	CSSPageRule interface: existence and properties of interface prototype object's @@unscopables property
+css/cssom/idlharness.html	CSSPageRule interface: sheet.cssRules[2] must inherit property "selectorText" with the proper type
+css/cssom/idlharness.html	CSSPageRule interface: sheet.cssRules[2] must inherit property "style" with the proper type
+css/cssom/idlharness.html	CSSPageRule must be primary interface of sheet.cssRules[2]
+css/cssom/idlharness.html	CSSRule interface object length
+css/cssom/idlharness.html	CSSRule interface object name
+css/cssom/idlharness.html	CSSRule interface: attribute cssText
+css/cssom/idlharness.html	CSSRule interface: attribute parentRule
+css/cssom/idlharness.html	CSSRule interface: attribute parentStyleSheet
+css/cssom/idlharness.html	CSSRule interface: attribute type
+css/cssom/idlharness.html	CSSRule interface: existence and properties of interface object
+css/cssom/idlharness.html	CSSRule interface: existence and properties of interface prototype object
+css/cssom/idlharness.html	CSSRule interface: existence and properties of interface prototype object's "constructor" property
+css/cssom/idlharness.html	CSSRule interface: existence and properties of interface prototype object's @@unscopables property
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[0] must inherit property "CHARSET_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[0] must inherit property "FONT_FACE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[0] must inherit property "IMPORT_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[0] must inherit property "MARGIN_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[0] must inherit property "MEDIA_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[0] must inherit property "NAMESPACE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[0] must inherit property "PAGE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[0] must inherit property "STYLE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[0] must inherit property "cssText" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[0] must inherit property "parentRule" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[0] must inherit property "parentStyleSheet" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[0] must inherit property "type" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[1] must inherit property "CHARSET_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[1] must inherit property "FONT_FACE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[1] must inherit property "IMPORT_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[1] must inherit property "MARGIN_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[1] must inherit property "MEDIA_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[1] must inherit property "NAMESPACE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[1] must inherit property "PAGE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[1] must inherit property "STYLE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[1] must inherit property "cssText" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[1] must inherit property "parentRule" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[1] must inherit property "parentStyleSheet" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[1] must inherit property "type" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[2] must inherit property "CHARSET_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[2] must inherit property "FONT_FACE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[2] must inherit property "IMPORT_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[2] must inherit property "MARGIN_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[2] must inherit property "MEDIA_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[2] must inherit property "NAMESPACE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[2] must inherit property "PAGE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[2] must inherit property "STYLE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[2] must inherit property "cssText" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[2] must inherit property "parentRule" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[2] must inherit property "parentStyleSheet" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[2] must inherit property "type" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[4] must inherit property "CHARSET_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[4] must inherit property "FONT_FACE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[4] must inherit property "IMPORT_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[4] must inherit property "MARGIN_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[4] must inherit property "MEDIA_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[4] must inherit property "NAMESPACE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[4] must inherit property "PAGE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[4] must inherit property "STYLE_RULE" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[4] must inherit property "cssText" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[4] must inherit property "parentRule" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[4] must inherit property "parentStyleSheet" with the proper type
+css/cssom/idlharness.html	CSSRule interface: sheet.cssRules[4] must inherit property "type" with the proper type
+css/cssom/idlharness.html	CSSRuleList interface object length
+css/cssom/idlharness.html	CSSRuleList interface object name
+css/cssom/idlharness.html	CSSRuleList interface: attribute length
+css/cssom/idlharness.html	CSSRuleList interface: calling item(unsigned long) on sheet.cssRules with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSRuleList interface: existence and properties of interface object
+css/cssom/idlharness.html	CSSRuleList interface: existence and properties of interface prototype object
+css/cssom/idlharness.html	CSSRuleList interface: existence and properties of interface prototype object's "constructor" property
+css/cssom/idlharness.html	CSSRuleList interface: existence and properties of interface prototype object's @@unscopables property
+css/cssom/idlharness.html	CSSRuleList interface: operation item(unsigned long)
+css/cssom/idlharness.html	CSSRuleList interface: sheet.cssRules must inherit property "item(unsigned long)" with the proper type
+css/cssom/idlharness.html	CSSRuleList interface: sheet.cssRules must inherit property "length" with the proper type
+css/cssom/idlharness.html	CSSRuleList must be primary interface of sheet.cssRules
 css/cssom/idlharness.html	CSSStyleDeclaration interface object length
 css/cssom/idlharness.html	CSSStyleDeclaration interface object name
 css/cssom/idlharness.html	CSSStyleDeclaration interface: attribute cssText
 css/cssom/idlharness.html	CSSStyleDeclaration interface: attribute length
 css/cssom/idlharness.html	CSSStyleDeclaration interface: attribute parentRule
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyPriority(CSSOMString) on getComputedStyle(svg_element) with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyPriority(CSSOMString) on sheet.cssRules[2].style with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyPriority(CSSOMString) on sheet.cssRules[4].style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyPriority(CSSOMString) on style_element.style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyPriority(CSSOMString) on svg_element.style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyValue(CSSOMString) on getComputedStyle(svg_element) with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyValue(CSSOMString) on sheet.cssRules[2].style with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyValue(CSSOMString) on sheet.cssRules[4].style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyValue(CSSOMString) on style_element.style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling getPropertyValue(CSSOMString) on svg_element.style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling item(unsigned long) on getComputedStyle(svg_element) with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleDeclaration interface: calling item(unsigned long) on sheet.cssRules[2].style with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleDeclaration interface: calling item(unsigned long) on sheet.cssRules[4].style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling item(unsigned long) on style_element.style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling item(unsigned long) on svg_element.style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling removeProperty(CSSOMString) on getComputedStyle(svg_element) with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleDeclaration interface: calling removeProperty(CSSOMString) on sheet.cssRules[2].style with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleDeclaration interface: calling removeProperty(CSSOMString) on sheet.cssRules[4].style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling removeProperty(CSSOMString) on style_element.style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling removeProperty(CSSOMString) on svg_element.style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling setProperty(CSSOMString, CSSOMString, optional CSSOMString) on getComputedStyle(svg_element) with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleDeclaration interface: calling setProperty(CSSOMString, CSSOMString, optional CSSOMString) on sheet.cssRules[2].style with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleDeclaration interface: calling setProperty(CSSOMString, CSSOMString, optional CSSOMString) on sheet.cssRules[4].style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling setProperty(CSSOMString, CSSOMString, optional CSSOMString) on style_element.style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: calling setProperty(CSSOMString, CSSOMString, optional CSSOMString) on svg_element.style with too few arguments must throw TypeError
 css/cssom/idlharness.html	CSSStyleDeclaration interface: existence and properties of interface object
@@ -5109,6 +5920,22 @@ css/cssom/idlharness.html	CSSStyleDeclaration interface: operation getPropertyVa
 css/cssom/idlharness.html	CSSStyleDeclaration interface: operation item(unsigned long)
 css/cssom/idlharness.html	CSSStyleDeclaration interface: operation removeProperty(CSSOMString)
 css/cssom/idlharness.html	CSSStyleDeclaration interface: operation setProperty(CSSOMString, CSSOMString, optional CSSOMString)
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[2].style must inherit property "cssText" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[2].style must inherit property "getPropertyPriority(CSSOMString)" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[2].style must inherit property "getPropertyValue(CSSOMString)" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[2].style must inherit property "item(unsigned long)" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[2].style must inherit property "length" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[2].style must inherit property "parentRule" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[2].style must inherit property "removeProperty(CSSOMString)" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[2].style must inherit property "setProperty(CSSOMString, CSSOMString, optional CSSOMString)" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[4].style must inherit property "cssText" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[4].style must inherit property "getPropertyPriority(CSSOMString)" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[4].style must inherit property "getPropertyValue(CSSOMString)" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[4].style must inherit property "item(unsigned long)" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[4].style must inherit property "length" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[4].style must inherit property "parentRule" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[4].style must inherit property "removeProperty(CSSOMString)" with the proper type
+css/cssom/idlharness.html	CSSStyleDeclaration interface: sheet.cssRules[4].style must inherit property "setProperty(CSSOMString, CSSOMString, optional CSSOMString)" with the proper type
 css/cssom/idlharness.html	CSSStyleDeclaration interface: style_element.style must inherit property "cssText" with the proper type
 css/cssom/idlharness.html	CSSStyleDeclaration interface: style_element.style must inherit property "getPropertyPriority(CSSOMString)" with the proper type
 css/cssom/idlharness.html	CSSStyleDeclaration interface: style_element.style must inherit property "getPropertyValue(CSSOMString)" with the proper type
@@ -5126,16 +5953,60 @@ css/cssom/idlharness.html	CSSStyleDeclaration interface: svg_element.style must 
 css/cssom/idlharness.html	CSSStyleDeclaration interface: svg_element.style must inherit property "removeProperty(CSSOMString)" with the proper type
 css/cssom/idlharness.html	CSSStyleDeclaration interface: svg_element.style must inherit property "setProperty(CSSOMString, CSSOMString, optional CSSOMString)" with the proper type
 css/cssom/idlharness.html	CSSStyleProperties interface: getComputedStyle(svg_element) must inherit property "cssFloat" with the proper type
+css/cssom/idlharness.html	CSSStyleProperties interface: sheet.cssRules[4].style must inherit property "cssFloat" with the proper type
 css/cssom/idlharness.html	CSSStyleProperties interface: style_element.style must inherit property "cssFloat" with the proper type
 css/cssom/idlharness.html	CSSStyleProperties interface: svg_element.style must inherit property "cssFloat" with the proper type
+css/cssom/idlharness.html	CSSStyleRule interface object length
+css/cssom/idlharness.html	CSSStyleRule interface object name
+css/cssom/idlharness.html	CSSStyleRule interface: attribute selectorText
+css/cssom/idlharness.html	CSSStyleRule interface: attribute style
+css/cssom/idlharness.html	CSSStyleRule interface: existence and properties of interface prototype object
+css/cssom/idlharness.html	CSSStyleRule interface: existence and properties of interface prototype object's "constructor" property
+css/cssom/idlharness.html	CSSStyleRule interface: existence and properties of interface prototype object's @@unscopables property
+css/cssom/idlharness.html	CSSStyleRule interface: sheet.cssRules[4] must inherit property "selectorText" with the proper type
+css/cssom/idlharness.html	CSSStyleRule interface: sheet.cssRules[4] must inherit property "style" with the proper type
+css/cssom/idlharness.html	CSSStyleRule must be primary interface of sheet.cssRules[4]
+css/cssom/idlharness.html	CSSStyleSheet interface object length
+css/cssom/idlharness.html	CSSStyleSheet interface object name
+css/cssom/idlharness.html	CSSStyleSheet interface: attribute cssRules
+css/cssom/idlharness.html	CSSStyleSheet interface: attribute ownerRule
+css/cssom/idlharness.html	CSSStyleSheet interface: attribute rules
+css/cssom/idlharness.html	CSSStyleSheet interface: calling addRule(optional DOMString, optional DOMString, optional unsigned long) on sheet with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleSheet interface: calling deleteRule(unsigned long) on sheet with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleSheet interface: calling insertRule(CSSOMString, optional unsigned long) on sheet with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleSheet interface: calling removeRule(optional unsigned long) on sheet with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleSheet interface: calling replace(USVString) on sheet with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleSheet interface: calling replaceSync(USVString) on sheet with too few arguments must throw TypeError
+css/cssom/idlharness.html	CSSStyleSheet interface: existence and properties of interface prototype object
+css/cssom/idlharness.html	CSSStyleSheet interface: existence and properties of interface prototype object's "constructor" property
+css/cssom/idlharness.html	CSSStyleSheet interface: existence and properties of interface prototype object's @@unscopables property
+css/cssom/idlharness.html	CSSStyleSheet interface: operation addRule(optional DOMString, optional DOMString, optional unsigned long)
+css/cssom/idlharness.html	CSSStyleSheet interface: operation deleteRule(unsigned long)
+css/cssom/idlharness.html	CSSStyleSheet interface: operation insertRule(CSSOMString, optional unsigned long)
+css/cssom/idlharness.html	CSSStyleSheet interface: operation removeRule(optional unsigned long)
+css/cssom/idlharness.html	CSSStyleSheet interface: operation replace(USVString)
+css/cssom/idlharness.html	CSSStyleSheet interface: operation replaceSync(USVString)
+css/cssom/idlharness.html	CSSStyleSheet interface: sheet must inherit property "addRule(optional DOMString, optional DOMString, optional unsigned long)" with the proper type
+css/cssom/idlharness.html	CSSStyleSheet interface: sheet must inherit property "cssRules" with the proper type
+css/cssom/idlharness.html	CSSStyleSheet interface: sheet must inherit property "deleteRule(unsigned long)" with the proper type
+css/cssom/idlharness.html	CSSStyleSheet interface: sheet must inherit property "insertRule(CSSOMString, optional unsigned long)" with the proper type
+css/cssom/idlharness.html	CSSStyleSheet interface: sheet must inherit property "ownerRule" with the proper type
+css/cssom/idlharness.html	CSSStyleSheet interface: sheet must inherit property "removeRule(optional unsigned long)" with the proper type
+css/cssom/idlharness.html	CSSStyleSheet interface: sheet must inherit property "replace(USVString)" with the proper type
+css/cssom/idlharness.html	CSSStyleSheet interface: sheet must inherit property "replaceSync(USVString)" with the proper type
+css/cssom/idlharness.html	CSSStyleSheet interface: sheet must inherit property "rules" with the proper type
+css/cssom/idlharness.html	CSSStyleSheet must be primary interface of sheet
 css/cssom/idlharness.html	CharacterData includes ChildNode: member names are unique
 css/cssom/idlharness.html	CharacterData includes NonDocumentTypeChildNode: member names are unique
 css/cssom/idlharness.html	Document includes DocumentOrShadowRoot: member names are unique
 css/cssom/idlharness.html	Document includes NonElementParentNode: member names are unique
 css/cssom/idlharness.html	Document includes ParentNode: member names are unique
 css/cssom/idlharness.html	Document includes XPathEvaluatorBase: member names are unique
+css/cssom/idlharness.html	Document interface: attribute adoptedStyleSheets
 css/cssom/idlharness.html	Document interface: attribute styleSheets
+css/cssom/idlharness.html	Document interface: document must inherit property "adoptedStyleSheets" with the proper type
 css/cssom/idlharness.html	Document interface: document must inherit property "styleSheets" with the proper type
+css/cssom/idlharness.html	Document interface: new Document() must inherit property "adoptedStyleSheets" with the proper type
 css/cssom/idlharness.html	Document interface: new Document() must inherit property "styleSheets" with the proper type
 css/cssom/idlharness.html	DocumentFragment includes NonElementParentNode: member names are unique
 css/cssom/idlharness.html	DocumentFragment includes ParentNode: member names are unique
@@ -5158,6 +6029,27 @@ css/cssom/idlharness.html	MathMLElement includes ElementCSSInlineStyle: member n
 css/cssom/idlharness.html	MathMLElement includes GlobalEventHandlers: member names are unique
 css/cssom/idlharness.html	MathMLElement includes HTMLOrSVGOrMathMLElement: member names are unique
 css/cssom/idlharness.html	MathMLElement interface: attribute style
+css/cssom/idlharness.html	MediaList interface object length
+css/cssom/idlharness.html	MediaList interface object name
+css/cssom/idlharness.html	MediaList interface: attribute length
+css/cssom/idlharness.html	MediaList interface: attribute mediaText
+css/cssom/idlharness.html	MediaList interface: calling appendMedium(CSSOMString) on sheet.media with too few arguments must throw TypeError
+css/cssom/idlharness.html	MediaList interface: calling deleteMedium(CSSOMString) on sheet.media with too few arguments must throw TypeError
+css/cssom/idlharness.html	MediaList interface: calling item(unsigned long) on sheet.media with too few arguments must throw TypeError
+css/cssom/idlharness.html	MediaList interface: existence and properties of interface object
+css/cssom/idlharness.html	MediaList interface: existence and properties of interface prototype object
+css/cssom/idlharness.html	MediaList interface: existence and properties of interface prototype object's "constructor" property
+css/cssom/idlharness.html	MediaList interface: existence and properties of interface prototype object's @@unscopables property
+css/cssom/idlharness.html	MediaList interface: operation appendMedium(CSSOMString)
+css/cssom/idlharness.html	MediaList interface: operation deleteMedium(CSSOMString)
+css/cssom/idlharness.html	MediaList interface: operation item(unsigned long)
+css/cssom/idlharness.html	MediaList interface: sheet.media must inherit property "appendMedium(CSSOMString)" with the proper type
+css/cssom/idlharness.html	MediaList interface: sheet.media must inherit property "deleteMedium(CSSOMString)" with the proper type
+css/cssom/idlharness.html	MediaList interface: sheet.media must inherit property "item(unsigned long)" with the proper type
+css/cssom/idlharness.html	MediaList interface: sheet.media must inherit property "length" with the proper type
+css/cssom/idlharness.html	MediaList interface: sheet.media must inherit property "mediaText" with the proper type
+css/cssom/idlharness.html	MediaList interface: stringifier
+css/cssom/idlharness.html	MediaList must be primary interface of sheet.media
 css/cssom/idlharness.html	Partial interface CSSStyleSheet: member names are unique
 css/cssom/idlharness.html	Partial interface CSSStyleSheet: original interface defined
 css/cssom/idlharness.html	Partial interface Element: member names are unique
@@ -5177,6 +6069,46 @@ css/cssom/idlharness.html	SVGElement interface: attribute style
 css/cssom/idlharness.html	SVGElement interface: svg_element must inherit property "style" with the proper type
 css/cssom/idlharness.html	SVGStyleElement includes LinkStyle: member names are unique
 css/cssom/idlharness.html	ShadowRoot includes DocumentOrShadowRoot: member names are unique
+css/cssom/idlharness.html	ShadowRoot interface: attribute adoptedStyleSheets
+css/cssom/idlharness.html	Stringification of document.styleSheets
+css/cssom/idlharness.html	Stringification of sheet
+css/cssom/idlharness.html	Stringification of sheet.cssRules
+css/cssom/idlharness.html	Stringification of sheet.cssRules[0]
+css/cssom/idlharness.html	Stringification of sheet.cssRules[1]
+css/cssom/idlharness.html	Stringification of sheet.cssRules[2]
+css/cssom/idlharness.html	Stringification of sheet.cssRules[4]
+css/cssom/idlharness.html	Stringification of sheet.media
+css/cssom/idlharness.html	StyleSheet interface object length
+css/cssom/idlharness.html	StyleSheet interface object name
+css/cssom/idlharness.html	StyleSheet interface: attribute disabled
+css/cssom/idlharness.html	StyleSheet interface: attribute href
+css/cssom/idlharness.html	StyleSheet interface: attribute ownerNode
+css/cssom/idlharness.html	StyleSheet interface: attribute parentStyleSheet
+css/cssom/idlharness.html	StyleSheet interface: attribute title
+css/cssom/idlharness.html	StyleSheet interface: attribute type
+css/cssom/idlharness.html	StyleSheet interface: existence and properties of interface object
+css/cssom/idlharness.html	StyleSheet interface: existence and properties of interface prototype object
+css/cssom/idlharness.html	StyleSheet interface: existence and properties of interface prototype object's "constructor" property
+css/cssom/idlharness.html	StyleSheet interface: existence and properties of interface prototype object's @@unscopables property
+css/cssom/idlharness.html	StyleSheet interface: sheet must inherit property "disabled" with the proper type
+css/cssom/idlharness.html	StyleSheet interface: sheet must inherit property "href" with the proper type
+css/cssom/idlharness.html	StyleSheet interface: sheet must inherit property "media" with the proper type
+css/cssom/idlharness.html	StyleSheet interface: sheet must inherit property "ownerNode" with the proper type
+css/cssom/idlharness.html	StyleSheet interface: sheet must inherit property "parentStyleSheet" with the proper type
+css/cssom/idlharness.html	StyleSheet interface: sheet must inherit property "title" with the proper type
+css/cssom/idlharness.html	StyleSheet interface: sheet must inherit property "type" with the proper type
+css/cssom/idlharness.html	StyleSheetList interface object length
+css/cssom/idlharness.html	StyleSheetList interface object name
+css/cssom/idlharness.html	StyleSheetList interface: attribute length
+css/cssom/idlharness.html	StyleSheetList interface: calling item(unsigned long) on document.styleSheets with too few arguments must throw TypeError
+css/cssom/idlharness.html	StyleSheetList interface: document.styleSheets must inherit property "item(unsigned long)" with the proper type
+css/cssom/idlharness.html	StyleSheetList interface: document.styleSheets must inherit property "length" with the proper type
+css/cssom/idlharness.html	StyleSheetList interface: existence and properties of interface object
+css/cssom/idlharness.html	StyleSheetList interface: existence and properties of interface prototype object
+css/cssom/idlharness.html	StyleSheetList interface: existence and properties of interface prototype object's "constructor" property
+css/cssom/idlharness.html	StyleSheetList interface: existence and properties of interface prototype object's @@unscopables property
+css/cssom/idlharness.html	StyleSheetList interface: operation item(unsigned long)
+css/cssom/idlharness.html	StyleSheetList must be primary interface of document.styleSheets
 css/cssom/idlharness.html	Window includes AnimationFrameProvider: member names are unique
 css/cssom/idlharness.html	Window includes GlobalEventHandlers: member names are unique
 css/cssom/idlharness.html	Window includes WindowEventHandlers: member names are unique
@@ -5192,11 +6124,64 @@ css/cssom/inline-style-001.html	CSSStyleDeclaration_accessible
 css/cssom/inline-style-001.html	csstext_write
 css/cssom/inline-style-001.html	property_write
 css/cssom/inline-style-001.html	read
+css/cssom/insertRule-across-context.html	The constructor of inserted rule object must be from iframe
+css/cssom/insertRule-across-context.html	The constructor of inserted rule object must be from iframe for new CSSStyleSheet()
+css/cssom/insertRule-import-no-index.html	insertRule with import and omitted index argument
+css/cssom/insertRule-import-no-index.html	insertRule with import and undefined index argument
+css/cssom/insertRule-namespace-no-index.html	insertRule with namespace and omitted index argument
+css/cssom/insertRule-namespace-no-index.html	insertRule with namespace and omitted index argument should insert import
+css/cssom/insertRule-namespace-no-index.html	insertRule with namespace and undefined index argument
+css/cssom/insertRule-no-index.html	insertRule with omitted index argument
+css/cssom/insertRule-no-index.html	insertRule with undefined index argument
+css/cssom/invalid-pseudo-elements.html	CSSOM: Test that rules with invalid pseudo elements are not found
+css/cssom/link-element-stylesheet-title.html	Executing setAttribute('title', '') results in the title being set to null
+css/cssom/link-element-stylesheet-title.html	StyleSheet.title
+css/cssom/medialist-appendmedium-parse-single-and-dedup.html	appendMedium does not append a duplicate medium
+css/cssom/medialist-interfaces-001.html	mediatest_medialist_serialize_comma
+css/cssom/medialist-interfaces-001.html	mediatest_medialist_serialize_element
+css/cssom/medialist-interfaces-001.html	mediatest_medialist_serialize_empty
+css/cssom/medialist-interfaces-001.html	mediatest_medialist_serialize_order
+css/cssom/medialist-interfaces-002.html	deleteMedium_called_without_argument
+css/cssom/medialist-interfaces-002.html	deleteMedium_no_matching_medium_to_remove
+css/cssom/medialist-interfaces-002.html	deleteMedium_removes_correct_medium
+css/cssom/medialist-interfaces-004.html	appendMedium_correctly_appends_medium_to_empty_MediaList
+css/cssom/medialist-interfaces-004.html	appendMedium_correctly_appends_medium_to_nonempty_MediaList
 css/cssom/mediaquery-sort-dedup.html	Media queries are not deduplicated
 css/cssom/mediaquery-sort-dedup.html	Media queries are not sorted lexicographically
 css/cssom/overflow-serialization.html	Single value overflow on element with CSS-wide keyword should serialize correctly.
 css/cssom/overflow-serialization.html	Single value overflow on element with non-CSS-wide keyword should serialize correctly.
+css/cssom/overflow-serialization.html	Single value overflow with CSS-wide keyword should serialize correctly.
+css/cssom/overflow-serialization.html	Single value overflow with non-CSS-wide keyword should serialize correctly.
+css/cssom/page-descriptors.html	@page margin-bottom and marginBottom are aliases
+css/cssom/page-descriptors.html	@page margin-left and marginLeft are aliases
+css/cssom/page-descriptors.html	@page margin-right and marginRight are aliases
+css/cssom/page-descriptors.html	@page margin-top and marginTop are aliases
+css/cssom/page-descriptors.html	@page page-orientation descriptor is parsed and serialized from CSS
+css/cssom/page-descriptors.html	@page size descriptor is parsed and serialized from CSS
+css/cssom/page-descriptors.html	CSSPageDescriptors exposes "margin"
+css/cssom/page-descriptors.html	CSSPageDescriptors exposes "margin-bottom"
+css/cssom/page-descriptors.html	CSSPageDescriptors exposes "margin-left"
+css/cssom/page-descriptors.html	CSSPageDescriptors exposes "margin-right"
+css/cssom/page-descriptors.html	CSSPageDescriptors exposes "margin-top"
+css/cssom/page-descriptors.html	CSSPageDescriptors exposes "marginBottom"
+css/cssom/page-descriptors.html	CSSPageDescriptors exposes "marginLeft"
+css/cssom/page-descriptors.html	CSSPageDescriptors exposes "marginRight"
+css/cssom/page-descriptors.html	CSSPageDescriptors exposes "marginTop"
 css/cssom/preferred-stylesheet-reversed-order.html	Preferred stylesheet where insertion order is tree order
+css/cssom/property-accessors.html	-apple-color-filter
+css/cssom/property-accessors.html	-apple-pay-button-style
+css/cssom/property-accessors.html	-epub-writing-mode
+css/cssom/property-accessors.html	-webkit-flex
+css/cssom/property-accessors.html	gap
+css/cssom/property-accessors.html	grid-gap
+css/cssom/property-accessors.html	overscroll-behavior
+css/cssom/property-accessors.html	src
+css/cssom/property-accessors.html	unicode-range
+css/cssom/selectorSerialize.html	single class (simple) selector in the sequence of simple selectors that is not a universal selector
+css/cssom/selectorSerialize.html	single id (simple) selector in the sequence of simple selectors that is not a universal selector
+css/cssom/selectorSerialize.html	single pseudo (simple) selector which does not accept arguments in the sequence of simple selectors that is not a universal selector
+css/cssom/selectorSerialize.html	single type (simple) selector in the sequence of simple selectors that is not a universal selector
+css/cssom/selectorSerialize.html	single universal selector shows '*' when serialized.
 css/cssom/serialization-CSSDeclaration-with-important.html	Inline style declaration with whitespace between '!' and 'important'.
 css/cssom/serialization-CSSDeclaration-with-important.html	Inline style declaration without whitespace between '!' and 'important'.
 css/cssom/serialization-CSSDeclaration-with-important.html	Style set dynamically via cssText with whitespace between '!' and 'important'.
@@ -5210,6 +6195,21 @@ css/cssom/serialize-custom-props.html	z-index can take a custom property set to 
 css/cssom/serialize-custom-props.html	z-index can take a custom property set to a 4-digit integer
 css/cssom/serialize-custom-props.html	z-index can take a custom property set to a 6-digit integer
 css/cssom/serialize-custom-props.html	z-index can take a custom property set to a 8-digit integer
+css/cssom/serialize-media-rule.html	features - no lexicographical sorting
+css/cssom/serialize-media-rule.html	features - preservation of overspecified features
+css/cssom/serialize-media-rule.html	many rules
+css/cssom/serialize-media-rule.html	media query list
+css/cssom/serialize-media-rule.html	one rule
+css/cssom/serialize-media-rule.html	type - inclusion of negated all
+css/cssom/serialize-media-rule.html	type - no features
+css/cssom/serialize-media-rule.html	type - no features - negation
+css/cssom/serialize-namespaced-type-selectors.html	Simple type selector
+css/cssom/serialize-namespaced-type-selectors.html	Simple type selector followed by atttribute selector
+css/cssom/serialize-namespaced-type-selectors.html	Simple type selector followed by class
+css/cssom/serialize-namespaced-type-selectors.html	Simple type selector followed by id
+css/cssom/serialize-namespaced-type-selectors.html	Simple type selector followed by pseudo class
+css/cssom/serialize-namespaced-type-selectors.html	Simple type selector followed by pseudo element
+css/cssom/serialize-namespaced-type-selectors.html	Universal selector
 css/cssom/serialize-values.html	alignment-baseline: alphabetic
 css/cssom/serialize-values.html	alignment-baseline: baseline
 css/cssom/serialize-values.html	alignment-baseline: central
@@ -5905,6 +6905,7 @@ css/cssom/serialize-variable-reference.html	Longhand with variable preserves ori
 css/cssom/serialize-variable-reference.html	Longhand with variable preserves original serialization: with whitespace
 css/cssom/serialize-variable-reference.html	Shorthand with variable preserves original serialization but trims whitespace: without whitespace
 css/cssom/serialize-variable-reference.html	Shorthand with variable preserves original serialization: with whitespace
+css/cssom/set-selector-text-attachment.html	Modifying property value invalidates style, even after selectorText mutation
 css/cssom/setproperty-null-undefined.html	Verify that setting a CSS property priority to null is treated like empty string.
 css/cssom/setproperty-null-undefined.html	Verify that setting a CSS property priority to undefined is accepted.
 css/cssom/setproperty-null-undefined.html	Verify that setting a CSS property to null is treated like empty string.
@@ -5918,6 +6919,21 @@ css/cssom/shorthand-values.html	The serialization of border: red; should be cano
 css/cssom/shorthand-values.html	The serialization of font-family: sans-serif; line-height: 2em; font-size: 3em; font-style: italic; font-weight: bold; should be canonical.
 css/cssom/shorthand-values.html	The serialization of list-style-type: lower-alpha; should be canonical.
 css/cssom/style-attr-update-across-documents.html	Changing the style of a node that switched documents works
+css/cssom/style-sheet-interfaces-001.html	CSSStyleSheet_properties
+css/cssom/style-sheet-interfaces-001.html	CSSStyleSheet_property_values
+css/cssom/style-sheet-interfaces-001.html	StyleSheet_properties
+css/cssom/style-sheet-interfaces-001.html	sheet_property
+css/cssom/style-sheet-interfaces-001.html	sheet_property_updates
+css/cssom/style-sheet-interfaces-002.html	add_rule
+css/cssom/style-sheet-interfaces-002.html	delete_rule
+css/cssom/stylesheet-title.html	StyleSheet.title
+css/cssom/ttwf-cssom-doc-ext-load-count.html	stylesheet.css should be loaded and styleSheets.length === 1
+css/cssom/ttwf-cssom-doc-ext-load-tree-order.html	styleSheets item 0 title must be aaa
+css/cssom/ttwf-cssom-doc-ext-load-tree-order.html	styleSheets item 0 title must be alpha
+css/cssom/ttwf-cssom-doc-ext-load-tree-order.html	styleSheets item 0 title must be kilo
+css/cssom/ttwf-cssom-doc-ext-load-tree-order.html	styleSheets item 0 title must be zebra
+css/cssom/ttwf-cssom-doc-ext-load-tree-order.html	styleSheets item 1 title must be zebra
+css/cssom/ttwf-cssom-doc-ext-load-tree-order.html	styleSheets.length must be 5
 css/cssom/ttwf-cssom-document-extension.html	CSSOM - Extensions to the Document Interface: StyleSheetList length is 0 when no sheets loaded
 css/cssom/xml-stylesheet-pi-in-doctype.xhtml	xml-stylesheet processing instruction in doctype internal subset
 custom-elements/CustomElementRegistry-constructor-and-callbacks-are-held-strongly.html	attributeChangedCallback
@@ -8679,6 +9695,18 @@ dom/events/scrolling/scroll-event-fired-to-iframe.html	scrollX and scrollY being
 dom/events/scrolling/scroll-event-fired-to-iframe.html	scrollX and scrollY being set with the same value.
 dom/events/scrolling/scrollend-event-for-user-scroll.html	Tests that the target_div gets scrollend event when clicking scrollbar.
 dom/events/scrolling/scrollend-event-for-user-scroll.html	Tests that the target_div gets scrollend event when dragging the scrollbar thumb.
+dom/events/webkit-animation-end-event.html	dispatchEvent of a webkitAnimationEnd event does not trigger an unprefixed event handler or listener
+dom/events/webkit-animation-end-event.html	dispatchEvent of an animationend event does not trigger a prefixed event handler or listener
+dom/events/webkit-animation-end-event.html	onanimationend and onwebkitanimationend are not aliases
+dom/events/webkit-animation-iteration-event.html	dispatchEvent of a webkitAnimationIteration event does not trigger an unprefixed event handler or listener
+dom/events/webkit-animation-iteration-event.html	dispatchEvent of an animationiteration event does not trigger a prefixed event handler or listener
+dom/events/webkit-animation-iteration-event.html	onanimationiteration and onwebkitanimationiteration are not aliases
+dom/events/webkit-animation-start-event.html	dispatchEvent of a webkitAnimationStart event does not trigger an unprefixed event handler or listener
+dom/events/webkit-animation-start-event.html	dispatchEvent of an animationstart event does not trigger a prefixed event handler or listener
+dom/events/webkit-animation-start-event.html	onanimationstart and onwebkitanimationstart are not aliases
+dom/events/webkit-transition-end-event.html	dispatchEvent of a webkitTransitionEnd event does not trigger an unprefixed event handler or listener
+dom/events/webkit-transition-end-event.html	dispatchEvent of an transitionend event does not trigger a prefixed event handler or listener
+dom/events/webkit-transition-end-event.html	ontransitionend and onwebkittransitionend are not aliases
 dom/events/window-composed-path.html	window target has an empty path after dispatch
 dom/events/window-event-restored-after-throwing-onerror.html	window.event is restored after a throwing window.onerror handler
 dom/lists/DOMTokenList-Iterable.html	DOMTokenList has Symbol.iterator.
@@ -19343,6 +20371,8 @@ dom/nodes/insertion-removing-steps/Node-appendChild-script-and-button-from-div.h
 dom/nodes/insertion-removing-steps/Node-appendChild-script-and-iframe.html	A script inserted atomically before an iframe (using a DocumentFragment) does not observe the iframe's contentWindow, since the 'script running' and 'iframe setup' both happen in order, after DOM insertion completes
 dom/nodes/insertion-removing-steps/Node-appendChild-script-and-iframe.html	A script inserted atomically before an iframe (using a append() with multiple arguments) does not observe the iframe's contentWindow, since the 'script running' and 'iframe setup' both happen in order, after DOM insertion completes
 dom/nodes/insertion-removing-steps/Node-appendChild-script-and-iframe.html	A script inserted atomically before an iframe (using a div) does not observe the iframe's contentWindow, since the 'script running' and 'iframe setup' both happen in order, after DOM insertion completes
+dom/nodes/insertion-removing-steps/Node-appendChild-script-and-style.html	An earlier-inserted <script> synchronously observes a later-inserted <style> (via a div) being applied
+dom/nodes/insertion-removing-steps/Node-appendChild-script-and-style.html	Earlier-inserted <script> (via a div) synchronously observes a later-inserted <link rel=stylesheet>'s CSSStyleSheet creation
 dom/nodes/insertion-removing-steps/Node-appendChild-script-with-mutation-observer-takeRecords.html	An inserted script should be able to observe its own mutation record with takeRecords
 dom/nodes/insertion-removing-steps/blur-event.window.html	<button> element does not fire blur/focusout events upon DOM removal
 dom/nodes/insertion-removing-steps/blur-event.window.html	<input> element does not fire blur event upon DOM removal
@@ -131333,6 +132363,7 @@ html/semantics/embedded-content/media-elements/src_reflects_attribute_not_source
 html/semantics/embedded-content/media-elements/src_reflects_attribute_not_source_elements.html	video.src - reflection test
 html/semantics/embedded-content/media-elements/track/track-element/track-api-texttracks.html	Check getTrackById method
 html/semantics/embedded-content/media-elements/track/track-element/track-api-texttracks.html	Check the track elements
+html/semantics/embedded-content/media-elements/track/track-element/track-css-cue-pseudo-class.html	:cue pseudo-class is not supported and dropped during parsing
 html/semantics/embedded-content/media-elements/track/track-element/track-remove-quickly.html	Removing a track element before it has been processed doesn't crash
 html/semantics/embedded-content/media-elements/user-interface/muted.html	adding muted attribute has no effect on a connected audio after the setter
 html/semantics/embedded-content/media-elements/user-interface/muted.html	adding muted attribute has no effect on a connected video after the setter
