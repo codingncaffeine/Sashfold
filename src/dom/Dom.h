@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <type_traits>
@@ -216,11 +217,24 @@ public:
     Node* template_content() const { return m_template_content; }
     void set_template_content(Node* content) { m_template_content = content; }
 
+    // A custom element its definition has made (HTML §4.13.6, "custom"):
+    // what :defined asks of an element with a custom element's name, which
+    // is undefined until then. The bindings say it, and mark the change.
+    bool custom_defined() const { return m_custom_defined; }
+    void set_custom_defined(bool defined)
+    {
+        if (defined != m_custom_defined) {
+            m_custom_defined = defined;
+            mark_style_self();
+        }
+    }
+
 private:
     std::string m_namespace_uri;
     std::string m_local_name;
     std::vector<Attr> m_attributes;
     Node* m_template_content = nullptr;
+    bool m_custom_defined = false;
 };
 
 class Text : public Node {
@@ -342,6 +356,42 @@ public:
         return nullptr;
     }
 
+    // The states selectors ask after that the tree does not hold
+    // (selectors-4 §9, §10, §13): the element under the pointer, the one
+    // being pressed, the one with the focus and whether that focus is shown,
+    // the URL's target, the one shown full screen. Each setter marks the
+    // elements whose state it turned — for hover and press the element and
+    // its ancestors, for focus the focused one and the ancestors that hold
+    // it (:focus-within) — so a restyle computes those and what they reach.
+    Element const* hovered() const { return m_hovered; }
+    Element const* active() const { return m_active; }
+    Element const* focused() const { return m_focused; }
+    bool focus_visible() const { return m_focus_visible; }
+    Element const* target() const { return m_target; }
+    Element const* fullscreen() const { return m_fullscreen; }
+    void set_hovered(Element const* element) { set_chain_state(m_hovered, element); }
+    void set_active(Element const* element) { set_chain_state(m_active, element); }
+    void set_focused(Element const* element, bool visible);
+    void set_target(Element const* element) { set_one_state(m_target, element); }
+    void set_fullscreen(Element const* element) { set_one_state(m_fullscreen, element); }
+    // Whether the element or one inside it is hovered, pressed, focused.
+    bool holds_hover(Element const& element) const { return holds(m_hovered, element); }
+    bool holds_active(Element const& element) const { return holds(m_active, element); }
+    bool holds_focus(Element const& element) const { return holds(m_focused, element); }
+    // Moves with every change of those states, and with a control's
+    // checkedness or value that the host changed: a host that restyles only
+    // after a script watches this as well.
+    std::uint64_t state_version() const { return m_state_version; }
+    void note_state_change() { ++m_state_version; }
+    // A form control's live checkedness, which the host keeps (what the
+    // reader toggled, what a script set); nothing for one the host has no
+    // say over, whose checked attribute then answers. Whoever changes it
+    // marks the element.
+    std::function<std::optional<bool>(Element const&)> live_checked;
+    // The same for a text control's value (what was typed), which
+    // :placeholder-shown and the validity states read.
+    std::function<std::optional<std::string>(Element const&)> live_value;
+
     QuirksMode quirks_mode = QuirksMode::No;
     // Whether this is an XML document rather than an HTML one (DOM §4.5), and
     // the content type a document made by script reports; a loaded
@@ -419,6 +469,16 @@ private:
     friend void hold_place(IteratorPlace&);
     friend void release_place(IteratorPlace&);
     void note_style_removal(Element const& element);
+    void set_chain_state(Element const*& held, Element const* element);
+    void set_one_state(Element const*& held, Element const* element);
+    static bool holds(Element const* held, Element const& element);
+    Element const* m_hovered = nullptr;
+    Element const* m_active = nullptr;
+    Element const* m_focused = nullptr;
+    bool m_focus_visible = false;
+    Element const* m_target = nullptr;
+    Element const* m_fullscreen = nullptr;
+    std::uint64_t m_state_version = 0;
     std::vector<std::unique_ptr<Node>> m_nodes;
     std::vector<Range*> m_ranges;
     std::vector<IteratorPlace*> m_places;

@@ -1046,6 +1046,9 @@ struct Realm::Internals {
     // (mousedown, mousemove, mouseup) until the button comes up (Pointer
     // Events §5.2.5); the click still fires.
     bool mouse_suppressed = false;
+    // Whether the reader last used the keyboard rather than the pointer: a
+    // focus then shows itself (:focus-visible), as Blink and Gecko decide.
+    bool keyboard_modality = false;
     int click_count = 0;
     dom::Element* last_click_target = nullptr;
     double last_click_at = 0; // the host's clock, ms
@@ -1219,6 +1222,10 @@ struct Realm::Internals {
     Internals(Realm& realm, dom::Document& document, net::Url url, HostHooks hooks);
     // A frame's: a realm of its own in its page's agent.
     Internals(Realm& realm, Agent& agent, dom::Document& document, net::Url url, HostHooks hooks);
+    // Gives the document what the selectors read of its controls (Realm.cpp).
+    void give_document_states();
+    // Lives as long as this; what the document holds of it watches it.
+    std::shared_ptr<bool> alive = std::make_shared<bool>(true);
 
     double now() const;
     void console(std::string_view level, std::string_view message) const;

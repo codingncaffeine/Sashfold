@@ -590,6 +590,7 @@ struct Browser::Impl {
         // being asked at every restyle.
         std::set<std::string> sheet_failures;
         std::string sheet_signature; // which elements carried them, so a script change elsewhere keeps them
+        std::uint64_t styled_states = 0; // the document's state_version the styles were computed at
         std::vector<text::PageFont> fonts; // the fonts its @font-face rules brought along
         std::optional<css::StyleSet> style_set; // the sheets compiled for style_media
         css::MediaContext style_media;
@@ -3080,6 +3081,7 @@ struct Browser::Impl {
             // Only what changed since the last restyle is computed again,
             // unless nothing bounds the change; layout stays whole.
             Stopwatch const resolving(profile.restyle_ms);
+            tab.styled_states = tab.document->state_version();
             css::RestyleOutcome const outcome = css::update_styles(*tab.document, *tab.style_set, tab.styles, tab.style_record);
             profile.restyled_elements += outcome.computed;
             profile.whole_restyles += outcome.whole ? 1 : 0;
@@ -3118,6 +3120,11 @@ struct Browser::Impl {
     {
         if (!tab.document)
             return;
+        // What changed since the last restyle without a script — the focus,
+        // the pointer, a control's checkedness or value — is styled first:
+        // the selectors read those states. Nothing marked costs a walk.
+        if (tab.style_set && tab.document->state_version() != tab.styled_states)
+            restyle(tab);
         // The page's own fonts answer this tab's families; another tab may
         // have set its own since.
         text::FontManager::instance().set_page_fonts(tab.fonts);
@@ -4681,6 +4688,8 @@ struct Browser::Impl {
         if (!tab.document)
             return;
         dom::Element const* const target = find_anchor_target(*tab.document, fragment);
+        // :target is the element the fragment names, or none (selectors-4 §10.2).
+        tab.document->set_target(target);
         if (!target)
             return;
         // A target inside a box that scrolls needs that box moved as well;
@@ -8912,6 +8921,34 @@ struct Browser::Impl {
         return tab.controls.states[&control];
     }
 
+    // A control's checkedness or value changed: what :checked,
+    // :placeholder-shown and the validity states read of it.
+    static void restyle_control(dom::Element const& control)
+    {
+        const_cast<dom::Element&>(control).mark_style_self();
+        control.document().note_state_change();
+    }
+
+    // A control's typed value changed: styled again only where the page's
+    // selectors read values, so a keystroke elsewhere styles nothing.
+    static void restyle_value(Tab& tab, dom::Element const& control)
+    {
+        if (tab.style_set && tab.style_set->uses().control_values)
+            restyle_control(control);
+    }
+
+    // The control with the focus, told to its document too (it may be a
+    // frame's): :focus, :focus-within and :focus-visible follow it.
+    static void focus_control(Tab& tab, dom::Element const* control, bool visible)
+    {
+        if (dom::Element const* previous = tab.controls.focused; previous && previous != control
+            && (!control || &previous->document() != &control->document()))
+            previous->document().set_focused(nullptr, false);
+        tab.controls.focused = control;
+        if (control)
+            control->document().set_focused(control, visible);
+    }
+
     static std::string utf8_of(std::u32string const& text)
     {
         std::string out;
@@ -8977,7 +9014,7 @@ struct Browser::Impl {
         Tab* const tab = active_tab();
         if (!tab || !tab->controls.focused)
             return;
-        tab->controls.focused = nullptr;
+        focus_control(*tab, nullptr, false);
         relayout(*tab);
         dirty = true;
     }
@@ -8994,8 +9031,10 @@ struct Browser::Impl {
             dom::Attr const* const other_name = other->find_attribute("name");
             bool const same_group = name && other_name && other_name->value == name->value
                 && form_owner(*other, *tab.document) == form;
-            if (other == &radio || same_group)
+            if (other == &radio || same_group) {
                 state_of(tab, *other).checked = other == &radio;
+                restyle_control(*other);
+            }
         }
     }
 
@@ -9080,11 +9119,12 @@ struct Browser::Impl {
         if (!tab || !tab->document || control.has_attribute("disabled"))
             return;
         using layout::ControlKind;
-        tab->controls.focused = &control;
+        focus_control(*tab, &control, false);
         caret_to_end(*tab, control);
         switch (layout::control_kind(control)) {
         case ControlKind::Checkbox:
             state_of(*tab, control).checked = !layout::control_checked(control, &tab->controls);
+            restyle_control(control);
             break;
         case ControlKind::Radio:
             check_radio(*tab, control);
@@ -9113,7 +9153,7 @@ struct Browser::Impl {
                 break;
             }
         }
-        tab.controls.focused = controls[index];
+        focus_control(tab, controls[index], true);
         caret_to_end(tab, *controls[index]);
     }
 
@@ -9131,7 +9171,7 @@ struct Browser::Impl {
         if (key.key == Key::Tab) {
             focus_neighbor(*tab, key.shift);
         } else if (key.key == Key::Escape) {
-            tab->controls.focused = nullptr;
+            focus_control(*tab, nullptr, false);
         } else if (layout::is_text_kind(kind)) {
             bool const locked = control.has_attribute("readonly");
             std::u32string value = decode_utf8(layout::control_value(control, &tab->controls));
@@ -9147,6 +9187,7 @@ struct Browser::Impl {
                     position = 0;
                 }
                 state.value = utf8_of(value);
+                restyle_value(*tab, control);
                 state.caret = position;
                 relayout(*tab);
                 dirty = true;
@@ -9198,16 +9239,19 @@ struct Browser::Impl {
             }
             if (changed) {
                 state.value = utf8_of(value);
+                restyle_value(*tab, control);
                 state.caret = position;
             }
             changed = true; // a focused field keeps every key from the page
         } else {
             switch (kind) {
             case ControlKind::Checkbox:
-                if (key.key == Key::Space)
+                if (key.key == Key::Space) {
                     state.checked = !layout::control_checked(control, &tab->controls);
-                else
+                    restyle_control(control);
+                } else {
                     changed = false;
+                }
                 break;
             case ControlKind::Radio:
                 if (key.key == Key::Space)
@@ -9233,6 +9277,7 @@ struct Browser::Impl {
                         if (key.key == Key::Down && index + 1 < options.values.size())
                             ++index;
                         state.value = options.values[index];
+                        restyle_value(*tab, control);
                     }
                 } else {
                     changed = false;
@@ -9271,6 +9316,7 @@ struct Browser::Impl {
         std::size_t const position = std::min(state.caret, value.size());
         value.insert(position, 1, code_point);
         state.value = utf8_of(value);
+        restyle_value(*tab, control);
         state.caret = position + 1;
         relayout(*tab);
         dirty = true;
@@ -11960,7 +12006,7 @@ bool Browser::focus_control(std::string const& name)
     dom::Element const* const control = control_named_anywhere(*tab->document, tab->frames, name);
     if (!control || !layout::is_control(*control))
         return false;
-    tab->controls.focused = control;
+    m_impl->focus_control(*tab, control, false);
     m_impl->caret_to_end(*tab, *control);
     m_impl->relayout(*tab);
     m_impl->dirty = true;

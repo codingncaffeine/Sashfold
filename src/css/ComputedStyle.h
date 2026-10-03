@@ -950,6 +950,18 @@ struct ComputedStyle {
     BorderSide border_right;
     BorderSide border_bottom;
     BorderSide border_left;
+    // css-ui-4 §3: the outline, drawn around the border box, `offset`
+    // outside it, taking no room. `automatic` is outline-style: auto, the
+    // platform's focus ring. The width is the used one: 0 with no style.
+    struct Outline {
+        float width = 3; // medium
+        BorderStyle style = BorderStyle::None;
+        bool automatic = false;
+        Color color;
+        bool current_color = true;
+        float offset = 0;
+    };
+    Outline outline;
     // The four corners' radii, clockwise from the top left.
     CornerRadius border_top_left_radius;
     CornerRadius border_top_right_radius;

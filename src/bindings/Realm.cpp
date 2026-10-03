@@ -707,6 +707,7 @@ Realm::Internals::Internals(Realm& the_realm, dom::Document& the_document, net::
     , realm_record(interpreter.current_realm())
     , origin_url(url)
 {
+    give_document_states();
 }
 
 Realm::Internals::Internals(Realm& the_realm, Agent& the_agent, dom::Document& the_document, net::Url the_url, HostHooks the_hooks)
@@ -719,6 +720,26 @@ Realm::Internals::Internals(Realm& the_realm, Agent& the_agent, dom::Document& t
     , realm_record(the_agent.interpreter.create_realm())
     , origin_url(url)
 {
+    give_document_states();
+}
+
+void Realm::Internals::give_document_states()
+{
+    // What the selectors read of the controls: the live checkedness and
+    // value the host or this realm keeps. The document may outlive the
+    // realm, so each answer first asks whether the realm is still here.
+    std::weak_ptr<bool> const here = alive;
+    Internals* const self = this;
+    document->live_checked = [here, self](dom::Element const& element) -> std::optional<bool> {
+        if (here.expired())
+            return std::nullopt;
+        return control_checked_of(*self, element);
+    };
+    document->live_value = [here, self](dom::Element const& element) -> std::optional<std::string> {
+        if (here.expired())
+            return std::nullopt;
+        return control_value_of(*self, element);
+    };
 }
 
 js::Object* Realm::Internals::prototype(std::string_view name) const
@@ -3138,6 +3159,8 @@ void Realm::pointer_moved(dom::Element* target, MouseInit const& given, bool mov
             }
         }
         in.pointer_target = target;
+        // :hover follows the pointer (selectors-4 §9.2).
+        in.document->set_hovered(target);
     }
     if (target == nullptr || !moved)
         return;
@@ -3155,6 +3178,11 @@ bool Realm::pointer_pressed(dom::Element& target, MouseInit const& given)
     Internals& in = *m_internals;
     in.buttons_down |= button_bit(given.button);
     in.pressed_target = &target;
+    // :active is held while the primary button is (selectors-4 §9.3); a
+    // press is no keyboard, so a focus it gives shows no ring.
+    if (given.button == 0)
+        in.document->set_active(&target);
+    in.keyboard_modality = false;
     // The count a press carries is the click it is about to be (UI Events
     // §5.3.3): one more than the last click, when it is close enough in
     // time and place to count as the same series.
@@ -3176,6 +3204,8 @@ PointerRelease Realm::pointer_released(dom::Element* target, MouseInit const& gi
 {
     Internals& in = *m_internals;
     in.buttons_down &= ~button_bit(given.button);
+    if (given.button == 0)
+        in.document->set_active(nullptr);
     dom::Element* const pressed = in.pressed_target;
     in.pressed_target = nullptr;
     PointerRelease result;
@@ -3249,6 +3279,8 @@ bool Realm::dispatch_key_event(dom::Node* target, std::string_view type, KeyInit
     // event (HTML §6.4.1).
     if (type == "keydown" && init.key != "Escape")
         in.has_been_active = true;
+    if (type == "keydown")
+        in.keyboard_modality = true;
     js::Object* target_object = target ? in.wrap(*target) : in.wrap(*in.document);
     return in.dispatch(*event, target_object);
 }

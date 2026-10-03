@@ -95,7 +95,35 @@ struct SimpleSelector {
         Not,
         Is,
         Where,
-        // known interactive/state pseudos: parse fine, never match (yet)
+        // the states the document and the form controls hold (selectors-4
+        // §9-§14), and :defined
+        Hover,
+        Active,
+        Focus,
+        FocusWithin,
+        FocusVisible,
+        Target,
+        Fullscreen,
+        Checked,
+        Indeterminate,
+        Default,
+        Disabled,
+        Enabled,
+        Required,
+        Optional,
+        ReadOnly,
+        ReadWrite,
+        PlaceholderShown,
+        Valid,
+        Invalid,
+        InRange,
+        OutOfRange,
+        Open,
+        Defined,
+        Lang, // :lang(), its list in `languages`
+        Dir, // :dir(), `languages` holds the one direction
+        // valid selectors that match nothing here: :visited, the autofill,
+        // a modal or popover, a user-interaction state, a vendor name
         NeverMatches,
     };
 
@@ -110,6 +138,7 @@ struct SimpleSelector {
     std::shared_ptr<SelectorList const> argument;
     int nth_a = 0; // :nth-*(an+b)
     int nth_b = 0;
+    std::vector<std::string> languages; // :lang() ranges, lower case; :dir()'s direction
 };
 
 struct CompoundSelector {
@@ -175,5 +204,10 @@ bool matches(ComplexSelector const& selector, dom::Element const& element);
 // True when the element matches every simple selector of the compound but
 // its :has() ones: an element a :has() in the compound is tested on.
 bool matches_compound_but_has(CompoundSelector const& compound, dom::Element const& element);
+
+// Whether the element is in the state a pseudo-class with no argument
+// names (:hover, :checked, :disabled...): what an invalidation asks of an
+// element whose state may have turned.
+bool element_in_state(SimpleSelector::PseudoKind kind, dom::Element const& element);
 
 }

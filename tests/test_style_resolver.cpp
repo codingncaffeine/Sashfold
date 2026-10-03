@@ -193,12 +193,127 @@ li:has(strong) { :has(> &) { color: rgb(255, 0, 0) } }
     CHECK(color_of("has-outer") == Color::rgb(36, 0, 0)); // a :has() that `&` brings into a :has() matches nothing
 }
 
+// The states selectors-4 §9-§14 name: the document's (hover, press, focus,
+// target) and the form controls' — each element's colour says which
+// matched. Blink's vendor names are valid, so a list that names one keeps
+// its other selectors.
+void test_state_pseudo_classes()
+{
+    std::unique_ptr<dom::Document> document = html::parse_document(std::string_view(R"(<!doctype html>
+<div id=card><span id=title>t</span></div>
+<button id=pressed>p</button><button id=clicked>c</button><input id=typed>
+<input type=checkbox id=box checked><input type=checkbox id=unboxed><input type=checkbox id=live>
+<fieldset disabled><legend><input id=in-legend></legend><input id=fenced></fieldset>
+<button id=off disabled>x</button><select id=sel required><option id=o1>a</option><option id=o2 value=b>b</option></select>
+<input id=req required><input id=ro readonly><div id=editable contenteditable>e</div>
+<input id=ph placeholder="hi"><input id=ph-full placeholder="hi" value=x>
+<input type=email id=email value="nope"><input type=number id=num min=1 max=5 value=9>
+<form id=form><input id=in-form required><button id=submit>s</button><button id=second>s</button></form>
+<progress id=progress></progress><details id=details open><summary>s</summary></details>
+<x-thing id=undefined-el></x-thing><x-made id=defined-el></x-made>
+<p lang=en-GB><span id=english>en</span></p><p dir=rtl><span id=rtl>r</span></p>
+<h2 id=target>t</h2>
+<div id=vendor>v</div><div id=vendor2>v</div><div id=vendor3>v</div>
+)"));
+    auto const element = [&](std::string_view id) { return find_by_id(*document, id); };
+    document->set_hovered(element("title"));
+    document->set_active(element("pressed"));
+    document->set_focused(element("typed"), false);
+    document->set_target(element("target"));
+    element("defined-el")->set_custom_defined(true);
+    document->live_checked = [&](dom::Element const& e) -> std::optional<bool> {
+        if (&e == element("live"))
+            return true;
+        return std::nullopt;
+    };
+    css::SheetSource sheet;
+    sheet.text = R"CSS(
+#card:hover { color: rgb(1, 0, 0) }
+#title:hover { background-color: rgb(1, 1, 1) }
+#pressed:active { color: rgb(2, 0, 0) }
+#clicked:active { color: rgb(255, 0, 0) }
+#typed:focus { color: rgb(3, 0, 0) }
+#typed:focus-visible { background-color: rgb(3, 3, 3) }
+:checked { color: rgb(4, 0, 0) }
+#unboxed:not(:checked) { color: rgb(5, 0, 0) }
+:disabled { color: rgb(6, 0, 0) }
+#in-legend:enabled { color: rgb(7, 0, 0) }
+#sel:required { color: rgb(8, 0, 0) }
+#req:invalid { background-color: rgb(8, 8, 8) }
+#ro:read-only { color: rgb(9, 0, 0) }
+#editable:read-write { color: rgb(10, 0, 0) }
+#ph:placeholder-shown { color: rgb(11, 0, 0) }
+#ph-full:placeholder-shown { color: rgb(255, 0, 0) }
+#email:invalid { color: rgb(12, 0, 0) }
+#num:out-of-range { color: rgb(13, 0, 0) }
+#form:invalid { color: rgb(14, 0, 0) }
+#submit:default { color: rgb(15, 0, 0) }
+#second:default { color: rgb(255, 0, 0) }
+#progress:indeterminate { color: rgb(16, 0, 0) }
+#details:open { color: rgb(17, 0, 0) }
+#undefined-el:not(:defined) { color: rgb(18, 0, 0) }
+#defined-el:defined { color: rgb(19, 0, 0) }
+:lang(en) { color: rgb(20, 0, 0) }
+:dir(rtl) { color: rgb(21, 0, 0) }
+:target { color: rgb(22, 0, 0) }
+input:-webkit-autofill, #vendor { color: rgb(23, 0, 0) }
+::-webkit-scrollbar-thumb:hover, #vendor2 { color: rgb(24, 0, 0) }
+::part(label), #vendor3 { color: rgb(25, 0, 0) }
+#o2:checked { background-color: rgb(26, 0, 0) }
+#o1:checked { background-color: rgb(27, 0, 0) }
+)CSS";
+    css::StyleSet const set({ sheet });
+    css::StyleMap const styles = css::resolve_styles(*document, set);
+    auto const style_of_id = [&](std::string_view id) -> ComputedStyle const& {
+        static ComputedStyle const fallback;
+        auto const it = styles.find(element(id));
+        return it == styles.end() ? fallback : it->second;
+    };
+    auto const color_of = [&](std::string_view id) { return style_of_id(id).color; };
+    CHECK(color_of("card") == Color::rgb(1, 0, 0)); // an ancestor of the hovered element is hovered
+    CHECK(style_of_id("title").background_color == Color::rgb(1, 1, 1));
+    CHECK(color_of("pressed") == Color::rgb(2, 0, 0));
+    CHECK(color_of("clicked") != Color::rgb(255, 0, 0));
+    CHECK(color_of("typed") == Color::rgb(3, 0, 0));
+    CHECK(style_of_id("typed").background_color == Color::rgb(3, 3, 3)); // a text field shows its focus
+    CHECK(color_of("box") == Color::rgb(4, 0, 0));
+    CHECK(color_of("unboxed") == Color::rgb(5, 0, 0));
+    CHECK(color_of("live") == Color::rgb(4, 0, 0)); // the host's checkedness, not the attribute
+    CHECK(color_of("fenced") == Color::rgb(6, 0, 0)); // a disabled fieldset disables what it holds
+    CHECK(color_of("in-legend") == Color::rgb(7, 0, 0)); // but not its first legend
+    CHECK(color_of("off") == Color::rgb(6, 0, 0));
+    CHECK(color_of("sel") == Color::rgb(8, 0, 0));
+    CHECK(style_of_id("req").background_color == Color::rgb(8, 8, 8)); // required and empty
+    CHECK(color_of("ro") == Color::rgb(9, 0, 0));
+    CHECK(color_of("editable") == Color::rgb(10, 0, 0));
+    CHECK(color_of("ph") == Color::rgb(11, 0, 0));
+    CHECK(color_of("ph-full") != Color::rgb(255, 0, 0));
+    CHECK(color_of("email") == Color::rgb(12, 0, 0));
+    CHECK(color_of("num") == Color::rgb(13, 0, 0));
+    CHECK(color_of("form") == Color::rgb(14, 0, 0)); // a control in it is invalid
+    CHECK(color_of("submit") == Color::rgb(15, 0, 0)); // the form's first submit button
+    CHECK(color_of("second") != Color::rgb(255, 0, 0));
+    CHECK(color_of("progress") == Color::rgb(16, 0, 0));
+    CHECK(color_of("details") == Color::rgb(17, 0, 0));
+    CHECK(color_of("undefined-el") == Color::rgb(18, 0, 0));
+    CHECK(color_of("defined-el") == Color::rgb(19, 0, 0));
+    CHECK(color_of("english") == Color::rgb(20, 0, 0));
+    CHECK(color_of("rtl") == Color::rgb(21, 0, 0));
+    CHECK(color_of("target") == Color::rgb(22, 0, 0));
+    CHECK(color_of("vendor") == Color::rgb(23, 0, 0));
+    CHECK(color_of("vendor2") == Color::rgb(24, 0, 0));
+    CHECK(color_of("vendor3") == Color::rgb(25, 0, 0));
+    CHECK(style_of_id("o1").background_color == Color::rgb(27, 0, 0)); // none selected: the first is
+    CHECK(style_of_id("o2").background_color != Color::rgb(26, 0, 0));
+}
+
 } // namespace
 
 int main()
 {
     test_prepared_sheets_from_many_threads();
     test_nesting_and_layers();
+    test_state_pseudo_classes();
     g_document = html::parse_document(std::string_view(R"(
 <!doctype html>
 <html><head><style>

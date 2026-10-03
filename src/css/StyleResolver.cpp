@@ -214,6 +214,7 @@ iframe { border: 2px inset }
 video { object-fit: contain }
 frameset, frame { display: block }
 noframes { display: none }
+:focus-visible { outline: auto 1px }
 )CSS";
 
 enum class CascadeRank : int {
@@ -2279,7 +2280,14 @@ struct RuleSet {
                 note_reach_of(selectors[s]);
             }
         }
+        // States an ancestor's attribute decides: a change to it there
+        // reaches everything inside.
+        for (std::string const& key : ancestor_attributes)
+            reach[key].any = true;
     }
+
+    // The ancestor attributes some state pseudo-class reads (see build_index).
+    std::unordered_set<std::string> ancestor_attributes;
 
     // What a change to an element's classes, id or attributes can reach
     // through the selectors, as the invalidation sets of other engines say
@@ -2297,6 +2305,62 @@ struct RuleSet {
     // one reaches the siblings after the element and everything in them.
     std::unordered_set<std::string> reach_siblings;
 
+    // The feature a state pseudo-class tests, as a key: the state's own name
+    // for what the document or a control holds, the attribute for what an
+    // attribute decides. A pair that answers one question shares a key.
+    static std::string_view state_key(SimpleSelector::PseudoKind kind)
+    {
+        using K = SimpleSelector::PseudoKind;
+        switch (kind) {
+        case K::Hover: return ":hover";
+        case K::Active: return ":active";
+        case K::Focus: return ":focus";
+        case K::FocusWithin: return ":focus-within";
+        case K::FocusVisible: return ":focus-visible";
+        case K::Target: return ":target";
+        case K::Fullscreen: return ":fullscreen";
+        case K::Checked: return ":checked";
+        case K::Indeterminate: return ":indeterminate";
+        case K::Default: return ":default";
+        case K::Disabled:
+        case K::Enabled: return ":disabled";
+        case K::Required:
+        case K::Optional: return "[required";
+        case K::ReadOnly:
+        case K::ReadWrite: return ":read-write";
+        case K::PlaceholderShown: return ":placeholder-shown";
+        case K::Valid:
+        case K::Invalid: return ":valid";
+        case K::InRange:
+        case K::OutOfRange: return ":in-range";
+        case K::Open: return "[open";
+        case K::Defined: return ":defined";
+        case K::Lang: return "[lang";
+        case K::Dir: return "[dir";
+        default: return {};
+        }
+    }
+    // The state keys an element's own state answers, and the kind each is
+    // asked as: what selector_features lists for an element that is in it.
+    static constexpr std::pair<std::string_view, SimpleSelector::PseudoKind> element_states[] = {
+        { ":hover", SimpleSelector::PseudoKind::Hover },
+        { ":active", SimpleSelector::PseudoKind::Active },
+        { ":focus", SimpleSelector::PseudoKind::Focus },
+        { ":focus-within", SimpleSelector::PseudoKind::FocusWithin },
+        { ":focus-visible", SimpleSelector::PseudoKind::FocusVisible },
+        { ":target", SimpleSelector::PseudoKind::Target },
+        { ":fullscreen", SimpleSelector::PseudoKind::Fullscreen },
+        { ":checked", SimpleSelector::PseudoKind::Checked },
+        { ":indeterminate", SimpleSelector::PseudoKind::Indeterminate },
+        { ":default", SimpleSelector::PseudoKind::Default },
+        { ":disabled", SimpleSelector::PseudoKind::Disabled },
+        { ":read-write", SimpleSelector::PseudoKind::ReadWrite },
+        { ":placeholder-shown", SimpleSelector::PseudoKind::PlaceholderShown },
+        { ":valid", SimpleSelector::PseudoKind::Valid },
+        { ":in-range", SimpleSelector::PseudoKind::InRange },
+        { ":defined", SimpleSelector::PseudoKind::Defined },
+    };
+
     // A simple selector's feature, when it tests one an element can change.
     static std::string feature_key(SimpleSelector const& simple)
     {
@@ -2310,6 +2374,8 @@ struct RuleSet {
         case SimpleSelector::Kind::PseudoClass:
             if (simple.pseudo == SimpleSelector::PseudoKind::AnyLink || simple.pseudo == SimpleSelector::PseudoKind::Link)
                 return "[href";
+            if (std::string_view const key = state_key(simple.pseudo); !key.empty())
+                return std::string(key);
             return {};
         case SimpleSelector::Kind::Universal:
         case SimpleSelector::Kind::Type:
@@ -2486,6 +2552,43 @@ struct RuleSet {
                     if (in_has || (!subject_compound && !(top && note_has_anchor(selector, c))))
                         uses.has_beyond_ancestors = true;
                     break;
+                case SimpleSelector::PseudoKind::Disabled:
+                case SimpleSelector::PseudoKind::Enabled:
+                    // A fieldset above disables what it holds.
+                    ancestor_attributes.insert("[disabled");
+                    break;
+                case SimpleSelector::PseudoKind::Lang:
+                    ancestor_attributes.insert("[lang");
+                    break;
+                case SimpleSelector::PseudoKind::Dir:
+                    ancestor_attributes.insert("[dir");
+                    break;
+                case SimpleSelector::PseudoKind::ReadOnly:
+                case SimpleSelector::PseudoKind::ReadWrite:
+                    ancestor_attributes.insert("[contenteditable");
+                    break;
+                case SimpleSelector::PseudoKind::Hover:
+                case SimpleSelector::PseudoKind::Active:
+                case SimpleSelector::PseudoKind::Focus:
+                case SimpleSelector::PseudoKind::FocusWithin:
+                case SimpleSelector::PseudoKind::FocusVisible:
+                case SimpleSelector::PseudoKind::Target:
+                case SimpleSelector::PseudoKind::Fullscreen:
+                case SimpleSelector::PseudoKind::Checked:
+                case SimpleSelector::PseudoKind::Indeterminate:
+                case SimpleSelector::PseudoKind::Default:
+                    break;
+                case SimpleSelector::PseudoKind::PlaceholderShown:
+                case SimpleSelector::PseudoKind::Valid:
+                case SimpleSelector::PseudoKind::Invalid:
+                case SimpleSelector::PseudoKind::InRange:
+                case SimpleSelector::PseudoKind::OutOfRange:
+                    uses.control_values = true;
+                    break;
+                case SimpleSelector::PseudoKind::Required:
+                case SimpleSelector::PseudoKind::Optional:
+                case SimpleSelector::PseudoKind::Open:
+                case SimpleSelector::PseudoKind::Defined:
                 case SimpleSelector::PseudoKind::None:
                 case SimpleSelector::PseudoKind::Root:
                 case SimpleSelector::PseudoKind::AnyLink:
@@ -3423,6 +3526,11 @@ struct Resolver {
                 },
                 15 },
             { "border-top-width", false, [](S& to, S const& from) { to.border_top.width = from.border_top.width; }, 0 },
+            { "outline", false, [](S& to, S const& from) { to.outline = from.outline; }, 0 },
+            { "outline-style", false, [](S& to, S const& from) { to.outline.style = from.outline.style; to.outline.automatic = from.outline.automatic; }, 0 },
+            { "outline-width", false, [](S& to, S const& from) { to.outline.width = from.outline.width; }, 0 },
+            { "outline-color", false, [](S& to, S const& from) { to.outline.color = from.outline.color; to.outline.current_color = from.outline.current_color; }, 0 },
+            { "outline-offset", false, [](S& to, S const& from) { to.outline.offset = from.outline.offset; }, 0 },
             { "border-right-width", false, [](S& to, S const& from) { to.border_right.width = from.border_right.width; }, 0 },
             { "border-bottom-width", false, [](S& to, S const& from) { to.border_bottom.width = from.border_bottom.width; }, 0 },
             { "border-left-width", false, [](S& to, S const& from) { to.border_left.width = from.border_left.width; }, 0 },
@@ -4171,6 +4279,11 @@ struct Resolver {
             if (set.reach.contains("[" + lower))
                 found.push_back("[" + name + "=" + attribute.value);
         }
+        // The states other elements' selectors test it in.
+        for (auto const& [key, kind] : RuleSet::element_states) {
+            if (set.reach.contains(std::string(key)) && element_in_state(kind, element))
+                found.emplace_back(key);
+        }
         if (found.empty())
             return nullptr;
         std::sort(found.begin(), found.end());
@@ -4438,6 +4551,11 @@ struct Resolver {
             });
         }
 
+        // The outline's currentColor is the element's color. Its width stays
+        // as given with no style (CSS 2.1 §18.4: a child inherits it);
+        // the painter draws nothing then.
+        if (style.outline.current_color)
+            style.outline.color = style.color;
         // currentColor is the border default.
         style.border_top.current_color = !border_top_color_set;
         style.border_right.current_color = !border_right_color_set;
@@ -6845,6 +6963,81 @@ struct Resolver {
                      &style.border_left }) {
                 if (side->style == BorderStyle::Solid && side->width == 0)
                     side->width = 3;
+            }
+            return;
+        }
+        // css-ui-4 §3: the outline. Its style takes `auto` (the platform's
+        // focus ring) and no `hidden`; its color takes `invert`, which no
+        // engine draws any more and reads as currentColor.
+        auto const outline_style = [&](ComponentValue const& value) -> std::optional<std::pair<BorderStyle, bool>> {
+            if (is_ident(&value, "auto"))
+                return std::pair { BorderStyle::Solid, true };
+            if (is_ident(&value, "hidden"))
+                return std::nullopt;
+            if (std::optional<BorderStyle> const parsed = parse_border_style(value))
+                return std::pair { *parsed, false };
+            return std::nullopt;
+        };
+        auto const outline_color = [&](ComponentValue const& value) -> std::optional<std::pair<Color, bool>> {
+            if (is_ident(&value, "invert") || is_ident(&value, "currentcolor"))
+                return std::pair { style.color, true };
+            if (std::optional<Color> const parsed = parse_color_component(value, style.color))
+                return std::pair { *parsed, false };
+            return std::nullopt;
+        };
+        if (name == "outline") {
+            ComputedStyle::Outline result;
+            for (ComponentValue const* value : values) {
+                if (auto const parsed = outline_style(*value)) {
+                    result.style = parsed->first;
+                    result.automatic = parsed->second;
+                    continue;
+                }
+                if (auto const width = parse_border_width(*value, context)) {
+                    result.width = *width;
+                    continue;
+                }
+                if (auto const color = outline_color(*value)) {
+                    result.color = color->first;
+                    result.current_color = color->second;
+                    continue;
+                }
+                return; // junk: the whole declaration is dropped
+            }
+            result.offset = style.outline.offset; // not part of the shorthand
+            style.outline = result;
+            return;
+        }
+        if (name == "outline-style") {
+            if (values.size() != 1)
+                return;
+            if (auto const parsed = outline_style(*values[0])) {
+                style.outline.style = parsed->first;
+                style.outline.automatic = parsed->second;
+            }
+            return;
+        }
+        if (name == "outline-width") {
+            if (values.size() == 1) {
+                if (auto const width = parse_border_width(*values[0], context))
+                    style.outline.width = *width;
+            }
+            return;
+        }
+        if (name == "outline-color") {
+            if (values.size() == 1) {
+                if (auto const color = outline_color(*values[0])) {
+                    style.outline.color = color->first;
+                    style.outline.current_color = color->second;
+                }
+            }
+            return;
+        }
+        if (name == "outline-offset") {
+            if (values.size() == 1) {
+                std::optional<LengthPercent> const length = parse_length_percent(*values[0], context, false, false);
+                if (length && length->kind == LengthPercent::Kind::Px)
+                    style.outline.offset = length->value;
             }
             return;
         }

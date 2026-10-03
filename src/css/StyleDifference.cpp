@@ -70,6 +70,12 @@ bool same(BorderSide const& a, BorderSide const& b)
     return same(a.width, b.width) && a.style == b.style && a.color == b.color && a.current_color == b.current_color;
 }
 
+bool same(ComputedStyle::Outline const& a, ComputedStyle::Outline const& b)
+{
+    return same(a.width, b.width) && a.style == b.style && a.automatic == b.automatic && a.color == b.color
+        && a.current_color == b.current_color && same(a.offset, b.offset);
+}
+
 bool same(CornerRadius const& a, CornerRadius const& b) { return same(a.x, b.x) && same(a.y, b.y); }
 
 bool same(SvgPaint const& a, SvgPaint const& b)
@@ -285,6 +291,7 @@ std::optional<std::string_view> first_style_difference(ComputedStyle const& a, C
     field("border_right", a.border_right, b.border_right);
     field("border_bottom", a.border_bottom, b.border_bottom);
     field("border_left", a.border_left, b.border_left);
+    field("outline", a.outline, b.outline);
     field("border_top_left_radius", a.border_top_left_radius, b.border_top_left_radius);
     field("border_top_right_radius", a.border_top_right_radius, b.border_top_right_radius);
     field("border_bottom_right_radius", a.border_bottom_right_radius, b.border_bottom_right_radius);

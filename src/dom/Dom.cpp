@@ -81,6 +81,91 @@ void Document::note_style_removal(Element const& element)
         m_style_removals_from = m_style_clock + 1;
     }
     m_style_removals.push_back({ m_style_clock, &element });
+    // A state held by what left the tree goes with it: it may be adopted
+    // by another document, and freed there.
+    for (Element const** held : { &m_hovered, &m_active, &m_focused, &m_target, &m_fullscreen }) {
+        if (*held && holds(*held, element))
+            *held = nullptr;
+    }
+}
+
+namespace {
+
+// An element and the elements it sits in, innermost first.
+std::vector<Element const*> element_chain(Element const* element)
+{
+    std::vector<Element const*> chain;
+    for (Node const* node = element; node; node = node->parent()) {
+        if (node->is_element())
+            chain.push_back(static_cast<Element const*>(node));
+    }
+    return chain;
+}
+
+// Marks the elements in one chain and not the other: the ones whose
+// state turned when the state moved from one element to another.
+void mark_chain_difference(Element const* from, Element const* to)
+{
+    std::vector<Element const*> const left = element_chain(from);
+    std::vector<Element const*> const entered = element_chain(to);
+    std::size_t shared = 0;
+    while (shared < left.size() && shared < entered.size()
+        && left[left.size() - 1 - shared] == entered[entered.size() - 1 - shared])
+        ++shared;
+    for (std::size_t i = 0; i + shared < left.size(); ++i)
+        const_cast<Element*>(left[i])->mark_style_self();
+    for (std::size_t i = 0; i + shared < entered.size(); ++i)
+        const_cast<Element*>(entered[i])->mark_style_self();
+}
+
+}
+
+void Document::set_chain_state(Element const*& held, Element const* element)
+{
+    if (held == element)
+        return;
+    note_state_change();
+    mark_chain_difference(held, element);
+    held = element;
+}
+
+void Document::set_one_state(Element const*& held, Element const* element)
+{
+    if (held == element)
+        return;
+    note_state_change();
+    if (held)
+        const_cast<Element*>(held)->mark_style_self();
+    if (element)
+        const_cast<Element*>(element)->mark_style_self();
+    held = element;
+}
+
+void Document::set_focused(Element const* element, bool visible)
+{
+    note_state_change();
+    if (m_focused == element) {
+        if (m_focus_visible != visible && element)
+            const_cast<Element*>(element)->mark_style_self();
+        m_focus_visible = visible;
+        return;
+    }
+    mark_chain_difference(m_focused, element);
+    // The focused element itself turns too when it stays in both chains
+    // (focus moved to one of its descendants): :focus left it.
+    if (m_focused)
+        const_cast<Element*>(m_focused)->mark_style_self();
+    m_focused = element;
+    m_focus_visible = visible;
+}
+
+bool Document::holds(Element const* held, Element const& element)
+{
+    for (Node const* node = held; node; node = node->parent()) {
+        if (node == &element)
+            return true;
+    }
+    return false;
 }
 
 void Node::insert_before(Node& child, Node* reference)

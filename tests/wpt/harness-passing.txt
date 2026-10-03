@@ -3522,6 +3522,9 @@ css/css-conditional/js/CSS-supports-L5.html	font-tech() function doesn't accept 
 css/css-conditional/js/CSS-supports-L5.html	font-tech() function doesn't accept a technology list
 css/css-conditional/js/CSS-supports-L5.html	font-tech() function doesn't accept an unknown technology
 css/css-conditional/js/CSS-supports-L5.html	font-tech() function doesn't accept singular feature-* form for technology
+css/css-conditional/js/CSS-supports-details-content-pseudo-parsing.html	selector() function accepts ::details-content
+css/css-conditional/js/CSS-supports-details-content-pseudo-parsing.html	selector() function accepts ::details-content followed by :lang()
+css/css-conditional/js/CSS-supports-details-content-pseudo-parsing.html	selector() function accepts ::details-content followed by a state pseudo-class
 css/css-conditional/js/CSS-supports-details-content-pseudo-parsing.html	selector() function doesn't accept ::details-content followed by :has()
 css/css-conditional/js/CSS-supports-details-content-pseudo-parsing.html	selector() function doesn't accept ::details-content followed by a part
 css/css-conditional/js/CSS-supports-details-content-pseudo-parsing.html	selector() function doesn't accept ::details-content followed by a tree-structural pseudo-class
@@ -3532,6 +3535,10 @@ css/css-conditional/js/CSS-supports-selector-detecting-invalid-in-logical-combin
 css/css-conditional/js/CSS-supports-selector-detecting-invalid-in-logical-combinations.html	Some pseudo elements always fail inside :is(), :where(), :has()
 css/css-conditional/js/CSS-supports-selector-picker.html	::picker with empty argument is not supported
 css/css-conditional/js/CSS-supports-selector-picker.html	::picker without argument is not supported
+css/css-conditional/js/CSS-supports-selector-picker.html	::picker(select) pseudo-element is supported
+css/css-conditional/js/CSS-supports-selector-picker.html	::picker(select) without element is supported
+css/css-conditional/js/CSS-supports-selector-picker.html	::picker-icon pseudo-element is supported
+css/css-conditional/js/CSS-supports-selector-picker.html	::picker-icon without element is supported
 css/css-conditional/js/conditional-CSSGroupingRule.html	@media is CSSGroupingRule
 css/css-conditional/js/conditional-CSSGroupingRule.html	@media rule type
 css/css-conditional/js/conditional-CSSGroupingRule.html	@supports is CSSGroupingRule
@@ -4273,6 +4280,9 @@ css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |
 css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |::first-letter| isMatch: false
 css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |::first-line| isMatch: false
 css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |:active| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |:lang(tr-AZ)| isMatch: false
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |:lang(zh)| isMatch: true
+css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |:lang(zh-CN)| isMatch: true
 css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |:not(:active)| isMatch: true
 css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang*="-"]| isMatch: true
 css/cssom/CSSStyleRule-set-selectorText.html	CSSStyleRule: selectorText value: |[lang*="ab"]| isMatch: false
@@ -6969,6 +6979,7 @@ custom-elements/CustomElementRegistry.html	customElements.whenDefined must retur
 custom-elements/CustomElementRegistry.html	customElements.whenDefined must return a rejected promise when the given name is not a valid custom element name
 custom-elements/CustomElementRegistry.html	customElements.whenDefined must return a resolved promise when the registry contains the entry with the given name
 custom-elements/CustomElementRegistry.html	customElements.whenDefined must return an unresolved promise when the registry does not contain the entry with the given name
+custom-elements/Document-createElement-customized-builtins.html	document.createElement must create an instance of autonomous custom elements when it has is attribute
 custom-elements/Document-createElement.html	document.createElement must create an instance of custom elements
 custom-elements/Document-createElement.html	document.createElement must not report a NotSupportedError when an element child is added and removed during construction
 custom-elements/Document-createElement.html	document.createElement must not report a NotSupportedError when the element is adopted back from a a cloned document during construction
@@ -7213,6 +7224,27 @@ custom-elements/parser/parser-uses-registry-of-owner-document.html	HTML parser m
 custom-elements/parser/parser-uses-registry-of-owner-document.html	HTML parser must use the registry of the content document inside an iframe
 custom-elements/parser/parser-uses-registry-of-owner-document.html	HTML parser must use the registry of window.document in a document created by DOMParser
 custom-elements/parser/serializing-html-fragments-customized-builtins.html	"is" content attribute should be serialized even if the element is a customized built-in element
+custom-elements/pseudo-class-defined-customized-builtins.html	Upgraded createElement("abbr", is:"my-abbr") should be :defined
+custom-elements/pseudo-class-defined-customized-builtins.html	Upgraded createElementNS("http://www.w3.org/1999/xhtml", "abbr", is:"my-abbr") should be :defined
+custom-elements/pseudo-class-defined-customized-builtins.html	Without browsing context: createElementNS("http://www.w3.org/2000/svg", "abbr", is:"my-abbr") should be :defined
+custom-elements/pseudo-class-defined-customized-builtins.html	Without browsing context: createElementNS("http://www.w3.org/2000/svg", "p", is:"") should be :defined
+custom-elements/pseudo-class-defined-customized-builtins.html	createElementNS("http://www.w3.org/2000/svg", "abbr", is:"my-abbr") should be :defined
+custom-elements/pseudo-class-defined-customized-builtins.html	createElementNS("http://www.w3.org/2000/svg", "p", is:"") should be :defined
+custom-elements/pseudo-class-defined.html	<a-a> should not be :defined
+custom-elements/pseudo-class-defined.html	<div> should be :defined
+custom-elements/pseudo-class-defined.html	Without browsing context: createElement("div") should be :defined
+custom-elements/pseudo-class-defined.html	Without browsing context: createElementNS("http://www.w3.org/1999/xhtml", "div") should be :defined
+custom-elements/pseudo-class-defined.html	Without browsing context: createElementNS("http://www.w3.org/2000/svg", "a-a") should be :defined
+custom-elements/pseudo-class-defined.html	Without browsing context: createElementNS("http://www.w3.org/2000/svg", "div") should be :defined
+custom-elements/pseudo-class-defined.html	Without browsing context: createElementNS("http://www.w3.org/2000/svg", "font-face") should be :defined
+custom-elements/pseudo-class-defined.html	createElement("a-a") should not be :defined
+custom-elements/pseudo-class-defined.html	createElement("div") should be :defined
+custom-elements/pseudo-class-defined.html	createElementNS("http://www.w3.org/1999/xhtml", "a-a") should not be :defined
+custom-elements/pseudo-class-defined.html	createElementNS("http://www.w3.org/1999/xhtml", "div") should be :defined
+custom-elements/pseudo-class-defined.html	createElementNS("http://www.w3.org/2000/svg", "a-a") should be :defined
+custom-elements/pseudo-class-defined.html	createElementNS("http://www.w3.org/2000/svg", "div") should be :defined
+custom-elements/pseudo-class-defined.html	createElementNS("http://www.w3.org/2000/svg", "font-face") should be :defined
+custom-elements/pseudo-class-defined.html	this.matches(:defined) should not match during an upgrade
 custom-elements/reaction-timing.html	Calling Node.prototype.cloneNode(false) must push a new element queue to the processing stack
 custom-elements/reaction-timing.html	setAttribute and removeAttribute must enqueue and invoke attributeChangedCallback
 custom-elements/reaction-timing.html	toggleAttribute must enqueue and invoke attributeChangedCallback
@@ -9283,6 +9315,7 @@ custom-elements/registries/valid-custom-element-names.html	Valid custom element 
 custom-elements/registries/valid-custom-element-names.html	Valid custom element name: code points: [98,45,101,108,101,109,101,110,116], string: "b-element"
 custom-elements/registries/valid-custom-element-names.html	Valid custom element name: code points: [99,45,101,108,101,109,101,110,116], string: "c-element"
 custom-elements/state/state-pseudo-class.html	:state() parsing failures
+custom-elements/state/state-pseudo-class.html	:state() parsing passes
 custom-elements/state/state-pseudo-class.html	deprecated :--state parsing failures
 custom-elements/upgrading.html	"define" in the document of an iframe must enqueue a custom element upgrade reaction on a connected unresolved custom element
 custom-elements/upgrading.html	"define" in the document of an iframe must not enqueue a custom element upgrade reaction on a disconnected unresolved custom element
@@ -12432,6 +12465,7 @@ dom/nodes/Element-classlist.html	classList.toggle(undefined, true) with attribut
 dom/nodes/Element-classlist.html	classList.toggle(undefined, true) with attribute value null (foo node)
 dom/nodes/Element-closest.html	Element.closest with context node 'test1' and selector 'div#test7'
 dom/nodes/Element-closest.html	Element.closest with context node 'test10' and selector ':empty'
+dom/nodes/Element-closest.html	Element.closest with context node 'test11' and selector ':invalid'
 dom/nodes/Element-closest.html	Element.closest with context node 'test11' and selector ':last-child'
 dom/nodes/Element-closest.html	Element.closest with context node 'test11' and selector '[selected]'
 dom/nodes/Element-closest.html	Element.closest with context node 'test12' and selector '.div3 > .div1'
@@ -12506,15 +12540,20 @@ dom/nodes/Element-matches.html	DIV Element.matches no parameter
 dom/nodes/Element-matches.html	DIV Element.matches(null)
 dom/nodes/Element-matches.html	DIV Element.matches(undefined)
 dom/nodes/Element-matches.html	Detached Element supports matches
+dom/nodes/Element-matches.html	Detached Element.matches: :checked pseudo-class selector, matching checked radio buttons and checkboxes (with no refNodes): #pseudo-ui :checked
+dom/nodes/Element-matches.html	Detached Element.matches: :disabled pseudo-class selector, matching all disabled form controls (with no refNodes): #pseudo-ui :disabled
 dom/nodes/Element-matches.html	Detached Element.matches: :disabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :disabled
 dom/nodes/Element-matches.html	Detached Element.matches: :empty pseudo-class selector, matching all empty elements (with no refNodes): #pseudo-empty :empty
 dom/nodes/Element-matches.html	Detached Element.matches: :empty pseudo-class selector, matching empty p elements (with no refNodes): #pseudo-empty p:empty
+dom/nodes/Element-matches.html	Detached Element.matches: :enabled pseudo-class selector, matching all enabled form controls (with no refNodes): #pseudo-ui :enabled
 dom/nodes/Element-matches.html	Detached Element.matches: :enabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :enabled
 dom/nodes/Element-matches.html	Detached Element.matches: :first-child pseudo-class selector, matching first child div element (with no refNodes): #pseudo-first-child div:first-child
 dom/nodes/Element-matches.html	Detached Element.matches: :first-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-first-child span:first-child
 dom/nodes/Element-matches.html	Detached Element.matches: :first-of-type selector, matching the first em element (with no refNodes): #pseudo-nth-p1 em:first-of-type
 dom/nodes/Element-matches.html	Detached Element.matches: :first-of-type selector, matching the first of every type of element (with no refNodes): #pseudo-nth-p1 :first-of-type
 dom/nodes/Element-matches.html	Detached Element.matches: :first-of-type selector, matching the first td element in each table row (with no refNodes): #pseudo-nth-table1 tr :first-of-type
+dom/nodes/Element-matches.html	Detached Element.matches: :lang pseudo-class selector, matching specified language with exact value (with no refNodes): #pseudo-lang-div2:lang(fr)
+dom/nodes/Element-matches.html	Detached Element.matches: :lang pseudo-class selector, matching specified language with partial value (with no refNodes): #pseudo-lang-div3:lang(en)
 dom/nodes/Element-matches.html	Detached Element.matches: :last-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-last-child span:last-child
 dom/nodes/Element-matches.html	Detached Element.matches: :last-child pseudo-class selector, matching last child div element (with no refNodes): #pseudo-last-child div:last-child
 dom/nodes/Element-matches.html	Detached Element.matches: :last-of-type selector, matching the last em elemnet (with no refNodes): #pseudo-nth-p1 em:last-of-type
@@ -12680,15 +12719,20 @@ dom/nodes/Element-matches.html	Detached Element.matches: Unknown pseudo-class: d
 dom/nodes/Element-matches.html	Detached Element.matches: Unknown pseudo-element: ::example
 dom/nodes/Element-matches.html	Detached Element.matches: Unknown pseudo-element: div::example
 dom/nodes/Element-matches.html	Document should not support matches
+dom/nodes/Element-matches.html	Fragment Element.matches: :checked pseudo-class selector, matching checked radio buttons and checkboxes (with no refNodes): #pseudo-ui :checked
+dom/nodes/Element-matches.html	Fragment Element.matches: :disabled pseudo-class selector, matching all disabled form controls (with no refNodes): #pseudo-ui :disabled
 dom/nodes/Element-matches.html	Fragment Element.matches: :disabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :disabled
 dom/nodes/Element-matches.html	Fragment Element.matches: :empty pseudo-class selector, matching all empty elements (with no refNodes): #pseudo-empty :empty
 dom/nodes/Element-matches.html	Fragment Element.matches: :empty pseudo-class selector, matching empty p elements (with no refNodes): #pseudo-empty p:empty
+dom/nodes/Element-matches.html	Fragment Element.matches: :enabled pseudo-class selector, matching all enabled form controls (with no refNodes): #pseudo-ui :enabled
 dom/nodes/Element-matches.html	Fragment Element.matches: :enabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :enabled
 dom/nodes/Element-matches.html	Fragment Element.matches: :first-child pseudo-class selector, matching first child div element (with no refNodes): #pseudo-first-child div:first-child
 dom/nodes/Element-matches.html	Fragment Element.matches: :first-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-first-child span:first-child
 dom/nodes/Element-matches.html	Fragment Element.matches: :first-of-type selector, matching the first em element (with no refNodes): #pseudo-nth-p1 em:first-of-type
 dom/nodes/Element-matches.html	Fragment Element.matches: :first-of-type selector, matching the first of every type of element (with no refNodes): #pseudo-nth-p1 :first-of-type
 dom/nodes/Element-matches.html	Fragment Element.matches: :first-of-type selector, matching the first td element in each table row (with no refNodes): #pseudo-nth-table1 tr :first-of-type
+dom/nodes/Element-matches.html	Fragment Element.matches: :lang pseudo-class selector, matching specified language with exact value (with no refNodes): #pseudo-lang-div2:lang(fr)
+dom/nodes/Element-matches.html	Fragment Element.matches: :lang pseudo-class selector, matching specified language with partial value (with no refNodes): #pseudo-lang-div3:lang(en)
 dom/nodes/Element-matches.html	Fragment Element.matches: :last-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-last-child span:last-child
 dom/nodes/Element-matches.html	Fragment Element.matches: :last-child pseudo-class selector, matching last child div element (with no refNodes): #pseudo-last-child div:last-child
 dom/nodes/Element-matches.html	Fragment Element.matches: :last-of-type selector, matching the last em elemnet (with no refNodes): #pseudo-nth-p1 em:last-of-type
@@ -12821,12 +12865,18 @@ dom/nodes/Element-matches.html	Fragment Element.matches: Universal selector, mat
 dom/nodes/Element-matches.html	Fragment Element.matches: Universal selector, matching all grandchildren of element with specified ID (with no refNodes): #universal>*>*
 dom/nodes/Element-matches.html	Fragment should not support matches
 dom/nodes/Element-matches.html	In-document Element supports matches
+dom/nodes/Element-matches.html	In-document Element.matches: :checked pseudo-class selector, matching checked radio buttons and checkboxes (1) (with no refNodes): #pseudo-ui :checked
+dom/nodes/Element-matches.html	In-document Element.matches: :checked pseudo-class selector, matching checked radio buttons and checkboxes (with no refNodes): #pseudo-ui :checked
+dom/nodes/Element-matches.html	In-document Element.matches: :disabled pseudo-class selector, matching all disabled form controls (1) (with no refNodes): #pseudo-ui :disabled
+dom/nodes/Element-matches.html	In-document Element.matches: :disabled pseudo-class selector, matching all disabled form controls (with no refNodes): #pseudo-ui :disabled
 dom/nodes/Element-matches.html	In-document Element.matches: :disabled pseudo-class selector, not matching link elements (1) (with no refNodes): #pseudo-link :disabled
 dom/nodes/Element-matches.html	In-document Element.matches: :disabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :disabled
 dom/nodes/Element-matches.html	In-document Element.matches: :empty pseudo-class selector, matching all empty elements (with no refNodes): #pseudo-empty :empty
 dom/nodes/Element-matches.html	In-document Element.matches: :empty pseudo-class selector, matching all empty elements (with refNode Element): :empty
 dom/nodes/Element-matches.html	In-document Element.matches: :empty pseudo-class selector, matching empty p elements (with no refNodes): #pseudo-empty p:empty
 dom/nodes/Element-matches.html	In-document Element.matches: :empty pseudo-class selector, matching empty p elements (with refNode Element): p:empty
+dom/nodes/Element-matches.html	In-document Element.matches: :enabled pseudo-class selector, matching all enabled form controls (1) (with no refNodes): #pseudo-ui :enabled
+dom/nodes/Element-matches.html	In-document Element.matches: :enabled pseudo-class selector, matching all enabled form controls (with no refNodes): #pseudo-ui :enabled
 dom/nodes/Element-matches.html	In-document Element.matches: :enabled pseudo-class selector, not matching link elements (1) (with no refNodes): #pseudo-link :enabled
 dom/nodes/Element-matches.html	In-document Element.matches: :enabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :enabled
 dom/nodes/Element-matches.html	In-document Element.matches: :first-child pseudo-class selector, matching first child div element (with no refNodes): #pseudo-first-child div:first-child
@@ -12839,6 +12889,12 @@ dom/nodes/Element-matches.html	In-document Element.matches: :first-of-type selec
 dom/nodes/Element-matches.html	In-document Element.matches: :first-of-type selector, matching the first of every type of element (with refNode Element): :first-of-type
 dom/nodes/Element-matches.html	In-document Element.matches: :first-of-type selector, matching the first td element in each table row (with no refNodes): #pseudo-nth-table1 tr :first-of-type
 dom/nodes/Element-matches.html	In-document Element.matches: :first-of-type selector, matching the first td element in each table row (with refNode Element): tr :first-of-type
+dom/nodes/Element-matches.html	In-document Element.matches: :lang pseudo-class selector, matching inherited language (1) (with no refNodes): #pseudo-lang-div1:lang(en)
+dom/nodes/Element-matches.html	In-document Element.matches: :lang pseudo-class selector, matching inherited language (with no refNodes): #pseudo-lang-div1:lang(en)
+dom/nodes/Element-matches.html	In-document Element.matches: :lang pseudo-class selector, matching specified language with exact value (1) (with no refNodes): #pseudo-lang-div2:lang(fr)
+dom/nodes/Element-matches.html	In-document Element.matches: :lang pseudo-class selector, matching specified language with exact value (with no refNodes): #pseudo-lang-div2:lang(fr)
+dom/nodes/Element-matches.html	In-document Element.matches: :lang pseudo-class selector, matching specified language with partial value (1) (with no refNodes): #pseudo-lang-div3:lang(en)
+dom/nodes/Element-matches.html	In-document Element.matches: :lang pseudo-class selector, matching specified language with partial value (with no refNodes): #pseudo-lang-div3:lang(en)
 dom/nodes/Element-matches.html	In-document Element.matches: :last-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-last-child span:last-child
 dom/nodes/Element-matches.html	In-document Element.matches: :last-child pseudo-class selector, matching first-child of multiple elements (with refNode Element): span:last-child
 dom/nodes/Element-matches.html	In-document Element.matches: :last-child pseudo-class selector, matching last child div element (with no refNodes): #pseudo-last-child div:last-child
@@ -13163,15 +13219,20 @@ dom/nodes/Element-webkitMatchesSelector.html	DIV Element.webkitMatchesSelector n
 dom/nodes/Element-webkitMatchesSelector.html	DIV Element.webkitMatchesSelector(null)
 dom/nodes/Element-webkitMatchesSelector.html	DIV Element.webkitMatchesSelector(undefined)
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element supports webkitMatchesSelector
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :checked pseudo-class selector, matching checked radio buttons and checkboxes (with no refNodes): #pseudo-ui :checked
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :disabled pseudo-class selector, matching all disabled form controls (with no refNodes): #pseudo-ui :disabled
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :disabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :disabled
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :empty pseudo-class selector, matching all empty elements (with no refNodes): #pseudo-empty :empty
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :empty pseudo-class selector, matching empty p elements (with no refNodes): #pseudo-empty p:empty
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :enabled pseudo-class selector, matching all enabled form controls (with no refNodes): #pseudo-ui :enabled
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :enabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :enabled
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first child div element (with no refNodes): #pseudo-first-child div:first-child
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-first-child span:first-child
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :first-of-type selector, matching the first em element (with no refNodes): #pseudo-nth-p1 em:first-of-type
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :first-of-type selector, matching the first of every type of element (with no refNodes): #pseudo-nth-p1 :first-of-type
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :first-of-type selector, matching the first td element in each table row (with no refNodes): #pseudo-nth-table1 tr :first-of-type
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with exact value (with no refNodes): #pseudo-lang-div2:lang(fr)
+dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with partial value (with no refNodes): #pseudo-lang-div3:lang(en)
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :last-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-last-child span:last-child
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :last-child pseudo-class selector, matching last child div element (with no refNodes): #pseudo-last-child div:last-child
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: :last-of-type selector, matching the last em elemnet (with no refNodes): #pseudo-nth-p1 em:last-of-type
@@ -13337,15 +13398,20 @@ dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelec
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Unknown pseudo-element: ::example
 dom/nodes/Element-webkitMatchesSelector.html	Detached Element.webkitMatchesSelector: Unknown pseudo-element: div::example
 dom/nodes/Element-webkitMatchesSelector.html	Document should not support webkitMatchesSelector
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :checked pseudo-class selector, matching checked radio buttons and checkboxes (with no refNodes): #pseudo-ui :checked
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :disabled pseudo-class selector, matching all disabled form controls (with no refNodes): #pseudo-ui :disabled
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :disabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :disabled
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :empty pseudo-class selector, matching all empty elements (with no refNodes): #pseudo-empty :empty
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :empty pseudo-class selector, matching empty p elements (with no refNodes): #pseudo-empty p:empty
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :enabled pseudo-class selector, matching all enabled form controls (with no refNodes): #pseudo-ui :enabled
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :enabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :enabled
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first child div element (with no refNodes): #pseudo-first-child div:first-child
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-first-child span:first-child
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :first-of-type selector, matching the first em element (with no refNodes): #pseudo-nth-p1 em:first-of-type
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :first-of-type selector, matching the first of every type of element (with no refNodes): #pseudo-nth-p1 :first-of-type
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :first-of-type selector, matching the first td element in each table row (with no refNodes): #pseudo-nth-table1 tr :first-of-type
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with exact value (with no refNodes): #pseudo-lang-div2:lang(fr)
+dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with partial value (with no refNodes): #pseudo-lang-div3:lang(en)
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :last-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-last-child span:last-child
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :last-child pseudo-class selector, matching last child div element (with no refNodes): #pseudo-last-child div:last-child
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: :last-of-type selector, matching the last em elemnet (with no refNodes): #pseudo-nth-p1 em:last-of-type
@@ -13478,12 +13544,18 @@ dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelec
 dom/nodes/Element-webkitMatchesSelector.html	Fragment Element.webkitMatchesSelector: Universal selector, matching all grandchildren of element with specified ID (with no refNodes): #universal>*>*
 dom/nodes/Element-webkitMatchesSelector.html	Fragment should not support webkitMatchesSelector
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element supports webkitMatchesSelector
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :checked pseudo-class selector, matching checked radio buttons and checkboxes (1) (with no refNodes): #pseudo-ui :checked
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :checked pseudo-class selector, matching checked radio buttons and checkboxes (with no refNodes): #pseudo-ui :checked
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :disabled pseudo-class selector, matching all disabled form controls (1) (with no refNodes): #pseudo-ui :disabled
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :disabled pseudo-class selector, matching all disabled form controls (with no refNodes): #pseudo-ui :disabled
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :disabled pseudo-class selector, not matching link elements (1) (with no refNodes): #pseudo-link :disabled
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :disabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :disabled
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :empty pseudo-class selector, matching all empty elements (with no refNodes): #pseudo-empty :empty
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :empty pseudo-class selector, matching all empty elements (with refNode Element): :empty
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :empty pseudo-class selector, matching empty p elements (with no refNodes): #pseudo-empty p:empty
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :empty pseudo-class selector, matching empty p elements (with refNode Element): p:empty
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :enabled pseudo-class selector, matching all enabled form controls (1) (with no refNodes): #pseudo-ui :enabled
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :enabled pseudo-class selector, matching all enabled form controls (with no refNodes): #pseudo-ui :enabled
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :enabled pseudo-class selector, not matching link elements (1) (with no refNodes): #pseudo-link :enabled
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :enabled pseudo-class selector, not matching link elements (with no refNodes): #pseudo-link :enabled
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :first-child pseudo-class selector, matching first child div element (with no refNodes): #pseudo-first-child div:first-child
@@ -13496,6 +13568,12 @@ dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSe
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :first-of-type selector, matching the first of every type of element (with refNode Element): :first-of-type
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :first-of-type selector, matching the first td element in each table row (with no refNodes): #pseudo-nth-table1 tr :first-of-type
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :first-of-type selector, matching the first td element in each table row (with refNode Element): tr :first-of-type
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :lang pseudo-class selector, matching inherited language (1) (with no refNodes): #pseudo-lang-div1:lang(en)
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :lang pseudo-class selector, matching inherited language (with no refNodes): #pseudo-lang-div1:lang(en)
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with exact value (1) (with no refNodes): #pseudo-lang-div2:lang(fr)
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with exact value (with no refNodes): #pseudo-lang-div2:lang(fr)
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with partial value (1) (with no refNodes): #pseudo-lang-div3:lang(en)
+dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :lang pseudo-class selector, matching specified language with partial value (with no refNodes): #pseudo-lang-div3:lang(en)
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :last-child pseudo-class selector, matching first-child of multiple elements (with no refNodes): #pseudo-last-child span:last-child
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :last-child pseudo-class selector, matching first-child of multiple elements (with refNode Element): span:last-child
 dom/nodes/Element-webkitMatchesSelector.html	In-document Element.webkitMatchesSelector: :last-child pseudo-class selector, matching last child div element (with no refNodes): #pseudo-last-child div:last-child
@@ -18062,9 +18140,12 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: ::fi
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: ::first-line pseudo-element (two-colon syntax) selector, not matching any elements: #pseudo-element::first-line
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :after pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:after
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :before pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:before
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :checked pseudo-class selector, matching checked radio buttons and checkboxes: #pseudo-ui :checked
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :disabled pseudo-class selector, matching all disabled form controls: #pseudo-ui :disabled
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :disabled pseudo-class selector, not matching link elements: #pseudo-link :disabled
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :empty pseudo-class selector, matching all empty elements: #pseudo-empty :empty
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :empty pseudo-class selector, matching empty p elements: #pseudo-empty p:empty
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :enabled pseudo-class selector, matching all enabled form controls: #pseudo-ui :enabled
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :enabled pseudo-class selector, not matching link elements: #pseudo-link :enabled
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :first-child pseudo-class selector, doesn't match non-first-child elements: .pseudo-first-child-div2:first-child, .pseudo-first-child-div3:first-child
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :first-child pseudo-class selector, matching first child div element: #pseudo-first-child div:first-child
@@ -18074,6 +18155,10 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :fir
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :first-of-type selector, matching the first em element: #pseudo-nth-p1 em:first-of-type
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :first-of-type selector, matching the first of every type of element: #pseudo-nth-p1 :first-of-type
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :first-of-type selector, matching the first td element in each table row: #pseudo-nth-table1 tr :first-of-type
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :lang pseudo-class selector, matching specified language with exact value: #pseudo-lang-div2:lang(fr)
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :lang pseudo-class selector, matching specified language with partial value: #pseudo-lang-div3:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :lang pseudo-class selector, not matching element with no inherited language: #pseudo-lang-div1:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :lang pseudo-class selector, not matching incorrect language: #pseudo-lang-div4:lang(es-AR)
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :last-child pseudo-class selector, doesn't match non-last-child elements: .pseudo-last-child-div1:last-child, .pseudo-last-child-div2:first-child
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :last-child pseudo-class selector, matching first-child of multiple elements: #pseudo-last-child span:last-child
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: :last-child pseudo-class selector, matching last child div element: #pseudo-last-child div:last-child
@@ -18257,6 +18342,8 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Inva
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Invalid pseudo-element: :: before
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Invalid pseudo-element: :::before
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Relative selector: >*
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Slotted selector (no matching closing paren): ::slotted(foo
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Slotted selector: ::slotted(foo)
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Syntax, group of selectors separator, no whitespace: #group em,#group strong
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Syntax, group of selectors separator, surrounded by whitespace: #group em\t\r \n,\t\r \n#group strong
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelector: Syntax, group of selectors separator, whitespace after: #group em,\t\r\n#group strong
@@ -18285,9 +18372,12 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: ::first-line pseudo-element (two-colon syntax) selector, not matching any elements: #pseudo-element::first-line
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :after pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:after
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :before pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:before
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :checked pseudo-class selector, matching checked radio buttons and checkboxes: #pseudo-ui :checked
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :disabled pseudo-class selector, matching all disabled form controls: #pseudo-ui :disabled
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :disabled pseudo-class selector, not matching link elements: #pseudo-link :disabled
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :empty pseudo-class selector, matching all empty elements: #pseudo-empty :empty
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :empty pseudo-class selector, matching empty p elements: #pseudo-empty p:empty
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :enabled pseudo-class selector, matching all enabled form controls: #pseudo-ui :enabled
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :enabled pseudo-class selector, not matching link elements: #pseudo-link :enabled
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :first-child pseudo-class selector, doesn't match non-first-child elements: .pseudo-first-child-div2:first-child, .pseudo-first-child-div3:first-child
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :first-child pseudo-class selector, matching first child div element: #pseudo-first-child div:first-child
@@ -18297,6 +18387,10 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :first-of-type selector, matching the first em element: #pseudo-nth-p1 em:first-of-type
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :first-of-type selector, matching the first of every type of element: #pseudo-nth-p1 :first-of-type
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :first-of-type selector, matching the first td element in each table row: #pseudo-nth-table1 tr :first-of-type
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :lang pseudo-class selector, matching specified language with exact value: #pseudo-lang-div2:lang(fr)
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :lang pseudo-class selector, matching specified language with partial value: #pseudo-lang-div3:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :lang pseudo-class selector, not matching element with no inherited language: #pseudo-lang-div1:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :lang pseudo-class selector, not matching incorrect language: #pseudo-lang-div4:lang(es-AR)
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :last-child pseudo-class selector, doesn't match non-last-child elements: .pseudo-last-child-div1:last-child, .pseudo-last-child-div2:first-child
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :last-child pseudo-class selector, matching first-child of multiple elements: #pseudo-last-child span:last-child
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: :last-child pseudo-class selector, matching last child div element: #pseudo-last-child div:last-child
@@ -18480,6 +18574,8 @@ dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: I
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Invalid pseudo-element: :: before
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Invalid pseudo-element: :::before
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Relative selector: >*
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Slotted selector (no matching closing paren): ::slotted(foo
+dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Slotted selector: ::slotted(foo)
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Syntax, group of selectors separator, no whitespace: #group em,#group strong
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Syntax, group of selectors separator, surrounded by whitespace: #group em\t\r \n,\t\r \n#group strong
 dom/nodes/ParentNode-querySelector-All.html	Detached Element.querySelectorAll: Syntax, group of selectors separator, whitespace after: #group em,\t\r\n#group strong
@@ -18510,9 +18606,12 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: ::first-lett
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: ::first-line pseudo-element (two-colon syntax) selector, not matching any elements: #pseudo-element::first-line
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :after pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:after
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :before pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:before
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :checked pseudo-class selector, matching checked radio buttons and checkboxes: #pseudo-ui :checked
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :disabled pseudo-class selector, matching all disabled form controls: #pseudo-ui :disabled
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :disabled pseudo-class selector, not matching link elements: #pseudo-link :disabled
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :empty pseudo-class selector, matching all empty elements: #pseudo-empty :empty
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :empty pseudo-class selector, matching empty p elements: #pseudo-empty p:empty
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :enabled pseudo-class selector, matching all enabled form controls: #pseudo-ui :enabled
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :enabled pseudo-class selector, not matching link elements: #pseudo-link :enabled
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :first-child pseudo-class selector, doesn't match non-first-child elements: .pseudo-first-child-div2:first-child, .pseudo-first-child-div3:first-child
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :first-child pseudo-class selector, matching first child div element: #pseudo-first-child div:first-child
@@ -18522,6 +18621,10 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :first-line 
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :first-of-type selector, matching the first em element: #pseudo-nth-p1 em:first-of-type
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :first-of-type selector, matching the first of every type of element: #pseudo-nth-p1 :first-of-type
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :first-of-type selector, matching the first td element in each table row: #pseudo-nth-table1 tr :first-of-type
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :lang pseudo-class selector, matching inherited language: #pseudo-lang-div1:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :lang pseudo-class selector, matching specified language with exact value: #pseudo-lang-div2:lang(fr)
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :lang pseudo-class selector, matching specified language with partial value: #pseudo-lang-div3:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :lang pseudo-class selector, not matching incorrect language: #pseudo-lang-div4:lang(es-AR)
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :last-child pseudo-class selector, doesn't match non-last-child elements: .pseudo-last-child-div1:last-child, .pseudo-last-child-div2:first-child
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :last-child pseudo-class selector, matching first-child of multiple elements: #pseudo-last-child span:last-child
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: :last-child pseudo-class selector, matching last child div element: #pseudo-last-child div:last-child
@@ -18704,6 +18807,8 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Invalid name
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Invalid pseudo-element: :: before
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Invalid pseudo-element: :::before
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Relative selector: >*
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Slotted selector (no matching closing paren): ::slotted(foo
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Slotted selector: ::slotted(foo)
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Syntax, group of selectors separator, no whitespace: #group em,#group strong
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Syntax, group of selectors separator, surrounded by whitespace: #group em\t\r \n,\t\r \n#group strong
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelector: Syntax, group of selectors separator, whitespace after: #group em,\t\r\n#group strong
@@ -18732,9 +18837,12 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: ::first-l
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: ::first-line pseudo-element (two-colon syntax) selector, not matching any elements: #pseudo-element::first-line
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :after pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:after
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :before pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:before
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :checked pseudo-class selector, matching checked radio buttons and checkboxes: #pseudo-ui :checked
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :disabled pseudo-class selector, matching all disabled form controls: #pseudo-ui :disabled
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :disabled pseudo-class selector, not matching link elements: #pseudo-link :disabled
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :empty pseudo-class selector, matching all empty elements: #pseudo-empty :empty
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :empty pseudo-class selector, matching empty p elements: #pseudo-empty p:empty
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :enabled pseudo-class selector, matching all enabled form controls: #pseudo-ui :enabled
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :enabled pseudo-class selector, not matching link elements: #pseudo-link :enabled
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :first-child pseudo-class selector, doesn't match non-first-child elements: .pseudo-first-child-div2:first-child, .pseudo-first-child-div3:first-child
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :first-child pseudo-class selector, matching first child div element: #pseudo-first-child div:first-child
@@ -18744,6 +18852,10 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :first-li
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :first-of-type selector, matching the first em element: #pseudo-nth-p1 em:first-of-type
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :first-of-type selector, matching the first of every type of element: #pseudo-nth-p1 :first-of-type
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :first-of-type selector, matching the first td element in each table row: #pseudo-nth-table1 tr :first-of-type
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :lang pseudo-class selector, matching inherited language: #pseudo-lang-div1:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :lang pseudo-class selector, matching specified language with exact value: #pseudo-lang-div2:lang(fr)
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :lang pseudo-class selector, matching specified language with partial value: #pseudo-lang-div3:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :lang pseudo-class selector, not matching incorrect language: #pseudo-lang-div4:lang(es-AR)
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :last-child pseudo-class selector, doesn't match non-last-child elements: .pseudo-last-child-div1:last-child, .pseudo-last-child-div2:first-child
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :last-child pseudo-class selector, matching first-child of multiple elements: #pseudo-last-child span:last-child
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: :last-child pseudo-class selector, matching last child div element: #pseudo-last-child div:last-child
@@ -18926,6 +19038,8 @@ dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Invalid n
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Invalid pseudo-element: :: before
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Invalid pseudo-element: :::before
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Relative selector: >*
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Slotted selector (no matching closing paren): ::slotted(foo
+dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Slotted selector: ::slotted(foo)
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Syntax, group of selectors separator, no whitespace: #group em,#group strong
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Syntax, group of selectors separator, surrounded by whitespace: #group em\t\r \n,\t\r \n#group strong
 dom/nodes/ParentNode-querySelector-All.html	Document.querySelectorAll: Syntax, group of selectors separator, whitespace after: #group em,\t\r\n#group strong
@@ -19024,9 +19138,12 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: ::first-lett
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: ::first-line pseudo-element (two-colon syntax) selector, not matching any elements: #pseudo-element::first-line
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :after pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:after
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :before pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:before
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :checked pseudo-class selector, matching checked radio buttons and checkboxes: #pseudo-ui :checked
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :disabled pseudo-class selector, matching all disabled form controls: #pseudo-ui :disabled
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :disabled pseudo-class selector, not matching link elements: #pseudo-link :disabled
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :empty pseudo-class selector, matching all empty elements: #pseudo-empty :empty
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :empty pseudo-class selector, matching empty p elements: #pseudo-empty p:empty
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :enabled pseudo-class selector, matching all enabled form controls: #pseudo-ui :enabled
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :enabled pseudo-class selector, not matching link elements: #pseudo-link :enabled
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :first-child pseudo-class selector, doesn't match non-first-child elements: .pseudo-first-child-div2:first-child, .pseudo-first-child-div3:first-child
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :first-child pseudo-class selector, matching first child div element: #pseudo-first-child div:first-child
@@ -19036,6 +19153,10 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :first-line 
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :first-of-type selector, matching the first em element: #pseudo-nth-p1 em:first-of-type
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :first-of-type selector, matching the first of every type of element: #pseudo-nth-p1 :first-of-type
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :first-of-type selector, matching the first td element in each table row: #pseudo-nth-table1 tr :first-of-type
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :lang pseudo-class selector, matching specified language with exact value: #pseudo-lang-div2:lang(fr)
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :lang pseudo-class selector, matching specified language with partial value: #pseudo-lang-div3:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :lang pseudo-class selector, not matching element with no inherited language: #pseudo-lang-div1:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :lang pseudo-class selector, not matching incorrect language: #pseudo-lang-div4:lang(es-AR)
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :last-child pseudo-class selector, doesn't match non-last-child elements: .pseudo-last-child-div1:last-child, .pseudo-last-child-div2:first-child
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :last-child pseudo-class selector, matching first-child of multiple elements: #pseudo-last-child span:last-child
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :last-child pseudo-class selector, matching last child div element: #pseudo-last-child div:last-child
@@ -19218,6 +19339,8 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Invalid name
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Invalid pseudo-element: :: before
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Invalid pseudo-element: :::before
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Relative selector: >*
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Slotted selector (no matching closing paren): ::slotted(foo
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Slotted selector: ::slotted(foo)
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Syntax, group of selectors separator, no whitespace: #group em,#group strong
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Syntax, group of selectors separator, surrounded by whitespace: #group em\t\r \n,\t\r \n#group strong
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Syntax, group of selectors separator, whitespace after: #group em,\t\r\n#group strong
@@ -19246,9 +19369,12 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: ::first-l
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: ::first-line pseudo-element (two-colon syntax) selector, not matching any elements: #pseudo-element::first-line
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :after pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:after
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :before pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:before
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :checked pseudo-class selector, matching checked radio buttons and checkboxes: #pseudo-ui :checked
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :disabled pseudo-class selector, matching all disabled form controls: #pseudo-ui :disabled
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :disabled pseudo-class selector, not matching link elements: #pseudo-link :disabled
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :empty pseudo-class selector, matching all empty elements: #pseudo-empty :empty
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :empty pseudo-class selector, matching empty p elements: #pseudo-empty p:empty
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :enabled pseudo-class selector, matching all enabled form controls: #pseudo-ui :enabled
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :enabled pseudo-class selector, not matching link elements: #pseudo-link :enabled
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :first-child pseudo-class selector, doesn't match non-first-child elements: .pseudo-first-child-div2:first-child, .pseudo-first-child-div3:first-child
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :first-child pseudo-class selector, matching first child div element: #pseudo-first-child div:first-child
@@ -19258,6 +19384,10 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :first-li
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :first-of-type selector, matching the first em element: #pseudo-nth-p1 em:first-of-type
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :first-of-type selector, matching the first of every type of element: #pseudo-nth-p1 :first-of-type
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :first-of-type selector, matching the first td element in each table row: #pseudo-nth-table1 tr :first-of-type
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :lang pseudo-class selector, matching specified language with exact value: #pseudo-lang-div2:lang(fr)
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :lang pseudo-class selector, matching specified language with partial value: #pseudo-lang-div3:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :lang pseudo-class selector, not matching element with no inherited language: #pseudo-lang-div1:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :lang pseudo-class selector, not matching incorrect language: #pseudo-lang-div4:lang(es-AR)
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :last-child pseudo-class selector, doesn't match non-last-child elements: .pseudo-last-child-div1:last-child, .pseudo-last-child-div2:first-child
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :last-child pseudo-class selector, matching first-child of multiple elements: #pseudo-last-child span:last-child
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :last-child pseudo-class selector, matching last child div element: #pseudo-last-child div:last-child
@@ -19440,6 +19570,8 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Invalid n
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Invalid pseudo-element: :: before
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Invalid pseudo-element: :::before
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Relative selector: >*
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Slotted selector (no matching closing paren): ::slotted(foo
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Slotted selector: ::slotted(foo)
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Syntax, group of selectors separator, no whitespace: #group em,#group strong
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Syntax, group of selectors separator, surrounded by whitespace: #group em\t\r \n,\t\r \n#group strong
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Syntax, group of selectors separator, whitespace after: #group em,\t\r\n#group strong
@@ -19470,9 +19602,12 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: ::first-line pseudo-element (two-colon syntax) selector, not matching any elements: #pseudo-element::first-line
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :after pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:after
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :before pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:before
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :checked pseudo-class selector, matching checked radio buttons and checkboxes: #pseudo-ui :checked
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :disabled pseudo-class selector, matching all disabled form controls: #pseudo-ui :disabled
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :disabled pseudo-class selector, not matching link elements: #pseudo-link :disabled
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :empty pseudo-class selector, matching all empty elements: #pseudo-empty :empty
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :empty pseudo-class selector, matching empty p elements: #pseudo-empty p:empty
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :enabled pseudo-class selector, matching all enabled form controls: #pseudo-ui :enabled
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :enabled pseudo-class selector, not matching link elements: #pseudo-link :enabled
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :first-child pseudo-class selector, doesn't match non-first-child elements: .pseudo-first-child-div2:first-child, .pseudo-first-child-div3:first-child
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :first-child pseudo-class selector, matching first child div element: #pseudo-first-child div:first-child
@@ -19482,6 +19617,10 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :first-of-type selector, matching the first em element: #pseudo-nth-p1 em:first-of-type
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :first-of-type selector, matching the first of every type of element: #pseudo-nth-p1 :first-of-type
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :first-of-type selector, matching the first td element in each table row: #pseudo-nth-table1 tr :first-of-type
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :lang pseudo-class selector, matching inherited language: #pseudo-lang-div1:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :lang pseudo-class selector, matching specified language with exact value: #pseudo-lang-div2:lang(fr)
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :lang pseudo-class selector, matching specified language with partial value: #pseudo-lang-div3:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :lang pseudo-class selector, not matching incorrect language: #pseudo-lang-div4:lang(es-AR)
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :last-child pseudo-class selector, doesn't match non-last-child elements: .pseudo-last-child-div1:last-child, .pseudo-last-child-div2:first-child
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :last-child pseudo-class selector, matching first-child of multiple elements: #pseudo-last-child span:last-child
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: :last-child pseudo-class selector, matching last child div element: #pseudo-last-child div:last-child
@@ -19665,6 +19804,8 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: I
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Invalid pseudo-element: :: before
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Invalid pseudo-element: :::before
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Relative selector: >*
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Slotted selector (no matching closing paren): ::slotted(foo
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Slotted selector: ::slotted(foo)
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Syntax, group of selectors separator, no whitespace: #group em,#group strong
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Syntax, group of selectors separator, surrounded by whitespace: #group em\t\r \n,\t\r \n#group strong
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelector: Syntax, group of selectors separator, whitespace after: #group em,\t\r\n#group strong
@@ -19693,9 +19834,12 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: ::first-line pseudo-element (two-colon syntax) selector, not matching any elements: #pseudo-element::first-line
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :after pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:after
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :before pseudo-element (one-colon syntax) selector, not matching any elements: #pseudo-element:before
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :checked pseudo-class selector, matching checked radio buttons and checkboxes: #pseudo-ui :checked
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :disabled pseudo-class selector, matching all disabled form controls: #pseudo-ui :disabled
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :disabled pseudo-class selector, not matching link elements: #pseudo-link :disabled
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :empty pseudo-class selector, matching all empty elements: #pseudo-empty :empty
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :empty pseudo-class selector, matching empty p elements: #pseudo-empty p:empty
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :enabled pseudo-class selector, matching all enabled form controls: #pseudo-ui :enabled
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :enabled pseudo-class selector, not matching link elements: #pseudo-link :enabled
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :first-child pseudo-class selector, doesn't match non-first-child elements: .pseudo-first-child-div2:first-child, .pseudo-first-child-div3:first-child
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :first-child pseudo-class selector, matching first child div element: #pseudo-first-child div:first-child
@@ -19705,6 +19849,10 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :first-of-type selector, matching the first em element: #pseudo-nth-p1 em:first-of-type
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :first-of-type selector, matching the first of every type of element: #pseudo-nth-p1 :first-of-type
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :first-of-type selector, matching the first td element in each table row: #pseudo-nth-table1 tr :first-of-type
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :lang pseudo-class selector, matching inherited language: #pseudo-lang-div1:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :lang pseudo-class selector, matching specified language with exact value: #pseudo-lang-div2:lang(fr)
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :lang pseudo-class selector, matching specified language with partial value: #pseudo-lang-div3:lang(en)
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :lang pseudo-class selector, not matching incorrect language: #pseudo-lang-div4:lang(es-AR)
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :last-child pseudo-class selector, doesn't match non-last-child elements: .pseudo-last-child-div1:last-child, .pseudo-last-child-div2:first-child
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :last-child pseudo-class selector, matching first-child of multiple elements: #pseudo-last-child span:last-child
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: :last-child pseudo-class selector, matching last child div element: #pseudo-last-child div:last-child
@@ -19888,6 +20036,8 @@ dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Invalid pseudo-element: :: before
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Invalid pseudo-element: :::before
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Relative selector: >*
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Slotted selector (no matching closing paren): ::slotted(foo
+dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Slotted selector: ::slotted(foo)
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Syntax, group of selectors separator, no whitespace: #group em,#group strong
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Syntax, group of selectors separator, surrounded by whitespace: #group em\t\r \n,\t\r \n#group strong
 dom/nodes/ParentNode-querySelector-All.html	In-document Element.querySelectorAll: Syntax, group of selectors separator, whitespace after: #group em,\t\r\n#group strong
@@ -69852,6 +70002,7 @@ html/dom/elements/elements-in-the-dom/historical.html	HTMLElement member must be
 html/dom/elements/elements-in-the-dom/historical.html	HTMLElement member must be nuked: commandTriggers
 html/dom/elements/elements-in-the-dom/historical.html	HTMLElement member must be nuked: commandType
 html/dom/elements/elements-in-the-dom/historical.html	HTMLElement member must be nuked: dropzone
+html/dom/elements/global-attributes/cdata-dir_auto.html	Text in CDATASection is considered when determining auto directionality
 html/dom/elements/global-attributes/classlist-nonstring.html	classList: non-string contains
 html/dom/elements/global-attributes/classlist-nonstring.html	classList: non-string contains 1
 html/dom/elements/global-attributes/classlist-nonstring.html	classList: non-string contains 2
@@ -69902,7 +70053,46 @@ html/dom/elements/global-attributes/dataset.html	Should return 'undefined' after
 html/dom/elements/global-attributes/dataset.html	Should return 'undefined' before setting an attribute
 html/dom/elements/global-attributes/dataset.html	Should return 'value' if that's the value
 html/dom/elements/global-attributes/dataset.html	Should return the empty string if that's the value
+html/dom/elements/global-attributes/dir-assorted.window.html	Element outside the document tree has a direction
+html/dom/elements/global-attributes/dir-assorted.window.html	Element without direction has parent element direction
+html/dom/elements/global-attributes/dir-assorted.window.html	Non-HTML element outside the document tree has a direction
+html/dom/elements/global-attributes/dir-assorted.window.html	Non-HTML element without direction has parent element direction
+html/dom/elements/global-attributes/dir-assorted.window.html	Root element has a direction
+html/dom/elements/global-attributes/dir-assorted.window.html	dir inheritance is correct after insertion and removal from document
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=auto empty in ltr parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=auto numbers in ltr parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=auto with LTR contents in ltr parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=auto with RTL contents in rtl parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=ltr empty in ltr parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=ltr empty in rtl parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=ltr with LTR contents in ltr parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=ltr with LTR contents in rtl parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=ltr with RTL contents in ltr parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=ltr with RTL contents in rtl parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=rtl empty in ltr parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=rtl empty in rtl parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=rtl with LTR contents in ltr parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=rtl with LTR contents in rtl parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=rtl with RTL contents in ltr parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: dir=rtl with RTL contents in rtl parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: no dir attribute empty in ltr parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: no dir attribute with LTR contents in ltr parent
+html/dom/elements/global-attributes/dir-assorted.window.html	directionality of bdi elements: no dir attribute with RTL contents in rtl parent
+html/dom/elements/global-attributes/dir-assorted.window.html	script element text contents do not influence dir=auto
+html/dom/elements/global-attributes/dir-assorted.window.html	style element text contents do not influence dir=auto
 html/dom/elements/global-attributes/dir-auto-div-append-child.html	dir auto: updates on appendChild
+html/dom/elements/global-attributes/dir-auto-dynamic-changes.window.html	Input that becomes auto directionality associated but is dir=ltr stays LTR
+html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=checkbox> directionality
+html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=color> directionality
+html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=date> directionality
+html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=datetime-local> directionality
+html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=image> directionality
+html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=month> directionality
+html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=number> directionality
+html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=radio> directionality
+html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=range> directionality
+html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=time> directionality
+html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=week> directionality
 html/dom/elements/global-attributes/dir-bdi-script.html	BDI test: Directionality
 html/dom/elements/global-attributes/document-dir.html	Markup attribute
 html/dom/elements/global-attributes/document-dir.html	Setting the idl attribute to a garbage value
@@ -69930,7 +70120,15 @@ html/dom/elements/global-attributes/id-name-specialcase.html	id with chinese cha
 html/dom/elements/global-attributes/id-name-specialcase.html	id with digits only
 html/dom/elements/global-attributes/id-name-specialcase.html	id with punctuation only
 html/dom/elements/global-attributes/id-name.html	id and name attributes and getElementById
+html/dom/elements/global-attributes/lang-attribute-document-element-replacement.html	Disconnected descendants of a replaced document element should resolve lang from their actual ancestor
 html/dom/elements/global-attributes/mapped-attribute-adopt-001.html	Adoption of an unrelated node shouldn't prevent mapped attributes from applying
+html/dom/elements/global-attributes/the-lang-attribute-001.html	The browser will recognize a language declared in a lang attribute on the html tag.
+html/dom/elements/global-attributes/the-lang-attribute-002.html	The browser will NOT recognize a language declared in an xml:lang attribute on the html tag.
+html/dom/elements/global-attributes/the-lang-attribute-005.html	If there is a conflict between the language declarations in the HTTP header and the html element using lang, the browser will recognize the language declared in the html element.
+html/dom/elements/global-attributes/the-lang-attribute-007.html	If there is a conflict between the language declared using lang in the html element and that in the meta element, the UA will recognize the language declared in the html element.
+html/dom/elements/global-attributes/the-lang-attribute-008.html	If an element contains a lang attribute with an empty value, the value of a lang attribute higher up the document tree will no longer be applied to the content of that element.
+html/dom/elements/global-attributes/the-lang-attribute-009.html	If the HTTP header contains a language declaration but the html element uses an empty lang value, the UA will not recognize the language declared in the HTTP header.
+html/dom/elements/global-attributes/the-lang-attribute-010.html	If the meta Content-Language element contains a language declaration but the html element uses an empty lang value, the UA will not recognize the language declared in the meta Content-Language element.
 html/dom/elements/global-attributes/the-translate-attribute-008.html	If the translate attribute is set to yes, javascript will detect the translation mode of text as translate-enabled.
 html/dom/elements/global-attributes/the-translate-attribute-010.html	If the translate attribute is set to no, javascript will detect the translation mode of elements inside that element with no translate flag as no-translate.
 html/dom/elements/global-attributes/the-translate-attribute-011.html	If the translate attribute is set to yes on an element inside an element with the translate attribute set to no, javascript will detect the translation mode of text in the inner element as translate-enabled.

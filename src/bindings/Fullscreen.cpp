@@ -114,6 +114,7 @@ Native request_fullscreen(Realm::Internals& in, dom::Element& element)
     if (!capability)
         return std::nullopt;
     in.fullscreen_wrapper = wrapper;
+    in.document->set_fullscreen(element_of(wrapper));
     in.mutations++; // :fullscreen matches another element
     queue_event(in, wrapper, "fullscreenchange", capability);
     return capability->promise;
@@ -126,6 +127,7 @@ void exit_fullscreen(Realm::Internals& in, std::optional<js::PromiseCapability> 
         return;
     trace(in, "exit from", wrapper);
     in.fullscreen_wrapper = nullptr;
+    in.document->set_fullscreen(nullptr);
     in.mutations++;
     if (in.hooks.request_fullscreen)
         in.hooks.request_fullscreen(false);

@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (10012 of 15375) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (10070 of 15375) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -1673,6 +1673,10 @@ css/CSS2/generated-content/content-149.xht
 css/CSS2/generated-content/content-150.xht
 css/CSS2/generated-content/content-152.xht
 css/CSS2/generated-content/content-155.xht
+css/CSS2/generated-content/content-156.xht
+css/CSS2/generated-content/content-157.xht
+css/CSS2/generated-content/content-158.xht
+css/CSS2/generated-content/content-159.xht
 css/CSS2/generated-content/content-171.xht
 css/CSS2/generated-content/content-172.xht
 css/CSS2/generated-content/content-173.xht
@@ -4247,7 +4251,11 @@ css/CSS2/selectors/id-selector-002.xht
 css/CSS2/selectors/id-selector-004.xht
 css/CSS2/selectors/id-selector-005.xht
 css/CSS2/selectors/id-selector-006.xht
+css/CSS2/selectors/lang-pseudoclass-001.html
+css/CSS2/selectors/lang-selector-001.xht
 css/CSS2/selectors/lang-selector-002.xht
+css/CSS2/selectors/lang-selector-003.xht
+css/CSS2/selectors/lang-selector-004.xht
 css/CSS2/selectors/pseudo-001.xht
 css/CSS2/selectors/pseudo-006.xht
 css/CSS2/selectors/pseudo-008.xht
@@ -5047,8 +5055,6 @@ css/CSS2/text/word-spacing-remove-space-004.xht
 css/CSS2/text/word-spacing-remove-space-006.xht
 css/CSS2/ui/outline-applies-to-005.xht
 css/CSS2/ui/outline-applies-to-006.xht
-css/CSS2/ui/outline-applies-to-016.xht
-css/CSS2/ui/outline-applies-to-017.xht
 css/CSS2/ui/outline-color-applies-to-005.xht
 css/CSS2/ui/outline-color-applies-to-006.xht
 css/CSS2/ui/outline-style-001.xht
@@ -5207,6 +5213,7 @@ css/CSS2/zindex/z-index-abspos-003.xht
 css/CSS2/zindex/z-index-abspos-004.xht
 css/CSS2/zindex/z-index-abspos-005.xht
 css/CSS2/zindex/z-index-abspos-007.xht
+css/CSS2/zorder/z-index-020.xht
 css/css-backgrounds/animations/background-color-animation-element-not-visible-at-current-viewport.html
 css/css-backgrounds/animations/background-color-animation-non-zero-size-element-change-to-zero.html
 css/css-backgrounds/animations/background-color-animation-single-keyframe.html
@@ -5811,8 +5818,11 @@ css/css-conditional/at-supports-selector-001.html
 css/css-conditional/at-supports-selector-002.html
 css/css-conditional/at-supports-selector-003.html
 css/css-conditional/at-supports-selector-004.html
+css/css-conditional/at-supports-selector-details-content.html
 css/css-conditional/at-supports-selector-detecting-invalid-in-logical-combinations.html
 css/css-conditional/at-supports-selector-file-selector-button.html
+css/css-conditional/at-supports-selector-picker-icon.html
+css/css-conditional/at-supports-selector-picker.html
 css/css-conditional/at-supports-selector-placeholder.html
 css/css-conditional/container-queries/container-for-cue.html
 css/css-conditional/container-queries/container-units-selection-pseudo.html
@@ -5920,6 +5930,7 @@ css/css-display/display-contents-oof-001.html
 css/css-display/display-contents-oof-002.html
 css/css-display/display-contents-sharing-001.html
 css/css-display/display-contents-slot-attach-whitespace.html
+css/css-display/display-contents-state-change-001.html
 css/css-display/display-contents-suppression-dynamic-001.html
 css/css-display/display-contents-table-001.html
 css/css-display/display-contents-table-002.html
@@ -5932,7 +5943,6 @@ css/css-display/display-contents-tr-001.html
 css/css-display/display-contents-unusual-html-elements-none.html
 css/css-display/display-contents-whitespace-inside-inline.html
 css/css-display/display-flow-root-001.html
-css/css-display/display-flow-root-002.html
 css/css-display/display-flow-root-dynamic.html
 css/css-display/display-inline-dynamic-001.html
 css/css-display/display-none-inline-img.html
@@ -9502,6 +9512,7 @@ css/css-writing-modes/sizing-orthog-vrl-in-htb-023.xht
 css/css-writing-modes/sizing-orthog-vrl-in-htb-024.xht
 css/css-writing-modes/svg-aliasing-001.html
 css/css-writing-modes/svg-aliasing-002.html
+css/css-writing-modes/table-cell-align-005.html
 css/css-writing-modes/table-progression-htb-001.html
 css/css-writing-modes/table-progression-htb-002.html
 css/css-writing-modes/tcy-white-space-processing-002.html
@@ -9616,10 +9627,34 @@ css/css-writing-modes/writing-mode-vertical-rl-001.xht
 css/css-writing-modes/writing-mode-vertical-rl-002.xht
 css/selectors/caret-color-visited-inheritance.html
 css/selectors/child-indexed-no-parent.html
+css/selectors/dir-pseudo-in-has.html
+css/selectors/dir-pseudo-update-document-element.html
+css/selectors/dir-selector-auto-direction-change-001.html
+css/selectors/dir-selector-change-001.html
+css/selectors/dir-selector-change-002.html
+css/selectors/dir-selector-change-003.html
+css/selectors/dir-selector-ltr-001.html
 css/selectors/dir-selector-ltr-002.html
 css/selectors/dir-selector-ltr-003.html
+css/selectors/dir-selector-rtl-001.html
+css/selectors/dir-selector-white-space-001.html
+css/selectors/dir-style-01a.html
+css/selectors/dir-style-01b.html
+css/selectors/dir-style-02a.html
+css/selectors/dir-style-02b.html
+css/selectors/dir-style-03a.html
+css/selectors/dir-style-03b.html
+css/selectors/dir-style-04.html
 css/selectors/floating-first-letter-05d0.html
 css/selectors/floating-first-letter-feff.html
+css/selectors/focus-within-001.html
+css/selectors/focus-within-002.html
+css/selectors/focus-within-003.html
+css/selectors/focus-within-006.html
+css/selectors/focus-within-007.html
+css/selectors/focus-within-008.html
+css/selectors/focus-within-010.html
+css/selectors/focus-within-011.html
 css/selectors/focus-within-012.html
 css/selectors/focus-within-013.html
 css/selectors/has-style-sharing-001.html
@@ -9640,9 +9675,12 @@ css/selectors/has-style-sharing-pseudo-008.html
 css/selectors/has-visited.html
 css/selectors/historical-xmlid.xht
 css/selectors/invalidation/class-id-attr.html
+css/selectors/invalidation/dir-pseudo-class-in-has.html
 css/selectors/invalidation/has-append-first-node.html
 css/selectors/invalidation/has-pseudo-element.html
 css/selectors/invalidation/has-with-nth-child-sibling-remove.html
+css/selectors/invalidation/lang-pseudo-class-in-has-document-element.html
+css/selectors/invalidation/lang-pseudo-class-in-has.html
 css/selectors/invalidation/negated-always-matches-negated-first-of-type-when-ancestor-changes.html
 css/selectors/invalidation/negated-always-matches-negated-last-of-type-when-ancestor-changes.html
 css/selectors/invalidation/negated-first-of-type-in-nonsubject-position.html
@@ -9669,6 +9707,7 @@ css/selectors/invalidation/nth-child-of-ids.html
 css/selectors/invalidation/nth-child-of-in-ancestor.html
 css/selectors/invalidation/nth-child-of-in-is.html
 css/selectors/invalidation/nth-child-of-is.html
+css/selectors/invalidation/nth-child-of-pseudo-class.html
 css/selectors/invalidation/nth-child-of-sibling.html
 css/selectors/invalidation/nth-child-when-ancestor-changes.html
 css/selectors/invalidation/nth-child-when-sibling-changes.html
@@ -9682,6 +9721,7 @@ css/selectors/invalidation/nth-last-child-of-ids.html
 css/selectors/invalidation/nth-last-child-of-in-ancestor.html
 css/selectors/invalidation/nth-last-child-of-in-is.html
 css/selectors/invalidation/nth-last-child-of-is.html
+css/selectors/invalidation/nth-last-child-of-pseudo-class.html
 css/selectors/invalidation/nth-last-child-of-sibling.html
 css/selectors/invalidation/nth-last-child-when-ancestor-changes.html
 css/selectors/invalidation/nth-last-child-when-sibling-changes.html
@@ -9724,16 +9764,35 @@ css/selectors/nth-of-invalid.html
 css/selectors/nth-of-selector-before.html
 css/selectors/root-siblings.html
 css/selectors/scope-without-scoping.html
+css/selectors/selector-placeholder-shown-type-change-001.html
 css/selectors/selector-placeholder-shown-type-change-002.html
 css/selectors/selector-placeholder-shown-type-change-003.html
 css/selectors/selector-read-write-type-change-001.html
+css/selectors/selector-read-write-type-change-002.html
 css/selectors/selector-required-type-change-001.html
+css/selectors/selector-required-type-change-002.html
+css/selectors/selector-required.html
 css/selectors/selector-structural-pseudo-root.html
+css/selectors/selectors-4/details-open-pseudo-001.html
+css/selectors/selectors-4/details-open-pseudo-002.html
+css/selectors/selectors-4/lang-000.html
+css/selectors/selectors-4/lang-001.html
+css/selectors/selectors-4/lang-002.html
+css/selectors/selectors-4/lang-003.html
+css/selectors/selectors-4/lang-004.html
 css/selectors/selectors-4/lang-005.html
 css/selectors/selectors-4/lang-006.html
+css/selectors/selectors-4/lang-011.html
+css/selectors/selectors-4/lang-012.html
 css/selectors/selectors-4/lang-013.html
 css/selectors/selectors-4/lang-014.html
+css/selectors/selectors-4/lang-016.html
 css/selectors/selectors-4/lang-019.html
+css/selectors/selectors-4/lang-020.html
+css/selectors/selectors-4/lang-022.html
+css/selectors/selectors-4/lang-023.html
+css/selectors/selectors-4/lang-024.html
+css/selectors/selectors-4/lang-025.html
 css/selectors/selectors-attr-many.html
 css/selectors/sharing-in-svg-use.html
 css/selectors/text-emphasis-visited-inheritance.html
@@ -9784,7 +9843,6 @@ html/canvas/element/manual/context-attributes/initial_color_alpha_false.html
 html/canvas/element/manual/context-attributes/reset_color_alpha_false.html
 html/canvas/element/manual/draw-element-image/compositing-descendant-filter.tentative.html
 html/canvas/element/manual/draw-element-image/css-backdrop-filter-and-mask.tentative.html
-html/canvas/element/manual/draw-element-image/ink-overflow.tentative.html
 html/canvas/element/manual/draw-element-image/invalidation-during-onpaint.tentative.html
 html/canvas/element/manual/draw-element-image/nested-canvas-not-rendered.tentative.html
 html/canvas/element/manual/draw-element-image/privacy/target-text-ignored-overlay-path.tentative.html

@@ -86,6 +86,8 @@ void set_control_value_of(Realm::Internals& in, dom::Element const& element, std
         in.hooks.set_control_value(element, value);
     else
         in.fallback_values[&element] = std::move(value);
+    // :placeholder-shown and the validity states read it.
+    const_cast<dom::Element&>(element).mark_style_self();
     in.realm.note_mutation();
 }
 
@@ -108,6 +110,7 @@ void set_control_checked_of(Realm::Internals& in, dom::Element const& element, b
         in.hooks.set_control_checked(element, checked);
     else
         in.fallback_checked[&element] = checked;
+    const_cast<dom::Element&>(element).mark_style_self(); // :checked reads it
     in.realm.note_mutation();
 }
 
@@ -127,6 +130,9 @@ void move_focus(Realm::Internals& in, dom::Element const* element)
         in.hooks.focus(element);
     else
         in.fallback_focus = element;
+    // :focus and the rest follow it; a focus a script gives after a key
+    // shows itself, after the pointer it does not (but in a text field).
+    in.document->set_focused(element, in.keyboard_modality);
     if (previous) {
         in.realm.dispatch_event(const_cast<dom::Element*>(previous), "blur");
         in.realm.dispatch_event(const_cast<dom::Element*>(previous), "focusout", Realm::EventInit { true, false, true });

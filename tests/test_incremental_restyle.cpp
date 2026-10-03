@@ -100,6 +100,21 @@ body:has(.frame .inner) { word-spacing: 3px }
 .group:has(.leaf.on ~ .tail) .tail { margin-left: 1px }
 )";
 
+// The states a pointer and the focus set, tested on the element itself, on
+// an ancestor and on an earlier sibling (selectors-4 §9).
+constexpr std::string_view state_sheet = R"(
+body { color: rgb(10, 20, 30); font-size: 15px }
+.leaf:hover { color: rgb(1, 0, 0) }
+.group:hover .tail { font-weight: bold }
+.row:active > .leaf { padding-left: 3px }
+.row:focus-within .tail { color: rgb(0, 2, 0) }
+.leaf:focus + .leaf { color: rgb(0, 0, 3) }
+.group:focus-visible { padding-top: 4px }
+.box:not(:hover) > .row { margin-left: 1px }
+:is(.frame:hover, .group:active) .inner { text-indent: 5px }
+.leaf:hover ~ .tail { letter-spacing: 1px }
+)";
+
 constexpr std::string_view extra_sheet = R"(
 .leaf { background-color: rgb(3, 3, 3) }
 .group { padding-top: 7px }
@@ -367,15 +382,22 @@ void random_mutations(std::string_view sheet, std::uint64_t seed)
             }
             break;
         }
-        case 8:
-            // Interactive state: nothing in the engine matches :hover or
-            // :focus yet, so the state a pointer or focus change would set
-            // stands in as an attribute selectors can see.
-            if (random.below(2))
+        case 8: {
+            // The pointer moves, a button goes down or up, the focus moves:
+            // the document's states, which the selectors read.
+            std::size_t const pick = random.below(5);
+            if (pick == 0)
+                page.document->set_hovered(&target);
+            else if (pick == 1)
+                page.document->set_active(random.below(2) ? &target : nullptr);
+            else if (pick == 2)
+                page.document->set_focused(random.below(4) ? &target : nullptr, random.below(2) == 0);
+            else if (random.below(2))
                 set_attribute(target, "data-k", std::to_string(random.below(3)));
             else
                 remove_attribute(target, "data-k");
             break;
+        }
         case 9:
             if (random.below(4) == 0)
                 toggle_class(*page.body, "scroll");
@@ -675,5 +697,6 @@ int main()
     random_mutations(page_sheet, 0x1234abcdu);
     random_mutations(argument_sheet, 0x9e3779b9u);
     random_mutations(has_sheet, 0x51ed27f3u);
+    random_mutations(state_sheet, 0x2545f491u);
     return test::report("test_incremental_restyle");
 }

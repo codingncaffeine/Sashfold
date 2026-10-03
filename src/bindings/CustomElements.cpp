@@ -292,6 +292,7 @@ Native construct_html_element(js::Interpreter& interp, Args, js::Object* new_tar
     NodeWrapper& wrapper = wrapper_for(in, *made);
     wrapper.set_prototype(prototype_object);
     wrapper.custom_definition = definition;
+    made->set_custom_defined(true); // :defined (HTML §4.13.6)
     return js::Value::object(&wrapper);
 }
 
@@ -341,6 +342,8 @@ void upgrade_custom_element(Realm::Internals& in, dom::Element& element)
     ++in.stats.custom_elements_upgraded;
     trace("upgraded <" + definition->name + ">");
     wrapper.custom_definition = definition;
+    if (dom::Element* const upgraded = wrapper.detached() ? nullptr : static_cast<dom::Element*>(&wrapper.node()))
+        upgraded->set_custom_defined(true); // :defined
 
     // What it missed while it was an ordinary element: the attributes it
     // watches, and the document it is already in. The attributes are read

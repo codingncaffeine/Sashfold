@@ -5,6 +5,8 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdlib>
+#include <optional>
 
 namespace sashfold::css {
 
@@ -308,30 +310,76 @@ constexpr PseudoName pseudo_classes[] = {
     { "only-of-type", SimpleSelector::PseudoKind::OnlyOfType },
     { "any-link", SimpleSelector::PseudoKind::AnyLink },
     { "link", SimpleSelector::PseudoKind::Link },
-    // Interactive and state pseudo-classes: valid selectors, no matches yet.
-    { "hover", SimpleSelector::PseudoKind::NeverMatches },
-    { "active", SimpleSelector::PseudoKind::NeverMatches },
-    { "focus", SimpleSelector::PseudoKind::NeverMatches },
-    { "focus-within", SimpleSelector::PseudoKind::NeverMatches },
-    { "focus-visible", SimpleSelector::PseudoKind::NeverMatches },
-    { "visited", SimpleSelector::PseudoKind::NeverMatches },
-    { "target", SimpleSelector::PseudoKind::NeverMatches },
-    { "checked", SimpleSelector::PseudoKind::NeverMatches },
-    { "disabled", SimpleSelector::PseudoKind::NeverMatches },
-    { "enabled", SimpleSelector::PseudoKind::NeverMatches },
-    { "required", SimpleSelector::PseudoKind::NeverMatches },
-    { "optional", SimpleSelector::PseudoKind::NeverMatches },
-    { "read-only", SimpleSelector::PseudoKind::NeverMatches },
-    { "read-write", SimpleSelector::PseudoKind::NeverMatches },
-    { "placeholder-shown", SimpleSelector::PseudoKind::NeverMatches },
-    { "default", SimpleSelector::PseudoKind::NeverMatches },
-    { "indeterminate", SimpleSelector::PseudoKind::NeverMatches },
+    { "-webkit-any-link", SimpleSelector::PseudoKind::AnyLink },
+    // The user's actions and the document's states (selectors-4 §9, §10).
+    { "hover", SimpleSelector::PseudoKind::Hover },
+    { "active", SimpleSelector::PseudoKind::Active },
+    { "focus", SimpleSelector::PseudoKind::Focus },
+    { "focus-within", SimpleSelector::PseudoKind::FocusWithin },
+    { "focus-visible", SimpleSelector::PseudoKind::FocusVisible },
+    { "target", SimpleSelector::PseudoKind::Target },
+    { "fullscreen", SimpleSelector::PseudoKind::Fullscreen },
+    { "-webkit-full-screen", SimpleSelector::PseudoKind::Fullscreen },
+    // The form controls' states (§14).
+    { "checked", SimpleSelector::PseudoKind::Checked },
+    { "indeterminate", SimpleSelector::PseudoKind::Indeterminate },
+    { "default", SimpleSelector::PseudoKind::Default },
+    { "disabled", SimpleSelector::PseudoKind::Disabled },
+    { "enabled", SimpleSelector::PseudoKind::Enabled },
+    { "required", SimpleSelector::PseudoKind::Required },
+    { "optional", SimpleSelector::PseudoKind::Optional },
+    { "read-only", SimpleSelector::PseudoKind::ReadOnly },
+    { "read-write", SimpleSelector::PseudoKind::ReadWrite },
+    { "placeholder-shown", SimpleSelector::PseudoKind::PlaceholderShown },
+    { "valid", SimpleSelector::PseudoKind::Valid },
+    { "invalid", SimpleSelector::PseudoKind::Invalid },
+    { "in-range", SimpleSelector::PseudoKind::InRange },
+    { "out-of-range", SimpleSelector::PseudoKind::OutOfRange },
+    { "open", SimpleSelector::PseudoKind::Open },
+    { "defined", SimpleSelector::PseudoKind::Defined },
     { "scope", SimpleSelector::PseudoKind::ScopeRoot },
+    // Valid, and nothing here is ever in the state: a visited link (no
+    // history is shown to a page), a field the browser filled, a modal
+    // dialog or an open popover, a field the user has touched, a picture
+    // in its own window, and Blink's vendor names, which a page writes in
+    // a list beside others — an unknown one would drop the whole list.
+    { "visited", SimpleSelector::PseudoKind::NeverMatches },
+    { "autofill", SimpleSelector::PseudoKind::NeverMatches },
+    { "-webkit-autofill", SimpleSelector::PseudoKind::NeverMatches },
+    { "modal", SimpleSelector::PseudoKind::NeverMatches },
+    { "popover-open", SimpleSelector::PseudoKind::NeverMatches },
+    { "user-valid", SimpleSelector::PseudoKind::NeverMatches },
+    { "user-invalid", SimpleSelector::PseudoKind::NeverMatches },
+    { "picture-in-picture", SimpleSelector::PseudoKind::NeverMatches },
+    { "-webkit-full-screen-document", SimpleSelector::PseudoKind::NeverMatches },
+    { "-webkit-full-screen-ancestor", SimpleSelector::PseudoKind::NeverMatches },
+    { "-webkit-full-page-media", SimpleSelector::PseudoKind::NeverMatches },
+    { "-webkit-drag", SimpleSelector::PseudoKind::NeverMatches },
+    { "window-inactive", SimpleSelector::PseudoKind::NeverMatches },
+    { "horizontal", SimpleSelector::PseudoKind::NeverMatches },
+    { "vertical", SimpleSelector::PseudoKind::NeverMatches },
+    { "decrement", SimpleSelector::PseudoKind::NeverMatches },
+    { "increment", SimpleSelector::PseudoKind::NeverMatches },
+    { "start", SimpleSelector::PseudoKind::NeverMatches },
+    { "end", SimpleSelector::PseudoKind::NeverMatches },
+    { "double-button", SimpleSelector::PseudoKind::NeverMatches },
+    { "single-button", SimpleSelector::PseudoKind::NeverMatches },
+    { "no-button", SimpleSelector::PseudoKind::NeverMatches },
+    { "corner-present", SimpleSelector::PseudoKind::NeverMatches },
 };
 
 constexpr std::string_view pseudo_elements[] = {
     "before", "after", "first-line", "first-letter", "marker", "selection",
-    "placeholder", "backdrop", "file-selector-button",
+    "placeholder", "backdrop", "file-selector-button", "cue", "grammar-error",
+    "spelling-error", "target-text", "search-text", "details-content", "checkmark",
+    "picker-icon", "scroll-marker", "scroll-marker-group", "column", "view-transition",
+};
+
+// Pseudo-elements that take an argument: valid, and matched by nothing
+// here (shadow parts and slots, highlights, view transitions, pickers).
+constexpr std::string_view functional_pseudo_elements[] = {
+    "part", "slotted", "highlight", "cue", "picker", "scroll-button", "view-transition-group",
+    "view-transition-image-pair", "view-transition-old", "view-transition-new",
 };
 
 std::optional<SelectorList> parse_selector_list_internal(
@@ -515,8 +563,12 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
                     && (name == "before" || name == "after" || name == "first-line"
                         || name == "first-letter");
                 if (element_form || legacy_element) {
+                    // Blink takes every ::-webkit- name as a valid
+                    // pseudo-element (its scrollbars, its controls' parts):
+                    // a page writes them in lists beside others.
                     if (std::find(std::begin(pseudo_elements), std::end(pseudo_elements), name)
-                        == std::end(pseudo_elements))
+                            == std::end(pseudo_elements)
+                        && !(element_form && name.starts_with("-webkit-") && !t_selectors_unforgiving))
                         return false;
                     SimpleSelector simple;
                     simple.kind = SimpleSelector::Kind::PseudoElement;
@@ -539,13 +591,72 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
             }
 
             if (name_value->is_function()) {
-                if (element_form)
-                    return false; // no functional pseudo-elements supported
                 FunctionValue const& function = name_value->function();
                 std::string const name = lowercased(function.name);
+                if (element_form) {
+                    // ::part(), ::slotted(), ::highlight() and the rest:
+                    // valid, and matched by nothing here.
+                    if (std::find(std::begin(functional_pseudo_elements), std::end(functional_pseudo_elements), name)
+                        == std::end(functional_pseudo_elements))
+                        return false;
+                    bool has_argument = false;
+                    for (ComponentValue const& part : function.values)
+                        has_argument = has_argument || !part.is_token(Token::Type::Whitespace);
+                    if (!has_argument)
+                        return false; // an argument is required
+                    SimpleSelector simple;
+                    simple.kind = SimpleSelector::Kind::PseudoElement;
+                    simple.name = name;
+                    specificity.c += 1;
+                    compound.simples.push_back(std::move(simple));
+                    continue;
+                }
                 SimpleSelector simple;
                 simple.kind = SimpleSelector::Kind::PseudoClass;
                 simple.name = name;
+                if (name == "lang" || name == "dir") {
+                    // :lang(<ranges>), :dir(ltr | rtl) (selectors-4 §7).
+                    for (ComponentValue const& part : function.values) {
+                        if (part.is_token(Token::Type::Ident) || part.is_token(Token::Type::String))
+                            simple.languages.push_back(lowercased(part.token().value));
+                        else if (!part.is_token(Token::Type::Whitespace) && !part.is_token(Token::Type::Comma))
+                            return false;
+                    }
+                    if (simple.languages.empty() || (name == "dir" && simple.languages.size() != 1))
+                        return false;
+                    simple.pseudo = name == "lang" ? SimpleSelector::PseudoKind::Lang : SimpleSelector::PseudoKind::Dir;
+                    specificity.b += 1;
+                    compound.simples.push_back(std::move(simple));
+                    continue;
+                }
+                if (name == "-webkit-any") {
+                    // Blink's older :is(), forgiving nothing.
+                    auto argument = parse_selector_list_internal(function.values, false);
+                    if (!argument || has_pseudo_element(*argument))
+                        return false;
+                    simple.pseudo = SimpleSelector::PseudoKind::Is;
+                    specificity.b += 1;
+                    simple.argument = std::make_shared<SelectorList>(std::move(*argument));
+                    compound.simples.push_back(std::move(simple));
+                    continue;
+                }
+                if (name == "state") {
+                    // One name, a <custom-ident>, and nothing else.
+                    int names = 0;
+                    for (ComponentValue const& part : function.values) {
+                        if (part.is_token(Token::Type::Ident))
+                            ++names;
+                        else if (!part.is_token(Token::Type::Whitespace))
+                            return false;
+                    }
+                    if (names != 1)
+                        return false;
+                    // A custom element's own state (CustomStateSet): none set here.
+                    simple.pseudo = SimpleSelector::PseudoKind::NeverMatches;
+                    specificity.b += 1;
+                    compound.simples.push_back(std::move(simple));
+                    continue;
+                }
                 if (name == "not" || name == "is" || name == "where") {
                     bool const forgiving = name != "not" && !t_selectors_unforgiving;
                     auto argument = parse_selector_list_internal(function.values, forgiving);
@@ -567,6 +678,11 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
                     continue;
                 }
                 if (name == "has") {
+                    // Nothing argues about a pseudo-element's inside.
+                    for (SimpleSelector const& before : compound.simples) {
+                        if (before.kind == SimpleSelector::Kind::PseudoElement)
+                            return false;
+                    }
                     // :has() may not occur inside :has() — directly, or
                     // through :is()/:where() in between — so having its own
                     // effects be part of what it considers is never a
@@ -996,6 +1112,441 @@ bool class_list_contains(std::string_view class_attribute, std::string_view want
 
 bool matches_compound(CompoundSelector const& compound, dom::Element const& element);
 
+// --- The form controls' states (HTML §4.16.3, selectors-4 §14) -------------
+
+std::string attribute_lower(dom::Element const& element, std::string_view name)
+{
+    dom::Attr const* attribute = element.find_attribute(name);
+    return attribute ? lowercased(attribute->value) : std::string();
+}
+
+// An <input>'s type keyword: "text" when it is missing or unknown.
+std::string input_type(dom::Element const& element)
+{
+    static constexpr std::string_view known[] = { "hidden", "text", "search", "tel", "url", "email", "password",
+        "date", "month", "week", "time", "datetime-local", "number", "range", "color", "checkbox", "radio", "file",
+        "submit", "image", "reset", "button" };
+    std::string const type = attribute_lower(element, "type");
+    for (std::string_view const keyword : known) {
+        if (type == keyword)
+            return type;
+    }
+    return "text";
+}
+
+// The types whose field takes text, and so readonly (§4.10.5.3.3).
+bool takes_readonly(std::string const& type)
+{
+    return type == "text" || type == "search" || type == "url" || type == "tel" || type == "email" || type == "password"
+        || type == "date" || type == "month" || type == "week" || type == "time" || type == "datetime-local" || type == "number";
+}
+
+bool takes_placeholder(std::string const& type)
+{
+    return type == "text" || type == "search" || type == "url" || type == "tel" || type == "email" || type == "password"
+        || type == "number";
+}
+
+bool takes_required(std::string const& type)
+{
+    return type != "hidden" && type != "range" && type != "color" && type != "submit" && type != "image" && type != "reset"
+        && type != "button";
+}
+
+dom::Element const* element_parent(dom::Element const& element)
+{
+    dom::Node const* parent = element.parent();
+    return parent && parent->is_element() ? static_cast<dom::Element const*>(parent) : nullptr;
+}
+
+// A fieldset that is disabled disables what it holds, but what is in its
+// first legend (§4.10.15).
+bool disabled_by_fieldset(dom::Element const& element)
+{
+    dom::Node const* child = &element;
+    for (dom::Element const* ancestor = element_parent(element); ancestor; child = ancestor, ancestor = element_parent(*ancestor)) {
+        if (!ancestor->is_html("fieldset") || !ancestor->has_attribute("disabled"))
+            continue;
+        dom::Element const* first_legend = nullptr;
+        for (dom::Node const* node : ancestor->children()) {
+            if (node->is_element() && static_cast<dom::Element const*>(node)->is_html("legend")) {
+                first_legend = static_cast<dom::Element const*>(node);
+                break;
+            }
+        }
+        if (child != first_legend)
+            return true;
+    }
+    return false;
+}
+
+bool can_be_disabled(dom::Element const& element)
+{
+    return element.is_html("button") || element.is_html("input") || element.is_html("select") || element.is_html("textarea")
+        || element.is_html("optgroup") || element.is_html("option") || element.is_html("fieldset");
+}
+
+bool actually_disabled(dom::Element const& element)
+{
+    if (element.is_html("optgroup"))
+        return element.has_attribute("disabled");
+    if (element.is_html("option")) {
+        dom::Element const* parent = element_parent(element);
+        return element.has_attribute("disabled") || (parent && parent->is_html("optgroup") && parent->has_attribute("disabled"));
+    }
+    return element.has_attribute("disabled") || disabled_by_fieldset(element);
+}
+
+// The select an option belongs to, through an optgroup.
+dom::Element const* select_of(dom::Element const& option)
+{
+    dom::Element const* parent = element_parent(option);
+    if (parent && parent->is_html("optgroup"))
+        parent = element_parent(*parent);
+    return parent && parent->is_html("select") ? parent : nullptr;
+}
+
+template<typename Each> void each_option(dom::Element const& select, Each const& each)
+{
+    for (dom::Node const* node : select.children()) {
+        if (!node->is_element())
+            continue;
+        auto const& child = static_cast<dom::Element const&>(*node);
+        if (child.is_html("option")) {
+            if (!each(child))
+                return;
+        } else if (child.is_html("optgroup")) {
+            for (dom::Node const* inner : child.children()) {
+                if (inner->is_element() && static_cast<dom::Element const*>(inner)->is_html("option")
+                    && !each(static_cast<dom::Element const&>(*inner)))
+                    return;
+            }
+        }
+    }
+}
+
+// An option's selectedness: its selected attribute, or — in a select that
+// shows one option and has none selected — being the first that is not
+// disabled (§4.10.7's selectedness setting algorithm).
+bool option_selected(dom::Element const& option)
+{
+    if (option.has_attribute("selected"))
+        return true;
+    dom::Element const* select = select_of(option);
+    if (!select || select->has_attribute("multiple"))
+        return false;
+    bool any_selected = false;
+    dom::Element const* first = nullptr;
+    each_option(*select, [&](dom::Element const& candidate) {
+        if (candidate.has_attribute("selected"))
+            any_selected = true;
+        if (!first && !actually_disabled(candidate))
+            first = &candidate;
+        return true;
+    });
+    return !any_selected && first == &option;
+}
+
+bool checkedness(dom::Element const& element)
+{
+    if (element.is_html("option"))
+        return option_selected(element);
+    if (!element.is_html("input"))
+        return false;
+    std::string const type = input_type(element);
+    if (type != "checkbox" && type != "radio")
+        return false;
+    if (element.document().live_checked) {
+        if (std::optional<bool> const live = element.document().live_checked(element))
+            return *live;
+    }
+    return element.has_attribute("checked");
+}
+
+std::string control_value(dom::Element const& element)
+{
+    if (element.document().live_value) {
+        if (std::optional<std::string> live = element.document().live_value(element))
+            return *live;
+    }
+    if (element.is_html("textarea")) {
+        std::string text;
+        for (dom::Node const* child : element.children()) {
+            if (child->is_text())
+                text += static_cast<dom::Text const*>(child)->data;
+        }
+        return text;
+    }
+    if (element.is_html("select")) {
+        std::string value;
+        each_option(element, [&](dom::Element const& option) {
+            if (!option_selected(option))
+                return true;
+            dom::Attr const* attribute = option.find_attribute("value");
+            if (attribute) {
+                value = attribute->value;
+            } else {
+                for (dom::Node const* child : option.children()) {
+                    if (child->is_text())
+                        value += static_cast<dom::Text const*>(child)->data;
+                }
+            }
+            return false;
+        });
+        return value;
+    }
+    dom::Attr const* attribute = element.find_attribute("value");
+    return attribute ? attribute->value : std::string();
+}
+
+// The radios of one group: the same name, the same form (§4.10.5.1.18).
+template<typename Each> void each_in_radio_group(dom::Element const& radio, Each const& each)
+{
+    dom::Attr const* name = radio.find_attribute("name");
+    if (!name || name->value.empty()) {
+        each(radio);
+        return;
+    }
+    dom::Node const* root = &radio;
+    for (dom::Element const* ancestor = element_parent(radio); ancestor; ancestor = element_parent(*ancestor)) {
+        root = ancestor;
+        if (ancestor->is_html("form"))
+            break;
+    }
+    auto const walk = [&](auto const& self, dom::Node const& node) -> void {
+        for (dom::Node const* child : node.children()) {
+            if (!child->is_element())
+                continue;
+            auto const& candidate = static_cast<dom::Element const&>(*child);
+            if (candidate.is_html("input") && input_type(candidate) == "radio") {
+                dom::Attr const* other = candidate.find_attribute("name");
+                if (other && other->value == name->value)
+                    each(candidate);
+            }
+            self(self, candidate);
+        }
+    };
+    walk(walk, *root);
+}
+
+bool editing_host_editable(dom::Element const& element)
+{
+    for (dom::Element const* ancestor = &element; ancestor; ancestor = element_parent(*ancestor)) {
+        dom::Attr const* attribute = ancestor->find_attribute("contenteditable");
+        if (!attribute)
+            continue;
+        std::string const value = lowercased(attribute->value);
+        if (value.empty() || value == "true" || value == "plaintext-only")
+            return true;
+        if (value == "false")
+            return false;
+    }
+    return false;
+}
+
+bool read_write(dom::Element const& element)
+{
+    if (element.is_html("input"))
+        return takes_readonly(input_type(element)) && !element.has_attribute("readonly") && !actually_disabled(element);
+    if (element.is_html("textarea"))
+        return !element.has_attribute("readonly") && !actually_disabled(element);
+    return editing_host_editable(element);
+}
+
+bool parse_number(std::string_view text, double& out)
+{
+    std::string const copy(text);
+    if (copy.empty())
+        return false;
+    char* end = nullptr;
+    out = std::strtod(copy.c_str(), &end);
+    return end && *end == '\0' && std::isfinite(out);
+}
+
+// Whether a control falls outside its min and max (§4.10.5.3.7): number
+// fields; a range field is held within them and never does.
+std::optional<bool> out_of_range(dom::Element const& element)
+{
+    if (!element.is_html("input"))
+        return std::nullopt;
+    std::string const type = input_type(element);
+    if (type != "number" && type != "range")
+        return std::nullopt;
+    dom::Attr const* min = element.find_attribute("min");
+    dom::Attr const* max = element.find_attribute("max");
+    if (!min && !max)
+        return std::nullopt;
+    if (type == "range")
+        return false;
+    double value = 0;
+    if (!parse_number(control_value(element), value))
+        return false;
+    double limit = 0;
+    if (min && parse_number(min->value, limit) && value < limit)
+        return true;
+    if (max && parse_number(max->value, limit) && value > limit)
+        return true;
+    return false;
+}
+
+// A control that takes part in constraint validation (§4.10.20.1): not
+// disabled, not read-only, not a button that is no submit button.
+bool validation_candidate(dom::Element const& element)
+{
+    if (element.is_html("input")) {
+        std::string const type = input_type(element);
+        if (type == "hidden" || type == "reset" || type == "button")
+            return false;
+        if (takes_readonly(type) && element.has_attribute("readonly"))
+            return false;
+        return !actually_disabled(element);
+    }
+    if (element.is_html("textarea"))
+        return !element.has_attribute("readonly") && !actually_disabled(element);
+    if (element.is_html("select"))
+        return !actually_disabled(element);
+    if (element.is_html("button"))
+        return attribute_lower(element, "type") != "button" && attribute_lower(element, "type") != "reset" && !actually_disabled(element);
+    return false;
+}
+
+bool plausible_email(std::string const& value)
+{
+    // §4.10.5.1.5's valid e-mail address, near enough: one @, text on
+    // both sides, no spaces; a list when `multiple` is not here.
+    std::size_t const at = value.find('@');
+    return at != std::string::npos && at > 0 && at + 1 < value.size() && value.find('@', at + 1) == std::string::npos
+        && value.find_first_of(" \t\n\r\f") == std::string::npos;
+}
+
+bool suffering(dom::Element const& element)
+{
+    if (!validation_candidate(element))
+        return false;
+    bool const required = element.has_attribute("required");
+    if (element.is_html("input")) {
+        std::string const type = input_type(element);
+        if (type == "checkbox")
+            return required && !checkedness(element);
+        if (type == "radio") {
+            bool group_required = false;
+            bool group_checked = false;
+            each_in_radio_group(element, [&](dom::Element const& radio) {
+                group_required = group_required || radio.has_attribute("required");
+                group_checked = group_checked || checkedness(radio);
+            });
+            return group_required && !group_checked;
+        }
+        std::string const value = control_value(element);
+        if (required && takes_required(type) && value.empty())
+            return true;
+        if (!value.empty() && type == "email" && !plausible_email(value))
+            return true;
+        if (!value.empty() && type == "url" && value.find(':') == std::string::npos)
+            return true;
+        if (!value.empty() && type == "number") {
+            double number = 0;
+            if (!parse_number(value, number))
+                return true;
+        }
+        return out_of_range(element).value_or(false);
+    }
+    if (element.is_html("textarea") || element.is_html("select"))
+        return required && control_value(element).empty();
+    return false;
+}
+
+// A form or fieldset is invalid when a control in it is.
+bool holds_suffering(dom::Element const& element)
+{
+    for (dom::Node const* child : element.children()) {
+        if (!child->is_element())
+            continue;
+        auto const& inner = static_cast<dom::Element const&>(*child);
+        if (suffering(inner) || holds_suffering(inner))
+            return true;
+    }
+    return false;
+}
+
+std::optional<bool> validity(dom::Element const& element)
+{
+    if (element.is_html("form") || element.is_html("fieldset"))
+        return !holds_suffering(element);
+    if (!validation_candidate(element))
+        return std::nullopt;
+    return !suffering(element);
+}
+
+// The form's default button (§4.10.22.4): its first submit button.
+bool default_button(dom::Element const& element)
+{
+    bool const submit = (element.is_html("button") && (attribute_lower(element, "type").empty() || attribute_lower(element, "type") == "submit"))
+        || (element.is_html("input") && (input_type(element) == "submit" || input_type(element) == "image"));
+    if (!submit)
+        return false;
+    dom::Element const* form = element_parent(element);
+    while (form && !form->is_html("form"))
+        form = element_parent(*form);
+    if (!form)
+        return false;
+    dom::Element const* first = nullptr;
+    auto const walk = [&](auto const& self, dom::Node const& node) -> void {
+        for (dom::Node const* child : node.children()) {
+            if (first || !child->is_element())
+                continue;
+            auto const& candidate = static_cast<dom::Element const&>(*child);
+            bool const candidate_submit = (candidate.is_html("button") && (attribute_lower(candidate, "type").empty() || attribute_lower(candidate, "type") == "submit"))
+                || (candidate.is_html("input") && (input_type(candidate) == "submit" || input_type(candidate) == "image"));
+            if (candidate_submit) {
+                first = &candidate;
+                return;
+            }
+            self(self, candidate);
+        }
+    };
+    walk(walk, *form);
+    return first == &element;
+}
+
+// The element's language (HTML §3.2.6.2): its own lang, or the nearest
+// one above it; empty when none says.
+std::string language_of(dom::Element const& element)
+{
+    for (dom::Element const* ancestor = &element; ancestor; ancestor = element_parent(*ancestor)) {
+        for (dom::Attr const& attribute : ancestor->attributes()) {
+            if ((attribute.local_name == "lang" && attribute.namespace_uri.empty())
+                || (attribute.local_name == "lang" && attribute.namespace_uri == "http://www.w3.org/XML/1998/namespace"))
+                return lowercased(attribute.value);
+        }
+    }
+    return {};
+}
+
+bool language_matches(std::string const& language, std::string const& range)
+{
+    if (range == "*")
+        return !language.empty();
+    if (language == range)
+        return true;
+    return language.size() > range.size() && language.starts_with(range) && language[range.size()] == '-';
+}
+
+std::string direction_of(dom::Element const& element)
+{
+    for (dom::Element const* ancestor = &element; ancestor; ancestor = element_parent(*ancestor)) {
+        std::string const dir = attribute_lower(*ancestor, "dir");
+        if (dir == "ltr" || dir == "rtl")
+            return dir;
+    }
+    return "ltr";
+}
+
+bool is_custom_element_name(std::string const& name)
+{
+    return !name.empty() && name[0] >= 'a' && name[0] <= 'z' && name.find('-') != std::string::npos;
+}
+
 bool matches_simple(SimpleSelector const& simple, dom::Element const& element)
 {
     bool const quirks = element.document().quirks_mode == dom::QuirksMode::Yes;
@@ -1031,6 +1582,90 @@ bool matches_simple(SimpleSelector const& simple, dom::Element const& element)
     case SimpleSelector::PseudoKind::None:
     case SimpleSelector::PseudoKind::NeverMatches:
         return false;
+    case SimpleSelector::PseudoKind::Hover:
+        return element.document().holds_hover(element);
+    case SimpleSelector::PseudoKind::Active:
+        return element.document().holds_active(element);
+    case SimpleSelector::PseudoKind::Focus:
+        return element.document().focused() == &element;
+    case SimpleSelector::PseudoKind::FocusWithin:
+        return element.document().holds_focus(element);
+    case SimpleSelector::PseudoKind::FocusVisible:
+        // As Blink and Gecko decide it: a focus that came from the keyboard,
+        // or any focus of a field that takes typing, shows itself.
+        return element.document().focused() == &element
+            && (element.document().focus_visible() || read_write(element));
+    case SimpleSelector::PseudoKind::Target:
+        return element.document().target() == &element;
+    case SimpleSelector::PseudoKind::Fullscreen:
+        return element.document().fullscreen() == &element;
+    case SimpleSelector::PseudoKind::Checked:
+        return checkedness(element);
+    case SimpleSelector::PseudoKind::Indeterminate:
+        if (element.is_html("progress"))
+            return !element.has_attribute("value");
+        if (element.is_html("input") && input_type(element) == "radio") {
+            bool any = false;
+            each_in_radio_group(element, [&](dom::Element const& radio) { any = any || checkedness(radio); });
+            return !any;
+        }
+        return false;
+    case SimpleSelector::PseudoKind::Default:
+        if (element.is_html("input") && (input_type(element) == "checkbox" || input_type(element) == "radio"))
+            return element.has_attribute("checked");
+        if (element.is_html("option"))
+            return element.has_attribute("selected");
+        return default_button(element);
+    case SimpleSelector::PseudoKind::Disabled:
+        return can_be_disabled(element) && actually_disabled(element);
+    case SimpleSelector::PseudoKind::Enabled:
+        return can_be_disabled(element) && !actually_disabled(element);
+    case SimpleSelector::PseudoKind::Required:
+    case SimpleSelector::PseudoKind::Optional: {
+        bool applies = element.is_html("select") || element.is_html("textarea");
+        if (element.is_html("input"))
+            applies = takes_required(input_type(element));
+        if (!applies)
+            return false;
+        bool const required = element.has_attribute("required");
+        return simple.pseudo == SimpleSelector::PseudoKind::Required ? required : !required;
+    }
+    case SimpleSelector::PseudoKind::ReadOnly:
+        return !read_write(element);
+    case SimpleSelector::PseudoKind::ReadWrite:
+        return read_write(element);
+    case SimpleSelector::PseudoKind::PlaceholderShown: {
+        bool const takes = element.is_html("textarea") || (element.is_html("input") && takes_placeholder(input_type(element)));
+        return takes && element.has_attribute("placeholder") && control_value(element).empty();
+    }
+    case SimpleSelector::PseudoKind::Valid:
+    case SimpleSelector::PseudoKind::Invalid: {
+        std::optional<bool> const valid = validity(element);
+        if (!valid)
+            return false;
+        return simple.pseudo == SimpleSelector::PseudoKind::Valid ? *valid : !*valid;
+    }
+    case SimpleSelector::PseudoKind::InRange:
+    case SimpleSelector::PseudoKind::OutOfRange: {
+        std::optional<bool> const outside = out_of_range(element);
+        if (!outside)
+            return false;
+        return simple.pseudo == SimpleSelector::PseudoKind::OutOfRange ? *outside : !*outside;
+    }
+    case SimpleSelector::PseudoKind::Open:
+        return (element.is_html("details") || element.is_html("dialog")) && element.has_attribute("open");
+    case SimpleSelector::PseudoKind::Defined:
+        return !element.is_html() || !is_custom_element_name(element.local_name()) || element.custom_defined();
+    case SimpleSelector::PseudoKind::Lang: {
+        std::string const language = language_of(element);
+        for (std::string const& range : simple.languages) {
+            if (language_matches(language, range))
+                return true;
+        }
+        return false;
+    }
+    case SimpleSelector::PseudoKind::Dir:
+        return direction_of(element) == simple.languages.front();
     case SimpleSelector::PseudoKind::Root:
         return !parent_element(element) && element.parent() != nullptr;
     case SimpleSelector::PseudoKind::Empty:
@@ -1271,6 +1906,14 @@ bool matches(ComplexSelector const& selector, dom::Element const& element)
     if (selector.compounds.empty())
         return false;
     return matches_from(selector, selector.compounds.size() - 1, element);
+}
+
+bool element_in_state(SimpleSelector::PseudoKind kind, dom::Element const& element)
+{
+    SimpleSelector simple;
+    simple.kind = SimpleSelector::Kind::PseudoClass;
+    simple.pseudo = kind;
+    return matches_simple(simple, element);
 }
 
 bool matches_compound_but_has(CompoundSelector const& compound, dom::Element const& element)

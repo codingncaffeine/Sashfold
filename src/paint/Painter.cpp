@@ -828,11 +828,8 @@ void paint_control(Context& context, Fragment const& fragment)
     for (Fragment::ControlBox::Span const& span : control.selected)
         context.target.fill_rect(snap(span.x0 + context.dx, span.top + context.dy, span.x1 - span.x0, span.bottom - span.top),
             Color::rgba(0x5b, 0x9c, 0xf6, 0x66));
-    if (control.focused) {
-        Color const accent = Color::rgb(0x00, 0x60, 0xdf);
-        frame(rect, accent);
-        frame(inset(rect, line), accent);
-    }
+    // The focus ring is the control's outline now (`:focus-visible
+    // { outline: auto }` in the built-in sheet), drawn with every outline.
     if (control.caret_x)
         context.target.fill_rect(snap(*control.caret_x + context.dx, y + control.pad_top + px(4), line,
                                      control.height - control.pad_top - control.pad_bottom - 2 * px(4)),
@@ -847,6 +844,63 @@ void paint_control(Context& context, Fragment const& fragment)
 
 void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner);
 void paint_flow(Context& context, Fragment const& fragment, bool is_canvas_background_owner);
+
+// css-ui-4 §3: a box's outline, around its border box and `outline-offset`
+// outside it, taking no room. `auto` is the platform's focus ring: two
+// device pixels of the accent the chrome uses. Every style is drawn solid,
+// as the borders are.
+void paint_outline(Context& context, Fragment const& fragment)
+{
+    ComputedStyle const* style = fragment.style;
+    if (!style || style->visibility != css::Visibility::Visible)
+        return;
+    css::ComputedStyle::Outline const& outline = style->outline;
+    // No style, no outline: an anonymous box's style keeps the initial
+    // medium width beside it.
+    if (outline.style == css::BorderStyle::None && !outline.automatic)
+        return;
+    if (outline.width <= 0 && !outline.automatic)
+        return;
+    float const width = outline.automatic ? 2.0f / context.device_scale : outline.width;
+    Color const color = outline.automatic ? Color::rgb(0x00, 0x60, 0xdf) : outline.color;
+    if (color.a == 0)
+        return;
+    float const left = fragment.x + context.dx - outline.offset - width;
+    float const top = fragment.y + context.dy - outline.offset - width;
+    float const outer_width = fragment.width + 2 * (outline.offset + width);
+    float const outer_height = fragment.height + 2 * (outline.offset + width);
+    if (outer_width <= 0 || outer_height <= 0)
+        return;
+    auto const ring = [&](float x, float y, float w, float h, float thickness) {
+        context.target.fill_rect(snap(x, y, w, thickness), color);
+        context.target.fill_rect(snap(x, y + h - thickness, w, thickness), color);
+        context.target.fill_rect(snap(x, y + thickness, thickness, h - 2 * thickness), color);
+        context.target.fill_rect(snap(x + w - thickness, y + thickness, thickness, h - 2 * thickness), color);
+    };
+    ring(left, top, outer_width, outer_height, width);
+}
+
+std::optional<Rect> clip_within(Context const& context, Fragment const& fragment, std::optional<Rect> const& current);
+
+// Every outline in a stacking context, after all else in it (CSS 2.1
+// Appendix E, step 10), through the clips its boxes sit in; a stacking
+// context inside paints its own.
+void paint_outlines(Context& context, Fragment const& box)
+{
+    for (Fragment const& child : box.children) {
+        if (child.stacking_context)
+            continue;
+        paint_outline(context, child);
+        if (!child.children.empty()) {
+            std::size_t const rounds = context.target.round_clip_depth();
+            std::optional<Rect> const restore = context.target.clip();
+            context.target.set_clip(clip_within(context, child, restore));
+            paint_outlines(context, child);
+            context.target.truncate_round_clips(rounds);
+            context.target.set_clip(restore);
+        }
+    }
+}
 
 // The box's own background and borders — nothing when its visibility is
 // hidden (the box keeps its room).
@@ -1408,6 +1462,11 @@ void paint_opaque_context(Context& context, Fragment const& root, bool is_canvas
         if (layer.box->z_index >= 0)
             paint_one(layer);
     }
+    // The outlines, last of all (CSS 2.1 Appendix E, step 10).
+    context.target.set_clip(inside.rect);
+    paint_outline(context, root);
+    paint_outlines(context, root);
+    context.target.set_clip(outer);
     // A scroll container's bars are drawn over everything it holds, and a
     // positioned descendant of it paints at this level, so they come after
     // the whole context (css-overflow-3 §3.2).

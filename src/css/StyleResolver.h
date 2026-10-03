@@ -49,6 +49,9 @@ struct StyleUses {
     // subject, inside another :has(), or with a sibling in its argument.
     bool has_beyond_ancestors = false;
     bool first_letter = false; // ::first-letter
+    // :placeholder-shown, :valid/:invalid, :in-range/:out-of-range: what a
+    // control's typed value turns, so a keystroke restyles it.
+    bool control_values = false;
 };
 
 // The UA stylesheet and the author sheets, in order, parsed, compiled and
