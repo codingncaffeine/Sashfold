@@ -87,6 +87,13 @@ sashfold_test(test_font_manager)
 sashfold_test(test_js_lexer)
 sashfold_test(test_js_regex)
 sashfold_test(test_js_heap)
+sashfold_test(test_js_value)
+# The check on a cell value's address, turned on in every build: linked to
+# nothing of the engine's, whose files have the check as their build has it.
+add_executable(test_js_value_checks test_js_value_checks.cpp)
+target_include_directories(test_js_value_checks PRIVATE ${PROJECT_SOURCE_DIR}/src)
+target_link_libraries(test_js_value_checks PRIVATE sashfold_warnings sashfold_test_support)
+add_test(NAME test_js_value_checks COMMAND test_js_value_checks)
 sashfold_test(test_js_objects)
 sashfold_test(test_js_parser)
 sashfold_test(test_js_scopes)

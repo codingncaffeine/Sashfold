@@ -1887,17 +1887,17 @@ std::optional<Value> Interpreter::Impl::number_binary(BinaryOp op, double l, dou
         std::uint32_t const shift = rnum & 31u;
         switch (op) {
         case BinaryOp::LeftShift:
-            return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits << shift)));
+            return Value::int32(static_cast<std::int32_t>(lbits << shift));
         case BinaryOp::RightShift:
-            return Value::number(static_cast<double>(lnum >> shift));
+            return Value::int32(lnum >> shift);
         case BinaryOp::UnsignedRightShift:
             return Value::number(static_cast<double>(lbits >> shift));
         case BinaryOp::BitwiseAnd:
-            return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits & rnum)));
+            return Value::int32(static_cast<std::int32_t>(lbits & rnum));
         case BinaryOp::BitwiseOr:
-            return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits | rnum)));
+            return Value::int32(static_cast<std::int32_t>(lbits | rnum));
         default:
-            return Value::number(static_cast<double>(static_cast<std::int32_t>(lbits ^ rnum)));
+            return Value::int32(static_cast<std::int32_t>(lbits ^ rnum));
         }
     }
     // The comparisons: a NaN on either side makes every one of them false,

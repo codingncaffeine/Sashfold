@@ -31,10 +31,14 @@ std::size_t CollectionTable::Hash::operator()(Value const& value) const
 {
     // SameValueZero's equivalence classes: −0 with +0, every NaN with
     // every other, strings by their contents, everything else by identity.
+    // A number that is an integer in int32 range is an int32 value — +0
+    // among them; −0, the one double equal to one, hashes with +0.
+    if (value.is_int32())
+        return std::hash<std::int32_t> {}(value.as_int32());
     if (value.is_number()) {
-        double number = value.as_number();
+        double const number = value.as_number();
         if (number == 0)
-            number = 0;
+            return std::hash<std::int32_t> {}(0);
         if (number != number)
             return 0x7ff8;
         return std::hash<double> {}(number);

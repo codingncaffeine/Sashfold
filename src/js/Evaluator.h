@@ -238,6 +238,11 @@ struct Interpreter::Impl {
     std::optional<Value> apply_binary(BinaryOp op, Value const& left, Value const& right);
     // The same for two numbers, at once; nullopt for `in` and `instanceof`.
     std::optional<Value> number_binary(BinaryOp op, double left, double right);
+    // The same for two int32s where the answer is exact in int32 arithmetic
+    // (or a comparison); nullopt where it is not — an overflow, a −0, a
+    // fraction, a NaN — and number_binary decides. Inline below, for the
+    // machine's loop.
+    static std::optional<Value> int32_binary(BinaryOp op, std::int32_t left, std::int32_t right);
     static std::optional<BinaryOp> binary_for(AssignmentOp op);
 
     void copy_iteration_environment(Context& cx, std::vector<JsString*> const& names);
@@ -337,5 +342,73 @@ struct Interpreter::Impl {
     // ---- tracing
     void trace(Tracer& tracer);
 };
+
+inline std::optional<Value> Interpreter::Impl::int32_binary(BinaryOp op, std::int32_t l, std::int32_t r)
+{
+    // Sums, differences and products are taken in 64 bits, where two int32s
+    // cannot overflow, and kept when the result is an int32 again.
+    auto const fits = [](std::int64_t wide) { return wide >= INT32_MIN && wide <= INT32_MAX; };
+    switch (op) {
+    case BinaryOp::Add: {
+        std::int64_t const sum = std::int64_t { l } + r;
+        if (!fits(sum))
+            return std::nullopt;
+        return Value::int32(static_cast<std::int32_t>(sum));
+    }
+    case BinaryOp::Subtract: {
+        std::int64_t const difference = std::int64_t { l } - r;
+        if (!fits(difference))
+            return std::nullopt;
+        return Value::int32(static_cast<std::int32_t>(difference));
+    }
+    case BinaryOp::Multiply: {
+        // A zero product with a negative factor is −0, a double.
+        std::int64_t const product = std::int64_t { l } * r;
+        if (!fits(product) || (product == 0 && (l < 0 || r < 0)))
+            return std::nullopt;
+        return Value::int32(static_cast<std::int32_t>(product));
+    }
+    case BinaryOp::Remainder: {
+        // x % 0 is NaN; a zero remainder of a negative dividend is −0
+        // (INT32_MIN % -1 among them, which C++ may not even compute).
+        if (r == 0 || (l < 0 && (r == -1 || l % r == 0)))
+            return std::nullopt;
+        return Value::int32(l % r);
+    }
+    case BinaryOp::LeftShift:
+        return Value::int32(static_cast<std::int32_t>(static_cast<std::uint32_t>(l) << (static_cast<std::uint32_t>(r) & 31u)));
+    case BinaryOp::RightShift:
+        return Value::int32(l >> (static_cast<std::uint32_t>(r) & 31u));
+    case BinaryOp::UnsignedRightShift:
+        // May pass INT32_MAX: Value::number decides.
+        return Value::number(static_cast<double>(static_cast<std::uint32_t>(l) >> (static_cast<std::uint32_t>(r) & 31u)));
+    case BinaryOp::BitwiseAnd:
+        return Value::int32(l & r);
+    case BinaryOp::BitwiseOr:
+        return Value::int32(l | r);
+    case BinaryOp::BitwiseXor:
+        return Value::int32(l ^ r);
+    case BinaryOp::Equal:
+    case BinaryOp::StrictEqual:
+        return Value::boolean(l == r);
+    case BinaryOp::NotEqual:
+    case BinaryOp::StrictNotEqual:
+        return Value::boolean(l != r);
+    case BinaryOp::Less:
+        return Value::boolean(l < r);
+    case BinaryOp::Greater:
+        return Value::boolean(l > r);
+    case BinaryOp::LessEqual:
+        return Value::boolean(l <= r);
+    case BinaryOp::GreaterEqual:
+        return Value::boolean(l >= r);
+    case BinaryOp::Divide: // through the double: most quotients are fractions
+    case BinaryOp::Exponent:
+    case BinaryOp::In:
+    case BinaryOp::Instanceof:
+        return std::nullopt;
+    }
+    return std::nullopt;
+}
 
 }

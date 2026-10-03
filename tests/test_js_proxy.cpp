@@ -670,12 +670,14 @@ void test_a_deep_chain_of_proxies_is_a_range_error()
     // frame deeper. So the fall-through is recursion over script-built
     // data, and it is held to the same stack budget as any other: a
     // RangeError, never a crashed process. No heap stress here — building
-    // the chain is the point, not what it allocates.
+    // the chain is the point, not what it allocates. The deep chain is
+    // deeper than the 4 MB budget holds at 42 bytes a link; the cheapest
+    // link, getPrototypeOf's, costs about a hundred.
     js::Interpreter in;
     test::run_js(in, R"JS(
         globalThis.nest = (n) => { let p = { x: 1 }; for (let i = 0; i < n; i++) p = new Proxy(p, {}); return p; };
         globalThis.shallow = nest(20);
-        globalThis.deep = nest(30000);
+        globalThis.deep = nest(100000);
     )JS");
     // The positive control: the same operations over a chain that fits.
     CHECK_JS_NUMBER(in, "shallow.x", 1);

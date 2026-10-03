@@ -3,13 +3,13 @@
 # its console says so once, the page stays as it was drawn — and the other
 # tabs, and the next page in the same tab, go on as if nothing had happened.
 # Run with --js-heap-limit 40 (megabytes). The page's timer keeps an array
-# of 1,048,576 numbers a tick: 16 MB each, all in one native call — few
-# cells, few steps — which the array tells the heap of as it grows. Three
-# are 48 MB, over the ceiling: the collection the next allocation brings
-# finds them live, and the page's scripts end at their next step — inside
-# the third tick, before it can write its title.
+# of 2,097,152 numbers a tick: 16 MB each at eight bytes a value, all in
+# one native call — few cells, few steps — which the array tells the heap
+# of as it grows. Three are 48 MB, over the ceiling: the collection the
+# next allocation brings finds them live, and the page's scripts end at
+# their next step — inside the third tick, before it can write its title.
 resize 800 500
-open data:text/html,<title>Runaway</title><body style="margin:0">as it was<script>var kept=[];var ticks=0;setInterval(function(){kept.push(new Array(1048576).fill(7));ticks++;document.title='ticks '+ticks},10)</script>
+open data:text/html,<title>Runaway</title><body style="margin:0">as it was<script>var kept=[];var ticks=0;setInterval(function(){kept.push(new Array(2097152).fill(7));ticks++;document.title='ticks '+ticks},10)</script>
 assert-title Runaway
 advance 10
 assert-title ticks 1

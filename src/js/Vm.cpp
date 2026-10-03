@@ -563,7 +563,7 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             frame.push(self.bigint(code.bigints[ins.a]));
             break;
         case Opcode::PushInt:
-            frame.push(Value::number(static_cast<double>(ins.a)));
+            frame.push(ins.a <= 0x7FFFFFFFu ? Value::int32(static_cast<std::int32_t>(ins.a)) : Value::number(static_cast<double>(ins.a)));
             break;
         case Opcode::Pop:
             frame.stack.pop_back();
@@ -971,6 +971,23 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             break;
         }
         case Opcode::GetMember: {
+            // An array read at an int32 index inside the dense storage:
+            // the element itself, which is what [[Get]] would answer. A
+            // hole, an index past the storage and every other base take
+            // the reference path.
+            if (Value const& key = frame.peek(0); key.is_int32() && key.as_int32() >= 0) {
+                Value const& base = frame.peek(1);
+                if (base.is_object() && base.as_object()->class_id() == Object::Class::Array) {
+                    auto const& elements = static_cast<ArrayObject const*>(base.as_object())->dense();
+                    auto const index = static_cast<std::uint32_t>(key.as_int32());
+                    if (index < elements.size() && !elements[index].is_empty()) {
+                        Value const element = elements[index];
+                        frame.stack.pop_back();
+                        frame.top() = element;
+                        break;
+                    }
+                }
+            }
             Reference reference;
             if (!member_reference(frame.peek(1), frame.peek(0), reference)) {
                 ok = false;
@@ -993,7 +1010,16 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             Value const& left = frame.peek(1);
             Value const& right = frame.peek(0);
             // Two numbers, which most operands are: answered here without
-            // the conversions and the rooting the general path needs.
+            // the conversions and the rooting the general path needs —
+            // in int32 arithmetic when both are int32s and the answer is
+            // exact there, else in doubles.
+            if (left.is_int32() && right.is_int32()) {
+                if (std::optional<Value> const fast = int32_binary(op, left.as_int32(), right.as_int32())) {
+                    frame.stack.pop_back();
+                    frame.top() = *fast;
+                    break;
+                }
+            }
             if (left.is_number() && right.is_number()) {
                 if (std::optional<Value> const fast = number_binary(op, left.as_number(), right.as_number())) {
                     frame.stack.pop_back();
@@ -1043,7 +1069,7 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 }
                 operand = numeric->is_bigint()
                     ? self.bigint(numeric->as_bigint()->value().bitwise_not())
-                    : Value::number(static_cast<double>(~Interpreter::double_to_int32(numeric->as_number())));
+                    : Value::int32(~Interpreter::double_to_int32(numeric->as_number()));
                 break;
             }
             case UnaryOp::Typeof:
@@ -1055,6 +1081,8 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             break;
         }
         case Opcode::ToNumeric: {
+            if (frame.top().is_number())
+                break; // a number is its own ToNumeric
             std::optional<Value> const numeric = self.to_numeric(frame.top());
             if (!numeric) {
                 ok = false;
@@ -1071,6 +1099,8 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 BigInteger const one = BigInteger::from_int64(1);
                 BigInteger const& old = operand.as_bigint()->value();
                 frame.top() = self.bigint(ins.op == Opcode::Inc ? old + one : old - one);
+            } else if (operand.is_int32() && operand.as_int32() != (ins.op == Opcode::Inc ? INT32_MAX : INT32_MIN)) {
+                frame.top() = Value::int32(operand.as_int32() + (ins.op == Opcode::Inc ? 1 : -1));
             } else {
                 frame.top() = Value::number(operand.as_number() + (ins.op == Opcode::Inc ? 1 : -1));
             }

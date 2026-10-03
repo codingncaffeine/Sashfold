@@ -14,6 +14,7 @@
 // cells before it can root them.
 
 #include "js/BigInteger.h"
+#include "js/Cell.h"
 #include "js/Value.h"
 
 #include <cstddef>
@@ -32,32 +33,6 @@ namespace sashfold::js {
 
 class Heap;
 class Tracer;
-
-class Cell {
-public:
-    virtual ~Cell() = default;
-    // Visit every cell this one keeps alive. Not recursive: the tracer
-    // queues what it is shown, so a long prototype or scope chain costs
-    // stack for nothing.
-    virtual void trace(Tracer&) { }
-    // An estimate the collector's threshold is fed with; exactness is not
-    // required, monotonic reasonableness is.
-    virtual std::size_t size_in_bytes() const { return sizeof(*this); }
-
-    // The heap that adopted this cell; null for a cell that belongs to no
-    // heap. How an exotic object reaches its realm's atoms.
-    Heap* heap() const { return m_heap; }
-    bool marked() const; // reached by its heap's last collection
-
-private:
-    friend class Heap;
-    friend class Tracer;
-    Heap* m_heap = nullptr;
-    // The mark of the collection that last reached this cell: a number the
-    // heap advances per collection, so nothing need be cleared beforehand —
-    // a cell not reached this time simply still carries an older one.
-    std::uint32_t m_mark = 0;
-};
 
 class Tracer {
 public:
@@ -97,7 +72,8 @@ inline constexpr std::size_t max_string_length = 0x3FFFFFFF;
 class JsString : public Cell {
 public:
     explicit JsString(std::u16string data)
-        : m_data(std::move(data))
+        : Cell(CellKind::String)
+        , m_data(std::move(data))
         , m_length(m_data.size())
     {
     }
@@ -108,7 +84,8 @@ public:
     // two, and the one copy is taken when the whole is read. Its length is
     // known throughout, and it keeps its halves alive until it is flat.
     JsString(JsString* left, JsString* right)
-        : m_left(left)
+        : Cell(CellKind::String)
+        , m_left(left)
         , m_right(right)
         , m_length(left->m_length + right->m_length)
     {
@@ -160,7 +137,8 @@ private:
 class Symbol : public Cell {
 public:
     explicit Symbol(JsString* description, bool is_private = false) // may be null: Symbol()
-        : m_description(description)
+        : Cell(CellKind::Symbol)
+        , m_description(description)
         , m_private(is_private)
     {
     }
@@ -182,7 +160,8 @@ private:
 class BigInt : public Cell {
 public:
     explicit BigInt(BigInteger value)
-        : m_value(std::move(value))
+        : Cell(CellKind::BigInt)
+        , m_value(std::move(value))
     {
     }
     BigInteger const& value() const { return m_value; }

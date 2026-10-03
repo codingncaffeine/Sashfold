@@ -133,7 +133,8 @@ public:
     };
 
     explicit Object(Object* prototype, Class class_id = Class::Object)
-        : m_prototype(prototype)
+        : Cell(CellKind::Object)
+        , m_prototype(prototype)
         , m_class(class_id)
     {
     }
