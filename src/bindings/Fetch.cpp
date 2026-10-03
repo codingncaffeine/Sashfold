@@ -703,6 +703,7 @@ bool multipart_decode(Realm::Internals& in, std::span<std::uint8_t const> bytes,
 struct BodyInit {
     std::vector<std::uint8_t> bytes;
     std::string type; // the Content-Type the source implies; empty for none
+    js::Object* stream = nullptr; // a ReadableStream given as the body
 };
 
 // "Extract a body" (Fetch §5.2): a Blob, a BufferSource, FormData,
@@ -713,6 +714,10 @@ std::optional<std::optional<BodyInit>> extract_body(js::Interpreter& interp, js:
     if (value.is_null() || value.is_undefined())
         return std::optional<BodyInit>();
     BodyInit body;
+    if (is_readable_stream(internals_of(interp), value)) {
+        body.stream = value.as_object();
+        return body;
+    }
     if (value.is_object()) {
         if (auto const* blob = dynamic_cast<BlobObject const*>(value.as_object())) {
             body.bytes = blob->bytes;
@@ -758,6 +763,7 @@ public:
     HeadersObject* headers = nullptr;
     std::optional<std::vector<std::uint8_t>> body;
     bool body_used = false;
+    js::Object* body_stream = nullptr;
     std::string mode = "cors";
     std::string credentials = "same-origin";
     std::string cache = "default";
@@ -771,6 +777,7 @@ public:
         Object::trace(tracer);
         tracer.visit(headers);
         tracer.visit(signal);
+        tracer.visit(body_stream);
     }
     std::size_t size_in_bytes() const override { return sizeof(*this) + (body ? body->capacity() : 0); }
 };
@@ -790,10 +797,12 @@ public:
     HeadersObject* headers = nullptr;
     std::optional<std::vector<std::uint8_t>> body;
     bool body_used = false;
+    js::Object* body_stream = nullptr;
     void trace(js::Tracer& tracer) override
     {
         Object::trace(tracer);
         tracer.visit(headers);
+        tracer.visit(body_stream);
     }
     std::size_t size_in_bytes() const override { return sizeof(*this) + (body ? body->capacity() : 0); }
 };
@@ -822,46 +831,80 @@ struct BodyRef {
     std::optional<std::vector<std::uint8_t>>* body = nullptr;
     bool* used = nullptr;
     HeadersObject* headers = nullptr;
+    // The body's ReadableStream, once `body` was read or when the body was
+    // given as one; the bytes are then read through it.
+    js::Object** stream = nullptr;
 };
 
 std::optional<BodyRef> body_of(js::Interpreter& interp, js::Value const& this_value)
 {
     if (this_value.is_object()) {
         if (auto* request = dynamic_cast<RequestObject*>(this_value.as_object()))
-            return BodyRef { &request->body, &request->body_used, request->headers };
+            return BodyRef { &request->body, &request->body_used, request->headers, &request->body_stream };
         if (auto* response = dynamic_cast<ResponseObject*>(this_value.as_object()))
-            return BodyRef { &response->body, &response->body_used, response->headers };
+            return BodyRef { &response->body, &response->body_used, response->headers, &response->body_stream };
     }
     return interp.throw_type_error("Illegal invocation");
 }
 
 enum class Consume { ArrayBuffer, Blob, Bytes, FormData, Json, Text };
 
+Native consume_bytes(js::Interpreter& interp, std::vector<std::uint8_t> bytes, std::string const& content_type, Consume kind);
+
 // "Consume body" (Fetch §5.3): once only, the bytes read as asked, the
 // answer a promise — rejected when the body was read before or the JSON
-// does not parse.
+// does not parse. A body with a stream is read through the stream.
 Native consume_body(js::Interpreter& interp, js::Value const& this_value, Consume kind)
 {
     std::optional<BodyRef> const ref = body_of(interp, this_value);
     if (!ref)
         return std::nullopt;
-    Realm::Internals& internals = internals_of(interp);
     js::Interpreter::Roots const roots(interp);
     interp.root(this_value);
     if (*ref->used) {
         js::Value const error = js::Value::object(interp.new_error(js::ErrorType::TypeError, "Failed to execute on body: body stream already read"));
         return rejected_promise(interp, error);
     }
-    std::vector<std::uint8_t> bytes;
-    if (ref->body->has_value()) {
-        *ref->used = true;
-        bytes = **ref->body;
-    }
     std::string content_type;
     if (ref->headers != nullptr) {
         if (std::optional<std::string> const value = ref->headers->combined("content-type"))
             content_type = *value;
     }
+    if (*ref->stream) {
+        *ref->used = true;
+        js::Value const arguments[] = { js::Value::object(*ref->stream) };
+        Native const all = call_streams_hook(internals_of(interp), "readAll", arguments);
+        if (!all) {
+            js::Value const error = interp.take_exception();
+            return rejected_promise(interp, error);
+        }
+        interp.root(*all);
+        std::optional<js::Value> const then = interp.get(*all, "then");
+        if (!then || !js::Interpreter::is_callable(*then))
+            return std::nullopt;
+        interp.root(*then);
+        js::ClosureFunction* consume = interp.new_closure("", 1, {},
+            [content_type, kind](js::Interpreter& in, js::ClosureFunction&, js::Value const&, Args given) -> Native {
+                std::vector<std::uint8_t> read;
+                if (std::optional<std::span<std::uint8_t const>> const bytes = buffer_source_bytes(js::argument(given, 0)))
+                    read.assign(bytes->begin(), bytes->end());
+                return consume_bytes(in, std::move(read), content_type, kind);
+            });
+        js::Value const reactions[] = { js::Value::object(consume) };
+        return interp.call(*then, *all, reactions);
+    }
+    std::vector<std::uint8_t> bytes;
+    if (ref->body->has_value()) {
+        *ref->used = true;
+        bytes = **ref->body;
+    }
+    return consume_bytes(interp, std::move(bytes), content_type, kind);
+}
+
+Native consume_bytes(js::Interpreter& interp, std::vector<std::uint8_t> bytes, std::string const& content_type, Consume kind)
+{
+    Realm::Internals& internals = internals_of(interp);
+    js::Interpreter::Roots const roots(interp);
     switch (kind) {
     case Consume::Text:
         return resolved_promise(interp, js::Value::string(interp.string(utf8_to_string(bytes))));
@@ -919,9 +962,22 @@ void install_body_mixin(Realm::Internals& in, js::Object& prototype)
 {
     js::Interpreter& interpreter = in.interpreter;
     define_getter(in, prototype, "body", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
-        if (!body_of(interp, this_value))
+        std::optional<BodyRef> const ref = body_of(interp, this_value);
+        if (!ref)
             return std::nullopt;
-        return js::Value::null(); // no streams
+        // The body as a byte stream, the same one each time (Fetch §5.1):
+        // made from the bytes when first asked for; null for no body.
+        if (!*ref->stream) {
+            if (!ref->body->has_value())
+                return js::Value::null();
+            js::Interpreter::Roots const roots(interp);
+            interp.root(this_value);
+            Native const stream = bytes_stream(internals_of(interp), **ref->body);
+            if (!stream || !stream->is_object())
+                return std::nullopt;
+            *ref->stream = stream->as_object();
+        }
+        return js::Value::object(*ref->stream);
     });
     define_getter(in, prototype, "bodyUsed", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<BodyRef> const ref = body_of(interp, this_value);
@@ -1119,6 +1175,7 @@ std::optional<RequestObject*> make_request(js::Interpreter& interp, js::Value co
             return std::nullopt;
         if (*extracted) {
             request->body = std::move((*extracted)->bytes);
+            request->body_stream = (*extracted)->stream;
             if (!(*extracted)->type.empty() && !headers->has("content-type")) {
                 if (!headers_append(interp, *headers, "content-type", (*extracted)->type, "Request"))
                     return std::nullopt;
@@ -1890,6 +1947,7 @@ void install_response(Realm::Internals& in)
                     return std::nullopt;
                 if (*extracted) {
                     object->body = std::move((*extracted)->bytes);
+                    object->body_stream = (*extracted)->stream;
                     if (!(*extracted)->type.empty() && !object->headers->has("content-type"))
                         object->headers->append("content-type", (*extracted)->type);
                 }

@@ -74,6 +74,7 @@ add_library(sashfold_core STATIC
   src/bindings/Traversal.cpp
   src/bindings/TrustedTypes.cpp
   src/bindings/Realm.cpp
+  src/bindings/Streams.cpp
   src/bindings/Style.cpp
   src/bindings/StructuredClone.cpp
   src/bindings/Tasks.cpp
@@ -252,6 +253,14 @@ if(NOT WIN32)
   target_link_libraries(sashfold_core PUBLIC Threads::Threads)
 endif()
 target_include_directories(sashfold_core PUBLIC src)
+# The engine's own code written in JS (src/bindings/*.js), compiled in as
+# strings: read again whenever one of them changes.
+set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/bindings/Streams.js)
+file(READ ${CMAKE_SOURCE_DIR}/src/bindings/Streams.js SASHFOLD_STREAMS_JS)
+file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/generated/bindings/StreamsSource.h
+  CONTENT "// Generated from src/bindings/Streams.js; do not edit.\n#pragma once\nnamespace sashfold::bindings {\ninline constexpr char const streams_source[] = R\"SFJS(\@SASHFOLD_STREAMS_JS\@)SFJS\";\n}\n"
+  @ONLY)
+target_include_directories(sashfold_core PRIVATE ${CMAKE_BINARY_DIR}/generated)
 # The one place the version lives: the user-agent string and the about page read it from here.
 target_compile_definitions(sashfold_core PUBLIC SASHFOLD_VERSION="${PROJECT_VERSION}")
 target_link_libraries(sashfold_core PRIVATE sashfold_warnings)

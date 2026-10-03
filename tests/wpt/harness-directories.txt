@@ -108,3 +108,9 @@ hr-time
 # runner's already; container queries are css-conditional's, scored above.
 css/css-nesting
 css/css-cascade
+
+# Added 2026-10-03 with the Streams Standard (ReadableStream, WritableStream,
+# TransformStream, the queuing strategies) and the Encoding Standard's
+# TextEncoderStream/TextDecoderStream.
+streams
+encoding/streams

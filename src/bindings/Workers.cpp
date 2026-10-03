@@ -857,6 +857,10 @@ constexpr std::string_view shared_names[] = {
     "Headers", "FormData", "Request", "Response", "fetch",
     "XMLHttpRequestEventTarget", "XMLHttpRequestUpload", "XMLHttpRequest",
     "AbortSignal", "AbortController", "MessagePort", "MessageChannel", "Origin",
+    "ReadableStream", "ReadableStreamDefaultReader", "ReadableStreamBYOBReader", "ReadableStreamDefaultController",
+    "ReadableByteStreamController", "ReadableStreamBYOBRequest", "WritableStream", "WritableStreamDefaultWriter",
+    "WritableStreamDefaultController", "TransformStream", "TransformStreamDefaultController",
+    "ByteLengthQueuingStrategy", "CountQueuingStrategy", "TextEncoderStream", "TextDecoderStream",
 };
 
 // An accessor of one prototype given to another with its getter alone: what

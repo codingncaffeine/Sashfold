@@ -287,8 +287,8 @@ public:
 
     // Runs a script as global code (§16.1.6). A parse error is a thrown
     // SyntaxError. `name` is for messages: a URL, "<inline>", a test path.
-    Outcome run_script(std::u16string_view source, std::string name = "");
-    Outcome run_script(std::string_view utf8_source, std::string name = "");
+    Outcome run_script(std::u16string_view source, std::string name = "", bool internal = false);
+    Outcome run_script(std::string_view utf8_source, std::string name = "", bool internal = false);
 
     // Modules (§16.2). The host names a module by a key — a URL, a path —
     // and supplies two hooks: one resolves a specifier against the

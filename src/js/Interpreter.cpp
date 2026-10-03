@@ -2259,8 +2259,13 @@ std::string Interpreter::stack_text(Value const& error, std::size_t most)
     std::string text = describe(error);
     std::vector<Frame*> const& frames = m_impl->vm_frames;
     std::size_t listed = 0;
-    for (auto it = frames.rbegin(); it != frames.rend() && listed < most; ++it, ++listed) {
+    for (auto it = frames.rbegin(); it != frames.rend() && listed < most; ++it) {
         Frame const& frame = **it;
+        // The engine's own code written in JS is native to a page: no frame.
+        Program const* const program = frame.function != nullptr ? frame.function->node().program : frame.program;
+        if (program != nullptr && program->internal)
+            continue;
+        ++listed;
         text += "\n    at ";
         // Where the frame is now, as the browsers give it: the statement
         // running (or the call it is waiting in); the function's own start
@@ -2482,7 +2487,7 @@ void Interpreter::keep(std::unique_ptr<Program> program)
     m_programs.push_back(std::move(program));
 }
 
-Outcome Interpreter::run_script(std::u16string_view source, std::string name)
+Outcome Interpreter::run_script(std::u16string_view source, std::string name, bool internal)
 {
     // ScriptEvaluation (§16.1.6): parse, instantiate the global
     // declarations, evaluate; a parse error is a thrown SyntaxError.
@@ -2503,6 +2508,7 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name)
         outcome.value = take_exception();
         return outcome;
     }
+    program->internal = internal;
     Program const* tree = program.get();
     // The script's statement list is a synthetic body of the program's own
     // (kept with it for the realm's life), whose completion value the
@@ -2529,9 +2535,9 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name)
     return outcome;
 }
 
-Outcome Interpreter::run_script(std::string_view utf8_source, std::string name)
+Outcome Interpreter::run_script(std::string_view utf8_source, std::string name, bool internal)
 {
-    return run_script(std::u16string_view(utf16_from_utf8(utf8_source)), std::move(name));
+    return run_script(std::u16string_view(utf16_from_utf8(utf8_source)), std::move(name), internal);
 }
 
 // ---- modules (§16.2)

@@ -1197,6 +1197,9 @@ struct Realm::Internals {
     std::unordered_map<dom::Element const*, bool> fallback_checked;
     dom::Element const* fallback_focus = nullptr;
     js::Object* location = nullptr;
+    // What the Streams interfaces (Streams.js) hand the engine: bytesStream,
+    // isReadableStream, isUnusable, readAll. Null until they are installed.
+    js::Object* streams = nullptr;
     // The objects an attribute marked [SameObject] hands out — crypto.subtle,
     // screen.orientation, document.fonts and the rest — made once each and
     // kept here with the realm's roots (see same_object).
@@ -1408,6 +1411,12 @@ void install_parent_node(Realm::Internals&, js::Object& prototype, bool with_col
 void install_html_or_svg_element(Realm::Internals&, js::Object& prototype, bool with_reflected); // HtmlElements.cpp
 void install_style(Realm::Internals&); // Style.cpp
 void install_cssom(Realm::Internals&); // Cssom.cpp
+void install_streams(Realm::Internals&); // Streams.cpp
+// The Streams interfaces' hooks (Streams.cpp): one of them called by name; a
+// byte stream over bytes in hand; whether a value is a ReadableStream.
+Native call_streams_hook(Realm::Internals&, std::string_view name, std::span<js::Value const> arguments);
+Native bytes_stream(Realm::Internals&, std::span<std::uint8_t const> bytes);
+bool is_readable_stream(Realm::Internals&, js::Value const&);
 void install_window(Realm::Internals&); // Window.cpp
 void install_binary(Realm::Internals&); // Binary.cpp: TextEncoder, TextDecoder, Blob, File
 void install_fetch(Realm::Internals&); // Fetch.cpp: Headers, Request, Response, FormData, fetch

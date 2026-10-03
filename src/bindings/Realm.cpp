@@ -1415,6 +1415,7 @@ void install_interfaces(Realm::Internals& in)
     install_intersection_observer(in);
     install_indexeddb(in);
     install_cssom(in);
+    install_streams(in);
     install_window_proxy(in, language_globals);
 }
 
@@ -3458,6 +3459,7 @@ void Realm::trace_roots(js::Tracer& tracer)
     tracer.visit(in.current_event);
     tracer.visit(in.history_state);
     tracer.visit(in.location);
+    tracer.visit(in.streams);
     tracer.visit(in.active_view_transition);
     for (auto const& [key, object] : in.same_objects)
         tracer.visit(object);

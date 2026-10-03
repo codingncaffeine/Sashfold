@@ -1081,6 +1081,10 @@ public:
     bool is_strict = false;
     std::u16string source;
     std::string name; // where it came from, for error messages
+    // The engine's own code written in JS (the Streams interfaces): to a
+    // page its functions are native — their text is "[native code]" and
+    // no stack trace shows their frames.
+    bool internal = false;
     // The Module goal (§16.2): strict throughout, its own environment,
     // and the tables below for the module record built over it. Top-level
     // function declarations are lexical here and sit in

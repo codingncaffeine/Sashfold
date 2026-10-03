@@ -1448,6 +1448,23 @@ void test_binary_data()
     page->eval("var texts = []; var b = new Blob(['h\\u00e9', new Uint8Array([33])]); b.text().then(function (t) { texts.push(t); }); b.slice(0, 1).text().then(function (t) { texts.push(t); }); b.arrayBuffer().then(function (ab) { texts.push(ab.byteLength + ':' + new Uint8Array(ab).join()); }); b.bytes().then(function (u) { texts.push(u.constructor.name + u.length); });");
     CHECK_EQ(page->string("texts.join('|')"), "h\xc3\xa9!|h|4:104,195,169,33|Uint8Array4");
     CHECK(page->boolean("(function () { var f = new File(['x'], 'a.txt', { type: 'text/plain', lastModified: 5 }); return f instanceof Blob && f instanceof File && f.name === 'a.txt' && f.lastModified === 5 && f.size === 1 && f.type === 'text/plain' && Object.prototype.toString.call(f) === '[object File]' && typeof new File([], 'b').lastModified === 'number' && f.webkitRelativePath === ''; })()"));
+    // Streams: a body is a byte stream, a stream is a body, Blob.stream(),
+    // and a pipeline through a TransformStream and TextDecoderStream —
+    // what a streaming page (Next.js's App Router) does first. The
+    // interfaces are the engine's own JS, native to a page.
+    page->eval("var streamed = []; (function () {"
+               " var r = new Response('ab'); var s = r.body; streamed.push(s === r.body, s instanceof ReadableStream);"
+               " s.getReader().read().then(function (x) { streamed.push('body:' + x.value.constructor.name + ':' + x.value.join()); });"
+               " new Response(new ReadableStream({ start: function (c) { c.enqueue(new TextEncoder().encode('hi')); c.close(); } })).text().then(function (t) { streamed.push('text:' + t); });"
+               " new Blob(['xyz']).stream().getReader().read().then(function (x) { streamed.push('blob:' + x.value.length); });"
+               " var upper = new TransformStream({ transform: function (chunk, c) { c.enqueue(chunk.toUpperCase()); } });"
+               " var out = new ReadableStream({ start: function (c) { c.enqueue(new TextEncoder().encode('pipe')); c.close(); } }).pipeThrough(new TextDecoderStream()).pipeThrough(upper);"
+               " out.getReader().read().then(function (x) { streamed.push('piped:' + x.value); });"
+               "})();");
+    CHECK_EQ(page->string("streamed.slice(0, 2).concat(streamed.slice(2).sort()).join('|')"), "true|true|blob:3|body:Uint8Array:97,98|piped:PIPE|text:hi");
+    CHECK(page->boolean("String(ReadableStream).indexOf('[native code]') > 0 && String(ReadableStream.prototype.getReader).indexOf('[native code]') > 0 && Object.getOwnPropertyDescriptor(ReadableStream.prototype, 'getReader').enumerable && ReadableStream.prototype[Symbol.toStringTag] === 'ReadableStream' && !Object.getOwnPropertyDescriptor(window, 'ReadableStream').enumerable"));
+    CHECK(page->throws("new ReadableStreamDefaultController()").starts_with("TypeError"));
+    CHECK(page->boolean("(function () { try { ReadableStream.prototype.getReader.call({}); return false; } catch (e) { return (e.stack || '').indexOf('streams') < 0; } })()"));
     CHECK(page->throws("new File(['x'])").starts_with("TypeError"));
     CHECK(page->throws("new Blob(5)").starts_with("TypeError"));
     CHECK(page->throws("Blob.prototype.slice.call({})").starts_with("TypeError"));
@@ -1559,7 +1576,7 @@ void test_fetch_and_xhr()
     CHECK_EQ(page->string("out.join()"), "TypeError");
 
     // Request and Response.
-    CHECK(page->boolean("(function () { var r = new Request('/x?q=1#frag', { method: 'post', body: 'b' }); return r.url === 'https://example.test/x?q=1' && r.method === 'POST' && r.mode === 'cors' && r.credentials === 'same-origin' && r.cache === 'default' && r.redirect === 'follow' && r.referrer === 'about:client' && r.headers.get('content-type') === 'text/plain;charset=UTF-8' && r.signal instanceof AbortSignal && !r.signal.aborted && r.bodyUsed === false && r.body === null && r.destination === '' && r.keepalive === false; })()"));
+    CHECK(page->boolean("(function () { var r = new Request('/x?q=1#frag', { method: 'post', body: 'b' }); return r.url === 'https://example.test/x?q=1' && r.method === 'POST' && r.mode === 'cors' && r.credentials === 'same-origin' && r.cache === 'default' && r.redirect === 'follow' && r.referrer === 'about:client' && r.headers.get('content-type') === 'text/plain;charset=UTF-8' && r.signal instanceof AbortSignal && !r.signal.aborted && r.bodyUsed === false && r.body instanceof ReadableStream && r.destination === '' && r.keepalive === false; })()"));
     CHECK(page->boolean("(function () { var a = new Request('https://x.test/p', { method: 'PUT', body: 'z', mode: 'same-origin', credentials: 'include', redirect: 'manual' }); var b = new Request(a); var c = a.clone(); return b.url === a.url && b.method === 'PUT' && b.mode === 'same-origin' && b.credentials === 'include' && b.redirect === 'manual' && c.method === 'PUT' && new Request(a, { method: 'DELETE' }).method === 'DELETE'; })()"));
     CHECK(page->throws("new Request('/x', { method: 'get', body: 'x' })").starts_with("TypeError"));
     CHECK(page->throws("new Request('/x', { method: 'TRACE' })").starts_with("TypeError"));

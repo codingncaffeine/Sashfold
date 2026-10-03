@@ -934,7 +934,8 @@ std::optional<Value> function_to_string(Interpreter& interp, Value const& this_v
     Object* function = this_value.as_object();
     if (function->class_id() == Object::Class::Function && dynamic_cast<ScriptFunction*>(function)) {
         FunctionNode const& node = static_cast<ScriptFunction*>(function)->node();
-        if (node.program && node.source_end > node.source_start && node.source_end <= node.program->source.size()) {
+        if (node.program && !node.program->internal && node.source_end > node.source_start
+            && node.source_end <= node.program->source.size()) {
             std::u16string_view const source = node.program->source;
             return Value::string(interp.string(source.substr(node.source_start, node.source_end - node.source_start)));
         }
