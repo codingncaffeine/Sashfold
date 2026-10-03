@@ -26,6 +26,7 @@
 #include "js/Vm.h"
 
 #include <algorithm>
+#include <cstdio>
 #include <chrono>
 #include <cmath>
 #include <cstddef>
@@ -2318,6 +2319,23 @@ Interpreter::Interpreter()
     m_vm_profile = profile_asked;
 }
 
+double* Interpreter::native_activity(Object const& function)
+{
+    ++m_account.native_calls;
+    auto [entry, made] = m_account.natives.try_emplace(&function);
+    Account::NativeTally& tally = entry->second;
+    if (made) {
+        // Its name as it was when first called: a data property no script
+        // runs to read.
+        if (Property const* name = function.find_own(PropertyKey::atom(atoms().name)); name != nullptr && name->value.is_string())
+            tally.name = name->value.as_string()->to_utf8();
+        if (tally.name.empty())
+            tally.name = "(anonymous)";
+    }
+    ++tally.calls;
+    return &tally.ms;
+}
+
 RealmRecord* Interpreter::create_realm()
 {
     // Nothing is collected while the realm is half built: its record is
@@ -2447,7 +2465,34 @@ void RealmRecord::trace(Tracer& tracer)
 
 Interpreter::~Interpreter()
 {
+    // The profile is said when the realm's interpreter ends, by every host.
+    if (m_vm_profile && (m_account.vm_ms > 0 || m_account.natives_ms > 0))
+        std::fputs(profile_text(25).c_str(), stderr);
     m_heap->remove_root_provider(this);
+}
+
+std::string Interpreter::profile_text(std::size_t rows) const
+{
+    // Where running went, the natives that took the most (each net of the
+    // script it called back), and the instructions run most when the build
+    // counts them.
+    std::string text;
+    char line[256];
+    std::uint64_t instructions = 0;
+    for (std::uint64_t count : m_account.executed)
+        instructions += count;
+    std::snprintf(line, sizeof line, "profile: run loop %.1f ms, natives %.1f ms in %zu calls, %llu instructions\n", m_account.vm_ms,
+        m_account.natives_ms, m_account.native_calls, static_cast<unsigned long long>(instructions));
+    text += line;
+    std::vector<Account::NativeTally const*> natives;
+    for (auto const& [function, tally] : m_account.natives)
+        natives.push_back(&tally);
+    std::sort(natives.begin(), natives.end(), [](auto const* a, auto const* b) { return a->ms > b->ms; });
+    for (std::size_t i = 0; i < natives.size() && i < rows; ++i) {
+        std::snprintf(line, sizeof line, "  native %-34s %9.2f ms %10zu calls\n", natives[i]->name.c_str(), natives[i]->ms, natives[i]->calls);
+        text += line;
+    }
+    return text;
 }
 
 void Interpreter::trace_roots(Tracer& tracer)

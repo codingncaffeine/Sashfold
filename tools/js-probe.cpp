@@ -50,16 +50,15 @@ int usage()
 
 }
 
-// The run loop's profile: where running went, and the instructions
-// executed most, by opcode.
+// The run loop's profile: the interpreter's own account of it, and the
+// instructions executed most, by opcode, when the build counts them.
 void print_profile(js::Interpreter& in)
 {
+    std::fputs(in.profile_text(15).c_str(), stdout);
     js::Interpreter::Account const& account = in.account();
     std::uint64_t total = 0;
     for (std::uint64_t count : account.executed)
         total += count;
-    std::printf("profile: run loop %.1f ms, natives %.1f ms in %zu calls, %llu instructions\n", account.vm_ms,
-        account.natives_ms, account.native_calls, static_cast<unsigned long long>(total));
     if (account.executed.empty())
         std::printf("  (instruction counts: a build made with -DSASHFOLD_VM_COUNTS=ON)\n");
     std::vector<std::pair<std::uint64_t, std::size_t>> ranked;
@@ -72,6 +71,7 @@ void print_profile(js::Interpreter& in)
         std::printf("  %-26s %12llu  %5.1f%%\n", js::opcode_name(static_cast<js::Opcode>(ranked[i].second)),
             static_cast<unsigned long long>(ranked[i].first), total ? 100.0 * static_cast<double>(ranked[i].first) / static_cast<double>(total) : 0.0);
     }
+    in.set_vm_profiling(false); // said here; not again when the interpreter ends
 }
 
 int main(int argc, char** argv)

@@ -664,6 +664,14 @@ public:
         double natives_ms = 0;
         std::size_t native_calls = 0;
         std::vector<std::uint64_t> executed;
+        // Each native's own share (net of the script it calls back), by the
+        // function, with the name it had when first called.
+        struct NativeTally {
+            std::string name;
+            std::size_t calls = 0;
+            double ms = 0;
+        };
+        std::unordered_map<void const*, NativeTally> natives;
     };
     Account const& account() const { return m_account; }
     Account& account_for_update() { return m_account; }
@@ -671,13 +679,14 @@ public:
     // here): off, it costs the run loop one test per entry.
     bool vm_profiling() const { return m_vm_profile; }
     void set_vm_profiling(bool on) { m_vm_profile = on; }
-    // While one lives, the time passes to the account's `into`, and back to
-    // what had it before when it ends: so a native's time is its own, and
-    // the script it calls back is the run loop's.
+    // While one lives, the time passes to `into` (the run loop's figure, or
+    // a native's tally), and back to what had it before when it ends: so a
+    // native's time is its own, and the script it calls back is the run
+    // loop's. A null `into`, or the profile off, and it does nothing.
     class ActivityScope {
     public:
-        ActivityScope(Interpreter& interpreter, double Account::* into)
-            : m_interpreter(interpreter.m_vm_profile ? &interpreter : nullptr)
+        ActivityScope(Interpreter& interpreter, double* into)
+            : m_interpreter(interpreter.m_vm_profile && into != nullptr ? &interpreter : nullptr)
         {
             if (m_interpreter != nullptr)
                 m_was = m_interpreter->switch_activity(into);
@@ -692,8 +701,14 @@ public:
 
     private:
         Interpreter* m_interpreter;
-        double Account::* m_was = nullptr;
+        double* m_was = nullptr;
     };
+    // The run loop's figure, and a native's tally (counted as called), for
+    // an ActivityScope; null with the profile off.
+    double* vm_activity() { return m_vm_profile ? &m_account.vm_ms : nullptr; }
+    // The profile as text: the split, and the `rows` natives that took most.
+    std::string profile_text(std::size_t rows) const;
+    double* native_activity(Object const& function);
     // A program was parsed from this many code units, from that moment on.
     void note_parsed(std::size_t code_units, std::chrono::steady_clock::time_point started)
     {
@@ -815,14 +830,18 @@ private:
     // The profile's clock: which of the account's figures the time now
     // passing goes to (none outside script), and since when.
     bool m_vm_profile = false;
-    double Account::* m_activity = nullptr;
+    double* m_activity = nullptr;
     std::chrono::steady_clock::time_point m_activity_since;
-    double Account::* switch_activity(double Account::* into)
+    double* switch_activity(double* into)
     {
         auto const now = std::chrono::steady_clock::now();
-        if (m_activity != nullptr)
-            m_account.*m_activity += std::chrono::duration<double, std::milli>(now - m_activity_since).count();
-        double Account::* const was = m_activity;
+        if (m_activity != nullptr) {
+            double const spent = std::chrono::duration<double, std::milli>(now - m_activity_since).count();
+            *m_activity += spent;
+            if (m_activity != &m_account.vm_ms)
+                m_account.natives_ms += spent; // a native's tally: the natives' whole too
+        }
+        double* const was = m_activity;
         m_activity = into;
         m_activity_since = now;
         return was;

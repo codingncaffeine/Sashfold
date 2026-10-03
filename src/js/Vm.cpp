@@ -546,7 +546,7 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
     // entry when it is off. Each instruction counted by its opcode only in a
     // build made for it (-DSASHFOLD_VM_COUNTS=ON), since a test on every
     // instruction costs every page two per cent.
-    Interpreter::ActivityScope const activity(self, &Interpreter::Account::vm_ms);
+    Interpreter::ActivityScope const activity(self, self.vm_activity());
 #ifdef SASHFOLD_VM_COUNTS
     std::uint64_t* executed = nullptr;
     if (self.vm_profiling()) {
