@@ -7,13 +7,21 @@
 #include "bindings/StreamsSource.h"
 
 #include <iostream>
+#include <string>
 
 namespace sashfold::bindings {
 
 void install_streams(Realm::Internals& in)
 {
+    // The program's text, put together from its pieces once.
+    static std::string const source = [] {
+        std::string whole;
+        for (std::string_view const part : streams_source_parts)
+            whole += part;
+        return whole;
+    }();
     js::Interpreter& interpreter = in.interpreter;
-    js::Outcome const outcome = interpreter.run_script(std::string_view(streams_source, sizeof streams_source - 1), "streams", true);
+    js::Outcome const outcome = interpreter.run_script(source, "streams", true);
     if (!outcome.ok || !js::Interpreter::is_callable(outcome.value)) {
         std::cerr << "streams: the interfaces did not install: " << interpreter.describe(outcome.value) << "\n";
         return;

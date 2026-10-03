@@ -1027,8 +1027,17 @@ private:
                 respond(out, streams, encoder, connection_window, index);
             if (!out.empty() && !socket.send_all(out.data(), out.size()))
                 return;
-            if (goaway_sent && streams.empty())
+            if (goaway_sent && streams.empty()) {
+                // A lingering close: read until the client hangs up. A socket
+                // closed with bytes it never read is reset on Windows, and
+                // the reset can take the answer just sent with it, so the
+                // stream answered before the GOAWAY failed and was retried.
+                socket.set_receive_timeout(2000);
+                std::uint8_t sink[4096];
+                while (socket.receive(sink, sizeof sink) > 0) {
+                }
                 return;
+            }
         }
     }
 

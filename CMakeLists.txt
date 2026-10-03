@@ -257,8 +257,27 @@ target_include_directories(sashfold_core PUBLIC src)
 # strings: read again whenever one of them changes.
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS ${CMAKE_SOURCE_DIR}/src/bindings/Streams.js)
 file(READ ${CMAKE_SOURCE_DIR}/src/bindings/Streams.js SASHFOLD_STREAMS_JS)
+# In pieces cut at line ends, each well under the 65,536 characters a
+# compiler must take in one literal (clang's -Woverlength-strings counts
+# adjacent literals as one, so the pieces are an array).
+set(SASHFOLD_STREAMS_PARTS "")
+string(LENGTH "${SASHFOLD_STREAMS_JS}" SASHFOLD_STREAMS_LEFT)
+while(SASHFOLD_STREAMS_LEFT GREATER 0)
+  string(SUBSTRING "${SASHFOLD_STREAMS_JS}" 0 16000 SASHFOLD_STREAMS_PIECE)
+  string(LENGTH "${SASHFOLD_STREAMS_PIECE}" SASHFOLD_STREAMS_TAKEN)
+  if(SASHFOLD_STREAMS_TAKEN LESS SASHFOLD_STREAMS_LEFT)
+    string(FIND "${SASHFOLD_STREAMS_PIECE}" "\n" SASHFOLD_STREAMS_CUT REVERSE)
+    if(SASHFOLD_STREAMS_CUT GREATER_EQUAL 0)
+      math(EXPR SASHFOLD_STREAMS_TAKEN "${SASHFOLD_STREAMS_CUT} + 1")
+      string(SUBSTRING "${SASHFOLD_STREAMS_JS}" 0 ${SASHFOLD_STREAMS_TAKEN} SASHFOLD_STREAMS_PIECE)
+    endif()
+  endif()
+  string(APPEND SASHFOLD_STREAMS_PARTS "    R\"SFJS(${SASHFOLD_STREAMS_PIECE})SFJS\",\n")
+  string(SUBSTRING "${SASHFOLD_STREAMS_JS}" ${SASHFOLD_STREAMS_TAKEN} -1 SASHFOLD_STREAMS_JS)
+  math(EXPR SASHFOLD_STREAMS_LEFT "${SASHFOLD_STREAMS_LEFT} - ${SASHFOLD_STREAMS_TAKEN}")
+endwhile()
 file(CONFIGURE OUTPUT ${CMAKE_BINARY_DIR}/generated/bindings/StreamsSource.h
-  CONTENT "// Generated from src/bindings/Streams.js; do not edit.\n#pragma once\nnamespace sashfold::bindings {\ninline constexpr char const streams_source[] = R\"SFJS(\@SASHFOLD_STREAMS_JS\@)SFJS\";\n}\n"
+  CONTENT "// Generated from src/bindings/Streams.js; do not edit.\n#pragma once\n#include <string_view>\nnamespace sashfold::bindings {\ninline constexpr std::string_view streams_source_parts[] = {\n\@SASHFOLD_STREAMS_PARTS\@};\n}\n"
   @ONLY)
 target_include_directories(sashfold_core PRIVATE ${CMAKE_BINARY_DIR}/generated)
 # The one place the version lives: the user-agent string and the about page read it from here.
