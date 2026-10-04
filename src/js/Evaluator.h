@@ -378,6 +378,18 @@ struct Interpreter::Impl {
     // makes itself, or such a call's return. vm_run goes from one to the
     // next; this function's body is the loop the compiler optimizes.
     RunStatus vm_run_frame(Frame& frame, Frame*& next, std::uint64_t* executed);
+    // The one instruction at frame.pc, by the same handlers: Stepped when
+    // the frame goes on (at the next instruction, a jump's target or a
+    // handler that caught a throw), else what the instruction ended in. The
+    // compiled code's way to every opcode it has no template for.
+    RunStatus vm_step(Frame& frame, Frame*& next);
+    // One frame's run as vm_run_frame does it, in the block's machine code
+    // when it has some (js/jit) — made here at the block's first run when
+    // the tier-up asks — else in the run loop.
+    RunStatus run_frame(Frame& frame, Frame*& next, std::uint64_t* executed);
+    jit::Code const* machine_code(CodeBlock const& code);
+    template<bool SingleStep>
+    RunStatus vm_run_frame_impl(Frame& frame, Frame*& next, std::uint64_t* executed);
     bool vm_unwind(Frame& frame);
     // A plain body run on the machine,
     // and a script's or an eval's statement list as a synthetic body.

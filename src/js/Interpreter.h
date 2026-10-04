@@ -715,6 +715,11 @@ public:
         double late_parse_ms = 0;
         std::size_t functions_compiled = 0;
         double compile_ms = 0;
+        // Code blocks given machine code (js/jit), the memory it takes and
+        // what making it took.
+        std::size_t blocks_compiled_to_machine = 0;
+        std::size_t machine_code_bytes = 0;
+        double machine_compile_ms = 0;
         // Under SASHFOLD_VM_PROFILE=1 alone: where running went — the run
         // loop's own work, and the natives it called (built-ins and the
         // host's bindings), each net of the other — the natives called, and
@@ -789,6 +794,12 @@ public:
         ++m_account.bodies_parsed_late;
         m_account.late_parse_ms += ms;
         m_account.parse_ms += ms;
+    }
+    void note_machine_code(std::size_t bytes, std::chrono::steady_clock::time_point started)
+    {
+        ++m_account.blocks_compiled_to_machine;
+        m_account.machine_code_bytes += bytes;
+        m_account.machine_compile_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
     }
     void note_compiled(std::chrono::steady_clock::time_point started)
     {

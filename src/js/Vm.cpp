@@ -1168,7 +1168,7 @@ RunStatus Interpreter::Impl::vm_run(Frame& entry)
     Frame* current = &entry;
     for (;;) {
         Frame* next = nullptr;
-        RunStatus const status = vm_run_frame(*current, next, executed);
+        RunStatus const status = run_frame(*current, next, executed);
         if (status == RunStatus::Switched) {
             current = next;
             continue;
@@ -1201,7 +1201,8 @@ RunStatus Interpreter::Impl::vm_run(Frame& entry)
 #else
 #define SASHFOLD_VM_THREADED 0
 #endif
-RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint64_t* executed)
+template<bool SingleStep>
+RunStatus Interpreter::Impl::vm_run_frame_impl(Frame& frame, Frame*& next, std::uint64_t* executed)
 {
     static_cast<void>(executed);
     CodeBlock const& code = *frame.code;
@@ -1359,7 +1360,12 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
 #else
 #define VM_CASE(name) case Opcode::name
 #endif
-#define VM_NEXT continue
+// Single-stepping, a handler that goes on returns instead, at the pc it left.
+#define VM_NEXT                         \
+    if constexpr (SingleStep)           \
+        return RunStatus::Stepped;      \
+    else                                \
+        continue
 #define VM_FAIL goto vm_fail
     Instruction const* ins;
     for (;;) {
@@ -1593,11 +1599,13 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
             // B.3.2.1 step 2.b: a sloppy block-level function's current value
             // to the var binding the parser hoisted for it.
             JsString* name = code.names[ins->a];
-            if (frame.strict || frame.envs.back() == frame.variable)
+            if (frame.strict || frame.envs.back() == frame.variable) {
                 VM_NEXT;
+            }
             Environment::Binding const* block_binding = frame.envs.back()->find(name);
-            if (block_binding == nullptr)
+            if (block_binding == nullptr) {
                 VM_NEXT;
+            }
             Value const value = block_binding->value;
             if (frame.variable->is_object_environment()) {
                 if (!self.set(*frame.variable->object(), PropertyKey::atom(name), value, false))
@@ -2039,8 +2047,9 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
             VM_NEXT;
         }
         VM_CASE(ToNumeric): {
-            if (frame.top().is_number())
+            if (frame.top().is_number()) {
                 VM_NEXT; // a number is its own ToNumeric
+            }
             std::optional<Value> const numeric = self.to_numeric(frame.top());
             if (!numeric) {
                 VM_FAIL;
@@ -2672,8 +2681,9 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
         VM_CASE(IteratorClose): {
             // IteratorClose on a normal exit: return() runs, and its own
             // failure is the outcome.
-            if (iterator_done(ins->a))
+            if (iterator_done(ins->a)) {
                 VM_NEXT;
+            }
             IteratorRecord const record = iterator_record(ins->a);
             if (!self.iterator_close(record, false))
                 VM_FAIL;
@@ -2683,8 +2693,9 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
             // IteratorClose with a throw pending — the thrown value is on the
             // stack for the Throw that follows; it stays the outcome whatever
             // return() does.
-            if (iterator_done(ins->a))
+            if (iterator_done(ins->a)) {
                 VM_NEXT;
+            }
             self.throw_value(frame.top());
             IteratorRecord const record = iterator_record(ins->a);
             self.iterator_close(record, true);
@@ -2757,10 +2768,12 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
         VM_CASE(Nop):
             VM_NEXT;
         }
-        continue;
+        VM_NEXT;
     vm_fail:
         if (!vm_unwind(frame))
             return RunStatus::Threw;
+        if constexpr (SingleStep)
+            return RunStatus::Stepped; // at the handler
     }
 #undef VM_CASE
 #undef VM_NEXT
@@ -2769,6 +2782,61 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
 #if SASHFOLD_VM_THREADED
 #pragma GCC diagnostic pop
 #endif
+
+RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint64_t* executed)
+{
+    return vm_run_frame_impl<false>(frame, next, executed);
+}
+
+RunStatus Interpreter::Impl::vm_step(Frame& frame, Frame*& next)
+{
+    return vm_run_frame_impl<true>(frame, next, nullptr);
+}
+
+namespace {
+
+// The machine code's way to an instruction it has no template for.
+std::uint32_t machine_step(void* interpreter, Frame* frame, Frame** next)
+{
+    return static_cast<std::uint32_t>(static_cast<Interpreter::Impl*>(interpreter)->vm_step(*frame, *next));
+}
+
+}
+
+jit::Code const* Interpreter::Impl::machine_code(CodeBlock const& code)
+{
+    if (!jit::available || jit::mode() != jit::Mode::Eager)
+        return nullptr;
+    if (code.jit || code.jit_refused)
+        return code.jit.get();
+    auto const started = std::chrono::steady_clock::now();
+    code.jit = jit::compile(code, &machine_step);
+    code.jit_refused = code.jit == nullptr;
+    if (code.jit)
+        self.note_machine_code(code.jit->memory.size(), started);
+    return code.jit.get();
+}
+
+// The machine code is entered through a plain function pointer: clang's
+// function sanitizer would read a type signature before its first byte,
+// which written code does not carry.
+#if defined(__clang__)
+__attribute__((no_sanitize("function")))
+#endif
+RunStatus Interpreter::Impl::run_frame(Frame& frame, Frame*& next, std::uint64_t* executed)
+{
+    if (jit::Code const* compiled = machine_code(*frame.code)) {
+        Frame* switched = nullptr;
+        std::uint32_t const status = compiled->entry(this, &frame, &switched, &frame.pc);
+        if (status >= static_cast<std::uint32_t>(RunStatus::Stepped)) {
+            self.throw_type_error("internal: machine code left by an instruction it does not have");
+            return RunStatus::Threw;
+        }
+        next = switched;
+        return static_cast<RunStatus>(status);
+    }
+    return vm_run_frame(frame, next, executed);
+}
 
 // ---- generators -------------------------------------------------------------
 
@@ -2886,6 +2954,7 @@ std::optional<Value> Interpreter::Impl::generator_resume(GeneratorObject& genera
         return std::nullopt;
     case RunStatus::Awaiting:
     case RunStatus::Switched: // never leaves vm_run
+    case RunStatus::Stepped: // never leaves vm_step
         break;
     }
     pop_frame(*frame);

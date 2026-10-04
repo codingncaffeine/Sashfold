@@ -16,6 +16,7 @@
 #include "js/Feedback.h"
 #include "js/Object.h"
 #include "js/Value.h"
+#include "js/jit/Baseline.h"
 
 #include <cstdint>
 #include <memory>
@@ -220,6 +221,10 @@ struct CodeBlock {
     std::uint32_t operand_sites = 0;
     std::uint32_t element_sites = 0;
     mutable std::unique_ptr<FeedbackVector> feedback;
+    // Its machine code (js/jit), made when the tier-up asks for it: null
+    // until then, and for good when it could not be made.
+    mutable std::unique_ptr<jit::Code> jit;
+    mutable bool jit_refused = false;
 };
 
 // How a run of a frame ended.
@@ -229,6 +234,7 @@ enum class RunStatus : std::uint8_t {
     Awaiting, // an `await`: the operand is in the frame's result
     Threw, // an exception is pending in the interpreter
     Switched, // (inside vm_run alone) a call the loop made, or its return: run the next frame
+    Stepped, // (vm_step alone) the one instruction ran and the frame goes on at its pc
 };
 
 // What a suspended frame is resumed with (§27.5.3.3 GeneratorResume and
