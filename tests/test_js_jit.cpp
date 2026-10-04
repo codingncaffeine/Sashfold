@@ -21,8 +21,12 @@
 #include <string_view>
 
 #if defined(_WIN32)
+#ifndef NOMINMAX
 #define NOMINMAX
+#endif
+#ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
+#endif
 #include <windows.h>
 #endif
 
@@ -223,7 +227,7 @@ Run run(js::jit::Mode mode)
 
 // A block past the baseline compiler's size stays in T0, even in eager mode:
 // it runs, and none of its instructions are compiled.
-void check_size_cap()
+[[maybe_unused]] void check_size_cap() // only where a backend is
 {
     js::jit::set_mode(js::jit::Mode::Eager);
     js::Interpreter in;
