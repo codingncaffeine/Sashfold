@@ -138,7 +138,9 @@ public:
     void int3();
     // Pads with int3 to a multiple of `alignment` (a power of two).
     void align(std::size_t alignment);
-    // Data in the code: a 64-bit word.
+    // Data in the code: a byte, a 32-bit word, a 64-bit word.
+    void emit_u8(std::uint8_t value) { byte(value); }
+    void emit_u32(std::uint32_t value) { u32(value); }
     void emit_u64(std::uint64_t);
 
 private:

@@ -8,9 +8,12 @@
 #include <cstddef>
 #include <cstdlib>
 #include <cstring>
+#include <type_traits>
 #include <vector>
 
 namespace sashfold::js::jit {
+
+static_assert(std::is_standard_layout_v<Code>, "machine code reads a Code's instructions and table by offset");
 
 namespace {
 
@@ -27,6 +30,24 @@ constexpr Reg top_reg = Reg::r15;
 // Where the next frame goes (Frame**): the prologue's alignment slot, under
 // rbp and the five registers it saves.
 constexpr std::int32_t next_slot = -48;
+
+// The calling convention: where the first three arguments go, and the room
+// a callee may use above its return address (Win64's shadow space, under
+// the slot above). The code keeps to registers both conventions let a
+// callee clobber (rax, rcx, rdx, r8) besides the ones it saves.
+#if defined(_WIN32)
+constexpr Reg arg0 = Reg::rcx;
+constexpr Reg arg1 = Reg::rdx;
+constexpr Reg arg2 = Reg::r8;
+constexpr std::int32_t shadow_space = 32;
+constexpr bool describes_frames = true;
+#else
+constexpr Reg arg0 = Reg::rdi;
+constexpr Reg arg1 = Reg::rsi;
+constexpr Reg arg2 = Reg::rdx;
+constexpr std::int32_t shadow_space = 0;
+constexpr bool describes_frames = false;
+#endif
 
 // The operand `below` values under the top (0: the top itself).
 Mem operand(std::uint32_t below)
@@ -49,10 +70,11 @@ bool small(std::int32_t value)
 
 class Writer {
 public:
-    Writer(CodeBlock const& block, FeedbackVector* feedback, Layout const& layout)
+    Writer(CodeBlock const& block, FeedbackVector* feedback, Layout const& layout, Helpers const& helpers)
         : m_block(block)
         , m_feedback(feedback)
         , m_layout(layout)
+        , m_helpers(helpers)
         , m_count(static_cast<std::uint32_t>(block.code.size()))
     {
         m_dispatch = a.label();
@@ -60,12 +82,14 @@ public:
         m_outside = a.label();
         m_table = a.label();
         m_step = a.label();
+        m_global = a.label();
+        m_left = a.label();
         m_at.resize(m_count);
         for (Label& label : m_at)
             label = a.label();
     }
 
-    std::unique_ptr<Code> write(StepHelper step);
+    std::unique_ptr<Code> write();
 
 private:
     struct Cold {
@@ -116,6 +140,7 @@ private:
     CodeBlock const& m_block;
     FeedbackVector* m_feedback;
     Layout const& m_layout;
+    Helpers const& m_helpers;
     std::uint32_t m_count;
     std::vector<Label> m_at;
     std::vector<Cold> m_cold;
@@ -124,6 +149,8 @@ private:
     Label m_outside;
     Label m_table;
     Label m_step;
+    Label m_global;
+    Label m_left; // a step's status other than Stepped: a switch made here, or out
     std::uint32_t m_inline = 0;
 };
 
@@ -131,13 +158,13 @@ void Writer::call_step(std::uint32_t pc)
 {
     a.mov32(Mem::at(frame_reg, m_layout.frame_pc), pc);
     a.mov(Mem::at(frame_reg, m_layout.frame_stack_top), top_reg);
-    a.mov(Reg::rdi, interpreter_reg);
-    a.mov(Reg::rsi, frame_reg);
-    a.mov(Reg::rdx, Mem::at(Reg::rbp, next_slot));
+    a.mov(arg0, interpreter_reg);
+    a.mov(arg1, frame_reg);
+    a.mov(arg2, Mem::at(Reg::rbp, next_slot));
     a.call(m_step);
     a.mov(top_reg, Mem::at(frame_reg, m_layout.frame_stack_top));
     a.cmp32(Reg::rax, static_cast<std::int32_t>(RunStatus::Stepped));
-    a.j(Cond::NotEqual, m_exit);
+    a.j(Cond::NotEqual, m_left);
 }
 
 void Writer::record(std::uint8_t const* byte, std::uint8_t bit)
@@ -600,6 +627,24 @@ bool Writer::instruction(std::uint32_t pc)
         return true;
     }
 
+    // ---- a name only the global environment can have: its site's answer
+    // read by the helper (a data property of the global object, a
+    // script's let or const); an accessor, a miss and the dead zone by
+    // the step.
+    case Opcode::GetName: {
+        if (ins.site == no_site || m_feedback == nullptr || m_helpers.global == nullptr || ins.a >= m_block.names.size())
+            return false;
+        Label const miss = cold(pc);
+        a.mov(arg0, interpreter_reg);
+        a.mov_imm64(arg1, reinterpret_cast<std::uint64_t>(&m_feedback->property(ins.site)));
+        a.mov_imm64(arg2, reinterpret_cast<std::uint64_t>(m_block.names[ins.a]));
+        a.call(m_global);
+        a.test(Reg::rax, Reg::rax);
+        a.j(Cond::Equal, miss);
+        push(Reg::rax);
+        return true;
+    }
+
     // ---- members: the site's one answer, an own data property
     case Opcode::GetMemberNamed: {
         if (ins.site == no_site || m_feedback == nullptr)
@@ -662,22 +707,27 @@ bool Writer::instruction(std::uint32_t pc)
     }
 }
 
-std::unique_ptr<Code> Writer::write(StepHelper step)
+std::unique_ptr<Code> Writer::write()
 {
     // The prologue: a frame-pointer frame, the five callee-saved registers
     // the code keeps, and the stack 16-aligned for its calls (the return
-    // address and six pushes are 56 bytes; the 8 more hold `next`).
+    // address and six pushes are 56 bytes; the 8 more hold `next`, and
+    // Win64's shadow space goes under them). Where each push ends is what
+    // Win64's unwind data says of it.
+    constexpr Reg saved[] = { interpreter_reg, frame_reg, tag_reg, registers_reg, top_reg };
+    std::uint32_t pushed_at[std::size(saved)] = {};
     a.push(Reg::rbp);
+    auto const rbp_pushed_at = static_cast<std::uint32_t>(a.size());
     a.mov(Reg::rbp, Reg::rsp);
-    a.push(interpreter_reg);
-    a.push(frame_reg);
-    a.push(tag_reg);
-    a.push(registers_reg);
-    a.push(top_reg);
-    a.sub(Reg::rsp, 8);
-    a.mov(interpreter_reg, Reg::rdi);
-    a.mov(frame_reg, Reg::rsi);
-    a.mov(Mem::at(Reg::rbp, next_slot), Reg::rdx);
+    for (std::size_t i = 0; i < std::size(saved); ++i) {
+        a.push(saved[i]);
+        pushed_at[i] = static_cast<std::uint32_t>(a.size());
+    }
+    a.sub(Reg::rsp, 8 + shadow_space);
+    auto const prologue_end = static_cast<std::uint32_t>(a.size());
+    a.mov(interpreter_reg, arg0);
+    a.mov(frame_reg, arg1);
+    a.mov(Mem::at(Reg::rbp, next_slot), arg2);
     a.mov_imm64(tag_reg, Value::NumberTag);
     a.mov(registers_reg, Mem::at(frame_reg, m_layout.frame_registers));
     a.mov(top_reg, Mem::at(frame_reg, m_layout.frame_stack_top));
@@ -691,8 +741,37 @@ std::unique_ptr<Code> Writer::write(StepHelper step)
     a.jmp(Mem::at_index(Reg::rcx, Reg::rax, 8));
     a.bind(m_outside);
     a.mov32(Reg::rax, bad_pc);
+    a.jmp(m_exit);
+
+    // A step that ended other than Stepped. A switch to a frame whose block
+    // has machine code — a call the run loop made inline, its return — is
+    // made here: that frame's registers and top taken up and its code
+    // entered through its own table at its pc, as the run loop would enter
+    // it, with no return to the loop between them. Anything else leaves.
+    a.bind(m_left);
+    if (m_layout.switches) {
+        a.cmp32(Reg::rax, static_cast<std::int32_t>(RunStatus::Switched));
+        a.j(Cond::NotEqual, m_exit);
+        a.mov(Reg::rcx, Mem::at(Reg::rbp, next_slot));
+        a.mov(Reg::r8, Mem::at(Reg::rcx));
+        a.mov(Reg::rdx, Mem::at(Reg::r8, m_layout.frame_code));
+        a.mov(Reg::rdx, Mem::at(Reg::rdx, m_layout.block_code));
+        a.test(Reg::rdx, Reg::rdx);
+        a.j(Cond::Equal, m_exit);
+        a.mov(frame_reg, Reg::r8);
+        a.mov(registers_reg, Mem::at(frame_reg, m_layout.frame_registers));
+        a.mov(top_reg, Mem::at(frame_reg, m_layout.frame_stack_top));
+        a.mov32(Reg::rax, Mem::at(frame_reg, m_layout.frame_pc));
+        a.mov32(Reg::rcx, Mem::at(Reg::rdx, static_cast<std::int32_t>(offsetof(Code, instructions))));
+        a.cmp32(Reg::rax, Reg::rcx);
+        a.j(Cond::AboveOrEqual, m_outside);
+        a.mov(Reg::rcx, Mem::at(Reg::rdx, static_cast<std::int32_t>(offsetof(Code, table))));
+        a.jmp(Mem::at_index(Reg::rcx, Reg::rax, 8));
+    }
+    // Out. (A switch made here was to the frame the step wrote into `next`,
+    // so `next` names the frame the code was running, as the entry says.)
     a.bind(m_exit);
-    a.add(Reg::rsp, 8);
+    a.add(Reg::rsp, 8 + shadow_space);
     a.pop(top_reg);
     a.pop(registers_reg);
     a.pop(tag_reg);
@@ -736,10 +815,51 @@ std::unique_ptr<Code> Writer::write(StepHelper step)
     // address, written once the code's place is known.
     a.align(8);
     a.bind(m_step);
-    a.emit_u64(reinterpret_cast<std::uint64_t>(step));
+    a.emit_u64(reinterpret_cast<std::uint64_t>(m_helpers.step));
+    a.bind(m_global);
+    a.emit_u64(reinterpret_cast<std::uint64_t>(m_helpers.global));
     a.bind(m_table);
     for (std::uint32_t pc = 0; pc < m_count; ++pc)
         a.emit_u64(0);
+    // On Windows, how to unwind a frame of this code (x64 exception
+    // handling's UNWIND_INFO and one RUNTIME_FUNCTION over the code): the
+    // fixed allocation, then the pushes, latest first, each at the offset
+    // where it ends. rbp is a saved register to the system, not the frame
+    // register — the stack pointer never moves in the body, so the
+    // allocations alone find the return address.
+    std::uint32_t function_at = 0;
+    if constexpr (describes_frames) {
+        std::uint32_t const code_end = static_cast<std::uint32_t>(start + code_bytes);
+        a.align(4);
+        auto const unwind_at = static_cast<std::uint32_t>(a.size());
+        constexpr std::uint8_t push_nonvolatile = 0;
+        constexpr std::uint8_t allocate_small = 2;
+        std::uint8_t const codes = static_cast<std::uint8_t>(2 + std::size(saved));
+        a.emit_u8(1); // version 1, no handler
+        a.emit_u8(static_cast<std::uint8_t>(prologue_end));
+        a.emit_u8(codes);
+        a.emit_u8(0); // no frame register
+        a.emit_u8(static_cast<std::uint8_t>(prologue_end));
+        a.emit_u8(static_cast<std::uint8_t>(allocate_small | (((8 + shadow_space) / 8 - 1) << 4)));
+        for (std::size_t i = std::size(saved); i-- > 0;) {
+            a.emit_u8(static_cast<std::uint8_t>(pushed_at[i]));
+            a.emit_u8(static_cast<std::uint8_t>(push_nonvolatile | (static_cast<std::uint8_t>(saved[i]) << 4)));
+        }
+        a.emit_u8(static_cast<std::uint8_t>(rbp_pushed_at));
+        a.emit_u8(static_cast<std::uint8_t>(push_nonvolatile | (static_cast<std::uint8_t>(Reg::rbp) << 4)));
+        if (codes % 2 != 0) {
+            a.emit_u8(0); // the codes padded to an even count
+            a.emit_u8(0);
+        }
+        a.align(4);
+        function_at = static_cast<std::uint32_t>(a.size());
+        a.emit_u32(0);
+        a.emit_u32(code_end);
+        a.emit_u32(unwind_at);
+    } else {
+        static_cast<void>(rbp_pushed_at);
+        static_cast<void>(pushed_at);
+    }
     if (!a.finish())
         return nullptr;
 
@@ -755,26 +875,29 @@ std::unique_ptr<Code> Writer::write(StepHelper step)
     }
     if (!memory->seal())
         return nullptr;
+    if (describes_frames && !memory->describe_frames(function_at))
+        return nullptr;
     auto code = std::make_unique<Code>(std::move(*memory));
     code->entry = reinterpret_cast<Code::Entry>(const_cast<std::byte*>(code->memory.code()));
     code->instructions = m_count;
     code->inline_instructions = m_inline;
     code->code_bytes = code_bytes;
+    code->table = reinterpret_cast<void const* const*>(code->memory.code() + table_offset);
     return code;
 }
 
 }
 
-std::unique_ptr<Code> compile(CodeBlock const& block, FeedbackVector* feedback, Layout const& layout, StepHelper step)
+std::unique_ptr<Code> compile(CodeBlock const& block, FeedbackVector* feedback, Layout const& layout, Helpers const& helpers)
 {
     if constexpr (!available) {
         static_cast<void>(block);
         static_cast<void>(feedback);
         static_cast<void>(layout);
-        static_cast<void>(step);
+        static_cast<void>(helpers);
         return nullptr;
     } else {
-        return Writer(block, feedback, layout).write(step);
+        return Writer(block, feedback, layout, helpers).write();
     }
 }
 

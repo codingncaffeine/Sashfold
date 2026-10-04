@@ -33,6 +33,12 @@ public:
     // the memory is then neither.
     bool seal();
     bool sealed() const { return m_sealed; }
+    // On Windows, tells the system how to unwind the code's frames (for
+    // exceptions, debuggers and stack walks): `entry` is the offset in this
+    // memory of the code's function table, one RUNTIME_FUNCTION whose
+    // unwind data lies in the memory too; once sealed. Taken back when the
+    // memory is let go. Elsewhere nothing is needed, and it answers true.
+    bool describe_frames(std::size_t entry);
 
 private:
     ExecutableMemory(std::byte* base, std::size_t size)
@@ -45,6 +51,7 @@ private:
     std::byte* m_base = nullptr;
     std::size_t m_size = 0;
     bool m_sealed = false;
+    void* m_frames = nullptr; // the function table given to the system (Windows)
 };
 
 }

@@ -327,6 +327,7 @@ struct Interpreter::Impl {
     // answer it took recorded.
     std::optional<Value> get_named(PropertySite*, Value const& base, JsString* name);
     bool put_named(PropertySite*, Value const& base, JsString* name, Value const& value, bool strict);
+    Value global_hit(PropertySite&, JsString* name); // empty: no answer that holds
     std::optional<Value> get_global(PropertySite&, JsString* name, Environment* environment, bool strict, bool typeof_name);
     Reference global_reference(PropertySite&, JsString* name, Environment* environment);
     bool cached_reference_holds(Reference const&) const;

@@ -26,15 +26,17 @@ namespace sashfold::js {
 struct CodeBlock;
 class FeedbackVector;
 class Frame;
+class JsString;
+struct PropertySite;
 
 }
 
 namespace sashfold::js::jit {
 
-// Whether this build can run machine code it writes: x86-64 under the
-// System V convention, on Linux, for now (the design's slices 4 and 5 add
-// Windows, AArch64 and macOS).
-#if defined(__x86_64__) && defined(__linux__)
+// Whether this build can run machine code it writes: x86-64 on Linux (the
+// System V convention) and on Windows (Win64's, with its unwind data), for
+// now (the design's slice 5 adds AArch64 and macOS).
+#if (defined(__x86_64__) || defined(_M_X64)) && (defined(__linux__) || defined(_WIN32))
 inline constexpr bool available = true;
 #else
 inline constexpr bool available = false;
@@ -44,6 +46,17 @@ inline constexpr bool available = false;
 // fast path missed: runs the instruction at frame.pc and answers its
 // RunStatus, zero-extended.
 using StepHelper = std::uint32_t (*)(void* interpreter, Frame* frame, Frame** next);
+
+// The calls the code makes into the engine. Besides the step, each is a
+// plain function that neither throws nor collects, so the code calls it
+// with nothing written back to the frame.
+struct Helpers {
+    StepHelper step = nullptr;
+    // A global name's value as its site's answer gives it (a data property
+    // of the global object, a script's let or const), or 0 — the empty
+    // value — when the site has no answer that holds.
+    std::uint64_t (*global)(void* interpreter, PropertySite* site, JsString* name) = nullptr;
+};
 
 // A status no RunStatus has: the code was entered at, or jumped to, a pc
 // outside the block — the engine's fault, reported as one.
@@ -55,6 +68,7 @@ inline constexpr std::uint32_t bad_pc = 0xFF;
 // counters the code moves. An offset the engine could not vouch for
 // leaves its template out (`arrays` false: dense reads go to the step).
 struct Layout {
+    std::int32_t frame_code = 0; // the frame's CodeBlock
     std::int32_t frame_pc = 0;
     std::int32_t frame_stack_top = 0; // the operand stack's top (Value*)
     std::int32_t frame_registers = 0; // the registers' base (Value*)
@@ -84,6 +98,8 @@ struct Layout {
     std::int32_t binding_value = 0; // a Value
     std::int32_t binding_mutable = 0; // a bool
     std::int32_t binding_initialized = 0; // a bool
+    bool switches = false; // a CodeBlock's machine code, a unique_ptr as this library lays it out:
+    std::int32_t block_code = 0; // jit::Code*
     std::int32_t interpreter_ic_hits = 0; // from the interpreter the code is given (uint64)
     std::int32_t* budget = nullptr; // the interrupt budget, decremented at each back-edge
 };
@@ -91,7 +107,12 @@ struct Layout {
 struct Code {
     // RunStatus run(interpreter, frame, &next): from the instruction at
     // frame.pc until the frame ends, suspends, throws past its handlers or
-    // switches to another frame (`next`).
+    // switches to a frame whose block has no machine code (`next`). A
+    // switch to one that has some — a call the run loop makes inline, its
+    // return — the code makes itself, so the frame it leaves in need not be
+    // the one it was entered with: `next` names the frame it was running
+    // when it leaves (the last frame a step switched to, which it took up),
+    // or stays null when it never switched.
     using Entry = std::uint32_t (*)(void* interpreter, Frame* frame, Frame** next);
 
     explicit Code(platform::ExecutableMemory memory_)
@@ -104,13 +125,16 @@ struct Code {
     std::uint32_t instructions = 0;
     std::uint32_t inline_instructions = 0; // the ones with a template
     std::size_t code_bytes = 0; // the instructions' code, without the table
+    // Each instruction's address, by pc: where other code that switches to
+    // a frame of this block jumps.
+    void const* const* table = nullptr;
 };
 
 // The block's machine code; null when this build has no backend, the OS
 // refuses the memory or the assembler fails. `feedback` is the block's
 // vector (null when it has no sites): the code reads its records as they
 // change, by address.
-std::unique_ptr<Code> compile(CodeBlock const&, FeedbackVector*, Layout const&, StepHelper);
+std::unique_ptr<Code> compile(CodeBlock const&, FeedbackVector*, Layout const&, Helpers const&);
 
 // When code blocks get machine code: never (T0 alone), at a block's first
 // run (`eager`, the differential mode every suite runs in as well), or

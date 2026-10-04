@@ -11,11 +11,20 @@
 
 #include "JsTest.h"
 
+#include "js/Bytecode.h"
 #include "js/jit/Baseline.h"
 
 #include <cstddef>
+#include <cstdint>
+#include <memory>
 #include <string>
 #include <string_view>
+
+#if defined(_WIN32)
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
 
 using namespace sashfold;
 
@@ -212,6 +221,53 @@ Run run(js::jit::Mode mode)
     return ran;
 }
 
+#if defined(_WIN32)
+// Win64 unwinds a frame of the code by the data written beside it: from an
+// address in the body, over a frame laid out as the prologue lays it out —
+// the shadow space and `next` under the five pushes, then rbp and the
+// return address — the system finds the caller's return address and stack
+// pointer and every register the prologue saved. (The code is never run:
+// its layout of the engine is left at zero.)
+void check_unwind_data()
+{
+    js::CodeBlock block;
+    block.code.push_back(js::Instruction { js::Opcode::Nop });
+    block.code.push_back(js::Instruction { js::Opcode::Return });
+    std::unique_ptr<js::jit::Code> const code = js::jit::compile(block, nullptr, js::jit::Layout {}, js::jit::Helpers {});
+    CHECK(code != nullptr);
+    if (code == nullptr)
+        return;
+    auto const body = reinterpret_cast<DWORD64>(code->table[0]);
+    DWORD64 image = 0;
+    PRUNTIME_FUNCTION const function = RtlLookupFunctionEntry(body, &image, nullptr);
+    CHECK(function != nullptr);
+    if (function == nullptr)
+        return;
+    DWORD64 stack[16] = {};
+    stack[5] = 0x1515; // r15
+    stack[6] = 0x1414; // r14
+    stack[7] = 0x1313; // r13
+    stack[8] = 0x1212; // r12
+    stack[9] = 0xb0b0; // rbx
+    stack[10] = 0xbbbb; // rbp
+    stack[11] = 0x401234; // the return address
+    CONTEXT context = {};
+    context.Rip = body;
+    context.Rsp = reinterpret_cast<DWORD64>(&stack[0]);
+    PVOID handler_data = nullptr;
+    DWORD64 establisher = 0;
+    RtlVirtualUnwind(UNW_FLAG_NHANDLER, image, body, function, &context, &handler_data, &establisher, nullptr);
+    CHECK_EQ(static_cast<std::uint64_t>(context.Rip), std::uint64_t { 0x401234 });
+    CHECK_EQ(static_cast<std::uint64_t>(context.Rsp), static_cast<std::uint64_t>(reinterpret_cast<DWORD64>(&stack[12])));
+    CHECK_EQ(static_cast<std::uint64_t>(context.R15), std::uint64_t { 0x1515 });
+    CHECK_EQ(static_cast<std::uint64_t>(context.R14), std::uint64_t { 0x1414 });
+    CHECK_EQ(static_cast<std::uint64_t>(context.R13), std::uint64_t { 0x1313 });
+    CHECK_EQ(static_cast<std::uint64_t>(context.R12), std::uint64_t { 0x1212 });
+    CHECK_EQ(static_cast<std::uint64_t>(context.Rbx), std::uint64_t { 0xb0b0 });
+    CHECK_EQ(static_cast<std::uint64_t>(context.Rbp), std::uint64_t { 0xbbbb });
+}
+#endif
+
 // A loop with no end but the host's: each back-edge spends a step of the
 // interrupt budget in machine code as in T0, so asked every thousand steps
 // and saying yes the third time, the loop is stopped at 3,000.
@@ -254,6 +310,9 @@ int main()
         check_interrupt(js::jit::Mode::Tiered);
         js::jit::set_threshold(0);
         check_interrupt(js::jit::Mode::Eager);
+#if defined(_WIN32)
+        check_unwind_data();
+#endif
     }
     js::jit::set_mode(js::jit::Mode::Off);
     return ::sashfold::test::report("test_js_jit");

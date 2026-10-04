@@ -498,48 +498,55 @@ bool global_holds(PropertyEntry const& entry, Shape const& shape, RealmRecord co
 
 }
 
+// A global name's value as its site's answer gives it — a script's lexical
+// binding, or the global object's own data property — or empty when the
+// site has no such answer that still holds: get_global's hit, and the
+// machine code's (js/jit), which calls it with nothing written back to the
+// frame, since it neither throws nor allocates.
+Value Interpreter::Impl::global_hit(PropertySite& site, JsString* name)
+{
+    RealmRecord& current = realm();
+    Object& global = *current.intrinsics.global;
+    Shape const* const shape = global.shape();
+    PropertyEntry const* const entry = entry_for(site, shape, nullptr, name, false);
+    if (entry == nullptr)
+        return Value::empty();
+    if (entry->kind == CacheKind::GlobalLexical) {
+        if (entry->other == current.global_lexical) {
+            Environment::Binding const& binding = current.global_lexical->binding_at(entry->slot);
+            if (binding.initialized && binding.import_module == nullptr) {
+                ++ic_hits;
+                return binding.value;
+            }
+        }
+    } else if (entry->kind == CacheKind::GlobalData && global_holds(*entry, *shape, current, PropertyKey::atom(name), false)) {
+        if (Value const& value = global.slot_value(entry->slot); !value.is_lazy_mark()) {
+            ++ic_hits;
+            return value;
+        }
+    }
+    return Value::empty();
+}
+
 // A global name (Identifier::global): a script's lexical binding, or the
 // global object's own property, through the site's cache; anything else —
 // a property the global inherits, a name nothing binds — by the slow path.
 std::optional<Value> Interpreter::Impl::get_global(PropertySite& site, JsString* name, Environment* environment, bool strict,
     bool typeof_name)
 {
+    if (Value const hit = global_hit(site, name); !hit.is_empty())
+        return hit;
     RealmRecord& current = realm();
     Object& global = *current.intrinsics.global;
     Shape const* const shape = global.shape();
     PropertyKey const key = PropertyKey::atom(name);
     PropertyEntry const* const entry = entry_for(site, shape, nullptr, name, false);
-    if (entry != nullptr) {
-        switch (entry->kind) {
-        case CacheKind::GlobalLexical:
-            if (entry->other == current.global_lexical) {
-                Environment::Binding const& binding = current.global_lexical->binding_at(entry->slot);
-                if (binding.initialized && binding.import_module == nullptr) {
-                    ++ic_hits;
-                    return binding.value;
-                }
-            }
-            break;
-        case CacheKind::GlobalData:
-            if (global_holds(*entry, *shape, current, key, false)) {
-                if (Value const& value = global.slot_value(entry->slot); !value.is_lazy_mark()) {
-                    ++ic_hits;
-                    return value;
-                }
-            }
-            break;
-        case CacheKind::GlobalAccessor:
-            if (global_holds(*entry, *shape, current, key, true)) {
-                if (AccessorPair const* const pair = pair_in(global.slot_value(entry->slot))) {
-                    ++ic_hits;
-                    if (pair->getter == nullptr)
-                        return Value::undefined();
-                    return self.call(Value::object(pair->getter), Value::object(&global), {});
-                }
-            }
-            break;
-        default:
-            break;
+    if (entry != nullptr && entry->kind == CacheKind::GlobalAccessor && global_holds(*entry, *shape, current, key, true)) {
+        if (AccessorPair const* const pair = pair_in(global.slot_value(entry->slot))) {
+            ++ic_hits;
+            if (pair->getter == nullptr)
+                return Value::undefined();
+            return self.call(Value::object(pair->getter), Value::object(&global), {});
         }
     }
     ++ic_misses;
@@ -1168,12 +1175,13 @@ RunStatus Interpreter::Impl::vm_run(Frame& entry)
     // itself (enter_call), pushed above it.
     Frame* current = &entry;
     for (;;) {
+        // The frame to run next (Switched), else the one the run ended in,
+        // which machine code that switched frames itself may have changed.
         Frame* next = nullptr;
         RunStatus const status = run_frame(*current, next, executed);
-        if (status == RunStatus::Switched) {
-            current = next;
+        current = next;
+        if (status == RunStatus::Switched)
             continue;
-        }
         if (status == RunStatus::Threw) {
             // No handler in the frame that threw: a call the loop made ends by
             // the throw, and its caller looks for one from its call.
@@ -2812,6 +2820,12 @@ std::uint32_t machine_step(void* interpreter, Frame* frame, Frame** next)
     return static_cast<std::uint32_t>(static_cast<Interpreter::Impl*>(interpreter)->vm_step(*frame, *next));
 }
 
+// Its way to a global name's value through the site's answer.
+std::uint64_t machine_global(void* interpreter, PropertySite* site, JsString* name)
+{
+    return static_cast<Interpreter::Impl*>(interpreter)->global_hit(*site, name).bits();
+}
+
 }
 
 // The offsets the machine code reads (js/jit/Baseline.h), as this build
@@ -2832,6 +2846,7 @@ struct MachineLayout {
         auto const within = [&probe](void const* field) {
             return static_cast<std::int32_t>(static_cast<std::byte const*>(field) - reinterpret_cast<std::byte const*>(&probe));
         };
+        layout.frame_code = within(&probe.code);
         layout.frame_pc = within(&probe.pc);
         layout.frame_stack_top = within(&probe.stack) + static_cast<std::int32_t>(offsetof(OperandStack, m_top));
         layout.frame_registers = within(&probe.registers) + static_cast<std::int32_t>(offsetof(RegisterFile, m_base));
@@ -2873,6 +2888,7 @@ struct MachineLayout {
         layout.shape_flags = static_cast<std::int32_t>(offsetof(Shape, m_flags));
         auto const elements = static_cast<std::int32_t>(offsetof(ArrayObject, m_elements));
         auto const bindings = static_cast<std::int32_t>(offsetof(Environment, m_bindings));
+        auto const block_code = static_cast<std::int32_t>(offsetof(CodeBlock, jit));
         layout.env_outer = static_cast<std::int32_t>(offsetof(Environment, m_outer));
 #if defined(__GNUC__)
 #pragma GCC diagnostic pop
@@ -2883,6 +2899,18 @@ struct MachineLayout {
         layout.arrays = true;
         layout.array_data = elements + static_cast<std::int32_t>(offsetof(ElementBlock, m_data));
         layout.array_size = elements + static_cast<std::int32_t>(offsetof(ElementBlock, m_length));
+        // A block's machine code, read by code that switches to a frame of
+        // it: a unique_ptr with the default deleter is one word, the pointer
+        // (read off one of its kind).
+        {
+            auto held = std::make_unique<int>(0);
+            int const* const raw = held.get();
+            std::uintptr_t word = 0;
+            if constexpr (sizeof held == sizeof word)
+                std::memcpy(&word, &held, sizeof word);
+            layout.switches = word == reinterpret_cast<std::uintptr_t>(raw);
+            layout.block_code = block_code;
+        }
         layout.env_bindings_begin = bindings;
         layout.env_bindings_end = bindings + 8;
         layout.binding_size = static_cast<std::int32_t>(sizeof(Environment::Binding));
@@ -2921,7 +2949,8 @@ jit::Code const* Interpreter::Impl::machine_code(CodeBlock const& code)
         break;
     }
     auto const started = std::chrono::steady_clock::now();
-    code.jit = jit::compile(code, feedback_for(code), machine_layout(), &machine_step);
+    static constexpr jit::Helpers helpers { &machine_step, &machine_global };
+    code.jit = jit::compile(code, feedback_for(code), machine_layout(), helpers);
     code.jit_refused = code.jit == nullptr;
     if (code.jit)
         self.note_machine_code(code.jit->memory.size(), code.jit->inline_instructions, code.jit->instructions, started);
@@ -2953,16 +2982,21 @@ __attribute__((no_sanitize("function")))
 RunStatus Interpreter::Impl::run_frame(Frame& frame, Frame*& next, std::uint64_t* executed)
 {
     if (jit::Code const* compiled = machine_code(*frame.code)) {
+        // The code may switch frames itself (a call, a return): `switched`
+        // then names the frame it ended in; null, it never switched.
         Frame* switched = nullptr;
         std::uint32_t const status = compiled->entry(this, &frame, &switched);
+        next = switched != nullptr ? switched : &frame;
         if (status >= static_cast<std::uint32_t>(RunStatus::Stepped)) {
             self.throw_type_error("internal: machine code left by an instruction it does not have");
             return RunStatus::Threw;
         }
-        next = switched;
         return static_cast<RunStatus>(status);
     }
-    return vm_run_frame(frame, next, executed);
+    RunStatus const status = vm_run_frame(frame, next, executed);
+    if (status != RunStatus::Switched)
+        next = &frame;
+    return status;
 }
 
 // ---- generators -------------------------------------------------------------

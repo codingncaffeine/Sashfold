@@ -23,6 +23,7 @@ ExecutableMemory::ExecutableMemory(ExecutableMemory&& other) noexcept
     : m_base(std::exchange(other.m_base, nullptr))
     , m_size(std::exchange(other.m_size, 0))
     , m_sealed(std::exchange(other.m_sealed, false))
+    , m_frames(std::exchange(other.m_frames, nullptr))
 {
 }
 
@@ -33,6 +34,7 @@ ExecutableMemory& ExecutableMemory::operator=(ExecutableMemory&& other) noexcept
         m_base = std::exchange(other.m_base, nullptr);
         m_size = std::exchange(other.m_size, 0);
         m_sealed = std::exchange(other.m_sealed, false);
+        m_frames = std::exchange(other.m_frames, nullptr);
     }
     return *this;
 }
@@ -56,8 +58,22 @@ bool ExecutableMemory::seal()
     return true;
 }
 
+bool ExecutableMemory::describe_frames(std::size_t entry)
+{
+    if (m_base == nullptr || !m_sealed || m_frames != nullptr)
+        return false;
+    auto* const table = reinterpret_cast<PRUNTIME_FUNCTION>(m_base + entry);
+    if (!RtlAddFunctionTable(table, 1, reinterpret_cast<DWORD64>(m_base)))
+        return false;
+    m_frames = table;
+    return true;
+}
+
 void ExecutableMemory::release()
 {
+    if (m_frames != nullptr)
+        RtlDeleteFunctionTable(static_cast<PRUNTIME_FUNCTION>(m_frames));
+    m_frames = nullptr;
     if (m_base != nullptr)
         VirtualFree(m_base, 0, MEM_RELEASE);
     m_base = nullptr;

@@ -22,6 +22,7 @@ ExecutableMemory::ExecutableMemory(ExecutableMemory&& other) noexcept
     : m_base(std::exchange(other.m_base, nullptr))
     , m_size(std::exchange(other.m_size, 0))
     , m_sealed(std::exchange(other.m_sealed, false))
+    , m_frames(std::exchange(other.m_frames, nullptr))
 {
 }
 
@@ -32,6 +33,7 @@ ExecutableMemory& ExecutableMemory::operator=(ExecutableMemory&& other) noexcept
         m_base = std::exchange(other.m_base, nullptr);
         m_size = std::exchange(other.m_size, 0);
         m_sealed = std::exchange(other.m_sealed, false);
+        m_frames = std::exchange(other.m_frames, nullptr);
     }
     return *this;
 }
@@ -54,6 +56,11 @@ bool ExecutableMemory::seal()
     char* const begin = reinterpret_cast<char*>(m_base);
     __builtin___clear_cache(begin, begin + m_size);
     m_sealed = true;
+    return true;
+}
+
+bool ExecutableMemory::describe_frames(std::size_t)
+{
     return true;
 }
 
