@@ -84,6 +84,74 @@ void test_instructions()
     CHECK_ENCODING("41 ff 64 c4 08", a.jmp(Mem::at_index(Reg::r12, Reg::rax, 8, 8)));
     CHECK_ENCODING("c3", a.ret());
     CHECK_ENCODING("cc", a.int3());
+    // The forms the inline templates use (slice 2).
+    CHECK_ENCODING("48 01 c8", a.add(Reg::rax, Reg::rcx));
+    CHECK_ENCODING("4d 01 c7", a.add(Reg::r15, Reg::r8));
+    CHECK_ENCODING("49 29 c7", a.sub(Reg::r15, Reg::rax));
+    CHECK_ENCODING("48 21 d1", a.and_(Reg::rcx, Reg::rdx));
+    CHECK_ENCODING("4c 09 e8", a.or_(Reg::rax, Reg::r13));
+    CHECK_ENCODING("4d 31 d1", a.xor_(Reg::r9, Reg::r10));
+    CHECK_ENCODING("4c 39 e8", a.cmp(Reg::rax, Reg::r13));
+    CHECK_ENCODING("49 39 cb", a.cmp(Reg::r11, Reg::rcx));
+    CHECK_ENCODING("4c 85 e8", a.test(Reg::rax, Reg::r13));
+    CHECK_ENCODING("48 85 c9", a.test(Reg::rcx, Reg::rcx));
+    CHECK_ENCODING("01 c8", a.add32(Reg::rax, Reg::rcx));
+    CHECK_ENCODING("45 01 c8", a.add32(Reg::r8, Reg::r9));
+    CHECK_ENCODING("29 c8", a.sub32(Reg::rax, Reg::rcx));
+    CHECK_ENCODING("21 d0", a.and32(Reg::rax, Reg::rdx));
+    CHECK_ENCODING("44 09 d1", a.or32(Reg::rcx, Reg::r10));
+    CHECK_ENCODING("31 c2", a.xor32(Reg::rdx, Reg::rax));
+    CHECK_ENCODING("39 c8", a.cmp32(Reg::rax, Reg::rcx));
+    CHECK_ENCODING("41 39 c1", a.cmp32(Reg::r9, Reg::rax));
+    CHECK_ENCODING("85 c0", a.test32(Reg::rax, Reg::rax));
+    CHECK_ENCODING("45 85 db", a.test32(Reg::r11, Reg::r11));
+    CHECK_ENCODING("0f af c1", a.imul32(Reg::rax, Reg::rcx));
+    CHECK_ENCODING("45 0f af c4", a.imul32(Reg::r8, Reg::r12));
+    CHECK_ENCODING("83 c0 01", a.add32(Reg::rax, 1));
+    CHECK_ENCODING("83 e9 01", a.sub32(Reg::rcx, 1));
+    CHECK_ENCODING("41 81 c2 2c 01 00 00", a.add32(Reg::r10, 300));
+    CHECK_ENCODING("48 83 f8 06", a.cmp(Reg::rax, 6));
+    CHECK_ENCODING("48 83 f9 ff", a.cmp(Reg::rcx, -1));
+    CHECK_ENCODING("49 81 fc 00 10 00 00", a.cmp(Reg::r12, 0x1000));
+    CHECK_ENCODING("48 3d 00 10 00 00", a.cmp(Reg::rax, 0x1000));
+    CHECK_ENCODING("48 83 e1 f7", a.and_(Reg::rcx, -9));
+    CHECK_ENCODING("48 83 c8 7f", a.or_(Reg::rax, 0x7f));
+    CHECK_ENCODING("49 3b 44 24 08", a.cmp(Reg::rax, Mem::at(Reg::r12, 8)));
+    CHECK_ENCODING("48 3b 08", a.cmp(Reg::rcx, Mem::at(Reg::rax)));
+    CHECK_ENCODING("49 c7 07 0a 00 00 00", a.mov(Mem::at(Reg::r15), 10));
+    CHECK_ENCODING("49 c7 47 08 ff ff ff ff", a.mov(Mem::at(Reg::r15, 8), -1));
+    CHECK_ENCODING("48 c7 80 00 01 00 00 45 23 01 00", a.mov(Mem::at(Reg::rax, 0x100), 0x12345));
+    CHECK_ENCODING("b8 05 00 00 00", a.mov32(Reg::rax, 5u));
+    CHECK_ENCODING("41 b9 78 56 34 12", a.mov32(Reg::r9, 0x12345678u));
+    CHECK_ENCODING("89 c8", a.mov32(Reg::rax, Reg::rcx));
+    CHECK_ENCODING("41 89 c2", a.mov32(Reg::r10, Reg::rax));
+    CHECK_ENCODING("41 89 44 24 04", a.mov32(Mem::at(Reg::r12, 4), Reg::rax));
+    CHECK_ENCODING("44 89 08", a.mov32(Mem::at(Reg::rax), Reg::r9));
+    CHECK_ENCODING("0f b6 c0", a.movzx8(Reg::rax, Reg::rax));
+    CHECK_ENCODING("0f b6 c9", a.movzx8(Reg::rcx, Reg::rcx));
+    CHECK_ENCODING("40 0f b6 f6", a.movzx8(Reg::rsi, Reg::rsi));
+    CHECK_ENCODING("0f 9c c0", a.set(Cond::Less, Reg::rax));
+    CHECK_ENCODING("0f 9f c1", a.set(Cond::Greater, Reg::rcx));
+    CHECK_ENCODING("0f 9d c2", a.set(Cond::GreaterOrEqual, Reg::rdx));
+    CHECK_ENCODING("40 0f 94 c6", a.set(Cond::Equal, Reg::rsi));
+    CHECK_ENCODING("d3 e0", a.shl32_cl(Reg::rax));
+    CHECK_ENCODING("d3 fa", a.sar32_cl(Reg::rdx));
+    CHECK_ENCODING("41 d3 e1", a.shl32_cl(Reg::r9));
+    CHECK_ENCODING("99", a.cdq());
+    CHECK_ENCODING("f7 f9", a.idiv32(Reg::rcx));
+    CHECK_ENCODING("41 f7 fa", a.idiv32(Reg::r10));
+    CHECK_ENCODING("80 78 04 05", a.cmp8(Mem::at(Reg::rax, 4), 5));
+    CHECK_ENCODING("80 79 28 01", a.cmp8(Mem::at(Reg::rcx, 40), 1));
+    CHECK_ENCODING("41 80 bc 24 00 01 00 00 80", a.cmp8(Mem::at(Reg::r12, 0x100), 0x80));
+    CHECK_ENCODING("f6 42 08 08", a.test8(Mem::at(Reg::rdx, 8), 8));
+    CHECK_ENCODING("f6 01 01", a.test8(Mem::at(Reg::rcx), 1));
+    CHECK_ENCODING("80 09 01", a.or8(Mem::at(Reg::rcx), 1));
+    CHECK_ENCODING("41 80 48 03 10", a.or8(Mem::at(Reg::r8, 3), 0x10));
+    CHECK_ENCODING("48 83 43 10 01", a.add(Mem::at(Reg::rbx, 16), 1));
+    CHECK_ENCODING("48 83 00 01", a.add(Mem::at(Reg::rax), 1));
+    CHECK_ENCODING("83 28 01", a.sub32(Mem::at(Reg::rax), 1));
+    CHECK_ENCODING("48 89 55 d0", a.mov(Mem::at(Reg::rbp, -48), Reg::rdx));
+    CHECK_ENCODING("48 8b 55 d0", a.mov(Reg::rdx, Mem::at(Reg::rbp, -48)));
 }
 
 void test_labels()
@@ -127,6 +195,13 @@ void test_labels()
         a.bind(data);
     }),
         std::string("4c 8d 0d 00 00 00 00"));
+    // A call through an address in the code, rip-relative like the lea.
+    CHECK_EQ(assembled([](AssemblerX64& a) {
+        Label const slot = a.label();
+        a.call(slot);
+        a.bind(slot);
+    }),
+        std::string("ff 15 00 00 00 00"));
     // A label used and never bound fails the finish; one never used does not.
     {
         AssemblerX64 a;

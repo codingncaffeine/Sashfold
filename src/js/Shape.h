@@ -267,6 +267,7 @@ private:
     // Told by the heap at every collection from now on (clear_weak).
     void hold_weakly(Heap&);
     friend class Heap;
+    friend struct MachineLayout; // the offsets the machine code reads (Vm.cpp)
 
     Shape* m_parent;
     ShapeTable* m_table;

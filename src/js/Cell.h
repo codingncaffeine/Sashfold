@@ -61,6 +61,7 @@ protected:
 private:
     friend class Heap;
     friend class Tracer;
+    friend struct MachineLayout; // the offsets the machine code reads (Vm.cpp)
     Heap* m_heap = nullptr;
     // The mark of the collection that last reached this cell: a number the
     // heap advances per collection, so nothing need be cleared beforehand —

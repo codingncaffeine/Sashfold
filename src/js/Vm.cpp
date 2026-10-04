@@ -25,6 +25,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <cstring>
 #include <memory>
 #include <optional>
 #include <span>
@@ -214,9 +215,9 @@ CodeBlock const* Interpreter::Impl::compiled_parameters(FunctionNode const& node
 
 // ---- the inline caches (js/Feedback.h) -------------------------------------
 
-FeedbackVector* Interpreter::Impl::feedback_for(CodeBlock const& code)
+FeedbackVector* Interpreter::Impl::make_feedback(CodeBlock const& code)
 {
-    if (code.feedback == nullptr && (code.property_sites | code.call_sites | code.operand_sites | code.element_sites) != 0) {
+    if ((code.property_sites | code.call_sites | code.operand_sites | code.element_sites) != 0) {
         code.feedback = std::make_unique<FeedbackVector>(code.property_sites, code.call_sites, code.operand_sites, code.element_sites);
         feedback_vectors.push_back(code.feedback.get());
     }
@@ -2196,6 +2197,15 @@ RunStatus Interpreter::Impl::vm_run_frame_impl(Frame& frame, Frame*& next, std::
         VM_CASE(Step):
             if (!tick())
                 VM_FAIL;
+            // A loop hot enough for machine code (tiered) goes on in it from
+            // here: the frame handed back to vm_run, which enters the block's
+            // code at the next instruction, made now if it was not yet.
+            if constexpr (!SingleStep) {
+                if (++code.hotness >= tier_up_at && !code.jit_refused) [[unlikely]] {
+                    next = &frame;
+                    return RunStatus::Switched;
+                }
+            }
             VM_NEXT;
 
         // ---- calls
@@ -2795,7 +2805,8 @@ RunStatus Interpreter::Impl::vm_step(Frame& frame, Frame*& next)
 
 namespace {
 
-// The machine code's way to an instruction it has no template for.
+// The machine code's way to an instruction it has no template for, or
+// whose fast path missed.
 std::uint32_t machine_step(void* interpreter, Frame* frame, Frame** next)
 {
     return static_cast<std::uint32_t>(static_cast<Interpreter::Impl*>(interpreter)->vm_step(*frame, *next));
@@ -2803,17 +2814,133 @@ std::uint32_t machine_step(void* interpreter, Frame* frame, Frame** next)
 
 }
 
+// The offsets the machine code reads (js/jit/Baseline.h), as this build
+// lays the structures out. offsetof on a class with virtual functions is
+// conditionally supported, and gcc, clang and MSVC all support it for a
+// class with no virtual base (the engines that write machine code rely on
+// it); the frame's own fields are measured on a frame instead, since its
+// state is a base class.
+struct MachineLayout {
+    static jit::Layout measure()
+    {
+        static_assert(sizeof(Cell::m_kind) == 1 && sizeof(Object::m_class) == 1 && sizeof(Shape::m_flags) == 1
+                && sizeof(ElementBlock::m_length) == 4 && sizeof(FrameState::pc) == 4 && sizeof(EnvStack::m_size) == 4
+                && sizeof(Environment::Binding::mutable_) == 1 && sizeof(Environment::Binding::initialized) == 1,
+            "the machine code reads these as bytes and 32-bit words");
+        jit::Layout layout;
+        Frame probe;
+        auto const within = [&probe](void const* field) {
+            return static_cast<std::int32_t>(static_cast<std::byte const*>(field) - reinterpret_cast<std::byte const*>(&probe));
+        };
+        layout.frame_pc = within(&probe.pc);
+        layout.frame_stack_top = within(&probe.stack) + static_cast<std::int32_t>(offsetof(OperandStack, m_top));
+        layout.frame_registers = within(&probe.registers) + static_cast<std::int32_t>(offsetof(RegisterFile, m_base));
+        layout.frame_this = within(&probe.this_value);
+        layout.frame_function_env = within(&probe.function_env);
+        layout.frame_envs_base = within(&probe.envs) + static_cast<std::int32_t>(offsetof(EnvStack, m_base));
+        layout.frame_envs_size = within(&probe.envs) + static_cast<std::int32_t>(offsetof(EnvStack, m_size));
+        // A span and a vector are the library's: their words read off
+        // instances, and a template that needs one is left out when they
+        // are not (pointer, size) and (begin, end, …) as expected.
+        {
+            Value values[3];
+            std::span<Value const> const span(values, 3);
+            std::uintptr_t words[2] = {};
+            if constexpr (sizeof span == sizeof words)
+                std::memcpy(words, &span, sizeof words);
+            if (words[0] == reinterpret_cast<std::uintptr_t>(&values[0]) && words[1] == 3) {
+                layout.arguments = true;
+                layout.frame_incoming_data = within(&probe.incoming);
+                layout.frame_incoming_size = within(&probe.incoming) + 8;
+            }
+        }
+        {
+            std::vector<Environment::Binding> const bindings(3);
+            std::uintptr_t words[2] = {};
+            if constexpr (sizeof bindings >= sizeof words)
+                std::memcpy(words, &bindings, sizeof words);
+            layout.scopes = words[0] == reinterpret_cast<std::uintptr_t>(bindings.data())
+                && words[1] == reinterpret_cast<std::uintptr_t>(bindings.data() + 3);
+        }
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Winvalid-offsetof"
+#endif
+        layout.cell_kind = static_cast<std::int32_t>(offsetof(Cell, m_kind));
+        layout.object_shape = static_cast<std::int32_t>(offsetof(Object, m_shape));
+        layout.object_slots = static_cast<std::int32_t>(offsetof(Object, m_slots));
+        layout.object_class = static_cast<std::int32_t>(offsetof(Object, m_class));
+        layout.shape_flags = static_cast<std::int32_t>(offsetof(Shape, m_flags));
+        auto const elements = static_cast<std::int32_t>(offsetof(ArrayObject, m_elements));
+        auto const bindings = static_cast<std::int32_t>(offsetof(Environment, m_bindings));
+        layout.env_outer = static_cast<std::int32_t>(offsetof(Environment, m_outer));
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
+        layout.kind_object = static_cast<std::uint8_t>(CellKind::Object);
+        layout.class_array = static_cast<std::uint8_t>(Object::Class::Array);
+        layout.shape_dictionary = Shape::Dictionary;
+        layout.arrays = true;
+        layout.array_data = elements + static_cast<std::int32_t>(offsetof(ElementBlock, m_data));
+        layout.array_size = elements + static_cast<std::int32_t>(offsetof(ElementBlock, m_length));
+        layout.env_bindings_begin = bindings;
+        layout.env_bindings_end = bindings + 8;
+        layout.binding_size = static_cast<std::int32_t>(sizeof(Environment::Binding));
+        layout.binding_value = static_cast<std::int32_t>(offsetof(Environment::Binding, value));
+        layout.binding_mutable = static_cast<std::int32_t>(offsetof(Environment::Binding, mutable_));
+        layout.binding_initialized = static_cast<std::int32_t>(offsetof(Environment::Binding, initialized));
+        return layout;
+    }
+};
+
+jit::Layout const& Interpreter::Impl::machine_layout()
+{
+    if (!measured_layout) {
+        jit::Layout layout = MachineLayout::measure();
+        layout.interpreter_ic_hits = static_cast<std::int32_t>(reinterpret_cast<std::byte const*>(&ic_hits) - reinterpret_cast<std::byte const*>(this));
+        layout.budget = &self.m_budget;
+        measured_layout = layout;
+    }
+    return *measured_layout;
+}
+
 jit::Code const* Interpreter::Impl::machine_code(CodeBlock const& code)
 {
-    if (!jit::available || jit::mode() != jit::Mode::Eager)
-        return nullptr;
-    if (code.jit || code.jit_refused)
+    if (code.jit)
         return code.jit.get();
+    if (!jit::available || code.jit_refused)
+        return nullptr;
+    switch (jit::mode()) {
+    case jit::Mode::Off:
+        return nullptr;
+    case jit::Mode::Tiered:
+        if (++code.hotness < jit::threshold())
+            return nullptr;
+        break;
+    case jit::Mode::Eager:
+        break;
+    }
     auto const started = std::chrono::steady_clock::now();
-    code.jit = jit::compile(code, &machine_step);
+    code.jit = jit::compile(code, feedback_for(code), machine_layout(), &machine_step);
     code.jit_refused = code.jit == nullptr;
     if (code.jit)
-        self.note_machine_code(code.jit->memory.size(), started);
+        self.note_machine_code(code.jit->memory.size(), code.jit->inline_instructions, code.jit->instructions, started);
+    // SASHFOLD_JIT_DUMP=<dir>: each block's machine code and bytecode
+    // written there as it is made, for `objdump -D -b binary -m i386:x86-64`.
+    static char const* const dump = std::getenv("SASHFOLD_JIT_DUMP");
+    if (dump != nullptr && code.jit) {
+        static std::uint32_t dumped = 0;
+        std::string const stem = std::string(dump) + "/block-" + std::to_string(dumped++);
+        if (std::FILE* out = std::fopen((stem + ".bin").c_str(), "wb")) {
+            std::fwrite(code.jit->memory.code(), 1, code.jit->memory.size(), out);
+            std::fclose(out);
+        }
+        if (std::FILE* out = std::fopen((stem + ".txt").c_str(), "w")) {
+            std::string const listing = disassemble(code);
+            std::fprintf(out, "entry %p\n%s", static_cast<void const*>(code.jit->memory.code()), listing.c_str());
+            std::fclose(out);
+        }
+    }
     return code.jit.get();
 }
 
@@ -2827,7 +2954,7 @@ RunStatus Interpreter::Impl::run_frame(Frame& frame, Frame*& next, std::uint64_t
 {
     if (jit::Code const* compiled = machine_code(*frame.code)) {
         Frame* switched = nullptr;
-        std::uint32_t const status = compiled->entry(this, &frame, &switched, &frame.pc);
+        std::uint32_t const status = compiled->entry(this, &frame, &switched);
         if (status >= static_cast<std::uint32_t>(RunStatus::Stepped)) {
             self.throw_type_error("internal: machine code left by an instruction it does not have");
             return RunStatus::Threw;

@@ -280,4 +280,225 @@ void AssemblerX64::align(std::size_t alignment)
         byte(0xCC);
 }
 
+void AssemblerX64::alu(std::uint8_t opcode, bool wide, Reg destination, Reg source)
+{
+    rex(wide, number(source), 0, number(destination));
+    byte(opcode);
+    modrm_reg(number(source), number(destination));
+}
+
+void AssemblerX64::rex_byte(std::uint8_t reg, std::uint8_t base)
+{
+    auto const value = static_cast<std::uint8_t>(0x40 | (((reg >> 3) & 1) << 2) | ((base >> 3) & 1));
+    if (value != 0x40 || (reg & 7) >= 4 || (base & 7) >= 4)
+        byte(value);
+}
+
+void AssemblerX64::mov(Mem destination, std::int32_t value)
+{
+    rex_mem(true, 0, destination);
+    byte(0xC7);
+    modrm_mem(0, destination);
+    u32(static_cast<std::uint32_t>(value));
+}
+
+void AssemblerX64::mov32(Reg destination, std::uint32_t value)
+{
+    rex(false, 0, 0, number(destination));
+    byte(static_cast<std::uint8_t>(0xB8 + (number(destination) & 7)));
+    u32(value);
+}
+
+void AssemblerX64::mov32(Reg destination, Reg source)
+{
+    alu(0x89, false, destination, source);
+}
+
+void AssemblerX64::mov32(Mem destination, Reg source)
+{
+    rex_mem(false, number(source), destination);
+    byte(0x89);
+    modrm_mem(number(source), destination);
+}
+
+void AssemblerX64::movzx8(Reg destination, Reg source)
+{
+    rex_byte(number(destination), number(source));
+    byte(0x0F);
+    byte(0xB6);
+    modrm_reg(number(destination), number(source));
+}
+
+void AssemblerX64::add(Mem destination, std::int32_t value)
+{
+    group1(0, true, destination, value);
+}
+
+void AssemblerX64::cmp(Reg reg, std::int32_t value)
+{
+    group1(7, true, reg, value);
+}
+
+void AssemblerX64::and_(Reg reg, std::int32_t value)
+{
+    group1(4, true, reg, value);
+}
+
+void AssemblerX64::or_(Reg reg, std::int32_t value)
+{
+    group1(1, true, reg, value);
+}
+
+void AssemblerX64::add32(Reg reg, std::int32_t value)
+{
+    group1(0, false, reg, value);
+}
+
+void AssemblerX64::sub32(Reg reg, std::int32_t value)
+{
+    group1(5, false, reg, value);
+}
+
+void AssemblerX64::sub32(Mem memory, std::int32_t value)
+{
+    group1(5, false, memory, value);
+}
+
+void AssemblerX64::add(Reg destination, Reg source)
+{
+    alu(0x01, true, destination, source);
+}
+void AssemblerX64::sub(Reg destination, Reg source)
+{
+    alu(0x29, true, destination, source);
+}
+void AssemblerX64::and_(Reg destination, Reg source)
+{
+    alu(0x21, true, destination, source);
+}
+void AssemblerX64::or_(Reg destination, Reg source)
+{
+    alu(0x09, true, destination, source);
+}
+void AssemblerX64::xor_(Reg destination, Reg source)
+{
+    alu(0x31, true, destination, source);
+}
+void AssemblerX64::cmp(Reg left, Reg right)
+{
+    alu(0x39, true, left, right);
+}
+void AssemblerX64::test(Reg left, Reg right)
+{
+    alu(0x85, true, left, right);
+}
+void AssemblerX64::add32(Reg destination, Reg source)
+{
+    alu(0x01, false, destination, source);
+}
+void AssemblerX64::sub32(Reg destination, Reg source)
+{
+    alu(0x29, false, destination, source);
+}
+void AssemblerX64::and32(Reg destination, Reg source)
+{
+    alu(0x21, false, destination, source);
+}
+void AssemblerX64::or32(Reg destination, Reg source)
+{
+    alu(0x09, false, destination, source);
+}
+void AssemblerX64::xor32(Reg destination, Reg source)
+{
+    alu(0x31, false, destination, source);
+}
+void AssemblerX64::cmp32(Reg left, Reg right)
+{
+    alu(0x39, false, left, right);
+}
+void AssemblerX64::test32(Reg left, Reg right)
+{
+    alu(0x85, false, left, right);
+}
+
+void AssemblerX64::cmp(Reg left, Mem right)
+{
+    rex_mem(true, number(left), right);
+    byte(0x3B);
+    modrm_mem(number(left), right);
+}
+
+void AssemblerX64::imul32(Reg destination, Reg source)
+{
+    rex(false, number(destination), 0, number(source));
+    byte(0x0F);
+    byte(0xAF);
+    modrm_reg(number(destination), number(source));
+}
+
+void AssemblerX64::shl32_cl(Reg reg)
+{
+    rex(false, 0, 0, number(reg));
+    byte(0xD3);
+    modrm_reg(4, number(reg));
+}
+
+void AssemblerX64::sar32_cl(Reg reg)
+{
+    rex(false, 0, 0, number(reg));
+    byte(0xD3);
+    modrm_reg(7, number(reg));
+}
+
+void AssemblerX64::cdq()
+{
+    byte(0x99);
+}
+
+void AssemblerX64::idiv32(Reg reg)
+{
+    rex(false, 0, 0, number(reg));
+    byte(0xF7);
+    modrm_reg(7, number(reg));
+}
+
+void AssemblerX64::cmp8(Mem memory, std::uint8_t value)
+{
+    rex_mem(false, 0, memory);
+    byte(0x80);
+    modrm_mem(7, memory);
+    byte(value);
+}
+
+void AssemblerX64::test8(Mem memory, std::uint8_t value)
+{
+    rex_mem(false, 0, memory);
+    byte(0xF6);
+    modrm_mem(0, memory);
+    byte(value);
+}
+
+void AssemblerX64::or8(Mem memory, std::uint8_t value)
+{
+    rex_mem(false, 0, memory);
+    byte(0x80);
+    modrm_mem(1, memory);
+    byte(value);
+}
+
+void AssemblerX64::set(Cond condition, Reg reg)
+{
+    rex_byte(0, number(reg));
+    byte(0x0F);
+    byte(static_cast<std::uint8_t>(0x90 + static_cast<std::uint8_t>(condition)));
+    modrm_reg(0, number(reg));
+}
+
+void AssemblerX64::call(Label label)
+{
+    byte(0xFF);
+    byte(0x15); // mod 00, /2, rm 101: [rip + disp32]
+    label_use(label);
+}
+
 }

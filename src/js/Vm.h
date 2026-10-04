@@ -94,6 +94,7 @@ public:
     std::size_t extent() const { return size() > m_capacity ? size() : m_capacity; }
 
 private:
+    friend struct MachineLayout; // the offsets the machine code reads (Vm.cpp)
     [[noreturn]] static void overflow();
     Value* m_base = nullptr;
     Value* m_top = nullptr;
@@ -115,6 +116,7 @@ public:
     Value const& operator[](std::size_t i) const { return m_base[i]; }
 
 private:
+    friend struct MachineLayout; // the offsets the machine code reads (Vm.cpp)
     Value* m_base = nullptr;
     std::uint32_t m_count = 0;
 };
@@ -148,6 +150,7 @@ public:
     void clear() { m_size = 0; }
 
 private:
+    friend struct MachineLayout; // the offsets the machine code reads (Vm.cpp)
     Environment** m_base = nullptr;
     std::uint32_t m_size = 0;
     Environment* const* m_limit = nullptr;

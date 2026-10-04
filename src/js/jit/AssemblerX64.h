@@ -86,11 +86,51 @@ public:
     void mov32(Mem destination, std::uint32_t value); // 32-bit store of an immediate
     void lea(Reg destination, Mem source);
     void lea(Reg destination, Label); // rip-relative
+    void mov(Mem destination, std::int32_t value); // 64-bit store, the immediate sign-extended
+    void mov32(Reg destination, std::uint32_t value); // zero-extended
+    void mov32(Reg destination, Reg source); // zero-extended
+    void mov32(Mem destination, Reg source);
+    void movzx8(Reg destination, Reg source); // the source's low byte, zero-extended
     void add(Reg destination, std::int32_t value); // 64-bit
     void sub(Reg destination, std::int32_t value); // 64-bit
+    void add(Mem destination, std::int32_t value); // 64-bit
+    void cmp(Reg, std::int32_t value); // 64-bit, the immediate sign-extended
+    void and_(Reg, std::int32_t value); // 64-bit, the immediate sign-extended
+    void or_(Reg, std::int32_t value); // 64-bit, the immediate sign-extended
     void cmp32(Reg, std::int32_t value);
     void cmp32(Mem, std::int32_t value);
+    void add32(Reg, std::int32_t value);
+    void sub32(Reg, std::int32_t value);
+    void sub32(Mem, std::int32_t value);
+    // Register to register, 64-bit and 32-bit (a 32-bit result clears the
+    // upper half). The first operand is the destination.
+    void add(Reg, Reg);
+    void sub(Reg, Reg);
+    void and_(Reg, Reg);
+    void or_(Reg, Reg);
+    void xor_(Reg, Reg);
+    void cmp(Reg, Reg);
+    void test(Reg, Reg);
+    void cmp(Reg, Mem);
+    void add32(Reg, Reg);
+    void sub32(Reg, Reg);
+    void and32(Reg, Reg);
+    void or32(Reg, Reg);
+    void xor32(Reg, Reg);
+    void cmp32(Reg, Reg);
+    void test32(Reg, Reg);
+    void imul32(Reg destination, Reg source);
+    void shl32_cl(Reg); // by cl
+    void sar32_cl(Reg); // by cl
+    void cdq(); // edx from eax's sign
+    void idiv32(Reg); // edx:eax by the register: eax the quotient, edx the remainder
+    // A byte of memory against an immediate.
+    void cmp8(Mem, std::uint8_t value);
+    void test8(Mem, std::uint8_t value);
+    void or8(Mem, std::uint8_t value);
+    void set(Cond, Reg); // the register's low byte, 1 when the condition holds
     void call(Reg);
+    void call(Label); // through a 64-bit address at the label, rip-relative
     void jmp(Label);
     void jmp(Mem); // through a 64-bit address in memory
     void j(Cond, Label);
@@ -115,6 +155,12 @@ private:
     // An instruction of the 81/83 group (/digit) on a register or memory.
     void group1(std::uint8_t digit, bool wide, Reg, std::int32_t value);
     void group1(std::uint8_t digit, bool wide, Mem const&, std::int32_t value);
+    // A register-to-register instruction `opcode /r` with the destination
+    // in r/m: add 01, or 09, and 21, sub 29, xor 31, cmp 39, test 85, mov 89.
+    void alu(std::uint8_t opcode, bool wide, Reg destination, Reg source);
+    // An instruction on a byte register: spl, bpl, sil and dil need a REX
+    // prefix, even an empty one, or they would read as ah, ch, dh and bh.
+    void rex_byte(std::uint8_t reg, std::uint8_t base);
     // A 32-bit displacement to a label, measured from the end of the
     // instruction, whose last `trailing` bytes follow the displacement.
     void label_use(Label, std::uint32_t trailing = 0);

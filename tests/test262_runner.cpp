@@ -19,6 +19,7 @@
 #include "js/Module.h"
 #include "js/Object.h"
 #include "js/Strings.h"
+#include "js/jit/Baseline.h"
 
 #include <algorithm>
 #include <atomic>
@@ -334,11 +335,30 @@ void install_module_hooks(js::Interpreter& interpreter)
         });
 }
 
+// What the baseline compiler did (js-JIT-DESIGN.md §8, "the path is
+// reached"): each test's account added in as its interpreter ends, said at
+// the end of the run; a run in eager mode that compiled nothing fails.
+std::atomic<std::size_t> machine_blocks { 0 };
+std::atomic<std::size_t> machine_instructions { 0 };
+std::atomic<std::size_t> machine_inline_instructions { 0 };
+
+struct MachineTally {
+    js::Interpreter const& interpreter;
+    ~MachineTally()
+    {
+        js::Interpreter::Account const& account = interpreter.account();
+        machine_blocks += account.blocks_compiled_to_machine;
+        machine_instructions += account.machine_instructions;
+        machine_inline_instructions += account.machine_inline_instructions;
+    }
+};
+
 // One test in one mode: a fresh realm, the harness, the test.
 RunResult run_one(std::filesystem::path const& root, std::filesystem::path const& path, std::string const& source,
     Metadata const& meta, Mode mode, int timeout_ms)
 {
     js::Interpreter interpreter;
+    MachineTally const tally { interpreter };
     auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     interpreter.set_interrupt([deadline] { return std::chrono::steady_clock::now() > deadline; });
     auto const printed = install_host(interpreter);
@@ -387,6 +407,7 @@ RunResult run_module(std::filesystem::path const& root, std::filesystem::path co
     Metadata const& meta, int timeout_ms)
 {
     js::Interpreter interpreter;
+    MachineTally const tally { interpreter };
     auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
     interpreter.set_interrupt([deadline] { return std::chrono::steady_clock::now() > deadline; });
     auto const printed = install_host(interpreter);
@@ -820,6 +841,12 @@ int main(int argc, char** argv)
     if (!only.empty()) {
         std::cout << "(partial run: the baseline is not enforced)\n";
         return 0;
+    }
+    std::cout << "machine code (SASHFOLD_JIT): " << machine_blocks.load() << " blocks, " << machine_inline_instructions.load() << " of "
+              << machine_instructions.load() << " instructions with a template\n";
+    if (js::jit::available && js::jit::mode() == js::jit::Mode::Eager && machine_blocks.load() == 0) {
+        std::cerr << "SASHFOLD_JIT=eager and no block was given machine code: the path this run checks was never reached\n";
+        return 1;
     }
     if (!regressions.empty()) {
         std::cerr << "REGRESSION: " << regressions.size() << " test(s) in the baseline no longer pass:\n";

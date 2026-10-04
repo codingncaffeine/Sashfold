@@ -290,7 +290,13 @@ struct Interpreter::Impl {
     // its first run and kept with the block; every one of them, for the
     // collector's weak pass; the megamorphic sites' stub cache, made when a
     // site first goes megamorphic; and what the caches answered.
-    FeedbackVector* feedback_for(CodeBlock const&);
+    FeedbackVector* feedback_for(CodeBlock const& code)
+    {
+        if (code.feedback != nullptr) [[likely]]
+            return code.feedback.get();
+        return make_feedback(code);
+    }
+    FeedbackVector* make_feedback(CodeBlock const&);
     std::vector<FeedbackVector*> feedback_vectors;
     std::unique_ptr<StubCache> stub_cache;
     StubCache& stubs()
@@ -384,10 +390,18 @@ struct Interpreter::Impl {
     // compiled code's way to every opcode it has no template for.
     RunStatus vm_step(Frame& frame, Frame*& next);
     // One frame's run as vm_run_frame does it, in the block's machine code
-    // when it has some (js/jit) — made here at the block's first run when
-    // the tier-up asks — else in the run loop.
+    // when it has some (js/jit) — made here when the tier-up asks: at the
+    // block's first run (eager), or once its calls and back-edges reach the
+    // threshold (tiered) — else in the run loop.
     RunStatus run_frame(Frame& frame, Frame*& next, std::uint64_t* executed);
     jit::Code const* machine_code(CodeBlock const& code);
+    // Where the machine code finds the engine's fields, measured once.
+    jit::Layout const& machine_layout();
+    std::optional<jit::Layout> measured_layout;
+    // The count of a block's calls and back-edges at which T0 hands its
+    // loop to the block's machine code: the threshold when tiered, never
+    // otherwise. Read when the interpreter is made.
+    std::uint32_t tier_up_at = jit::available && jit::mode() == jit::Mode::Tiered ? jit::threshold() : UINT32_MAX;
     template<bool SingleStep>
     RunStatus vm_run_frame_impl(Frame& frame, Frame*& next, std::uint64_t* executed);
     bool vm_unwind(Frame& frame);

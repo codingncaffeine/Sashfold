@@ -363,6 +363,7 @@ protected:
     // An own property gone, whatever its attributes.
     void delete_entry(PropertyKey const&);
 
+    friend struct MachineLayout; // the offsets the machine code reads (Vm.cpp)
     // The header machine code reads: the shape, then the slots (an
     // object's own block, or its inline room) and how many of them are in
     // use and there is room for.
@@ -450,6 +451,7 @@ public:
     }
 
 private:
+    friend struct MachineLayout; // the offsets the machine code reads (Vm.cpp)
     Value* m_data = nullptr;
     std::uint32_t m_length = 0;
     std::uint32_t m_capacity = 0;
@@ -499,6 +501,7 @@ public:
     }
 
 private:
+    friend struct MachineLayout; // the offsets the machine code reads (Vm.cpp)
     ElementBlock m_elements;
     std::uint32_t m_length = 0;
     bool m_length_writable = true;
@@ -1635,6 +1638,7 @@ public:
     }
 
 private:
+    friend struct MachineLayout; // the offsets the machine code reads (Vm.cpp)
     // Past a handful of bindings a scope is found by hash rather than by
     // walking: a bundle's outermost function declares hundreds of names, and
     // every identifier in it would otherwise cost a walk of them all — as

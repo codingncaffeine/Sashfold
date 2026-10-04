@@ -225,6 +225,8 @@ struct CodeBlock {
     // until then, and for good when it could not be made.
     mutable std::unique_ptr<jit::Code> jit;
     mutable bool jit_refused = false;
+    // Its calls and loop back-edges in T0, counted toward the tier-up.
+    mutable std::uint32_t hotness = 0;
 };
 
 // How a run of a frame ended.
