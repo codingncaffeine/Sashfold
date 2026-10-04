@@ -34,6 +34,10 @@ struct CustomElementDefinition {
     js::Value adopted;
     js::Value attribute_changed;
     std::vector<std::string> observed_attributes;
+    // What the class's static disabledFeatures turned off (§4.13.3): a
+    // shadow root of its own making, and attachInternals().
+    bool disable_shadow = false;
+    bool disable_internals = false;
     // The elements being upgraded through this definition, innermost last.
     // A null entry is one whose constructor has already taken it.
     std::vector<dom::Element*> construction_stack;
@@ -44,24 +48,9 @@ namespace {
 // A name a page may define (§4.13.1): a lowercase ASCII start, a dash
 // somewhere after it, no uppercase, and none of the hyphenated names SVG
 // and MathML took first.
-bool is_valid_custom_element_name(std::string_view name)
+bool valid_custom_element_name(std::string_view name)
 {
-    if (name.empty() || name.front() < 'a' || name.front() > 'z')
-        return false;
-    if (name.find('-') == std::string_view::npos)
-        return false;
-    for (char const c : name) {
-        if (c >= 'A' && c <= 'Z')
-            return false;
-        bool const ordinary = (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '-' || c == '.' || c == '_';
-        // The rest of what the production allows is non-ASCII, which is
-        // taken as it comes; the ASCII it forbids is what is checked here.
-        if (!ordinary && static_cast<unsigned char>(c) < 0x80)
-            return false;
-    }
-    static constexpr std::string_view taken[] = { "annotation-xml", "color-profile", "font-face", "font-face-src", "font-face-uri",
-        "font-face-format", "font-face-name", "missing-glyph" };
-    return std::find(std::begin(taken), std::end(taken), name) == std::end(taken);
+    return dom::is_valid_custom_element_name(name);
 }
 
 // The registry's own account on stderr, under SASHFOLD_CE_TRACE=1: what a
@@ -101,10 +90,15 @@ bool matches(dom::Element const& element, CustomElementDefinition const& definit
     return element.is_html() && element.local_name() == definition.name;
 }
 
+// The elements of a subtree with those of the shadow trees in it, in
+// shadow-including tree order: a host, its shadow tree, then its children.
 void collect_elements(dom::Node& node, std::vector<dom::Element*>& out)
 {
-    if (node.is_element())
+    if (node.is_element()) {
         out.push_back(static_cast<dom::Element*>(&node));
+        if (dom::ShadowRoot* const shadow = static_cast<dom::Element&>(node).shadow_root())
+            collect_elements(*shadow, out);
+    }
     for (dom::Node* child : node.children())
         collect_elements(*child, out);
 }
@@ -179,7 +173,7 @@ Native define(js::Interpreter& interp, js::Value const&, Args args)
     js::Value const constructor = js::argument(args, 1);
     if (!constructor.is_object() || !constructor.as_object()->is_constructor())
         return interp.throw_type_error("Failed to execute 'define' on 'CustomElementRegistry': parameter 2 is not a constructor.");
-    if (!is_valid_custom_element_name(*name)) {
+    if (!valid_custom_element_name(*name)) {
         return in.throw_dom_exception("SyntaxError",
             "Failed to execute 'define' on 'CustomElementRegistry': \"" + *name + "\" is not a valid custom element name.");
     }
@@ -242,6 +236,30 @@ Native define(js::Interpreter& interp, js::Value const&, Args args)
                     return std::nullopt;
                 definition->observed_attributes.push_back(*text);
             }
+        }
+    }
+    // disabledFeatures, read once as the callbacks are.
+    std::optional<js::Value> const disabled = interp.get(*constructor.as_object(), interp.key("disabledFeatures"));
+    if (!disabled)
+        return std::nullopt;
+    if (disabled->is_object()) {
+        std::optional<js::Value> const length = interp.get(*disabled->as_object(), interp.key("length"));
+        if (!length)
+            return std::nullopt;
+        std::optional<double> const count = interp.to_number(*length);
+        if (!count)
+            return std::nullopt;
+        for (std::size_t i = 0; i < static_cast<std::size_t>(std::max(0.0, *count)); ++i) {
+            std::optional<js::Value> const entry = interp.get(*disabled->as_object(), js::PropertyKey::index(static_cast<std::uint32_t>(i)));
+            if (!entry)
+                return std::nullopt;
+            std::optional<std::string> const text = in.to_utf8(*entry);
+            if (!text)
+                return std::nullopt;
+            if (*text == "shadow")
+                definition->disable_shadow = true;
+            else if (*text == "internals")
+                definition->disable_internals = true;
         }
     }
     CustomElementDefinition& stored = *definition;
@@ -311,7 +329,7 @@ CustomElementDefinition* custom_element_definition(Realm::Internals& in, std::st
     return nullptr;
 }
 
-void upgrade_custom_element(Realm::Internals& in, dom::Element& element)
+void upgrade_custom_element(Realm::Internals& in, dom::Element& element, bool from_parser)
 {
     CustomElementDefinition* const definition = custom_element_definition(in, element.local_name());
     if (definition == nullptr || !element.is_html())
@@ -324,9 +342,18 @@ void upgrade_custom_element(Realm::Internals& in, dom::Element& element)
     interpreter.root(js::Value::object(&wrapper));
     interpreter.root(definition->constructor);
 
+    std::vector<dom::Attr> written;
+    if (from_parser) {
+        written = std::as_const(element).attributes();
+        element.attributes().clear();
+    }
     definition->construction_stack.push_back(&element);
     std::optional<js::Value> const result = interpreter.construct(definition->constructor, {}, definition->constructor.as_object());
     definition->construction_stack.pop_back();
+    if (from_parser) {
+        std::vector<dom::Attr>& now = element.attributes();
+        now.insert(now.end(), written.begin(), written.end());
+    }
     if (!result) {
         ++in.stats.custom_elements_failed;
         wrapper.custom_failed = true;
@@ -378,6 +405,17 @@ void custom_elements_inserted(Realm::Internals& in, dom::Node& subtree)
         if (custom_element_definition(in, element->local_name()) != nullptr)
             upgrade_custom_element(in, *element);
     }
+}
+
+void custom_element_parsed(Realm::Internals& in, dom::Element& element)
+{
+    if (custom_element_definition(in, element.local_name()) == nullptr)
+        return;
+    // Held while its constructor and callbacks run: one may take it out of
+    // the tree, where nothing else would keep its object.
+    js::Interpreter::Roots const roots(in.interpreter);
+    in.interpreter.root(js::Value::object(in.wrap(element)));
+    upgrade_custom_element(in, element, true);
 }
 
 void custom_elements_removed(Realm::Internals& in, dom::Node& subtree)
@@ -509,7 +547,7 @@ void install_custom_elements(Realm::Internals& in)
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)
             return std::nullopt;
-        if (!is_valid_custom_element_name(*name)) {
+        if (!valid_custom_element_name(*name)) {
             return rejected_promise(interp,
                 dom_exception_value(internals, "SyntaxError", "\"" + *name + "\" is not a valid custom element name."));
         }
@@ -521,6 +559,17 @@ void install_custom_elements(Realm::Internals& in)
 
     js::Object* const registry_object = interpreter.heap().allocate<PlainPlatformObject>(registry, in.realm_record);
     interpreter.global()->put(interpreter.key("customElements"), js::Value::object(registry_object), js::builtin_attributes);
+}
+
+bool is_valid_custom_element_name(std::string_view name)
+{
+    return valid_custom_element_name(name);
+}
+
+bool custom_element_disables_shadow(Realm::Internals& in, dom::Element const& element)
+{
+    CustomElementDefinition const* const definition = custom_element_definition(in, element.local_name());
+    return definition != nullptr && definition->disable_shadow;
 }
 
 }

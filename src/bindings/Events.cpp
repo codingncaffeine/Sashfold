@@ -659,8 +659,9 @@ HandlerMap* Realm::Internals::handlers_of(js::Object* target)
 
 bool Realm::Internals::dispatch(EventObject& event, js::Object* target)
 {
-    // §2.9 "dispatch". The path runs from the target up through its
-    // ancestors to the document and the window; every wrapper on it is
+    // §2.9 "dispatch". The path runs from the target up — a node's parent,
+    // the slot it is assigned to, a shadow root's host when the event is
+    // composed — to the document and the window; every wrapper on it is
     // rooted while listeners run.
     js::Interpreter::Roots const roots(interpreter);
     interpreter.root(js::Value::object(&event));
@@ -670,40 +671,149 @@ bool Realm::Internals::dispatch(EventObject& event, js::Object* target)
     event.target = js::Value::object(target);
     event.stop_propagation = false;
     event.stop_immediate = false;
-    std::vector<js::Object*> path;
-    path.push_back(target);
-    if (NodeWrapper* wrapper = wrapper_of(js::Value::object(target))) {
-        dom::Node* node = &wrapper->node();
-        for (dom::Node* ancestor = node->parent(); ancestor; ancestor = ancestor->parent()) {
-            js::Object* ancestor_wrapper = wrap(*ancestor);
-            interpreter.root(js::Value::object(ancestor_wrapper));
-            path.push_back(ancestor_wrapper);
+
+    auto const node_of = [this](js::Object* object) -> dom::Node* {
+        NodeWrapper* const wrapper = object != nullptr ? wrapper_of(js::Value::object(object)) : nullptr;
+        return wrapper != nullptr ? &wrapper->node() : nullptr;
+    };
+    auto const in_shadow_tree = [](dom::Node const* node) { return node != nullptr && node->root().is_shadow_root(); };
+    auto const holds = [](dom::Node const& ancestor, dom::Node const& node) {
+        for (dom::Node const* at = &node; at != nullptr; at = at->parent_or_host()) {
+            if (at == &ancestor)
+                return true;
         }
-        // The document's parent is the window, except for load (§2.9.1).
-        if (&node->root() == document && event.type != "load")
-            path.push_back(window_proxy());
-    } else if (auto* event_target = dynamic_cast<EventTargetObject*>(target)) {
-        // A target that is no node names its parent itself.
-        for (js::Object* parent = event_target->event_parent(); parent != nullptr && path.size() < 64;) {
-            interpreter.root(js::Value::object(parent));
-            path.push_back(parent);
-            auto* const next = dynamic_cast<EventTargetObject*>(parent);
-            parent = next != nullptr ? next->event_parent() : nullptr;
+        return false;
+    };
+    // §2.5 "retarget" A against B: A as B may see it — out of every shadow
+    // tree B is not itself inside.
+    auto const retarget = [&](js::Value const& a, dom::Node const* b) -> js::Value {
+        dom::Node* node = a.is_object() ? node_of(a.as_object()) : nullptr;
+        if (node == nullptr)
+            return a;
+        dom::Node* const given = node;
+        for (;;) {
+            dom::Node& root = node->root();
+            if (!root.is_shadow_root() || (b != nullptr && holds(root, *b)))
+                break;
+            node = &static_cast<dom::ShadowRoot&>(root).host();
+        }
+        return node == given ? a : interpreter.root(js::Value::object(wrap(*node)));
+    };
+
+    std::vector<EventObject::PathEntry> path;
+    auto const append = [&](js::Object* invocation_target, js::Object* shadow_adjusted_target, js::Value const& related, bool slot_in_closed_tree) {
+        EventObject::PathEntry entry;
+        entry.invocation_target = invocation_target;
+        entry.shadow_adjusted_target = shadow_adjusted_target;
+        entry.related_target = related;
+        dom::Node* const node = node_of(invocation_target);
+        entry.in_shadow_tree = in_shadow_tree(node);
+        entry.root_of_closed_tree
+            = node != nullptr && node->is_shadow_root() && static_cast<dom::ShadowRoot*>(node)->mode == dom::ShadowRoot::Mode::Closed;
+        entry.slot_in_closed_tree = slot_in_closed_tree;
+        path.push_back(entry);
+    };
+
+    js::Value const given_related = event.related_target;
+    dom::Node* const target_node = node_of(target);
+    js::Value related = retarget(given_related, target_node);
+    bool clear_targets = false;
+    // An event whose related target is its target, once retargeted, goes
+    // nowhere: the pointer moved within one shadow tree, as its host sees it.
+    bool const dispatched = !(related.is_object() && related.as_object() == target)
+        || (given_related.is_object() && given_related.as_object() == target);
+    if (dispatched) {
+        append(target, target, related, false);
+        if (target_node != nullptr) {
+            // §2.9 "get the parent": a node's assigned slot or its parent,
+            // a shadow root's host unless the event is not composed and
+            // began in that root's tree, the document's window except for
+            // load. Answered as the node, when it is one, and its object.
+            dom::Node const* const first_root = &target_node->root();
+            auto const parent_of = [&](dom::Node& node) -> std::pair<dom::Node*, js::Object*> {
+                if (dom::Element* const slot = node.assigned_slot())
+                    return { slot, wrap(*slot) };
+                if (node.type() == dom::NodeType::Document)
+                    return { nullptr, &node == document && event.type != "load" ? window_proxy() : nullptr };
+                if (node.is_shadow_root()) {
+                    if (!event.composed && &node == first_root)
+                        return { nullptr, nullptr };
+                    dom::Element& host = static_cast<dom::ShadowRoot&>(node).host();
+                    return { &host, wrap(host) };
+                }
+                dom::Node* const parent = node.parent();
+                return { parent, parent != nullptr ? wrap(*parent) : nullptr };
+            };
+            dom::Node* adjusted = target_node;
+            dom::Node* slottable = target_node->assigned_slot() != nullptr ? target_node : nullptr;
+            bool slot_in_closed_tree = false;
+            std::pair<dom::Node*, js::Object*> parent = parent_of(*target_node);
+            while (parent.second != nullptr) {
+                interpreter.root(js::Value::object(parent.second));
+                if (slottable != nullptr) {
+                    slottable = nullptr;
+                    if (parent.first != nullptr) {
+                        dom::Node const& root = parent.first->root();
+                        slot_in_closed_tree = root.is_shadow_root() && static_cast<dom::ShadowRoot const&>(root).mode == dom::ShadowRoot::Mode::Closed;
+                    }
+                }
+                if (parent.first != nullptr && parent.first->assigned_slot() != nullptr)
+                    slottable = parent.first;
+                related = retarget(given_related, parent.first);
+                if (parent.first == nullptr || holds(adjusted->root(), *parent.first)) {
+                    append(parent.second, nullptr, related, slot_in_closed_tree);
+                } else if (related.is_object() && related.as_object() == parent.second) {
+                    break;
+                } else {
+                    adjusted = parent.first;
+                    append(parent.second, parent.second, related, slot_in_closed_tree);
+                }
+                parent = parent.first != nullptr ? parent_of(*parent.first) : std::pair<dom::Node*, js::Object*> { nullptr, nullptr };
+                slot_in_closed_tree = false;
+            }
+            for (std::size_t i = path.size(); i-- > 0;) {
+                if (path[i].shadow_adjusted_target == nullptr)
+                    continue;
+                clear_targets = in_shadow_tree(node_of(path[i].shadow_adjusted_target))
+                    || (path[i].related_target.is_object() && in_shadow_tree(node_of(path[i].related_target.as_object())));
+                break;
+            }
+        } else if (auto* event_target = dynamic_cast<EventTargetObject*>(target)) {
+            // A target that is no node names its parent itself.
+            for (js::Object* parent = event_target->event_parent(); parent != nullptr && path.size() < 64;) {
+                interpreter.root(js::Value::object(parent));
+                append(parent, nullptr, related, false);
+                auto* const next = dynamic_cast<EventTargetObject*>(parent);
+                parent = next != nullptr ? next->event_parent() : nullptr;
+            }
         }
     }
     event.path = path;
     js::Value const previous_event = current_event;
-    current_event = js::Value::object(&event);
-    for (std::size_t i = path.size(); i-- > 1 && !event.stop_propagation;)
-        invoke(*this, path[i], event, EventObject::Phase::Capturing, true);
-    if (!event.stop_propagation) {
-        invoke(*this, path[0], event, EventObject::Phase::AtTarget, true);
-        if (!event.stop_immediate)
-            invoke(*this, path[0], event, EventObject::Phase::AtTarget, false);
+    // A listener at a place on the path sees the target and the related
+    // target as that place may: the nearest shadow-adjusted target at or
+    // below it. window.event is not told to a listener inside a shadow tree.
+    auto const arrive = [&](std::size_t at) {
+        for (std::size_t i = at + 1; i-- > 0;) {
+            if (path[i].shadow_adjusted_target != nullptr) {
+                event.target = js::Value::object(path[i].shadow_adjusted_target);
+                break;
+            }
+        }
+        event.related_target = path[at].related_target;
+        current_event = path[at].in_shadow_tree ? js::Value::undefined() : js::Value::object(&event);
+    };
+    for (std::size_t i = path.size(); i-- > 0 && !event.stop_propagation;) {
+        arrive(i);
+        invoke(*this, path[i].invocation_target, event,
+            path[i].shadow_adjusted_target != nullptr ? EventObject::Phase::AtTarget : EventObject::Phase::Capturing, true);
     }
-    if (event.bubbles) {
-        for (std::size_t i = 1; i < path.size() && !event.stop_propagation; ++i)
-            invoke(*this, path[i], event, EventObject::Phase::Bubbling, false);
+    for (std::size_t i = 0; i < path.size() && !event.stop_propagation; ++i) {
+        bool const at_target = path[i].shadow_adjusted_target != nullptr;
+        if (!at_target && !event.bubbles)
+            continue;
+        arrive(i);
+        invoke(*this, path[i].invocation_target, event, at_target ? EventObject::Phase::AtTarget : EventObject::Phase::Bubbling, false);
     }
     current_event = previous_event;
     event.phase = EventObject::Phase::None;
@@ -712,6 +822,13 @@ bool Realm::Internals::dispatch(EventObject& event, js::Object* target)
     event.dispatching = false;
     event.stop_propagation = false;
     event.stop_immediate = false;
+    // What began inside a shadow tree is not left on the event for whoever
+    // holds it afterwards (§2.9 step 9, "clear targets").
+    event.related_target = given_related;
+    if (clear_targets) {
+        event.target = js::Value::null();
+        event.related_target = js::Value::null();
+    }
     return !event.default_prevented;
 }
 
@@ -944,16 +1061,58 @@ void install_events(Realm::Internals& in)
         std::optional<EventObject*> const e = this_event(interp, this_value);
         if (!e)
             return std::nullopt;
-        // The event's whole path, the same for every listener on it (DOM
-        // §2.9 composedPath(); with no shadow trees nothing on it is
-        // hidden): a listener on an ancestor learns from its first entry
-        // where the event began.
+        // The event's path as the current target may see it (DOM §2.9
+        // composedPath()): everything on it but what lies inside a closed
+        // shadow tree the current target is not itself in. A listener on
+        // an ancestor learns from its first entry where the event began.
         js::Interpreter::Roots const roots(interp);
-        js::ArrayObject* path = interp.new_array();
-        interp.root(js::Value::object(path));
-        for (js::Object* const on_path : (*e)->path)
-            path->push(js::Value::object(on_path));
-        return js::Value::object(path);
+        js::ArrayObject* composed = interp.new_array();
+        interp.root(js::Value::object(composed));
+        std::vector<EventObject::PathEntry> const& path = (*e)->path;
+        if (path.empty() || !(*e)->current_target.is_object())
+            return js::Value::object(composed);
+        js::Object* const current = (*e)->current_target.as_object();
+        std::size_t current_index = 0;
+        int current_level = 0;
+        for (std::size_t i = path.size(); i-- > 0;) {
+            if (path[i].root_of_closed_tree)
+                ++current_level;
+            if (path[i].invocation_target == current) {
+                current_index = i;
+                break;
+            }
+            if (path[i].slot_in_closed_tree)
+                --current_level;
+        }
+        std::vector<js::Object*> before; // nearest to the current target first
+        int level = current_level;
+        int max_level = current_level;
+        for (std::size_t i = current_index; i-- > 0;) {
+            if (path[i].root_of_closed_tree)
+                ++level;
+            if (level <= max_level)
+                before.push_back(path[i].invocation_target);
+            if (path[i].slot_in_closed_tree) {
+                --level;
+                max_level = std::min(max_level, level);
+            }
+        }
+        for (std::size_t i = before.size(); i-- > 0;)
+            composed->push(js::Value::object(before[i]));
+        composed->push(js::Value::object(current));
+        level = current_level;
+        max_level = current_level;
+        for (std::size_t i = current_index + 1; i < path.size(); ++i) {
+            if (path[i].slot_in_closed_tree)
+                ++level;
+            if (level <= max_level)
+                composed->push(js::Value::object(path[i].invocation_target));
+            if (path[i].root_of_closed_tree) {
+                --level;
+                max_level = std::min(max_level, level);
+            }
+        }
+        return js::Value::object(composed);
     });
     define_operation(interpreter, *event, "initEvent", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         std::optional<EventObject*> const e = this_event(interp, this_value);

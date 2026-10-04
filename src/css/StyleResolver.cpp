@@ -153,6 +153,7 @@ std::string unparsed_selector_part(std::vector<ComponentValue> const& prelude)
 constexpr std::string_view ua_stylesheet = R"CSS(
 html { display: block }
 head, style, script, title, meta, link, base, template, noscript { display: none }
+slot { display: contents }
 body { display: block; margin: 8px }
 address, article, aside, blockquote, center, dd, details, dialog, div, dl, dt,
 fieldset, figcaption, figure, footer, form, header, hgroup, hr, legend, listing,
@@ -313,6 +314,12 @@ struct MatchedDeclaration {
     Declaration const* declaration = nullptr;
     net::Url const* base = nullptr; // for the URLs in the declaration
     int rank = 0;
+    // css-cascade-5 §6.1, "context": which tree's sheet the declaration is
+    // from, as the element sees it — 0 its own tree's (and its style
+    // attribute), above 0 a tree outside it (::part()), below 0 a shadow
+    // tree inside it (::slotted(), then :host). For normal declarations
+    // the outer tree wins, for important ones the inner.
+    int context = 0;
     int layer = 0;
     Specificity specificity;
     int order = 0;
@@ -385,8 +392,34 @@ private:
     std::array<std::uint8_t, 1u << 14> m_counts {};
 };
 
+// Origin and importance, the cascade's first criterion: the built-in
+// sheet's normal declarations, the author's, the author's important ones,
+// the built-in sheet's important ones. A style attribute is the author's.
+int origin_class(int rank)
+{
+    switch (static_cast<CascadeRank>(rank)) {
+    case CascadeRank::UserAgentNormal:
+        return 0;
+    case CascadeRank::AuthorNormal:
+    case CascadeRank::StyleAttributeNormal:
+        return 1;
+    case CascadeRank::AuthorImportant:
+    case CascadeRank::StyleAttributeImportant:
+        return 2;
+    case CascadeRank::UserAgentImportant:
+        return 3;
+    }
+    return 0;
+}
+
 bool cascades_before(MatchedDeclaration const& a, MatchedDeclaration const& b)
 {
+    // Origin and importance, then the tree context, then the rest
+    // (css-cascade-5 §6.1).
+    if (int const origin_a = origin_class(a.rank), origin_b = origin_class(b.rank); origin_a != origin_b)
+        return origin_a < origin_b;
+    if (a.context != b.context)
+        return important_rank(a.rank) ? a.context > b.context : a.context < b.context;
     if (a.rank != b.rank)
         return a.rank < b.rank;
     if (a.layer != b.layer)
@@ -2303,6 +2336,47 @@ struct RuleSet {
     std::unordered_map<std::string, std::vector<Candidate>> by_class;
     std::unordered_map<std::string, std::vector<Candidate>> by_type;
     std::vector<Candidate> universal;
+    // The selectors that reach across a shadow boundary (css-scoping-1 §3,
+    // css-shadow-parts-1), filed apart from the index: those whose subject
+    // is the host of the tree the sheet is in, those that style what a
+    // slot was assigned, and those that style a part of a shadow tree from
+    // outside it. Each is asked of the elements it can be about and of no
+    // others.
+    std::vector<Candidate> host_rules;
+    std::vector<Candidate> slotted_rules;
+    std::vector<Candidate> part_rules;
+
+    std::vector<Candidate>* crossing_list(ComplexSelector const& selector)
+    {
+        if (selector.pseudo_element == ComplexSelector::PseudoElement::Slotted)
+            return &slotted_rules;
+        if (selector.pseudo_element == ComplexSelector::PseudoElement::Part)
+            return &part_rules;
+        if (!selector.compounds.empty()) {
+            for (SimpleSelector const& simple : selector.compounds.back().simples) {
+                if (simple.pseudo == SimpleSelector::PseudoKind::Host || simple.pseudo == SimpleSelector::PseudoKind::HostContext)
+                    return &host_rules;
+            }
+        }
+        return nullptr;
+    }
+
+    // The shadow trees' own rules (css-scoping-1 §3.1): a tree's sheets —
+    // its style elements and the sheets its root adopted — apply inside it
+    // and nowhere else, so each tree has a rule set of its own, compiled
+    // when a resolution first meets the tree and kept by what the sheets
+    // say: every instance of one component shares one set. `pass` moves
+    // with each resolution, and a tree's sheets are read again once in each.
+    // These are the one part of a set that grows after it is made.
+    struct ShadowScope {
+        std::uint64_t checked = 0;
+        RuleSet const* rules = nullptr; // nothing for a tree with no sheets
+    };
+    mutable std::unordered_map<dom::Node const*, ShadowScope> shadow_scopes;
+    mutable std::unordered_map<std::uint64_t, std::unique_ptr<RuleSet>> scope_sets;
+    mutable std::uint64_t pass = 0;
+    RuleSet const* scope_rules(dom::ShadowRoot const& root) const;
+    void take_invalidation_of(RuleSet const& scope);
 
     static std::string lowercased(std::string_view text)
     {
@@ -2318,6 +2392,12 @@ struct RuleSet {
         for (std::uint32_t r = 0; r < rules.size(); ++r) {
             std::vector<ComplexSelector> const& selectors = rules[r].selectors->selectors;
             for (std::uint32_t s = 0; s < selectors.size(); ++s) {
+                if (std::vector<Candidate>* const apart = crossing_list(selectors[s])) {
+                    apart->push_back(Candidate { r, s, ancestor_hashes_of(selectors[s]) });
+                    note_uses(selectors[s]);
+                    note_reach_of(selectors[s]);
+                    continue;
+                }
                 std::string const* id = nullptr;
                 std::string const* class_name = nullptr;
                 std::string const* type = nullptr;
@@ -2475,7 +2555,25 @@ struct RuleSet {
     {
         if (selector.compounds.empty())
             return;
-        std::string const subject = subject_key(selector.compounds.back());
+        // A ::slotted() or ::part() rule's last compound is the slot or the
+        // host, not what the rule styles: what it styles is anything below.
+        bool const styles_across = selector.pseudo_element == ComplexSelector::PseudoElement::Slotted
+            || selector.pseudo_element == ComplexSelector::PseudoElement::Part;
+        std::string const subject = styles_across ? std::string() : subject_key(selector.compounds.back());
+        if (styles_across)
+            note_reach(selector.compounds.back(), subject, false);
+        // What :host-context() names is tested on the host or anything
+        // above it: a change to one of those reaches everything inside.
+        for (CompoundSelector const& compound : selector.compounds) {
+            for (SimpleSelector const& simple : compound.simples) {
+                if (simple.pseudo != SimpleSelector::PseudoKind::HostContext || !simple.argument)
+                    continue;
+                for (ComplexSelector const& inner : simple.argument->selectors) {
+                    for (CompoundSelector const& named : inner.compounds)
+                        note_reach(named, {}, false);
+                }
+            }
+        }
         for (std::size_t i = 0; i + 1 < selector.compounds.size(); ++i) {
             bool sibling = false;
             for (std::size_t j = i; j < selector.combinators.size(); ++j)
@@ -2662,6 +2760,8 @@ struct RuleSet {
                 case SimpleSelector::PseudoKind::Not:
                 case SimpleSelector::PseudoKind::Is:
                 case SimpleSelector::PseudoKind::Where:
+                case SimpleSelector::PseudoKind::Host:
+                case SimpleSelector::PseudoKind::HostContext:
                 case SimpleSelector::PseudoKind::NeverMatches:
                     break;
                 }
@@ -2921,6 +3021,114 @@ struct RuleSet {
     }
 };
 
+// The texts of a shadow tree's sheets in cascade order: its style elements
+// as they come, then the sheets its root adopted. A sheet the object model
+// disabled is out, and one it changed is what it made. (A stylesheet link
+// inside a shadow tree is not read here: nothing is fetched while styles
+// are resolved.)
+std::vector<std::string> shadow_sheet_texts(dom::ShadowRoot const& root, MediaContext const& media)
+{
+    std::vector<std::string> sheets;
+    std::vector<dom::Node const*> pending(root.children().rbegin(), root.children().rend());
+    while (!pending.empty()) {
+        dom::Node const* const node = pending.back();
+        pending.pop_back();
+        if (node->is_element()) {
+            auto const& element = static_cast<dom::Element const&>(*node);
+            if (element.is_html("style") || element.is_svg("style")) {
+                dom::Attr const* const queries = element.find_attribute("media");
+                if (queries != nullptr && !media_query_matches(queries->value, media))
+                    continue;
+                std::string text;
+                for (dom::Node const* child : element.children()) {
+                    if (child->is_text())
+                        text += static_cast<dom::Text const*>(child)->data;
+                }
+                if (std::shared_ptr<dom::ScriptedSheet> const scripted = element.document().scripted_sheet(element)) {
+                    if (scripted->disabled)
+                        continue;
+                    if (scripted->changed && scripted->source == text) {
+                        sheets.push_back(scripted->text());
+                        continue;
+                    }
+                }
+                sheets.push_back(std::move(text));
+                continue;
+            }
+        }
+        for (auto child = node->children().rbegin(); child != node->children().rend(); ++child)
+            pending.push_back(*child);
+    }
+    if (std::vector<std::shared_ptr<dom::ScriptedSheet>> const* const adopted = root.document().adopted(root)) {
+        for (std::shared_ptr<dom::ScriptedSheet> const& sheet : *adopted) {
+            if (!sheet->disabled)
+                sheets.push_back(sheet->text());
+        }
+    }
+    return sheets;
+}
+
+// What a tree's selectors read is what the invalidation of the whole
+// document has to know: a class a :host() tests, a sibling one counts.
+void RuleSet::take_invalidation_of(RuleSet const& scope)
+{
+    uses.sibling_combinators = uses.sibling_combinators || scope.uses.sibling_combinators;
+    uses.positional = uses.positional || scope.uses.positional;
+    uses.nth_of = uses.nth_of || scope.uses.nth_of;
+    uses.empty = uses.empty || scope.uses.empty;
+    uses.has = uses.has || scope.uses.has;
+    uses.has_beyond_ancestors = uses.has_beyond_ancestors || scope.uses.has_beyond_ancestors;
+    uses.first_letter = uses.first_letter || scope.uses.first_letter;
+    uses.control_values = uses.control_values || scope.uses.control_values;
+    for (auto const& [key, entry] : scope.reach) {
+        Reach& own = reach[key];
+        own.any = own.any || entry.any;
+        own.subjects.insert(entry.subjects.begin(), entry.subjects.end());
+    }
+    reach_siblings.insert(scope.reach_siblings.begin(), scope.reach_siblings.end());
+    for (CompoundSelector const* anchor : scope.has_anchors) {
+        if (has_anchors.size() < max_has_anchors && std::find(has_anchors.begin(), has_anchors.end(), anchor) == has_anchors.end())
+            has_anchors.push_back(anchor);
+    }
+    media_conditions.insert(media_conditions.end(), scope.media_conditions.begin(), scope.media_conditions.end());
+}
+
+RuleSet const* RuleSet::scope_rules(dom::ShadowRoot const& root) const
+{
+    ShadowScope& scope = shadow_scopes[&root];
+    if (scope.checked == pass && pass != 0)
+        return scope.rules;
+    scope.checked = pass;
+    scope.rules = nullptr;
+    std::vector<std::string> const sheets = shadow_sheet_texts(root, media);
+    if (sheets.empty())
+        return nullptr;
+    std::uint64_t key = 1469598103934665603ull;
+    for (std::string const& sheet : sheets) {
+        for (char const c : sheet) {
+            key ^= static_cast<unsigned char>(c);
+            key *= 1099511628211ull;
+        }
+        key ^= 0xFFu; // between two sheets
+        key *= 1099511628211ull;
+    }
+    std::unique_ptr<RuleSet>& kept = scope_sets[key];
+    if (!kept) {
+        kept = std::make_unique<RuleSet>();
+        kept->media = media;
+        kept->document_url = document_url;
+        std::shared_ptr<net::Url const> const base = document_url ? std::make_shared<net::Url const>(*document_url) : nullptr;
+        int order = 0;
+        for (std::string const& sheet : sheets)
+            kept->compile_sheet(sheet, false, order, base);
+        kept->finish_layers();
+        kept->build_index();
+        const_cast<RuleSet*>(this)->take_invalidation_of(*kept);
+    }
+    scope.rules = kept.get();
+    return scope.rules;
+}
+
 // Whether two computed values are the same, for a restyle deciding whether
 // to go on: shared lists by what they hold, custom properties by the object
 // (an element that declares any makes a new set each time it is computed,
@@ -2966,10 +3174,33 @@ struct Resolver {
     // serves all four. Per target and rule: the element (stamp) it last
     // matched and its best matching selector for that element.
     static constexpr int target_count = 4;
-    std::array<std::vector<int>, target_count> rule_stamp;
-    std::array<std::vector<Specificity>, target_count> rule_best;
+    // The marks are kept per rule set: the document's, and one for each
+    // kind of shadow tree met (RuleSet::scope_rules).
+    struct Scratch {
+        std::array<std::vector<int>, target_count> stamp;
+        std::array<std::vector<Specificity>, target_count> best;
+    };
+    std::unordered_map<RuleSet const*, Scratch> scratch;
+    Scratch& scratch_of(RuleSet const& rules)
+    {
+        Scratch& marks = scratch[&rules];
+        if (marks.stamp[0].size() != rules.rules.size()) {
+            for (std::size_t target = 0; target < static_cast<std::size_t>(target_count); ++target) {
+                marks.stamp[target].assign(rules.rules.size(), 0);
+                marks.best[target].assign(rules.rules.size(), Specificity {});
+            }
+        }
+        return marks;
+    }
     int stamp = 0;
-    std::array<std::vector<std::uint32_t>, target_count> matched_rules; // scratch, reused per element
+    // A rule that matched: which set it is in, and the tree context it
+    // matched from (MatchedDeclaration::context).
+    struct MatchedRule {
+        RuleSet const* rules;
+        std::uint32_t rule;
+        int context;
+    };
+    std::array<std::vector<MatchedRule>, target_count> matched_rules; // scratch, reused per element
     AncestorFilter ancestors; // the identifiers of the elements above the one being styled
     int quote_depth = 0; // the nesting of quotation marks so far, in tree order
 
@@ -3104,16 +3335,16 @@ struct Resolver {
         // `medium`, the initial font size: 16 CSS px, in device px.
         initial_font_size = 16.0f * set.media.device_scale;
         root_font_size = initial_font_size;
-        for (int target = 0; target < target_count; ++target) {
-            rule_stamp[static_cast<std::size_t>(target)].assign(the_set.rules.size(), 0);
-            rule_best[static_cast<std::size_t>(target)].assign(the_set.rules.size(), Specificity {});
-        }
+        // A resolution reads each shadow tree's sheets afresh, once.
+        ++set.pass;
     }
 
     static std::size_t target_of(ComplexSelector const& selector)
     {
         switch (selector.pseudo_element) {
         case ComplexSelector::PseudoElement::None:
+        case ComplexSelector::PseudoElement::Slotted:
+        case ComplexSelector::PseudoElement::Part:
             return 0;
         case ComplexSelector::PseudoElement::Before:
             return 1;
@@ -3125,59 +3356,127 @@ struct Resolver {
         return 0;
     }
 
-    // The rules matching the element, per target, in rule order, each with
-    // the specificity of its best matching selector.
+    // The rules matching the element, per target, each with the
+    // specificity of its best matching selector and the tree it is from:
+    // the built-in sheet's, those of the element's own tree — the
+    // document's, or its shadow tree's — and those that reach it across a
+    // shadow boundary: the :host rules of the tree it hosts, the
+    // ::slotted() rules of the trees whose slots take it, and the ::part()
+    // rules of the tree its host is in.
     void matching_rules(dom::Element const& element)
     {
         ++stamp;
-        for (std::vector<std::uint32_t>& out : matched_rules)
+        for (std::vector<MatchedRule>& out : matched_rules)
             out.clear();
-        auto const consider = [&](std::vector<RuleSet::Candidate> const& candidates) {
+        dom::ShadowRoot const* tree = nullptr;
+        if (element.document().has_shadow_trees()) {
+            if (dom::Node const& root = element.root(); root.is_shadow_root())
+                tree = &static_cast<dom::ShadowRoot const&>(root);
+        }
+        auto const consider = [&](RuleSet const& rules, std::vector<RuleSet::Candidate> const& candidates, int context,
+                                  auto const& accepts) {
+            if (candidates.empty())
+                return;
+            Scratch& marks = scratch_of(rules);
             for (RuleSet::Candidate const& candidate : candidates) {
                 if (!ancestors.may_contain_all(candidate.ancestor_hashes))
                     continue;
-                ComplexSelector const& selector
-                    = set.rules[candidate.rule].selectors->selectors[candidate.selector];
-                if (!matches(selector, element))
+                CompiledRule const& rule = rules.rules[candidate.rule];
+                ComplexSelector const& selector = rule.selectors->selectors[candidate.selector];
+                if (!accepts(rule, selector))
                     continue;
                 std::size_t const target = target_of(selector);
-                if (rule_stamp[target][candidate.rule] != stamp) {
-                    rule_stamp[target][candidate.rule] = stamp;
-                    rule_best[target][candidate.rule] = selector.specificity;
-                    matched_rules[target].push_back(candidate.rule);
-                } else if (selector.specificity > rule_best[target][candidate.rule]) {
-                    rule_best[target][candidate.rule] = selector.specificity;
+                if (marks.stamp[target][candidate.rule] != stamp) {
+                    marks.stamp[target][candidate.rule] = stamp;
+                    marks.best[target][candidate.rule] = selector.specificity;
+                    matched_rules[target].push_back(MatchedRule { &rules, candidate.rule, context });
+                } else if (selector.specificity > marks.best[target][candidate.rule]) {
+                    marks.best[target][candidate.rule] = selector.specificity;
                 }
             }
         };
-        auto const consider_bucket
-            = [&](std::unordered_map<std::string, std::vector<RuleSet::Candidate>> const& bucket,
-                  std::string const& key) {
-                  if (auto const it = bucket.find(key); it != bucket.end())
-                      consider(it->second);
-              };
-        if (dom::Attr const* id = element.find_attribute("id"))
-            consider_bucket(set.by_id, RuleSet::lowercased(id->value));
-        if (dom::Attr const* classes = element.find_attribute("class")) {
-            std::string_view const value = classes->value;
-            std::size_t start = 0;
-            while (start < value.size()) {
-                while (start < value.size()
-                    && is_tokenizer_whitespace(static_cast<unsigned char>(value[start])))
-                    ++start;
-                std::size_t end = start;
-                while (end < value.size()
-                    && !is_tokenizer_whitespace(static_cast<unsigned char>(value[end])))
-                    ++end;
-                if (end > start)
-                    consider_bucket(set.by_class, RuleSet::lowercased(value.substr(start, end - start)));
-                start = end;
+        // The rules of one set filed under what the element is.
+        auto const indexed = [&](RuleSet const& rules, auto const& accepts) {
+            auto const bucket = [&](std::unordered_map<std::string, std::vector<RuleSet::Candidate>> const& filed, std::string const& key) {
+                if (auto const it = filed.find(key); it != filed.end())
+                    consider(rules, it->second, 0, accepts);
+            };
+            if (dom::Attr const* id = element.find_attribute("id"))
+                bucket(rules.by_id, RuleSet::lowercased(id->value));
+            if (dom::Attr const* classes = element.find_attribute("class")) {
+                std::string_view const value = classes->value;
+                std::size_t start = 0;
+                while (start < value.size()) {
+                    while (start < value.size()
+                        && is_tokenizer_whitespace(static_cast<unsigned char>(value[start])))
+                        ++start;
+                    std::size_t end = start;
+                    while (end < value.size()
+                        && !is_tokenizer_whitespace(static_cast<unsigned char>(value[end])))
+                        ++end;
+                    if (end > start)
+                        bucket(rules.by_class, RuleSet::lowercased(value.substr(start, end - start)));
+                    start = end;
+                }
+            }
+            bucket(rules.by_type, RuleSet::lowercased(element.local_name()));
+            consider(rules, rules.universal, 0, accepts);
+        };
+        dom::Node const* const outer_scope = shadow_scope();
+        auto const as_itself = [&](CompiledRule const&, ComplexSelector const& selector) { return matches(selector, element); };
+        // The built-in sheet styles every element; the document's own
+        // sheets only the elements of the document's tree.
+        set_shadow_scope(nullptr);
+        indexed(set, [&](CompiledRule const& rule, ComplexSelector const& selector) {
+            return (tree == nullptr || rule.user_agent) && matches(selector, element);
+        });
+        if (tree != nullptr) {
+            if (RuleSet const* const own = set.scope_rules(*tree)) {
+                set_shadow_scope(tree);
+                indexed(*own, as_itself);
+            }
+            // ::part(): the rules of the tree the host is in, for an
+            // element that names itself a part.
+            if (element.find_attribute("part") != nullptr) {
+                dom::Element const& host = tree->host();
+                dom::Node const& host_root = host.root();
+                dom::ShadowRoot const* const host_tree
+                    = host_root.is_shadow_root() ? &static_cast<dom::ShadowRoot const&>(host_root) : nullptr;
+                if (RuleSet const* const outer = host_tree != nullptr ? set.scope_rules(*host_tree) : &set) {
+                    set_shadow_scope(host_tree);
+                    consider(*outer, outer->part_rules, 1, [&](CompiledRule const&, ComplexSelector const& selector) {
+                        return matches_part(selector, element) && matches(selector, host);
+                    });
+                }
             }
         }
-        consider_bucket(set.by_type, RuleSet::lowercased(element.local_name()));
-        consider(set.universal);
-        for (std::vector<std::uint32_t>& out : matched_rules)
-            std::sort(out.begin(), out.end());
+        if (dom::ShadowRoot const* const hosted = element.shadow_root()) {
+            if (RuleSet const* const inner = set.scope_rules(*hosted)) {
+                set_shadow_scope(hosted);
+                consider(*inner, inner->host_rules, -1000, as_itself);
+            }
+        }
+        // ::slotted(): the slot that takes the element, and the slot that
+        // takes that slot, each in a tree further in.
+        int context = -1;
+        for (dom::Element const* slot = element.assigned_slot(); slot != nullptr; slot = slot->assigned_slot(), --context) {
+            dom::Node const& slot_root = slot->root();
+            if (!slot_root.is_shadow_root())
+                break;
+            RuleSet const* const rules = set.scope_rules(static_cast<dom::ShadowRoot const&>(slot_root));
+            if (rules == nullptr)
+                continue;
+            set_shadow_scope(&slot_root);
+            consider(*rules, rules->slotted_rules, context, [&](CompiledRule const&, ComplexSelector const& selector) {
+                return matches_slotted(selector, element) && matches(selector, *slot);
+            });
+        }
+        set_shadow_scope(outer_scope);
+        for (std::vector<MatchedRule>& out : matched_rules) {
+            std::sort(out.begin(), out.end(), [](MatchedRule const& a, MatchedRule const& b) {
+                return a.context != b.context ? a.context < b.context : a.rule < b.rule;
+            });
+        }
     }
 
     // The identifiers an element offers to the selectors of its descendants.
@@ -3349,7 +3648,7 @@ struct Resolver {
         if (node.is_element()) {
             auto const& element = static_cast<dom::Element const&>(node);
             ComputedStyle style = compute_for(element, parent_style);
-            bool const is_root = node.parent() && !node.parent()->is_element();
+            bool const is_root = node.parent() && node.parent()->type() == dom::NodeType::Document;
             if (is_root)
                 root_font_size = style.font_size; // rem resolves against this
             // A box that is never generated does no counter work, and neither
@@ -3380,7 +3679,9 @@ struct Resolver {
             apply_counter_ops(generated->before->style);
             generated->before->text = content_text(*owner, generated->before->style);
         }
-        for (dom::Node const* child : node.children())
+        // What is drawn in the node's place: a host's shadow tree, a slot's
+        // assigned nodes (the flat tree, css-scoping-1 §2.5).
+        for (dom::Node const* child : dom::flat_children(node))
             resolve_tree(*child, *style_for_children);
         if (generated && generated->after) {
             apply_counter_ops(generated->after->style);
@@ -3399,7 +3700,7 @@ struct Resolver {
     // block-level child, and only while nothing inline comes before it.
     dom::Element const* first_block_child(dom::Element const& element) const
     {
-        for (dom::Node const* child : element.children()) {
+        for (dom::Node const* child : dom::flat_children(element)) {
             if (child->is_text()) {
                 for (char const c : static_cast<dom::Text const*>(child)->data) {
                     if (c != ' ' && c != '\t' && c != '\n' && c != '\r' && c != '\f')
@@ -3444,7 +3745,7 @@ struct Resolver {
                 }
             }
         }
-        for (dom::Node const* child : node.children())
+        for (dom::Node const* child : dom::flat_children(node))
             hand_down_first_letters(*child);
     }
 
@@ -4340,9 +4641,9 @@ struct Resolver {
         ComputedStyle style = inherited_from(parent);
 
         std::vector<MatchedDeclaration> matched;
-        for (std::uint32_t const index : matched_rules[target]) {
-            CompiledRule const& rule = set.rules[index];
-            Specificity const specificity = rule_best[target][index];
+        for (MatchedRule const& matched_rule : matched_rules[target]) {
+            CompiledRule const& rule = matched_rule.rules->rules[matched_rule.rule];
+            Specificity const specificity = scratch_of(*matched_rule.rules).best[target][matched_rule.rule];
             for (Declaration const& declaration : *rule.declarations) {
                 MatchedDeclaration entry;
                 entry.declaration = &declaration;
@@ -4350,6 +4651,7 @@ struct Resolver {
                 entry.specificity = specificity;
                 entry.order = rule.order;
                 entry.layer = rule.layer;
+                entry.context = matched_rule.context;
                 if (rule.user_agent) {
                     entry.rank = static_cast<int>(declaration.important
                             ? CascadeRank::UserAgentImportant
@@ -4627,7 +4929,7 @@ struct Resolver {
         };
         // On the root there is no parent to match, and the keyword computes
         // to `start` — which the root's own direction then resolves.
-        bool const root = !element.parent() || !element.parent()->is_element();
+        bool const root = !element.parent() || element.parent()->type() == dom::NodeType::Document;
         if (root) {
             if (style.text_align == TextAlign::MatchParent)
                 style.text_align = TextAlign::Start;
@@ -7435,7 +7737,7 @@ struct Updater {
     {
         dom::Node::StyleMarks const& marks = node.style_marks();
         if (changed(marks.self) || changed(marks.children) || changed(marks.subtree)) {
-            for (dom::Node const* up = &node; up; up = up->parent()) {
+            for (dom::Node const* up = &node; up; up = up->style_parent()) {
                 if (!up->is_element())
                     continue;
                 auto const& element = static_cast<dom::Element const&>(*up);
@@ -7456,7 +7758,7 @@ struct Updater {
         // found on the way up.
         if (changed(marks.subtree) || !changed(marks.descendants))
             return;
-        for (dom::Node const* child : node.children())
+        for (dom::Node const* child : dom::flat_children(node))
             find_inside_readers(*child);
     }
 
@@ -7482,7 +7784,7 @@ struct Updater {
                 if (kept != resolver.map.end() && numbers_itself(kept->second))
                     return true;
             }
-            for (dom::Node const* child : node->children())
+            for (dom::Node const* child : dom::flat_children(*node))
                 pending.push_back(child);
         }
         return false;
@@ -7541,11 +7843,27 @@ struct Updater {
         // Every child, when a child came or went or its text changed and the
         // selectors count places or look at siblings, or when a sibling's own
         // change reaches the others through `of S`.
+        // The children here are the flat tree's: a host's are its shadow
+        // root's, and a slot's the nodes of its host it was assigned. What
+        // came or went among them is marked on the node that holds them in
+        // the tree, and a shadow root whose tree's sheets changed says so
+        // by being marked as new: everything in it is computed again.
+        std::vector<dom::Node*> const& children = dom::flat_children(parent);
+        dom::Node const* holder = &parent;
+        if (parent.is_element()) {
+            auto const& element = static_cast<dom::Element const&>(parent);
+            if (dom::ShadowRoot const* const shadow = element.shadow_root())
+                holder = shadow;
+            else if (!element.assigned_nodes().empty() && !children.empty())
+                holder = children.front()->parent();
+        }
         bool all = from_parent == Redo::Subtree;
-        if (!all && changed(parent.style_marks().children) && (uses.sibling_combinators || uses.positional))
+        if (!all && holder->is_shadow_root() && changed(holder->style_marks().subtree))
+            all = true;
+        if (!all && changed(holder->style_marks().children) && (uses.sibling_combinators || uses.positional))
             all = true;
         if (!all && uses.nth_of) {
-            for (dom::Node const* child : parent.children()) {
+            for (dom::Node const* child : children) {
                 if (child->is_element()
                     && (changed(child->style_marks().self) || forced.contains(static_cast<dom::Element const*>(child)))) {
                     all = true;
@@ -7553,9 +7871,34 @@ struct Updater {
                 }
             }
         }
+        // What a slot shows are children of its host, siblings there of
+        // every other child whichever slot each is drawn in, or none. One
+        // of them whose own state changed may reach the ones after it in
+        // the host through + and ~, and any of them through `of S`: those
+        // are computed again whole. (Which features changed is known only
+        // once the changed one is computed, and it may be drawn in another
+        // slot or not at all, so this is not narrowed by them.)
+        std::unordered_set<dom::Node const*> after_changed_sibling;
+        if (!all && holder != &parent && !holder->is_shadow_root() && (uses.sibling_combinators || uses.nth_of)) {
+            std::vector<dom::Node*> const& siblings = holder->children();
+            for (std::size_t i = 0; i < siblings.size(); ++i) {
+                if (!siblings[i]->is_element())
+                    continue;
+                dom::Node::StyleMarks const& marks = siblings[i]->style_marks();
+                if (!changed(marks.self) && !changed(marks.subtree) && !forced.contains(static_cast<dom::Element const*>(siblings[i])))
+                    continue;
+                if (uses.nth_of) {
+                    all = true;
+                } else {
+                    for (std::size_t j = i + 1; j < siblings.size(); ++j)
+                        after_changed_sibling.insert(siblings[j]);
+                }
+                break;
+            }
+        }
         // A sibling that changed reaches the ones after it through + and ~.
         bool after_change = false;
-        for (dom::Node const* child : parent.children()) {
+        for (dom::Node const* child : children) {
             if (!bail.empty())
                 return;
             if (!child->is_element())
@@ -7565,10 +7908,13 @@ struct Updater {
             auto const kept = resolver.map.find(&element);
             // New, or holding text an :empty rule reads: everything in it,
             // and the siblings after it.
+            // A host whose tree's sheets changed counts as new: its own
+            // :host rules are among them.
+            dom::ShadowRoot const* const hosted = element.shadow_root();
             bool const arrived = kept == resolver.map.end() || changed(marks.subtree)
-                || (uses.empty && changed(marks.children));
+                || (uses.empty && changed(marks.children)) || (hosted != nullptr && changed(hosted->style_marks().subtree));
             Redo redo = Redo::None;
-            if (all || after_change || arrived || forced_subtrees.contains(&element))
+            if (all || after_change || arrived || forced_subtrees.contains(&element) || after_changed_sibling.contains(&element))
                 redo = Redo::Subtree;
             else if (changed(marks.self) || forced.contains(&element))
                 redo = Redo::Own;
@@ -7602,7 +7948,7 @@ struct Updater {
     bool recompute(dom::Element const& element, ComputedStyle const& parent_style, Redo redo, ComputedStyle const* old,
         Reaching const& reaching)
     {
-        bool const is_root = element.parent() && !element.parent()->is_element();
+        bool const is_root = element.parent() && element.parent()->type() == dom::NodeType::Document;
         if (is_root)
             resolver.root_font_size = resolver.initial_font_size;
         ComputedStyle style = resolver.compute_for(element, parent_style);
@@ -7803,8 +8149,9 @@ struct Restyler {
                 else if (std::optional<std::string_view> const field = first_style_difference(expected->second, actual->second))
                     found = describe(element) + ": " + std::string(*field);
             }
-            for (std::size_t i = node->children().size(); i-- > 0;)
-                pending.push_back(node->children()[i]);
+            std::vector<dom::Node*> const& children = dom::flat_children(*node);
+            for (std::size_t i = children.size(); i-- > 0;)
+                pending.push_back(children[i]);
         }
         if (!found && styles.size() != fresh.size())
             found = std::to_string(styles.size()) + " styles kept for " + std::to_string(fresh.size()) + " elements in the tree";

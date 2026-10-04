@@ -1830,6 +1830,12 @@ css/css-cascade/presentational-hints-rollback.html	#tests > * 7
 css/css-cascade/presentational-hints-rollback.html	#tests > * 8
 css/css-cascade/presentational-hints-rollback.html	#tests > * 9
 css/css-cascade/revert-rule-important.html	revert-rule in !important declaration reverts across layers
+css/css-cascade/revert-rule-shadow.html	revert-rule in ::part() rule falls back to earlier ::part() rule
+css/css-cascade/revert-rule-shadow.html	revert-rule in ::part() rule falls back to shadow-internal rule
+css/css-cascade/revert-rule-shadow.html	revert-rule in :host rule has no effect when a document rule already wins
+css/css-cascade/revert-rule-shadow.html	revert-rule in higher-specificity ::part() rule falls back to lower-specificity ::part() rule
+css/css-cascade/revert-rule-shadow.html	revert-rule in shadow-internal rule has no effect when ::part() rule wins
+css/css-cascade/revert-rule-shadow.html	revert-rule in third ::part() rule falls back to second ::part() rule
 css/css-cascade/revert-val-011.html	CSS Cascade: 'revert' from mutating inline style
 css/css-cascade/revert-val-011.html	CSS Cascade: 'revert' from mutating inline style 1
 css/css-cascade/revert-val-011.html	CSS Cascade: 'revert' from mutating inline style 2
@@ -4331,12 +4337,42 @@ css/cssom/CSSStyleRule.html	Type of CSSRule#type and constant values
 css/cssom/CSSStyleRule.html	Values of CSSRule attributes
 css/cssom/CSSStyleRule.html	Values of CSSStyleRule attributes
 css/cssom/CSSStyleRule.html	Writability of CSSRule attributes
+css/cssom/CSSStyleSheet-constructable-baseURL.html	Constructing sheet with custom base URL ueses that URL for CSS rules
+css/cssom/CSSStyleSheet-constructable-baseURL.html	Constructing sheet with relative URL adds to the constructor document's base URL
 css/cssom/CSSStyleSheet-constructable-cssRules.html	cssRules doesn't change on replace / replaceSync
+css/cssom/CSSStyleSheet-constructable-disabled-regular-sheet-insertion.html	Shouldn't crash / assert when inserting a stylesheet after there are disabled constructable sheets
+css/cssom/CSSStyleSheet-constructable-disallow-import.tentative.html	@import rules are not parsed in CSSStyleSheet.replaceSync
 css/cssom/CSSStyleSheet-constructable-disallow-import.tentative.html	Inserting an @import rule through insertRule on a constructed stylesheet throws an exception
 css/cssom/CSSStyleSheet-constructable-duplicate.html	Appending duplicate stylesheets yields the correct cascade position in the Document
+css/cssom/CSSStyleSheet-constructable-duplicate.html	Appending duplicate stylesheets yields the correct cascade position in the ShadowRoot
 css/cssom/CSSStyleSheet-constructable-duplicate.html	Duplicate stylesheets have the right cascade position in the Document
+css/cssom/CSSStyleSheet-constructable-duplicate.html	Duplicate stylesheets have the right cascade position in the ShadowRoot
 css/cssom/CSSStyleSheet-constructable-invalidation.html	mutating constructed CSSStyleSheet applied to root invalidates styles
+css/cssom/CSSStyleSheet-constructable-invalidation.html	mutating constructed CSSStyleSheet applied to shadowdom invalidates styles
+css/cssom/CSSStyleSheet-constructable-invalidation.html	mutating dependent constructed CSSStyleSheet applied to shadowdom invalidates styles
 css/cssom/CSSStyleSheet-constructable-replace-thenable.html	CSSStyleSheet.replace/replaceSync() when stylesheet is a thenable
+css/cssom/CSSStyleSheet-constructable.html	Adding non-constructed stylesheet to AdoptedStyleSheets is not allowed when the owner document of the stylesheet and the AdoptedStyleSheets are in different document trees
+css/cssom/CSSStyleSheet-constructable.html	Adding non-constructed stylesheet to AdoptedStyleSheets is not allowed when the owner document of the stylesheet is in the same document tree as the AdoptedStyleSheets
+css/cssom/CSSStyleSheet-constructable.html	Adopted sheets are ordered after non-adopted sheets in the document
+css/cssom/CSSStyleSheet-constructable.html	Attaching a shadow root that already has adopted stylesheets work
+css/cssom/CSSStyleSheet-constructable.html	CSSStyleSheet.replace produces Promise<CSSStyleSheet>
+css/cssom/CSSStyleSheet-constructable.html	CSSStyleSheet.replaceSync allows, but ignores, import rule inside
+css/cssom/CSSStyleSheet-constructable.html	CSSStyleSheet.replaceSync correctly updates the style of its adopters synchronously
+css/cssom/CSSStyleSheet-constructable.html	CSSStyleSheet.replaceSync replaces stylesheet text synchronously
+css/cssom/CSSStyleSheet-constructable.html	Changes to constructed stylesheets through CSSOM is reflected
+css/cssom/CSSStyleSheet-constructable.html	Cloning a shadow host will not clone shadow root, and also adoptedStyleSheets
+css/cssom/CSSStyleSheet-constructable.html	Constructed style sheets can be applied on document
+css/cssom/CSSStyleSheet-constructable.html	Constructed style sheets can be applied on shadow root
+css/cssom/CSSStyleSheet-constructable.html	Constructing a sheet with the default base URL uses the constructor document's base URL for CSS rules
+css/cssom/CSSStyleSheet-constructable.html	Forcing a style update after adding an adopted stylesheet on a disconnected shadow root should not crash.
+css/cssom/CSSStyleSheet-constructable.html	Importing a shadow host will not copy shadow root, and also adoptedStyleSheets
+css/cssom/CSSStyleSheet-constructable.html	Inserting an @import rule through insertRule on a constructed stylesheet throws an exception
+css/cssom/CSSStyleSheet-constructable.html	Modifying an adopted stylesheet on a disconnected shadow root should not crash.
+css/cssom/CSSStyleSheet-constructable.html	Re-attaching shadow host and updating attributes work
+css/cssom/CSSStyleSheet-constructable.html	Re-attaching shadow host with adopted stylesheets work
+css/cssom/CSSStyleSheet-constructable.html	document.adoptedStyleSheets should initially have length 0.
+css/cssom/CSSStyleSheet-constructable.html	new CSSStyleSheet produces empty CSSStyleSheet
+css/cssom/CSSStyleSheet-constructable.html	title can be set in the CSSStyleSheet constructor
 css/cssom/CSSStyleSheet-modify-after-removal.html	Modify constructed sheet from removed iframe
 css/cssom/CSSStyleSheet-modify-after-removal.html	Modify sheet from removed iframe
 css/cssom/CSSStyleSheet.html	addRule with #foo selectors
@@ -4363,6 +4399,7 @@ css/cssom/StyleSheetList-constructable.html	document.styleSheets does not includ
 css/cssom/StyleSheetList.html	CSSOM - StyleSheetList interface
 css/cssom/adoptedstylesheets-cascade-order.html	Mutating a duplicated adopted stylesheet while inserting a leading sheet updates cascade order
 css/cssom/adoptedstylesheets-cascade-order.html	Reordering a document.adoptedStyleSheets suffix after a replacement updates cascade order
+css/cssom/adoptedstylesheets-cascade-order.html	Reordering a shadowRoot.adoptedStyleSheets suffix after a replacement updates cascade order
 css/cssom/adoptedstylesheets-cascade-order.html	Reordering adopted stylesheets while inserting one updates cascade order
 css/cssom/adoptedstylesheets-cascade-order.html	Reordering adopted stylesheets while removing one updates cascade order
 css/cssom/adoptedstylesheets-cascade-order.html	Reordering adopted stylesheets with media queries updates cascade order
@@ -4370,13 +4407,18 @@ css/cssom/adoptedstylesheets-cascade-order.html	Reordering after an unchanged le
 css/cssom/adoptedstylesheets-cascade-order.html	Reordering around a mutated adopted stylesheet updates cascade order
 css/cssom/adoptedstylesheets-cascade-order.html	Reordering document.adoptedStyleSheets updates cascade order
 css/cssom/adoptedstylesheets-cascade-order.html	Reordering duplicated adopted stylesheets updates cascade order
+css/cssom/adoptedstylesheets-cascade-order.html	Reordering shadowRoot.adoptedStyleSheets updates cascade order
 css/cssom/adoptedstylesheets-cascade-order.html	Rotating document.adoptedStyleSheets updates cascade order
+css/cssom/adoptedstylesheets-cascade-order.html	Rotating shadowRoot.adoptedStyleSheets updates cascade order
 css/cssom/adoptedstylesheets-modify-array-and-sheet.html	Add the two sheets. Text should be red.
 css/cssom/adoptedstylesheets-modify-array-and-sheet.html	Flip the two sheet. Still red.
 css/cssom/adoptedstylesheets-modify-array-and-sheet.html	Modify the color declaration. Should now be green.
+css/cssom/adoptedstylesheets-observablearray.html	adoptedStyleSheets should not expose its backing object via prototype
+css/cssom/adoptedstylesheets-observablearray.html	adoptedStyleSheets should return true for isArray()
 css/cssom/border-shorthand-serialization.html	Border shorthand is serialized correctly if all border-image-* are set to their initial specified values.
 css/cssom/border-shorthand-serialization.html	Declaration with border longhands and border-image is not serialized to a border shorthand declaration.
 css/cssom/border-shorthand-serialization.html	Declaration with border longhands is not serialized to a border shorthand declaration.
+css/cssom/caretPositionFromPoint.html	document.caretPositionFromPoint() throws when called without the correct parameters
 css/cssom/caretRangeFromPoint.tentative.html	document.caretRangeFromPoint() should return null for a document with no viewport
 css/cssom/caretRangeFromPoint.tentative.html	document.caretRangeFromPoint() should return null if given coordinates outside of the viewport
 css/cssom/computed-style-001.html	inherited_property_values
@@ -4585,10 +4627,16 @@ css/cssom/font-variant-shorthand-serialization.html	font-variant: none serializa
 css/cssom/font-variant-shorthand-serialization.html	font-variant: normal serialization
 css/cssom/font-variant-shorthand-serialization.html	font-variant: normal with non-default longhands
 css/cssom/font-variant-shorthand-serialization.html	font: menu serialization
+css/cssom/getComputedStyle-detached-subtree.html	getComputedStyle returns no style for descendant outside the flat tree
 css/cssom/getComputedStyle-detached-subtree.html	getComputedStyle returns no style for detached element
+css/cssom/getComputedStyle-detached-subtree.html	getComputedStyle returns no style for element outside the flat tree
+css/cssom/getComputedStyle-detached-subtree.html	getComputedStyle returns no style for shadow tree outside of flattened tree
 css/cssom/getComputedStyle-display-none-001.html	getComputedStyle gets invalidated in display: none subtrees due to inherited changes to an ancestor
+css/cssom/getComputedStyle-display-none-001.html	getComputedStyle gets invalidated in display: none subtrees due to inherited changes to an ancestor shadow host
 css/cssom/getComputedStyle-display-none-002.html	getComputedStyle gets invalidated in display: none subtrees due to rule matching changes
 css/cssom/getComputedStyle-display-none-003.html	getComputedStyle gets invalidated in display: none subtrees due to attribute mutations
+css/cssom/getComputedStyle-display-none-shadow-invalidation.html	getComputedStyle gets invalidated for slotted content of a display: none shadow host
+css/cssom/getComputedStyle-display-none-shadow-invalidation.html	getComputedStyle gets invalidated in nested shadow trees of a display: none shadow host
 css/cssom/getComputedStyle-getter-v-properties.tentative.html	border
 css/cssom/getComputedStyle-getter-v-properties.tentative.html	border-bottom
 css/cssom/getComputedStyle-getter-v-properties.tentative.html	border-left
@@ -6193,6 +6241,7 @@ css/cssom/selectorSerialize.html	single id (simple) selector in the sequence of 
 css/cssom/selectorSerialize.html	single pseudo (simple) selector which does not accept arguments in the sequence of simple selectors that is not a universal selector
 css/cssom/selectorSerialize.html	single type (simple) selector in the sequence of simple selectors that is not a universal selector
 css/cssom/selectorSerialize.html	single universal selector shows '*' when serialized.
+css/cssom/selectorText-modification-restyle-002.html	Check initial color.
 css/cssom/serialization-CSSDeclaration-with-important.html	Inline style declaration with whitespace between '!' and 'important'.
 css/cssom/serialization-CSSDeclaration-with-important.html	Inline style declaration without whitespace between '!' and 'important'.
 css/cssom/serialization-CSSDeclaration-with-important.html	Style set dynamically via cssText with whitespace between '!' and 'important'.
@@ -6964,12 +7013,14 @@ custom-elements/CustomElementRegistry.html	customElements.define must not throw 
 custom-elements/CustomElementRegistry.html	customElements.define must not throw the constructor is HTMLElement
 custom-elements/CustomElementRegistry.html	customElements.define must rethrow an exception thrown while getting "prototype" property of the constructor
 custom-elements/CustomElementRegistry.html	customElements.define must rethrow an exception thrown while getting callbacks on the constructor prototype
+custom-elements/CustomElementRegistry.html	customElements.define must rethrow an exception thrown while getting disabledFeatures on the constructor prototype
 custom-elements/CustomElementRegistry.html	customElements.define must rethrow an exception thrown while getting observedAttributes on the constructor prototype
 custom-elements/CustomElementRegistry.html	customElements.define must throw a NotSupportedError when there is already a custom element with the same class
 custom-elements/CustomElementRegistry.html	customElements.define must throw when "prototype" property of the constructor is not an object
 custom-elements/CustomElementRegistry.html	customElements.define must throw when the element interface is not a constructor
 custom-elements/CustomElementRegistry.html	customElements.define must throw when there is already a custom element of the same name
 custom-elements/CustomElementRegistry.html	customElements.define must throw with an invalid name
+custom-elements/CustomElementRegistry.html	customElements.define must upgrade elements in the shadow-including tree order
 custom-elements/CustomElementRegistry.html	customElements.define must validate the custom element name before checking the element definition is running flag
 custom-elements/CustomElementRegistry.html	customElements.define unset the element definition is running flag before upgrading custom elements
 custom-elements/CustomElementRegistry.html	customElements.get must return undefined when the registry does not contain an entry with the given name
@@ -7167,8 +7218,21 @@ custom-elements/builtin-coverage.html	wbr: Define a customized built-in element
 custom-elements/builtin-coverage.html	wbr: Operator 'new' should instantiate a customized built-in element
 custom-elements/connected-callbacks-template.html	Nested custom element connectedCallback insertion involving a template DocumentFragment
 custom-elements/connected-callbacks.html	Inserting a custom element into a cloned document must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a detached shadow tree that belongs to a cloned document must not enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a detached shadow tree that belongs to a document created by createHTMLDocument must not enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a detached shadow tree that belongs to a new document must not enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a detached shadow tree that belongs to an HTML document created by createDocument must not enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a detached shadow tree that belongs to the document must not enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a detached shadow tree that belongs to the document of an iframe must not enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a detached shadow tree that belongs to the document of the template elements must not enqueue and invoke connectedCallback
 custom-elements/connected-callbacks.html	Inserting a custom element into a document created by createHTMLDocument must enqueue and invoke connectedCallback
 custom-elements/connected-callbacks.html	Inserting a custom element into a new document must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a shadow tree in a cloned document must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a shadow tree in a document created by createHTMLDocument must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a shadow tree in a new document must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a shadow tree in an HTML document created by createDocument must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a shadow tree in the document must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting a custom element into a shadow tree in the document of the template elements must enqueue and invoke connectedCallback
 custom-elements/connected-callbacks.html	Inserting a custom element into an HTML document created by createDocument must enqueue and invoke connectedCallback
 custom-elements/connected-callbacks.html	Inserting a custom element into the document must enqueue and invoke connectedCallback
 custom-elements/connected-callbacks.html	Inserting a custom element into the document of the template elements must enqueue and invoke connectedCallback
@@ -7178,11 +7242,30 @@ custom-elements/connected-callbacks.html	Inserting an ancestor of custom element
 custom-elements/connected-callbacks.html	Inserting an ancestor of custom element into an HTML document created by createDocument must enqueue and invoke connectedCallback
 custom-elements/connected-callbacks.html	Inserting an ancestor of custom element into the document must enqueue and invoke connectedCallback
 custom-elements/connected-callbacks.html	Inserting an ancestor of custom element into the document of the template elements must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting the shadow host of a custom element into a cloned document must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting the shadow host of a custom element into a document created by createHTMLDocument must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting the shadow host of a custom element into a new document must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting the shadow host of a custom element into an HTML document created by createDocument must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting the shadow host of a custom element into the document must enqueue and invoke connectedCallback
+custom-elements/connected-callbacks.html	Inserting the shadow host of a custom element into the document of the template elements must enqueue and invoke connectedCallback
 custom-elements/createElement-reentrant-construction.window.html	Re-entrant createElement() of the same element after super()
 custom-elements/createElement-reentrant-construction.window.html	Re-entrant createElement() of the same element before super()
 custom-elements/disconnected-callbacks.html	Removing a custom element from a cloned document must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a detached shadow tree that belongs to a cloned document must not enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a detached shadow tree that belongs to a document created by createHTMLDocument must not enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a detached shadow tree that belongs to a new document must not enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a detached shadow tree that belongs to an HTML document created by createDocument must not enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a detached shadow tree that belongs to the document must not enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a detached shadow tree that belongs to the document of an iframe must not enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a detached shadow tree that belongs to the document of the template elements must not enqueue and invoke disconnectedCallback
 custom-elements/disconnected-callbacks.html	Removing a custom element from a document created by createHTMLDocument must enqueue and invoke disconnectedCallback
 custom-elements/disconnected-callbacks.html	Removing a custom element from a new document must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a shadow tree in a cloned document must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a shadow tree in a document created by createHTMLDocument must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a shadow tree in a new document must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a shadow tree in an HTML document created by createDocument must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a shadow tree in the document must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing a custom element from a shadow tree in the document of the template elements must enqueue and invoke disconnectedCallback
 custom-elements/disconnected-callbacks.html	Removing a custom element from an HTML document created by createDocument must enqueue and invoke disconnectedCallback
 custom-elements/disconnected-callbacks.html	Removing a custom element from the document must enqueue and invoke disconnectedCallback
 custom-elements/disconnected-callbacks.html	Removing a custom element from the document of the template elements must enqueue and invoke disconnectedCallback
@@ -7192,6 +7275,12 @@ custom-elements/disconnected-callbacks.html	Removing an ancestor of custom eleme
 custom-elements/disconnected-callbacks.html	Removing an ancestor of custom element from an HTML document created by createDocument must enqueue and invoke disconnectedCallback
 custom-elements/disconnected-callbacks.html	Removing an ancestor of custom element from the document must enqueue and invoke disconnectedCallback
 custom-elements/disconnected-callbacks.html	Removing an ancestor of custom element from the document of the template elements must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing the shadow host of a custom element from aa cloned document must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing the shadow host of a custom element from aa document created by createHTMLDocument must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing the shadow host of a custom element from aa new document must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing the shadow host of a custom element from aan HTML document created by createDocument must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing the shadow host of a custom element from athe document must enqueue and invoke disconnectedCallback
+custom-elements/disconnected-callbacks.html	Removing the shadow host of a custom element from athe document of the template elements must enqueue and invoke disconnectedCallback
 custom-elements/element-internals-behaviors.tentative.html	attachInternals throws TypeError for DOM element in behaviors array
 custom-elements/element-internals-behaviors.tentative.html	attachInternals throws TypeError for null in behaviors array
 custom-elements/element-internals-behaviors.tentative.html	attachInternals throws TypeError for number in behaviors array
@@ -7201,6 +7290,8 @@ custom-elements/element-internals-behaviors.tentative.html	attachInternals throw
 custom-elements/enqueue-custom-element-callback-reactions-inside-another-callback.html	Connecting an element without connectedCallback while it has a disconnectedCallback in its custom element reaction queue must not result in disconnectedCallback getting invoked before the insertion completes
 custom-elements/enqueue-custom-element-callback-reactions-inside-another-callback.html	Setting an observed attribute on an element with attributeChangedCallback while it has a connectedCallback in its custom element reaction queue must not result in connectedCallback getting invoked before the attribute change completes
 custom-elements/form-associated/form-disabled-callback.html	A disabled form-associated custom element should not provide an entry for it
+custom-elements/historical.html	ShadowRoot doesn't have importNode or createElement[NS]
+custom-elements/historical.html	attachShadow() does not recognize a registry member
 custom-elements/historical.html	document.registerElement should not exist
 custom-elements/htmlconstructor/newtarget-customized-builtins.html	HTMLParagraphElement constructor must not get .prototype until it finishes its extends sanity checks, calling proxy constructor directly
 custom-elements/htmlconstructor/newtarget-customized-builtins.html	HTMLParagraphElement constructor must not get .prototype until it finishes its extends sanity checks, calling via Reflect
@@ -7209,15 +7300,19 @@ custom-elements/htmlconstructor/newtarget.html	Use NewTarget's prototype, not th
 custom-elements/microtasks-and-constructors.html	Microtasks evaluate afterward when the stack is not empty due to upgrades
 custom-elements/microtasks-and-constructors.html	Microtasks evaluate afterward when the stack is not empty using createElement()
 custom-elements/microtasks-and-constructors.html	Microtasks evaluate afterward when the stack is not empty using the constructor
+custom-elements/microtasks-and-constructors.html	Microtasks evaluate immediately when the stack is empty inside the parser
 custom-elements/overwritten-customElements-global.html	Custom elements can still be constructed after `window.customElements` is deleted.
 custom-elements/overwritten-customElements-global.html	Custom elements can still be constructed after `window.customElements` is overwritten.
 custom-elements/overwritten-customElements-global.html	Custom elements can still be created after `window.customElements` is deleted.
 custom-elements/overwritten-customElements-global.html	Custom elements can still be created after `window.customElements` is overwritten.
 custom-elements/parser/parser-constructs-custom-element-in-document-write.html	HTML parser should call connectedCallback before appending child nodes inside document.write
 custom-elements/parser/parser-constructs-custom-elements-with-is.html	HTML parser must create a defined autonomous custom element when customElements.define comes after HTML parser creation
+custom-elements/parser/parser-constructs-custom-elements-with-is.html	HTML parser must create a defined autonomous custom element when customElements.define comes before HTML parser creation
 custom-elements/parser/parser-constructs-custom-elements.html	HTML parser must NOT create a custom element before customElements.define is called
+custom-elements/parser/parser-constructs-custom-elements.html	HTML parser must create a defined custom element before executing inline scripts
 custom-elements/parser/parser-custom-element-in-foreign-content.html	HTML parser should not create custom elements in non-HTML namespaces
 custom-elements/parser/parser-sets-attributes-and-children.html	HTML parser must append child nodes
+custom-elements/parser/parser-sets-attributes-and-children.html	HTML parser must enqueue attributeChanged reactions
 custom-elements/parser/parser-sets-attributes-and-children.html	HTML parser must set the attributes
 custom-elements/parser/parser-sets-attributes-and-children.html	HTML parser must set the attributes or append children before calling constructor
 custom-elements/parser/parser-sets-attributes-and-children.html	HTML parser should call connectedCallback before appending child nodes.
@@ -7378,6 +7473,8 @@ custom-elements/reactions/ParentNode.html	prepend on ParentNode must enqueue a c
 custom-elements/reactions/Range.html	deleteContents on Range must enqueue a disconnected reaction
 custom-elements/reactions/Range.html	insertNode on Range must enqueue a connected reaction
 custom-elements/reactions/Range.html	surroundContents on Range must enqueue a connected reaction
+custom-elements/reactions/ShadowRoot.html	innerHTML on ShadowRoot must enqueue connectedCallback on newly upgraded custom elements when the shadow root is connected
+custom-elements/reactions/ShadowRoot.html	innerHTML on ShadowRoot must enqueue disconnectedCallback when removing a custom element
 custom-elements/reactions/customized-builtins/HTMLInputElement.html	No tests if HTMLInputEement has no "capture" IDL attribute
 custom-elements/registries/define-customized-builtins.html	If extends is a-.-_, should throw a NotSupportedError
 custom-elements/registries/define-customized-builtins.html	If extends is a-0123456789, should throw a NotSupportedError
@@ -7447,8 +7544,11 @@ custom-elements/registries/define.html	If the name is already defined, should th
 custom-elements/registries/global.window.html	attachShadow() should throw with global registry from another document
 custom-elements/registries/per-document.html	Discarding the browsing context must not change window.customElements
 custom-elements/registries/per-document.html	document.open() must not replace window.customElements
+custom-elements/registries/scoped-registry-define-upgrade-criteria.html	Adding definition to global registry should affect shadow roots also using global registry
+custom-elements/registries/template.window.html	Custom element upgrades inside a declarative shadow root parsed via template.setHTMLUnsafe()
 custom-elements/registries/upgrade.html	Two elements as children of the upgraded node
 custom-elements/registries/upgrade.html	Two elements as descendants of the upgraded node
+custom-elements/registries/upgrade.html	Two elements as shadow-including descendants (and not descendants) of the upgraded node
 custom-elements/registries/upgrade.html	Upgrading an element directly (example from the spec)
 custom-elements/registries/valid-custom-element-names.html	Invalid custom element name: code points: [0,0,45,101,108,101,109,101,110,116], string: "  -element"
 custom-elements/registries/valid-custom-element-names.html	Invalid custom element name: code points: [0,0], string: "  "
@@ -9515,6 +9615,7 @@ dom/events/Event-dispatch-detached-input-and-change.html	detached checkbox shoul
 dom/events/Event-dispatch-detached-input-and-change.html	detached radio should not emit input or change events on click().
 dom/events/Event-dispatch-detached-input-and-change.html	detached radio should not emit input or change events on dispatchEvent(new MouseEvent('click')).
 dom/events/Event-dispatch-handlers-changed.html	 Dispatch additional events inside an event listener 
+dom/events/Event-dispatch-listener-order.window.html	Event-dispatch-listener-order
 dom/events/Event-dispatch-multiple-cancelBubble.html	Multiple dispatchEvent() and cancelBubble
 dom/events/Event-dispatch-multiple-stopPropagation.html	 Multiple dispatchEvent() and stopPropagation() 
 dom/events/Event-dispatch-omitted-capture.html	EventTarget.addEventListener with the capture argument omitted
@@ -9569,6 +9670,7 @@ dom/events/Event-returnValue.html	returnValue should change returnValue if cance
 dom/events/Event-returnValue.html	returnValue=false should have no effect if cancelable is false.
 dom/events/Event-returnValue.html	returnValue=true should have no effect once the canceled flag was set.
 dom/events/Event-stopImmediatePropagation.html	Event's stopImmediatePropagation
+dom/events/Event-stopPropagation-cancel-bubbling.html	Event-stopPropagation-cancel-bubbling
 dom/events/Event-subclasses-constructors.html	Event constructor (argument with default values)
 dom/events/Event-subclasses-constructors.html	Event constructor (argument with non-default values)
 dom/events/Event-subclasses-constructors.html	Event constructor (empty argument)
@@ -9638,12 +9740,16 @@ dom/events/KeyEvent-initKeyEvent.html	KeyboardEvent.initKeyEvent shouldn't be de
 dom/events/KeyEvent-initKeyEvent.html	KeyboardEvent.prototype.initKeyEvent shouldn't be defined
 dom/events/event-disabled-dynamic.html	disabled is honored properly in presence of dynamic changes
 dom/events/event-global-extra.window.html	window.event and element from another document
+dom/events/event-global-extra.window.html	window.event should not be affected by nodes moving post-dispatch
 dom/events/event-global-set-before-handleEvent-lookup.window.html	window.event is set before 'handleEvent' lookup
 dom/events/event-global.html	event exists on window, which is initially set to undefined
 dom/events/event-global.html	window.event is only defined during dispatch
 dom/events/event-global.html	window.event is set to the current event during dispatch
 dom/events/event-global.html	window.event is set to the current event, which is the event passed to dispatch
 dom/events/event-global.html	window.event is set to the current event, which is the event passed to dispatch (2)
+dom/events/event-global.html	window.event is undefined if the target is in a shadow tree (event dispatched inside shadow tree)
+dom/events/event-global.html	window.event is undefined if the target is in a shadow tree (event dispatched outside shadow tree)
+dom/events/event-global.html	window.event is undefined inside window.onerror if the target is in a shadow tree (ErrorEvent dispatched inside shadow tree)
 dom/events/event-handler-attribute-replace-preserves-passive.html	Replacing a wheel event handler attribute on body via setAttribute preserves its passive flag
 dom/events/event-handler-attribute-replace-preserves-passive.html	Replacing a wheel event handler attribute on document element via setAttribute preserves its passive flag
 dom/events/event-src-element-nullable.html	Event srcElement should be nullable
@@ -9727,6 +9833,8 @@ dom/events/passive-by-default.html	wheel listener is passive with {passive:true}
 dom/events/passive-by-default.html	wheel listener is passive with {passive:true} for HTMLDocument
 dom/events/passive-by-default.html	wheel listener is passive with {passive:true} for HTMLHtmlElement
 dom/events/passive-by-default.html	wheel listener is passive with {passive:true} for Window
+dom/events/relatedTarget.window.html	Reset if target pointed to a shadow tree
+dom/events/relatedTarget.window.html	Reset if target pointed to a shadow tree pre-dispatch
 dom/events/remove-all-listeners.html	Nested usage of once listeners should work.
 dom/events/remove-all-listeners.html	Removing all listeners and then adding a new one should work.
 dom/events/scrolling/scroll-event-fired-to-element.html	scrollTop and scrollLeft being set with invalid scroll offset.
@@ -10627,6 +10735,7 @@ dom/nodes/DOMImplementation-hasFeature.html	hasFeature(undefined, "")
 dom/nodes/Document-adoptNode-DocumentFragment-with-host.window.html	adoptNode() <template> element: content follows via template adopting steps
 dom/nodes/Document-adoptNode-DocumentFragment-with-host.window.html	adoptNode() nested <template> elements: all owner documents update
 dom/nodes/Document-adoptNode-DocumentFragment-with-host.window.html	adoptNode() plain DocumentFragment (no host): adopts and returns it
+dom/nodes/Document-adoptNode-DocumentFragment-with-host.window.html	adoptNode() shadow root: throws HierarchyRequestError
 dom/nodes/Document-adoptNode-DocumentFragment-with-host.window.html	adoptNode() template.content into browsing-context document
 dom/nodes/Document-adoptNode-DocumentFragment-with-host.window.html	adoptNode() template.content: adopts fragment + children, returns it
 dom/nodes/Document-adoptNode-DocumentFragment-with-host.window.html	appendChild() template.content: moves children, fragment ownerDocument stays
@@ -17134,6 +17243,8 @@ dom/nodes/Node-insertBefore.html	Should check the 'parent' type before checking 
 dom/nodes/Node-insertBefore.html	Should check whether 'child' is a child of 'parent' before checking whether 'node' can be inserted into the document given the kids the document has right now.
 dom/nodes/Node-insertBefore.html	Should check whether 'child' is a child of 'parent' before checking whether 'node' is of a type that can have a parent of the type that 'parent' is.
 dom/nodes/Node-insertBefore.html	Should check whether 'child' is a child of 'parent' before checking whether 'node' is of a type that can have a parent.
+dom/nodes/Node-isConnected-shadow-dom.html	Node.isConnected in a closed shadow tree
+dom/nodes/Node-isConnected-shadow-dom.html	Node.isConnected in a open shadow tree
 dom/nodes/Node-isConnected.html	Test with iframes
 dom/nodes/Node-isConnected.html	Test with ordinary child nodes
 dom/nodes/Node-isEqualNode-xhtml.xhtml	Node.isEqualNode
@@ -19195,6 +19306,7 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :pseudo-only
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :pseudo-only-child pseudo-class selector, matching only-child em elements: #pseudo-only em:only-child
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type: #pseudo-only :only-of-type
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type: #pseudo-only em:only-of-type
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :root pseudo-class selector, not matching document root element: :root
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: :target pseudo-class selector, matching the element referenced by the URL fragment identifier: :target
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id: #adjacent-div2+div
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelector: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class: .adjacent-div2+.adjacent-div4
@@ -19426,6 +19538,7 @@ dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :pseudo-o
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :pseudo-only-child pseudo-class selector, matching only-child em elements: #pseudo-only em:only-child
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :pseudo-only-of-type pseudo-class selector, matching all elements with no siblings of the same type: #pseudo-only :only-of-type
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :pseudo-only-of-type pseudo-class selector, matching em elements with no siblings of the same type: #pseudo-only em:only-of-type
+dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :root pseudo-class selector, not matching document root element: :root
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: :target pseudo-class selector, matching the element referenced by the URL fragment identifier: :target
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, matching element that is an adjacent sibling of an element with id: #adjacent-div2+div
 dom/nodes/ParentNode-querySelector-All.html	Fragment.querySelectorAll: Adjacent sibling combinator, matching element with class that is an adjacent sibling of an element with class: .adjacent-div2+.adjacent-div4
@@ -20190,7 +20303,9 @@ dom/nodes/Text-splitText.html	Split text at beginning
 dom/nodes/Text-splitText.html	Split text at end
 dom/nodes/Text-wholeText.html	wholeText returns text of all Text nodes logically adjacent to the node, in document order.
 dom/nodes/adoption.window.html	adoptNode() and DocumentFragment
+dom/nodes/adoption.window.html	adoptNode() and ShadowRoot
 dom/nodes/adoption.window.html	appendChild() and DocumentFragment
+dom/nodes/adoption.window.html	appendChild() and ShadowRoot
 dom/nodes/append-on-Document.html	Document.append() with only one element as an argument, on a Document having no child.
 dom/nodes/append-on-Document.html	Document.append() with only one element as an argument, on a Document having one child.
 dom/nodes/append-on-Document.html	Document.append() with text as an argument, on a Document having no child.
@@ -20198,6 +20313,9 @@ dom/nodes/append-on-Document.html	Document.append() with two elements as the arg
 dom/nodes/append-on-Document.html	Document.append() without any argument, on a Document having no child.
 dom/nodes/attach-shadow-realm-after-adoption.html	Precondition (built-in host): node document and relevant realm differ after adoption
 dom/nodes/attach-shadow-realm-after-adoption.html	Precondition (custom element host): node document and relevant realm differ after adoption
+dom/nodes/attach-shadow-realm-after-adoption.html	attachShadow() invoked via another realm's method uses the node document realm
+dom/nodes/attach-shadow-realm-after-adoption.html	attachShadow() on an adopted built-in host: shadow root uses the node document realm
+dom/nodes/attach-shadow-realm-after-adoption.html	attachShadow() on an adopted custom element host: shadow root uses the node document realm
 dom/nodes/attributes-namednodemap.html	an attribute set by setAttribute should be accessible as a field on the `attributes` field of an Element
 dom/nodes/attributes-namednodemap.html	an attribute with a null namespace should be accessible as a field on the `attributes` field of an Element
 dom/nodes/attributes-namednodemap.html	an attribute with a set namespace should be accessible as a field on the `attributes` field of an Element
@@ -20455,6 +20573,10 @@ dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,ä,Ä
 dom/nodes/case.html	setAttributeNS http://www.w3.org/2000/svg,ä,ä
 dom/nodes/case.html	setAttributeNS Ä
 dom/nodes/case.html	setAttributeNS ä
+dom/nodes/create-element-realm-after-adoption.html	Built-in element: innerHTML creates it in the node document's realm
+dom/nodes/create-element-realm-after-adoption.html	Built-in element: the created element's realm is independent of the setter's realm
+dom/nodes/create-element-realm-after-adoption.html	Custom element: innerHTML upgrades it using the node document's registry
+dom/nodes/create-element-realm-after-adoption.html	Custom element: the registry used is independent of the setter's realm
 dom/nodes/create-element-realm-after-adoption.html	Precondition: the host's node document and relevant realm differ after adoption
 dom/nodes/getElementsByClassName-01.htm	document.getElementsByClassName(): simple
 dom/nodes/getElementsByClassName-02.htm	document.getElementsByClassName(): also simple
@@ -20549,6 +20671,7 @@ dom/nodes/node-creation-realm.html	Document.createDocumentFragment() creates a n
 dom/nodes/node-creation-realm.html	Document.createProcessingInstruction() creates a node in the target document's realm
 dom/nodes/node-creation-realm.html	Document.createTextNode() creates a node in the target document's realm
 dom/nodes/node-creation-realm.html	cloneNode() clones into the node's node document realm
+dom/nodes/node-creation-realm.html	innerHTML parses Text and Comment nodes in the node document's realm after adoption
 dom/nodes/node-realm-adoption-after-frame-removal.html	Never-wrapped node keeps its creation realm: iframe removed before adoption (subtree not pre-detached)
 dom/nodes/node-realm-adoption-after-frame-removal.html	Never-wrapped node keeps its creation realm: subtree detached, iframe removed, then adopted
 dom/nodes/node-realm-adoption-after-frame-removal.html	Node reached through the adopting document still reports its creation realm (frame removed before adoption)
@@ -20575,6 +20698,7 @@ dom/nodes/querySelector-id-nth-child.html	querySelector matching #id + constant 
 dom/nodes/querySelector-id-nth-child.html	querySelectorAll matching #id + constant nth-child()
 dom/nodes/remove-next-sibling-during-replace-with.html	remove-next-sibling-during-replace-with
 dom/nodes/rootNode.html	getRootNode() must return a document fragment when a node is in the fragment
+dom/nodes/rootNode.html	getRootNode() must return context object's shadow-including root if options's composed is true, and context object's root otherwise
 dom/nodes/rootNode.html	getRootNode() must return the context object when it does not have any parent
 dom/nodes/rootNode.html	getRootNode() must return the document when a node is in document
 dom/nodes/rootNode.html	getRootNode() must return the parent node of the context object when the context object has a single ancestor not in a document
@@ -20586,6 +20710,38 @@ dom/ranges/Range-adopt-test.html	Parentless range container moved to another doc
 dom/ranges/Range-adopt-test.html	Range container's parentless container moved to another document with appendChild: Removing the only element in the range must collapse the range
 dom/ranges/Range-adopt-test.html	Range in document: Removing the only element in the range must collapse the range
 dom/ranges/Range-attributes.html	Range attributes
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned[Text</span></div><p>abc]def</p>"
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned[Text</span></div><p>abc]def</p>": range.cloneContents() should clone a part of unassigned text and a part of the text
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned[Text</span></div><p>abc]def</p>": range.cloneContents() shouldn't clone the host with the shadow
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>{UnassignedText}</span></div>"
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<div><shadow-root><span>InnerText</span></shadow-root>{<span>UnassignedText</span></div><p>abc]def</p>"
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<div><shadow-root><span>InnerText</span></shadow-root>{<span>UnassignedText</span></div><p>abc]def</p>": range.cloneContents() should clone the unassigned <span> and a part of the text
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<div><shadow-root><span>InnerText</span></shadow-root>{<span>UnassignedText</span></div><p>abc]def</p>": range.cloneContents() shouldn't clone the host with the shadow
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root></slot><span>InnerText</span></shadow-root><slot><span>Assigned]Text</span></div>"
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root></slot><span>InnerText</span></shadow-root><slot><span>Assigned]Text</span></div>": range.cloneContents() should clone a part of the text and a part of assigned text
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root></slot><span>InnerText</span></shadow-root><slot><span>Assigned]Text</span></div>": range.cloneContents() shouldn't clone the host with the shadow
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>"
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>": range.cloneContents() should clone a part of the text and the unassigned <span>
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>": range.cloneContents() shouldn't clone the host with the shadow
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned]Text</span></div>"
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned]Text</span></div>": range.cloneContents() should clone a part of the text and a part of the unassigned text
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned]Text</span></div>": range.cloneContents() shouldn't clone the host with the shadow
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>Assigned]Text</span><span>UnassignedText</span></div>"
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>Assigned]Text</span><span>UnassignedText</span></div>": range.cloneContents() should clone a part of the text and a part of assigned text
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>Assigned]Text</span><span>UnassignedText</span></div>": range.cloneContents() shouldn't clone the host with the shadow
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>UnassignedText</span><span>Assigned]Text</span></div>"
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>UnassignedText</span><span>Assigned]Text</span></div>": range.cloneContents() should clone a part of the text, the unassigned <span> and a part of assigned text
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>UnassignedText</span><span>Assigned]Text</span></div>": range.cloneContents() shouldn't clone the host with the shadow
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot></slot></shadow-root><span>Assigned]Text</span></div>"
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot></slot></shadow-root><span>Assigned]Text</span></div>": range.cloneContents() should clone a part of the text and a part of assigned text
+dom/ranges/Range-cloneContents-around-shadow.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot></slot></shadow-root><span>Assigned]Text</span></div>": range.cloneContents() shouldn't clone the host with the shadow
+dom/ranges/Range-cloneContents-around-shadow.tentative.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>" (the shadow is clonable)
+dom/ranges/Range-cloneContents-around-shadow.tentative.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>" (the shadow is clonable): range.cloneContents() should clone a part of the text and the unassigned <span>
+dom/ranges/Range-cloneContents-around-shadow.tentative.html	Range.cloneContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>" (the shadow is clonable): range.cloneContents() should clone the host with the shadow
+dom/ranges/Range-cloneContents-in-ShadowRoot.html	Range.cloneContents() when "<div><shadow-root><span>ABC</span>{<span>DEF</span>}</shadow-root></div>"
+dom/ranges/Range-cloneContents-in-ShadowRoot.html	Range.cloneContents() when "<div><shadow-root>{<span>ABC</span>}</shadow-root></div>"
+dom/ranges/Range-cloneContents-in-ShadowRoot.html	Range.cloneContents() when "<div><shadow-root>{<span>ABC</span>}<span>DEF</span></shadow-root></div>"
+dom/ranges/Range-cloneContents-in-ShadowRoot.html	Range.cloneContents() when "<div><shadow-root>{}</shadow-root></div>"
 dom/ranges/Range-cloneContents.html	Range.detach()
 dom/ranges/Range-cloneContents.html	Resulting DOM for range 0 [paras[0].firstChild, 0, paras[0].firstChild, 0]
 dom/ranges/Range-cloneContents.html	Resulting DOM for range 1 [paras[0].firstChild, 0, paras[0].firstChild, 1]
@@ -35987,6 +36143,37 @@ dom/ranges/Range-comparePoint.html	Point 9 [paras[1].firstChild, 0], range 7 [pa
 dom/ranges/Range-comparePoint.html	Point 9 [paras[1].firstChild, 0], range 8 [detachedPara1.firstChild, 0, detachedPara1.firstChild, 0]
 dom/ranges/Range-comparePoint.html	Point 9 [paras[1].firstChild, 0], range 9 [detachedPara1.firstChild, 2, detachedPara1.firstChild, 8]
 dom/ranges/Range-constructor.html	Range constructor test
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned[Text</span></div><p>abc]def</p>"
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned[Text</span></div><p>abc]def</p>": range.deleteContents() should delete a part of the unassigned text and a part of the text
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned[Text</span></div><p>abc]def</p>": range.deleteContents() shouldn't delete the content in the shadow
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>{UnassignedText}</span></div>"
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>{UnassignedText}</span></div>": range.deleteContents() should delete the unassigned text
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>{UnassignedText}</span></div>": range.deleteContents() shouldn't delete the content in the shadow
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<div><shadow-root><span>InnerText</span></shadow-root>{<span>UnassignedText</span></div><p>abc]def</p>"
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<div><shadow-root><span>InnerText</span></shadow-root>{<span>UnassignedText</span></div><p>abc]def</p>": range.deleteContents() should delete the unassigned text and a part of the text
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<div><shadow-root><span>InnerText</span></shadow-root>{<span>UnassignedText</span></div><p>abc]def</p>": range.deleteContents() shouldn't delete the content in the shadow
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root></slot><span>InnerText</span></shadow-root><slot><span>Assigned]Text</span></div>"
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root></slot><span>InnerText</span></shadow-root><slot><span>Assigned]Text</span></div>": range.deleteContents() should delete a part of the text and a part of the assigned text
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root></slot><span>InnerText</span></shadow-root><slot><span>Assigned]Text</span></div>": range.deleteContents() shouldn't delete the content in the shadow
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>"
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>": range.deleteContents() should delete a part of the text and the unassigned <span>
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>": range.deleteContents() shouldn't delete the content in the shadow
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned]Text</span></div>"
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned]Text</span></div>": range.deleteContents() should delete a part of the text and a part of the unassigned text
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned]Text</span></div>": range.deleteContents() shouldn't delete the content in the shadow
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>Assigned]Text</span><span>UnassignedText</span></div>"
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>Assigned]Text</span><span>UnassignedText</span></div>": range.deleteContents() should delete a part of the text and a part of the assigned text
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>Assigned]Text</span><span>UnassignedText</span></div>": range.deleteContents() shouldn't delete the content in the shadow
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>UnassignedText</span><span>Assigned]Text</span></div>"
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>UnassignedText</span><span>Assigned]Text</span></div>": range.deleteContents() should delete a part of the text, the unassigned <span> and a part of the assigned text
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>UnassignedText</span><span>Assigned]Text</span></div>": range.deleteContents() shouldn't delete the content in the shadow
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot></slot></shadow-root><span>Assigned]Text</span></div>"
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot></slot></shadow-root><span>Assigned]Text</span></div>": range.deleteContents() should delete a part of the text and a part of the assigned text
+dom/ranges/Range-deleteContents-around-shadow.html	Range.deleteContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot></slot></shadow-root><span>Assigned]Text</span></div>": range.deleteContents() shouldn't delete the content in the shadow
+dom/ranges/Range-deleteContents-in-ShadowRoot.html	Range.deleteContents() when "<div><shadow-root><span>ABC</span>{<span>DEF</span>}</shadow-root></div>"
+dom/ranges/Range-deleteContents-in-ShadowRoot.html	Range.deleteContents() when "<div><shadow-root>{<span>ABC</span>}</shadow-root></div>"
+dom/ranges/Range-deleteContents-in-ShadowRoot.html	Range.deleteContents() when "<div><shadow-root>{<span>ABC</span>}<span>DEF</span></shadow-root></div>"
+dom/ranges/Range-deleteContents-in-ShadowRoot.html	Range.deleteContents() when "<div><shadow-root>{}</shadow-root></div>"
 dom/ranges/Range-deleteContents.html	Detached Range
 dom/ranges/Range-deleteContents.html	Resulting DOM for range 0 [paras[0].firstChild, 0, paras[0].firstChild, 0]
 dom/ranges/Range-deleteContents.html	Resulting DOM for range 1 [paras[0].firstChild, 0, paras[0].firstChild, 1]
@@ -36113,7 +36300,60 @@ dom/ranges/Range-deleteContents.html	Resulting cursor position for range 7 [para
 dom/ranges/Range-deleteContents.html	Resulting cursor position for range 8 [detachedPara1.firstChild, 0, detachedPara1.firstChild, 0]
 dom/ranges/Range-deleteContents.html	Resulting cursor position for range 9 [detachedPara1.firstChild, 2, detachedPara1.firstChild, 8]
 dom/ranges/Range-detach.html	Range.detach
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned[Text</span></div><p>abc]def</p>"
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned[Text</span></div><p>abc]def</p>": range.extractContents() should clone a part of unassigned text and a part of the text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned[Text</span></div><p>abc]def</p>": range.extractContents() should delete a part of the unassigned text and a part of the text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned[Text</span></div><p>abc]def</p>": range.extractContents() shouldn't clone the host with the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned[Text</span></div><p>abc]def</p>": range.extractContents() shouldn't delete the content in the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>{UnassignedText}</span></div>"
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>{UnassignedText}</span></div>": range.extractContents() should clone the unassigned text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>{UnassignedText}</span></div>": range.extractContents() should delete the unassigned text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root><span>{UnassignedText}</span></div>": range.extractContents() shouldn't delete the content in the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root>{<span>UnassignedText</span></div><p>abc]def</p>"
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root>{<span>UnassignedText</span></div><p>abc]def</p>": range.extractContents() should clone the unassigned <span> and a part of the text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root>{<span>UnassignedText</span></div><p>abc]def</p>": range.extractContents() should delete the unassigned text and a part of the text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root>{<span>UnassignedText</span></div><p>abc]def</p>": range.extractContents() shouldn't clone the host with the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<div><shadow-root><span>InnerText</span></shadow-root>{<span>UnassignedText</span></div><p>abc]def</p>": range.extractContents() shouldn't delete the content in the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root></slot><span>InnerText</span></shadow-root><slot><span>Assigned]Text</span></div>"
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root></slot><span>InnerText</span></shadow-root><slot><span>Assigned]Text</span></div>": range.extractContents() should clone a part of the text and a part of assigned text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root></slot><span>InnerText</span></shadow-root><slot><span>Assigned]Text</span></div>": range.extractContents() should delete a part of the text and a part of the assigned text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root></slot><span>InnerText</span></shadow-root><slot><span>Assigned]Text</span></div>": range.extractContents() shouldn't clone the host with the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root></slot><span>InnerText</span></shadow-root><slot><span>Assigned]Text</span></div>": range.extractContents() shouldn't delete the content in the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>"
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>": range.extractContents() should clone a part of the text and the unassigned <span>
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>": range.extractContents() should delete a part of the text and the unassigned <span>
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>": range.extractContents() shouldn't clone the host with the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>": range.extractContents() shouldn't delete the content in the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned]Text</span></div>"
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned]Text</span></div>": range.extractContents() should clone a part of the text and a part of the unassigned text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned]Text</span></div>": range.extractContents() should delete a part of the text and a part of the unassigned text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned]Text</span></div>": range.extractContents() shouldn't clone the host with the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>Unassigned]Text</span></div>": range.extractContents() shouldn't delete the content in the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>Assigned]Text</span><span>UnassignedText</span></div>"
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>Assigned]Text</span><span>UnassignedText</span></div>": range.extractContents() should clone a part of the text and a part of assigned text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>Assigned]Text</span><span>UnassignedText</span></div>": range.extractContents() should delete a part of the text and a part of the assigned text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>Assigned]Text</span><span>UnassignedText</span></div>": range.extractContents() shouldn't clone the host with the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>Assigned]Text</span><span>UnassignedText</span></div>": range.extractContents() shouldn't delete the content in the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>UnassignedText</span><span>Assigned]Text</span></div>"
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>UnassignedText</span><span>Assigned]Text</span></div>": range.extractContents() should clone a part of the text, the unassigned <span> and a part of assigned text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>UnassignedText</span><span>Assigned]Text</span></div>": range.extractContents() should delete a part of the text, the unassigned <span> and a part of the assigned text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>UnassignedText</span><span>Assigned]Text</span></div>": range.extractContents() shouldn't clone the host with the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot name="assigned"></slot></shadow-root><span>UnassignedText</span><span>Assigned]Text</span></div>": range.extractContents() shouldn't delete the content in the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot></slot></shadow-root><span>Assigned]Text</span></div>"
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot></slot></shadow-root><span>Assigned]Text</span></div>": range.extractContents() should clone a part of the text and a part of assigned text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot></slot></shadow-root><span>Assigned]Text</span></div>": range.extractContents() should delete a part of the text and a part of the assigned text
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot></slot></shadow-root><span>Assigned]Text</span></div>": range.extractContents() shouldn't clone the host with the shadow
+dom/ranges/Range-extractContents-around-shadow.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span><slot></slot></shadow-root><span>Assigned]Text</span></div>": range.extractContents() shouldn't delete the content in the shadow
+dom/ranges/Range-extractContents-around-shadow.tentative.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>" (the shadow is clonable)
+dom/ranges/Range-extractContents-around-shadow.tentative.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>" (the shadow is clonable): range.extractContents() should clone a part of the text and the unassigned <span>
+dom/ranges/Range-extractContents-around-shadow.tentative.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>" (the shadow is clonable): range.extractContents() should clone the host with the shadow
+dom/ranges/Range-extractContents-around-shadow.tentative.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>" (the shadow is clonable): range.extractContents() should delete a part of the text and the unassigned <span>
+dom/ranges/Range-extractContents-around-shadow.tentative.html	Range.extractContents() when "<p>abc[def</p><div><shadow-root><span>InnerText</span></shadow-root><span>UnassignedText</span>}</div>" (the shadow is clonable): range.extractContents() shouldn't delete the content in the shadow
 dom/ranges/Range-extractContents-dynamic-end.html	Range.extractContents should not extract out-of-bounds nodes if end container is removed during iframe unload
+dom/ranges/Range-extractContents-in-ShadowRoot.html	Range.extractContents() when "<div><shadow-root><span>ABC</span>{<span>DEF</span>}</shadow-root></div>"
+dom/ranges/Range-extractContents-in-ShadowRoot.html	Range.extractContents() when "<div><shadow-root>{<span>ABC</span>}</shadow-root></div>"
+dom/ranges/Range-extractContents-in-ShadowRoot.html	Range.extractContents() when "<div><shadow-root>{<span>ABC</span>}<span>DEF</span></shadow-root></div>"
+dom/ranges/Range-extractContents-in-ShadowRoot.html	Range.extractContents() when "<div><shadow-root>{}</shadow-root></div>"
 dom/ranges/Range-extractContents.html	Detached Range
 dom/ranges/Range-extractContents.html	Resulting DOM for range 0 [paras[0].firstChild, 0, paras[0].firstChild, 0]
 dom/ranges/Range-extractContents.html	Resulting DOM for range 1 [paras[0].firstChild, 0, paras[0].firstChild, 1]
@@ -36301,6 +36541,10 @@ dom/ranges/Range-extractContents.html	Returned fragment for range 61 [xmlDocfrag
 dom/ranges/Range-extractContents.html	Returned fragment for range 7 [paras[5].firstChild, 1, paras[5].firstChild, 3]
 dom/ranges/Range-extractContents.html	Returned fragment for range 8 [detachedPara1.firstChild, 0, detachedPara1.firstChild, 0]
 dom/ranges/Range-extractContents.html	Returned fragment for range 9 [detachedPara1.firstChild, 2, detachedPara1.firstChild, 8]
+dom/ranges/Range-in-shadow-after-the-shadow-removed.html?mode=closed	Range in shadow should stay in the shadow after the host is removed
+dom/ranges/Range-in-shadow-after-the-shadow-removed.html?mode=closed	Range in shadow should stay in the shadow after the host parent is removed
+dom/ranges/Range-in-shadow-after-the-shadow-removed.html?mode=open	Range in shadow should stay in the shadow after the host is removed
+dom/ranges/Range-in-shadow-after-the-shadow-removed.html?mode=open	Range in shadow should stay in the shadow after the host parent is removed
 dom/ranges/Range-insertNode.html	0,0: resulting DOM for range [paras[0].firstChild, 0, paras[0].firstChild, 0], node paras[0]
 dom/ranges/Range-insertNode.html	0,0: resulting range position for range [paras[0].firstChild, 0, paras[0].firstChild, 0], node paras[0]
 dom/ranges/Range-insertNode.html	0,10: resulting DOM for range [paras[0].firstChild, 0, paras[0].firstChild, 0], node foreignDoc
@@ -38143,6 +38387,7 @@ dom/ranges/Range-insertNode.html	9,9: resulting DOM for range [detachedPara1.fir
 dom/ranges/Range-insertNode.html	9,9: resulting range position for range [detachedPara1.firstChild, 2, detachedPara1.firstChild, 8], node detachedDiv
 dom/ranges/Range-intersectsNode-2.html	Range.intersectsNode() simple cases
 dom/ranges/Range-intersectsNode-binding.html	Calling intersectsNode without an argument or with an invalid argument should throw a TypeError.
+dom/ranges/Range-intersectsNode-shadow.html	Range.intersectsNode() doesn't return true for shadow children in other trees
 dom/ranges/Range-intersectsNode.html	Node 0 paras[0], range 0 [paras[0].firstChild, 0, paras[0].firstChild, 0]
 dom/ranges/Range-intersectsNode.html	Node 0 paras[0], range 1 [paras[0].firstChild, 0, paras[0].firstChild, 1]
 dom/ranges/Range-intersectsNode.html	Node 0 paras[0], range 10 [foreignPara1.firstChild, 0, foreignPara1.firstChild, 0]
@@ -70090,6 +70335,7 @@ html/dom/elements/global-attributes/dir-assorted.window.html	script element text
 html/dom/elements/global-attributes/dir-assorted.window.html	style element text contents do not influence dir=auto
 html/dom/elements/global-attributes/dir-auto-div-append-child.html	dir auto: updates on appendChild
 html/dom/elements/global-attributes/dir-auto-dynamic-changes.window.html	Input that becomes auto directionality associated but is dir=ltr stays LTR
+html/dom/elements/global-attributes/dir-auto-dynamic-changes.window.html	dir=auto slot is not affected by text in value of input element children
 html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=checkbox> directionality
 html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=color> directionality
 html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=date> directionality
@@ -70102,6 +70348,14 @@ html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input 
 html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=time> directionality
 html/dom/elements/global-attributes/dir-auto-form-associated.window.html	<input dir=auto type=week> directionality
 html/dom/elements/global-attributes/dir-bdi-script.html	BDI test: Directionality
+html/dom/elements/global-attributes/dir-slots-directionality.html	Slots: Directionality: dir=auto in shadow tree with Arabic light tree content
+html/dom/elements/global-attributes/dir-slots-directionality.html	Slots: Directionality: dir=auto on host with Arabic shadow tree content
+html/dom/elements/global-attributes/dir-slots-directionality.html	Slots: Directionality: dir=rtl on slot
+html/dom/elements/global-attributes/dir-slots-directionality.html	dir=auto slot ignores assigned nodes with dir attribute
+html/dom/elements/global-attributes/dir-slots-directionality.html	dir=auto slot ignores text in bdi assigned nodes
+html/dom/elements/global-attributes/dir-slots-directionality.html	dir=auto slot is not affected by content inside inner slot (version 1)
+html/dom/elements/global-attributes/dir-slots-directionality.html	dir=auto slot is not affected by content inside inner slot (version 2)
+html/dom/elements/global-attributes/dir-slots-directionality.html	dir=auto slot is not affected by value of auto-directionality form associated elements
 html/dom/elements/global-attributes/document-dir.html	Markup attribute
 html/dom/elements/global-attributes/document-dir.html	Setting the idl attribute to a garbage value
 html/dom/elements/global-attributes/document-dir.html	Setting the idl attribute to the empty string
@@ -70129,6 +70383,10 @@ html/dom/elements/global-attributes/id-name-specialcase.html	id with digits only
 html/dom/elements/global-attributes/id-name-specialcase.html	id with punctuation only
 html/dom/elements/global-attributes/id-name.html	id and name attributes and getElementById
 html/dom/elements/global-attributes/lang-attribute-document-element-replacement.html	Disconnected descendants of a replaced document element should resolve lang from their actual ancestor
+html/dom/elements/global-attributes/lang-attribute-shadow.window.html	lang on host and slot
+html/dom/elements/global-attributes/lang-attribute-shadow.window.html	lang on host and slot and slotted element
+html/dom/elements/global-attributes/lang-attribute-shadow.window.html	lang on slot inherits from parent
+html/dom/elements/global-attributes/lang-attribute-shadow.window.html	lang only on slot
 html/dom/elements/global-attributes/mapped-attribute-adopt-001.html	Adoption of an unrelated node shouldn't prevent mapped attributes from applying
 html/dom/elements/global-attributes/the-lang-attribute-001.html	The browser will recognize a language declared in a lang attribute on the html tag.
 html/dom/elements/global-attributes/the-lang-attribute-002.html	The browser will NOT recognize a language declared in an xml:lang attribute on the html tag.
@@ -70208,6 +70466,8 @@ html/dom/elements/the-innertext-and-outertext-properties/getter.html	No newlines
 html/dom/elements/the-innertext-and-outertext-properties/getter.html	No removal of leading/trailing whitespace in display:none container ("<div style='display:none'> abc def ")
 html/dom/elements/the-innertext-and-outertext-properties/getter.html	No tab on table-cell itself ("<table><tr><td id=target>abc</td><td>def</td>")
 html/dom/elements/the-innertext-and-outertext-properties/getter.html	No whitespace compression in display:none container ("<div style='display:none'>abc  def")
+html/dom/elements/the-innertext-and-outertext-properties/getter.html	Shadow DOM contents ignored ("<div class='shadow'>")
+html/dom/elements/the-innertext-and-outertext-properties/getter.html	Shadow DOM contents ignored ("<div><div class='shadow'>")
 html/dom/elements/the-innertext-and-outertext-properties/getter.html	Simplest possible test ("<div>abc")
 html/dom/elements/the-innertext-and-outertext-properties/getter.html	Single newline in two-row inline-table ("<div>abc<div class='itable'><span class='row'><span class='cell'>def</span></span>\\n<span class='row'><span class='cell'>123</span></span></div>ghi")
 html/dom/elements/the-innertext-and-outertext-properties/getter.html	Soft breaks ignored in presence of word-break:break-word ("<div style='width:1px; word-break:break-word'>Hello Kitty</div>")
@@ -71009,15 +71269,25 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element includes
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element includes Slottable: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: attribute innerHTML
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: attribute outerHTML
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: calling getHTML(optional GetHTMLOptions) on document.createElement("div") with too few arguments must throw TypeError
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: calling getHTML(optional GetHTMLOptions) on document.createElement("noscript") with too few arguments must throw TypeError
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: calling insertAdjacentHTML(DOMString, (TrustedHTML or DOMString)) on document.createElement("div") with too few arguments must throw TypeError
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: calling insertAdjacentHTML(DOMString, (TrustedHTML or DOMString)) on document.createElement("noscript") with too few arguments must throw TypeError
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: calling setHTMLUnsafe((TrustedHTML or DOMString), optional SetHTMLUnsafeOptions) on document.createElement("div") with too few arguments must throw TypeError
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: calling setHTMLUnsafe((TrustedHTML or DOMString), optional SetHTMLUnsafeOptions) on document.createElement("noscript") with too few arguments must throw TypeError
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("div") must inherit property "getHTML(optional GetHTMLOptions)" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("div") must inherit property "innerHTML" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("div") must inherit property "insertAdjacentHTML(DOMString, (TrustedHTML or DOMString))" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("div") must inherit property "outerHTML" with the proper type
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("div") must inherit property "setHTMLUnsafe((TrustedHTML or DOMString), optional SetHTMLUnsafeOptions)" with the proper type
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("noscript") must inherit property "getHTML(optional GetHTMLOptions)" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("noscript") must inherit property "innerHTML" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("noscript") must inherit property "insertAdjacentHTML(DOMString, (TrustedHTML or DOMString))" with the proper type
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("noscript") must inherit property "outerHTML" with the proper type
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: document.createElement("noscript") must inherit property "setHTMLUnsafe((TrustedHTML or DOMString), optional SetHTMLUnsafeOptions)" with the proper type
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: operation getHTML(optional GetHTMLOptions)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: operation insertAdjacentHTML(DOMString, (TrustedHTML or DOMString))
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Element interface: operation setHTMLUnsafe((TrustedHTML or DOMString), optional SetHTMLUnsafeOptions)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ElementInternals includes ARIAMixin: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ErrorEvent interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ErrorEvent interface object name
@@ -71381,6 +71651,10 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGSVGElement in
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGSVGElement includes WindowEventHandlers: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SVGScriptElement includes SVGURIReference: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ShadowRoot includes DocumentOrShadowRoot: member names are unique
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ShadowRoot interface: attribute activeElement
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ShadowRoot interface: attribute innerHTML
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ShadowRoot interface: operation getHTML(optional GetHTMLOptions)
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	ShadowRoot interface: operation setHTMLUnsafe((TrustedHTML or DOMString), optional SetHTMLUnsafeOptions)
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SharedWorker includes AbstractWorker: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	SharedWorkerGlobalScope interface: existence and properties of interface object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Storage interface object length
@@ -71427,6 +71701,7 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification 
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of new MessageEvent("message", { data: 5 })
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of new PopStateEvent("popstate", { data: {} })
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of new ToggleEvent("beforetoggle")
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of new XMLSerializer()
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of sessionStorage
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of window.external
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	Stringification of window.history
@@ -71550,6 +71825,16 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	WorkerNavigator 
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	WorkerNavigator includes NavigatorOnLine: member names are unique
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	WorkerNavigator interface: existence and properties of interface object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	WorkletGlobalScope interface: existence and properties of interface object
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	XMLSerializer interface object length
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	XMLSerializer interface object name
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	XMLSerializer interface: calling serializeToString(Node) on new XMLSerializer() with too few arguments must throw TypeError
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	XMLSerializer interface: existence and properties of interface object
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	XMLSerializer interface: existence and properties of interface prototype object
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	XMLSerializer interface: existence and properties of interface prototype object's "constructor" property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	XMLSerializer interface: existence and properties of interface prototype object's @@unscopables property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	XMLSerializer interface: new XMLSerializer() must inherit property "serializeToString(Node)" with the proper type
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	XMLSerializer interface: operation serializeToString(Node)
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	XMLSerializer must be primary interface of new XMLSerializer()
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	idl_test setup
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	idl_test validation
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: attribute body
@@ -71586,6 +71871,8 @@ html/dom/idlharness.https.html?include=(Document|Window)	Document interface: cal
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: calling open(optional DOMString, optional DOMString) on documentWithHandlers with too few arguments must throw TypeError
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: calling open(optional DOMString, optional DOMString) on iframe.contentDocument with too few arguments must throw TypeError
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: calling open(optional DOMString, optional DOMString) on new Document() with too few arguments must throw TypeError
+html/dom/idlharness.https.html?include=(Document|Window)	Document interface: calling parseHTMLUnsafe((TrustedHTML or DOMString), optional ParseHTMLUnsafeOptions) on documentWithHandlers with too few arguments must throw TypeError
+html/dom/idlharness.https.html?include=(Document|Window)	Document interface: calling parseHTMLUnsafe((TrustedHTML or DOMString), optional ParseHTMLUnsafeOptions) on new Document() with too few arguments must throw TypeError
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: calling queryCommandEnabled(DOMString) on documentWithHandlers with too few arguments must throw TypeError
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: calling queryCommandEnabled(DOMString) on iframe.contentDocument with too few arguments must throw TypeError
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: calling queryCommandEnabled(DOMString) on new Document() with too few arguments must throw TypeError
@@ -71706,6 +71993,7 @@ html/dom/idlharness.https.html?include=(Document|Window)	Document interface: ope
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: operation hasFocus()
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: operation open(USVString, DOMString, DOMString)
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: operation open(optional DOMString, optional DOMString)
+html/dom/idlharness.https.html?include=(Document|Window)	Document interface: operation parseHTMLUnsafe((TrustedHTML or DOMString), optional ParseHTMLUnsafeOptions)
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: operation queryCommandEnabled(DOMString)
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: operation queryCommandSupported(DOMString)
 html/dom/idlharness.https.html?include=(Document|Window)	Document interface: operation write((TrustedHTML or DOMString)...)
@@ -74737,10 +75025,19 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLSelectElement must be primary 
 html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface object length
 html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface object name
 html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: attribute name
+html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: calling assign((Element or Text)...) on document.createElement("slot") with too few arguments must throw TypeError
+html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: calling assignedElements(optional AssignedNodesOptions) on document.createElement("slot") with too few arguments must throw TypeError
+html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: calling assignedNodes(optional AssignedNodesOptions) on document.createElement("slot") with too few arguments must throw TypeError
+html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: document.createElement("slot") must inherit property "assign((Element or Text)...)" with the proper type
+html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: document.createElement("slot") must inherit property "assignedElements(optional AssignedNodesOptions)" with the proper type
+html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: document.createElement("slot") must inherit property "assignedNodes(optional AssignedNodesOptions)" with the proper type
 html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: document.createElement("slot") must inherit property "name" with the proper type
 html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: existence and properties of interface prototype object's @@unscopables property
+html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: operation assign((Element or Text)...)
+html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: operation assignedElements(optional AssignedNodesOptions)
+html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement interface: operation assignedNodes(optional AssignedNodesOptions)
 html/dom/idlharness.https.html?include=HTML.+	HTMLSlotElement must be primary interface of document.createElement("slot")
 html/dom/idlharness.https.html?include=HTML.+	HTMLSourceElement interface object length
 html/dom/idlharness.https.html?include=HTML.+	HTMLSourceElement interface object name
@@ -74948,7 +75245,15 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLTableSectionElement must be pr
 html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface object length
 html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface object name
 html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: attribute content
+html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: attribute shadowRootClonable
+html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: attribute shadowRootDelegatesFocus
+html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: attribute shadowRootMode
+html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: attribute shadowRootSerializable
 html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: document.createElement("template") must inherit property "content" with the proper type
+html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: document.createElement("template") must inherit property "shadowRootClonable" with the proper type
+html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: document.createElement("template") must inherit property "shadowRootDelegatesFocus" with the proper type
+html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: document.createElement("template") must inherit property "shadowRootMode" with the proper type
+html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: document.createElement("template") must inherit property "shadowRootSerializable" with the proper type
 html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?include=HTML.+	HTMLTemplateElement interface: existence and properties of interface prototype object's @@unscopables property
@@ -132990,6 +133295,7 @@ html/syntax/parsing/Element.getElementsByTagName-foreign-02.html	Lower-case font
 html/syntax/parsing/Element.getElementsByTagName-foreign-02.html	Upper-case font
 html/syntax/parsing/adoption-agency-reparenting-cycle.html	Adoption agency move that would create a cycle (furthest block contains common ancestor)
 html/syntax/parsing/adoption-agency-reparenting-inner-loop-cycle.html	Adoption agency cycle reached after an inner-loop iteration
+html/syntax/parsing/adoption-agency-reparenting-shadow-cycle.html	Adoption agency move that would create a host-including (shadow-crossing) cycle
 html/syntax/parsing/adoption-agency-reparenting.html	Adoption agency with a foster-parenting common ancestor (<tr>)
 html/syntax/parsing/adoption-agency-reparenting.html	Baseline: adoption agency for <b>1<p>2</b>3</p> (no script)
 html/syntax/parsing/adoption-agency-reparenting.html	Common ancestor adopted into another Document before </b>
@@ -133008,6 +133314,9 @@ html/syntax/parsing/cdata-in-integration-point-fragment.html	CDATA allowed when 
 html/syntax/parsing/cdata-in-integration-point-fragment.html	CDATA allowed when fragment-parsing with <title> context (SVG HTML integration point)
 html/syntax/parsing/cdata-in-integration-point-fragment.html	CDATA not allowed when fragment-parsing with <div> context (HTML element)
 html/syntax/parsing/custom-element-reparenting.html	Baseline: a custom element that does not reparent anything
+html/syntax/parsing/custom-element-reparenting.html	Custom element constructor attaches an unrelated shadow root
+html/syntax/parsing/custom-element-reparenting.html	attributeChangedCallback detaches the intended parent before the element is inserted
+html/syntax/parsing/custom-element-reparenting.html	attributeChangedCallback gives the element a parent before it is inserted
 html/syntax/parsing/doctype-system-identifier-distinction.html	DOCTYPE with "-//W3C//DTD HTML 4.01 Frameset//" and missing system ID triggers quirks mode
 html/syntax/parsing/doctype-system-identifier-distinction.html	DOCTYPE with "-//W3C//DTD HTML 4.01 Frameset//" and non-empty system ID triggers limited-quirks mode
 html/syntax/parsing/doctype-system-identifier-distinction.html	DOCTYPE with "-//W3C//DTD HTML 4.01 Transitional//" and missing system ID triggers quirks mode
@@ -135558,7 +135867,36 @@ html/webappapis/dynamic-markup-insertion/document-write/script_008.html	document
 html/webappapis/dynamic-markup-insertion/document-write/script_010.html	document.write external script tokenizer order
 html/webappapis/dynamic-markup-insertion/document-write/script_011.html	document.write external script that document.writes external script
 html/webappapis/dynamic-markup-insertion/document-writeln/document.writeln-02.html	Calling document.writeln with null and undefined
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-style-attribute.html	Parsing of initial style attribute
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-style-attribute.html	Parsing of style attribute
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-style-attribute.html	Update style.backgroundColor
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url-moretests.html	Child window
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url-moretests.html	Child window after navigation
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url-moretests.html	Child window crossing navigation
 html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url-moretests.html	Document.parseHTMLUnsafe: Document's url
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe-url-moretests.html	Parent window
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe.html	Document.parseHTMLUnsafe parses HTML tag soup with no problems
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe.html	Document.parseHTMLUnsafe should handle the content of <noembed> as raw text
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe.html	Location value
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe.html	Parsing of id attribute
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe.html	compatMode
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe.html	compatMode for a proper DOCTYPE
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe.html	contentType
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe.html	must be parsed with scripting disabled, so noscript works
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Document-parseHTMLUnsafe.html	script is found synchronously even when there is a css import
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/Element-setHTMLUnsafe-04.html	setHTMLUnsafe should leave the removed children alone.
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/setHTMLUnsafe-CEReactions.html	Element.setHTMLUnsafe should trigger custom element reactions.
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/setHTMLUnsafe-CEReactions.html	ShadowRoot.setHTMLUnsafe should trigger custom element reactions.
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/setHTMLUnsafe-runScripts.html	Element: sanitizer can remove scripts, which would override runScripts=true.
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/setHTMLUnsafe-runScripts.html	Element: setHTMLUnsafe with runScripts=false & no shadowdom.
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/setHTMLUnsafe-runScripts.html	Element: setHTMLUnsafe without runScripts & no shadowdom.
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/setHTMLUnsafe-runScripts.html	ShadowRoot: sanitizer can remove scripts, which would override runScripts=true.
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/setHTMLUnsafe-runScripts.html	ShadowRoot: setHTMLUnsafe with runScripts=false & no shadowdom.
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/setHTMLUnsafe-runScripts.html	ShadowRoot: setHTMLUnsafe without runScripts & no shadowdom.
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/setHTMLUnsafe.html	Element: setHTMLUnsafe with no shadowdom.
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/setHTMLUnsafe.html	Element: setHTMLUnsafe with shadowdom.
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/setHTMLUnsafe.html	ShadowRoot: setHTMLUnsafe with no shadowdom.
+html/webappapis/dynamic-markup-insertion/html-unsafe-methods/setHTMLUnsafe.html	ShadowRoot: setHTMLUnsafe with shadowdom.
 html/webappapis/dynamic-markup-insertion/opening-the-input-stream/002.html	document.open during parsing
 html/webappapis/dynamic-markup-insertion/opening-the-input-stream/004.html	Reuse of document object after document.open
 html/webappapis/dynamic-markup-insertion/opening-the-input-stream/006.html	Cancelling error after document.open
@@ -137876,6 +138214,7 @@ picture-in-picture/idlharness.window.html	Partial interface mixin DocumentOrShad
 picture-in-picture/idlharness.window.html	Partial interface mixin DocumentOrShadowRoot: original interface mixin defined
 picture-in-picture/idlharness.window.html	Partial interface mixin DocumentOrShadowRoot[2]: member names are unique
 picture-in-picture/idlharness.window.html	ShadowRoot includes DocumentOrShadowRoot: member names are unique
+picture-in-picture/idlharness.window.html	ShadowRoot interface: attribute pictureInPictureElement
 picture-in-picture/idlharness.window.html	idl_test validation
 screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorConcurrentHardware: member names are unique
 screen-wake-lock/idlharness.https.window.html	Navigator includes NavigatorContentUtils: member names are unique
@@ -137908,50 +138247,469 @@ screen-wake-lock/wakelock-active-document.https.window.html	navigator.wakeLock.r
 screen-wake-lock/wakelock-disabled-by-permissions-policy.https.html	Permissions-Policy header "screen-wake-lock=()" disallows the top-level document.
 screen-wake-lock/wakelock-type.https.window.html	'TypeError' is thrown when set an invalid wake lock type
 shadow-dom/Document-caretPositionFromPoint.tentative.html	document.caretPositionFromPoint() throws when called without the correct parameters
+shadow-dom/Document-prototype-adoptNode.html	adoptNode on a shadow root in closed mode must throw a HierarchyRequestError
+shadow-dom/Document-prototype-adoptNode.html	adoptNode on a shadow root in open mode must throw a HierarchyRequestError
 shadow-dom/Document-prototype-currentScript.html	document.currentScript must be set to a script element that loads an external script in a document tree
 shadow-dom/Document-prototype-currentScript.html	document.currentScript must be set to a script element that loads an external script in a document tree (2)
+shadow-dom/Document-prototype-currentScript.html	document.currentScript must be set to a script element that loads an external script that was in a closed shadow tree and then removed
+shadow-dom/Document-prototype-currentScript.html	document.currentScript must be set to a script element that loads an external script that was in an open shadow tree and then removed
+shadow-dom/Document-prototype-currentScript.html	document.currentScript must not to be set to a script element in a shadow tree in closed mode
+shadow-dom/Document-prototype-currentScript.html	document.currentScript must not to be set to a script element in a shadow tree in open mode
 shadow-dom/Document-prototype-importNode.html	importNode on a shadow root in closed mode must throw a NotSupportedError
 shadow-dom/Document-prototype-importNode.html	importNode on a shadow root in open mode must throw a NotSupportedError
+shadow-dom/Element-interface-attachShadow-custom-element.html	Element.attachShadow for a custom element with disabledFeatures=["SHADOW"] should not throw a NotSupportedError
+shadow-dom/Element-interface-attachShadow-custom-element.html	Element.attachShadow for an autonomous custom element with disabledFeatures=["shadow"] should throw a NotSupportedError
+shadow-dom/Element-interface-attachShadow-custom-element.html	Element.attachShadow must create an instance of ShadowRoot for autonomous custom elements
+shadow-dom/Element-interface-attachShadow-custom-element.html	Element.attachShadow must create an instance of ShadowRoot for undefined autonomous custom elements
 shadow-dom/Element-interface-attachShadow-custom-element.html	Element.attachShadow must throw a NotSupportedError for customized built-in elements
 shadow-dom/Element-interface-attachShadow.html	Check the existence of Element.attachShadow
+shadow-dom/Element-interface-attachShadow.html	Element.attachShadow must create an instance of ShadowRoot
 shadow-dom/Element-interface-attachShadow.html	Element.attachShadow must throw a NotSupportedError if the context object already hosts a shadow tree
+shadow-dom/Element-interface-attachShadow.html	Element.attachShadow must throw a TypeError if mode is not "open" or "closed"
 shadow-dom/Element-interface-attachShadow.html	Nodes other than Element should not have attachShadow
+shadow-dom/Element-interface-shadowRoot-attribute.html	shadowRoot attribute must return null if the shadow root attached to the element is closed
+shadow-dom/Element-interface-shadowRoot-attribute.html	shadowRoot attribute must return the open shadow root associated with the element
 shadow-dom/Element-interface-shadowRoot-attribute.html	shadowRoot must be defined on Element prototype
+shadow-dom/Extensions-to-Event-Interface.html	The event must not propagate out of closed mode shadow boundaries when the composed flag is unset
+shadow-dom/Extensions-to-Event-Interface.html	The event must not propagate out of closed mode shadow boundaries when the composed flag is unset on an event with relatedTarget
+shadow-dom/Extensions-to-Event-Interface.html	The event must not propagate out of closed mode shadow tree of the target but must propagate out of inner shadow trees when the scoped flag is set
+shadow-dom/Extensions-to-Event-Interface.html	The event must not propagate out of open mode shadow boundaries when the composed flag is unset
+shadow-dom/Extensions-to-Event-Interface.html	The event must not propagate out of open mode shadow boundaries when the composed flag is unset on an event with relatedTarget
+shadow-dom/Extensions-to-Event-Interface.html	The event must not propagate out of open mode shadow tree of the target but must propagate out of inner shadow trees when the scoped flag is set
+shadow-dom/Extensions-to-Event-Interface.html	The event must propagate out of closed mode shadow boundaries when the composed flag is set
+shadow-dom/Extensions-to-Event-Interface.html	The event must propagate out of closed mode shadow tree in which the relative target and the relative related target are the same
+shadow-dom/Extensions-to-Event-Interface.html	The event must propagate out of open mode shadow boundaries when the composed flag is set
+shadow-dom/Extensions-to-Event-Interface.html	The event must propagate out of open mode shadow tree in which the relative target and the relative related target are the same
 shadow-dom/Extensions-to-Event-Interface.html	composed on EventInit must default to false
 shadow-dom/Extensions-to-Event-Interface.html	composed on EventInit must set the composed flag
+shadow-dom/Extensions-to-Event-Interface.html	composedPath() must contain and only contain the unclosed nodes of target in closed mode shadow trees
+shadow-dom/Extensions-to-Event-Interface.html	composedPath() must contain and only contain the unclosed nodes of target in open mode shadow trees
 shadow-dom/Extensions-to-Event-Interface.html	composedPath() must return an empty array when the event has not been dispatched
 shadow-dom/Extensions-to-Event-Interface.html	composedPath() must return an empty array when the event is no longer dispatched
 shadow-dom/HTMLSlotElement-interface.html	"name" attribute on HTMLSlotElement must reflect "name" attribute
 shadow-dom/HTMLSlotElement-interface.html	HTMLSlotElement must be defined on window
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes() must return the list of assigned nodes when none of the assigned nodes themselves are slots
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes() must update when a default slot is introduced dynamically by a slot rename
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes() must update when slot and name attributes are modified
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes() must update when slot elements are inserted or removed
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes() on a HTMLSlotElement must return an empty array when the slot element is not in a tree or in a document tree
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes({"flattened":false}) must return the list of assigned nodes when none of the assigned nodes themselves are slots
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes({"flattened":false}) must update when a default slot is introduced dynamically by a slot rename
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes({"flattened":false}) must update when slot and name attributes are modified
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes({"flattened":false}) must update when slot elements are inserted or removed
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes({"flattened":false}) on a HTMLSlotElement must return an empty array when the slot element is not in a tree or in a document tree
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes({"flattened":true}) must return the list of assigned nodes when none of the assigned nodes themselves are slots
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes({"flattened":true}) must update when a default slot is introduced dynamically by a slot rename
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes({"flattened":true}) must update when slot and name attributes are modified
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes({"flattened":true}) must update when slot elements are inserted or removed
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes({"flattened":true}) on a HTMLSlotElement must return an empty array when the slot element is not in a tree or in a document tree
+shadow-dom/HTMLSlotElement-interface.html	assignedNodes({flatten: true}) must return the distributed nodes, and assignedNodes() and assignedNodes({flatten: false}) must returned the assigned nodes
+shadow-dom/HighlightRegistry-highlightsFromPoint.html	CSS.highlights.highlightsFromPoint() should throw when called with nodes that are not ShadowRoot objects in options.
+shadow-dom/MouseEvent-prototype-offsetX-offsetY.html	MouseEvent's offsetX and offsetY attributes must be relative to the target when an event is dispatched on a slotted content.
 shadow-dom/Node-prototype-cloneNode.html	cloneNode on a shadow root in closed mode must throw a NotSupportedError
 shadow-dom/Node-prototype-cloneNode.html	cloneNode on a shadow root in open mode must throw a NotSupportedError
+shadow-dom/Node-prototype-cloneNode.html	cloneNode on an element with a closed shadow root should not clone its shadow root
+shadow-dom/Node-prototype-cloneNode.html	cloneNode on an element with an open shadow root should not clone its shadow root
+shadow-dom/Range-prototype-insertNode.html	Test if Range.prototype.insertNode() should accept ShadowRoot input.
 shadow-dom/ShadowRoot-interface.html	Check the existence of ShadowRoot interface
 shadow-dom/ShadowRoot-interface.html	ShadowRoot must inherit from DocumentFragment
 shadow-dom/ShadowRoot-interface.html	ShadowRoot must not be a constructor
+shadow-dom/ShadowRoot-interface.html	ShadowRoot.activeElement must return the focused element of the context object when shadow root is closed.
+shadow-dom/ShadowRoot-interface.html	ShadowRoot.activeElement must return the focused element of the context object when shadow root is open.
+shadow-dom/ShadowRoot-interface.html	ShadowRoot.host must return the shadow host of the context object.
+shadow-dom/ShadowRoot-interface.html	ShadowRoot.innerHTML must replace all with the result of invoking the fragment parsing algorithm when shadow root is closed.
+shadow-dom/ShadowRoot-interface.html	ShadowRoot.innerHTML must replace all with the result of invoking the fragment parsing algorithm when shadow root is open.
+shadow-dom/ShadowRoot-interface.html	ShadowRoot.innerHTML must return the result of the HTML fragment serialization algorithm when shadow root is closed.
+shadow-dom/ShadowRoot-interface.html	ShadowRoot.innerHTML must return the result of the HTML fragment serialization algorithm when shadow root is open.
+shadow-dom/Slottable-mixin.html	assignedSlot attribute must be defined on Element and Text interfaces
+shadow-dom/Slottable-mixin.html	assignedSlot must return null when the assigned slot element is inside a closed shadow tree
+shadow-dom/Slottable-mixin.html	assignedSlot must return null when the node does not have an assigned node
+shadow-dom/Slottable-mixin.html	assignedSlot must return the assigned slot
+shadow-dom/assign-slottables-after-removing-shadow-tree-from-document.html	Slottables should be assigned to slots even after the shadow host has been removed from the document
+shadow-dom/attachShadow-with-ShadowRoot.html	can use ShadowRoot as options for attachShadow
+shadow-dom/attachShadow-with-ShadowRoot.html	can use ShadowRoot in document fragment as options for attachShadow
+shadow-dom/build-deep-detached-shadow-then-append-text.html	Build detached deeply nested shadow tree, attaching to the document, then appending a text node should not hang or crash
 shadow-dom/capturing-and-bubbling-event-listeners-across-shadow-trees.html	Capturing event listeners should be invoked before bubbling event listeners on the target without shadow trees
+shadow-dom/capturing-and-bubbling-event-listeners-across-shadow-trees.html	Capturing event listeners should be invoked before bubbling event listeners when an event is dispatched inside a doubly nested shadow tree
+shadow-dom/capturing-and-bubbling-event-listeners-across-shadow-trees.html	Capturing event listeners should be invoked before bubbling event listeners when an event is dispatched inside a shadow tree
+shadow-dom/capturing-and-bubbling-event-listeners-across-shadow-trees.html	Capturing event listeners should be invoked before bubbling event listeners when an event is dispatched inside a shadow tree which passes through another shadow tree
+shadow-dom/capturing-and-bubbling-event-listeners-across-shadow-trees.html	Capturing event listeners should be invoked before bubbling event listeners when an event is dispatched via a slot
 shadow-dom/declarative/declarative-parser-interaction.html	Declarative Shadow DOM: Test for crashes and improper parsing
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: Basic test
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: Closed shadow root attribute
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: Feature detection
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: Fragment parser basic test
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: Invalid shadow root attribute
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: Missing closing tag
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: Multiple roots
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: clonable attribute
 shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: declarative shadow roots are not supported by the template element
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: delegates focus attribute
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: explicit test that exceptions are not thrown
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: template containing (deeply nested) declarative shadow root
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: template containing a template containing declarative shadow root
 shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: template containing closed declarative shadow root and UA shadow root
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: template containing declarative shadow root (with shadowrootclonable)
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Declarative Shadow DOM: template containing declarative shadow root and UA shadow root
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Shadowrootclonable reflection
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Shadowrootclonable reflection, setter
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Shadowrootdelegatesfocus reflection
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Shadowrootdelegatesfocus reflection, setter
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Shadowrootmode reflection
+shadow-dom/declarative/declarative-shadow-dom-basic.html	Shadowrootmode reflection, setter
+shadow-dom/declarative/declarative-shadow-dom-opt-in.html	Non-fragment parsing needs no opt-in
+shadow-dom/declarative/declarative-shadow-dom-repeats-2.html	Repeated declarative shadow roots keep only the first
+shadow-dom/declarative/declarative-shadow-dom-repeats.html	Calling attachShadow() on declarative shadow root must match all parameters
+shadow-dom/declarative/declarative-shadow-dom-repeats.html	Calling attachShadow() on declarative shadow root must match mode
+shadow-dom/declarative/declarative-shadow-dom-repeats.html	Repeated declarative shadow roots keep only the first
+shadow-dom/declarative/declarative-shadow-dom-serialization.html	nested elements inside shadow root are serialized
+shadow-dom/declarative/declarative-shadow-dom-serialization.html	shadow root children are serialized inside template
+shadow-dom/declarative/declarative-shadow-dom-slot-assignment-serialization.html	shadowrootslotassignment=named is not serialized as it's the default
+shadow-dom/declarative/declarative-shadow-dom-slot-assignment.html	Declarative Shadow DOM: missing shadowrootslotassignment defaults to named
+shadow-dom/declarative/declarative-shadow-dom-slot-assignment.html	Declarative Shadow DOM: shadowrootslotassignment invalid value defaults to named
+shadow-dom/declarative/declarative-shadow-dom-slot-assignment.html	Declarative Shadow DOM: shadowrootslotassignment=named
+shadow-dom/declarative/declarative-with-disabled-shadow.html	Declarative Shadow DOM: declarative shadow should fail if attachShadow() already called
+shadow-dom/declarative/gethtml-ordering.html	attribute position
+shadow-dom/declarative/gethtml-ordering.html	both template and attribute position
+shadow-dom/declarative/gethtml-ordering.html	template position
+shadow-dom/declarative/move-template-before-closing-tag.html	Moving the template node during parsing should attach to initial parent (content after observer)
+shadow-dom/declarative/move-template-before-closing-tag.html	Moving the template node during parsing should attach to initial parent (content before observer)
 shadow-dom/declarative/script-access.html	Synchronous mutation events should not be fired during streaming declarative shadow DOM parsing
+shadow-dom/declarative/tentative/shadowrootadoptedstylesheets/shadowrootadoptedstylesheets-clonenode.html	cloneNode(true) with absent shadowrootadoptedstylesheets does not crash and produces an empty adoptedStyleSheets.
+shadow-dom/declarative/tentative/shadowrootadoptedstylesheets/shadowrootadoptedstylesheets-clonenode.html	cloneNode(true) with empty shadowrootadoptedstylesheets produces an empty adoptedStyleSheets on the clone.
+shadow-dom/declarative/tentative/shadowrootadoptedstylesheets/shadowrootadoptedstylesheets-idl-absent-and-empty.html	Declarative shadow roots with absent or empty shadowrootadoptedstylesheets adopt no stylesheets.
+shadow-dom/declarative/tentative/shadowrootadoptedstylesheets/shadowrootadoptedstylesheets-invalid-specifier.html	Unresolvable bare specifier produces no entry and applies no styles.
+shadow-dom/declarative/tentative/shadowrootadoptedstylesheets/shadowrootadoptedstylesheets-same-document.html	adoptedStyleSheets is populated from a <template> element's shadowrootadoptedstylesheets attribute via Document.parseHTMLUnsafe.
+shadow-dom/declarative/tentative/shadowrootadoptedstylesheets/shadowrootadoptedstylesheets-serialization.html	ShadowRoot.getHTML() returns children-only markup (no wrapping template).
+shadow-dom/event-composed-path-after-dom-mutation.html	Event.composedPath() should return the same result even if DOM is mutated (1/2)
+shadow-dom/event-composed-path-after-dom-mutation.html	Event.composedPath() should return the same result even if DOM is mutated (2/2)
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget which is identical to target. Event should be dispatched and should stop at the shadow root.
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. Event should be dispatched at every slots.
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. Event should be dispatched at every slots. relatedTarget should be correctly retargeted.
 shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. Event should be dispatched even when target and relatedTarget are same.
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. Event should stop at the shadow root
 shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. relatedTarget != target.
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. relatedTarget is a shadow-including ancestor of target.
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. relatedTarget is assigned to a slot.
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. target and relaterTarget do not share any shadow-including ancestor. target is in a shadow tree.
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. target and relaterTarget do not share any shadow-including ancestor. target is not in a shadow tree
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. target and relaterTarget share the same shadow-including ancestor. Both are in shadow trees.
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. target is a shadow-including ancestor of relatedTarget.
+shadow-dom/event-composed-path-with-related-target.html	Event path for an event with a relatedTarget. target is assigned to a slot.
+shadow-dom/event-composed-path.html	Event Path with a closed ShadowRoot.
+shadow-dom/event-composed-path.html	Event Path with a slot in a closed Shadow Root.
+shadow-dom/event-composed-path.html	Event Path with a slot in an open Shadow Root.
+shadow-dom/event-composed-path.html	Event Path with an open ShadowRoot.
+shadow-dom/event-composed-path.html	Event Path with nested ShadowRoots: closed > closed.
+shadow-dom/event-composed-path.html	Event Path with nested ShadowRoots: closed > open.
+shadow-dom/event-composed-path.html	Event Path with nested ShadowRoots: open > closed.
+shadow-dom/event-composed-path.html	Event Path with nested ShadowRoots: open > open.
+shadow-dom/event-composed-path.html	Event Path with slots in nested ShadowRoots: closed > closed.
+shadow-dom/event-composed-path.html	Event Path with slots in nested ShadowRoots: open > open.
 shadow-dom/event-composed-path.html	Event Path without ShadowRoots.
+shadow-dom/event-composed.html	A UA click event should not be scoped
 shadow-dom/event-composed.html	A new events composed value should be set to false by default.
+shadow-dom/event-composed.html	A synthetic FocusEvent should be scoped by default
+shadow-dom/event-composed.html	A synthetic FocusEvent with composed=true should not be scoped
+shadow-dom/event-composed.html	A synthetic MouseEvent should be scoped by default
+shadow-dom/event-composed.html	A synthetic MouseEvent with composed=true should not be scoped
+shadow-dom/event-composed.html	An event should be scoped by default
+shadow-dom/event-composed.html	An event should not be scoped if composed is specified
 shadow-dom/event-composed.html	Users should be able to set a composed value.
+shadow-dom/event-dispatch-order.tentative.html	Event dispatch order: capture listerns should be called in capturing phase at a shadow host
+shadow-dom/event-inside-shadow-tree.html	Firing an event inside a detached closed mode shadow tree inside closed mode shadow tree
+shadow-dom/event-inside-shadow-tree.html	Firing an event inside a detached closed mode shadow tree inside open mode shadow tree
+shadow-dom/event-inside-shadow-tree.html	Firing an event inside a detached open mode shadow tree inside closed mode shadow tree
+shadow-dom/event-inside-shadow-tree.html	Firing an event inside a detached open mode shadow tree inside open mode shadow tree
+shadow-dom/event-inside-shadow-tree.html	Firing an event inside a grand child of a detached closed mode shadow tree
+shadow-dom/event-inside-shadow-tree.html	Firing an event inside a grand child of a detached open mode shadow tree
+shadow-dom/event-inside-shadow-tree.html	Firing an event inside a grand child of an in-document closed mode shadow tree
+shadow-dom/event-inside-shadow-tree.html	Firing an event inside a grand child of an in-document open mode shadow tree
+shadow-dom/event-inside-shadow-tree.html	Firing an event inside an in-document closed mode shadow tree inside closed mode shadow tree
+shadow-dom/event-inside-shadow-tree.html	Firing an event inside an in-document closed mode shadow tree inside open mode shadow tree
+shadow-dom/event-inside-shadow-tree.html	Firing an event inside an in-document open mode shadow tree inside closed mode shadow tree
+shadow-dom/event-inside-shadow-tree.html	Firing an event inside an in-document open mode shadow tree inside open mode shadow tree
+shadow-dom/event-inside-slotted-node.html	Firing an event inside a grand child of a detached closed mode shadow host
+shadow-dom/event-inside-slotted-node.html	Firing an event inside a grand child of a detached open mode shadow host
+shadow-dom/event-inside-slotted-node.html	Firing an event inside a grand child of an in-document closed mode shadow host
+shadow-dom/event-inside-slotted-node.html	Firing an event inside a grand child of an in-document open mode shadow host
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node with two ancestors with a detached closed and closed shadow trees with an inner closed shadow tree
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node with two ancestors with a detached closed and closed shadow trees with an inner open shadow tree
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node with two ancestors with a detached closed and open shadow trees with an inner closed shadow tree
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node with two ancestors with a detached closed and open shadow trees with an inner open shadow tree
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node with two ancestors with a detached open and closed shadow trees with an inner closed shadow tree
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node with two ancestors with a detached open and closed shadow trees with an inner open shadow tree
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node with two ancestors with a detached open and open shadow trees with an inner closed shadow tree
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node with two ancestors with a detached open and open shadow trees with an inner open shadow tree
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node within a closed shadow tree that is itself a closed shadow tree (the latter being the descendent of a host for a separate closed shadow tree)
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node within a closed shadow tree that is itself a closed shadow tree (the latter being the descendent of a host for a separate open shadow tree)
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node within a closed shadow tree that is itself a open shadow tree (the latter being the descendent of a host for a separate closed shadow tree)
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node within a closed shadow tree that is itself a open shadow tree (the latter being the descendent of a host for a separate open shadow tree)
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node within a open shadow tree that is itself a closed shadow tree (the latter being the descendent of a host for a separate closed shadow tree)
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node within a open shadow tree that is itself a closed shadow tree (the latter being the descendent of a host for a separate open shadow tree)
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node within a open shadow tree that is itself a open shadow tree (the latter being the descendent of a host for a separate closed shadow tree)
+shadow-dom/event-inside-slotted-node.html	Firing an event on a node within a open shadow tree that is itself a open shadow tree (the latter being the descendent of a host for a separate open shadow tree)
+shadow-dom/event-post-dispatch-no-listeners.html	Event properties post dispatch with a closed ShadowRoot and no listeners (composed: true)
+shadow-dom/event-post-dispatch-no-listeners.html	Event properties post dispatch with a disabled element in shadow tree and no listeners (composed: true)
+shadow-dom/event-post-dispatch-no-listeners.html	Event properties post dispatch with an open ShadowRoot and no listeners (composed: false)
+shadow-dom/event-post-dispatch-no-listeners.html	Event properties post dispatch with an open ShadowRoot and no listeners (composed: true)
+shadow-dom/event-post-dispatch-no-listeners.html	Event properties post dispatch with nested open ShadowRoots and no listeners (composed: true)
+shadow-dom/event-post-dispatch.html	Event properties post dispatch when target get moved into the shadow tree by event listener
+shadow-dom/event-post-dispatch.html	Event properties post dispatch when target get moved out of the shadow tree by event listener
+shadow-dom/event-post-dispatch.html	Event properties post dispatch with a closed ShadowRoot (composed: false).
+shadow-dom/event-post-dispatch.html	Event properties post dispatch with a closed ShadowRoot (composed: true).
+shadow-dom/event-post-dispatch.html	Event properties post dispatch with an open ShadowRoot (composed: false).
+shadow-dom/event-post-dispatch.html	Event properties post dispatch with an open ShadowRoot (composed: true).
+shadow-dom/event-post-dispatch.html	Event properties post dispatch with nested ShadowRoots (composed: false).
+shadow-dom/event-post-dispatch.html	Event properties post dispatch with nested ShadowRoots (composed: true).
+shadow-dom/event-post-dispatch.html	Event properties post dispatch with relatedTarget in the different shadow trees. (composed: false)
+shadow-dom/event-post-dispatch.html	Event properties post dispatch with relatedTarget in the document tree and the shadow tree. (composed: false)
+shadow-dom/event-post-dispatch.html	Event properties post dispatch with relatedTarget in the document tree and the shadow tree. (composed: true)
+shadow-dom/event-post-dispatch.html	Event properties post dispatch with relatedTarget in the same shadow tree. (composed: false)
+shadow-dom/event-post-dispatch.html	Event properties post dispatch with relatedTarget in the same shadow tree. (composed: true)
 shadow-dom/event-post-dispatch.html	Event properties post dispatch without ShadowRoots (composed: false).
 shadow-dom/event-post-dispatch.html	Event properties post dispatch without ShadowRoots (composed: true).
+shadow-dom/event-with-related-target.html	Firing an event at A1a with relatedNode at B1a (detached) with closed mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at A1a with relatedNode at B1a (detached) with open mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at A1a with relatedNode at B1a with closed mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at A1a with relatedNode at B1a with open mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at B1a with relatedNode at A1a (detached) with closed mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at B1a with relatedNode at A1a (detached) with open mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at B1a with relatedNode at A1a with closed mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at B1a with relatedNode at A1a with open mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at B1a with relatedNode at B1 with closed mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at B1a with relatedNode at B1 with open mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at B1a with relatedNode at B1b1 with closed mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at B1a with relatedNode at B1b1 with open mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at B1a with relatedNode at D1 with closed mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at B1a with relatedNode at D1 with open mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at B1b1 with relatedNode at B1a with closed mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at B1b1 with relatedNode at B1a with open mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at D1 with relatedNode at B1a with closed mode shadow trees
+shadow-dom/event-with-related-target.html	Firing an event at D1 with relatedNode at B1a with open mode shadow trees
 shadow-dom/focus-navigation/tentative/focus-navigation-scroller-delegatesFocus.html	Should focus on scroller across shadow boundaries depending on delegatesFocus value.
 shadow-dom/focus-navigation/tentative/focus-navigation-scroller-tabindex.html	Should focus on scroller depending on tabindex value.
+shadow-dom/focus/DocumentOrShadowRoot-activeElement.html	activeElement on document & shadow root when focused element is in the document
+shadow-dom/focus/DocumentOrShadowRoot-activeElement.html	activeElement on document & shadow root when focused element is slotted
+shadow-dom/focus/ShadowRoot-delegatesFocus.html	default delegatesFocus value
+shadow-dom/focus/ShadowRoot-delegatesFocus.html	delegatesFocus set to false in init dict
+shadow-dom/focus/ShadowRoot-delegatesFocus.html	delegatesFocus set to true in init dict
+shadow-dom/focus/blur-on-shadow-host-delegatesFocus.html	Calling blur() on shadow host with delegatesFocus when the focus is on a slotted element should not remove the focus.
+shadow-dom/focus/click-focus-delegatesFocus-click.html	call click() on host with delegatesFocus, all tabindex=0
+shadow-dom/focus/click-focus-delegatesFocus-click.html	call click() on slotted element in delegatesFocus shadow tree, all tabindex=0
+shadow-dom/focus/delegatesFocus-tabindex-change.html	Setting tabindex on the shadow host of a focused element with delegatesFocus should not change focus.
 shadow-dom/focus/focus-method-delegatesFocus-nested-browsing-context.html	focus delegate step should not be run when the focus target is a shadow-including inclusive ancestor of the current focus.
+shadow-dom/focus/focus-method-with-delegatesFocus.html	xshadow1 becomes focusable with tabindex.
+shadow-dom/focus/focus-preserved-on-slot-reorder.html	Reordering a slot wrapper in the shadow tree preserves focus on the slotted element
+shadow-dom/focus/focus-selector-delegatesFocus.html	:focus does not apply to host with delegatesFocus=false when slotted element has focus
+shadow-dom/focus/focus-selector-delegatesFocus.html	:focus does not apply to host with delegatesFocus=true when slotted element has focus
+shadow-dom/focus/focus-selector-delegatesFocus.html	:focus should be removed from hosts with delegatesFocus=false when none of the elements in a nested shadow tree with delegatesFocus=false is focused
+shadow-dom/focus/focus-selector-delegatesFocus.html	:focus should be removed from hosts with delegatesFocus=false when none of the elements in a nested shadow tree with delegatesFocus=true is focused
+shadow-dom/focus/focus-selector-delegatesFocus.html	:focus should be removed from hosts with delegatesFocus=true when none of the elements in a nested shadow tree with delegatesFocus=false is focused
+shadow-dom/focus/focus-selector-delegatesFocus.html	:focus should be removed from hosts with delegatesFocus=true when none of the elements in a nested shadow tree with delegatesFocus=true is focused
 shadow-dom/form-control-form-attribute.html	Form control's form attribute should point to the form element.
+shadow-dom/form-control-form-attribute.html	Form element as form control's ancestor should work also in shadow DOM.
+shadow-dom/getElementById-dynamic-001.html	ShadowRoot.getElementById keeps working after host has been removed
+shadow-dom/getElementById-dynamic-002.html	ShadowRoot.getElementById works on elements whose id was modified after the root was disconnected
 shadow-dom/historical.html	HTMLContentElement should not exist
 shadow-dom/historical.html	element.createShadowRoot should not exist
 shadow-dom/historical.html	element.getDestinationInsertionPoints should not exist
 shadow-dom/historical.html	event.path should not exist
 shadow-dom/historical.html	text.getDestinationInsertionPoints should not exist
+shadow-dom/imperative-slot-api-cross-shadow-root.html	HTMLSlotElement.assign cross shadow root layout should not crash
+shadow-dom/imperative-slot-api-slotchange.html	Fire slotchange event on node assignment and when assigned node is removed.
+shadow-dom/imperative-slot-api-slotchange.html	Fire slotchange event on previous slot and new slot when node is reassigned.
+shadow-dom/imperative-slot-api-slotchange.html	Fire slotchange event when assign node to nested slot, ensure event bubbles ups.
+shadow-dom/imperative-slot-api-slotchange.html	Fire slotchange event when assigned node is removed.
+shadow-dom/imperative-slot-api-slotchange.html	Fire slotchange event when order of assigned nodes changes.
+shadow-dom/imperative-slot-api-slotchange.html	Fire slotchange event when removing a slot from Shadows Root that changes its assigned nodes.
+shadow-dom/imperative-slot-api-slotchange.html	Fire slotchange event when slot's assigned nodes changes.
+shadow-dom/imperative-slot-api-slotchange.html	No slotchange event when adding another slotable.
+shadow-dom/imperative-slot-api-slotchange.html	No slotchange event when adding or removing an empty slot.
+shadow-dom/imperative-slot-api-slotchange.html	Signal a slot change should be done in tree order.
+shadow-dom/imperative-slot-api-slotchange.html	slotchange event must not fire synchronously.
+shadow-dom/imperative-slot-api-slotchange.html	slotchange event should not fire when assignments do not change assignedNodes.
+shadow-dom/imperative-slot-api-slotchange.html	slotchange event should not fire when same node is assigned.
+shadow-dom/imperative-slot-api.html	Appending slottable to different host, it loses slot assignment. It can be re-assigned within a new host.
+shadow-dom/imperative-slot-api.html	Assigning invalid nodes should be allowed.
+shadow-dom/imperative-slot-api.html	Assignment with the same node in parameters should be ignored, first one wins.
+shadow-dom/imperative-slot-api.html	Imperative slot API can assign nodes in manual slot assignment.
+shadow-dom/imperative-slot-api.html	Moving a slot to a new host, the slot loses its previously assigned slottables.
+shadow-dom/imperative-slot-api.html	Moving a slot's tree order position within a shadow host has no impact on its assigned slottables.
+shadow-dom/imperative-slot-api.html	Nodes can be assigned even if slots or nodes aren't in the same tree.
+shadow-dom/imperative-slot-api.html	Order and assignment of nodes are preserved during multiple assignment in a row.
+shadow-dom/imperative-slot-api.html	Order of slottables is preserved in manual slot assignment.
+shadow-dom/imperative-slot-api.html	Previously assigned node should not be assigned if slot moved to a new shadow root. The node is re-assigned when moved back.
+shadow-dom/imperative-slot-api.html	Previously assigned slottable is moved to new slot when it's reassigned.
+shadow-dom/imperative-slot-api.html	Removing a node from the document does not break manually assigned slot linkage.
+shadow-dom/imperative-slot-api.html	Removing a slot from DOM resets its slottable's slot assignment.
+shadow-dom/imperative-slot-api.html	attachShadow can take slotAssignment parameter.
+shadow-dom/imperative-slot-api.html	slot.attach() should take variadic not sequence.
 shadow-dom/imperative-slot-api.html	throw TypeError if the passed values are neither Element nor Text
+shadow-dom/imperative-slot-fallback-clear.html	Element fallback should be cleared in a subsequent layout
+shadow-dom/imperative-slot-fallback-clear.html	Text node fallback should be cleared in a subsequently layout
+shadow-dom/imperative-slot-initial-fallback.html	Unassigned imperative slot can render element as the initial fallback
+shadow-dom/imperative-slot-initial-fallback.html	Unassigned imperative slot can render text node as the initial fallback
 shadow-dom/input-element-list.html	Input element's list attribute should point to the datalist element.
+shadow-dom/inserting-fragment-under-shadow-host.html	This tests inserting a document fragment with a mixture of elements and text nodes, which should dispatch a `slotchange` event.
+shadow-dom/leaktests/get-elements.html	getElementsByClassName() should not leak nodes in shadow tree
+shadow-dom/leaktests/get-elements.html	getElementsById() should not leak nodes in shadow tree
+shadow-dom/leaktests/get-elements.html	getElementsByName() should not leak nodes in shadow tree
+shadow-dom/leaktests/get-elements.html	getElementsByTagName() should not leak nodes in shadow tree
+shadow-dom/leaktests/html-collection.html	document.all should not contain shadow nodes
+shadow-dom/leaktests/html-collection.html	document.anchors should not contain shadow nodes
+shadow-dom/leaktests/html-collection.html	document.embeds should not contain shadow nodes
+shadow-dom/leaktests/html-collection.html	document.forms should not contain shadow nodes
+shadow-dom/leaktests/html-collection.html	document.images should not contain shadow nodes
+shadow-dom/leaktests/html-collection.html	document.links should not contain shadow nodes
+shadow-dom/leaktests/html-collection.html	document.plugins should not contain shadow nodes
+shadow-dom/leaktests/html-collection.html	document.scripts should not contain shadow nodes
+shadow-dom/leaktests/window-frames.html	window.frames should not leak frames in Shadow DOM.
 shadow-dom/offsetTop-offsetLeft-across-shadow-boundaries.html	Verifies that HTMLElement.offsetLeft accounts for shadow boundaries.
+shadow-dom/offsetTop-offsetLeft-across-shadow-boundaries.html	Verifies that HTMLElement.offsetTop accounts for shadow boundaries when nested in multiple shadow roots.
+shadow-dom/offsetTop-offsetLeft-across-shadow-boundaries.html	Verifies that HTMLElement.offsetTop accounts for shadow boundaries.
+shadow-dom/reference-target/tentative/form.html	Form association works for image inputs, which aren't in the elements collection
+shadow-dom/scroll-to-the-fragment-in-shadow-tree.html	The user agent should not scroll to an anchor element with a name attribute exactly equal to the decoded fragid in a closed shadow tree
+shadow-dom/scroll-to-the-fragment-in-shadow-tree.html	The user agent should not scroll to an anchor element with a name attribute exactly equal to the decoded fragid in an open shadow tree
+shadow-dom/scroll-to-the-fragment-in-shadow-tree.html	The user agent should not scroll to an element with an ID exactly equal to the decoded fragid in a closed shadow tree
+shadow-dom/scroll-to-the-fragment-in-shadow-tree.html	The user agent should not scroll to an element with an ID exactly equal to the decoded fragid in an open shadow tree
+shadow-dom/shadow-root-clonable.html	attachShadow with clonable: false
+shadow-dom/shadow-root-clonable.html	attachShadow with clonable: true
+shadow-dom/shadow-root-clonable.html	attachShadow with clonable: undefined
+shadow-dom/shadow-root-clonable.html	declarative shadow roots can opt in to clonable with shadowrootclonable
+shadow-dom/shadow-root-clonable.html	declarative shadow roots do *not* get clonable: true automatically
+shadow-dom/shadow-root-clonable.html	declarative shadow roots inside templates do *not* get cloned automatically
+shadow-dom/slot-reconciliation-at-node-removal.html	Slot reconciliation: assignedNodes should be empty when slot is removed from shadow tree
+shadow-dom/slotchange-event.html	slotchange event must fire on a default slot element inside a closed shadow root  in a document
+shadow-dom/slotchange-event.html	slotchange event must fire on a default slot element inside a closed shadow root  not in a document
+shadow-dom/slotchange-event.html	slotchange event must fire on a default slot element inside an open shadow root  in a document
+shadow-dom/slotchange-event.html	slotchange event must fire on a default slot element inside an open shadow root  not in a document
+shadow-dom/slotchange-event.html	slotchange event must fire on a named slot element insidea closed shadow root  in a document
+shadow-dom/slotchange-event.html	slotchange event must fire on a named slot element insidea closed shadow root  not in a document
+shadow-dom/slotchange-event.html	slotchange event must fire on a named slot element insidean open shadow root  in a document
+shadow-dom/slotchange-event.html	slotchange event must fire on a named slot element insidean open shadow root  not in a document
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element inside a closed shadow root  in a document even if the slot was removed immediately after the assigned nodes were mutated
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element inside a closed shadow root  in a document when innerHTML modifies the children of the shadow host
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element inside a closed shadow root  in a document when nested slots's contents change
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element inside a closed shadow root  not in a document even if the slot was removed immediately after the assigned nodes were mutated
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element inside a closed shadow root  not in a document when innerHTML modifies the children of the shadow host
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element inside a closed shadow root  not in a document when nested slots's contents change
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element inside an open shadow root  in a document even if the slot was removed immediately after the assigned nodes were mutated
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element inside an open shadow root  in a document when innerHTML modifies the children of the shadow host
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element inside an open shadow root  in a document when nested slots's contents change
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element inside an open shadow root  not in a document even if the slot was removed immediately after the assigned nodes were mutated
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element inside an open shadow root  not in a document when innerHTML modifies the children of the shadow host
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element inside an open shadow root  not in a document when nested slots's contents change
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element when a shadow host has a slottable and the slot was inserted and must not fire when the shadow host was mutated after the slot was removed inside a closed shadow root  in a document
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element when a shadow host has a slottable and the slot was inserted and must not fire when the shadow host was mutated after the slot was removed inside a closed shadow root  not in a document
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element when a shadow host has a slottable and the slot was inserted and must not fire when the shadow host was mutated after the slot was removed inside an open shadow root  in a document
+shadow-dom/slotchange-event.html	slotchange event must fire on a slot element when a shadow host has a slottable and the slot was inserted and must not fire when the shadow host was mutated after the slot was removed inside an open shadow root  not in a document
+shadow-dom/slotchange-event.html	slotchange event must not fire on a slot element inside a closed shadow root  in a document when another slot's assigned nodes change
+shadow-dom/slotchange-event.html	slotchange event must not fire on a slot element inside a closed shadow root  not in a document when another slot's assigned nodes change
+shadow-dom/slotchange-event.html	slotchange event must not fire on a slot element inside an open shadow root  in a document when another slot's assigned nodes change
+shadow-dom/slotchange-event.html	slotchange event must not fire on a slot element inside an open shadow root  not in a document when another slot's assigned nodes change
+shadow-dom/slotchange.html	slotchange event: A slot is assigned to another slot.
+shadow-dom/slotchange.html	slotchange event: Add a fallback content to nested slots - assignedNodes still empty.
+shadow-dom/slotchange.html	slotchange event: Append a child to a host (onslotchange).
+shadow-dom/slotchange.html	slotchange event: Append a child to a host.
+shadow-dom/slotchange.html	slotchange event: Change fallback content - assignedNodes still empty.
+shadow-dom/slotchange.html	slotchange event: Change slot's name= attribute so that a node is assigned to the slot.
+shadow-dom/slotchange.html	slotchange event: Change slot's name= attribute so that none is assigned.
+shadow-dom/slotchange.html	slotchange event: Change slot= attribute to make it assigned.
+shadow-dom/slotchange.html	slotchange event: Change slot= attribute to make it un-assigned.
+shadow-dom/slotchange.html	slotchange event: Child content is added to nested slots.
+shadow-dom/slotchange.html	slotchange event: Insert a slot before an existing slot.
+shadow-dom/slotchange.html	slotchange event: Remove a child before adding an event listener.
+shadow-dom/slotchange.html	slotchange event: Remove a child from a host.
+shadow-dom/slotchange.html	slotchange event: Remove a fallback content - assignedNodes still empty.
+shadow-dom/slotchange.html	slotchange event: Remove a fallback content from nested slots - assignedNodes still empty.
+shadow-dom/slotchange.html	slotchange event: Remove a preceding slot.
+shadow-dom/slotchange.html	slotchange event: Slotchange should be fired if assigned nodes are changed.
+shadow-dom/slots-fallback-in-document.html	Children of a slot in a document tree should not be counted in flattened assigned nodes.
+shadow-dom/slots-fallback-in-document.html	Slot fallback content in shadow tree should be counted in flattened assigned nodes.
+shadow-dom/slots-fallback.html	Slots fallback: Basic, elements only.
+shadow-dom/slots-fallback.html	Slots fallback: Basic.
+shadow-dom/slots-fallback.html	Slots fallback: Complex case, elements only.
+shadow-dom/slots-fallback.html	Slots fallback: Complex case.
+shadow-dom/slots-fallback.html	Slots fallback: Fallback contents should not be used if a node is assigned.
+shadow-dom/slots-fallback.html	Slots fallback: Mutation.  Remove a slot which is a fallback content of another slot.
+shadow-dom/slots-fallback.html	Slots fallback: Mutation. Append fallback contents.
+shadow-dom/slots-fallback.html	Slots fallback: Mutation. Assign a node to a slot so that fallback contens are no longer used.
+shadow-dom/slots-fallback.html	Slots fallback: Mutation. Remove an assigned node from a slot so that fallback contens will be used.
+shadow-dom/slots-fallback.html	Slots fallback: Mutation. Remove fallback contents.
+shadow-dom/slots-fallback.html	Slots fallback: Slots in Slots, elements only.
+shadow-dom/slots-fallback.html	Slots fallback: Slots in Slots.
+shadow-dom/slots-fallback.html	Slots fallback: Slots in Slots: Assigned nodes should be used as fallback contents of another slot
+shadow-dom/slots-outside-shadow-dom.html	Light DOM slot element should be in flattened assignedNodes
+shadow-dom/slots.html	Slots: Basic, elements only.
+shadow-dom/slots.html	Slots: Basic.
+shadow-dom/slots.html	Slots: Closed > Closed.
+shadow-dom/slots.html	Slots: Closed > Open.
+shadow-dom/slots.html	Slots: Complex case: Basi line.
+shadow-dom/slots.html	Slots: Default Slot.
+shadow-dom/slots.html	Slots: Distributed nodes for Slots not in a shadow tree.
+shadow-dom/slots.html	Slots: Mutation: Add a slot: after.
+shadow-dom/slots.html	Slots: Mutation: Add a slot: before.
+shadow-dom/slots.html	Slots: Mutation: Change slot name= attribute.
+shadow-dom/slots.html	Slots: Mutation: Change slot slot= attribute.
+shadow-dom/slots.html	Slots: Mutation: Change slot= attribute 1.
+shadow-dom/slots.html	Slots: Mutation: Change slot= attribute 2.
+shadow-dom/slots.html	Slots: Mutation: Change slot= attribute 3.
+shadow-dom/slots.html	Slots: Mutation: Remove a child.
+shadow-dom/slots.html	Slots: Mutation: Remove a slot.
+shadow-dom/slots.html	Slots: Mutation: appendChild.
+shadow-dom/slots.html	Slots: Name matching
+shadow-dom/slots.html	Slots: No direct host child.
+shadow-dom/slots.html	Slots: Open > Closed.
+shadow-dom/slots.html	Slots: Slot in Slot does not matter in assignment.
+shadow-dom/slots.html	Slots: Slot is assigned to another slot
+shadow-dom/slots.html	Slots: Slots in closed, elements only.
+shadow-dom/slots.html	Slots: Slots in closed.
+shadow-dom/slots.html	Slots: Slots not in a shadow tree, elements only.
+shadow-dom/slots.html	Slots: Slots not in a shadow tree.
+shadow-dom/untriaged/events/event-retargeting/test-001.html	A_05_01_01_T1
+shadow-dom/untriaged/events/event-retargeting/test-001.html	A_05_01_01_T2
+shadow-dom/untriaged/events/test-001.html	A_05_00_01_T1
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	<head> and <body> in a shadow tree should not be accessible from owner document's "head" and "body" properties, respectively.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	Elements in a shadow tree should not be accessible from owner document's "all" attribute.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	Elements in a shadow tree should not be accessible from owner document's "anchors" attribute.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	Elements in a shadow tree should not be accessible from owner document's "embeds" attribute.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	Elements in a shadow tree should not be accessible from owner document's "forms" attribute.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	Elements in a shadow tree should not be accessible from owner document's "images" attribute.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	Elements in a shadow tree should not be accessible from owner document's "links" attribute.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	Elements in a shadow tree should not be accessible from owner document's "plugins" attribute.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	Elements in a shadow tree should not be accessible from owner document's "scripts" attribute.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	Elements in a shadow tree should not be accessible from owner document's getElementById() method.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	Elements in a shadow tree should not be accessible from owner document's getElementsByName() method.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	Elements in a shadow tree should not be accessible from owner document's getElementsByTagName() method.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	Elements in a shadow tree should not be accessible from owner document's getElementsByTagNameNS() method.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-001.html	The content of title element in a shadow tree should not be accessible from owner document's "title" attribute.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-002.html	Elements in a shadow tree should be accessible via shadow root's getElementById() DOM tree accessor.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-002.html	Elements in a shadow tree should be accessible via shadow root's querySelectorAll() DOM tree accessor.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/dom-tree-accessors-002.html	Elements with a specific class in a shadow tree should be accessible viashadow root's querySelectorAll() DOM tree accessor.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/ownerdocument-001.html	All children nodes of a shadow root get a valid ownerDocument when added to a shadow tree.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/ownerdocument-001.html	Elements added to a shadow tree should automatically get a valid ownerDocument.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/ownerdocument-001.html	ownerDocument property of a node should remain the same, even if its child is adopted into a shadow tree.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/ownerdocument-001.html	ownerDocument property of a shadow root should be the document of the shadow host, regardless of the location of the shadow host.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/ownerdocument-001.html	ownerDocument property of an element in a shadow tree should be the document of the shadow host, even if the host element is created from another document.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/ownerdocument-001.html	ownerDocument property of elements in a shadow tree should match the document of the shadow host, regardless of the element's location in a shadow tree.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/selectors-api-001.html	Elements in a shadow tree should not be accessible from owner document's querySelector() method.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/selectors-api-001.html	Elements in a shadow tree should not be accessible from owner document's querySelectorAll() method.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/selectors-api-002.html	Elements in a shadow tree should be accessible from shadow root's querySelector() method.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/selectors-api-002.html	Elements in a shadow tree should be accessible from shadow root's querySelectorAll() method.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/shadow-root-001.html	The parentElement attribute of a shadow root must always return null, even if the shadow root is nested inside another shadow root.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/shadow-root-001.html	The parentElement attribute of a shadow root must always return null.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/shadow-root-001.html	The parentNode attribute of a shadow root must always return null, even if the shadow root is nested inside another shadow root.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/shadow-root-001.html	The parentNode attribute of a shadow root must always return null.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/window-named-properties-001.html	An iframe element in a shadow tree should not be accessible from window's named properties with its "name" attribute value.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/window-named-properties-002.html	"a" element with name attribute in a shadow tree should not be accessible from window object's named property.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/window-named-properties-002.html	"applet" element with name attribute in a shadow tree should not be accessible from window object's named property.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/window-named-properties-002.html	"area" element with name attribute in a shadow tree should not be accessible from window object's named property.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/window-named-properties-002.html	"embed" element with name attribute in a shadow tree should not be accessible from window object's named property.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/window-named-properties-002.html	"form" element with name attribute in a shadow tree should not be accessible from window object's named property.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/window-named-properties-002.html	"frameset" element with name attribute in a shadow tree should not be accessible from window object's named property.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/window-named-properties-002.html	"img" element with name attribute in a shadow tree should not be accessible from window object's named property.
+shadow-dom/untriaged/shadow-trees/upper-boundary-encapsulation/window-named-properties-002.html	"object" element with name attribute in a shadow tree should not be accessible from window object's named property.
 storage/buckets/idlharness-worker.https.any.html	Navigator includes NavigatorConcurrentHardware: member names are unique
 storage/buckets/idlharness-worker.https.any.html	Navigator includes NavigatorContentUtils: member names are unique
 storage/buckets/idlharness-worker.https.any.html	Navigator includes NavigatorCookies: member names are unique
@@ -139410,7 +140168,7 @@ trusted-types/DOMParser-parseFromString.html	document.innerText assigned via pol
 trusted-types/DedicatedWorker-constructor.https.html	Create Worker via ScriptTestUrl
 trusted-types/Document-execCommand.html	Document.execCommand("insertHTML") works as usual.
 trusted-types/Document-execCommand.html	Document.execCommand("paste") works as usual.
-trusted-types/Document-parseHTMLUnsafe-respects-current-globals-CSP.html	This document's Document.parseHTMLUnsafe() enforces Trusted Types when called from the helper frame.
+trusted-types/Document-parseHTMLUnsafe-respects-current-globals-CSP.html	The helper frame's Document.parseHTMLUnsafe() does not enforce Trusted Types when called from this document.
 trusted-types/Element-insertAdjacentHTML.html	insertAdjacentHTML with html assigned via policy (successful HTML transformation).
 trusted-types/Element-outerHTML.html	outerHTML with html assigned via policy (successful HTML transformation).
 trusted-types/Element-setAttribute.html	a.rel accepts null
@@ -139944,8 +140702,8 @@ trusted-types/block-Document-execCommand.html	Document.execCommand("paste") work
 trusted-types/block-Document-execCommand.html	Document.execCommand("paste") works with a TrustedHTML argument.
 trusted-types/block-string-assignment-to-DOMParser-parseFromString.html	'document.innerText = null' assigned via default policy does not throw
 trusted-types/block-string-assignment-to-DOMParser-parseFromString.html	document.innerText assigned via policy (successful HTML transformation).
-trusted-types/block-string-assignment-to-Document-parseHTMLUnsafe.html	'Document.parseHTMLUnsafe(null)' throws
-trusted-types/block-string-assignment-to-Document-parseHTMLUnsafe.html	`Document.parseHTMLUnsafe(string)` throws.
+trusted-types/block-string-assignment-to-Document-parseHTMLUnsafe.html	'Document.parseHTMLUnsafe(null)' assigned via default policy does not throw
+trusted-types/block-string-assignment-to-Document-parseHTMLUnsafe.html	Document.parseHTMLUnsafe assigned via policy (successful HTML transformation).
 trusted-types/block-string-assignment-to-Document-write.html	`document.write` passes the correct sink string to the default policy
 trusted-types/block-string-assignment-to-Document-write.html	`document.writeln` passes the correct sink string to the default policy
 trusted-types/block-string-assignment-to-Element-insertAdjacentHTML.html	`insertAdjacentHTML(null)` assigned via default policy does not throw.
@@ -139956,11 +140714,15 @@ trusted-types/block-string-assignment-to-Element-outerHTML.html	outerHTML with h
 trusted-types/block-string-assignment-to-Element-setAttribute.html	a.rel accepts a Trusted Type
 trusted-types/block-string-assignment-to-Element-setAttribute.html	a.rel accepts null
 trusted-types/block-string-assignment-to-Element-setAttribute.html	a.rel accepts strings
-trusted-types/block-string-assignment-to-Element-setHTMLUnsafe.html	`element.setHTMLUnsafe(string)` throws.
+trusted-types/block-string-assignment-to-Element-setHTMLUnsafe.html	element.setHTMLUnsafe(html) assigned via policy (successful HTML transformation).
 trusted-types/block-string-assignment-to-HTMLIFrameElement-srcdoc.html	`iframe.srcdoc = null` assigned via default policy does not throw
 trusted-types/block-string-assignment-to-HTMLIFrameElement-srcdoc.html	iframe.srcdoc assigned via policy (successful HTML transformation).
 trusted-types/block-string-assignment-to-Range-createContextualFragment.html	`range.createContextualFragment(null)` assigned via default policy does not throw.
 trusted-types/block-string-assignment-to-Range-createContextualFragment.html	range.createContextualFragment assigned via policy (successful HTML transformation).
+trusted-types/block-string-assignment-to-ShadowRoot-innerHTML.html	`shadowRoot.innerHTML = string` assigned via default policy does not throw
+trusted-types/block-string-assignment-to-ShadowRoot-innerHTML.html	shadowRoot.innerHTML = html assigned via policy (successful HTML transformation).
+trusted-types/block-string-assignment-to-ShadowRoot-setHTMLUnsafe.html	`shadowRoot.setHTMLUnsafe(string)` assigned via default policy does not throw
+trusted-types/block-string-assignment-to-ShadowRoot-setHTMLUnsafe.html	shadowRoot.setHTMLUnsafe(html) assigned via policy (successful HTML transformation).
 trusted-types/block-string-assignment-to-Window-setTimeout-setInterval.html	Window.setInterval assigned via policy (successful Script transformation).
 trusted-types/block-string-assignment-to-Window-setTimeout-setInterval.html	Window.setTimeout and Window.setInterval pass the correct sink to the default policy
 trusted-types/block-string-assignment-to-Window-setTimeout-setInterval.html	Window.setTimeout assigned via policy (successful Script transformation).
@@ -140471,7 +141233,7 @@ trusted-types/trusted-types-secondary-document.html	Element.setAttributeNodeNS t
 trusted-types/trusted-types-secondary-document.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a plain string
 trusted-types/trusted-types-secondary-document.html	Element.setAttributeNodeNS throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a plain string
 trusted-types/trusted-types-secondary-document.html	HTMLElement innerHTML works with a TrustedHTML
-trusted-types/trusted-types-secondary-document.html	HTMLElement setHTMLUnsafe throws with a plain string
+trusted-types/trusted-types-secondary-document.html	HTMLElement setHTMLUnsafe works with a TrustedHTML
 trusted-types/trusted-types-secondary-document.html	HTMLIFrameElement srcdoc works with a TrustedHTML
 trusted-types/trusted-types-secondary-document.html	HTMLScriptElement innerText works with a TrustedScript
 trusted-types/trusted-types-secondary-document.html	HTMLScriptElement text works with a TrustedScript
@@ -140490,6 +141252,8 @@ trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItemNS 
 trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/2000/svg, element=g,  attrName=ondblclick with a plain string
 trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/2000/svg, element=script,  attrName=href with a plain string
 trusted-types/trusted-types-secondary-document.html	NamedNodeMap.setNamedItemNS throws for elementNS=http://www.w3.org/2000/svg, element=script, attrNS=http://www.w3.org/1999/xlink,  attrName=href with a plain string
+trusted-types/trusted-types-secondary-document.html	ShadowRoot innerHTML works with a TrustedHTML
+trusted-types/trusted-types-secondary-document.html	ShadowRoot setHTMLUnsafe works with a TrustedHTML
 trusted-types/trusted-types-tojson.html	toJSON
 url/IdnaTestV2-removed.any.html	Loading data…
 url/IdnaTestV2-removed.any.html	ToASCII("-ᢗ‌🄄.𑜢") C1; P1; V5; V6; V3 (ignored)

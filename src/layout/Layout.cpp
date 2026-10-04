@@ -135,7 +135,7 @@ bool is_blank(std::string const& text)
 // The document's element: its margins collapse with nothing.
 bool is_root(dom::Element const& element)
 {
-    return element.parent() != nullptr && !element.parent()->is_element();
+    return element.parent() != nullptr && element.parent()->type() == dom::NodeType::Document;
 }
 
 // The clear a <br> carries: its CSS, else its clear attribute (all = both).
@@ -1823,7 +1823,7 @@ struct Layouter {
     // its style and to make its ::before and ::after.
     void append_box_children(dom::Element const& element, std::vector<dom::Node const*>& out) const
     {
-        for (dom::Node const* child : element.children()) {
+        for (dom::Node const* child : dom::flat_children(element)) {
             if (child->is_element()) {
                 auto const& child_element = static_cast<dom::Element const&>(*child);
                 ComputedStyle const* const child_style = style_of(child_element);
@@ -1848,7 +1848,9 @@ struct Layouter {
     // contents parent in a run of box children, whose style it inherits.
     ComputedStyle const* text_style(dom::Node const& text, ComputedStyle const* holder) const
     {
-        dom::Node const* const parent = text.parent();
+        // The parent it is drawn under: the slot it was assigned to, when
+        // it was assigned to one.
+        dom::Node const* const parent = dom::flat_parent(text);
         if (parent && parent->is_element()) {
             ComputedStyle const* const own = style_of(static_cast<dom::Element const&>(*parent));
             if (own && is_contents(*own))
@@ -1866,7 +1868,7 @@ struct Layouter {
         if (!style || !is_contents(*style) || before_of(style) || after_of(style))
             return false;
         bool any = false;
-        for (dom::Node const* child : element.children()) {
+        for (dom::Node const* child : dom::flat_children(element)) {
             if (child->is_text()) {
                 if (!is_blank(static_cast<dom::Text const*>(child)->data))
                     return false;
@@ -1903,7 +1905,7 @@ struct Layouter {
     // the root.
     dom::Element const* box_parent(dom::Element const& element) const
     {
-        for (dom::Node const* up = element.parent(); up && up->is_element(); up = up->parent()) {
+        for (dom::Node const* up = dom::flat_parent(element); up && up->is_element(); up = dom::flat_parent(*up)) {
             auto const& ancestor = static_cast<dom::Element const&>(*up);
             ComputedStyle const* const style = style_of(ancestor);
             if (!style || !is_contents(*style))
@@ -2537,7 +2539,7 @@ struct Layouter {
     {
         dom::Element const* const owner
             = node.is_element() ? static_cast<dom::Element const*>(&node) : nullptr;
-        std::vector<dom::Node const*> const children(node.children().begin(), node.children().end());
+        std::vector<dom::Node const*> const children(dom::flat_children(node).begin(), dom::flat_children(node).end());
         collect_inline_nodes(children, owner, inherited, items, false);
     }
 
@@ -4592,7 +4594,7 @@ struct Layouter {
     // generated boxes.
     bool holds_nothing_in_flow(dom::Element const& element, float inner_width) const
     {
-        for (dom::Node const* child : element.children()) {
+        for (dom::Node const* child : dom::flat_children(element)) {
             if (child->is_text()) {
                 if (!is_blank(static_cast<dom::Text const*>(child)->data))
                     return false;
@@ -4625,7 +4627,7 @@ struct Layouter {
     // boxes (controls, pictures, inline-blocks) hold their contents in.
     bool contains_block_descendant(dom::Element const& element) const
     {
-        return contains_block_among(element.children());
+        return contains_block_among(dom::flat_children(element));
     }
 
     // The same over a run of nodes an anonymous box holds.
@@ -4680,7 +4682,7 @@ struct Layouter {
     // reach past it and carry the float along.
     bool contains_float(dom::Element const& element) const
     {
-        for (dom::Node const* child : element.children()) {
+        for (dom::Node const* child : dom::flat_children(element)) {
             if (!child->is_element())
                 continue;
             auto const& child_element = static_cast<dom::Element const&>(*child);
@@ -4887,7 +4889,7 @@ struct Layouter {
         // A <button> is no table whatever its display says (HTML §15.5.2):
         // an inline-table one lays out as an inline-block, a table as a block.
         if (is_table_display(style.display) && !lays_out_contents(element)) {
-            std::vector<dom::Node const*> const children(element.children().begin(), element.children().end());
+            std::vector<dom::Node const*> const children(dom::flat_children(element).begin(), dom::flat_children(element).end());
             return layout_table(&element, &element, children, style, x, y, containing_width, list_depth, floats,
                 options);
         }
@@ -5250,7 +5252,7 @@ struct Layouter {
         std::vector<dom::Node const*> const* nodes = nullptr, bool no_generated = false,
         std::u32string_view inside_marker = {}) const
     {
-        std::vector<dom::Node const*> const own_children(element.children().begin(), element.children().end());
+        std::vector<dom::Node const*> const own_children(dom::flat_children(element).begin(), dom::flat_children(element).end());
         std::vector<dom::Node const*> const& children = nodes ? *nodes : own_children;
         // Does this element establish a block or an inline formatting context?
         css::GeneratedBox const* const before = no_generated ? nullptr : before_of(&style);
@@ -5405,8 +5407,8 @@ struct Layouter {
                 // Its boxes are this box's children, where it stands.
                 if (css::GeneratedBox const* const own_before = before_of(child_style))
                     place_or_append(*own_before, child_element);
-                std::vector<dom::Node const*> const grandchildren(child_element.children().begin(),
-                    child_element.children().end());
+                std::vector<dom::Node const*> const grandchildren(dom::flat_children(child_element).begin(),
+                    dom::flat_children(child_element).end());
                 walk(grandchildren, &child_element, *child_style);
                 if (css::GeneratedBox const* const own_after = after_of(child_style))
                     place_or_append(*own_after, child_element);
@@ -5486,8 +5488,8 @@ struct Layouter {
                         InlineItem { InlineItem::Kind::BoxStart, {}, child_style, &child_element });
                     if (css::GeneratedBox const* const own_before = before_of(child_style))
                         append_generated(*own_before, child_element, pending_inline);
-                    std::vector<dom::Node const*> const grandchildren(child_element.children().begin(),
-                        child_element.children().end());
+                    std::vector<dom::Node const*> const grandchildren(dom::flat_children(child_element).begin(),
+                        dom::flat_children(child_element).end());
                     open_inline_boxes.push_back(child_style);
                     walk(grandchildren, &child_element, *child_style);
                     open_inline_boxes.pop_back();
@@ -6000,13 +6002,13 @@ struct Layouter {
             return grid_intrinsic_widths(element, style);
         if (is_table_display(style.display) && !lays_out_contents(element)) {
             // The table's border box, less the edges block_intrinsic adds.
-            std::vector<dom::Node const*> const children(element.children().begin(), element.children().end());
+            std::vector<dom::Node const*> const children(dom::flat_children(element).begin(), dom::flat_children(element).end());
             Intrinsic const box = table_intrinsic_widths(children, style, &element);
             float const edges = resolve(style.padding_left, 0) + resolve(style.padding_right, 0)
                 + style.border_left.width + style.border_right.width;
             return { std::max(0.0f, box.min - edges), std::max(0.0f, box.max - edges) };
         }
-        std::vector<dom::Node const*> const children(element.children().begin(), element.children().end());
+        std::vector<dom::Node const*> const children(dom::flat_children(element).begin(), dom::flat_children(element).end());
         return nodes_intrinsic_widths(children, style, &element, false);
     }
 
@@ -6062,8 +6064,8 @@ struct Layouter {
                     // counts as the text it holds.
                     if (css::GeneratedBox const* const own_before = before_of(child_style))
                         append_generated(*own_before, child_element, pending);
-                    std::vector<dom::Node const*> const grandchildren(child_element.children().begin(),
-                        child_element.children().end());
+                    std::vector<dom::Node const*> const grandchildren(dom::flat_children(child_element).begin(),
+                        dom::flat_children(child_element).end());
                     walk(grandchildren, &child_element, *child_style);
                     if (css::GeneratedBox const* const own_after = after_of(child_style))
                         append_generated(*own_after, child_element, pending);
@@ -6082,8 +6084,8 @@ struct Layouter {
                 }
                 if (is_floating(*child_style) || !is_block_level(*child_style)) {
                     if (splits_around_blocks(child_element, *child_style)) {
-                        std::vector<dom::Node const*> const grandchildren(child_element.children().begin(),
-                            child_element.children().end());
+                        std::vector<dom::Node const*> const grandchildren(dom::flat_children(child_element).begin(),
+                            dom::flat_children(child_element).end());
                         walk(grandchildren, &child_element, *child_style);
                     } else {
                         collect_inline_element(child_element, *child_style, pending);
@@ -6457,7 +6459,7 @@ struct Layouter {
         items_of = [&](dom::Element const& parent, ComputedStyle const& parent_style) {
             if (css::GeneratedBox const* const before = before_of(&parent_style))
                 append_generated(*before, parent, pending);
-            for (dom::Node const* child : parent.children()) {
+            for (dom::Node const* child : dom::flat_children(parent)) {
                 if (child->is_text()) {
                     std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                     if (!text.empty())
@@ -7143,7 +7145,7 @@ struct Layouter {
         children_of = [&](dom::Element const& parent, ComputedStyle const& parent_style) {
         if (css::GeneratedBox const* const before = before_of(&parent_style))
             add_generated(*before, parent);
-        for (dom::Node const* child : parent.children()) {
+        for (dom::Node const* child : dom::flat_children(parent)) {
             if (child->is_text()) {
                 std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                 if (!text.empty())
@@ -8112,7 +8114,7 @@ struct Layouter {
         children_of = [&](dom::Element const& parent, ComputedStyle const& parent_style) {
         if (css::GeneratedBox const* const before = before_of(&parent_style))
             add_generated(*before, parent);
-        for (dom::Node const* child : parent.children()) {
+        for (dom::Node const* child : dom::flat_children(parent)) {
             if (child->is_text()) {
                 std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                 if (!text.empty())
@@ -9044,7 +9046,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
                 if (!placed.fixed || !placed.element)
                     continue;
                 Fragment* home = nullptr;
-                for (dom::Node const* up = placed.element->parent(); up && !home; up = up->parent()) {
+                for (dom::Node const* up = dom::flat_parent(*placed.element); up && !home; up = dom::flat_parent(*up)) {
                     if (!up->is_element())
                         continue;
                     Fragment* const found = fragment_of(result.root, static_cast<dom::Element const&>(*up));

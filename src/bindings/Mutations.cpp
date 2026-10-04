@@ -127,6 +127,20 @@ void arrange_delivery(Realm::Internals& in)
                 js::Value const arguments[] = { list, js::Value::object(observer) };
                 internals.call_reporting(observer->callback, js::Value::object(observer), arguments, "MutationObserver callback");
             }
+            // Then the slots whose assigned nodes changed are told (DOM
+            // §4.3.3 "notify mutation observers", the signal slots): each
+            // document's list is taken first, since a listener may
+            // signal more.
+            auto const signalled = std::move(internals.agent.slot_signal_realms);
+            internals.agent.slot_signal_realms.clear();
+            for (auto const& [here, realm] : signalled) {
+                if (here.expired())
+                    continue;
+                std::vector<dom::Element*> const slots = std::move(realm->document->signal_slots);
+                realm->document->signal_slots.clear();
+                for (dom::Element* const slot : slots)
+                    realm->realm.dispatch_event(slot, "slotchange", EventInit { true, false, false });
+            }
             return js::Value::undefined();
         });
     interpreter.enqueue_microtask(js::Value::object(deliver), {});
@@ -189,6 +203,16 @@ void queue_record(Realm::Internals& in, dom::Node& node, std::string_view type,
         arrange_delivery(in);
 }
 
+}
+
+// A slot of this realm's document was signalled (DOM §4.2.2.5): the realm is
+// noted with the flag that says it is still here, and the delivery arranged.
+void slot_change_signalled(Realm::Internals& in)
+{
+    auto& waiting = in.agent.slot_signal_realms;
+    if (std::none_of(waiting.begin(), waiting.end(), [&in](auto const& entry) { return entry.second == &in; }))
+        waiting.push_back({ in.alive, &in });
+    arrange_delivery(in);
 }
 
 // --- What the tree tells it -------------------------------------------------------------

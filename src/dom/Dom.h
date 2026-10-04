@@ -48,7 +48,10 @@ enum class QuirksMode {
 };
 
 class Document;
+class Element;
 class Node;
+class ShadowRoot;
+void assign_slottables(Element& slot);
 
 // A range's boundary points (DOM §5): nodes and offsets, in UTF-16 code units
 // into a node with data and in children otherwise. The documents of its nodes
@@ -106,13 +109,34 @@ public:
 
     bool is_element() const { return m_type == NodeType::Element; }
     bool is_text() const { return m_type == NodeType::Text; }
+    // A shadow root (DOM §4.8): a document fragment with a host, the root
+    // of a tree of its own.
+    bool is_shadow_root() const { return m_is_shadow_root; }
 
-    // Whether this node is in its document's tree (DOM §4.2.1 "connected").
+    // Whether this node is connected (DOM §4.2.2): its shadow-including
+    // root is its document, so a node in a shadow tree is connected when
+    // the tree's host is.
     bool is_connected() const;
-    // The node at the top of the tree this one is in: the document, or the
-    // root of a detached subtree.
+    // The node at the top of the tree this one is in: the document, a
+    // shadow root, or the root of a detached subtree.
     Node& root();
     Node const& root() const;
+    // The same carried on through hosts: a shadow root's is its host's.
+    Node& shadow_including_root();
+    Node const& shadow_including_root() const;
+    // The parent, or for a shadow root its host: one step up the
+    // shadow-including tree.
+    Node* parent_or_host() const;
+
+    // The slot this node is assigned to (DOM §4.2.2.3): an element or a
+    // text node that is a child of a shadow host shows where a <slot> of
+    // the host's shadow tree takes it. Null for everything else.
+    Element* assigned_slot() const { return m_assigned_slot; }
+    // One step up the way styles and the states see the tree: the slot
+    // this node is assigned to, else its parent, else — a shadow root —
+    // its host. The style marks go up this way, so that a walk down the
+    // flat tree meets them.
+    Node* style_parent() const;
 
     // The one script object standing for this node, cached here for the
     // node's lifetime (ADR 0001 §1); null until a script first reaches it.
@@ -146,11 +170,15 @@ public:
 
 private:
     friend class Document;
+    friend class ShadowRoot;
+    friend void assign_slottables(Element& slot);
     void mark_style_ancestors(std::uint32_t clock);
     Document* m_document;
     NodeType m_type;
+    bool m_is_shadow_root = false;
     Node* m_parent = nullptr;
     std::vector<Node*> m_children;
+    Element* m_assigned_slot = nullptr;
     StyleMarks m_style_marks;
 };
 
@@ -229,11 +257,36 @@ public:
         }
     }
 
+    // The shadow root this element hosts (DOM §4.9, "shadow host"), or
+    // null; attach_shadow makes it, once.
+    ShadowRoot* shadow_root() const { return m_slotting ? m_slotting->shadow_root : nullptr; }
+    ShadowRoot& attach_shadow();
+    // A <slot>'s assigned nodes (DOM §4.2.2.2): the host's children it
+    // shows in its place, in tree order. Empty for any other element, and
+    // for a slot that shows its own children instead.
+    std::vector<Node*> const& assigned_nodes() const;
+    // A <slot>'s manually assigned nodes, which slot.assign() names and a
+    // shadow root with manual slot assignment reads.
+    std::vector<Node*> const& manually_assigned_nodes() const;
+    void set_manually_assigned_nodes(std::vector<Node*> nodes);
+    bool is_slot() const { return is_html("slot"); }
+
 private:
+    friend class Document;
+    friend void assign_slottables(Element& slot);
+    // What only a shadow host or a slot has, kept apart so that every
+    // other element pays one pointer for it.
+    struct Slotting {
+        ShadowRoot* shadow_root = nullptr;
+        std::vector<Node*> assigned_nodes;
+        std::vector<Node*> manually_assigned_nodes;
+    };
+    Slotting& slotting();
     std::string m_namespace_uri;
     std::string m_local_name;
     std::vector<Attr> m_attributes;
     Node* m_template_content = nullptr;
+    std::unique_ptr<Slotting> m_slotting;
     bool m_custom_defined = false;
 };
 
@@ -285,6 +338,38 @@ public:
         : Node(document, NodeType::DocumentFragment)
     {
     }
+};
+
+// A shadow root (DOM §4.8): the root of a shadow tree, a document fragment
+// that has a host and no parent. What is in it is shown in the host's
+// place, the host's own children only where a <slot> of the tree takes
+// them. It lives as long as its host does.
+class ShadowRoot final : public DocumentFragment {
+public:
+    enum class Mode { Open, Closed };
+    enum class SlotAssignment { Named, Manual };
+
+    ShadowRoot(Document& document, Element& host);
+
+    Element& host() const { return *m_host; }
+    Mode mode = Mode::Open;
+    SlotAssignment slot_assignment = SlotAssignment::Named;
+    bool delegates_focus = false;
+    bool clonable = false;
+    bool serializable = false;
+    // Made by the parser from a <template shadowrootmode> (HTML §13.2.6.4.7).
+    bool declarative = false;
+    bool available_to_element_internals = false;
+
+    // The tree's <slot> elements in tree order, found again after a slot
+    // was inserted, removed or renamed.
+    std::vector<Element*> const& slots() const;
+    void slots_changed() { m_slots_stale = true; }
+
+private:
+    Element* m_host;
+    mutable std::vector<Element*> m_slots;
+    mutable bool m_slots_stale = true;
 };
 
 // A stylesheet as the CSS object model has it (CSSOM §6.1), shared between
@@ -393,6 +478,12 @@ public:
     std::function<std::optional<std::string>(Element const&)> live_value;
 
     QuirksMode quirks_mode = QuirksMode::No;
+    // Whether the parser makes a shadow root of a `<template shadowrootmode>`
+    // (HTML §13.2.6.4.4, "allow declarative shadow roots"): a document that
+    // was navigated to does, and one a script had parsed from a string —
+    // DOMParser, innerHTML's fragment — does not, unless it asked
+    // (setHTMLUnsafe, parseHTMLUnsafe).
+    bool allow_declarative_shadow_roots = true;
     // Whether this is an XML document rather than an HTML one (DOM §4.5), and
     // the content type a document made by script reports; a loaded
     // document's content type is its realm's.
@@ -419,6 +510,22 @@ public:
     // it. Most documents have none, and for them the document base URL is
     // the document's own, with no walk of the tree to find that out.
     bool may_have_base() const { return m_base_elements != 0; }
+
+    // Whether a shadow root was ever attached in this document or moved
+    // into it. Most documents have none, and for them an insertion or a
+    // removal does none of the slot work.
+    bool has_shadow_trees() const { return m_shadow_roots != 0; }
+    // The slots whose assigned nodes changed and have not been told yet
+    // (DOM §4.2.2.5 "signal a slot change"), in the order signalled: the
+    // bindings fire slotchange at each when mutation observers are next
+    // notified, and `on_slot_signal` is how they are asked to do that.
+    std::vector<Element*> signal_slots;
+    std::function<void()> on_slot_signal;
+    void signal_slot_change(Element& slot);
+    // A node that stays in the tree and is no longer drawn — it lost its
+    // slot, or its parent took a shadow tree: the styles kept for what is
+    // in it are let go of, as a removed node's are.
+    void forget_styles_in(Node& node);
     // How many there have been: a number that moves when the parser makes
     // one, for whoever keeps the base URL it last worked out.
     std::uint32_t base_elements_made() const { return m_base_elements; }
@@ -483,14 +590,87 @@ private:
     std::vector<Range*> m_ranges;
     std::vector<IteratorPlace*> m_places;
     std::uint32_t m_base_elements = 0;
+    friend class ShadowRoot;
+    std::uint32_t m_shadow_roots = 0;
     mutable std::uint32_t m_style_clock = 1;
     std::uint32_t m_style_everything = 0;
     std::vector<StyleRemoval> m_style_removals;
     std::uint32_t m_style_removals_from = 0;
 };
 
-// Deep-copies a subtree; the clone's nodes are owned by `document`.
+// Deep-copies a subtree; the clone's nodes are owned by `document`. A host's
+// shadow root is copied with it when the root is clonable (DOM §4.5 "clone
+// a node").
 Node* clone_subtree(Node const& node, Document& document);
+// The clonable shadow root of `source` copied onto `clone`, its tree whole
+// whether or not the host's own children are copied; nothing for a host
+// without one.
+void clone_shadow_root(Element const& source, Element& clone);
+
+// A name a page may give an element of its own (HTML §4.13.1): a lowercase
+// ASCII start, a dash somewhere after it, no uppercase, and none of the
+// hyphenated names SVG and MathML took first. And a name whose element may
+// host a shadow tree (DOM §4.9 "valid shadow host name"): such a name, or
+// one of the HTML elements a page may give one.
+bool is_valid_custom_element_name(std::string_view name);
+bool is_valid_shadow_host_name(std::string_view name);
+
+// --- Slots (DOM §4.2.2.3 to §4.2.2.5) ---------------------------------------
+//
+// A slottable is an element or a text node; a slot is an HTML <slot>
+// element, which does something only in a shadow tree. Insertion and
+// removal run these themselves; whoever changes a `slot` or a slot's `name`
+// attribute says so with the two functions at the end.
+
+// "Find a slot": the slot of the parent's shadow tree that takes this
+// child of a shadow host — by name, or by slot.assign() where the root
+// assigns manually — or null. `open_only` answers null for a closed tree.
+Element* find_slot(Node const& slottable, bool open_only = false);
+// "Find slottables": the host's children this slot takes, in tree order.
+std::vector<Node*> find_slottables(Element const& slot);
+// "Find flattened slottables": the same with a slot among them replaced by
+// what it takes in turn, and a slot that takes nothing by its own children.
+std::vector<Node*> find_flattened_slottables(Element const& slot);
+// "Assign slottables" for one slot and for every slot of a tree, and
+// "assign a slot" for one slottable. A slot whose nodes changed is signalled.
+void assign_slottables(Element& slot);
+void assign_slottables_for_tree(Node& root);
+void assign_a_slot(Node& slottable);
+// An element's `slot` attribute, or a slot's `name`, was set, changed or
+// removed.
+void slot_attribute_changed(Element& element);
+void slot_name_changed(Element& slot);
+
+// --- The flat tree (CSS Scoping §2.5) ---------------------------------------
+//
+// What is drawn: a host's place is taken by its shadow tree, and a slot's by
+// the nodes assigned to it, or by its own children when it has none.
+
+// The node's children there: a host's shadow root's, a slot's assigned
+// nodes, anything else's own.
+std::vector<Node*> const& flat_children(Node const& node);
+// Its parent there: the slot it is assigned to, the host for a child of a
+// shadow root, otherwise its parent — and null for a node that is not in
+// the flat tree at all: a host's child that no slot takes, a slot's own
+// child while the slot shows assigned nodes, a shadow root.
+Node* flat_parent(Node const& node);
+
+// The node and everything below it with the shadow trees of the hosts
+// among them (DOM §4.2.2.1 "shadow-including inclusive descendants"), in
+// shadow-including tree order: a host, its shadow tree, then its children.
+template<typename Node_, typename Visit>
+void for_each_shadow_including(Node_& node, Visit&& visit)
+{
+    visit(node);
+    if (node.is_element()) {
+        if (ShadowRoot* const shadow = static_cast<Element const&>(node).shadow_root())
+            for_each_shadow_including(static_cast<Node_&>(*static_cast<Node*>(shadow)), visit);
+    }
+    // A copy: the visit may move children about.
+    std::vector<Node*> const children = node.children();
+    for (Node* const child : children)
+        for_each_shadow_including(static_cast<Node_&>(*child), visit);
+}
 
 // Sets a range's boundaries, keeping the range with its nodes' documents.
 void set_range(Range&, Node* start_node, std::uint32_t start_offset, Node* end_node, std::uint32_t end_offset);

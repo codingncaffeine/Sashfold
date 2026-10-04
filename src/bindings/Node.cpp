@@ -218,6 +218,9 @@ void collect_scripts(dom::Node& node, std::vector<dom::Element*>& out)
         auto& element = static_cast<dom::Element&>(node);
         if (element.is_html("script"))
             out.push_back(&element);
+        // A host's shadow tree comes with it.
+        if (dom::ShadowRoot* const shadow = element.shadow_root())
+            collect_scripts(*shadow, out);
     }
     for (dom::Node* child : node.children())
         collect_scripts(*child, out);
@@ -298,8 +301,12 @@ Native ensure_pre_insertion_validity(Realm::Internals& in, dom::Node& parent, do
     dom::NodeType const parent_type = parent.type();
     if (parent_type != dom::NodeType::Document && parent_type != dom::NodeType::DocumentFragment && parent_type != dom::NodeType::Element)
         return in.throw_dom_exception("HierarchyRequestError", "This node type does not support this method");
-    if (is_inclusive_ancestor(node, parent))
-        return in.throw_dom_exception("HierarchyRequestError", "The new child element contains the parent");
+    // A host-including inclusive ancestor (DOM §4.2.3): the way up from
+    // the parent goes out of a shadow tree to its host.
+    for (dom::Node const* up = &parent; up != nullptr; up = up->parent_or_host()) {
+        if (up == &node)
+            return in.throw_dom_exception("HierarchyRequestError", "The new child element contains the parent");
+    }
     if (child && child->parent() != &parent)
         return in.throw_dom_exception("NotFoundError", "The node before which the new node is to be inserted is not a child of this node");
     if (node.type() == dom::NodeType::Document)
@@ -386,31 +393,58 @@ void remove_node(Realm::Internals& in, dom::Node& node)
     in.realm.note_mutation();
 }
 
-std::vector<dom::Node*> parse_markup(Realm::Internals& in, dom::Element& context, std::string_view markup, bool scripts_started)
+std::vector<dom::Node*> parse_markup(Realm::Internals& in, dom::Element& context, std::string_view markup, bool scripts_started,
+    bool declarative_shadow_roots)
 {
     html::FragmentParseResult result = html::parse_fragment(decode_utf8(markup), context.namespace_uri(),
-        context.local_name(), true);
+        context.local_name(), true, declarative_shadow_roots, context.shadow_root() != nullptr);
     std::vector<dom::Node*> children;
     if (!result.root)
         return children;
-    children = result.root->children();
-    for (dom::Node* child : children) {
-        // Scripts created by the fragment parser are already started and
-        // never run (§13.4), unless the caller unmarks them.
+    // Scripts created by the fragment parser are already started and
+    // never run (§13.4), unless the caller unmarks them.
+    auto const take = [&](dom::Node& child) {
         if (scripts_started) {
             std::vector<dom::Element*> scripts;
-            collect_scripts(*child, scripts);
+            collect_scripts(child, scripts);
             for (dom::Element* script : scripts)
                 in.started_scripts.insert(script);
         }
-        context.document().adopt(*child); // detaches from the parse root too
+        context.document().adopt(child); // detaches from the parse root too
+    };
+    // A template for the context itself gave the element that stood in for
+    // it a shadow root: the context takes one like it, and its tree.
+    if (dom::ShadowRoot* const made = result.context != nullptr ? result.context->shadow_root() : nullptr;
+        made != nullptr && made->declarative && context.shadow_root() == nullptr && !custom_element_disables_shadow(in, context)) {
+        dom::ShadowRoot& shadow = context.attach_shadow();
+        shadow.mode = made->mode;
+        shadow.clonable = made->clonable;
+        shadow.serializable = made->serializable;
+        shadow.delegates_focus = made->delegates_focus;
+        shadow.declarative = true;
+        shadow.available_to_element_internals = true;
+        std::vector<dom::Node*> const tree = made->children();
+        for (dom::Node* const child : tree) {
+            take(*child);
+            shadow.append_child(*child);
+        }
+        if (shadow.is_connected()) {
+            for (dom::Node* const child : tree) {
+                in.frames_inserted(*child);
+                custom_elements_inserted(in, *child);
+            }
+        }
     }
+    children = result.root->children();
+    for (dom::Node* child : children)
+        take(*child);
     return children;
 }
 
-void replace_children_with_markup(Realm::Internals& in, dom::Node& parent, dom::Element& context, std::string_view markup)
+void replace_children_with_markup(Realm::Internals& in, dom::Node& parent, dom::Element& context, std::string_view markup,
+    bool declarative_shadow_roots)
 {
-    std::vector<dom::Node*> const children = parse_markup(in, context, markup);
+    std::vector<dom::Node*> const children = parse_markup(in, context, markup, true, declarative_shadow_roots);
     std::vector<dom::Node*> const old = parent.children();
     bool const was_connected = parent.is_connected();
     for (dom::Node* child : old) {
@@ -504,6 +538,7 @@ dom::Node* clone_node_alone(Realm::Internals& in, dom::Node const& node, bool de
         auto const& element = static_cast<dom::Element const&>(node);
         dom::Element* clone = document.create<dom::Element>(element.namespace_uri(), element.local_name());
         clone->attributes() = element.attributes();
+        dom::clone_shadow_root(element, *clone);
         return clone;
     }
     case dom::NodeType::Text:
@@ -969,12 +1004,11 @@ void install_node(Realm::Internals& in, js::Object& node)
             return js::Value::null();
         return js::Value::object(internals.wrap(n.document()));
     });
-    node_getter(in, node, "isConnected", [](Realm::Internals& internals, dom::Node& n) -> Native {
-        return js::Value::boolean(&n.root() == internals.document || (n.root().type() == dom::NodeType::Document && &n.root() != internals.document));
+    node_getter(in, node, "isConnected", [](Realm::Internals&, dom::Node& n) -> Native {
+        return js::Value::boolean(n.is_connected());
     });
     node_getter(in, node, "baseURI", [](Realm::Internals& internals, dom::Node&) -> Native { return internals.string(internals.base_url().serialize()); });
     node_method(in, node, "hasChildNodes", 0, [](Realm::Internals&, dom::Node& n, Args) -> Native { return js::Value::boolean(!n.children().empty()); });
-    node_method(in, node, "getRootNode", 0, [](Realm::Internals& internals, dom::Node& n, Args) -> Native { return js::Value::object(internals.wrap(n.root())); });
     node_method(in, node, "appendChild", 1, [](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
         std::optional<dom::Node*> const child = node_argument(internals, args, 0, "appendChild");
         if (!child)
@@ -1018,6 +1052,8 @@ void install_node(Realm::Internals& in, js::Object& node)
         return result;
     });
     node_method(in, node, "cloneNode", 0, [](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
+        if (n.is_shadow_root())
+            return internals.throw_dom_exception("NotSupportedError", "Failed to execute 'cloneNode' on 'Node': ShadowRoot nodes are not clonable.");
         dom::Node* clone = clone_node(internals, n, js::Interpreter::to_boolean(js::argument(args, 0)));
         custom_elements_cloned(internals, *clone);
         return js::Value::object(internals.wrap(*clone));
@@ -1309,8 +1345,6 @@ void install_element(Realm::Internals& in, js::Object& element)
     element_forwarding_getter(
         in, element, "part", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "part"); }, "value");
     element_getter(in, element, "attributes", [](Realm::Internals& internals, dom::Element& e) -> Native { return attribute_map(internals, e); });
-    element_getter(in, element, "shadowRoot", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
-    element_getter(in, element, "assignedSlot", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); });
     element_method(in, element, "hasAttributes", 0, [](Realm::Internals&, dom::Element& e, Args) -> Native { return js::Value::boolean(!std::as_const(e).attributes().empty()); });
     element_method(in, element, "getAttributeNames", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         js::Interpreter::Roots const roots(internals.interpreter);
@@ -1628,9 +1662,6 @@ void install_element(Realm::Internals& in, js::Object& element)
     for (std::string_view const name : { "releasePointerCapture", "setPointerCapture" })
         element_method(in, element, name, 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
     element_method(in, element, "hasPointerCapture", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(false); });
-    element_method(in, element, "attachShadow", 1, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
-        return internals.throw_dom_exception("NotSupportedError", "Shadow trees are not supported");
-    });
     element_method(in, element, "getAnimations", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
         return js::Value::object(internals.interpreter.new_array());
     });
@@ -1944,9 +1975,7 @@ void install_nodes(Realm::Internals& in)
             return js::Value::object(internals.wrap(*internals.document->create<dom::DocumentFragment>()));
         });
     install_parent_node(in, *fragment, false);
-    // ShadowRoot: the interface object alone. attachShadow refuses with
-    // NotSupportedError, so no page gets one, but a library's
-    // `node instanceof ShadowRoot` must be a question, not a ReferenceError.
+    // ShadowRoot: its members are ShadowDom.cpp's.
     js::Object* shadow_root = define_interface(in, "ShadowRoot", fragment);
     static constexpr std::string_view shadow_root_event_types[] = { "slotchange" };
     define_event_handlers(in, *shadow_root, shadow_root_event_types);

@@ -50,7 +50,7 @@ struct Builder {
             auto const& element = static_cast<dom::Element const&>(node);
             ComputedStyle const* const style = style_of(element);
             if (style && style->display == Display::Contents) {
-                for (dom::Node const* child : element.children())
+                for (dom::Node const* child : dom::flat_children(element))
                     append_flattened(*child, into);
                 return;
             }
@@ -69,7 +69,7 @@ struct Builder {
     std::vector<dom::Node const*> children_of(dom::Element const& element) const
     {
         std::vector<dom::Node const*> result;
-        for (dom::Node const* child : element.children())
+        for (dom::Node const* child : dom::flat_children(element))
             append_flattened(*child, result);
         return result;
     }

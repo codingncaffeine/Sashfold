@@ -30,6 +30,16 @@ public:
     // An iframe or frame the parser inserted, before the next token: the
     // insertion steps that give it its initial document. Nothing by default.
     virtual void frame_inserted(dom::Element&) { }
+    // Whether the element's class turned shadow roots off (a custom
+    // element's static disabledFeatures), asked before the parser gives
+    // it one from a template. Nothing is refused by default.
+    virtual bool shadow_root_refused(dom::Element&) { return false; }
+    // An element with a custom element's name the parser has just put in
+    // the tree, before the next token: where a class the page defined for
+    // the name makes the element one of its own (HTML §13.2.6.1 "create an
+    // element for a token") and its connectedCallback runs — with the
+    // element still empty, its children not yet parsed.
+    virtual void custom_element_inserted(dom::Element&) { }
 };
 
 class TreeBuilder {
@@ -155,6 +165,7 @@ private:
     InsertionLocation appropriate_place(dom::Node* override_target = nullptr) const;
     dom::Element* create_element_for_token(Token const&, std::string_view namespace_uri);
     dom::Element* insert_html_element(Token const&);
+    bool insert_declarative_shadow_root(Token const&);
     dom::Element* insert_foreign_element(Token const&, std::string_view namespace_uri);
     void insert_character(char32_t);
     void insert_comment(Token const&, dom::Node* explicit_parent = nullptr);
@@ -217,8 +228,16 @@ void parse_document_bytes_into(dom::Document&, std::string_view bytes, ScriptRun
 struct FragmentParseResult {
     std::unique_ptr<dom::Document> document;
     dom::Element* root = nullptr; // fragment children hang under this
+    // The element that stood in for the context: it hosts a shadow root
+    // when the fragment began with a declarative one for the context.
+    dom::Element* context = nullptr;
 };
+// `declarative_shadow_roots`: whether a `<template shadowrootmode>` in the
+// markup makes a shadow root (setHTMLUnsafe) or stays a template (innerHTML);
+// `context_hosts_shadow`: the context element has a shadow root already, so
+// a template for it stays a template.
 FragmentParseResult parse_fragment(std::u32string code_points, std::string_view context_namespace,
-    std::string_view context_local_name, bool scripting = false);
+    std::string_view context_local_name, bool scripting = false, bool declarative_shadow_roots = false,
+    bool context_hosts_shadow = false);
 
 }

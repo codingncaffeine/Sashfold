@@ -684,10 +684,10 @@ void test_attribute_names_global_this_and_shadow_root()
     page->eval("var hits = 0; addEventListener('ping', function () { hits++; }); dispatchEvent(new Event('ping')); var a = window.addEventListener; a('ping', function () { hits += 10; }); window.dispatchEvent(new Event('ping'));");
     CHECK_EQ(page->number("hits"), 12);
     CHECK(page->throws("EventTarget.prototype.addEventListener.call({}, 'x', function () {})").starts_with("TypeError"));
-    // ShadowRoot is an interface; nothing makes one yet.
+    // ShadowRoot is an interface only attachShadow makes an object of.
     CHECK(page->boolean("typeof ShadowRoot === 'function' && !(d instanceof ShadowRoot) && Object.getPrototypeOf(ShadowRoot.prototype) === DocumentFragment.prototype"));
     CHECK(page->throws("new ShadowRoot()").starts_with("TypeError"));
-    CHECK(page->throws("d.attachShadow({ mode: 'open' })").starts_with("NotSupportedError"));
+    CHECK(page->throws("d.attachShadow({})").starts_with("TypeError"));
     CHECK_EQ(page->console, "");
 }
 
@@ -4080,6 +4080,254 @@ void test_an_inserted_script_runs_after_the_script_that_inserted_it()
     CHECK_EQ(page.string("out.join('|')"), "inserted|error handler");
 }
 
+// Shadow trees as a script makes and reads them (DOM §4.8, §4.2.2): the
+// root attachShadow gives, the slots and what each takes, the roots a node
+// answers with, and what a tree hides from the document around it.
+void test_shadow_trees()
+{
+    Page page("<!DOCTYPE html><body><div id=host><span slot=a id=l1>one</span>plain<b id=l2>two</b></div></body>");
+    page.load();
+    page.eval("var host = document.getElementById('host'); var root = host.attachShadow({ mode: 'open' });");
+    CHECK_EQ(page.string("[root instanceof ShadowRoot, root instanceof DocumentFragment, root.mode, root.host === host, host.shadowRoot === root,"
+                         " root.nodeType, root.nodeName, String(root), root.parentNode, root.delegatesFocus, root.slotAssignment].join('|')"),
+        "true|true|open|true|true|11|#document-fragment|[object ShadowRoot]||false|named");
+    // One root an element, and only the elements that may have one.
+    CHECK(page.throws("host.attachShadow({ mode: 'open' })").starts_with("NotSupportedError"));
+    CHECK(page.throws("document.createElement('img').attachShadow({ mode: 'open' })").starts_with("NotSupportedError"));
+    CHECK(page.throws("document.createElement('div').attachShadow({})").starts_with("TypeError"));
+    CHECK(page.throws("document.createElement('div').attachShadow({ mode: 'ajar' })").starts_with("TypeError"));
+    CHECK(page.boolean("document.createElement('my-own').attachShadow({ mode: 'closed' }) instanceof ShadowRoot"));
+    // The tree's markup, and the slots: by name, the default one, and text.
+    page.eval("root.innerHTML = '<p id=p>shadow <slot name=a id=sa></slot> and <slot id=sd>fallback</slot></p>';"
+              " var sa = root.getElementById('sa'), sd = root.getElementById('sd'), p = root.getElementById('p');"
+              " var l1 = document.getElementById('l1'), l2 = document.getElementById('l2');");
+    CHECK_EQ(page.string("root.innerHTML"), "<p id=\"p\">shadow <slot name=\"a\" id=\"sa\"></slot> and <slot id=\"sd\">fallback</slot></p>");
+    CHECK_EQ(page.string("[sa.assignedNodes().length, sa.assignedElements()[0].id, sd.assignedNodes().map(function (n) { return n.nodeName; }).join(','),"
+                         " sd.assignedElements().length, l1.assignedSlot === sa, l2.assignedSlot === sd, host.firstChild.nextSibling.assignedSlot === sd].join('|')"),
+        "1|l1|#text,B|1|true|true|true");
+    // The tree is its own: the document does not see into it.
+    CHECK_EQ(page.string("[p.getRootNode() === root, p.getRootNode({ composed: true }) === document, p.isConnected, root.isConnected,"
+                         " document.getElementById('p'), document.querySelector('#p'), root.querySelector('#p') === p, p.parentNode === root,"
+                         " root.firstChild === p, host.childNodes.length, host.innerHTML.indexOf('shadow')].join('|')"),
+        "true|true|true|true|||true|true|true|3|-1");
+    // A slot attribute, and a slot's name, move a child at once.
+    CHECK_EQ(page.string("l2.slot = 'a'; var first = sa.assignedElements().map(function (e) { return e.id; }).join(',') + '/' + sd.assignedNodes().length;"
+                         " sd.name = 'a'; sa.name = ''; var second = sa.assignedNodes().length + '/' + sd.assignedElements().length;"
+                         " sd.removeAttribute('name'); sa.name = 'a'; l2.removeAttribute('slot'); first + ' ' + second"),
+        "l1,l2/1 1/2");
+    // A flattened answer follows a slot handed to another tree's slot.
+    page.eval("var inner = document.createElement('div'); p.appendChild(inner); inner.appendChild(sd);"
+              " var deep = inner.attachShadow({ mode: 'open' }); deep.innerHTML = '<slot id=through></slot>';");
+    CHECK_EQ(page.string("var through = deep.getElementById('through'); [through.assignedNodes().length, through.assignedNodes()[0] === sd,"
+                         " through.assignedNodes({ flatten: true }).map(function (n) { return n.nodeName; }).join(','), sd.assignedSlot === through].join('|')"),
+        "1|true|#text,B|true");
+    // A closed tree is its maker's alone.
+    CHECK_EQ(page.string("var h2 = document.createElement('div'); var sealed = h2.attachShadow({ mode: 'closed' }); sealed.innerHTML = '<slot></slot>';"
+                         " var c = h2.appendChild(document.createElement('u'));"
+                         " [h2.shadowRoot, sealed.mode, c.assignedSlot, sealed.firstChild.assignedNodes()[0] === c].join('|')"),
+        "|closed||true");
+    // Slots assigned by hand.
+    CHECK_EQ(page.string("var h3 = document.createElement('div'); var manual = h3.attachShadow({ mode: 'open', slotAssignment: 'manual' });"
+                         " manual.innerHTML = '<slot id=s1></slot><slot id=s2></slot>'; var a = h3.appendChild(document.createElement('a')), b = h3.appendChild(document.createElement('b'));"
+                         " var s1 = manual.firstChild, s2 = manual.lastChild; var before = s1.assignedNodes().length; s2.assign(b, a); s1.assign(a);"
+                         " [before, s1.assignedNodes().map(function (n) { return n.nodeName; }), s2.assignedNodes().map(function (n) { return n.nodeName; }), a.assignedSlot.id, manual.slotAssignment].join('|')"),
+        "0|A|B|s1|manual");
+    // A clonable root goes with its host's clone, whole; any other does not, and no root is cloned alone.
+    CHECK_EQ(page.string("var h4 = document.createElement('div'); h4.attachShadow({ mode: 'open', clonable: true }).innerHTML = '<em>x</em>';"
+                         " var copy = h4.cloneNode(false); var h5 = document.createElement('div'); h5.attachShadow({ mode: 'open' });"
+                         " [copy.shadowRoot.innerHTML, copy.shadowRoot !== h4.shadowRoot, h5.cloneNode(true).shadowRoot].join('|')"),
+        "<em>x</em>|true|");
+    CHECK(page.throws("h4.shadowRoot.cloneNode(true)").starts_with("NotSupportedError"));
+    CHECK(page.throws("document.importNode(h4.shadowRoot)").starts_with("NotSupportedError"));
+    CHECK(page.throws("document.adoptNode(h4.shadowRoot)").starts_with("HierarchyRequestError"));
+    // A node may not go inside what it holds, through a shadow root either.
+    CHECK(page.throws("root.appendChild(host)").starts_with("HierarchyRequestError"));
+    // What a script put on an element inside a tree stays on it while the
+    // tree is in the page, though nothing else holds the element's object
+    // (a collection runs at every allocation here).
+    page.eval("root.appendChild(document.createElement('q')).mark = 7; for (var i = 0; i < 50; ++i) ({ filler: [i] });");
+    CHECK_EQ(page.number("root.lastChild.mark"), 7);
+    CHECK_EQ(page.console, "");
+}
+
+// An event's path through shadow trees (DOM §2.9): a listener outside a
+// tree is told the host, not the node inside; an event that is not composed
+// stops at its tree's root; composedPath() hides a closed tree; slotchange
+// is told when the observers are.
+void test_events_through_shadow_trees()
+{
+    Page page("<!DOCTYPE html><body><div id=host><span slot=a id=l1>one</span></div></body>");
+    page.load();
+    page.eval(R"JS(
+        var host = document.getElementById('host'), l1 = document.getElementById('l1');
+        var root = host.attachShadow({ mode: 'open' });
+        root.innerHTML = '<p id=p><slot name=a id=sa></slot><slot id=sd></slot></p>';
+        var p = root.getElementById('p'), sa = root.getElementById('sa'), sd = root.getElementById('sd');
+        var log = [];
+        function name(t) { return t === p ? 'p' : t === host ? 'host' : t === root ? 'root' : t === l1 ? 'l1' : t === sa ? 'sa' : t && t.nodeName; }
+        [['p', p], ['root', root], ['host', host], ['body', document.body], ['window', window]].forEach(function (pair) {
+            pair[1].addEventListener('ping', function (e) { log.push(pair[0] + ':' + name(e.target) + ':' + e.eventPhase + ':' + e.composedPath().length); });
+        });
+        p.dispatchEvent(new CustomEvent('ping', { bubbles: true, composed: true }));
+        var composed = log.join(' ');
+        log = [];
+        var plain = new CustomEvent('ping', { bubbles: true });
+        p.dispatchEvent(plain);
+        var uncomposed = log.join(' ') + ' then ' + name(plain.target);
+        log = [];
+        sa.addEventListener('poke', function (e) { log.push('slot:' + name(e.target)); });
+        p.addEventListener('poke', function (e) { log.push('p:' + name(e.target)); });
+        host.addEventListener('poke', function (e) { log.push('host:' + name(e.target) + ':' + e.eventPhase); });
+        l1.dispatchEvent(new Event('poke', { bubbles: true }));
+        var slotted = log.join(' ');
+    )JS");
+    // Inside the tree the target is the node; the host and everything above it see the host, at the target phase there.
+    CHECK_EQ(page.string("composed"), "p:p:2:7 root:p:3:7 host:host:2:7 body:host:3:7 window:host:3:7");
+    // Not composed: it never leaves the tree, and what began inside is not left on the event.
+    CHECK_EQ(page.string("uncomposed"), "p:p:2:2 root:p:3:2 then null");
+    // A slotted node's event goes up through its slot and the tree, then the host.
+    CHECK_EQ(page.string("slotted"), "slot:l1 p:l1 host:l1:3");
+    // A closed tree is left out of the path for a listener outside it.
+    page.eval(R"JS(
+        var h2 = document.body.appendChild(document.createElement('div'));
+        var sealed = h2.attachShadow({ mode: 'closed' });
+        sealed.innerHTML = '<b></b>';
+        var seen = [];
+        sealed.firstChild.addEventListener('ping', function (e) { seen.push('inside ' + e.composedPath().length); });
+        h2.addEventListener('ping', function (e) { seen.push('outside ' + e.composedPath().length + ' ' + (e.composedPath()[0] === h2)); });
+        sealed.firstChild.dispatchEvent(new Event('ping', { bubbles: true, composed: true }));
+    )JS");
+    CHECK_EQ(page.string("seen.join('|')"), "inside 7|outside 5 true");
+    // A related target inside the same tree as the target, seen from outside, is the target: nothing is dispatched there.
+    page.eval(R"JS(
+        var related = [];
+        var from = sealed.firstChild, to = sealed.appendChild(document.createElement('i'));
+        to.addEventListener('mouseover', function (e) { related.push('inside ' + (e.relatedTarget === from)); });
+        h2.addEventListener('mouseover', function (e) { related.push('outside'); });
+        to.dispatchEvent(new MouseEvent('mouseover', { bubbles: true, composed: true, relatedTarget: from }));
+    )JS");
+    CHECK_EQ(page.string("related.join('|')"), "inside true");
+    // slotchange: one event a slot, at the next microtask checkpoint, bubbling to the root.
+    page.eval(R"JS(
+        var changes = [];
+        sd.addEventListener('slotchange', function () { changes.push('sd ' + sd.assignedNodes().length); });
+        root.addEventListener('slotchange', function (e) { changes.push('root sees ' + e.target.id); });
+        host.appendChild(document.createElement('i'));
+        host.appendChild(document.createElement('i'));
+        l1.slot = '';
+        var before = changes.length;
+    )JS");
+    CHECK_EQ(page.number("before"), 0);
+    CHECK_EQ(page.string("changes.join(', ')"), "sd 3, root sees sd, root sees sa");
+    CHECK_EQ(page.console, "");
+}
+
+// A shadow root the parser makes from a template (HTML §13.2.6.4.4), where
+// it does and where a template stays one, and the markup that writes one
+// back (getHTML) or reads one in (setHTMLUnsafe, parseHTMLUnsafe).
+void test_declarative_shadow_roots()
+{
+    Page page(R"HTML(<!DOCTYPE html><body>
+<div id=h1><template shadowrootmode="open" shadowrootclonable shadowrootserializable><b>in shadow</b><slot></slot></template><i>light</i></div>
+<div id=h2><template shadowrootmode="closed">closed tree</template></div>
+<div id=h3><template shadowrootmode="bogus">stays a template</template></div>
+</body>)HTML");
+    page.load();
+    page.eval("var h1 = document.getElementById('h1'), h2 = document.getElementById('h2'), h3 = document.getElementById('h3');");
+    CHECK_EQ(page.string("[h1.shadowRoot.innerHTML, h1.innerHTML, h1.shadowRoot.clonable, h1.shadowRoot.serializable, h1.shadowRoot.mode,"
+                         " h1.querySelector('template'), h1.shadowRoot.querySelector('slot').assignedNodes().length].join(' | ')"),
+        "<b>in shadow</b><slot></slot> | <i>light</i> | true | true | open |  | 1");
+    CHECK_EQ(page.string("[h2.shadowRoot, h2.innerHTML, h2.childNodes.length].join(' | ')"), " |  | 0");
+    CHECK_EQ(page.string("[h3.shadowRoot, h3.firstChild.nodeName, h3.firstChild.content.textContent].join(' | ')"), " | TEMPLATE | stays a template");
+    // The element's own script takes the declarative root over, emptied.
+    CHECK_EQ(page.string("var taken = h1.attachShadow({ mode: 'open' }); (taken === h1.shadowRoot) + ' ' + taken.childNodes.length"), "true 0");
+    CHECK(page.throws("h1.attachShadow({ mode: 'open' })").starts_with("NotSupportedError"));
+    // innerHTML makes none; setHTMLUnsafe does, on the element itself too.
+    CHECK_EQ(page.string("var d = document.createElement('div'); d.innerHTML = '<div><template shadowrootmode=open>x</template></div>';"
+                         " d.firstChild.shadowRoot + ' ' + d.innerHTML"),
+        "null <div><template shadowrootmode=\"open\">x</template></div>");
+    CHECK_EQ(page.string("d.setHTMLUnsafe('<div><template shadowrootmode=open shadowrootserializable>x<slot></slot></template>y</div>');"
+                         " [d.firstChild.shadowRoot.innerHTML, d.innerHTML, d.getHTML({ serializableShadowRoots: true }),"
+                         " d.firstChild.getHTML({ shadowRoots: [d.firstChild.shadowRoot] }), d.getHTML()].join(' | ')"),
+        "x<slot></slot> | <div>y</div> | <div><template shadowrootmode=\"open\" shadowrootserializable=\"\">x<slot></slot></template>y</div>"
+        " | <template shadowrootmode=\"open\" shadowrootserializable=\"\">x<slot></slot></template>y | <div>y</div>");
+    CHECK_EQ(page.string("var e = document.createElement('div'); e.setHTMLUnsafe('<template shadowrootmode=open>mine</template>after');"
+                         " e.shadowRoot.innerHTML + ' | ' + e.innerHTML"),
+        "mine | after");
+    CHECK_EQ(page.string("var made = Document.parseHTMLUnsafe('<div id=x><template shadowrootmode=open>p</template></div>');"
+                         " var parsed = new DOMParser().parseFromString('<div id=x><template shadowrootmode=open>p</template></div>', 'text/html');"
+                         " made.getElementById('x').shadowRoot.innerHTML + ' | ' + parsed.getElementById('x').shadowRoot"),
+        "p | null");
+    CHECK_EQ(page.string("var t = document.createElement('template'); t.shadowRootMode = 'OPEN'; t.shadowRootClonable = true; t.outerHTML + ' ' + t.shadowRootMode"),
+        "<template shadowrootmode=\"OPEN\" shadowrootclonable=\"\"></template> open");
+    CHECK_EQ(page.console, "");
+}
+
+// A custom element the page defined before the parser came to it is made
+// one as the parser inserts it (HTML §13.2.6.1): its constructor runs with
+// no attributes and no children on it, then the attributes are told, then
+// it is connected — all before the next token. One inside a shadow tree is
+// connected when its host is, and one in a template's contents is left
+// alone.
+void test_the_parser_makes_custom_elements()
+{
+    Page page(R"HTML(<!DOCTYPE html><head><script>
+        var log = [];
+        customElements.define('x-early', class extends HTMLElement {
+            constructor() { super(); log.push('made ' + this.attributes.length + ' ' + this.childNodes.length); }
+            connectedCallback() { log.push('connected ' + this.id + ' ' + this.childNodes.length + ' ' + (this.nextSibling === null)); }
+            attributeChangedCallback(n, o, v) { log.push('attribute ' + n + '=' + v + ' was ' + o); }
+            static get observedAttributes() { return ['data-x']; }
+        });
+    </script></head><body>
+<x-early id=a data-x=1>child</x-early><p>after</p>
+<template><x-early id=inert></x-early></template>
+<script>
+    var parsed = log.join('|');
+    log = [];
+    customElements.define('x-inner', class extends HTMLElement {
+        connectedCallback() { log.push('inner connected ' + this.isConnected + ' ' + (this.getRootNode() instanceof ShadowRoot)); }
+        disconnectedCallback() { log.push('inner disconnected'); }
+    });
+    customElements.define('x-outer', class extends HTMLElement {
+        constructor() { super(); this.attachShadow({ mode: 'open' }).innerHTML = '<x-inner></x-inner>'; }
+        connectedCallback() { log.push('outer connected'); }
+    });
+    var outer = document.createElement('x-outer');
+    log.push('made');
+    document.body.appendChild(outer);
+    outer.remove();
+</script></body>)HTML");
+    page.load();
+    CHECK_EQ(page.string("parsed"), "made 0 0|attribute data-x=1 was null|connected a 0 true");
+    CHECK_EQ(page.string("document.getElementById('a').textContent"), "child");
+    CHECK_EQ(page.string("log.join('|')"), "made|outer connected|inner connected true true|inner disconnected");
+    // disabledFeatures turns attachShadow off for the class's elements.
+    CHECK(page.throws("customElements.define('x-plain', class extends HTMLElement { static get disabledFeatures() { return ['shadow']; } });"
+                      " document.createElement('x-plain').attachShadow({ mode: 'open' })")
+            .starts_with("NotSupportedError"));
+    CHECK_EQ(page.console, "");
+}
+
+// XMLSerializer (DOM Parsing and Serialization §3.2): every element closed,
+// its namespace declared where it changes, values escaped for XML.
+void test_the_xml_serializer()
+{
+    Page page("<!DOCTYPE html><body></body>");
+    page.load();
+    CHECK_EQ(page.string("var f = document.createDocumentFragment(); var d = document.createElement('div'); d.className = 'a\"b';"
+                         " d.innerHTML = 'x &amp; y<br><img src=\"a.png\"><svg viewBox=\"0 0 1 1\"><use xlink:href=\"#a\"/><path d=\"M0 0\"></path></svg><p></p>';"
+                         " f.appendChild(d); f.appendChild(document.createTextNode('<t>')); new XMLSerializer().serializeToString(f)"),
+        "<div xmlns=\"http://www.w3.org/1999/xhtml\" class=\"a&quot;b\">x &amp; y<br /><img src=\"a.png\" />"
+        "<svg xmlns=\"http://www.w3.org/2000/svg\" viewBox=\"0 0 1 1\"><use xmlns:xlink=\"http://www.w3.org/1999/xlink\" xlink:href=\"#a\"/><path d=\"M0 0\"/></svg>"
+        "<p></p></div>&lt;t&gt;");
+    CHECK_EQ(page.string("new XMLSerializer().serializeToString(document.createComment('c')) + new XMLSerializer().serializeToString(document.createProcessingInstruction('go', 'now'))"),
+        "<!--c--><?go now?>");
+    CHECK(page.throws("new XMLSerializer().serializeToString('text')").starts_with("TypeError"));
+    CHECK(page.boolean("(function () { class S extends XMLSerializer {} return new S() instanceof S; })()"));
+    CHECK_EQ(page.console, "");
+}
+
 // The cue interfaces a player's caption code builds (HTML §4.8.11.11.4,
 // WebVTT §6): a VTTCue's settings with their rules, and its text as nodes.
 void test_text_track_cues()
@@ -5783,6 +6031,11 @@ int main()
     test_blob_urls_are_fetched_from_the_store();
     test_import_maps();
     test_an_inserted_script_runs_after_the_script_that_inserted_it();
+    test_shadow_trees();
+    test_events_through_shadow_trees();
+    test_declarative_shadow_roots();
+    test_the_parser_makes_custom_elements();
+    test_the_xml_serializer();
     test_text_track_cues();
     test_the_audio_constructor();
     test_interfaces_that_promise();

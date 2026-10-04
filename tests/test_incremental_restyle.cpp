@@ -7,6 +7,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -687,6 +688,378 @@ void reaches()
     }
 }
 
+// The focus moved from an element to one that holds it: the holder was in
+// the old chain already (:focus-within) and is the focused one now, which
+// its own :focus and :focus-visible rules read.
+void focus_moves_up()
+{
+    Page page = make_page(200);
+    css::StyleSet const set(std::vector<css::SheetSource> { { std::string(state_sheet), std::nullopt } });
+    Kept kept;
+    update_and_check(*page.document, set, kept);
+    dom::Element* group = nullptr;
+    dom::Element* leaf = nullptr;
+    for (dom::Element* element : page.elements) {
+        dom::Attr const* const classes = element->find_attribute("class");
+        if (!group && classes && classes->value.find("group") != std::string::npos)
+            group = element;
+        if (group && !leaf && classes && classes->value == "leaf" && element->parent() && element->parent()->parent() == group)
+            leaf = element;
+    }
+    CHECK(group != nullptr && leaf != nullptr);
+    page.document->set_focused(leaf, true);
+    Step const inside = update_and_check(*page.document, set, kept);
+    CHECK_EQ(inside.difference.value_or(""), std::string());
+    CHECK_EQ(kept.styles.at(group).padding_top.value, 0.0f); // not focused itself
+    page.document->set_focused(group, true);
+    Step const moved = update_and_check(*page.document, set, kept);
+    CHECK_EQ(moved.difference.value_or(""), std::string());
+    CHECK_EQ(kept.styles.at(group).padding_top.value, 4.0f); // .group:focus-visible
+}
+
+// --- Shadow trees ------------------------------------------------------------
+//
+// The same instrument over a page of components: hosts with a shadow tree
+// each — a style element, slots by name and a default one, a nested host
+// that hands a slot on — their own children slotted, unslotted and moved
+// between slots, and a document sheet that styles hosts and their parts.
+// What changes: the classes of hosts, of what is inside the trees and of
+// what is slotted, the slot a child asks for, a slot's name, a tree's sheet,
+// the children of hosts and of trees, new shadow roots on plain elements.
+
+constexpr std::string_view shadow_page_sheet = R"(
+body { color: rgb(10, 20, 30); font-size: 15px }
+.card { margin: 1px }
+x-card { color: rgb(7, 8, 9) }
+.card.on { border: 1px solid rgb(1, 2, 3) }
+p { color: rgb(200, 0, 0) }
+.inner { background-color: rgb(250, 0, 250) }
+.pick { font-weight: bold }
+.dark .lit { text-indent: 2px }
+x-card::part(head) { letter-spacing: 2px }
+.card.on::part(head) { word-spacing: 1px }
+.lit + .lit { margin-left: 2px }
+)";
+
+constexpr std::string_view shadow_tree_sheet = R"(
+:host { display: block; padding: 2px; color: rgb(0, 0, 100) }
+:host(.on) { padding: 5px }
+:host(.on) .inner { font-style: italic }
+:host-context(.dark) .inner { color: rgb(9, 9, 9) }
+.inner { margin-left: 1px }
+.inner.pick { margin-left: 4px }
+p { color: rgb(0, 120, 0) }
+::slotted(.lit) { text-decoration: underline }
+::slotted(p) { margin-top: 3px }
+:host(.on) ::slotted(.pick) { letter-spacing: 1px }
+slot[name=head]::slotted(*) { font-size: 20px }
+.inner:first-child { padding-top: 1px }
+)";
+
+constexpr std::string_view shadow_tree_sheet_other = R"(
+:host { display: block; padding: 3px }
+.inner { margin-left: 7px; color: rgb(50, 60, 70) }
+::slotted(*) { margin-bottom: 2px }
+)";
+
+std::size_t count_shadow_including(dom::Node& node)
+{
+    std::size_t count = 0;
+    dom::for_each_shadow_including(node, [&count](dom::Node& inside) { count += inside.is_element() ? 1 : 0; });
+    return count;
+}
+
+struct ShadowPage {
+    std::unique_ptr<dom::Document> document;
+    dom::Element* body = nullptr;
+    dom::Element* wrapper = nullptr;
+    std::vector<dom::Element*> elements; // every element made, light or in a shadow tree
+    std::vector<dom::Text*> sheets; // the text of each tree's style element
+};
+
+dom::Element* note(ShadowPage& page, dom::Element* element)
+{
+    page.elements.push_back(element);
+    return element;
+}
+
+// A shadow tree on `host`: a sheet, a named slot inside a part, a paragraph
+// of its own, and the default slot — in a nested host now and then, whose
+// own tree hands the slot on.
+void give_shadow_tree(ShadowPage& page, dom::Element& host, bool nested)
+{
+    dom::Document& document = *page.document;
+    dom::ShadowRoot& shadow = host.attach_shadow();
+    dom::Element* style = note(page, make(document, "style", ""));
+    dom::Text* sheet = make_text(document, shadow_tree_sheet);
+    page.sheets.push_back(sheet);
+    style->append_child(*sheet);
+    shadow.append_child(*style);
+    dom::Element* head = note(page, make(document, "div", "inner"));
+    head->attributes().push_back(dom::Attr { "part", "head", "", "" });
+    dom::Element* head_slot = note(page, make(document, "slot", ""));
+    head_slot->attributes().push_back(dom::Attr { "name", "head", "", "" });
+    head_slot->append_child(*make_text(document, "no head"));
+    head->append_child(*head_slot);
+    shadow.append_child(*head);
+    dom::Element* own = note(page, make(document, "p", "inner"));
+    own->append_child(*make_text(document, "shadow text"));
+    shadow.append_child(*own);
+    dom::Element* rest = note(page, make(document, "div", "inner"));
+    dom::Element* rest_slot = note(page, make(document, "slot", ""));
+    if (nested) {
+        dom::Element* inner_host = note(page, make(document, "x-card", "card"));
+        inner_host->append_child(*rest_slot);
+        rest->append_child(*inner_host);
+        give_shadow_tree(page, *inner_host, false);
+    } else {
+        rest->append_child(*rest_slot);
+    }
+    shadow.append_child(*rest);
+}
+
+dom::Element* make_light_child(ShadowPage& page, Sequence& random)
+{
+    dom::Document& document = *page.document;
+    std::size_t const pick = random.below(5);
+    dom::Element* child = note(page, make(document, pick == 1 ? "p" : pick == 4 ? "b" : "span", pick == 0 || pick == 2 ? "lit" : ""));
+    if (pick == 0)
+        child->attributes().push_back(dom::Attr { "slot", "head", "", "" });
+    if (pick == 4)
+        child->attributes().push_back(dom::Attr { "slot", "nowhere", "", "" });
+    child->append_child(*make_text(document, "light"));
+    return child;
+}
+
+dom::Element* make_host(ShadowPage& page, Sequence& random, int index)
+{
+    dom::Element* host = note(page, make(*page.document, index % 2 == 0 ? "x-card" : "div", "card"));
+    give_shadow_tree(page, *host, index % 5 == 2);
+    int const children = 1 + static_cast<int>(random.below(4));
+    for (int i = 0; i < children; ++i)
+        host->append_child(*make_light_child(page, random));
+    return host;
+}
+
+void shadow_trees(std::uint64_t seed)
+{
+    ShadowPage page;
+    page.document = html::parse_document(std::string_view("<!doctype html><html><head></head><body></body></html>"));
+    page.body = find_body(*page.document);
+    page.wrapper = note(page, make(*page.document, "section", ""));
+    page.body->append_child(*page.wrapper);
+    Sequence random { seed };
+    for (int index = 0; index < 60; ++index)
+        page.wrapper->append_child(*make_host(page, random, index));
+    css::StyleSet const set(std::vector<css::SheetSource> { { std::string(shadow_page_sheet), std::nullopt } });
+    Kept shell;
+    Kept script;
+    Step const first = update_and_check(*page.document, set, shell);
+    CHECK(first.outcome.whole);
+    CHECK_EQ(first.difference.value_or(""), std::string());
+
+    // What the rules say, read off one host: the tree's own rules inside
+    // it and nowhere else, the document's on the host and on what is
+    // slotted, and each across the boundary where a selector says so.
+    {
+        dom::Element* host = nullptr;
+        for (dom::Element* element : page.elements) {
+            if (element->shadow_root() != nullptr && element->parent() == page.wrapper && element->local_name() == "x-card") {
+                host = element;
+                break;
+            }
+        }
+        CHECK(host != nullptr);
+        dom::Element* inner_paragraph = nullptr;
+        dom::Element* part = nullptr;
+        for (dom::Node* child : host->shadow_root()->children()) {
+            if (!child->is_element())
+                continue;
+            auto* element = static_cast<dom::Element*>(child);
+            if (element->is_html("p"))
+                inner_paragraph = element;
+            if (element->has_attribute("part"))
+                part = element;
+        }
+        CHECK(inner_paragraph != nullptr && part != nullptr);
+        css::ComputedStyle const& host_style = shell.styles.at(host);
+        CHECK_EQ(host_style.display, css::Display::Block); // :host
+        CHECK_EQ(host_style.padding_top.value, 2.0f); // :host
+        CHECK_EQ(host_style.margin_top.value, 1.0f); // the document's .card
+        // The document's rule for the host wins over the tree's :host, which
+        // is the more specific of the two: the outer tree first (css-cascade-5 §6.1).
+        CHECK_EQ(host_style.color.r, 7);
+        CHECK_EQ(host_style.color.b, 9);
+        css::ComputedStyle const& paragraph_style = shell.styles.at(inner_paragraph);
+        CHECK_EQ(paragraph_style.color.g, 120); // the tree's p, not the document's
+        CHECK_EQ(paragraph_style.color.r, 0);
+        CHECK_EQ(paragraph_style.background_color.a, 0); // the document's .inner does not reach in
+        CHECK_EQ(shell.styles.at(part).letter_spacing, 2.0f); // x-card::part(head)
+        dom::Element* slotted_paragraph = make(*page.document, "p", "");
+        page.elements.push_back(slotted_paragraph);
+        host->append_child(*slotted_paragraph);
+        Step const added = update_and_check(*page.document, set, shell);
+        CHECK_EQ(added.difference.value_or(""), std::string());
+        css::ComputedStyle const& slotted_style = shell.styles.at(slotted_paragraph);
+        CHECK_EQ(slotted_style.color.r, 200); // the document's p wins over what it inherits
+        CHECK_EQ(slotted_style.margin_top.value, 3.0f); // ::slotted(p)
+        // A child no slot takes is not styled at all.
+        dom::Element* stray = make(*page.document, "i", "");
+        stray->attributes().push_back(dom::Attr { "slot", "nowhere", "", "" });
+        page.elements.push_back(stray);
+        host->append_child(*stray);
+        Step const strayed = update_and_check(*page.document, set, shell);
+        CHECK_EQ(strayed.difference.value_or(""), std::string());
+        CHECK(!shell.styles.contains(stray));
+        // Until it asks for a slot that is there.
+        remove_attribute(*stray, "slot");
+        dom::slot_attribute_changed(*stray);
+        Step const taken = update_and_check(*page.document, set, shell);
+        CHECK_EQ(taken.difference.value_or(""), std::string());
+        CHECK(shell.styles.contains(stray));
+        // The host's class reaches the tree through :host().
+        toggle_class(*host, "on");
+        Step const turned = update_and_check(*page.document, set, shell);
+        CHECK_EQ(turned.difference.value_or(""), std::string());
+        CHECK(!turned.outcome.whole);
+        CHECK_EQ(shell.styles.at(host).padding_top.value, 5.0f);
+        CHECK(shell.styles.at(inner_paragraph).font_style != css::FontStyle::Normal);
+        CHECK_EQ(shell.styles.at(part).word_spacing, 1.0f); // .card.on::part(head)
+        CHECK(turned.outcome.computed < 40);
+    }
+
+    std::size_t differences = 0;
+    std::size_t computed_total = 0;
+    std::size_t whole_updates = 0;
+    std::string whole_reasons;
+    std::string first_difference;
+    int const steps = 400;
+    for (int step = 0; step < steps; ++step) {
+        std::vector<dom::Element*> live;
+        std::vector<dom::Element*> hosts;
+        std::vector<dom::Element*> slots;
+        for (dom::Element* element : page.elements) {
+            if (!element->is_connected())
+                continue;
+            live.push_back(element);
+            if (element->shadow_root() != nullptr)
+                hosts.push_back(element);
+            if (element->is_slot())
+                slots.push_back(element);
+        }
+        dom::Element& target = *live[random.below(live.size())];
+        bool const movable = &target != page.wrapper;
+        std::size_t const mutation = random.below(11);
+        std::string const about = "mutation " + std::to_string(mutation) + " on <" + target.local_name() + ">"
+            + (target.shadow_root() != nullptr ? " (a host)" : "") + (target.root().is_shadow_root() ? " in a shadow tree" : "")
+            + (target.assigned_slot() != nullptr ? " (slotted)" : "");
+        switch (mutation) {
+        case 0:
+            toggle_class(target, "on");
+            break;
+        case 1:
+            toggle_class(target, random.below(2) ? "pick" : "lit");
+            break;
+        case 2:
+            toggle_class(random.below(3) ? *page.wrapper : target, "dark");
+            break;
+        case 3: {
+            std::size_t const pick = random.below(3);
+            if (pick == 0)
+                remove_attribute(target, "slot");
+            else
+                set_attribute(target, "slot", pick == 1 ? "head" : "nowhere");
+            dom::slot_attribute_changed(target);
+            break;
+        }
+        case 4:
+            if (!hosts.empty() && random.below(3) != 0) {
+                dom::Element& host = *hosts[random.below(hosts.size())];
+                host.insert_before(*make_light_child(page, random),
+                    host.children().empty() ? nullptr : host.children()[random.below(host.children().size())]);
+            } else if (!hosts.empty()) {
+                dom::Element* inner = note(page, make(*page.document, "p", "inner"));
+                inner->append_child(*make_text(*page.document, "more"));
+                hosts[random.below(hosts.size())]->shadow_root()->append_child(*inner);
+            }
+            break;
+        case 5:
+            if (movable)
+                target.remove();
+            break;
+        case 6:
+            if (!slots.empty()) {
+                dom::Element& slot = *slots[random.below(slots.size())];
+                std::size_t const pick = random.below(3);
+                if (pick == 0)
+                    remove_attribute(slot, "name");
+                else
+                    set_attribute(slot, "name", pick == 1 ? "head" : "other");
+                dom::slot_name_changed(slot);
+            }
+            break;
+        case 7:
+            if (!page.sheets.empty()) {
+                dom::Text& sheet = *page.sheets[random.below(page.sheets.size())];
+                sheet.data = std::string(sheet.data == shadow_tree_sheet ? shadow_tree_sheet_other : shadow_tree_sheet);
+                sheet.mark_style_data();
+            }
+            break;
+        case 8: {
+            std::size_t const pick = random.below(3);
+            if (pick == 0)
+                page.document->set_hovered(&target);
+            else if (pick == 1)
+                page.document->set_focused(random.below(4) ? &target : nullptr, true);
+            else
+                page.document->set_active(random.below(2) ? &target : nullptr);
+            break;
+        }
+        case 9:
+            if (target.shadow_root() == nullptr && target.is_html() && dom::is_valid_shadow_host_name(target.local_name()))
+                give_shadow_tree(page, target, false);
+            else
+                page.wrapper->append_child(*make_host(page, random, step));
+            break;
+        case 10:
+            // Moved elsewhere, never into itself — through a shadow root either.
+            if (movable && live.size() > 1) {
+                dom::Element* to = live[random.below(live.size())];
+                bool inside = false;
+                for (dom::Node const* up = to; up; up = up->parent_or_host())
+                    inside = inside || up == &target;
+                if (!inside && !to->is_html("style"))
+                    to->append_child(target);
+            }
+            break;
+        }
+        Step const result = update_and_check(*page.document, set, shell);
+        computed_total += result.outcome.computed;
+        whole_updates += result.outcome.whole ? 1 : 0;
+        if (result.outcome.whole)
+            whole_reasons += std::string(whole_reasons.empty() ? "" : "; ") + std::string(result.outcome.reason);
+        if (result.difference) {
+            ++differences;
+            if (first_difference.empty())
+                first_difference = "seed " + std::to_string(seed) + " step " + std::to_string(step) + " (" + about + "): " + *result.difference;
+        }
+        if (step % 7 == 3) {
+            Step const other = update_and_check(*page.document, set, script);
+            if (other.difference) {
+                ++differences;
+                if (first_difference.empty())
+                    first_difference = "seed " + std::to_string(seed) + " step " + std::to_string(step) + " (second holder, " + about + "): " + *other.difference;
+            }
+        }
+    }
+    CHECK_EQ(first_difference, std::string());
+    CHECK_EQ(differences, std::size_t(0));
+    std::size_t const final_size = count_shadow_including(*page.document);
+    std::cout << "  shadow trees: " << steps << " mutations over " << final_size << " elements: " << computed_total
+              << " computed in all, " << whole_updates << " whole (" << whole_reasons << ")\n";
+    CHECK(computed_total < static_cast<std::size_t>(steps) * final_size / 3);
+}
+
 }
 
 int main()
@@ -698,5 +1071,15 @@ int main()
     random_mutations(argument_sheet, 0x9e3779b9u);
     random_mutations(has_sheet, 0x51ed27f3u);
     random_mutations(state_sheet, 0x2545f491u);
+    focus_moves_up();
+    shadow_trees(0x7f4a7c15u);
+    shadow_trees(0x2c1b3c6du);
+    shadow_trees(0x297a2d39u);
+    // SASHFOLD_RESTYLE_SEEDS=n: n more pages of components, each from a
+    // seed of its own — the instrument for a path three seeds never take.
+    if (char const* const more = std::getenv("SASHFOLD_RESTYLE_SEEDS")) {
+        for (int i = 0; i < std::atoi(more); ++i)
+            shadow_trees(0x9e3779b97f4a7c15ull * static_cast<std::uint64_t>(i + 1) + 11);
+    }
     return test::report("test_incremental_restyle");
 }

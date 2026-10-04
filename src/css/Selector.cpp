@@ -337,6 +337,7 @@ constexpr PseudoName pseudo_classes[] = {
     { "out-of-range", SimpleSelector::PseudoKind::OutOfRange },
     { "open", SimpleSelector::PseudoKind::Open },
     { "defined", SimpleSelector::PseudoKind::Defined },
+    { "host", SimpleSelector::PseudoKind::Host },
     { "scope", SimpleSelector::PseudoKind::ScopeRoot },
     // Valid, and nothing here is ever in the state: a visited link (no
     // history is shown to a page), a field the browser filled, a modal
@@ -607,6 +608,26 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
                     SimpleSelector simple;
                     simple.kind = SimpleSelector::Kind::PseudoElement;
                     simple.name = name;
+                    if (name == "slotted") {
+                        // ::slotted(<compound-selector>): one compound, and
+                        // its specificity counts with the pseudo-element's.
+                        auto argument = parse_selector_list_internal(function.values, false);
+                        if (!argument || argument->selectors.size() != 1 || !argument->selectors.front().combinators.empty()
+                            || has_pseudo_element(*argument))
+                            return false;
+                        specificity = specificity + argument->selectors.front().specificity;
+                        simple.argument = std::make_shared<SelectorList>(std::move(*argument));
+                    } else if (name == "part") {
+                        // ::part(<ident>+): the names, as written.
+                        for (ComponentValue const& part : function.values) {
+                            if (part.is_token(Token::Type::Ident))
+                                simple.languages.push_back(part.token().value);
+                            else if (!part.is_token(Token::Type::Whitespace))
+                                return false;
+                        }
+                        if (simple.languages.empty())
+                            return false;
+                    }
                     specificity.c += 1;
                     compound.simples.push_back(std::move(simple));
                     continue;
@@ -614,6 +635,20 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
                 SimpleSelector simple;
                 simple.kind = SimpleSelector::Kind::PseudoClass;
                 simple.name = name;
+                if (name == "host" || name == "host-context") {
+                    // :host(<compound>) and :host-context(<compound>)
+                    // (css-scoping-1 §3.2): one compound, tested on the host.
+                    auto argument = parse_selector_list_internal(function.values, false);
+                    if (!argument || argument->selectors.size() != 1 || !argument->selectors.front().combinators.empty()
+                        || has_pseudo_element(*argument))
+                        return false;
+                    simple.pseudo = name == "host" ? SimpleSelector::PseudoKind::Host : SimpleSelector::PseudoKind::HostContext;
+                    specificity.b += 1;
+                    specificity = specificity + argument->selectors.front().specificity;
+                    simple.argument = std::make_shared<SelectorList>(std::move(*argument));
+                    compound.simples.push_back(std::move(simple));
+                    continue;
+                }
                 if (name == "lang" || name == "dir") {
                     // :lang(<ranges>), :dir(ltr | rtl) (selectors-4 §7).
                     for (ComponentValue const& part : function.values) {
@@ -788,7 +823,22 @@ bool settle_pseudo_elements(ComplexSelector& selector)
             selector.pseudo_element = ComplexSelector::PseudoElement::After;
         else if (last[i].name == "first-letter")
             selector.pseudo_element = ComplexSelector::PseudoElement::FirstLetter;
-        else
+        else if (last[i].name == "slotted" && last[i].argument && i + 1 == last.size()) {
+            selector.pseudo_element = ComplexSelector::PseudoElement::Slotted;
+            selector.slotted = last[i].argument;
+        } else if (last[i].name == "part" && !last[i].languages.empty()) {
+            // What follows ::part() are the states of the part itself.
+            bool states_only = true;
+            for (std::size_t j = i + 1; j < last.size(); ++j)
+                states_only = states_only && last[j].kind == SimpleSelector::Kind::PseudoClass;
+            if (!states_only)
+                break;
+            selector.pseudo_element = ComplexSelector::PseudoElement::Part;
+            selector.parts = last[i].languages;
+            selector.part_states.assign(last.begin() + static_cast<std::ptrdiff_t>(i) + 1, last.end());
+            last.erase(last.begin() + static_cast<std::ptrdiff_t>(i), last.end());
+            break;
+        } else
             break;
         last.erase(last.begin() + static_cast<std::ptrdiff_t>(i));
         break;
@@ -923,11 +973,29 @@ std::optional<SelectorList> parse_relative_list(std::vector<ComponentValue> cons
 
 // --- Matching -----------------------------------------------------------------
 
+// The shadow root whose sheets the selectors being matched come from, and
+// whether its host is being tested as an ordinary element — which it is
+// only for the argument of :host() and :host-context().
+thread_local dom::Node const* t_shadow_scope = nullptr;
+thread_local bool t_host_as_itself = false;
+
+// Whether the element is the host of the scope being matched in: an
+// element nothing but :host, :host() and :host-context() matches
+// (css-scoping-1 §3.2.1, "featureless").
+bool is_scope_host(dom::Element const& element)
+{
+    return t_shadow_scope != nullptr && !t_host_as_itself && element.shadow_root() == t_shadow_scope;
+}
+
+// The element above this one, as a combinator sees it: its parent, and
+// for a topmost element of the shadow tree being matched in, the host.
 dom::Element const* parent_element(dom::Element const& element)
 {
     dom::Node const* parent = element.parent();
     if (parent && parent->is_element())
         return static_cast<dom::Element const*>(parent);
+    if (parent && parent == t_shadow_scope)
+        return &static_cast<dom::ShadowRoot const*>(parent)->host();
     return nullptr;
 }
 
@@ -1667,7 +1735,29 @@ bool matches_simple(SimpleSelector const& simple, dom::Element const& element)
     case SimpleSelector::PseudoKind::Dir:
         return direction_of(element) == simple.languages.front();
     case SimpleSelector::PseudoKind::Root:
-        return !parent_element(element) && element.parent() != nullptr;
+        return element.parent() != nullptr && element.parent()->type() == dom::NodeType::Document;
+    case SimpleSelector::PseudoKind::Host:
+    case SimpleSelector::PseudoKind::HostContext: {
+        // The host of the tree these rules are in, and for the functional
+        // forms a compound it — or, for :host-context(), it or something
+        // above it, through any shadow root on the way — matches as itself.
+        if (t_shadow_scope == nullptr || element.shadow_root() != t_shadow_scope)
+            return false;
+        if (!simple.argument || simple.argument->selectors.empty())
+            return true;
+        CompoundSelector const& wanted = simple.argument->selectors.front().compounds.back();
+        bool const outer = t_host_as_itself;
+        t_host_as_itself = true;
+        bool found = false;
+        if (simple.pseudo == SimpleSelector::PseudoKind::Host) {
+            found = matches_compound(wanted, element);
+        } else {
+            for (dom::Node const* at = &element; at != nullptr && !found; at = at->parent_or_host())
+                found = at->is_element() && matches_compound(wanted, static_cast<dom::Element const&>(*at));
+        }
+        t_host_as_itself = outer;
+        return found;
+    }
     case SimpleSelector::PseudoKind::Empty:
         for (dom::Node const* child : element.children()) {
             if (child->is_element())
@@ -1730,7 +1820,7 @@ bool matches_simple(SimpleSelector const& simple, dom::Element const& element)
         // around the rule is the document's root element.
         if (t_scope_root)
             return t_scope_root == &element;
-        return !parent_element(element) && element.parent() != nullptr;
+        return element.parent() != nullptr && element.parent()->type() == dom::NodeType::Document;
     case SimpleSelector::PseudoKind::Has: {
         // A :has() inside another's argument cannot be written, but `&` can
         // bring one there from a parent rule; it matches nothing (csswg
@@ -1763,11 +1853,18 @@ bool matches_simple(SimpleSelector const& simple, dom::Element const& element)
 
 bool matches_compound(CompoundSelector const& compound, dom::Element const& element)
 {
+    // The host of the scope is matched by its own pseudo-classes alone.
+    bool const featureless = is_scope_host(element);
+    bool named_host = false;
     for (SimpleSelector const& simple : compound.simples) {
+        bool const host_class = simple.pseudo == SimpleSelector::PseudoKind::Host || simple.pseudo == SimpleSelector::PseudoKind::HostContext;
+        if (featureless && !host_class)
+            return false;
+        named_host = named_host || host_class;
         if (!matches_simple(simple, element))
             return false;
     }
-    return true;
+    return !featureless || named_host;
 }
 
 bool matches_from(ComplexSelector const& selector, std::size_t compound_index,
@@ -1888,6 +1985,40 @@ std::optional<SelectorList> parse_nested_selector_list(
 void set_scope_root(dom::Element const* root) { t_scope_root = root; }
 
 dom::Element const* scope_root() { return t_scope_root; }
+
+void set_shadow_scope(dom::Node const* shadow_root) { t_shadow_scope = shadow_root; }
+
+dom::Node const* shadow_scope() { return t_shadow_scope; }
+
+bool matches_slotted(ComplexSelector const& selector, dom::Element const& element)
+{
+    if (!selector.slotted || selector.slotted->selectors.empty())
+        return false;
+    // The element is in another tree than the rule: it is tested as itself.
+    dom::Node const* const scope = t_shadow_scope;
+    t_shadow_scope = nullptr;
+    bool const found = matches_compound(selector.slotted->selectors.front().compounds.back(), element);
+    t_shadow_scope = scope;
+    return found;
+}
+
+bool matches_part(ComplexSelector const& selector, dom::Element const& element)
+{
+    dom::Attr const* const part = element.find_attribute("part");
+    if (part == nullptr)
+        return false;
+    for (std::string const& name : selector.parts) {
+        if (!class_list_contains(part->value, name, false))
+            return false;
+    }
+    dom::Node const* const scope = t_shadow_scope;
+    t_shadow_scope = nullptr;
+    bool found = true;
+    for (SimpleSelector const& state : selector.part_states)
+        found = found && matches_simple(state, element);
+    t_shadow_scope = scope;
+    return found;
+}
 
 // @supports selector( <complex-selector> ) (css-conditional-3 §6): a single
 // complex selector, not a list, and with :is()/:where() held to their

@@ -90,7 +90,9 @@ void NodeWrapper::trace(js::Tracer& tracer)
     // (ADR 0001 §3): reaching any node of it keeps its root's wrapper, and a
     // document a script made keeps that document's wrapper. The connected
     // tree is marked by the realm as one root.
-    dom::Node& root = m_node->root();
+    // The root is the one past every shadow root: a shadow tree lives
+    // and dies with its host's tree.
+    dom::Node& root = m_node->shadow_including_root();
     if (&root != &realm().document() && root.wrapper && root.wrapper != this)
         tracer.visit(root.wrapper);
     // And the root of a detached subtree keeps every wrapper in it, as the
@@ -99,7 +101,9 @@ void NodeWrapper::trace(js::Tracer& tracer)
     // template stamped into a fragment and configured before it is inserted
     // must not lose what was set on its elements to a collection that runs
     // in between.
-    if (&root == m_node && m_node != &realm().document())
+    // A shadow root does the same for its own tree: the component that
+    // made it may hold the root and nothing else.
+    if ((&root == m_node || m_node->is_shadow_root()) && &root != &realm().document())
         trace_tree(*m_node, tracer);
 }
 
@@ -108,8 +112,11 @@ void EventObject::trace(js::Tracer& tracer)
     Object::trace(tracer);
     tracer.visit(target);
     tracer.visit(current_target);
-    for (js::Object* const on_path : path)
-        tracer.visit(on_path);
+    for (PathEntry const& entry : path) {
+        tracer.visit(entry.invocation_target);
+        tracer.visit(entry.shadow_adjusted_target);
+        tracer.visit(entry.related_target);
+    }
     tracer.visit(related_target);
     tracer.visit(detail_value);
     tracer.visit(source_value);
@@ -254,6 +261,12 @@ void attribute_written(Realm::Internals& in, dom::Element& element, std::string_
     // and new: a component that compares the two ignores a change that
     // reports none, so a removal must say what was removed.
     custom_element_attribute_changed(in, element, local_name, old_value);
+    // An element's slot, and a slot's name, decide which slot shows what
+    // (DOM §4.9 and HTML §4.12.4, the attribute change steps).
+    if (local_name == "slot")
+        dom::slot_attribute_changed(element);
+    else if (local_name == "name" && element.is_slot())
+        dom::slot_name_changed(element);
     window_handler_attribute_written(in, element, local_name);
     if (local_name == "open" && element.is_html("details"))
         details_open_written(in, element, old_value.has_value());
@@ -879,6 +892,12 @@ void Realm::Internals::give_document_states()
             return std::nullopt;
         return control_value_of(*self, element);
     };
+    // A slot whose assigned nodes changed is told when the mutation
+    // observers are next notified (DOM §4.2.2.5).
+    document->on_slot_signal = [here, self] {
+        if (!here.expired())
+            slot_change_signalled(*self);
+    };
 }
 
 js::Object* Realm::Internals::prototype(std::string_view name) const
@@ -1171,7 +1190,7 @@ js::Object* Realm::Internals::prototype_for(dom::Node const& node) const
         return prototype(wrapped.plain ? "Document" : wrapped.xml ? "XMLDocument" : "HTMLDocument");
     }
     case dom::NodeType::DocumentFragment:
-        return prototype("DocumentFragment");
+        return prototype(node.is_shadow_root() ? "ShadowRoot" : "DocumentFragment");
     case dom::NodeType::Text:
         return prototype(static_cast<dom::Text const&>(node).cdata_section ? "CDATASection" : "Text");
     case dom::NodeType::Comment:
@@ -1661,6 +1680,7 @@ constexpr InterfaceGroup interface_groups[] = {
     // Last of the element machinery: it makes HTMLElement constructible,
     // which every element interface must already exist for.
     { "custom_elements", install_custom_elements, false },
+    { "shadow_dom", install_shadow_dom, false },
     { "mutation_observer", install_mutation_observer, true },
     { "intersection", install_intersection_observer, true },
     { "indexeddb", install_indexeddb, true },
@@ -2456,8 +2476,14 @@ js::Outcome Realm::run(std::string_view utf8_source, std::string name)
 {
     Internals& in = *m_internals;
     Internals::HostEntry const host(in.agent);
+    // The script's value is held past the end of the entry, where the
+    // microtasks it queued run: one of them may allocate — a slotchange
+    // event, an observer's records — and a collection then must not take
+    // the value its caller is about to read.
+    js::Interpreter::Roots const roots(in.interpreter);
     Internals::Entry const entry(in);
     js::Outcome outcome = in.interpreter.run_script(utf8_source, name);
+    in.interpreter.root(outcome.value);
     if (!outcome.ok) {
         if (in.interpreter.out_of_memory()) {
             // Said once for the page, where the entry ends.
@@ -2474,6 +2500,12 @@ namespace {
 
 void collect_frames(dom::Node const& node, std::vector<dom::Element*>& out)
 {
+    // A host's shadow tree comes before its children, as in the
+    // shadow-including tree order.
+    if (node.is_element()) {
+        if (dom::ShadowRoot const* const shadow = static_cast<dom::Element const&>(node).shadow_root())
+            collect_frames(*shadow, out);
+    }
     for (dom::Node* const child : node.children()) {
         if (child->is_element() && is_navigable_container(*static_cast<dom::Element*>(child)))
             out.push_back(static_cast<dom::Element*>(child));
@@ -3032,6 +3064,8 @@ void walk_subtree(dom::Node& root, std::vector<dom::Node*>& out)
         for (dom::Node* const child : current->children())
             pending.push_back(child);
         if (current->is_element()) {
+            if (dom::ShadowRoot* const shadow = static_cast<dom::Element*>(current)->shadow_root())
+                pending.push_back(shadow);
             if (dom::Node* const content = static_cast<dom::Element*>(current)->template_content())
                 pending.push_back(content);
         }
@@ -3142,6 +3176,25 @@ bool Realm::Internals::open_blank_frame(dom::Element& iframe)
 void Realm::Internals::fire_frame_load(dom::Element& iframe)
 {
     realm.dispatch_event(&iframe, "load");
+}
+
+bool Realm::shadow_root_refused(dom::Element& host)
+{
+    return custom_element_disables_shadow(*m_internals, host);
+}
+
+void Realm::custom_element_inserted(dom::Element& element)
+{
+    Internals& in = *m_internals;
+    // What is parsed into a template's contents is in no document a
+    // class is defined for: it stays as written until it is put in one.
+    if (in.custom_element_definitions.empty() || &element.document() != in.document || !element.is_connected())
+        return;
+    Internals::HostEntry const host(in.agent);
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
+    custom_element_parsed(in, element);
+    // The callbacks were called from no script: what they queued runs now.
+    perform_microtask_checkpoint();
 }
 
 void Realm::frame_inserted(dom::Element& iframe)
@@ -4079,6 +4132,8 @@ void trace_tree(dom::Node const& node, js::Tracer& tracer)
     if (node.is_element()) {
         if (dom::Node const* content = static_cast<dom::Element const&>(node).template_content())
             trace_tree(*content, tracer);
+        if (dom::ShadowRoot const* const shadow = static_cast<dom::Element const&>(node).shadow_root())
+            trace_tree(*shadow, tracer);
     }
     for (dom::Node const* child : node.children())
         trace_tree(*child, tracer);

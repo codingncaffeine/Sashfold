@@ -322,6 +322,8 @@ Native collection_of(Realm::Internals& in, dom::Node& root, Predicate predicate)
 dom::Document& new_extra_document(Realm::Internals& in)
 {
     in.extra_documents.push_back(std::make_unique<dom::Document>());
+    // Parsed from a string a script handed over: a template stays a template.
+    in.extra_documents.back()->allow_declarative_shadow_roots = false;
     return *in.extra_documents.back();
 }
 
@@ -923,6 +925,8 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             return internals.interpreter.throw_type_error("parameter 1 is not of type 'Node'");
         if (node->type() == dom::NodeType::Document)
             return internals.throw_dom_exception("NotSupportedError", "The node provided is a document, which may not be imported.");
+        if (node->is_shadow_root())
+            return internals.throw_dom_exception("NotSupportedError", "The node provided is a shadow root, which may not be imported.");
         bool const deep = js::Interpreter::to_boolean(js::argument(args, 1));
         dom::Node* clone = deep ? dom::clone_subtree(*node, d) : clone_node(internals, *node, false);
         copy_started_scripts(internals, *node, *clone);
@@ -936,6 +940,8 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             return internals.interpreter.throw_type_error("parameter 1 is not of type 'Node'");
         if (node->type() == dom::NodeType::Document)
             return internals.throw_dom_exception("NotSupportedError", "The node provided is a document, which may not be adopted.");
+        if (node->is_shadow_root())
+            return internals.throw_dom_exception("HierarchyRequestError", "The node provided is a shadow root, which may not be adopted.");
         internals.adopt_into(d, *node);
         internals.realm.note_mutation();
         return js::Value::object(internals.wrap(*node));
@@ -1156,6 +1162,38 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         html::parse_document_into(d, decode_utf8(*text));
         return js::Value::object(internals.wrap(d));
     });
+
+    // XMLSerializer (DOM Parsing and Serialization §3.2): the XML text of a
+    // node — what a page writes a fragment out as before handing it to
+    // insertAdjacentHTML.
+    js::Object* xml_serializer = define_interface(in, "XMLSerializer", nullptr,
+        [](js::Interpreter& interp, Args, js::Object*) -> Native {
+            Realm::Internals& internals = internals_of(interp);
+            return js::Value::object(interp.heap().allocate<PlainPlatformObject>(internals.prototype("XMLSerializer"), internals.realm_record));
+        });
+    define_operation(interpreter, *xml_serializer, "serializeToString", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        NodeWrapper* const wrapper = internals.wrapper_of(js::argument(args, 0));
+        if (wrapper == nullptr)
+            return interp.throw_type_error("Failed to execute 'serializeToString' on 'XMLSerializer': parameter 1 is not of type 'Node'.");
+        return internals.string(html::serialize_xml(wrapper->node()));
+    });
+
+    // Document.parseHTMLUnsafe(html) (HTML §8.5.2): a document parsed from
+    // a string with scripting off and declarative shadow roots allowed.
+    if (std::optional<js::Value> const document_interface = interpreter.get(*interpreter.global(), interpreter.key("Document"));
+        document_interface && document_interface->is_object()) {
+        define_operation(interpreter, *document_interface->as_object(), "parseHTMLUnsafe", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+            Realm::Internals& internals = internals_of(interp);
+            std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
+            if (!text)
+                return std::nullopt;
+            dom::Document& d = new_extra_document(internals);
+            d.allow_declarative_shadow_roots = true;
+            html::parse_document_into(d, decode_utf8(*text));
+            return js::Value::object(internals.wrap(d));
+        });
+    }
 }
 
 }

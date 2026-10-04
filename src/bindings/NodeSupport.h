@@ -88,11 +88,15 @@ Native pre_insert(Realm::Internals&, dom::Node& parent, dom::Node& node, dom::No
 void remove_node(Realm::Internals&, dom::Node& node);
 // Replaces the children of `parent` with the children parsed from `markup`
 // in the context of `context` (innerHTML).
-void replace_children_with_markup(Realm::Internals&, dom::Node& parent, dom::Element& context, std::string_view markup);
+// With `declarative_shadow_roots` a `<template shadowrootmode>` in the markup
+// makes a shadow root, the context's own included (setHTMLUnsafe).
+void replace_children_with_markup(Realm::Internals&, dom::Node& parent, dom::Element& context, std::string_view markup,
+    bool declarative_shadow_roots = false);
 // Parses `markup` in `context` and returns the children, adopted into
 // context's document and detached; scripts among them never run, unless
 // `scripts_started` is false, when they run once inserted.
-std::vector<dom::Node*> parse_markup(Realm::Internals&, dom::Element& context, std::string_view markup, bool scripts_started = true);
+std::vector<dom::Node*> parse_markup(Realm::Internals&, dom::Element& context, std::string_view markup, bool scripts_started = true,
+    bool declarative_shadow_roots = false);
 void replace_children_with_text(Realm::Internals&, dom::Node& parent, std::string_view text);
 dom::Node* clone_node(Realm::Internals&, dom::Node const& node, bool deep);
 // The cloning steps of a script element (HTML §4.12.1): a copy of one that

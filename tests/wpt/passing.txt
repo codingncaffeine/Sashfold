@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (10070 of 15375) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (10091 of 15375) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -5622,6 +5622,7 @@ css/css-cascade/import-removal.html
 css/css-cascade/initial-background-color.html
 css/css-cascade/initial-color-background-001.html
 css/css-cascade/layer-media-toggle.html
+css/css-cascade/layer-slotted-rule.html
 css/css-cascade/revert-layer-015.html
 css/css-cascade/revert-val-002.html
 css/css-cascade/scope-featureless.html
@@ -5928,6 +5929,7 @@ css/css-display/display-contents-list-001.html
 css/css-display/display-contents-multicol-001.html
 css/css-display/display-contents-oof-001.html
 css/css-display/display-contents-oof-002.html
+css/css-display/display-contents-shadow-host-whitespace.html
 css/css-display/display-contents-sharing-001.html
 css/css-display/display-contents-slot-attach-whitespace.html
 css/css-display/display-contents-state-change-001.html
@@ -7430,6 +7432,9 @@ css/css-nesting/contextually-invalid-selectors-001.html
 css/css-nesting/contextually-invalid-selectors-002.html
 css/css-nesting/contextually-invalid-selectors-003.html
 css/css-nesting/has-nesting.html
+css/css-nesting/host-nesting-002.html
+css/css-nesting/host-nesting-003.html
+css/css-nesting/host-nesting-004.html
 css/css-nesting/implicit-nesting.html
 css/css-nesting/nest-containing-forgiving.html
 css/css-nesting/nesting-type-selector.html
@@ -8537,6 +8542,7 @@ css/css-text/white-space/pre-wrap-tab-003.html
 css/css-text/white-space/pre-wrap-tab-004.html
 css/css-text/white-space/pre-wrap-tab-005.html
 css/css-text/white-space/pre-wrap-tab-006.html
+css/css-text/white-space/remove-slotted-with-whitespace-sibling.html
 css/css-text/white-space/tab-bidi-001.html
 css/css-text/white-space/text-wrap-balance-004.html
 css/css-text/white-space/text-wrap-balance-align-001.html
@@ -8711,7 +8717,6 @@ css/css-values/angle-units-003.html
 css/css-values/angle-units-004.html
 css/css-values/angle-units-005.html
 css/css-values/attr-dynamic-marker-content.html
-css/css-values/attr-in-slotted.html
 css/css-values/attr-namespace-wildcard.html
 css/css-values/attr-notype-fallback.html
 css/css-values/attr-pseudo-element-marker.html
@@ -9645,6 +9650,9 @@ css/selectors/dir-style-02b.html
 css/selectors/dir-style-03a.html
 css/selectors/dir-style-03b.html
 css/selectors/dir-style-04.html
+css/selectors/featureless-001.html
+css/selectors/featureless-002.html
+css/selectors/featureless-003.html
 css/selectors/floating-first-letter-05d0.html
 css/selectors/floating-first-letter-feff.html
 css/selectors/focus-within-001.html
@@ -9657,6 +9665,12 @@ css/selectors/focus-within-010.html
 css/selectors/focus-within-011.html
 css/selectors/focus-within-012.html
 css/selectors/focus-within-013.html
+css/selectors/focus-within-shadow-001.html
+css/selectors/focus-within-shadow-002.html
+css/selectors/focus-within-shadow-003.html
+css/selectors/focus-within-shadow-004.html
+css/selectors/focus-within-shadow-005.html
+css/selectors/focus-within-shadow-006.html
 css/selectors/has-style-sharing-001.html
 css/selectors/has-style-sharing-002.html
 css/selectors/has-style-sharing-003.html
@@ -9697,6 +9711,7 @@ css/selectors/invalidation/negated-never-matches-negated-last-of-type-when-ances
 css/selectors/invalidation/negated-nth-child-when-ancestor-changes.html
 css/selectors/invalidation/negated-nth-last-child-when-ancestor-changes.html
 css/selectors/invalidation/nth-child-containing-ancestor.html
+css/selectors/invalidation/nth-child-in-shadow-root.html
 css/selectors/invalidation/nth-child-of-attr-largedom.html
 css/selectors/invalidation/nth-child-of-attr.html
 css/selectors/invalidation/nth-child-of-class-prefix.html
@@ -9706,12 +9721,14 @@ css/selectors/invalidation/nth-child-of-id-prefix.html
 css/selectors/invalidation/nth-child-of-ids.html
 css/selectors/invalidation/nth-child-of-in-ancestor.html
 css/selectors/invalidation/nth-child-of-in-is.html
+css/selectors/invalidation/nth-child-of-in-shadow-root.html
 css/selectors/invalidation/nth-child-of-is.html
 css/selectors/invalidation/nth-child-of-pseudo-class.html
 css/selectors/invalidation/nth-child-of-sibling.html
 css/selectors/invalidation/nth-child-when-ancestor-changes.html
 css/selectors/invalidation/nth-child-when-sibling-changes.html
 css/selectors/invalidation/nth-last-child-containing-ancestor.html
+css/selectors/invalidation/nth-last-child-in-shadow-root.html
 css/selectors/invalidation/nth-last-child-of-attr.html
 css/selectors/invalidation/nth-last-child-of-class-prefix.html
 css/selectors/invalidation/nth-last-child-of-class.html
@@ -9720,11 +9737,13 @@ css/selectors/invalidation/nth-last-child-of-id-prefix.html
 css/selectors/invalidation/nth-last-child-of-ids.html
 css/selectors/invalidation/nth-last-child-of-in-ancestor.html
 css/selectors/invalidation/nth-last-child-of-in-is.html
+css/selectors/invalidation/nth-last-child-of-in-shadow-root.html
 css/selectors/invalidation/nth-last-child-of-is.html
 css/selectors/invalidation/nth-last-child-of-pseudo-class.html
 css/selectors/invalidation/nth-last-child-of-sibling.html
 css/selectors/invalidation/nth-last-child-when-ancestor-changes.html
 css/selectors/invalidation/nth-last-child-when-sibling-changes.html
+css/selectors/invalidation/part-pseudo.html
 css/selectors/invalidation/sheet-going-away-002.html
 css/selectors/is-default-ns-001.html
 css/selectors/is-where-pseudo-elements.html
@@ -9802,6 +9821,7 @@ css/selectors/visited-in-visited-compound.html
 css/selectors/visited-inheritance.html
 css/selectors/visited-nested.html
 html/canvas/element/2d.putImageData.html
+html/canvas/element/2d.text-outside-of-the-flat-tree.html
 html/canvas/element/compositing/2d.composite.full.mode.alpha.html
 html/canvas/element/compositing/2d.composite.grid.no_filter.no_shadow.fillRect.html
 html/canvas/element/compositing/2d.composite.grid.no_filter.shadow.fillRect.html
@@ -9976,6 +9996,7 @@ html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/fieldset-t
 html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/grid-template-propagation.html
 html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/legend-display-none-rendering.html
 html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/legend-float.html
+html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/legend-in-slot.html
 html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/legend-list-item.html
 html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/legend-painting-order.html
 html/rendering/non-replaced-elements/the-fieldset-and-legend-elements/legend-position-relative-2.html

@@ -645,6 +645,10 @@ interface HTMLTableSectionElement : HTMLElement {
 
 [Tags=(template)]
 interface HTMLTemplateElement : HTMLElement {
+  [Reflect=shadowrootmode, Enum=("open", "closed")] attribute DOMString shadowRootMode;
+  [Reflect=shadowrootdelegatesfocus] attribute boolean shadowRootDelegatesFocus;
+  [Reflect=shadowrootclonable] attribute boolean shadowRootClonable;
+  [Reflect=shadowrootserializable] attribute boolean shadowRootSerializable;
 };
 
 [Tags=(textarea)]

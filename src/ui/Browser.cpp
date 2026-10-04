@@ -4085,6 +4085,8 @@ struct Browser::Impl {
                         tab.image_sources.erase(it);
                     }
                 }
+                if (dom::ShadowRoot const* const shadow = element.shadow_root())
+                    self(self, *shadow);
             }
             for (dom::Node const* child : node.children())
                 self(self, *child);
@@ -4118,6 +4120,8 @@ struct Browser::Impl {
         if (node.is_element()) {
             auto const& element = static_cast<dom::Element const&>(node);
             if (element.is_html("img") && !images.contains(&element))
+                return true;
+            if (dom::ShadowRoot const* const shadow = element.shadow_root(); shadow != nullptr && has_unfetched_image(*shadow, images))
                 return true;
         }
         for (dom::Node const* child : node.children()) {

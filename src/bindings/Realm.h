@@ -454,6 +454,8 @@ public:
     // The parser's other hook: an iframe it inserted gets its initial
     // about:blank document, and that document's load, before the next token.
     void frame_inserted(dom::Element& iframe) override;
+    bool shadow_root_refused(dom::Element& host) override;
+    void custom_element_inserted(dom::Element& element) override;
     // Runs a <script> element inserted by a script (§4.12.1.1 step 1 of the
     // insertion steps): the same preparation, no parser.
     void run_inserted_script(dom::Element& script);

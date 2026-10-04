@@ -23,6 +23,7 @@
 
 namespace sashfold::dom {
 class Element;
+class Node;
 }
 
 namespace sashfold::css {
@@ -122,6 +123,11 @@ struct SimpleSelector {
         Defined,
         Lang, // :lang(), its list in `languages`
         Dir, // :dir(), `languages` holds the one direction
+        // css-scoping-1 §3.2: the shadow host, from inside its shadow tree —
+        // :host, :host(<compound>) with the compound in `argument`, and
+        // :host-context(<compound>) for the host or anything above it.
+        Host,
+        HostContext,
         // valid selectors that match nothing here: :visited, the autofill,
         // a modal or popover, a user-interaction state, a vendor name
         NeverMatches,
@@ -163,6 +169,14 @@ struct ComplexSelector {
         Before,
         After,
         FirstLetter,
+        // css-scoping-1 §3.3 and css-shadow-parts-1: the rest of the
+        // selector matches a slot, or a shadow host, and the rule styles
+        // the elements assigned to that slot which match `slotted`, or the
+        // elements of that host's shadow tree whose part attribute has
+        // every name in `parts` and which are in the states `part_states`
+        // names (`::part(tab):hover`).
+        Slotted,
+        Part,
     };
 
     // compounds.size() == combinators.size() + 1; combinators[i] joins
@@ -171,6 +185,9 @@ struct ComplexSelector {
     std::vector<Combinator> combinators;
     Specificity specificity;
     PseudoElement pseudo_element = PseudoElement::None;
+    std::shared_ptr<SelectorList const> slotted;
+    std::vector<std::string> parts;
+    std::vector<SimpleSelector> part_states;
 };
 
 // Parses a rule prelude as a selector list. nullopt when any selector in the
@@ -190,6 +207,18 @@ std::optional<SelectorList> parse_nested_selector_list(
 // the document's root element. Set and restored by the caller.
 void set_scope_root(dom::Element const* root);
 dom::Element const* scope_root();
+
+// The shadow root whose sheets the selectors being matched on the current
+// thread come from, or null for the document's: inside it :host is its
+// host, which no other simple selector matches, and a combinator walks from
+// the tree's topmost elements up to that host. Set and restored by the caller.
+void set_shadow_scope(dom::Node const* shadow_root);
+dom::Node const* shadow_scope();
+
+// Whether an element is one a ::slotted() or ::part() selector styles:
+// the argument of ::slotted(), or the names and the states of ::part().
+bool matches_slotted(ComplexSelector const& selector, dom::Element const& element);
+bool matches_part(ComplexSelector const& selector, dom::Element const& element);
 
 // @supports selector(...) (css-conditional-3 §6): true when `prelude` is
 // exactly one complex selector, valid down to every :is()/:where() argument

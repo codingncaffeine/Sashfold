@@ -687,7 +687,8 @@ bool TreeBuilder::mode_in_head(Token& token)
             return false;
         }
         if (name == "template") {
-            insert_html_element(token);
+            if (!insert_declarative_shadow_root(token))
+                insert_html_element(token);
             push_formatting_marker();
             m_frameset_ok = false;
             m_mode = Mode::InTemplate;
@@ -2215,6 +2216,53 @@ Element* TreeBuilder::create_element_for_token(Token const& token, std::string_v
     return element;
 }
 
+// §13.2.6.4.4, a template start tag with a shadowrootmode: the element the
+// template would have gone into becomes a shadow host, and what follows is
+// parsed into its shadow root — the template itself is opened but never put
+// in the tree. False, and nothing done, when this is an ordinary template:
+// no mode asked, a document that does not allow it, a template directly
+// under the root element, a host that has a root already or may not have
+// one.
+bool TreeBuilder::insert_declarative_shadow_root(Token const& token)
+{
+    if (!m_document.allow_declarative_shadow_roots)
+        return false;
+    auto const attribute = [&token](std::string_view name) -> std::string const* {
+        for (Attribute const& held : token.attributes) {
+            if (held.name == name)
+                return &held.value;
+        }
+        return nullptr;
+    };
+    std::string const* const mode = attribute("shadowrootmode");
+    if (mode == nullptr)
+        return false;
+    std::string lowered = *mode;
+    for (char& c : lowered) {
+        if (c >= 'A' && c <= 'Z')
+            c = static_cast<char>(c - 'A' + 'a');
+    }
+    if (lowered != "open" && lowered != "closed")
+        return false;
+    Element* const host = adjusted_current_node();
+    if (host == nullptr || m_stack.empty() || host == m_stack.front())
+        return false;
+    if (host->shadow_root() != nullptr || !host->is_html() || !dom::is_valid_shadow_host_name(host->local_name())
+        || (m_runner != nullptr && m_runner->shadow_root_refused(*host)))
+        return false;
+    Element* const element = create_element_for_token(token, dom::ns::html);
+    dom::ShadowRoot& shadow = host->attach_shadow();
+    shadow.mode = lowered == "open" ? dom::ShadowRoot::Mode::Open : dom::ShadowRoot::Mode::Closed;
+    shadow.clonable = attribute("shadowrootclonable") != nullptr;
+    shadow.serializable = attribute("shadowrootserializable") != nullptr;
+    shadow.delegates_focus = attribute("shadowrootdelegatesfocus") != nullptr;
+    shadow.declarative = true;
+    shadow.available_to_element_internals = true;
+    element->set_template_content(&shadow);
+    m_stack.push_back(element);
+    return true;
+}
+
 Element* TreeBuilder::insert_html_element(Token const& token)
 {
     return insert_foreign_element(token, dom::ns::html);
@@ -2241,6 +2289,8 @@ Element* TreeBuilder::insert_foreign_element(Token const& token, std::string_vie
     if (location.parent)
         location.parent->insert_before(*element, location.before);
     m_stack.push_back(element);
+    if (m_runner != nullptr && namespace_uri == dom::ns::html && element->local_name().find('-') != std::string::npos)
+        m_runner->custom_element_inserted(*element);
     return element;
 }
 
@@ -2502,8 +2552,10 @@ void TreeBuilder::adoption_agency(Token& token)
             // ancestor under lastNode, so that inserting it there would make
             // a cycle. The prose has no guard for it; as WebKit does, the move
             // is dropped, and the subtree with it.
+            // The way up goes out of a shadow tree to its host: a cycle
+            // through a shadow root is one all the same.
             bool cycle = false;
-            for (dom::Node const* up = location.parent; up != nullptr; up = up->parent()) {
+            for (dom::Node const* up = location.parent; up != nullptr; up = up->parent_or_host()) {
                 if (up == last_node) {
                     cycle = true;
                     break;
@@ -2640,11 +2692,15 @@ void parse_document_bytes_into(Document& document, std::string_view bytes, Scrip
 }
 
 FragmentParseResult parse_fragment(std::u32string code_points, std::string_view context_namespace,
-    std::string_view context_local_name, bool scripting)
+    std::string_view context_local_name, bool scripting, bool declarative_shadow_roots, bool context_hosts_shadow)
 {
     FragmentParseResult result;
     result.document = std::make_unique<Document>();
+    result.document->allow_declarative_shadow_roots = declarative_shadow_roots;
     Element* context = result.document->create<Element>(std::string(context_namespace), std::string(context_local_name));
+    result.context = context;
+    if (context_hosts_shadow)
+        context->attach_shadow();
     TreeBuilder builder(*result.document, *context);
     builder.set_scripting(scripting);
     Tokenizer tokenizer(InputStream(std::move(code_points)),

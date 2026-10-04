@@ -580,7 +580,14 @@ void changed(SheetObject& sheet)
     std::shared_ptr<CssomSheet> const model = sheet.model;
     sheet.state->write = [model] { return sheet_text(*model); };
     sheet.state->touch();
-    ++internals_from(sheet.record).mutations;
+    Realm::Internals& internals = internals_from(sheet.record);
+    ++internals.mutations;
+    // The shadow trees that adopted the sheet are styled again: a tree's
+    // sheets are read when its root says they changed.
+    for (auto const& [owner, held] : internals.document->adopted_sheets) {
+        if (owner->is_shadow_root() && std::find(held.begin(), held.end(), sheet.state) != held.end())
+            const_cast<dom::Node*>(owner)->mark_style_subtree();
+    }
 }
 
 void changed(RuleObject& rule)
@@ -1741,8 +1748,12 @@ void install_cssom(Realm::Internals& in)
                 std::uint32_t index = 0;
                 for (SheetObject* sheet : sheets) {
                     array->put(js::PropertyKey::index(index++), js::Value::object(sheet));
-                    sheet->state->write = [model = sheet->model] { return sheet_text(*model); };
-                    sheet->state->touch();
+                    // Written once: a sheet a hundred roots adopt is the
+                    // same text for each, until a rule of it changes.
+                    if (!sheet->state->write) {
+                        sheet->state->write = [model = sheet->model] { return sheet_text(*model); };
+                        sheet->state->touch();
+                    }
                     states.push_back(sheet->state);
                 }
                 wrapper->keep_same_object("adoptedStyleSheets", array);
@@ -1757,6 +1768,9 @@ void install_cssom(Realm::Internals& in)
                 }
                 if (!found)
                     document.adopted_sheets.emplace_back(&root, std::move(states));
+                // A shadow tree's sheets are read by the styles themselves.
+                if (root.is_shadow_root())
+                    root.mark_style_subtree();
                 ++internals.mutations;
                 return js::Value::undefined();
             });

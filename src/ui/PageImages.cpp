@@ -42,6 +42,9 @@ struct Collector {
                 consider(element);
             else if (embedded && (element.is_html("object") || element.is_html("embed")))
                 consider_embedded(element);
+            // The pictures of a shadow tree are the page's too.
+            if (dom::ShadowRoot const* const shadow = element.shadow_root())
+                visit(*shadow);
         }
         for (dom::Node const* child : node.children())
             visit(*child);

@@ -149,10 +149,22 @@ public:
     std::string type;
     js::Value target; // an EventTarget, or undefined before dispatch (read as null)
     js::Value current_target;
-    // The event's path while it is dispatched (DOM §2.9): the target, its
-    // ancestors, the window — fixed when the dispatch begins, whatever its
-    // listeners then do to the tree; empty before and after.
-    std::vector<js::Object*> path;
+    // The event's path while it is dispatched (DOM §2.9): the target, what
+    // is above it — through the slot a node is assigned to and out of a
+    // shadow tree to its host — and the window; fixed when the dispatch
+    // begins, whatever its listeners then do to the tree; empty before and
+    // after. Each place on it knows the target and the related target as
+    // a listener there may see them: a node inside a shadow tree is its
+    // host to a listener outside.
+    struct PathEntry {
+        js::Object* invocation_target = nullptr;
+        js::Object* shadow_adjusted_target = nullptr; // null where the event is not at a target
+        js::Value related_target;
+        bool in_shadow_tree = false;
+        bool root_of_closed_tree = false;
+        bool slot_in_closed_tree = false;
+    };
+    std::vector<PathEntry> path;
     js::Value related_target; // MouseEvent, FocusEvent
     js::Value detail_value; // CustomEvent.detail
     Phase phase = Phase::None;
@@ -814,6 +826,11 @@ struct Agent {
     // (Mutations.cpp). A realm that ends takes the ones it made with it.
     std::vector<js::Object*> mutation_observers;
     bool mutation_delivery_pending = false;
+    // The realms whose documents have slots to tell of a change (DOM
+    // §4.2.2.5 "signal a slot change"), each with the flag that says the
+    // realm is still here: slotchange fires at every such slot when the
+    // observers are next notified.
+    std::vector<std::pair<std::weak_ptr<bool>, Realm::Internals*>> slot_signal_realms;
     std::vector<Timer> timers;
     // Run before the timers at the next pump, oldest first, each holding what
     // it needs through Persistents.
@@ -1561,13 +1578,21 @@ void mutation_children_changed(Realm::Internals&, dom::Node& parent, std::vector
 void mutation_attribute_changed(Realm::Internals&, dom::Element&, std::string_view namespace_uri, std::string_view local_name,
     std::optional<std::string> const& old_value);
 void mutation_character_data_changed(Realm::Internals&, dom::Node&, std::optional<std::string> const& old_value);
+void slot_change_signalled(Realm::Internals&);
 void install_custom_elements(Realm::Internals&);
+// ShadowDom.cpp: attachShadow, ShadowRoot, the slot element's assigned
+// nodes, assignedSlot, getRootNode.
+void install_shadow_dom(Realm::Internals&);
 void trace_custom_elements(Realm::Internals const&, js::Tracer&);
 // The definition for a local name, or null where there is none.
 CustomElementDefinition* custom_element_definition(Realm::Internals&, std::string_view local_name);
 // Runs a definition's constructor over an element that has none yet, and
 // then the callbacks its arrival owes.
-void upgrade_custom_element(Realm::Internals&, dom::Element&);
+// `from_parser`: the element is one the parser is making now, and its
+// constructor runs as it would for a new element — before the attributes
+// the tag wrote are on it (HTML §13.2.6.1); they are put back afterwards
+// and told to the class as changes.
+void upgrade_custom_element(Realm::Internals&, dom::Element&, bool from_parser = false);
 // Makes an element of a defined name by running its class, which is how
 // createElement answers for one: null with the exception pending when the
 // constructor threw.
@@ -1575,7 +1600,15 @@ Native construct_custom_element(Realm::Internals&, std::string_view local_name);
 // A subtree that entered or left a document: the connected and
 // disconnected callbacks of every custom element in it, and an upgrade for
 // any element whose definition arrived while it was out of the tree.
+// A name a page may give an element of its own (HTML §4.13.1), and
+// whether the class defined for an element turned attachShadow off
+// (its static disabledFeatures).
+bool is_valid_custom_element_name(std::string_view name);
+bool custom_element_disables_shadow(Realm::Internals&, dom::Element const& element);
 void custom_elements_inserted(Realm::Internals&, dom::Node& subtree);
+// An element the parser has just inserted, whose name a class may have been
+// defined for: it is made that class's element now, and told it is connected.
+void custom_element_parsed(Realm::Internals&, dom::Element& element);
 void custom_elements_removed(Realm::Internals&, dom::Node& subtree);
 // A subtree that cloneNode or importNode just made: every element of a
 // defined name in it is upgraded as the call returns, whether or not it is

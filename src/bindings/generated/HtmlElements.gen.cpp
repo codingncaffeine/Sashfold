@@ -723,6 +723,15 @@ void install_reflected_attributes(Realm::Internals& in)
         reflect_string(in, proto, "vAlign", "valign");
     }
     {
+        js::Object& proto = *in.prototype("HTMLTemplateElement");
+        reflect_enum(in, proto, "shadowRootMode", "shadowrootmode",
+            ReflectedEnum { { { "open", "" }, { "closed", "" } },
+                std::nullopt, std::nullopt, false });
+        reflect_boolean(in, proto, "shadowRootDelegatesFocus", "shadowrootdelegatesfocus");
+        reflect_boolean(in, proto, "shadowRootClonable", "shadowrootclonable");
+        reflect_boolean(in, proto, "shadowRootSerializable", "shadowrootserializable");
+    }
+    {
         js::Object& proto = *in.prototype("HTMLTextAreaElement");
         reflect_boolean(in, proto, "disabled", "disabled");
         reflect_string(in, proto, "name", "name");
