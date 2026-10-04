@@ -6,6 +6,7 @@ IndexedDB/bindings-inject-keys-bypass.any.html	Returning keys to script should b
 IndexedDB/bindings-inject-values-bypass.any.html	Returning values to script should bypass prototype chain
 IndexedDB/bindings-inject-values-bypass.any.html	Returning values to script should bypass prototype setters
 IndexedDB/blob-composite-blob-reads.any.html	Composite Blob Handling: Many blobs: direct
+IndexedDB/blob-composite-blob-reads.any.html	Composite Blob Handling: Many blobs: fetch-blob-url
 IndexedDB/blob-delete-objectstore-db.any.html	Deleting an object store and a database containing blobs doesn't crash.
 IndexedDB/blob-valid-after-abort.any.html	A blob can be read back after the transaction that added it was aborted.
 IndexedDB/blob-valid-after-deletion.any.html	Blobs stay alive after their records are deleted.
@@ -9575,6 +9576,11 @@ dom/events/Event-subclasses-constructors.html	Event constructor (no argument)
 dom/events/Event-subclasses-constructors.html	Event constructor (undefined argument)
 dom/events/Event-subclasses-constructors.html	FocusEvent constructor (argument with non-default values)
 dom/events/Event-subclasses-constructors.html	MouseEvent constructor (argument with non-default values)
+dom/events/Event-subclasses-constructors.html	SubclassedEvent constructor (argument with default values)
+dom/events/Event-subclasses-constructors.html	SubclassedEvent constructor (argument with non-default values)
+dom/events/Event-subclasses-constructors.html	SubclassedEvent constructor (empty argument)
+dom/events/Event-subclasses-constructors.html	SubclassedEvent constructor (no argument)
+dom/events/Event-subclasses-constructors.html	SubclassedEvent constructor (undefined argument)
 dom/events/Event-subclasses-constructors.html	UIEvent constructor (argument with non-default values)
 dom/events/Event-timestamp-cross-realm-getter.html	event.timeStamp is initialized using event's relevant global object
 dom/events/Event-timestamp-high-resolution.html	Constructed FocusEvent timestamp should be high resolution and have the same time origin as performance.now()
@@ -9601,6 +9607,7 @@ dom/events/EventTarget-add-remove-listener.any.html	Removing an event listener w
 dom/events/EventTarget-addEventListener.any.html	Adding a null event listener should succeed
 dom/events/EventTarget-constructible.any.html	A constructed EventTarget can be used as expected
 dom/events/EventTarget-constructible.any.html	A constructed EventTarget implements dispatch correctly
+dom/events/EventTarget-constructible.any.html	EventTarget can be subclassed
 dom/events/EventTarget-dispatchEvent-returnvalue.html	Return value of EventTarget.dispatchEvent() affected by preventDefault().
 dom/events/EventTarget-dispatchEvent-returnvalue.html	Return value of EventTarget.dispatchEvent() affected by returnValue.
 dom/events/EventTarget-dispatchEvent.html	Calling dispatchEvent(null).
@@ -69842,6 +69849,7 @@ html/dom/documents/dom-tree-accessors/Document.body.html	Setting document.body t
 html/dom/documents/dom-tree-accessors/Document.body.html	Setting document.body to a new frameset element.
 html/dom/documents/dom-tree-accessors/Document.body.html	Setting document.body when there's no root element.
 html/dom/documents/dom-tree-accessors/Document.body.html	existing document's body
+html/dom/documents/dom-tree-accessors/Document.currentScript.html	Script cross-origin
 html/dom/documents/dom-tree-accessors/Document.currentScript.html	Script document-write
 html/dom/documents/dom-tree-accessors/Document.currentScript.html	Script dom-inline
 html/dom/documents/dom-tree-accessors/Document.currentScript.html	Script eval
@@ -71442,6 +71450,18 @@ html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextMetrics inte
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextMetrics interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextMetrics interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextMetrics interface: existence and properties of interface prototype object's @@unscopables property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackCue interface object length
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackCue interface object name
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackCue interface: attribute endTime
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackCue interface: attribute id
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackCue interface: attribute onenter
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackCue interface: attribute onexit
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackCue interface: attribute pauseOnExit
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackCue interface: attribute startTime
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackCue interface: attribute track
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackCue interface: existence and properties of interface prototype object
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackCue interface: existence and properties of interface prototype object's "constructor" property
+html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackCue interface: existence and properties of interface prototype object's @@unscopables property
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface object length
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface object name
 html/dom/idlharness.https.html?exclude=(Document|Window|HTML.+)	TextTrackList interface: attribute length
@@ -74634,6 +74654,7 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: attri
 html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: attribute src
 html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: attribute text
 html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: attribute type
+html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: calling supports(DOMString) on document.createElement("script") with too few arguments must throw TypeError
 html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: document.createElement("script") must inherit property "async" with the proper type
 html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: document.createElement("script") must inherit property "charset" with the proper type
 html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: document.createElement("script") must inherit property "crossOrigin" with the proper type
@@ -74651,6 +74672,7 @@ html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: docum
 html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: existence and properties of interface prototype object
 html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: existence and properties of interface prototype object's "constructor" property
 html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: existence and properties of interface prototype object's @@unscopables property
+html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement interface: operation supports(DOMString)
 html/dom/idlharness.https.html?include=HTML.+	HTMLScriptElement must be primary interface of document.createElement("script")
 html/dom/idlharness.https.html?include=HTML.+	HTMLSelectElement interface object length
 html/dom/idlharness.https.html?include=HTML.+	HTMLSelectElement interface object name
@@ -132448,6 +132470,7 @@ html/semantics/embedded-content/media-elements/event_volumechange.html	setting v
 html/semantics/embedded-content/media-elements/event_volumechange.html	setting video.volume/muted repeatedly fires volumechange repeatedly
 html/semantics/embedded-content/media-elements/event_volumechange.html	setting video.volume/muted to the same value does not fire volumechange
 html/semantics/embedded-content/media-elements/historical.html	MediaController constructor should not be supported
+html/semantics/embedded-content/media-elements/historical.html	TextTrackCue constructor should not be supported
 html/semantics/embedded-content/media-elements/historical.html	audio.addCuePoint should not be supported
 html/semantics/embedded-content/media-elements/historical.html	audio.addCueRange should not be supported
 html/semantics/embedded-content/media-elements/historical.html	audio.autobuffer should not be supported
@@ -132574,6 +132597,12 @@ html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackE
 html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang uppercase content attribute
 html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang whitespace in IDL attribute
 html/semantics/embedded-content/media-elements/interfaces/HTMLElement/HTMLTrackElement/srclang.html	HTMLTrackElement.srclang whitespace in content attribute
+html/semantics/embedded-content/media-elements/interfaces/TextTrackCue/constructor.html	TextTrackCue and VTTCue are separate interfaces
+html/semantics/embedded-content/media-elements/interfaces/TextTrackCue/constructor.html	TextTrackCue constructor should not be supported
+html/semantics/embedded-content/media-elements/interfaces/TextTrackCue/onenter.html	TextTrackCue.addEventListener/removeEventListener
+html/semantics/embedded-content/media-elements/interfaces/TextTrackCue/onenter.html	TextTrackCue.onenter
+html/semantics/embedded-content/media-elements/interfaces/TextTrackCue/onexit.html	TextTrackCue.addEventListener/removeEventListener
+html/semantics/embedded-content/media-elements/interfaces/TextTrackCue/onexit.html	TextTrackCue.onexit
 html/semantics/embedded-content/media-elements/interfaces/TextTrackList/onaddtrack.html	TextTrackList.addEventListener/removeEventListener
 html/semantics/embedded-content/media-elements/interfaces/TextTrackList/onaddtrack.html	TextTrackList.onaddtrack
 html/semantics/embedded-content/media-elements/interfaces/TextTrackList/onremovetrack.html	TextTrackList.addEventListener/removeEventListener
@@ -132668,6 +132697,7 @@ html/semantics/embedded-content/media-elements/track/track-element/track-api-tex
 html/semantics/embedded-content/media-elements/track/track-element/track-api-texttracks.html	Check the track elements
 html/semantics/embedded-content/media-elements/track/track-element/track-css-cue-pseudo-class.html	:cue pseudo-class is not supported and dropped during parsing
 html/semantics/embedded-content/media-elements/track/track-element/track-remove-quickly.html	Removing a track element before it has been processed doesn't crash
+html/semantics/embedded-content/media-elements/track/track-element/vtt-cue-float-precision.html	Float precision of VTTCue attributes line, position and size, stored as floats
 html/semantics/embedded-content/media-elements/user-interface/muted.html	adding muted attribute has no effect on a connected audio after the setter
 html/semantics/embedded-content/media-elements/user-interface/muted.html	adding muted attribute has no effect on a connected video after the setter
 html/semantics/embedded-content/media-elements/user-interface/muted.html	adding muted attribute has no effect on audio.muted after setter
@@ -137878,6 +137908,8 @@ screen-wake-lock/wakelock-active-document.https.window.html	navigator.wakeLock.r
 screen-wake-lock/wakelock-disabled-by-permissions-policy.https.html	Permissions-Policy header "screen-wake-lock=()" disallows the top-level document.
 screen-wake-lock/wakelock-type.https.window.html	'TypeError' is thrown when set an invalid wake lock type
 shadow-dom/Document-caretPositionFromPoint.tentative.html	document.caretPositionFromPoint() throws when called without the correct parameters
+shadow-dom/Document-prototype-currentScript.html	document.currentScript must be set to a script element that loads an external script in a document tree
+shadow-dom/Document-prototype-currentScript.html	document.currentScript must be set to a script element that loads an external script in a document tree (2)
 shadow-dom/Document-prototype-importNode.html	importNode on a shadow root in closed mode must throw a NotSupportedError
 shadow-dom/Document-prototype-importNode.html	importNode on a shadow root in open mode must throw a NotSupportedError
 shadow-dom/Element-interface-attachShadow-custom-element.html	Element.attachShadow must throw a NotSupportedError for customized built-in elements

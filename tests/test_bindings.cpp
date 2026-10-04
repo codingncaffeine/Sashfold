@@ -3985,6 +3985,62 @@ void test_blob_urls_are_fetched_from_the_store()
     CHECK(page.console.find("error:") == std::string::npos);
 }
 
+// Import maps (HTML §8.1.5.2, §8.1.5.3): a bare specifier named to a URL, a
+// prefix moved, a scope that overrides for the scripts under it, a later
+// map that adds and does not override, and the specifiers that resolve to
+// nothing.
+void test_import_maps()
+{
+    Page page(R"HTML(<!DOCTYPE html><head>
+<script type="importmap">{ "imports": { "lit": "/lib/v2/lit.js", "lib/": "/lib/v2/", "dep": "/lib/v2/dep.js", "gone": null },
+  "scopes": { "/app/": { "dep": "/lib/v2/dep-scoped.js" } } }</script>
+<script type="importmap">{ "imports": { "lit": "/lib/v3/lit.js", "extra": "/lib/v2/extra.js" } }</script>
+</head><body><script type="module">
+import { name as lit } from "lit";
+import { name as util } from "lib/util.js";
+import { name as dep } from "dep";
+import { got, where } from "/app/inner.js";
+import { name as extra } from "extra";
+window.out = [lit, util, dep, got, where, extra].join('|');
+window.resolved = import.meta.resolve('lit') + ' ' + import.meta.resolve('./beside.js') + ' ' + import.meta.resolve('https://other.test/x.js');
+window.failures = ['nothing', 'gone', 'lib/../../escape.js'].map(function (s) {
+    try { import.meta.resolve(s); return 'resolved'; } catch (e) { return e.name; }
+}).join('|');
+import('lit').then(function (m) { window.dynamic = m.name; });
+</script></body>)HTML");
+    page.module("https://example.test/lib/v2/lit.js", "export const name = 'lit v2';");
+    page.module("https://example.test/lib/v3/lit.js", "export const name = 'lit v3';");
+    page.module("https://example.test/lib/v2/util.js", "export const name = 'util';");
+    page.module("https://example.test/lib/v2/dep.js", "export const name = 'plain dep';");
+    page.module("https://example.test/lib/v2/dep-scoped.js", "export const name = 'scoped dep';");
+    page.module("https://example.test/lib/v2/extra.js", "export const name = 'extra';");
+    page.module("https://example.test/app/inner.js", "import { name } from 'dep'; export const got = name; export const where = import.meta.resolve('dep');");
+    page.load();
+    while (page.realm->run_pending()) { }
+    CHECK_EQ(page.string("out"), "lit v2|util|plain dep|scoped dep|https://example.test/lib/v2/dep-scoped.js|extra");
+    CHECK_EQ(page.string("resolved"), "https://example.test/lib/v2/lit.js https://example.test/dir/beside.js https://other.test/x.js");
+    CHECK_EQ(page.string("failures"), "TypeError|TypeError|TypeError");
+    CHECK_EQ(page.string("dynamic"), "lit v2");
+    CHECK(page.boolean("HTMLScriptElement.supports('importmap') && HTMLScriptElement.supports('module')"
+                       " && HTMLScriptElement.supports('classic') && !HTMLScriptElement.supports('speculationrules')"));
+    // The null address and the rule a later map repeats are warnings.
+    CHECK(page.console.find("error:") == std::string::npos);
+    CHECK(page.console.find("warn:the import map's address for 'gone' is not a string") != std::string::npos);
+    CHECK(page.console.find("warn:an import map's rule for 'lit' is ignored: an earlier map has one") != std::string::npos);
+
+    // A map that is not a JSON object is an error on the console and names
+    // nothing; one with a src is not fetched, and its element is told.
+    Page broken(R"HTML(<!DOCTYPE html><head><script type="importmap">[1, 2]</script>
+<script type="importmap" src="/map.json" onerror="window.external = 'error event'"></script></head>
+<body><script type="module">import('lit').then(function () { window.bare = 'resolved'; }, function (e) { window.bare = e.name; });</script></body>)HTML");
+    broken.load();
+    while (broken.realm->run_pending()) { }
+    CHECK_EQ(broken.string("bare"), "TypeError");
+    CHECK_EQ(broken.string("external"), "error event");
+    CHECK(broken.console.find("error:the import map could not be read: TypeError: an import map is a JSON object") != std::string::npos);
+    CHECK(broken.fetched.empty());
+}
+
 // An external script a script inserts never runs inside the insertion
 // (HTML §4.12.1.1): the inserting script goes on first, and can still give
 // it a load handler. The window's load waits for it.
@@ -5725,6 +5781,7 @@ int main()
     test_the_computed_appearance();
     test_interface_constructors_make_what_new_target_names();
     test_blob_urls_are_fetched_from_the_store();
+    test_import_maps();
     test_an_inserted_script_runs_after_the_script_that_inserted_it();
     test_text_track_cues();
     test_the_audio_constructor();

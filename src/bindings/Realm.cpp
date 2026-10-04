@@ -1309,6 +1309,10 @@ void Realm::Internals::prepare_script(dom::Element& script, bool from_parser)
         }
         type = "text/javascript";
     }
+    if (type == "importmap") {
+        register_import_map(script);
+        return;
+    }
     if (type == "module") {
         // A module a script inserted is never run inside the insertion:
         // its graph is fetched and it runs once the inserting script is done.
@@ -1321,7 +1325,7 @@ void Realm::Internals::prepare_script(dom::Element& script, bool from_parser)
         return;
     }
     if (!is_javascript_type(type)) {
-        ++stats.scripts_skipped; // a data block: JSON, a template, an import map
+        ++stats.scripts_skipped; // a data block: JSON, a template
         return;
     }
     std::string const nonce = attribute_or_empty(script, "nonce");
@@ -1413,24 +1417,45 @@ net::Url Realm::Internals::module_base_of(std::string_view referrer_key) const
     return url;
 }
 
+// §4.12.1.1 "register an import map": the element's text, parsed against
+// the document's base and merged into the document's map. A map with a src
+// is not fetched; one that does not parse is an error said on the console,
+// and every entry dropped on the way a warning.
+void Realm::Internals::register_import_map(dom::Element& script)
+{
+    if (script.has_attribute("src")) {
+        console("error", "an import map is written inside its element: one with a src is not fetched");
+        realm.dispatch_event(&script, "error");
+        return;
+    }
+    std::string const text = html::text_content(script);
+    if (inline_refused(net::InlineKind::Script, attribute_or_empty(script, "nonce"), text)) {
+        ++stats.scripts_refused;
+        return;
+    }
+    std::string error;
+    std::vector<std::string> warnings;
+    std::optional<ImportMap> parsed = parse_import_map(*this, text, base_url(), error, warnings);
+    if (parsed)
+        merge_import_map(import_map, std::move(*parsed), warnings);
+    for (std::string const& warning : warnings)
+        console("warn", warning);
+    if (!parsed)
+        console("error", "the import map could not be read: " + error);
+}
+
 void Realm::Internals::install_module_hooks()
 {
     interpreter.set_module_hooks(
-        // §8.1.7.1.3 "resolve a module specifier", without import maps: a URL,
-        // or a relative reference that begins with "/", "./" or "../"
-        // against the referrer's base. A bare specifier is what an import
-        // map would settle, and import maps are not written.
+        // §8.1.5.3 "resolve a module specifier": through the document's
+        // import map, scopes first; then a URL, or a relative reference
+        // that begins with "/", "./" or "../" against the referrer's base.
         [&agent_interpreter = interpreter](std::string_view referrer_key, std::string_view specifier, std::string& error) -> std::optional<std::string> {
-            std::optional<net::Url> resolved = net::parse_url(specifier, nullptr);
-            if (!resolved && (specifier.starts_with("/") || specifier.starts_with("./") || specifier.starts_with("../"))) {
-                net::Url const base = internals_of(agent_interpreter).module_base_of(referrer_key);
-                resolved = net::parse_url(specifier, &base);
-            }
-            if (!resolved) {
-                error = "Failed to resolve module specifier '" + std::string(specifier)
-                    + "': a relative reference must start with \"/\", \"./\" or \"../\"";
+            Internals const& asking = internals_of(agent_interpreter);
+            std::optional<net::Url> const resolved
+                = resolve_module_specifier(asking.import_map, specifier, asking.module_base_of(referrer_key), error);
+            if (!resolved)
                 return std::nullopt;
-            }
             return resolved->serialize();
         },
         [&agent_interpreter = interpreter](std::string_view key, std::string& error) -> std::optional<std::u16string> {
@@ -2083,6 +2108,23 @@ Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
         auto const inline_base = internals.inline_module_bases.find(record.key());
         std::string const url_text = inline_base != internals.inline_module_bases.end() ? inline_base->second.serialize() : record.key();
         meta.put(realm_interpreter.key("url"), js::Value::string(realm_interpreter.string(url_text)), js::default_attributes);
+        // import.meta.resolve(specifier) (§8.1.6.9): the URL an import of
+        // it from this module would be for, the import map consulted.
+        js::Heap::NoCollect const guard(realm_interpreter.heap());
+        std::string const key = record.key();
+        js::NativeFunction* const resolve = realm_interpreter.new_native("resolve", 1,
+            [key](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+                Internals& asking = internals_of(interp);
+                std::optional<std::string> const specifier = asking.to_utf8(js::argument(args, 0));
+                if (!specifier)
+                    return std::nullopt;
+                std::string error;
+                std::optional<net::Url> const resolved = resolve_module_specifier(asking.import_map, *specifier, asking.module_base_of(key), error);
+                if (!resolved)
+                    return interp.throw_type_error(error);
+                return asking.string(resolved->serialize());
+            });
+        meta.put(realm_interpreter.key("resolve"), js::Value::object(resolve), js::default_attributes);
     });
     if (in.hooks.should_stop)
         interpreter.set_interrupt([this] { return m_internals->hooks.should_stop(); });

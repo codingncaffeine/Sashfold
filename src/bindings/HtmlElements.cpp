@@ -1367,6 +1367,18 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     audio_constructor->take_prototype_from_new_target();
     audio_constructor->put(interpreter.key("prototype"), js::Value::object(&proto_of("HTMLAudioElement")), js::frozen_attributes);
     interpreter.global()->put(interpreter.key("Audio"), js::Value::object(audio_constructor), js::builtin_attributes);
+
+    // HTMLScriptElement.supports(type) (HTML §4.12.1): the kinds of script
+    // this engine runs — what a module loader asks before it takes over.
+    if (std::optional<js::Value> const script_interface = interpreter.get(*interpreter.global(), interpreter.key("HTMLScriptElement"));
+        script_interface && script_interface->is_object()) {
+        define_operation(interpreter, *script_interface->as_object(), "supports", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+            std::optional<std::string> const type = internals_of(interp).to_utf8(js::argument(args, 0));
+            if (!type)
+                return std::nullopt;
+            return js::Value::boolean(*type == "classic" || *type == "module" || *type == "importmap");
+        });
+    }
 }
 
 }

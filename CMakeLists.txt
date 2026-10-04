@@ -62,6 +62,7 @@ add_library(sashfold_core STATIC
   src/bindings/Fullscreen.cpp
   src/bindings/Geometry.cpp
   src/bindings/HtmlElements.cpp
+  src/bindings/ImportMaps.cpp
   src/bindings/IndexedDb.cpp
   src/bindings/Intersection.cpp
   src/bindings/LayoutOracle.cpp

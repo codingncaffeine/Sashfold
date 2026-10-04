@@ -888,6 +888,25 @@ struct Agent {
     std::map<std::string, std::shared_ptr<idb::Storage>> indexed_db_storages;
 };
 
+// A document's import map (HTML §8.1.5.2): what its `<script type=importmap>`
+// elements say, each key normalized and each map kept longest key first —
+// the order "resolve a module specifier" tries them in. An address that
+// was no URL is kept as nothing: the specifier is named, to an error.
+struct ImportMap {
+    using SpecifierMap = std::vector<std::pair<std::string, std::optional<net::Url>>>;
+    SpecifierMap imports;
+    std::vector<std::pair<std::string, SpecifierMap>> scopes;
+};
+// "Parse an import map string": nothing, with why, for text that is no
+// JSON object or has a member of the wrong kind; each entry dropped on the
+// way is a warning.
+std::optional<ImportMap> parse_import_map(Realm::Internals&, std::string_view text, net::Url const& base, std::string& error,
+    std::vector<std::string>& warnings);
+// "Merge existing and new import maps": an earlier rule stands.
+void merge_import_map(ImportMap& into, ImportMap&& added, std::vector<std::string>& warnings);
+// "Resolve a module specifier" for a script whose base URL is `base`.
+std::optional<net::Url> resolve_module_specifier(ImportMap const&, std::string_view specifier, net::Url const& base, std::string& error);
+
 struct Realm::Internals {
     Realm& realm;
     // The document the window shows, never null: a frame's goes on to another
@@ -1312,6 +1331,10 @@ struct Realm::Internals {
     // Module scripts: the map's hooks, the fetch of one module, an
     // element's graph prepared, run, and its evaluation watched.
     void install_module_hooks();
+    // The document's import map, and an importmap script element taken
+    // into it (§4.12.1.1 "register an import map").
+    ImportMap import_map;
+    void register_import_map(dom::Element& script);
     std::string inline_module_key();
     net::Url module_base_of(std::string_view referrer_key) const;
     std::optional<std::string> fetch_module_source(std::string const& key, bool include_credentials, std::string& error);
