@@ -320,7 +320,10 @@ Property const* Object::lookup(PropertyKey const& key) const
     }
     PropertyKey const key = property.key;
     make_lazy(property);
-    return const_cast<Property*>(lookup(key));
+    // What the maker left there: its answer, or what it put in the
+    // property's place itself — which may be a native still to be made.
+    Property* const now = const_cast<Property*>(lookup(key));
+    return now != nullptr && now->lazy != Property::NotLazy ? find_made(*now) : now;
 }
 
 Property const* Object::find_own(PropertyKey const& key) const

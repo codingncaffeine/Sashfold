@@ -75,10 +75,11 @@ void print_heap(js::Heap& heap, char const* what)
 void print_census(js::Heap const& heap)
 {
     js::Heap::LazyCensus const& census = heap.lazy_census();
-    std::printf("  natives described %llu, made at once %llu, made later %llu; values described %llu, made %llu; closures kept %s\n",
+    std::printf("  natives described %llu, made at once %llu, made later %llu; values described %llu, made %llu; groups of interfaces put off %llu, installed since %llu; closures kept %s\n",
         static_cast<unsigned long long>(census.natives_described), static_cast<unsigned long long>(census.natives_made_at_once),
         static_cast<unsigned long long>(census.natives_made_later), static_cast<unsigned long long>(census.values_described),
-        static_cast<unsigned long long>(census.values_made), js::lazy_natives() ? "in each realm's table" : "in their functions");
+        static_cast<unsigned long long>(census.values_made), static_cast<unsigned long long>(census.groups_described),
+        static_cast<unsigned long long>(census.groups_run), js::lazy_natives() ? "in each realm's table" : "in their functions");
 }
 
 struct MadePage {
@@ -128,7 +129,10 @@ void standing_figures()
         double const ms = ms_since(started);
         std::printf("a page's realm (its own engine, every Web interface): %.2f ms, %.2f MB resident\n", ms / count,
             megabytes_between(platform::resident_set_bytes(), resident) / count);
-        js::Heap& heap = pages[0]->realm->interpreter().heap();
+        // (The first window realm of a process installs every group of
+        // interfaces and notes what each provides; the ones after it put the
+        // groups a document may never name off. The last is one of those.)
+        js::Heap& heap = pages.back()->realm->interpreter().heap();
         print_heap(heap, "its heap");
         print_census(heap);
     }

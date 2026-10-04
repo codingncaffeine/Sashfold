@@ -167,6 +167,9 @@ public:
     // The embedder's object behind this realm (the bindings' Realm), for
     // natives to find their way back; untraced, unowned.
     void* host_defined = nullptr;
+    // What the embedder wants kept for as long as the realm is: an object
+    // of its own that outlives its side of the realm.
+    Object* host_kept = nullptr;
     // The global environment's [[GlobalThisValue]] (§9.1.1.4): what `this`
     // is in global code and in a sloppy function called with none, and what
     // `globalThis` names. The global object itself unless the host gives

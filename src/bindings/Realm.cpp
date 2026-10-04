@@ -12,6 +12,8 @@
 #include "platform/Memory.h"
 
 #include <algorithm>
+#include <array>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
@@ -19,8 +21,13 @@
 #include <fstream>
 #include <iomanip>
 #include <iostream>
+#include <mutex>
 #include <string>
+#include <string_view>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
+#include <vector>
 
 namespace sashfold::bindings {
 
@@ -872,7 +879,10 @@ void Realm::Internals::give_document_states()
 js::Object* Realm::Internals::prototype(std::string_view name) const
 {
     auto const it = prototypes.find(std::string(name));
-    return it == prototypes.end() ? nullptr : it->second;
+    if (it != prototypes.end())
+        return it->second;
+    // One of a group of interfaces the realm put off is made by asking.
+    return interface_groups.empty() ? nullptr : deferred_prototype(name);
 }
 
 double Realm::Internals::now() const
@@ -1527,7 +1537,325 @@ void Realm::Internals::watch_module_evaluation(js::Value const& promise, std::st
 
 namespace {
 
-// Every interface a document's realm has, made with that realm current.
+// --- Interfaces at first touch ---------------------------------------------------------
+
+// The interfaces of a realm come in groups, each an installer: it defines
+// its interfaces, puts their objects on the global, and now and then adds a
+// member to an interface that was there before it. A window's realm
+// installs the groups everything stands on as it is made, and leaves the
+// rest — a whole API a document may never name — until something touches
+// what the group provides: a name of its on the global, a member it adds to
+// an earlier interface, or, from this side, one of its prototypes
+// (Internals::prototype). What a group provides is written down nowhere:
+// the first window realm of the process installs every group and notes
+// what each did, and every realm after it puts those names where that one
+// had them, so that a realm's keys, their order and their attributes are
+// the first realm's by construction.
+struct InterfaceGroup {
+    char const* name;
+    void (*install)(Realm::Internals&);
+    bool deferrable; // an API of its own, which a realm does without until asked
+};
+
+constexpr InterfaceGroup interface_groups[] = {
+    { "events", install_events, false },
+    { "nodes", install_nodes, false },
+    { "ranges", install_ranges, true },
+    { "traversal", install_traversal, true },
+    { "style", install_style, false },
+    { "window", install_window, false },
+    { "binary", install_binary, false },
+    { "fetch", install_fetch, true },
+    { "xhr", install_xhr, true },
+    { "tasks", install_tasks, false },
+    { "origin", install_origin, true },
+    { "trusted_types", install_trusted_types, true },
+    // A worker's realm has the groups above and then its own scope.
+    { "workers", install_workers, true },
+    { "media", install_media, true },
+    { "geometry", install_geometry, true },
+    { "canvas", install_canvas, true },
+    // Last of the element machinery: it makes HTMLElement constructible,
+    // which every element interface must already exist for.
+    { "custom_elements", install_custom_elements, false },
+    { "mutation_observer", install_mutation_observer, true },
+    { "intersection", install_intersection_observer, true },
+    { "indexeddb", install_indexeddb, true },
+    { "cssom", install_cssom, true },
+    { "streams", install_streams, false },
+};
+constexpr std::size_t group_count = std::size(interface_groups);
+constexpr std::size_t groups_of_a_worker = 12;
+
+// A group in a realm: installed (or never put off), waiting to be asked
+// for, or being installed now.
+enum : std::uint8_t {
+    GroupInstalled = 0,
+    GroupWaiting = 1,
+    GroupRunning = 2,
+};
+
+// What one group provides, as the first window realm had it.
+struct ProvidedBy {
+    struct Name {
+        std::string key;
+        std::uint8_t attributes = 0;
+    };
+    struct Member {
+        std::string interface; // an earlier group's
+        bool on_constructor = false; // on the interface object rather than its prototype
+        std::string key;
+        std::uint8_t attributes = 0;
+    };
+    std::vector<Name> globals; // in the order it adds them, with the attributes they end with
+    std::vector<std::string> interfaces;
+    std::vector<Member> members; // added to interfaces that were there before it, in order
+    bool deferred = false; // nothing it did has to be done as the realm is made
+};
+
+struct GroupTable {
+    std::mutex mutex;
+    bool learning = false; // under the mutex: a realm is installing everything and taking notes
+    std::atomic<bool> learned { false }; // the notes are whole, and never change again
+    std::array<ProvidedBy, group_count> groups;
+    std::unordered_map<std::string, std::uint8_t> by_interface;
+    std::unordered_map<std::string, std::uint8_t> by_key; // a global's name, or a member's
+};
+
+GroupTable& group_table()
+{
+    static GroupTable table;
+    return table;
+}
+
+js::Object* interface_object(Realm::Internals& in, std::string const& name)
+{
+    js::Property* const own = in.realm_record->intrinsics.global->peek_own(in.interpreter.key(name));
+    return own != nullptr && !own->lazy && !own->accessor && own->value.is_object() ? own->value.as_object() : nullptr;
+}
+
+std::vector<js::PropertyKey> keys_held(js::Object const& object)
+{
+    std::vector<js::PropertyKey> keys;
+    keys.reserve(object.properties().size());
+    for (js::Property const& property : object.properties())
+        keys.push_back(property.key);
+    return keys;
+}
+
+// Installs a group and notes what it added: to the global, to the realm's
+// interfaces, and to the interfaces that were there before it.
+void learn_group(Realm::Internals& in, std::size_t index, ProvidedBy& provided)
+{
+    struct Held {
+        std::string interface;
+        bool on_constructor;
+        js::Object* object;
+        std::vector<js::PropertyKey> keys;
+    };
+    js::Object& global = *in.realm_record->intrinsics.global;
+    std::vector<js::PropertyKey> const global_before = keys_held(global);
+    std::vector<Held> before;
+    before.reserve(in.prototypes.size() * 2);
+    for (auto const& [name, prototype] : in.prototypes) {
+        before.push_back(Held { name, false, prototype, keys_held(*prototype) });
+        if (js::Object* const constructor = interface_object(in, name))
+            before.push_back(Held { name, true, constructor, keys_held(*constructor) });
+    }
+    std::size_t const interfaces_before = in.prototypes.size();
+    interface_groups[index].install(in);
+
+    provided.deferred = true;
+    auto const added = [](js::Object const& object, std::vector<js::PropertyKey> const& held, auto const& note) {
+        for (js::Property const& property : object.properties()) {
+            if (std::find(held.begin(), held.end(), property.key) == held.end())
+                note(property);
+        }
+    };
+    // A name that is not a plain string cannot be promised by name: the
+    // group is then installed with the realm, like the ones that must be.
+    added(global, global_before, [&](js::Property const& property) {
+        if (!property.key.is_atom())
+            provided.deferred = false;
+        else
+            provided.globals.push_back(ProvidedBy::Name { property.key.as_atom()->to_utf8(), property.attributes });
+    });
+    if (in.prototypes.size() != interfaces_before) {
+        std::unordered_set<std::string_view> known;
+        for (Held const& held : before)
+            known.insert(held.interface);
+        for (auto const& [name, prototype] : in.prototypes) {
+            if (!known.contains(name))
+                provided.interfaces.push_back(name);
+        }
+        std::sort(provided.interfaces.begin(), provided.interfaces.end());
+    }
+    for (Held const& held : before) {
+        if (held.object->properties().size() == held.keys.size())
+            continue;
+        added(*held.object, held.keys, [&](js::Property const& property) {
+            // (A function's own length, name and prototype take their room
+            // when first looked at: nothing the group added.)
+            js::WellKnownAtoms const& atoms = in.interpreter.atoms();
+            if (held.on_constructor && property.key.is_atom()
+                && (property.key.as_atom() == atoms.length || property.key.as_atom() == atoms.name || property.key.as_atom() == atoms.prototype))
+                return;
+            if (!property.key.is_atom())
+                provided.deferred = false;
+            else
+                provided.members.push_back(
+                    ProvidedBy::Member { held.interface, held.on_constructor, property.key.as_atom()->to_utf8(), property.attributes });
+        });
+    }
+}
+
+// The notes made whole, once the realm that took them is: each global's
+// name with the attributes the window's pass left it, the names by group —
+// and a group is put off only when every name of its is its alone, and
+// what it adds to is an interface every realm has from the start.
+void finish_learning(Realm::Internals& in, GroupTable& table)
+{
+    js::Object& global = *in.realm_record->intrinsics.global;
+    std::unordered_set<std::string> late; // the interfaces only a group that may be put off has
+    for (std::size_t i = 0; i < group_count; ++i) {
+        if (interface_groups[i].deferrable)
+            late.insert(table.groups[i].interfaces.begin(), table.groups[i].interfaces.end());
+    }
+    for (std::size_t i = 0; i < group_count; ++i) {
+        ProvidedBy& provided = table.groups[i];
+        if (!provided.deferred)
+            continue;
+        for (ProvidedBy::Name& name : provided.globals) {
+            js::Property const* const own = global.peek_own(in.interpreter.key(name.key));
+            if (own != nullptr)
+                name.attributes = own->attributes;
+            if (!table.by_key.emplace(name.key, static_cast<std::uint8_t>(i)).second)
+                provided.deferred = false;
+        }
+        for (ProvidedBy::Member const& member : provided.members) {
+            auto const [at, fresh] = table.by_key.emplace(member.key, static_cast<std::uint8_t>(i));
+            if ((!fresh && at->second != i) || late.contains(member.interface))
+                provided.deferred = false;
+        }
+    }
+    // What a group that is not put off after all had claimed is let go.
+    std::erase_if(table.by_key, [&table](auto const& entry) { return !table.groups[entry.second].deferred; });
+    for (std::size_t i = 0; i < group_count; ++i) {
+        if (!table.groups[i].deferred)
+            continue;
+        for (std::string const& name : table.groups[i].interfaces)
+            table.by_interface.emplace(name, static_cast<std::uint8_t>(i));
+    }
+    // SASHFOLD_REALM_GROUPS=1: what each group that is put off provides.
+    if (char const* const said = std::getenv("SASHFOLD_REALM_GROUPS"); said != nullptr && said[0] == '1') {
+        for (std::size_t i = 0; i < group_count; ++i) {
+            ProvidedBy const& provided = table.groups[i];
+            if (!interface_groups[i].deferrable)
+                continue;
+            std::cerr << "group " << interface_groups[i].name << (provided.deferred ? ": put off" : ": installed with the realm") << "; "
+                      << provided.interfaces.size() << " interfaces, " << provided.globals.size() << " names on the global, "
+                      << provided.members.size() << " members added to earlier interfaces\n";
+            for (ProvidedBy::Member const& member : provided.members)
+                std::cerr << "  " << member.interface << (member.on_constructor ? "." : ".prototype.") << member.key << "\n";
+        }
+    }
+}
+
+bool install_group(Realm::Internals& in, std::size_t index);
+
+// What stands in a realm for a name a waiting group provides: looked at for
+// the first time, the group is installed, and what it put there is the
+// property — or nothing, for a name it does not define in this realm.
+js::Value group_member(js::Object& holder, js::PropertyKey const& key, js::RealmRecord& realm)
+{
+    auto* const host = static_cast<Realm*>(realm.host_defined);
+    if (host == nullptr || !key.is_atom())
+        return js::Value::undefined();
+    GroupTable const& table = group_table();
+    auto const group = table.by_key.find(key.as_atom()->to_utf8());
+    // Being installed now: the installer itself looked the name up before
+    // defining it, and finds what it would have found — nothing there yet.
+    if (group == table.by_key.end() || !install_group(host->internals(), group->second))
+        return js::Value::undefined();
+    js::Property const* const now = holder.peek_own(key);
+    if (now == nullptr)
+        return js::Value::undefined();
+    if (now->lazy == js::Property::NotLazy && !now->accessor && now->value.is_undefined()) {
+        holder.remove_own(key);
+        return js::Value::undefined();
+    }
+    return now->lazy == js::Property::NotLazy && !now->accessor ? now->value : js::Value::undefined();
+}
+
+// Puts a waiting group's names where the first realm had them, each to
+// install the group when something first looks at it.
+void promise_group(Realm::Internals& in, std::size_t index)
+{
+    ProvidedBy const& provided = group_table().groups[index];
+    js::Interpreter& interpreter = in.interpreter;
+    js::Object& global = *in.realm_record->intrinsics.global;
+    js::RealmRecord& realm = *in.realm_record;
+    for (ProvidedBy::Name const& name : provided.globals)
+        global.put_lazy_value(interpreter.key(name.key), group_member, realm, name.attributes);
+    for (ProvidedBy::Member const& member : provided.members) {
+        auto const found = in.prototypes.find(member.interface);
+        if (found == in.prototypes.end())
+            continue;
+        js::Object* const holder = member.on_constructor ? interface_object(in, member.interface) : found->second;
+        if (holder != nullptr)
+            holder->put_lazy_value(interpreter.key(member.key), group_member, realm, member.attributes);
+    }
+    in.interface_groups[index] = GroupWaiting;
+    ++interpreter.heap().lazy_census().groups_described;
+}
+
+// Installs a group a realm put off; false when there is nothing to install
+// — it is installed, or is being installed by whoever asked first.
+bool install_group(Realm::Internals& in, std::size_t index)
+{
+    if (index >= in.interface_groups.size() || in.interface_groups[index] != GroupWaiting)
+        return false;
+    in.interface_groups[index] = GroupRunning;
+    ProvidedBy const& provided = group_table().groups[index];
+    js::Interpreter& interpreter = in.interpreter;
+    // Whoever asked may have only looked a property or a prototype up, and
+    // holds what it holds: nothing is collected under it. The group's
+    // objects are the realm's own, whichever realm's code asked.
+    js::Heap::NoCollect const no_collect(interpreter.heap());
+    js::Interpreter::RealmScope const inside(interpreter, in.realm_record);
+    interface_groups[index].install(in);
+    js::Object& global = *in.realm_record->intrinsics.global;
+    // The window's members among what it defined go behind the window's
+    // checks, as the realm's making put the rest (which, for a group asked
+    // for while the realm is still being made, is yet to come and does
+    // these too); and a name it did not define in this realm is promised
+    // no longer.
+    auto const settle = [&](js::Object& holder, std::string const& name) {
+        js::PropertyKey const key = interpreter.key(name);
+        js::Property const* const own = holder.peek_own(key);
+        if (own != nullptr && own->lazy == js::Property::LazyValue && own->lazy_make == group_member)
+            holder.remove_own(key);
+        return key;
+    };
+    for (ProvidedBy::Name const& name : provided.globals) {
+        js::PropertyKey const key = settle(global, name.key);
+        if (in.window_shaped)
+            shape_window_member(in, key);
+    }
+    for (ProvidedBy::Member const& member : provided.members) {
+        auto const found = in.prototypes.find(member.interface);
+        if (found == in.prototypes.end())
+            continue;
+        if (js::Object* const holder = member.on_constructor ? interface_object(in, member.interface) : found->second)
+            settle(*holder, member.key);
+    }
+    in.interface_groups[index] = GroupInstalled;
+    ++interpreter.heap().lazy_census().groups_run;
+    return true;
+}
+
+// Every interface a document's realm has, made with that realm current —
+// or, for the groups a window's realm can do without, promised.
 void install_interfaces(Realm::Internals& in)
 {
     // What the global object has before the Web's interfaces: the language's
@@ -1552,38 +1880,44 @@ void install_interfaces(Realm::Internals& in)
                   << " ms, heap " << (static_cast<long>(in.interpreter.heap().bytes_allocated()) - static_cast<long>(heap)) / 1024
                   << " KB, rss " << (static_cast<long>(platform::resident_set_bytes()) - static_cast<long>(rss)) / 1024 << " KB\n";
     };
-    step("events", [&] { install_events(in); });
-    step("nodes", [&] { install_nodes(in); });
-    step("ranges", [&] { install_ranges(in); });
-    step("traversal", [&] { install_traversal(in); });
-    step("style", [&] { install_style(in); });
-    step("window", [&] { install_window(in); });
-    step("binary", [&] { install_binary(in); });
-    step("fetch", [&] { install_fetch(in); });
-    step("xhr", [&] { install_xhr(in); });
-    step("tasks", [&] { install_tasks(in); });
-    step("origin", [&] { install_origin(in); });
-    step("trusted_types", [&] { install_trusted_types(in); });
-    if (in.worker != nullptr) {
-        // A worker's scope is its own global object: no WindowProxy stands in
-        // front of it, and no other origin ever reaches it.
-        install_worker_scope(in, language_globals);
-        install_indexeddb(in);
-        return;
+    // A window's realm puts groups off once the process knows what each
+    // provides; the first one to come while it does not installs them all
+    // and takes the notes. A worker's realm, and every realm where nothing
+    // is put off (SASHFOLD_LAZY=0), installs what it has.
+    GroupTable& table = group_table();
+    bool promising = false;
+    bool learning = false;
+    if (js::lazy_natives() && in.worker == nullptr) {
+        promising = table.learned.load(std::memory_order_acquire);
+        if (!promising) {
+            std::lock_guard<std::mutex> const lock(table.mutex);
+            learning = !table.learning;
+            table.learning = true;
+        }
     }
-    step("workers", [&] { install_workers(in); });
-    step("media", [&] { install_media(in); });
-    step("geometry", [&] { install_geometry(in); });
-    step("canvas", [&] { install_canvas(in); });
-    // Last of the element machinery: it makes HTMLElement constructible,
-    // which every interface above it must already exist for.
-    step("custom_elements", [&] { install_custom_elements(in); });
-    step("mutation_observer", [&] { install_mutation_observer(in); });
-    step("intersection", [&] { install_intersection_observer(in); });
-    step("indexeddb", [&] { install_indexeddb(in); });
-    step("cssom", [&] { install_cssom(in); });
-    step("streams", [&] { install_streams(in); });
+    if (promising)
+        in.interface_groups.assign(group_count, GroupInstalled);
+    for (std::size_t i = 0; i < group_count; ++i) {
+        if (in.worker != nullptr && i == groups_of_a_worker) {
+            // A worker's scope is its own global object: no WindowProxy stands in
+            // front of it, and no other origin ever reaches it.
+            install_worker_scope(in, language_globals);
+            install_indexeddb(in);
+            return;
+        }
+        InterfaceGroup const& group = interface_groups[i];
+        if (promising && table.groups[i].deferred)
+            step(group.name, [&] { promise_group(in, i); });
+        else if (learning && group.deferrable)
+            step(group.name, [&] { learn_group(in, i, table.groups[i]); });
+        else
+            step(group.name, [&] { group.install(in); });
+    }
     step("window_proxy", [&] { install_window_proxy(in, language_globals); });
+    if (learning) {
+        finish_learning(in, table);
+        table.learned.store(true, std::memory_order_release);
+    }
 }
 
 // The host's half of HostPromiseRejectionTracker (HTML §8.1.7.3), on the
@@ -1653,6 +1987,16 @@ void detach_wrappers(dom::Document& document)
 }
 
 } // namespace
+
+js::Object* Realm::Internals::deferred_prototype(std::string_view name) const
+{
+    GroupTable const& table = group_table();
+    auto const group = table.by_interface.find(std::string(name));
+    if (group == table.by_interface.end() || !install_group(const_cast<Internals&>(*this), group->second))
+        return nullptr;
+    auto const it = prototypes.find(std::string(name));
+    return it == prototypes.end() ? nullptr : it->second;
+}
 
 Realm::Realm(dom::Document& document, net::Url url, HostHooks hooks)
     : m_internals(std::make_unique<Internals>(*this, document, std::move(url), std::move(hooks)))
@@ -1854,6 +2198,15 @@ Realm::~Realm()
         in.agent.stand_in_document.reset();
         in.interpreter.clear_jobs();
     } else {
+        // What the realm put off it installs now, while it can: its window
+        // outlives it in whatever a script still holds of the frame, and a
+        // name there answers as it always would have. (A page that is
+        // closing takes its heap with it, and installs nothing.)
+        if (!in.agent.ending && !in.ended) {
+            for (std::size_t i = 0; i < in.interface_groups.size(); ++i)
+                install_group(in, i);
+            keep_streams_for_the_window(in);
+        }
         // A frame's realm ends before the heap its wrappers live in: they let
         // go of the nodes they point into. Its record passes to the agent's
         // stand-in, so a native of this realm that a script still holds

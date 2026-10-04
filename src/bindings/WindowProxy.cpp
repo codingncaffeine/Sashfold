@@ -802,7 +802,23 @@ void install_window_proxy(Realm::Internals& in, std::vector<js::PropertyKey> con
     js::Interpreter& interpreter = in.interpreter;
     js::Heap::NoCollect const guard(interpreter.heap());
     js::Object& global = *interpreter.global();
-    js::RealmRecord& realm = *interpreter.current_realm();
+    for (js::PropertyKey const& key : global.own_keys()) {
+        if (!key.is_atom() || std::find(language_globals.begin(), language_globals.end(), key) != language_globals.end())
+            continue;
+        shape_window_member(in, key);
+    }
+    in.window_shaped = true;
+    interpreter.set_global_this(*in.realm_record, interpreter.heap().allocate<WindowProxyObject>(*in.realm_record));
+}
+
+// One member of the window, shaped: what the pass above does to each, and
+// what a group of interfaces installed later does to the members it adds.
+void shape_window_member(Realm::Internals& in, js::PropertyKey const& key)
+{
+    js::Interpreter& interpreter = in.interpreter;
+    js::Heap::NoCollect const guard(interpreter.heap());
+    js::Object& global = *in.realm_record->intrinsics.global;
+    js::RealmRecord& realm = *in.realm_record;
     // A function already made by the interfaces, put behind the checks; an
     // interface object, which has a prototype, is left as it is.
     auto const guarded = [&interpreter](js::Object* function, bool shown, bool lenient, bool forwards) -> js::Object* {
@@ -817,14 +833,13 @@ void install_window_proxy(Realm::Internals& in, std::vector<js::PropertyKey> con
         std::string const function_name = name && name->value && name->value->is_string() ? name->value->as_string()->to_utf8() : std::string();
         return interpreter.new_native(function_name, arity, window_member(*native->closure(), shown, lenient, forwards));
     };
-    for (js::PropertyKey const& key : global.own_keys()) {
-        if (!key.is_atom() || std::find(language_globals.begin(), language_globals.end(), key) != language_globals.end())
-            continue;
+    {
         js::Property* const own = global.peek_own(key);
-        // (A value made at first look is an interface's object, which is
-        // left as it is, like one already made.)
+        // (A value made at first look is left as it is: an interface's
+        // object, like one already made, or a member of a group not
+        // installed yet, which is shaped when the group is.)
         if (own == nullptr || own->lazy == js::Property::LazyValue)
-            continue;
+            return;
         std::string const name = key.as_atom()->to_utf8();
         bool const replaceable = listed(replaceable_members, name);
         std::uint8_t const accessor_attributes = listed(unforgeable_members, name) ? js::Enumerable : js::Enumerable | js::Configurable;
@@ -871,7 +886,6 @@ void install_window_proxy(Realm::Internals& in, std::vector<js::PropertyKey> con
                 in.cross_origin_members[property->name] = *made;
         }
     }
-    interpreter.set_global_this(*in.realm_record, interpreter.heap().allocate<WindowProxyObject>(*in.realm_record));
 }
 
 }

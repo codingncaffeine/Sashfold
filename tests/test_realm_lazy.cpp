@@ -7,9 +7,11 @@
 #include "js/Object.h"
 
 #include <cstdint>
+#include <map>
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 // What a document's realm makes when it is made, and what it makes only
 // when a page asks. A realm is born with every interface's members as
@@ -21,7 +23,11 @@
 // window's own — said by the description's flags. The Streams interfaces
 // are data properties of the window from the start, and the script behind
 // them runs at the first look at one, with the built-ins as the realm was
-// born with them however a page has replaced them since. And nothing a page
+// born with them however a page has replaced them since. The interfaces
+// that are an API of their own — fetch, canvas, IndexedDB, the CSS object
+// model and ten more groups — are not installed at all until something
+// touches one: their names are on the window, and their members on the
+// interfaces they add to, in the places they always had. And nothing a page
 // can list differs from a realm that makes everything at once, which each
 // part below checks against one (js::set_lazy_natives(false)).
 //
@@ -121,8 +127,25 @@ function describe(holder, key) {
     var d = Object.getOwnPropertyDescriptor(holder, key);
     if (!d)
         return 'none';
-    function fn(f) { return typeof f === 'function' ? f.name + '/' + f.length : String(f); }
+    function fn(f) { return typeof f === 'function' ? f.name + '/' + f.length : typeof f === 'object' && f !== null ? 'object' : String(f); }
     return ('value' in d ? 'value ' + fn(d.value) + ' w' + d.writable : 'get ' + fn(d.get) + ' set ' + fn(d.set)) + ' e' + d.enumerable + ' c' + d.configurable;
+}
+)JS";
+
+// Everything a script can see of one of the window's names: the property
+// itself, and for an interface its object's and its prototype's own
+// properties, each as describe() says it, in their order.
+constexpr std::string_view surface_script = R"JS(
+function surface(name) {
+    function all(o) { return Object.getOwnPropertyNames(o).map(function (k) { return k + '=' + describe(o, k); }).join(';'); }
+    var out = [describe(window, name)];
+    var value = window[name];
+    if (typeof value === 'function') {
+        out.push(all(value));
+        if (value.prototype !== null && typeof value.prototype === 'object')
+            out.push(all(value.prototype));
+    }
+    return out.join('|');
 }
 )JS";
 
@@ -161,26 +184,44 @@ int main()
 {
     js::set_lazy_natives(true);
 
+    // --- The first window realm of a process installs every group of
+    // interfaces, and what each provided is what every realm after it
+    // promises: this one puts nothing off.
+    {
+        Page page(blank);
+        js::Heap::LazyCensus const& census = page.census();
+        CHECK_EQ(census.groups_described, std::uint64_t { 0 });
+        CHECK_EQ(census.values_described, std::uint64_t { 15 });
+        CHECK(census.natives_described >= 4000);
+        CHECK(census.natives_made_at_once <= 420);
+    }
+
     // --- What a realm is born with.
     {
         Page page(blank);
         js::Heap& heap = page.realm->interpreter().heap();
         js::Heap::LazyCensus const& census = page.census();
-        // The members are descriptions, the path every installer takes.
-        CHECK(census.natives_described >= 4000);
+        // The members are descriptions, the path every installer takes: of
+        // the groups installed with the realm, some 3,860.
+        CHECK(census.natives_described >= 3500);
         // What is still made at once is the interfaces' own objects (their
         // constructors) and a few natives their definers ask for. Today:
-        // 378; four and a half thousand before.
-        CHECK(census.natives_made_at_once <= 420);
+        // 287; four and a half thousand before.
+        CHECK(census.natives_made_at_once <= 320);
         // The parse of this page asked for a handful.
         CHECK(census.natives_made_later <= 120);
-        // The Streams script has not run: its fifteen interfaces are names.
-        CHECK_EQ(census.values_described, std::uint64_t { 15 });
+        // Fourteen groups of interfaces are not installed, and parsing this
+        // page installed none; the Streams script has not run. What stands
+        // for them is names: the Streams interfaces' fifteen, and one for
+        // each name a waiting group provides.
+        CHECK_EQ(census.groups_described, std::uint64_t { 14 });
+        CHECK_EQ(census.groups_run, std::uint64_t { 0 });
+        CHECK(census.values_described >= 150);
         CHECK_EQ(census.values_made, std::uint64_t { 0 });
         CHECK(census.script_functions <= 2);
-        // The whole realm, in cells: 3,300 today; 9,985 before.
+        // The whole realm, in cells: 2,650 today; 9,985 before.
         heap.collect();
-        CHECK(heap.cell_count() <= 3700);
+        CHECK(heap.cell_count() <= 3000);
 
         // A member is made when it is first used, and is then one function.
         std::uint64_t const made = census.natives_made_later;
@@ -304,7 +345,181 @@ int main()
         CHECK_EQ(tampered_lazy, std::string("function a:false,b:false 0"));
     }
 
+    // --- A group of interfaces is installed when something first touches it.
+    {
+        Page page(blank);
+        js::Heap::LazyCensus const& census = page.census();
+        page.eval(describe_script);
+        // Listed, and asked whether it is there, without being installed.
+        CHECK(page.boolean("Object.getOwnPropertyNames(window).indexOf('XMLHttpRequest') > 0 && Object.keys(window).indexOf('fetch') > 0"
+                           " && Object.keys(window).indexOf('Request') < 0"));
+        CHECK(page.boolean("(function () { for (var k in window) if (k === 'indexedDB') return true; return false; })()"));
+        CHECK_EQ(census.groups_run, std::uint64_t { 0 });
+        // A name of its on the window installs the group it belongs to,
+        // and that one alone, once.
+        CHECK_EQ(page.string("typeof Range"), "function");
+        CHECK_EQ(census.groups_run, std::uint64_t { 1 });
+        CHECK(page.boolean("typeof StaticRange === 'function' && new Range() instanceof AbstractRange && Range === window.Range"));
+        CHECK_EQ(census.groups_run, std::uint64_t { 1 });
+        // A member of the window that is no interface comes behind the
+        // window's own checks, as the ones a realm is born with do.
+        CHECK_EQ(page.string("describe(window, 'fetch')"), "value fetch/1 wtrue etrue ctrue");
+        CHECK_EQ(census.groups_run, std::uint64_t { 2 });
+        CHECK(page.throws("fetch.call({}, 'x')").starts_with("TypeError: Illegal invocation"));
+        CHECK_EQ(page.string("describe(window, 'Headers')"), "value Headers/0 wtrue efalse ctrue");
+        CHECK_EQ(page.string("describe(window, 'indexedDB')"), "get get indexedDB/0 set undefined etrue ctrue");
+        CHECK(page.boolean("indexedDB === window.indexedDB && indexedDB instanceof IDBFactory"));
+        CHECK(page.throws("Object.getOwnPropertyDescriptor(window, 'indexedDB').get.call({})").starts_with("TypeError: Illegal invocation"));
+        CHECK_EQ(census.groups_run, std::uint64_t { 3 });
+    }
+    {
+        // A member a group adds to an interface every realm has: its name
+        // is where it always was, and the first look installs the group.
+        Page page(blank);
+        js::Heap::LazyCensus const& census = page.census();
+        page.eval(describe_script);
+        CHECK(page.boolean("Object.getOwnPropertyNames(HTMLMediaElement.prototype).indexOf('play') > 0"
+                           " && Object.keys(HTMLCanvasElement.prototype).indexOf('getContext') >= 0"));
+        CHECK_EQ(census.groups_run, std::uint64_t { 0 });
+        CHECK_EQ(page.string("var video = document.createElement('video'); typeof video.play"), "function");
+        CHECK_EQ(census.groups_run, std::uint64_t { 1 });
+        CHECK_EQ(page.string("describe(HTMLMediaElement.prototype, 'play')"), "value play/0 wtrue etrue ctrue");
+        CHECK_EQ(page.string("describe(HTMLMediaElement.prototype, 'paused')"), "get get paused/0 set undefined etrue ctrue");
+        CHECK(page.boolean("video.paused === true && typeof MediaSource === 'function'"));
+        CHECK_EQ(census.groups_run, std::uint64_t { 1 });
+        CHECK_EQ(page.string("typeof document.createElement('canvas').getContext('2d').fillRect"), "function");
+        CHECK_EQ(census.groups_run, std::uint64_t { 2 });
+        CHECK_EQ(page.string("describe(Document.prototype, 'adoptedStyleSheets')"), "get get adoptedStyleSheets/0 set set adoptedStyleSheets/1 etrue ctrue");
+        CHECK_EQ(census.groups_run, std::uint64_t { 3 });
+    }
+    {
+        // The engine's own first need of one of a group's interfaces — an
+        // object of it to hand a script — installs the group too.
+        Page page(blank);
+        js::Heap::LazyCensus const& census = page.census();
+        CHECK(page.boolean("var range = document.createRange(); range.collapsed === true"));
+        CHECK_EQ(census.groups_run, std::uint64_t { 1 });
+        CHECK(page.boolean("Object.getPrototypeOf(range) === Range.prototype && range instanceof AbstractRange"));
+        CHECK_EQ(census.groups_run, std::uint64_t { 1 });
+        CHECK(page.boolean("var sheets = document.styleSheets; sheets.length === 0"));
+        CHECK_EQ(census.groups_run, std::uint64_t { 2 });
+        CHECK(page.boolean("Object.getPrototypeOf(sheets) === StyleSheetList.prototype"));
+        CHECK_EQ(census.groups_run, std::uint64_t { 2 });
+        CHECK(page.boolean("var seen = 0, observer = new MutationObserver(function (records) { seen = records.length; });"
+                           " observer.observe(document.body, { childList: true }); document.body.appendChild(document.createElement('i')); true"));
+        while (page.realm->run_pending()) {
+        }
+        CHECK(page.boolean("seen === 1"));
+        CHECK_EQ(census.groups_run, std::uint64_t { 3 });
+    }
+    {
+        // A page's own say over a name it never looked at stands, with the
+        // group not installed for it; and a frame's group is the frame's
+        // realm's, whichever realm's script asked.
+        Page page("<!DOCTYPE html><body><iframe id=f></iframe></body>");
+        js::Heap::LazyCensus const& census = page.census();
+        CHECK_EQ(census.groups_described, std::uint64_t { 28 }); // the page's and the frame's
+        std::uint64_t const run = census.groups_run;
+        CHECK(page.boolean("window.XMLHttpRequest = 5; XMLHttpRequest === 5 && delete window.Worker && typeof Worker === 'undefined'"));
+        CHECK(page.boolean("Object.defineProperty(window, 'IntersectionObserver', { value: 7, configurable: true }); IntersectionObserver === 7"));
+        CHECK(page.boolean("var frame = document.getElementById('f').contentWindow; var theirs = frame.fetch;"
+                           " theirs instanceof frame.Function && !(theirs instanceof Function) && theirs !== fetch"));
+        CHECK(page.boolean("new frame.Headers() instanceof frame.Headers && !(new frame.Headers() instanceof Headers)"));
+        CHECK(census.groups_run - run <= 5);
+    }
+    {
+        // A frame's realm installs what it put off as it ends: the window a
+        // script still holds of a frame that is gone answers for every name
+        // of it, looked at for the first time only now.
+        Page page("<!DOCTYPE html><body><iframe id=f></iframe></body>");
+        js::Heap::LazyCensus const& census = page.census();
+        std::uint64_t const run = census.groups_run;
+        CHECK(page.boolean("var element = document.getElementById('f'), gone = element.contentWindow; element.remove(); true"));
+        while (page.realm->run_pending()) {
+        }
+        CHECK_EQ(census.groups_run - run, std::uint64_t { 14 });
+        CHECK(page.boolean("typeof gone.XMLHttpRequest === 'function' && typeof gone.fetch === 'function' && typeof gone.Range === 'function'"
+                           " && typeof gone.HTMLMediaElement.prototype.play === 'function'"));
+        CHECK_EQ(census.groups_run - run, std::uint64_t { 14 });
+        // (The page's own Range is another realm's, and its own group's.)
+        CHECK(page.boolean("gone.Range !== Range"));
+        CHECK_EQ(census.groups_run - run, std::uint64_t { 15 });
+        // The Streams script, which the frame never ran, runs for its
+        // window now: the interfaces are that window's, and work.
+        CHECK(page.boolean("typeof gone.ReadableStream === 'function' && typeof gone.TextDecoderStream === 'function'"
+                           " && gone.ReadableStream !== ReadableStream && new gone.ReadableStream() instanceof gone.ReadableStream"
+                           " && new gone.CountQueuingStrategy({ highWaterMark: 3 }).highWaterMark === 3"));
+    }
+    {
+        // Installed under a heap that collects at every allocation: what a
+        // lookup holds while a group is installed under it stays held, and
+        // what the group made is the realm's to keep.
+        Page page(blank);
+        js::Heap& heap = page.realm->interpreter().heap();
+        heap.set_stress(true);
+        CHECK(page.boolean("var range = document.createRange(); range.selectNode(document.body);"
+                           " typeof fetch === 'function' && new Headers([['a', 'b']]).get('a') === 'b' && document.styleSheets.length === 0"
+                           " && typeof document.createElement('canvas').getContext === 'function' && new DOMMatrix().a === 1"
+                           " && typeof indexedDB.open === 'function' && document.createTreeWalker(document.body).root === document.body"
+                           " && typeof document.createElement('video').canPlayType === 'function' && range.collapsed === false"));
+        heap.set_stress(false);
+        heap.collect();
+        CHECK(page.census().groups_run >= 8);
+        CHECK(page.boolean("range instanceof Range && new Headers([['c', 'd']]).get('c') === 'd' && new DOMMatrix().d === 1"));
+    }
+
     // --- Nothing a page can list differs from a realm that makes everything at once.
+    // What a realm lists of its window, untouched, is what one that
+    // installs everything lists; and every name of the window, looked at
+    // first and alone in a realm of its own, shows what it shows there —
+    // the property, the interface's object and its prototype, member by
+    // member.
+    {
+        js::set_lazy_natives(false);
+        std::string eager_names;
+        std::string eager_keys;
+        std::map<std::string, std::string> eager_surface;
+        std::vector<std::string> names;
+        {
+            Page eager(blank);
+            eager_names = eager.string("Object.getOwnPropertyNames(window).join()");
+            eager_keys = eager.string("Object.keys(window).join()");
+            for (std::size_t from = 0; from < eager_names.size();) {
+                std::size_t const comma = eager_names.find(',', from);
+                names.push_back(eager_names.substr(from, comma == std::string::npos ? std::string::npos : comma - from));
+                from = comma == std::string::npos ? eager_names.size() : comma + 1;
+            }
+            eager.eval(describe_script);
+            eager.eval(surface_script);
+            for (std::string const& name : names)
+                eager_surface[name] = eager.string("surface('" + name + "')");
+        }
+        js::set_lazy_natives(true);
+        CHECK(names.size() > 400);
+        {
+            Page page(blank);
+            CHECK_EQ(page.string("Object.getOwnPropertyNames(window).join()"), eager_names);
+            CHECK_EQ(page.string("Object.keys(window).join()"), eager_keys);
+            CHECK_EQ(page.census().groups_run, std::uint64_t { 0 });
+        }
+        std::size_t differing = 0;
+        std::size_t installing = 0;
+        for (std::string const& name : names) {
+            Page page(blank);
+            page.eval(describe_script);
+            page.eval(surface_script);
+            std::string const surface = page.string("surface('" + name + "')");
+            installing += page.census().groups_run != 0 ? 1 : 0;
+            if (surface != eager_surface[name]) {
+                if (differing++ < 3)
+                    test::fail("the window's " + name + " differs: " + surface.substr(0, 300) + " — against — " + eager_surface[name].substr(0, 300), __FILE__, __LINE__);
+            }
+        }
+        CHECK_EQ(differing, std::size_t { 0 });
+        // (The names a waiting group provides, and the interfaces it adds
+        // members to: some ninety of the window's names install a group.)
+        CHECK(installing >= 80 && installing <= 130);
+    }
     std::string lazy_shape;
     {
         Page page(blank);

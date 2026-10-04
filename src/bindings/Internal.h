@@ -716,6 +716,7 @@ js::NativeFunction::Callback location_member(js::NativeFunction::Callback, bool 
 // WebIDL's checks of `this` and HTML's security check, and gives the realm
 // its WindowProxy; `language_globals` are the names that were there before.
 void install_window_proxy(Realm::Internals&, std::vector<js::PropertyKey> const& language_globals);
+void shape_window_member(Realm::Internals&, js::PropertyKey const& key);
 // The origin of a realm's document as the cross-origin rules compare it, and
 // whether two such origins are same origin-domain (HTML §7.1.1).
 OriginSnapshot snapshot_of(Realm::Internals const&);
@@ -1151,6 +1152,14 @@ struct Realm::Internals {
     // The interfaces, by name: each constructor's prototype object.
     std::unordered_map<std::string, js::Object*> prototypes;
     js::Object* prototype(std::string_view name) const;
+    // The groups of interfaces this realm left until something touches
+    // what they provide (Realm.cpp), each waiting, being installed, or
+    // installed; none for a realm that installed everything as it was made.
+    std::vector<std::uint8_t> interface_groups;
+    js::Object* deferred_prototype(std::string_view name) const;
+    // The window's pass over its members has run (install_window_proxy): a
+    // group installed after it shapes the members it adds itself.
+    bool window_shaped = false;
     // Which HTML element interface a tag gets.
     std::unordered_map<std::string, std::string> tag_interfaces;
 
@@ -1427,6 +1436,7 @@ void install_html_or_svg_element(Realm::Internals&, js::Object& prototype, bool 
 void install_style(Realm::Internals&); // Style.cpp
 void install_cssom(Realm::Internals&); // Cssom.cpp
 void install_streams(Realm::Internals&); // Streams.cpp
+void keep_streams_for_the_window(Realm::Internals&); // Streams.cpp
 // The Streams interfaces' hooks (Streams.cpp): one of them called by name; a
 // byte stream over bytes in hand; whether a value is a ReadableStream.
 Native call_streams_hook(Realm::Internals&, std::string_view name, std::span<js::Value const> arguments);

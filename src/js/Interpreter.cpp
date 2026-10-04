@@ -2375,6 +2375,7 @@ void RealmRecord::trace(Tracer& tracer)
 {
     Intrinsics const& i = intrinsics;
     tracer.visit(global_this);
+    tracer.visit(host_kept);
     tracer.visit(i.global);
     tracer.visit(i.global_environment);
     tracer.visit(i.object_prototype);
@@ -2490,8 +2491,9 @@ std::string Interpreter::lazy_census_text(std::size_t rows) const
         static_cast<unsigned long long>(census.natives_described), static_cast<unsigned long long>(census.natives_made_later),
         percent(census.natives_made_later, census.natives_described), static_cast<unsigned long long>(census.natives_made_at_once));
     text += line;
-    std::snprintf(line, sizeof line, "lazy: values described %llu, made %llu\n", static_cast<unsigned long long>(census.values_described),
-        static_cast<unsigned long long>(census.values_made));
+    std::snprintf(line, sizeof line, "lazy: values described %llu, made %llu; groups of interfaces described %llu, run %llu\n",
+        static_cast<unsigned long long>(census.values_described), static_cast<unsigned long long>(census.values_made),
+        static_cast<unsigned long long>(census.groups_described), static_cast<unsigned long long>(census.groups_run));
     text += line;
     std::snprintf(line, sizeof line, "lazy: script functions %llu, prototype asked of %llu (%.1f%%), length or name asked %llu times\n",
         static_cast<unsigned long long>(census.script_functions), static_cast<unsigned long long>(census.prototypes_asked),

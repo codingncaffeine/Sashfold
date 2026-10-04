@@ -344,6 +344,10 @@ public:
         // global), and how many of them something looked at.
         std::uint64_t values_described = 0;
         std::uint64_t values_made = 0;
+        // Groups of interfaces a host left until something touched what
+        // they provide, and how many of them something did.
+        std::uint64_t groups_described = 0;
+        std::uint64_t groups_run = 0;
         std::uint64_t script_functions = 0;
         std::uint64_t prototypes_asked = 0;
         std::uint64_t names_or_lengths_asked = 0;

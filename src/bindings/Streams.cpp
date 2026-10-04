@@ -169,19 +169,25 @@ void keep_primordials(Realm::Internals& in)
     keep.object("typedArrayConstructors", typed_arrays);
 }
 
-// Runs the script for the realm, once. A failure is said once and the
-// realm goes without streams.
-void load_streams(Realm::Internals& in)
+// The program's text, put together from its pieces once.
+std::string const& streams_source()
 {
-    if (in.streams != nullptr || in.streams_loading || in.streams_failed)
-        return;
-    // The program's text, put together from its pieces once.
     static std::string const source = [] {
         std::string whole;
         for (std::string_view const part : streams_source_parts)
             whole += part;
         return whole;
     }();
+    return source;
+}
+
+// Runs the script for the realm, once. A failure is said once and the
+// realm goes without streams.
+void load_streams(Realm::Internals& in)
+{
+    if (in.streams != nullptr || in.streams_loading || in.streams_failed)
+        return;
+    std::string const& source = streams_source();
     js::Interpreter& interpreter = in.interpreter;
     in.streams_loading = true;
     struct Done {
@@ -221,7 +227,34 @@ js::Value stream_interface(js::Object& global, js::PropertyKey const& key, js::R
     auto* const host = static_cast<Realm*>(realm.host_defined);
     if (host == nullptr)
         return js::Value::undefined();
-    load_streams(host->internals());
+    if (Realm::Internals& in = host->internals(); in.realm_record == &realm) {
+        load_streams(in);
+    } else {
+        // A frame's realm that has ended, its window still held by a
+        // script: the record is in the stand-in's care, and the script runs
+        // for its global all the same, with the built-ins the realm kept
+        // for it (keep_streams_for_the_window).
+        static thread_local js::RealmRecord const* loading = nullptr;
+        if (loading == &realm || realm.host_kept == nullptr)
+            return js::Value::undefined();
+        loading = &realm;
+        js::Interpreter& interpreter = in.interpreter;
+        {
+            js::Interpreter::RealmScope const inside(interpreter, &realm);
+            js::Interpreter::Roots const roots(interpreter);
+            js::Outcome const outcome = interpreter.run_script(streams_source(), "streams", true);
+            if (outcome.ok && js::Interpreter::is_callable(outcome.value)) {
+                interpreter.root(outcome.value);
+                js::Value const arguments[] = { js::Value::object(&global), js::Value::object(realm.host_kept) };
+                if (!interpreter.call(outcome.value, js::Value::undefined(), arguments))
+                    interpreter.clear_exception();
+            } else if (!outcome.ok) {
+                interpreter.clear_exception();
+            }
+        }
+        realm.host_kept = nullptr;
+        loading = nullptr;
+    }
     js::Property const* const now = global.peek_own(key);
     return now != nullptr && now->lazy == js::Property::NotLazy && !now->accessor ? now->value : js::Value::undefined();
 }
@@ -254,6 +287,16 @@ void install_streams(Realm::Internals& in)
             return bytes_stream(internals_of(interp), found->bytes);
         });
     }
+}
+
+// A realm that ends with the script unrun keeps, with its record, the
+// built-ins the script works with: the window a script still holds of it
+// can then be asked for a stream's interface for the first time, and have
+// it.
+void keep_streams_for_the_window(Realm::Internals& in)
+{
+    if (in.streams == nullptr && !in.streams_loading && !in.streams_failed && js::lazy_natives())
+        in.realm_record->host_kept = in.stream_primordials;
 }
 
 Native call_streams_hook(Realm::Internals& in, std::string_view name, std::span<js::Value const> arguments)
