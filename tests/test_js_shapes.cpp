@@ -318,9 +318,10 @@ int main()
         in.heap().set_stress(true);
         CHECK_JS_TRUE(in, "var plain = {}, list = [], wrapper = new String('ab'), proxy = new Proxy({}, {}), args = (function () { return arguments; })(1);"
                           " var typed = new Uint8Array(2); true");
-        CHECK(!shape_of(in, "plain")->is_uncacheable());
+        CHECK(!shape_of(in, "plain")->is_uncacheable() && !shape_of(in, "plain")->is_indexed());
+        CHECK(shape_of(in, "list")->is_indexed() && shape_of(in, "proxy")->is_uncacheable() && shape_of(in, "args")->is_indexed());
         for (std::string_view const name : { "list", "wrapper", "proxy", "args", "typed" })
-            CHECK(shape_of(in, name) != nullptr && shape_of(in, name)->is_uncacheable());
+            CHECK(shape_of(in, name) != nullptr && (shape_of(in, name)->is_uncacheable() || shape_of(in, name)->is_indexed()));
     }
 
     return test::report("js shapes");

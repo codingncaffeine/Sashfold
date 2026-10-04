@@ -289,12 +289,34 @@ public:
 
     // What it has, apart from what those hold (js/Shape.h).
     Shape* shape() const { return m_shape; }
+    // For the inline caches (js/Feedback.h), whose answers say which slot
+    // and are checked against the shape before they are used: a slot as it
+    // stands (a value, an accessor's pair, or the mark of a native not yet
+    // made), a slot written, and a property added by the transition a
+    // cache saw a write make (`after` adds the slot `index`, this object's
+    // next).
+    Value const& slot_value(std::uint32_t index) const { return m_slots[index]; }
+    void cache_store(std::uint32_t index, Value const& value) { m_slots[index] = value; }
+    void cache_add(Shape* after, std::uint32_t index, Value const& value)
+    {
+        if (index >= m_slot_capacity)
+            grow_slots(index + 1);
+        m_slots[index] = value;
+        m_slot_count = index + 1;
+        m_shape = after;
+    }
     // Said once by the constructor of an exotic object some of whose own
     // properties are not its storage's: its shapes are uncacheable.
     void mark_uncacheable();
     // Leaves the shared shapes for a dictionary of its own (js/Shape.h says
     // when); nothing a script can see changes.
     void become_dictionary();
+    // A binding in front of its properties appeared (a script's let or
+    // const in front of the global object's): what the caches answered from
+    // them is answered no more.
+    void shadowed() { changed(); }
+    // A dictionary that says it is another object's prototype (Shape::Prototype).
+    void become_prototype();
 
     void trace(Tracer&) override;
     std::size_t size_in_bytes() const override;
@@ -365,6 +387,7 @@ private:
     Heap& owner() const;
     std::uint32_t add_property(PropertyKey const&, std::uint8_t attributes, bool accessor);
     bool is_function_own(PropertyKey const&) const;
+    void changed(PropertyKey const* key = nullptr, bool chain = false);
     std::uint32_t take_slot();
     void grow_slots(std::uint32_t needed);
     void reconfigure(std::uint32_t position, std::uint8_t attributes, bool accessor);
@@ -1469,6 +1492,12 @@ public:
     // (Interpreter::own_enumerability). Null where the answer is its own:
     // a proxy with a handler always, since its trap must run.
     virtual Object* stands_for_own_property(Interpreter&, PropertyKey const&) { return nullptr; }
+    // The object whose [[Get]] and [[Set]] of any key that is not an index
+    // this one's are, with this one as the receiver — a host's window proxy
+    // standing for its window, to its own origin — so that the inline
+    // caches may answer for it from that object's shape. Null where its
+    // own are its own: a proxy with a handler always.
+    virtual Object* forwards_named_access(Interpreter&) { return nullptr; }
     virtual std::optional<bool> define_own_property(Interpreter&, PropertyKey const&, PropertyDescriptor const&);
     virtual std::optional<bool> has_property(Interpreter&, PropertyKey const&);
     virtual std::optional<bool> delete_property(Interpreter&, PropertyKey const&);

@@ -157,6 +157,10 @@ public:
     Intrinsics intrinsics;
     Environment* global_lexical = nullptr;
     std::unordered_set<JsString*> var_names;
+    // Counts the scripts that declared a let, const or class here: a cache
+    // of the global object's own properties is good for one count, since
+    // such a binding stands in front of them.
+    std::uint32_t lexical_generation = 0;
     std::unordered_map<TemplateLiteral const*, Object*> template_objects;
     // The module map (§16.2.1.7; HTML keeps one per environment settings
     // object), and each record by the tree it was parsed from, so that the
@@ -590,6 +594,7 @@ public:
     // a native can update it in place.
     Value& root(Value value) { return m_roots.push_back(value); }
     void trace_roots(Tracer&) override;
+    void clear_weak_roots() override;
 
     // The job queue (§9.5). Promise reactions and queueMicrotask callbacks
     // share one FIFO; the host drains it at every microtask checkpoint
@@ -757,6 +762,10 @@ public:
     double* vm_activity() { return m_vm_profile ? &m_account.vm_ms : nullptr; }
     // The profile as text: the split, and the `rows` natives that took most.
     std::string profile_text(std::size_t rows) const;
+    // What the inline caches (js/Feedback.h) answered, and what they had to
+    // look up: always counted.
+    std::uint64_t cache_hits() const;
+    std::uint64_t cache_misses() const;
     // The heap's lazy census as text (Heap::LazyCensus): what was put off,
     // what was asked for after all, and the `rows` names made at once most.
     std::string lazy_census_text(std::size_t rows) const;

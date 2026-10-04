@@ -257,15 +257,17 @@ namespace {
 
 // The exotic classes whose own properties are not all their storage's:
 // an array's length and elements, a string's units, a typed array's
-// numeric keys, a mapped arguments object's parameters, a namespace's
-// bindings, a proxy's every key.
+// numeric keys and a mapped arguments object's parameters (indices,
+// `length` and numeric strings alone); a namespace's bindings and a
+// proxy's every key (anything).
 std::uint8_t root_flags(Object::Class class_id)
 {
     switch (class_id) {
     case Object::Class::Array:
     case Object::Class::String:
-    case Object::Class::Arguments:
     case Object::Class::TypedArray:
+    case Object::Class::Arguments:
+        return Shape::Indexed;
     case Object::Class::ModuleNamespace:
     case Object::Class::Proxy:
         return Shape::Uncacheable;
@@ -473,10 +475,38 @@ PropertyDescriptor Object::descriptor_of(ShapeEntry const& entry) const
 void Object::set_pending(std::uint8_t which)
 {
     auto const flags = static_cast<std::uint8_t>((m_shape->flags() & ~Shape::PendingMask) | which);
-    if (m_shape->is_dictionary())
+    if (m_shape->is_dictionary()) {
         m_shape->set_flags(flags);
-    else
+        changed();
+    } else {
         m_shape = m_shape->with_flags(owner(), flags);
+    }
+}
+
+// A dictionary changed in place: its version moves, and the heap's
+// prototype epoch with it when the change can matter to a cached lookup up
+// a chain — a change to what a dictionary inherits or to what it may be
+// taken for (`chain`), or a prototype's change to a key such a lookup was
+// made for. A shared shape's object has moved to another shape instead,
+// which says as much.
+void Object::changed(PropertyKey const* key, bool chain)
+{
+    if (!m_shape->is_dictionary())
+        return;
+    m_shape->bump_version();
+    Heap& heap = owner();
+    if (chain || (m_shape->is_prototype() && key != nullptr && heap.key_cached(*key)))
+        heap.bump_prototype_epoch();
+}
+
+// What an object becomes when it is another's prototype: a dictionary that
+// says so, so that its changes move the prototype epoch.
+void Object::become_prototype()
+{
+    become_dictionary();
+    // No chain had it in it before: no cached lookup depended on it.
+    if (!m_shape->is_prototype())
+        m_shape->set_flags(static_cast<std::uint8_t>(m_shape->flags() | Shape::Prototype));
 }
 
 std::pair<Value, std::uint8_t> Object::make_pending(std::uint8_t)
@@ -617,6 +647,7 @@ std::uint32_t Object::add_property(PropertyKey const& key, std::uint8_t attribut
         m_shape->table()->append(ShapeEntry { key, slot, attributes, accessor }, &heap);
         if (which != 0)
             m_shape->set_flags(static_cast<std::uint8_t>(m_shape->flags() & ~which));
+        changed(&key);
         return slot;
     }
     // Past the threshold an object is a dictionary, and so is a function
@@ -639,6 +670,8 @@ void Object::reconfigure(std::uint32_t position, std::uint8_t attributes, bool a
         ShapeEntry& entry = (*m_shape->table())[position];
         entry.attributes = attributes;
         entry.accessor = accessor;
+        PropertyKey const key = entry.key;
+        changed(&key);
         return;
     }
     m_shape = m_shape->reconfiguring(owner(), position, attributes, accessor);
@@ -668,19 +701,23 @@ void Object::become_dictionary()
 void Object::mark_uncacheable()
 {
     auto const flags = static_cast<std::uint8_t>(m_shape->flags() | Shape::Uncacheable);
-    if (m_shape->is_dictionary())
+    if (m_shape->is_dictionary()) {
         m_shape->set_flags(flags);
-    else
-        m_shape = m_shape->with_flags(owner(), flags);
+        changed(nullptr, true);
+        return;
+    }
+    m_shape = m_shape->with_flags(owner(), flags);
 }
 
 void Object::prevent_extensions()
 {
     auto const flags = static_cast<std::uint8_t>(m_shape->flags() | Shape::NotExtensible);
-    if (m_shape->is_dictionary())
+    if (m_shape->is_dictionary()) {
         m_shape->set_flags(flags);
-    else
-        m_shape = m_shape->with_flags(owner(), flags);
+        changed();
+        return;
+    }
+    m_shape = m_shape->with_flags(owner(), flags);
 }
 
 void Object::put(PropertyKey const& key, Value const& value, std::uint8_t attributes)
@@ -850,6 +887,7 @@ void Object::delete_entry(PropertyKey const& key)
     m_shape->free_slots().push_back(slot);
     if (table.holes() > ShapeTable::linear_limit && table.holes() * 2 > table.size())
         table.compact();
+    changed(&key);
 }
 
 bool Object::set_prototype(Object* proto)
@@ -870,8 +908,9 @@ bool Object::set_prototype(Object* proto)
     if (m_shape->is_dictionary()) {
         // An object that is another's prototype is a dictionary (Shape.h).
         if (proto != nullptr)
-            proto->become_dictionary();
+            proto->become_prototype();
         m_shape->set_prototype(proto);
+        changed(nullptr, true);
         return true;
     }
     // A shared shape's properties are replayed from the new prototype's

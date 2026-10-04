@@ -163,8 +163,8 @@ Shape* Shape::root(Heap& heap, Object* prototype, std::uint8_t flags)
     // as a shape knows its transitions: a root no object uses goes at the
     // next collection (a prototype made a dictionary as soon as it is made
     // used its parent's root for an instant).
-    if (!prototype->shape()->is_dictionary())
-        prototype->become_dictionary();
+    if (!prototype->shape()->is_prototype())
+        prototype->become_prototype();
     Shape& holder = *prototype->shape();
     for (auto const& [held_flags, held] : holder.info().child_roots) {
         if (held_flags == flags)

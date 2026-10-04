@@ -273,6 +273,8 @@ void Heap::collect()
         holder->clear_weak();
         return false;
     });
+    for (RootProvider* provider : m_root_providers)
+        provider->clear_weak_roots();
 
     // What stays is measured exactly — every live cell asked its size —
     // at every eighth collection, at one that traces (the tally by kind

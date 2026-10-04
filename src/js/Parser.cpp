@@ -393,6 +393,8 @@ struct PendingReference {
     BindingKind implicit = BindingKind::Var; // This, NewTarget or HomeObject when name is null
     bool from_inner_function = false;
     bool through_with = false;
+    // Out of a function or a scope a direct eval or a with can add names to.
+    bool through_dynamic = false;
     bool in_parameters = false; // waiting at a function's top level from its parameter list
 };
 
@@ -1168,6 +1170,8 @@ ScopeInfo* Parser::Impl::pop_scope()
                 continue;
             if (info->kind == ScopeInfo::Kind::With)
                 reference.through_with = true;
+            if (info->dynamic)
+                reference.through_dynamic = true;
         }
         reference.in_parameters = to_parameters;
         m_references[kept++] = reference;
@@ -1432,6 +1436,7 @@ bool Parser::Impl::pop_function()
         std::optional<BindingIndex> const function_index = split ? index_bindings(*function_scope, count) : std::nullopt;
         BindingIndex const* const body_lookup = body_index ? &*body_index : nullptr;
         BindingIndex const* const function_lookup = split ? (function_index ? &*function_index : nullptr) : body_lookup;
+        bool const leaves_dynamic = fn.has_direct_eval || fn.contains_with || function_scope->dynamic || body_scope->dynamic;
         for (std::size_t i = references_start; i < m_references.size(); ++i) {
             PendingReference reference = m_references[i];
             if (reference.in_parameters) {
@@ -1447,6 +1452,7 @@ bool Parser::Impl::pop_function()
                 if (split && bind(*function_scope, reference, function_lookup))
                     continue;
             }
+            reference.through_dynamic |= leaves_dynamic;
             m_references[kept++] = reference;
         }
     }
@@ -1464,8 +1470,14 @@ bool Parser::Impl::pop_function()
         // What reached the program unresolved is a global name.
         m_program->scope = function_scope;
         for (std::size_t i = references_start; i < kept; ++i) {
-            if (m_references[i].node)
-                set_resolution(*m_references[i].node, Resolution::Dynamic, 0, 0, nullptr);
+            PendingReference const& reference = m_references[i];
+            if (!reference.node)
+                continue;
+            set_resolution(*reference.node, Resolution::Dynamic, 0, 0, nullptr);
+            // Eval code's names may be its caller's; any other's that passed
+            // no with and no direct eval are the global environment's.
+            if (reference.node->type == NodeType::Identifier && !m_options.eval && !reference.through_with && !reference.through_dynamic)
+                static_cast<Identifier*>(reference.node)->global = true;
         }
         m_references.resize(references_start);
         return true;
@@ -1533,6 +1545,16 @@ void Parser::Impl::settle_function(FunctionContext& fn)
         ScopeInfo::Binding const& binding = reference.declaring->bindings[reference.index];
         if (reference.through_with || reference.declaring->dynamic) {
             set_resolution(*reference.node, Resolution::Dynamic, 0, 0, reference.declaring);
+            // A script's own global declaration, reached through no with and
+            // no scope a direct eval adds to, is the global environment's.
+            if (!reference.through_with && reference.declaring->kind == ScopeInfo::Kind::Program && !m_options.eval
+                && reference.node->type == NodeType::Identifier) {
+                bool passes_dynamic = false;
+                for (ScopeInfo const* walk = reference.from; walk != nullptr && walk != reference.declaring; walk = walk->parent)
+                    passes_dynamic |= walk->dynamic;
+                if (!passes_dynamic)
+                    static_cast<Identifier*>(reference.node)->global = true;
+            }
             continue;
         }
         if (!binding.captured) {

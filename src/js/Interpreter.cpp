@@ -1495,8 +1495,18 @@ bool Interpreter::Impl::global_declaration_instantiation(Program const& program,
         if (!global->get_own_property(PropertyKey::atom(name)) && !global->is_extensible())
             { self.throw_type_error("Cannot define global variable '" + name->to_utf8() + "'"); return false; }
     }
-    for (auto const& [name, is_const] : program.declarations.lexicals)
+    // A lexical binding stands in front of the global object's property of
+    // its name: what the caches answered from such a property is answered
+    // no more (a name the global object has not is cached nowhere).
+    bool shadows = false;
+    for (auto const& [name, is_const] : program.declarations.lexicals) {
         realm().global_lexical->declare(name, Value::undefined(), !is_const, false);
+        shadows = shadows || global->shape()->find(PropertyKey::atom(name)) != nullptr;
+    }
+    if (shadows) {
+        global->shadowed();
+        ++realm().lexical_generation;
+    }
     for (FunctionDeclaration const* declaration : functions) {
         JsString* name = declaration->function->name;
         ScriptFunction* closure = self.new_script_function(*declaration->function, realm().global_lexical, cx.private_environment);
@@ -2319,6 +2329,12 @@ Interpreter::Interpreter()
         return value != nullptr && value[0] == '1';
     }();
     m_vm_profile = profile_asked;
+    static bool const census_asked = [] {
+        char const* const value = std::getenv("SASHFOLD_IC_CENSUS");
+        return value != nullptr && value[0] == '1';
+    }();
+    if (census_asked)
+        m_impl->cache_census = std::make_unique<Impl::CacheCensus>();
 }
 
 double* Interpreter::native_activity(Object const& function)
@@ -2473,6 +2489,20 @@ Interpreter::~Interpreter()
         std::fputs(profile_text(25).c_str(), stderr);
     if (Heap::lazy_census_asked())
         std::fputs(lazy_census_text(std::getenv("SASHFOLD_LAZY_CENSUS_ALL") != nullptr ? 100000 : 40).c_str(), stderr);
+    if (Impl::CacheCensus const* const census = m_impl->cache_census.get()) {
+        std::fprintf(stderr, "prototype epoch: %u\n", m_heap->prototype_epoch());
+        std::fprintf(stderr, "inline caches: %llu hits, %llu misses — a site's first run %llu, another shape %llu, megamorphic %llu, stale %llu; unrecorded %llu\n",
+            static_cast<unsigned long long>(m_impl->ic_hits), static_cast<unsigned long long>(m_impl->ic_misses),
+            static_cast<unsigned long long>(census->first), static_cast<unsigned long long>(census->other_shape),
+            static_cast<unsigned long long>(census->megamorphic), static_cast<unsigned long long>(census->stale),
+            static_cast<unsigned long long>(census->unrecorded));
+        std::vector<std::pair<std::uint64_t, std::string>> ranked;
+        for (auto const& [name, count] : census->by_name)
+            ranked.emplace_back(count, name);
+        std::sort(ranked.rbegin(), ranked.rend());
+        for (std::size_t i = 0; i < ranked.size() && i < 40; ++i)
+            std::fprintf(stderr, "  %10llu  %s\n", static_cast<unsigned long long>(ranked[i].first), ranked[i].second.c_str());
+    }
     m_heap->remove_root_provider(this);
 }
 
@@ -2534,6 +2564,21 @@ std::string Interpreter::profile_text(std::size_t rows) const
         text += line;
     }
     return text;
+}
+
+std::uint64_t Interpreter::cache_hits() const
+{
+    return m_impl->ic_hits;
+}
+
+std::uint64_t Interpreter::cache_misses() const
+{
+    return m_impl->ic_misses;
+}
+
+void Interpreter::clear_weak_roots()
+{
+    m_impl->clear_dead_feedback();
 }
 
 void Interpreter::trace_roots(Tracer& tracer)

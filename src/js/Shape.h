@@ -146,10 +146,19 @@ public:
     static constexpr std::uint8_t PendingMask = 7;
     static constexpr std::uint8_t Dictionary = 8;
     static constexpr std::uint8_t NotExtensible = 16;
-    // An exotic object, some of whose own properties are not its storage's
-    // (an array's length, a proxy's every key): a cache keyed on the shape
-    // must not take the storage's word for what the object has.
+    // An exotic object any of whose own properties may not be its
+    // storage's (a proxy's every key, a host's named properties): a cache
+    // keyed on the shape must never take the storage's word for it.
     static constexpr std::uint8_t Uncacheable = 32;
+    // An exotic object whose own properties beyond its storage are only
+    // indices, `length` and other canonical numeric strings (an array, a
+    // string wrapper, a typed array, an arguments object): a cache may
+    // take the storage's word for any other name.
+    static constexpr std::uint8_t Indexed = 64;
+    // A dictionary that is some object's prototype: any change to it moves
+    // its heap's prototype epoch, which every cached lookup up a chain is
+    // made under.
+    static constexpr std::uint8_t Prototype = 128;
     // Past this many properties an object becomes a dictionary.
     static constexpr std::uint32_t dictionary_threshold = 64;
 
@@ -164,6 +173,13 @@ public:
     bool is_dictionary() const { return (m_flags & Dictionary) != 0; }
     bool is_extensible() const { return (m_flags & NotExtensible) == 0; }
     bool is_uncacheable() const { return (m_flags & Uncacheable) != 0; }
+    bool is_indexed() const { return (m_flags & Indexed) != 0; }
+    bool is_prototype() const { return (m_flags & Prototype) != 0; }
+    // A dictionary's count of the changes made to what it has (a property
+    // added, deleted or reconfigured, its flags or its prototype changed):
+    // a cache that keys on a dictionary keys on this too, since the shape
+    // itself stays.
+    std::uint32_t version() const { return m_version; }
     // The entries this shape has, holes included: the first `count` of its
     // table. A dictionary has all of its own.
     std::uint32_t count() const
@@ -204,9 +220,11 @@ public:
     // it (the collector traces a cell no heap adopted and never frees it).
     Shape* to_dictionary(Heap&) const;
 
-    // A dictionary's own, changed in place.
+    // A dictionary's own, changed in place (the caller says it changed:
+    // Object::changed).
     void set_flags(std::uint8_t flags) { m_flags = flags; }
     void set_prototype(Object* prototype) { m_prototype = prototype; }
+    void bump_version() { ++m_version; }
     // The realm its properties not yet made are made in (null until one is
     // put), and the slots its deleted properties gave back.
     RealmRecord* realm() const { return m_info != nullptr ? m_info->realm : nullptr; }
@@ -258,6 +276,7 @@ private:
     bool m_has_index_keys = false;
     bool m_owns_table = false; // made it: the heap counts it in this shape
     bool m_weakly_held = false;
+    std::uint32_t m_version = 0;
     std::unique_ptr<Transitions> m_transitions;
     std::unique_ptr<Info> m_info;
 };

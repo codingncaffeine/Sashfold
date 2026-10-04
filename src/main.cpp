@@ -1322,6 +1322,8 @@ ui::Browser::EngineAccount engine_since(ui::Browser::EngineAccount const& now, u
     d.functions_compiled -= base.functions_compiled;
     d.vm_ms -= base.vm_ms;
     d.natives_ms -= base.natives_ms;
+    d.ic_hits -= base.ic_hits;
+    d.ic_misses -= base.ic_misses;
     return d;
 }
 
@@ -1332,7 +1334,8 @@ std::string engine_json(ui::Browser::EngineAccount const& e)
     out << std::fixed << std::setprecision(1) << "{ \"ms\": " << e.engine_ms << ", \"parse\": " << e.parse_ms
         << ", \"compile\": " << e.compile_ms << ", \"functions_compiled\": " << e.functions_compiled << ", \"gc\": " << e.gc_ms
         << ", \"collections\": " << e.collections << ", \"gc_longest\": " << e.gc_longest_ms << ", \"run\": " << e.run_ms()
-        << ", \"live_cells\": " << e.live_cells << ", \"live_mb\": " << static_cast<double>(e.live_bytes) / (1024.0 * 1024.0) << " }";
+        << ", \"live_cells\": " << e.live_cells << ", \"live_mb\": " << static_cast<double>(e.live_bytes) / (1024.0 * 1024.0)
+        << ", \"ic_hits\": " << e.ic_hits << ", \"ic_misses\": " << e.ic_misses << " }";
     return out.str();
 }
 
@@ -1379,6 +1382,10 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         std::vector<double> scroll_paint_ms; // the frame alone
         ui::Profile profile;
         ui::ShellLoader::Census network;
+        // The engine at the first paint (the page's first turn) and once
+        // the timers have run.
+        ui::Browser::EngineAccount engine_first;
+        ui::Browser::EngineAccount engine;
         std::size_t rss_before = 0;
         std::size_t rss_after = 0;
         std::string title;
@@ -1428,6 +1435,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         } while (browser.navigating());
         browser.frame();
         run.first_paint_ms = ms(clock::now() - started).count();
+        run.engine_first = browser.engine_account();
         settle();
         // The timers, as --render gives them: each due one runs in turn
         // until the page's virtual time is spent.
@@ -1440,6 +1448,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         }
         browser.frame();
         run.pixels_ms = ms(clock::now() - started).count();
+        run.engine = browser.engine_account();
         run.rss_after = platform::resident_set_bytes();
         // A wheel notch at the content's center, and the frame after it,
         // twenty times: what a reader's scroll costs today.
@@ -1504,6 +1513,8 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
             << ", \"scroll\": { \"frame_ms\": { \"median\": " << median(run.scroll_ms) << ", \"max\": " << largest(run.scroll_ms)
             << " }, \"paint_ms\": { \"median\": " << median(run.scroll_paint_ms) << ", \"max\": " << largest(run.scroll_paint_ms) << " } },\n"
             << "      \"shell\": " << profile_json(run.profile) << ",\n"
+            << "      \"engine_first_paint\": " << engine_json(run.engine_first) << ",\n"
+            << "      \"engine\": " << engine_json(run.engine) << ",\n"
             << "      \"rss_bytes\": { \"before\": " << run.rss_before << ", \"after\": " << run.rss_after << " },\n"
             << "      \"network\": " << census_json(run.network) << " }" << (i + 1 < results.size() ? "," : "") << "\n";
     }
@@ -2466,6 +2477,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                                      ? " [bytecode " + std::to_string(static_cast<long>(engine.vm_ms + 0.5)) + " ms, natives "
                                          + std::to_string(static_cast<long>(engine.natives_ms + 0.5)) + " ms]"
                                      : std::string())
+                          << ", caches " << engine.ic_hits << " hits of " << engine.ic_hits + engine.ic_misses
                           << ")"
                           << ", frame " << wall_ms(frame_done - scripts_done).count() << " ms [styles " << spent.restyles
                           << " in " << spent.restyle_ms << " ms, layouts " << spent.relayouts << " in " << spent.relayout_ms

@@ -73,6 +73,12 @@ struct Reference {
     Value key_value; // Property, Super: the key before ToPropertyKey, when not yet converted
     Value this_value; // Super: the receiver
     bool key_ready = false;
+    // ObjectEnvironment, a global name's through its site's cache: the
+    // global object's dictionary and the property's place in it when the
+    // cache answered, the property a writable data one in `slot` — read
+    // and written there while that place still holds it.
+    Shape const* cached_shape = nullptr;
+    std::uint32_t cached_version = 0;
 };
 
 inline bool is_anonymous_function_definition(Expression const* expression)
@@ -280,6 +286,45 @@ struct Interpreter::Impl {
     std::unordered_map<FunctionNode const*, std::unique_ptr<CodeBlock>> code_blocks;
     std::vector<ClassBuilder*> class_builders; // the classes under construction outside a frame; traced
     CodeBlock const* compiled_body(FunctionNode const& node); // null with a SyntaxError pending
+    // ---- the inline caches (js/Feedback.h): each block's vector, made at
+    // its first run and kept with the block; every one of them, for the
+    // collector's weak pass; the megamorphic sites' stub cache, made when a
+    // site first goes megamorphic; and what the caches answered.
+    FeedbackVector* feedback_for(CodeBlock const&);
+    std::vector<FeedbackVector*> feedback_vectors;
+    std::unique_ptr<StubCache> stub_cache;
+    StubCache& stubs()
+    {
+        if (!stub_cache)
+            stub_cache = std::make_unique<StubCache>();
+        return *stub_cache;
+    }
+    std::uint64_t ic_hits = 0;
+    std::uint64_t ic_misses = 0;
+    // SASHFOLD_IC_CENSUS=1: why the caches missed — a site's first run, a
+    // shape it had not seen, the stub cache, an answer no longer good —
+    // and what could not be recorded, by name; said when the interpreter
+    // ends. Off, the miss path tests one flag.
+    struct CacheCensus {
+        std::uint64_t first = 0;
+        std::uint64_t other_shape = 0;
+        std::uint64_t megamorphic = 0;
+        std::uint64_t stale = 0;
+        std::uint64_t unrecorded = 0;
+        std::unordered_map<std::string, std::uint64_t> by_name;
+    };
+    std::unique_ptr<CacheCensus> cache_census;
+    void note_miss(PropertySite const&, PropertyEntry const* found, JsString const* name, char const* where, bool recorded);
+    void clear_dead_feedback();
+    // A named read, write or global read through its site's cache (null
+    // for an instruction with none): the slow path on a miss, with the
+    // answer it took recorded.
+    std::optional<Value> get_named(PropertySite*, Value const& base, JsString* name);
+    bool put_named(PropertySite*, Value const& base, JsString* name, Value const& value, bool strict);
+    std::optional<Value> get_global(PropertySite&, JsString* name, Environment* environment, bool strict, bool typeof_name);
+    Reference global_reference(PropertySite&, JsString* name, Environment* environment);
+    bool cached_reference_holds(Reference const&) const;
+    Object* named_access_target(Object&);
     // The machine's stacks: values (every frame's registers and operand
     // stack, one extent after another), environments (every frame's region,
     // one after another) and the frames themselves (slots used again, each

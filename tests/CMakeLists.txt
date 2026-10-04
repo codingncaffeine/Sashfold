@@ -92,6 +92,7 @@ sashfold_test(test_js_vm_frames)
 sashfold_test(test_js_vm_ops)
 sashfold_test(test_js_lazy)
 sashfold_test(test_js_shapes)
+sashfold_test(test_js_ic)
 # The check on a cell value's address, turned on in every build: linked to
 # nothing of the engine's, whose files have the check as their build has it.
 add_executable(test_js_value_checks test_js_value_checks.cpp)

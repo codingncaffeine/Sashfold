@@ -644,6 +644,9 @@ public:
         // natives' (built-ins and bindings), each net of the other.
         double vm_ms = 0;
         double natives_ms = 0;
+        // What the inline caches answered and had to look up.
+        std::uint64_t ic_hits = 0;
+        std::uint64_t ic_misses = 0;
         double run_ms() const
         {
             double const rest = engine_ms - parse_ms - compile_ms - gc_ms;

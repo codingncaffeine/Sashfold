@@ -230,6 +230,10 @@ struct Identifier : Expression {
     // The resolution first, so it sits in the padding at the end of
     // Expression rather than adding to the node.
     Resolution resolution = Resolution::Unresolved;
+    // A Dynamic name that can only be the global environment's: no with
+    // and no direct eval comes between it and the program, and it is not
+    // eval code's. What a cache of the global's properties may answer.
+    bool global = false;
     std::uint16_t hops = 0;
     JsString* name = nullptr;
     std::uint32_t slot = 0;

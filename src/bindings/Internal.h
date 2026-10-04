@@ -653,6 +653,7 @@ public:
     std::optional<std::optional<js::PropertyDescriptor>> get_own_property(js::Interpreter&, js::PropertyKey const&) override;
     // Its window's own property is its own, to a script of the window's origin.
     js::Object* stands_for_own_property(js::Interpreter&, js::PropertyKey const&) override;
+    js::Object* forwards_named_access(js::Interpreter&) override;
     std::optional<bool> define_own_property(js::Interpreter&, js::PropertyKey const&, js::PropertyDescriptor const&) override;
     std::optional<bool> delete_property(js::Interpreter&, js::PropertyKey const&) override;
     std::optional<std::vector<js::PropertyKey>> own_keys(js::Interpreter&) override;

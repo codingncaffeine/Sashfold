@@ -55,6 +55,10 @@ int usage()
 void print_profile(js::Interpreter& in)
 {
     std::fputs(in.profile_text(15).c_str(), stdout);
+    std::uint64_t const hits = in.cache_hits();
+    std::uint64_t const misses = in.cache_misses();
+    std::printf("  inline caches: ic_hits %llu, ic_misses %llu (%.1f%% hit)\n", static_cast<unsigned long long>(hits),
+        static_cast<unsigned long long>(misses), hits + misses ? 100.0 * static_cast<double>(hits) / static_cast<double>(hits + misses) : 0.0);
     js::Interpreter::Account const& account = in.account();
     std::uint64_t total = 0;
     for (std::uint64_t count : account.executed)

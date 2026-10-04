@@ -11816,6 +11816,8 @@ Browser::EngineAccount Browser::engine_account() const
     account.functions_compiled = code.functions_compiled;
     account.vm_ms = code.vm_ms;
     account.natives_ms = code.natives_ms;
+    account.ic_hits = interpreter.cache_hits();
+    account.ic_misses = interpreter.cache_misses();
     account.gc_ms = heap.collect_ms;
     account.gc_longest_ms = heap.longest_collect_ms;
     account.collections = heap.collections;

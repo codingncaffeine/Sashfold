@@ -199,6 +199,430 @@ CodeBlock const* Interpreter::Impl::compiled_parameters(FunctionNode const& node
     return raw;
 }
 
+// ---- the inline caches (js/Feedback.h) -------------------------------------
+
+FeedbackVector* Interpreter::Impl::feedback_for(CodeBlock const& code)
+{
+    if (code.feedback == nullptr && (code.property_sites | code.call_sites | code.operand_sites | code.element_sites) != 0) {
+        code.feedback = std::make_unique<FeedbackVector>(code.property_sites, code.call_sites, code.operand_sites, code.element_sites);
+        feedback_vectors.push_back(code.feedback.get());
+    }
+    return code.feedback.get();
+}
+
+void Interpreter::Impl::clear_dead_feedback()
+{
+    Heap const& h = heap();
+    for (FeedbackVector* vector : feedback_vectors)
+        vector->clear_dead(h);
+    if (stub_cache)
+        stub_cache->clear();
+}
+
+void Interpreter::Impl::note_miss(PropertySite const& site, PropertyEntry const* found, JsString const* name, char const* where, bool recorded)
+{
+    CacheCensus& census = *cache_census;
+    if (found != nullptr)
+        ++census.stale;
+    else if (site.state == PropertySite::Megamorphic)
+        ++census.megamorphic;
+    else if (site.state == PropertySite::Empty)
+        ++census.first;
+    else
+        ++census.other_shape;
+    if (!recorded)
+        ++census.unrecorded;
+    ++census.by_name[std::string(where) + (recorded ? " " : " unrecorded ") + name->to_utf8()];
+}
+
+namespace {
+
+// The answer a site has for this shape, if it has one.
+PropertyEntry const* entry_for(PropertySite const& site, Shape const* shape, StubCache* stubs, JsString const* name, bool store)
+{
+    switch (site.state) {
+    case PropertySite::Monomorphic:
+        return site.first.shape == shape ? &site.first : nullptr;
+    case PropertySite::Polymorphic:
+        for (std::uint8_t i = 0; i < site.count; ++i) {
+            if (site.more[i].shape == shape)
+                return &site.more[i];
+        }
+        return nullptr;
+    case PropertySite::Megamorphic:
+        return stubs != nullptr ? stubs->find(shape, name, store) : nullptr;
+    default:
+        return nullptr;
+    }
+}
+
+// Whether an answer over the receiver's own property still holds: a shared
+// shape's always; a dictionary's while the place the answer found the
+// property at still holds its key, its slot and its kind (and, for a
+// write, its being writable) — whatever else the dictionary did.
+bool own_holds(PropertyEntry const& entry, Shape const& shape, PropertyKey const& key, bool accessor, bool for_write = false)
+{
+    if (!shape.is_dictionary())
+        return true;
+    ShapeTable const& table = *shape.table();
+    if (entry.version >= table.size())
+        return false;
+    ShapeEntry const& there = table[entry.version];
+    return there.key == key && there.slot == entry.slot && there.accessor == accessor && (!for_write || (there.attributes & Writable) != 0);
+}
+
+// Whether an answer from up the chain still holds: the prototype epoch
+// stands, and a dictionary receiver has not come by the key itself (what
+// it inherits does not change without the epoch moving).
+bool chain_holds(PropertyEntry const& entry, Shape const& shape, Heap const& heap, PropertyKey const& key)
+{
+    return entry.stamp == heap.prototype_epoch() && (!shape.is_dictionary() || shape.position_of(key) == ShapeTable::npos);
+}
+
+// An answer that rests on a chain: its key goes into the heap's filter.
+bool rests_on_chain(CacheKind kind)
+{
+    return kind == CacheKind::ProtoData || kind == CacheKind::ProtoAccessor || kind == CacheKind::Absent || kind == CacheKind::StoreAdd;
+}
+
+// An accessor's pair, as a slot holds it once made.
+AccessorPair const* pair_in(Value const& held)
+{
+    return held.is_lazy_mark() ? nullptr : static_cast<AccessorPair const*>(held.as_cell());
+}
+
+// A call site's target: the one it has called, or that it has called many.
+void note_call(CallSite& site, Value const& callee)
+{
+    if (site.many)
+        return;
+    Object* const target = callee.is_object() ? callee.as_object() : nullptr;
+    if (site.target == nullptr)
+        site.target = target;
+    else if (site.target != target)
+        site.many = true;
+}
+
+// An element site's base and key, past the dense read the loop answers.
+void note_element(ElementSite& site, Value const& base, Value const& key)
+{
+    if (base.is_object() && key.is_number()) {
+        Object const& object = *base.as_object();
+        if (object.class_id() == Object::Class::Array && key.is_int32()) {
+            site.kinds |= ElementDense;
+            return;
+        }
+        if (object.class_id() == Object::Class::TypedArray) {
+            auto const type = static_cast<std::uint8_t>(static_cast<TypedArrayObject const&>(object).element_type());
+            site.kinds |= ElementTyped;
+            site.typed = site.typed == 0xff || site.typed == type ? type : 0xfe;
+            return;
+        }
+    }
+    site.kinds |= ElementGeneric;
+}
+
+}
+
+// The object a named read or write of `object` is answered from: the
+// object itself, the window a same-origin window proxy stands for, or none
+// (any other proxy, whose handler answers).
+Object* Interpreter::Impl::named_access_target(Object& object)
+{
+    if (!object.is_proxy())
+        return &object;
+    return static_cast<ProxyObject&>(object).forwards_named_access(self);
+}
+
+std::optional<Value> Interpreter::Impl::get_named(PropertySite* site, Value const& base, JsString* name)
+{
+    Heap& h = heap();
+    Object* const target = site != nullptr && base.is_object() ? named_access_target(*base.as_object()) : nullptr;
+    if (target == nullptr)
+        return self.get(base, h.key(name));
+    Object& object = *target;
+    Shape const* const shape = object.shape();
+    PropertyKey const key = h.key(name);
+    PropertyEntry const* const entry = entry_for(*site, shape, stub_cache.get(), name, false);
+    if (entry != nullptr) {
+        switch (entry->kind) {
+        case CacheKind::OwnData:
+            if (own_holds(*entry, *shape, key, false)) {
+                if (Value const& value = object.slot_value(entry->slot); !value.is_lazy_mark()) {
+                    ++ic_hits;
+                    return value;
+                }
+            }
+            break;
+        case CacheKind::OwnAccessor:
+            if (own_holds(*entry, *shape, key, true)) {
+                if (AccessorPair const* const pair = pair_in(object.slot_value(entry->slot))) {
+                    ++ic_hits;
+                    if (pair->getter == nullptr)
+                        return Value::undefined();
+                    return self.call(Value::object(pair->getter), base, {});
+                }
+            }
+            break;
+        case CacheKind::ProtoData:
+            if (chain_holds(*entry, *shape, h, key)) {
+                if (Value const& value = static_cast<Object*>(entry->other)->slot_value(entry->slot); !value.is_lazy_mark()) {
+                    ++ic_hits;
+                    return value;
+                }
+            }
+            break;
+        case CacheKind::ProtoAccessor:
+            if (chain_holds(*entry, *shape, h, key)) {
+                if (AccessorPair const* const pair = pair_in(static_cast<Object*>(entry->other)->slot_value(entry->slot))) {
+                    ++ic_hits;
+                    if (pair->getter == nullptr)
+                        return Value::undefined();
+                    return self.call(Value::object(pair->getter), base, {});
+                }
+            }
+            break;
+        case CacheKind::Absent:
+            if (chain_holds(*entry, *shape, h, key)) {
+                ++ic_hits;
+                return Value::undefined();
+            }
+            break;
+        case CacheKind::ArrayLength:
+            if (object.class_id() == Object::Class::Array) {
+                ++ic_hits;
+                return Value::number(static_cast<double>(static_cast<ArrayObject const&>(object).length()));
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    ++ic_misses;
+    PropertyEntry const answer = answer_for_load(object, key, h.prototype_epoch());
+    if (rests_on_chain(answer.kind))
+        h.note_cached_key(key);
+    if (cache_census) [[unlikely]]
+        note_miss(*site, entry, name, "get", answer.kind != CacheKind::None);
+    std::optional<Value> const value = self.get(base, key);
+    if (answer.kind != CacheKind::None)
+        record(*site, answer, stubs(), name, false);
+    return value;
+}
+
+bool Interpreter::Impl::put_named(PropertySite* site, Value const& base, JsString* name, Value const& value, bool strict)
+{
+    Heap& h = heap();
+    Object* const target = named_access_target(*base.as_object());
+    if (target == nullptr)
+        return self.set(base, h.key(name), value, strict).has_value();
+    Object& object = *target;
+    Shape* const shape = object.shape();
+    PropertyKey const key = h.key(name);
+    PropertyEntry const* const entry = entry_for(*site, shape, stub_cache.get(), name, true);
+    if (entry != nullptr) {
+        switch (entry->kind) {
+        case CacheKind::StoreAdd:
+            if (entry->stamp == h.prototype_epoch()) {
+                ++ic_hits;
+                object.cache_add(static_cast<Shape*>(entry->other), entry->slot, value);
+                return true;
+            }
+            break;
+        case CacheKind::OwnData:
+            if (own_holds(*entry, *shape, key, false, true) && !object.slot_value(entry->slot).is_lazy_mark()) {
+                ++ic_hits;
+                object.cache_store(entry->slot, value);
+                return true;
+            }
+            break;
+        case CacheKind::OwnAccessor:
+        case CacheKind::ProtoAccessor: {
+            bool const own = entry->kind == CacheKind::OwnAccessor;
+            if (!(own ? own_holds(*entry, *shape, key, true) : chain_holds(*entry, *shape, h, key)))
+                break;
+            Object const& holder = own ? object : *static_cast<Object*>(entry->other);
+            AccessorPair const* const pair = pair_in(holder.slot_value(entry->slot));
+            // No setter: the slow path says what that is (a TypeError in
+            // strict code).
+            if (pair == nullptr || pair->setter == nullptr)
+                break;
+            ++ic_hits;
+            Value const arguments[1] = { value };
+            return self.call(Value::object(pair->setter), base, arguments).has_value();
+        }
+        default:
+            break;
+        }
+    }
+    ++ic_misses;
+    std::uint32_t const epoch = h.prototype_epoch();
+    PropertyEntry answer = answer_for_store(object, key, epoch);
+    std::optional<bool> const stored = self.set(base, key, value, strict);
+    if (!stored)
+        return false;
+    if (answer.kind == CacheKind::None && target == base.as_object())
+        answer = answer_for_add(object, shape, key, epoch);
+    if (rests_on_chain(answer.kind))
+        h.note_cached_key(key);
+    if (cache_census) [[unlikely]]
+        note_miss(*site, entry, name, "put", answer.kind != CacheKind::None);
+    if (answer.kind != CacheKind::None)
+        record(*site, answer, stubs(), name, true);
+    return true;
+}
+
+namespace {
+
+// A global's answer over the global object's own property still holds
+// while the realm's scripts have declared no let, const or class since
+// (one could stand in front of it) and the property is still at its place.
+bool global_holds(PropertyEntry const& entry, Shape const& shape, RealmRecord const& realm, PropertyKey const& key, bool accessor, bool for_write = false)
+{
+    return entry.stamp == realm.lexical_generation && own_holds(entry, shape, key, accessor, for_write);
+}
+
+}
+
+// A global name (Identifier::global): a script's lexical binding, or the
+// global object's own property, through the site's cache; anything else —
+// a property the global inherits, a name nothing binds — by the slow path.
+std::optional<Value> Interpreter::Impl::get_global(PropertySite& site, JsString* name, Environment* environment, bool strict,
+    bool typeof_name)
+{
+    RealmRecord& current = realm();
+    Object& global = *current.intrinsics.global;
+    Shape const* const shape = global.shape();
+    PropertyKey const key = PropertyKey::atom(name);
+    PropertyEntry const* const entry = entry_for(site, shape, nullptr, name, false);
+    if (entry != nullptr) {
+        switch (entry->kind) {
+        case CacheKind::GlobalLexical:
+            if (entry->other == current.global_lexical) {
+                Environment::Binding const& binding = current.global_lexical->binding_at(entry->slot);
+                if (binding.initialized && binding.import_module == nullptr) {
+                    ++ic_hits;
+                    return binding.value;
+                }
+            }
+            break;
+        case CacheKind::GlobalData:
+            if (global_holds(*entry, *shape, current, key, false)) {
+                if (Value const& value = global.slot_value(entry->slot); !value.is_lazy_mark()) {
+                    ++ic_hits;
+                    return value;
+                }
+            }
+            break;
+        case CacheKind::GlobalAccessor:
+            if (global_holds(*entry, *shape, current, key, true)) {
+                if (AccessorPair const* const pair = pair_in(global.slot_value(entry->slot))) {
+                    ++ic_hits;
+                    if (pair->getter == nullptr)
+                        return Value::undefined();
+                    return self.call(Value::object(pair->getter), Value::object(&global), {});
+                }
+            }
+            break;
+        default:
+            break;
+        }
+    }
+    ++ic_misses;
+    Reference reference = resolve(name, environment);
+    if (typeof_name && reference.kind == Reference::Kind::Unresolvable)
+        return Value::empty();
+    // What the name was found as, before its value is read (a getter may
+    // change what the global has).
+    PropertyEntry answer;
+    if (reference.kind == Reference::Kind::Binding && reference.environment == current.global_lexical) {
+        std::size_t const place = current.global_lexical->place_of(name);
+        if (place < current.global_lexical->binding_count())
+            answer = { const_cast<Shape*>(shape), current.global_lexical, static_cast<std::uint32_t>(place), 0, 0, CacheKind::GlobalLexical };
+    } else if (reference.kind == Reference::Kind::ObjectEnvironment && reference.environment->object() == &global) {
+        std::uint32_t const place = shape->position_of(reference.key);
+        if (place != ShapeTable::npos && !global.slot_value(shape->at(place).slot).is_lazy_mark())
+            answer = { const_cast<Shape*>(shape), &global, shape->at(place).slot, current.lexical_generation, place,
+                shape->at(place).accessor ? CacheKind::GlobalAccessor : CacheKind::GlobalData };
+    }
+    if (cache_census) [[unlikely]]
+        note_miss(site, entry, name, "global", answer.kind != CacheKind::None);
+    std::optional<Value> const value = get_value(reference, strict);
+    if (answer.kind != CacheKind::None && shape->is_dictionary())
+        record(site, answer, stubs(), name, false);
+    return value;
+}
+
+// A global name's reference (RefName): from the site's cache when it knows
+// the name — a script's lexical binding, or the global object's own
+// writable data property, which the reference then reads and writes in its
+// slot while the property is still at its place — else resolved by name.
+Reference Interpreter::Impl::global_reference(PropertySite& site, JsString* name, Environment* environment)
+{
+    RealmRecord& current = realm();
+    Object& global = *current.intrinsics.global;
+    Shape const* const shape = global.shape();
+    PropertyKey const key = PropertyKey::atom(name);
+    if (PropertyEntry const* const entry = entry_for(site, shape, nullptr, name, false)) {
+        if (entry->kind == CacheKind::GlobalLexical && entry->other == current.global_lexical) {
+            ++ic_hits;
+            Reference reference;
+            reference.name = name;
+            reference.kind = Reference::Kind::Binding;
+            reference.environment = current.global_lexical;
+            return reference;
+        }
+        if (entry->kind == CacheKind::GlobalData && global_holds(*entry, *shape, current, key, false, true)) {
+            ++ic_hits;
+            Reference reference;
+            reference.name = name;
+            reference.kind = Reference::Kind::ObjectEnvironment;
+            reference.environment = current.intrinsics.global_environment;
+            reference.key = key;
+            reference.slot = entry->slot;
+            reference.cached_shape = shape;
+            reference.cached_version = entry->version;
+            return reference;
+        }
+    }
+    ++ic_misses;
+    Reference reference = resolve(name, environment);
+    if (!shape->is_dictionary())
+        return reference;
+    if (reference.kind == Reference::Kind::Binding && reference.environment == current.global_lexical) {
+        std::size_t const place = current.global_lexical->place_of(name);
+        if (place < current.global_lexical->binding_count())
+            record(site, { const_cast<Shape*>(shape), current.global_lexical, static_cast<std::uint32_t>(place), 0, 0, CacheKind::GlobalLexical }, stubs(), name, false);
+    } else if (reference.kind == Reference::Kind::ObjectEnvironment && reference.environment->object() == &global
+        && reference.environment == current.intrinsics.global_environment) {
+        std::uint32_t const place = shape->position_of(reference.key);
+        if (place != ShapeTable::npos) {
+            ShapeEntry const& own = shape->at(place);
+            if (!own.accessor && (own.attributes & Writable) != 0 && !global.slot_value(own.slot).is_lazy_mark()) {
+                record(site, { const_cast<Shape*>(shape), &global, own.slot, current.lexical_generation, place, CacheKind::GlobalData }, stubs(), name, false);
+                reference.slot = own.slot;
+                reference.cached_shape = shape;
+                reference.cached_version = place;
+            }
+        }
+    }
+    return reference;
+}
+
+// Whether a global reference's cached place still holds its property, a
+// writable data one, as it did when the name was resolved.
+bool Interpreter::Impl::cached_reference_holds(Reference const& reference) const
+{
+    Object const& global = *reference.environment->object();
+    if (global.shape() != reference.cached_shape)
+        return false;
+    ShapeTable const& table = *reference.cached_shape->table();
+    if (reference.cached_version >= table.size())
+        return false;
+    ShapeEntry const& there = table[reference.cached_version];
+    return there.key == reference.key && there.slot == reference.slot && !there.accessor && (there.attributes & Writable) != 0;
+}
+
 bool Interpreter::Impl::run_parameter_block(FunctionNode const& node, Environment* env, std::span<Value const> arguments, Context const& cx)
 {
     CodeBlock const* code = compiled_parameters(node);
@@ -770,6 +1194,9 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
     CodeBlock const& code = *frame.code;
     Heap& h = heap();
     WellKnownAtoms const& well_known = atoms();
+    // What this block's sites have seen (js/Feedback.h): made at its first
+    // run; an instruction with a site reads it only when the block has one.
+    FeedbackVector* const feedback = feedback_for(code);
 
     // A property reference to `base[key]` with the key converted at once
     // unless it is an object, which waits for the base check (the order
@@ -1183,7 +1610,10 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
 
         // ---- references
         VM_CASE(RefName):
-            frame.refs.push_back(resolve(code.names[ins->a], frame.envs.back()));
+            if (ins->site != no_site)
+                frame.refs.push_back(global_reference(feedback->property(ins->site), code.names[ins->a], frame.envs.back()));
+            else
+                frame.refs.push_back(resolve(code.names[ins->a], frame.envs.back()));
             VM_NEXT;
         VM_CASE(RefLocal): {
             Reference reference;
@@ -1280,6 +1710,9 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
                 }
                 frame.push(value);
                 VM_NEXT;
+            } else if (reference.cached_shape != nullptr && cached_reference_holds(reference)) {
+                frame.push(reference.environment->object()->slot_value(reference.slot));
+                VM_NEXT;
             }
             Context const cx = frame_context(frame);
             std::optional<Value> const value = get_value(frame.refs.back(), cx);
@@ -1292,9 +1725,18 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
         VM_CASE(RefPut):
         VM_CASE(RefPutKeep): {
             Reference& reference = frame.refs.back();
-            bool const stored = reference.kind == Reference::Kind::Local
-                ? write_local(reference.slot, reference.immutable, frame.top())
-                : put_value(reference, frame.top(), frame_context(frame));
+            bool stored = false;
+            if (reference.cached_shape != nullptr && cached_reference_holds(reference)) {
+                // A global's own writable data property, still there as the
+                // cache found it when the name was resolved: SetMutableBinding
+                // finds it (§9.1.1.2.5) and OrdinarySet writes its value.
+                reference.environment->object()->cache_store(reference.slot, frame.top());
+                stored = true;
+            } else {
+                stored = reference.kind == Reference::Kind::Local
+                    ? write_local(reference.slot, reference.immutable, frame.top())
+                    : put_value(reference, frame.top(), frame_context(frame));
+            }
             if (!stored) {
                 VM_FAIL;
             }
@@ -1320,6 +1762,16 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
             VM_NEXT;
         }
         VM_CASE(GetName): {
+            // A name that can only be the global environment's goes through
+            // its site's cache; any other is resolved by name.
+            if (ins->site != no_site) {
+                std::optional<Value> const value = get_global(feedback->property(ins->site), code.names[ins->a], frame.envs.back(), frame.strict, false);
+                if (!value) {
+                    VM_FAIL;
+                }
+                frame.push(*value);
+                VM_NEXT;
+            }
             Reference reference = resolve(code.names[ins->a], frame.envs.back());
             std::optional<Value> const value = get_value(reference, frame.strict);
             if (!value) {
@@ -1329,7 +1781,16 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
             VM_NEXT;
         }
         VM_CASE(TypeofName): {
-            // §13.5.3: an unresolvable name is "undefined", not an error.
+            // §13.5.3: an unresolvable name is "undefined", not an error
+            // (the cache's path answers empty for one).
+            if (ins->site != no_site) {
+                std::optional<Value> const value = get_global(feedback->property(ins->site), code.names[ins->a], frame.envs.back(), frame.strict, true);
+                if (!value) {
+                    VM_FAIL;
+                }
+                frame.push(Value::string(value->is_empty() ? well_known.undefined : self.type_of(*value)));
+                VM_NEXT;
+            }
             Reference reference = resolve(code.names[ins->a], frame.envs.back());
             if (reference.kind == Reference::Kind::Unresolvable) {
                 frame.push(Value::string(well_known.undefined));
@@ -1345,8 +1806,26 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
         VM_CASE(GetMemberNamed): {
             // GetValue of base.name (§6.2.5.5): [[Get]] with the base as the
             // receiver, a primitive's through its wrapper's prototype, a
-            // nullish one's TypeError naming the key.
+            // nullish one's TypeError naming the key. An object's read goes
+            // through the site's cache: an own data property of a shared
+            // shape is a compare and a load here, the rest out of the loop.
             Value const base = frame.top();
+            if (ins->site != no_site && base.is_object()) {
+                PropertySite& site = feedback->property(ins->site);
+                Object const& object = *base.as_object();
+                Shape const* const shape = object.shape();
+                if (site.state == PropertySite::Monomorphic && site.first.shape == shape && site.first.kind == CacheKind::OwnData && !shape->is_dictionary()) {
+                    ++ic_hits;
+                    frame.top() = object.slot_value(site.first.slot);
+                    VM_NEXT;
+                }
+                std::optional<Value> const cached = get_named(&site, base, code.names[ins->a]);
+                if (!cached) {
+                    VM_FAIL;
+                }
+                frame.top() = *cached;
+                VM_NEXT;
+            }
             std::optional<Value> const value = self.get(base, h.key(code.names[ins->a]));
             if (!value) {
                 VM_FAIL;
@@ -1362,7 +1841,17 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
             // one) the way a reference to it is put.
             Value const& base = frame.peek(1);
             Value const& value = frame.peek(0);
-            if (base.is_object()) {
+            if (base.is_object() && ins->site != no_site) {
+                PropertySite& site = feedback->property(ins->site);
+                Object& object = *base.as_object();
+                Shape const* const shape = object.shape();
+                if (site.state == PropertySite::Monomorphic && site.first.shape == shape && site.first.kind == CacheKind::OwnData && !shape->is_dictionary()) {
+                    ++ic_hits;
+                    object.cache_store(site.first.slot, value);
+                } else if (!put_named(&site, base, code.names[ins->a], value, frame.strict)) {
+                    VM_FAIL;
+                }
+            } else if (base.is_object()) {
                 if (!self.set(base, h.key(code.names[ins->a]), value, frame.strict)) {
                     VM_FAIL;
                 }
@@ -1384,6 +1873,8 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
             Value const& base = frame.peek(2);
             Value const& key = frame.peek(1);
             Value const& value = frame.peek(0);
+            if (ins->site != no_site)
+                note_element(feedback->element(ins->site), base, key);
             if (base.is_object() && !key.is_object()) {
                 std::optional<PropertyKey> const converted = self.to_property_key(key);
                 if (!converted || !self.set(base, *converted, value, frame.strict)) {
@@ -1416,6 +1907,10 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
                     auto const& elements = static_cast<ArrayObject const*>(base.as_object())->dense();
                     auto const index = static_cast<std::uint32_t>(key.as_int32());
                     if (index < elements.size() && !elements[index].is_empty()) {
+                        if (ins->site != no_site) {
+                            if (ElementSite& seen = feedback->element(ins->site); (seen.kinds & ElementDense) == 0)
+                                seen.kinds |= ElementDense;
+                        }
                         Value const element = elements[index];
                         frame.stack.pop_back();
                         frame.top() = element;
@@ -1423,6 +1918,8 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
                     }
                 }
             }
+            if (ins->site != no_site)
+                note_element(feedback->element(ins->site), frame.peek(1), frame.peek(0));
             // GetValue of base[key]: a primitive key made a property key at
             // once (nothing to observe), then [[Get]]; an object key waits
             // for the base's check, out of the loop.
@@ -1456,11 +1953,21 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
             // in int32 arithmetic when both are int32s and the answer is
             // exact there, else in doubles.
             if (left.is_int32() && right.is_int32()) {
+                // Recorded once: a store at every run would cost more
+                // than the operation it records.
+                if (ins->site != no_site) {
+                    if (std::uint8_t& seen = feedback->operands(ins->site); (seen & OperandInt32) == 0)
+                        seen |= OperandInt32;
+                }
                 if (std::optional<Value> const fast = int32_binary(op, left.as_int32(), right.as_int32())) {
                     frame.stack.pop_back();
                     frame.top() = *fast;
                     VM_NEXT;
                 }
+            } else if (ins->site != no_site) {
+                auto const kinds = static_cast<std::uint8_t>(operand_kind(left) | operand_kind(right));
+                if (std::uint8_t& seen = feedback->operands(ins->site); (seen & kinds) != kinds)
+                    seen |= kinds;
             }
             if (left.is_number() && right.is_number()) {
                 if (std::optional<Value> const fast = number_binary(op, left.as_number(), right.as_number())) {
@@ -1675,6 +2182,8 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
             std::size_t const argc = ins->a;
             std::size_t const size = frame.stack.size();
             Args const arguments(frame.stack.data() + size - argc, argc);
+            if (ins->site != no_site)
+                note_call(feedback->call(ins->site), frame.stack[size - argc - 2]);
             // A plain script function runs here, on a frame pushed above this
             // one: no C++ call, no second run loop. Its Return takes the
             // callee, `this` and the arguments off this stack.
@@ -1726,6 +2235,8 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
                 consumed = ins->a + 1;
             }
             Value const& constructor = frame.stack[size - consumed];
+            if (ins->site != no_site)
+                note_call(feedback->call(ins->site), constructor);
             if (!Interpreter::is_constructor(constructor)) {
                 Context const cx = frame_context(frame);
                 self.throw_type_error(expression_text(code.nodes[ins->b], cx) + " is not a constructor");

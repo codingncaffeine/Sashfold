@@ -527,6 +527,13 @@ std::optional<std::vector<js::PropertyKey>> WindowProxyObject::own_keys(js::Inte
     return keys;
 }
 
+// A key that is no index reads and writes the window's, to its own origin
+// (get and set below), so a cache may answer from the window's shape.
+js::Object* WindowProxyObject::forwards_named_access(js::Interpreter& interpreter)
+{
+    return is_platform_object_same_origin(interpreter, *m_record) ? &window() : nullptr;
+}
+
 std::optional<js::Value> WindowProxyObject::get(js::Interpreter& interpreter, js::PropertyKey const& key, js::Value const& receiver)
 {
     if (std::optional<js::PropertyDescriptor> const child = child_window(key))

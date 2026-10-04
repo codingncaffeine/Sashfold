@@ -13,10 +13,12 @@
 // the code block's pools, a jump target, a register, a count.
 
 #include "js/Ast.h"
+#include "js/Feedback.h"
 #include "js/Object.h"
 #include "js/Value.h"
 
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -133,13 +135,22 @@ inline constexpr char const* opcode_name(Opcode op)
     return "?";
 }
 
+// The site an instruction records what it sees in (js/Feedback.h): an
+// index into its block's feedback vector, of the kind the opcode keeps — a
+// property site (GetMemberNamed, PutMemberNamed, a global GetName or
+// TypeofName), a call site (Call, New), an operand site (Binary) or an
+// element site (GetMember, PutMember) — or none.
+inline constexpr std::uint16_t no_site = 0xFFFF;
+
 struct Instruction {
     Opcode op = Opcode::Nop;
     std::uint8_t flags = 0;
-    std::uint16_t unused = 0;
+    std::uint16_t site = no_site;
     std::uint32_t a = 0;
     std::uint32_t b = 0;
 };
+
+static_assert(sizeof(Instruction) == 12);
 
 inline constexpr std::uint32_t None = 0xFFFFFFFFu; // "no name" and "no target" in an operand
 
@@ -202,6 +213,13 @@ struct CodeBlock {
     bool strict = false;
     bool is_generator = false;
     bool is_async = false;
+    // Its sites, by kind, and what they have seen: made at the block's
+    // first run (Interpreter::Impl::feedback_for).
+    std::uint32_t property_sites = 0;
+    std::uint32_t call_sites = 0;
+    std::uint32_t operand_sites = 0;
+    std::uint32_t element_sites = 0;
+    mutable std::unique_ptr<FeedbackVector> feedback;
 };
 
 // How a run of a frame ended.

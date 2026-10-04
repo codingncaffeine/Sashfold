@@ -240,10 +240,48 @@ private:
         }
     }
 
+    // The feedback site an instruction records in (Bytecode.h), the next
+    // of its kind; none past 65,534 of a kind in one block.
+    std::uint16_t site_for(Opcode op, std::uint8_t flags)
+    {
+        std::uint32_t* count = nullptr;
+        switch (op) {
+        case Opcode::GetMemberNamed:
+        case Opcode::PutMemberNamed:
+        case Opcode::PutMemberNamedKeep:
+            count = &m_code->property_sites;
+            break;
+        case Opcode::GetName:
+        case Opcode::TypeofName:
+        case Opcode::RefName:
+            if ((flags & 1) == 0)
+                return no_site;
+            count = &m_code->property_sites;
+            break;
+        case Opcode::Call:
+        case Opcode::New:
+            count = &m_code->call_sites;
+            break;
+        case Opcode::Binary:
+            count = &m_code->operand_sites;
+            break;
+        case Opcode::GetMember:
+        case Opcode::PutMember:
+        case Opcode::PutMemberKeep:
+            count = &m_code->element_sites;
+            break;
+        default:
+            return no_site;
+        }
+        if (*count >= no_site)
+            return no_site;
+        return static_cast<std::uint16_t>((*count)++);
+    }
+
     std::uint32_t emit(Opcode op, std::uint32_t a = 0, std::uint32_t b = 0, std::uint8_t flags = 0)
     {
         std::uint32_t const index = here();
-        m_code->code.push_back(Instruction { op, flags, 0, a, b });
+        m_code->code.push_back(Instruction { op, flags, site_for(op, flags), a, b });
         int const effect = stack_effect(op);
         if (effect != Var)
             adjust(effect);
@@ -425,6 +463,7 @@ private:
         std::uint32_t a = 0; // the register, or the hops
         std::uint32_t b = 0; // the slot
         bool immutable = false; // a register holding a const or a class's own name
+        bool global = false; // a Name that can only be the global environment's (Identifier::global)
     };
 
     static bool is_immutable(ScopeInfo const& scope, ScopeInfo::Binding const& binding)
@@ -437,12 +476,12 @@ private:
     Slot slot_of(Identifier const& identifier) const
     {
         if (!m_slots)
-            return {};
+            return Slot { Slot::Kind::Name, 0, 0, false, identifier.global };
         if (identifier.resolution == Resolution::Local && identifier.slot < m_register_immutable.size())
             return Slot { Slot::Kind::Local, identifier.slot, 0, m_register_immutable[identifier.slot] };
         if (identifier.resolution == Resolution::Scoped)
             return Slot { Slot::Kind::Scoped, identifier.hops, identifier.slot, false };
-        return {};
+        return Slot { Slot::Kind::Name, 0, 0, false, identifier.global };
     }
 
     // A name a declaration binds, found in the scopes this code stands in:
@@ -503,7 +542,7 @@ private:
             emit(Opcode::GetScoped, slot.a, slot.b);
             return;
         case Slot::Kind::Name:
-            emit(Opcode::GetName, name(binding_name));
+            emit(Opcode::GetName, name(binding_name), 0, slot.global ? 1 : 0);
             return;
         }
     }
@@ -543,7 +582,7 @@ private:
             emit(Opcode::RefScoped, slot.a, slot.b);
             return;
         case Slot::Kind::Name:
-            emit(Opcode::RefName, name(binding_name));
+            emit(Opcode::RefName, name(binding_name), 0, slot.global ? 1 : 0);
             return;
         }
     }
@@ -2418,7 +2457,9 @@ private:
             // A resolved binding is never an object environment's, so the
             // call's `this` is undefined without a reference.
             auto const& identifier = *static_cast<Identifier const*>(callee);
-            if (Slot const slot = slot_of(identifier); slot.kind != Slot::Kind::Name) {
+            // A global name likewise: the global environment's object
+            // record gives no `this` (§9.1.1.2.10 WithBaseObject).
+            if (Slot const slot = slot_of(identifier); slot.kind != Slot::Kind::Name || slot.global) {
                 emit_load(slot, identifier.name);
                 if (optional_call)
                     optional_check(context, Opcode::Dup, 1, 0);
@@ -2556,7 +2597,7 @@ private:
                     emit(Opcode::Unary, static_cast<std::uint32_t>(UnaryOp::Typeof));
                     return;
                 }
-                emit(Opcode::TypeofName, name(identifier.name));
+                emit(Opcode::TypeofName, name(identifier.name), 0, identifier.global ? 1 : 0);
                 return;
             }
             compile_expression(unary.operand);

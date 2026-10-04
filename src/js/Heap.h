@@ -17,6 +17,7 @@
 #include "js/Cell.h"
 #include "js/Value.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <functional>
@@ -178,6 +179,9 @@ class RootProvider {
 public:
     virtual ~RootProvider() = default;
     virtual void trace_roots(Tracer&) = 0;
+    // Once marking is done and before anything is freed: let go of what the
+    // provider holds weakly and the collection did not reach.
+    virtual void clear_weak_roots() { }
 };
 
 // The names the runtime looks up on every other operation, interned once
@@ -285,6 +289,20 @@ public:
     // A cell that holds others weakly: told by clear_weak() at every
     // collection, once marking is done, for as long as it lives.
     void hold_weakly(Cell* cell) { m_weak_holders.push_back(cell); }
+    // Moved by any change to an object that is another's prototype
+    // (js/Shape.h): what a cached lookup up a prototype chain was made
+    // under, and is good for while it stands.
+    std::uint32_t prototype_epoch() const { return m_prototype_epoch; }
+    void bump_prototype_epoch() { ++m_prototype_epoch; }
+    // The keys a cached lookup up a prototype chain has been made for, as
+    // a filter (a key may be in it that no lookup was made for, never the
+    // other way): a prototype's change to a key not in it can matter to no
+    // cached lookup, and leaves the epoch where it is.
+    void note_cached_key(PropertyKey const& key) { m_cached_keys[key_bit(key) >> 6] |= std::uint64_t { 1 } << (key_bit(key) & 63); }
+    bool key_cached(PropertyKey const& key) const { return ((m_cached_keys[key_bit(key) >> 6] >> (key_bit(key) & 63)) & 1) != 0; }
+    // Whether the last collection reached a cell, this heap's or one no heap
+    // adopted (a dictionary's shape): what a weak holder asks of its cells.
+    bool reached(Cell const* cell) const { return cell->m_mark == m_mark; }
 
     JsString* string(std::u16string data);
     JsString* string(std::u16string_view data) { return string(std::u16string(data)); }
@@ -494,6 +512,12 @@ private:
     // others weakly.
     std::vector<std::pair<std::uint8_t, Shape*>> m_null_roots;
     std::vector<Cell*> m_weak_holders;
+    std::uint32_t m_prototype_epoch = 0;
+    static std::size_t key_bit(PropertyKey const& key)
+    {
+        return static_cast<std::size_t>((static_cast<std::uint64_t>(key.hash()) * 0x9e3779b97f4a7c15ull) >> 52) & 4095;
+    }
+    std::array<std::uint64_t, 64> m_cached_keys {};
 
     std::vector<std::unique_ptr<Cell>> m_cells;
     std::vector<Cell*> m_mark_stack; // the collector's worklist, its room kept between collections
