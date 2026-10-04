@@ -13,6 +13,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -2380,19 +2381,33 @@ std::u16string RegexFlags::to_string() const
 
 // ----------------------------------------------------------------- Regex
 
-Regex::Regex() = default;
-Regex::~Regex() = default;
-Regex::Regex(Regex&&) noexcept = default;
-Regex& Regex::operator=(Regex&&) noexcept = default;
+// A pattern as it is kept: read once (its groups known, its errors said),
+// its program generated when it is first run. Immutable to its users; the
+// program is filled in behind them.
+struct Regex::Compiled {
+    std::u16string pattern;
+    RegexFlags flags;
+    std::size_t group_count = 0;
+    std::vector<std::pair<std::u16string, std::size_t>> group_names;
+    std::unique_ptr<RegexProgram> program; // null until the first exec
+};
 
-std::optional<Regex> Regex::compile(std::u16string_view pattern, RegexFlags flags, CompileError* error)
+namespace {
+
+// A pattern long enough that its program could pass the machine's limits
+// is generated when it is read, so that "too large" is still said then.
+constexpr std::size_t eager_program_length = 1'000'000;
+// The patterns this thread has read, by flags and source: a literal is
+// read by the parser and asked for again at every evaluation, and a page
+// builds the same RegExp from the same string many times over. Emptied
+// when it passes its bound; what is in use is held by its users.
+constexpr std::size_t compiled_cache_entries = 4096;
+constexpr std::size_t compiled_cache_units = 4u * 1024u * 1024u;
+
+thread_local Regex::Census t_census;
+
+std::unique_ptr<RegexProgram> generate_program(PatternParser& parser, RegexFlags flags, Regex::CompileError* error)
 {
-    PatternParser parser(pattern, flags);
-    if (!parser.parse()) {
-        if (error)
-            *error = parser.error();
-        return std::nullopt;
-    }
     auto program = std::make_unique<RegexProgram>();
     program->flags = flags;
     program->group_count = parser.group_count();
@@ -2402,21 +2417,93 @@ std::optional<Regex> Regex::compile(std::u16string_view pattern, RegexFlags flag
         [](auto const& a, auto const& b) { return a.second < b.second; });
     CodeGenerator generator(parser, *program);
     generator.generate(parser.root());
+    ++t_census.generated;
     if (program->code.size() >= entry_low_mask || program->register_count >= entry_low_mask) {
         if (error)
             *error = { "Regular expression too large", 0 };
+        return nullptr;
+    }
+    return program;
+}
+
+}
+
+Regex::Regex() = default;
+Regex::~Regex() = default;
+Regex::Regex(Regex&&) noexcept = default;
+Regex& Regex::operator=(Regex&&) noexcept = default;
+Regex::Regex(Regex const&) = default;
+Regex& Regex::operator=(Regex const&) = default;
+
+Regex::Census Regex::census()
+{
+    return t_census;
+}
+
+std::optional<Regex> Regex::compile(std::u16string_view pattern, RegexFlags flags, CompileError* error)
+{
+    thread_local std::unordered_map<std::u16string, std::shared_ptr<Compiled>> patterns;
+    thread_local std::size_t units = 0;
+    ++t_census.asked;
+    std::u16string key = flags.to_string();
+    key += u'/';
+    key += pattern;
+    if (auto const known = patterns.find(key); known != patterns.end()) {
+        Regex regex;
+        regex.m_compiled = known->second;
+        return regex;
+    }
+    PatternParser parser(pattern, flags);
+    ++t_census.read;
+    if (!parser.parse()) {
+        if (error)
+            *error = parser.error();
         return std::nullopt;
     }
+    auto compiled = std::make_shared<Compiled>();
+    compiled->pattern = std::u16string(pattern);
+    compiled->flags = flags;
+    compiled->group_count = parser.group_count();
+    compiled->group_names = parser.names();
+    std::sort(compiled->group_names.begin(), compiled->group_names.end(), [](auto const& a, auto const& b) { return a.second < b.second; });
+    if (pattern.size() >= eager_program_length) {
+        compiled->program = generate_program(parser, flags, error);
+        if (!compiled->program)
+            return std::nullopt;
+    }
+    if (patterns.size() >= compiled_cache_entries || units + key.size() > compiled_cache_units) {
+        patterns.clear();
+        units = 0;
+    }
+    units += key.size();
+    patterns.emplace(std::move(key), compiled);
     Regex regex;
-    regex.m_program = std::move(program);
+    regex.m_compiled = std::move(compiled);
     return regex;
+}
+
+// The program, generated the first time the pattern is run. The pattern
+// was read without error when it was compiled, so reading it again here
+// cannot fail; a program past the machine's limits is none.
+RegexProgram const* Regex::program() const
+{
+    if (!m_compiled)
+        return nullptr;
+    if (!m_compiled->program) {
+        PatternParser parser(m_compiled->pattern, m_compiled->flags);
+        if (!parser.parse())
+            return nullptr;
+        m_compiled->program = generate_program(parser, m_compiled->flags, nullptr);
+    }
+    return m_compiled->program.get();
 }
 
 std::optional<Regex::Match> Regex::exec(std::u16string_view input, std::size_t start, bool* budget_exhausted) const
 {
     if (budget_exhausted)
         *budget_exhausted = false;
-    if (!m_program || start > input.size())
+    RegexProgram const* const compiled = program();
+    if (compiled == nullptr || start > input.size())
         return std::nullopt;
     if (input.size() >= static_cast<std::size_t>(unset) - 2) {
         // Positions are 32-bit inside the machine; a string this long is
@@ -2425,8 +2512,8 @@ std::optional<Regex::Match> Regex::exec(std::u16string_view input, std::size_t s
             *budget_exhausted = true;
         return std::nullopt;
     }
-    RegexFlags const& program_flags = m_program->flags;
-    Matcher matcher(*m_program, input, g_step_budget);
+    RegexFlags const& program_flags = compiled->flags;
+    Matcher matcher(*compiled, input, g_step_budget);
     std::uint32_t pos = static_cast<std::uint32_t>(start);
     // RegExpBuiltinExec (§22.2.7.2) step 12: under `u` the matcher starts
     // at the character that contains lastIndex, so a position inside a
@@ -2437,7 +2524,7 @@ std::optional<Regex::Match> Regex::exec(std::u16string_view input, std::size_t s
     // A pattern that opens with ^ outside multiline mode can only match at
     // the start of the input, so a failure there is the whole answer rather
     // than the first of one attempt per position.
-    bool const anchored = !program_flags.multiline && m_program->code[0].op == Op::LineStart;
+    bool const anchored = !program_flags.multiline && compiled->code[0].op == Op::LineStart;
     if (anchored && pos > 0)
         return std::nullopt;
     for (;;) {
@@ -2445,8 +2532,8 @@ std::optional<Regex::Match> Regex::exec(std::u16string_view input, std::size_t s
         if (outcome == Matcher::Outcome::Matched) {
             Match match;
             std::vector<std::uint32_t> const& registers = matcher.registers();
-            match.groups.reserve(m_program->group_count + 1);
-            for (std::size_t group = 0; group <= m_program->group_count; ++group) {
+            match.groups.reserve(compiled->group_count + 1);
+            for (std::size_t group = 0; group <= compiled->group_count; ++group) {
                 std::uint32_t const s = registers[2 * group];
                 std::uint32_t const e = registers[2 * group + 1];
                 if (s == unset || e == unset)
@@ -2473,18 +2560,18 @@ std::optional<Regex::Match> Regex::exec(std::u16string_view input, std::size_t s
 
 std::size_t Regex::group_count() const
 {
-    return m_program ? m_program->group_count : 0;
+    return m_compiled ? m_compiled->group_count : 0;
 }
 
 std::vector<std::pair<std::u16string, std::size_t>> const& Regex::group_names() const
 {
     static std::vector<std::pair<std::u16string, std::size_t>> const none;
-    return m_program ? m_program->group_names : none;
+    return m_compiled ? m_compiled->group_names : none;
 }
 
 RegexFlags Regex::flags() const
 {
-    return m_program ? m_program->flags : RegexFlags {};
+    return m_compiled ? m_compiled->flags : RegexFlags {};
 }
 
 void Regex::set_step_budget(std::size_t budget)

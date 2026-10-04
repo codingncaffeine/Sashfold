@@ -55,10 +55,26 @@ public:
     ~Regex();
     Regex(Regex&&) noexcept;
     Regex& operator=(Regex&&) noexcept;
-    Regex(Regex const&) = delete;
-    Regex& operator=(Regex const&) = delete;
+    // Another handle on the same compiled pattern, which never changes.
+    Regex(Regex const&);
+    Regex& operator=(Regex const&);
 
+    // The pattern is read here, so that what is wrong with it is said now
+    // (a literal's early error, the constructor's SyntaxError); the program
+    // that matches it is generated when it is first run, since most of the
+    // patterns in a page's scripts never are. A pattern met again under the
+    // same flags on this thread is the same compiled pattern: a literal read
+    // by the parser and evaluated a thousand times is read once.
     static std::optional<Regex> compile(std::u16string_view pattern, RegexFlags, CompileError* error = nullptr);
+
+    // What was asked for and what was done, on this thread: patterns asked
+    // for, patterns read (the rest were met before), programs generated.
+    struct Census {
+        std::uint64_t asked = 0;
+        std::uint64_t read = 0;
+        std::uint64_t generated = 0;
+    };
+    static Census census();
 
     // Tries a match starting at `start` and, unless the flags are sticky,
     // at each later position in turn. `budget_exhausted` (when given) is
@@ -75,7 +91,9 @@ public:
     static std::size_t step_budget();
 
 private:
-    std::unique_ptr<RegexProgram> m_program;
+    struct Compiled;
+    RegexProgram const* program() const;
+    std::shared_ptr<Compiled> m_compiled;
 };
 
 }

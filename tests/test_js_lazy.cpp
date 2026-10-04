@@ -1,5 +1,6 @@
 #include "JsTest.h"
 
+#include "js/Regex.h"
 #include "js/Runtime.h"
 
 #include <cstddef>
@@ -268,6 +269,46 @@ int main()
         // And one that is constructed is asked once.
         CHECK_JS_TRUE(in, "function Once() {} new Once() instanceof Once");
         CHECK(census.prototypes_asked - prototypes_before >= 1);
+    }
+
+    // --- A pattern is read once and its program made when it is first run.
+    {
+        js::Interpreter in;
+        in.heap().set_stress(true);
+        js::Regex::Census const start = js::Regex::census();
+        // A literal in a function nobody calls: read by the parser for its
+        // early errors, never generated.
+        CHECK_JS_TRUE(in, "function unused() { return /^never-(run)+$/.test('x'); } typeof unused === 'function'");
+        js::Regex::Census const parsed = js::Regex::census();
+        CHECK_EQ(parsed.read - start.read, std::uint64_t { 1 });
+        CHECK_EQ(parsed.generated - start.generated, std::uint64_t { 0 });
+        // Evaluated a thousand times: asked for each time, read once (by the
+        // parser), generated once (at the first test).
+        CHECK_JS_NUMBER(in, "var hits = 0; for (var i = 0; i < 1000; i++) { if (/^it-(\\d+)$/.test('it-' + i)) hits++; } hits", 1000);
+        js::Regex::Census const looped = js::Regex::census();
+        CHECK(looped.asked - parsed.asked >= 1000);
+        CHECK_EQ(looped.read - parsed.read, std::uint64_t { 1 });
+        CHECK_EQ(looped.generated - parsed.generated, std::uint64_t { 1 });
+        // The constructor from the same string again and again: read once.
+        CHECK_JS_NUMBER(in, "var built = 0; for (var j = 0; j < 100; j++) { if (new RegExp('^b' + 'c+$').test('bcc')) built++; } built", 100);
+        js::Regex::Census const constructed = js::Regex::census();
+        CHECK_EQ(constructed.read - looped.read, std::uint64_t { 1 });
+        CHECK_EQ(constructed.generated - looped.generated, std::uint64_t { 1 });
+        // The flags are part of what a pattern is.
+        CHECK_JS_TRUE(in, "/sAme/.test('same') === false && /sAme/i.test('same') === true && /sAme/.test('sAme') === true");
+        // Each evaluation is its own object with its own lastIndex, and
+        // recompiling one (Annex B) leaves the others as they were.
+        CHECK_JS_TRUE(in, "function make() { return /x/g; } var a = make(), b = make(); a !== b && a.test('xx') && a.lastIndex === 1 && b.lastIndex === 0");
+        CHECK_JS_TRUE(in, "var c = make(), d = make(); c.compile('y'); d.test('x') && c.test('y') && !c.test('x') && d.source === 'x' && c.source === 'y'");
+        // A literal is RegExpCreate, whatever the page has made of RegExp.
+        CHECK_JS_TRUE(in, "var RealRegExp = RegExp; RegExp = function () { throw new Error('a page RegExp'); };"
+                          " var kept = /k(e+)pt/.exec('keept'); RegExp = RealRegExp; kept[1] === 'ee' && Object.getPrototypeOf(/k/) === RealRegExp.prototype");
+        // What is wrong with a pattern is still said when it is read.
+        CHECK_JS_THROWS(in, "new RegExp('(')", "SyntaxError");
+        CHECK_JS_THROWS(in, "eval('function bad() { return /(/; }')", "SyntaxError");
+        // More distinct patterns than the thread keeps at once.
+        CHECK_JS_NUMBER(in, "var many = 0; for (var k = 0; k < 5000; k++) { if (new RegExp('^n' + k + '$').test('n' + k)) many++; } many", 5000);
+        CHECK_JS_TRUE(in, "/^it-(\\d+)$/.test('it-7') && make().test('x')");
     }
 
     // --- Nothing a script can read differs between the two modes.

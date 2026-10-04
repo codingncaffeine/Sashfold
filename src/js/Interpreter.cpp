@@ -1758,12 +1758,10 @@ FunctionNode const* Interpreter::Impl::program_body(Program& program, bool stric
 std::optional<Value> Interpreter::Impl::evaluate_regexp(RegExpLiteral const& literal)
 {
     // §13.2.7.3: a fresh RegExp object each time the literal is
-    // evaluated, made the way the constructor makes one.
-    Value const arguments[2] = { Value::string(literal.pattern), Value::string(literal.flags) };
-    Function* constructor = self.intrinsics().regexp_constructor;
-    if (constructor == nullptr)
-        return self.throw_syntax_error("regular expressions are not supported yet");
-    return self.construct(Value::object(constructor), arguments);
+    // evaluated — RegExpCreate itself, not a call of whatever the page has
+    // made of the constructor. The pattern was read when the script was
+    // parsed, and every evaluation shares that reading.
+    return create_regexp(self, Value::string(literal.pattern), Value::string(literal.flags));
 }
 
 
