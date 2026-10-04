@@ -1316,6 +1316,8 @@ ui::Browser::EngineAccount engine_since(ui::Browser::EngineAccount const& now, u
     ui::Browser::EngineAccount d = now;
     d.engine_ms -= base.engine_ms;
     d.parse_ms -= base.parse_ms;
+    d.bodies_parsed_late -= base.bodies_parsed_late;
+    d.late_parse_ms -= base.late_parse_ms;
     d.compile_ms -= base.compile_ms;
     d.gc_ms -= base.gc_ms;
     d.collections -= base.collections;
@@ -1332,6 +1334,7 @@ std::string engine_json(ui::Browser::EngineAccount const& e)
 {
     std::ostringstream out;
     out << std::fixed << std::setprecision(1) << "{ \"ms\": " << e.engine_ms << ", \"parse\": " << e.parse_ms
+        << ", \"bodies_parsed_late\": " << e.bodies_parsed_late << ", \"late_parse\": " << e.late_parse_ms
         << ", \"compile\": " << e.compile_ms << ", \"functions_compiled\": " << e.functions_compiled << ", \"gc\": " << e.gc_ms
         << ", \"collections\": " << e.collections << ", \"gc_longest\": " << e.gc_longest_ms << ", \"run\": " << e.run_ms()
         << ", \"live_cells\": " << e.live_cells << ", \"live_mb\": " << static_cast<double>(e.live_bytes) / (1024.0 * 1024.0)
@@ -2470,7 +2473,8 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                           << " (commit " << spent.commit_ms << " ms, waited " << loader.census().total().waited_ms - turn_waited
                           << " ms for what was asked ahead)"
                           << ", scripts " << wall_ms(scripts_done - load_done).count() << " ms"
-                          << ", engine " << engine.engine_ms << " ms (parse " << engine.parse_ms << " ms, compile "
+                          << ", engine " << engine.engine_ms << " ms (parse " << engine.parse_ms << " ms, "
+                          << engine.bodies_parsed_late << " bodies of it late in " << engine.late_parse_ms << " ms, compile "
                           << engine.compile_ms << " ms, gc " << engine.gc_ms << " ms in " << engine.collections
                           << ", run " << engine.run_ms() << " ms"
                           << (engine.vm_ms > 0 || engine.natives_ms > 0

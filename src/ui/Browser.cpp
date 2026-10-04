@@ -11812,6 +11812,8 @@ Browser::EngineAccount Browser::engine_account() const
     js::Heap::Account const& heap = interpreter.heap().account();
     account.engine_ms = tab->realm->stats().script_ms;
     account.parse_ms = code.parse_ms;
+    account.bodies_parsed_late = code.bodies_parsed_late;
+    account.late_parse_ms = code.late_parse_ms;
     account.compile_ms = code.compile_ms;
     account.functions_compiled = code.functions_compiled;
     account.vm_ms = code.vm_ms;

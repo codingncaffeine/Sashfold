@@ -14,9 +14,11 @@
 // running went (the run loop, the natives) and the instructions run most. With
 // --module it is parsed under the Module goal and evaluated as a module,
 // its imports read as files named by their specifiers relative to the
-// working directory. Exit status: 0 when the script completed (a module:
-// its evaluation promise fulfilled), 1 when it threw (a module: the
-// promise rejected), 2 for a syntax error or a usage error.
+// working directory. The dumps show a function whose body lazy parsing let
+// go of as `lazy` (SASHFOLD_LAZY=0 parses every body at once). Exit
+// status: 0 when the script completed (a module: its evaluation promise
+// fulfilled), 1 when it threw (a module: the promise rejected), 2 for a
+// syntax error or a usage error.
 #include "js/Bytecode.h"
 #include "js/Evaluator.h"
 #include "js/Interpreter.h"
@@ -120,6 +122,7 @@ int main(int argc, char** argv)
         js::ParseOptions options;
         options.module = want_module;
         options.record_references = want_scopes;
+        options.lazy_functions = js::lazy_natives();
         js::Parser parser(in.heap(), js::utf16_from_utf8(source), options);
         std::unique_ptr<js::Program> const program = parser.parse_program("<probe>");
         if (!program) {

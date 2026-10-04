@@ -91,6 +91,7 @@ sashfold_test(test_js_value)
 sashfold_test(test_js_vm_frames)
 sashfold_test(test_js_vm_ops)
 sashfold_test(test_js_lazy)
+sashfold_test(test_js_lazy_parse)
 sashfold_test(test_js_shapes)
 sashfold_test(test_js_ic)
 # The check on a cell value's address, turned on in every build: linked to

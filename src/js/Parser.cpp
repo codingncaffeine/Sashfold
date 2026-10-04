@@ -42,7 +42,9 @@
 //                                             name may be a pattern
 //     (function name (params…) body…)        name omitted when anonymous
 //                                             a param is name | pattern |
-//                                             (= param init) | (... param)
+//                                             (= param init) | (... param);
+//                                             (function name lazy) for a
+//                                             body lazy parsing let go of
 //     (expr e) (block s…) (if c then else?) (empty) (debugger)
 //     (for init test update body)             an absent part prints as -
 //     (for-in decl|target obj body)           decl is (var (x)) / (let (x)) / (const (x))
@@ -663,6 +665,8 @@ struct PendingExport {
 
 struct Parser::Impl {
     Impl(Heap& heap, std::u16string source, ParseOptions options);
+    // A second parse of a lazy stub's body, into the stub's own program.
+    Impl(Heap& heap, FunctionNode& stub, ParseOptions options);
 
     // Tokens.
     void advance();
@@ -703,6 +707,11 @@ struct Parser::Impl {
     bool at_parameter_level() const; // the innermost open scope is a parameter list's
     bool bind(ScopeInfo&, PendingReference const&, BindingIndex const* by_name);
     void settle_function(FunctionContext&);
+    // Lazy parsing: letting go of a checked body, and a free name of a body
+    // parsed the second time resolved in the settled scopes around it, as
+    // the first parse's closing scopes resolved it.
+    void let_go_of_body(FunctionNode*, Program::Mark const&, std::size_t references_start);
+    void resolve_outside(PendingReference const&, ScopeInfo* enclosing);
     bool declare_var(JsString* name, SourcePosition);
     bool declare_lexical(JsString* name, bool is_const, SourcePosition);
     // Private names (§15.7.1): declared by a class element, referred to by
@@ -792,7 +801,10 @@ struct Parser::Impl {
 
     // Functions.
     enum class FunctionKind { Declaration, Expression, Method, Getter, Setter, Arrow };
-    bool parse_function_rest(FunctionNode*, FunctionKind, std::optional<Token> name_token);
+    // `likely_called`: a function expression in parentheses, whose body
+    // lazy parsing keeps.
+    bool parse_function_rest(FunctionNode*, FunctionKind, std::optional<Token> name_token, bool likely_called = false);
+    bool lazy_candidate(FunctionNode const*, FunctionKind) const; // a body that may be let go of once parsed
     bool parse_formal_parameters(FunctionNode*, std::vector<Token>& bound);
     bool parse_function_body(FunctionNode*);
     bool parse_directive_prologue(std::vector<Statement*>& body);
@@ -839,7 +851,17 @@ struct Parser::Impl {
     bool is_let_declaration_start();
 
     Heap& m_heap;
-    std::unique_ptr<Program> m_program;
+    // The program being made, owned until parse_program hands it over; a
+    // second parse of a lazy body writes into the stub's program instead.
+    std::unique_ptr<Program> m_owned_program;
+    Program* m_program = nullptr;
+    // That second parse's function: its context is the outermost one, its
+    // scope the stub's, and what its body leaves unresolved goes to
+    // resolve_outside rather than to a program.
+    FunctionNode* m_lazy_root = nullptr;
+    // The function expression about to be parsed opens a parenthesized
+    // expression (parse_parenthesised), so it is likely called at once.
+    bool m_parenthesized_function = false;
     Lexer m_lexer;
     ParseOptions m_options;
     Token m_current;
@@ -849,9 +871,6 @@ struct Parser::Impl {
     std::optional<ParseError> m_error;
     int m_depth = 0;
     std::vector<std::unique_ptr<FunctionContext>> m_functions;
-    // Expressions that were wrapped in parentheses; the tree has no node
-    // for that, and a few early errors depend on it.
-    std::unordered_set<Expression const*> m_parenthesised;
     // The cover grammar's deferred errors, in source order: a literal
     // that becomes a pattern drops the ones inside it, one that stays a
     // literal reports the first (check_cover).
@@ -879,7 +898,8 @@ struct Parser::Impl {
 
 Parser::Impl::Impl(Heap& heap, std::u16string source, ParseOptions options)
     : m_heap(heap)
-    , m_program(std::make_unique<Program>())
+    , m_owned_program(std::make_unique<Program>())
+    , m_program(m_owned_program.get())
     , m_lexer(std::u16string_view())
     , m_options(options)
 {
@@ -895,6 +915,26 @@ Parser::Impl::Impl(Heap& heap, std::u16string source, ParseOptions options)
         for (std::u16string const& name : m_options.private_names)
             m_private_scopes.back().declared.emplace(atom(name), PrivateScope::Field);
     }
+}
+
+// The lexer starts at the stub's `(`, line and column as the first parse
+// met it. The `#x`s the body names were checked against its classes then;
+// a base scope that is never closed takes them now.
+Parser::Impl::Impl(Heap& heap, FunctionNode& stub, ParseOptions options)
+    : m_heap(heap)
+    , m_program(const_cast<Program*>(stub.program))
+    , m_lazy_root(&stub)
+    , m_lexer(std::u16string_view())
+    , m_options(options)
+{
+    m_options.module = m_program->is_module;
+    m_options.lazy_functions = true;
+    m_lexer = Lexer(m_program->source, !m_options.module);
+    m_lexer.restore(Lexer::State { stub.parameters_position.offset, stub.parameters_position.line, stub.parameters_position.column });
+    m_current_start = m_lexer.save();
+    m_current_regex_allowed = false;
+    m_current = m_lexer.next(false);
+    m_private_scopes.emplace_back();
 }
 
 bool Parser::Impl::declare_private(ClassElement const& element, SourcePosition position)
@@ -1052,10 +1092,15 @@ void Parser::Impl::push_function(FunctionNode* node, Declarations* declarations,
     context->node = node;
     context->declarations = declarations;
     context->is_arrow = is_arrow;
-    context->is_strict = m_functions.empty() ? (m_options.strict || m_options.module) : function().is_strict;
+    // A lazy body's second parse starts at its own function, with the
+    // strictness the code around it had.
+    bool const lazy_root = m_functions.empty() && node != nullptr;
+    context->is_strict = lazy_root ? node->enclosing_strict
+        : m_functions.empty()      ? (m_options.strict || m_options.module)
+                                   : function().is_strict;
     if (node)
         node->is_strict = context->is_strict;
-    if (m_functions.empty()) {
+    if (m_functions.empty() && !lazy_root) {
         context->allow_new_target = m_options.in_function;
         context->allow_super_property = m_options.allow_super_property;
         context->allow_super_call = m_options.allow_super_call;
@@ -1098,6 +1143,14 @@ void Parser::Impl::push_function(FunctionNode* node, Declarations* declarations,
     if (node)
         top.start = node->position.offset;
     FunctionContext& fn = function();
+    if (lazy_root) {
+        // The stub's scope becomes the function's again: its parent, set
+        // when the scope around it closed, is where the free names go.
+        top.info = node->scope;
+        m_infos.push_back(node->scope);
+        fn.info = node->scope;
+        return;
+    }
     fn.info = make_scope_info(top);
 }
 
@@ -1288,6 +1341,9 @@ void set_resolution(Expression& node, Resolution resolution, std::uint32_t hops,
     }
 }
 
+void settle_reference(BoundReference const&, bool eval_code);
+void resolve_unbound(PendingReference const&, bool eval_code);
+
 }
 
 // Closes the function: settles the Annex B block-function hoisting,
@@ -1459,25 +1515,31 @@ bool Parser::Impl::pop_function()
     settle_function(fn);
     if (m_options.record_references)
         function_scope->references = std::move(fn.own_references);
+    bool const fn_dynamic = fn.has_direct_eval || fn.contains_with;
     if (node) {
         node->scope = function_scope;
         node->body_scope = body_scope;
-        node->dynamic = fn.has_direct_eval || fn.contains_with;
+        node->dynamic = fn_dynamic;
     }
 
     m_functions.pop_back();
+    if (m_functions.empty() && m_lazy_root) {
+        // A lazy body's second parse: what it leaves unresolved is found in
+        // the scopes around it, which are settled.
+        for (std::size_t i = references_start; i < kept; ++i) {
+            if (m_references[i].node)
+                resolve_outside(m_references[i], function_scope->parent);
+        }
+        m_references.resize(references_start);
+        return true;
+    }
     if (m_functions.empty()) {
         // What reached the program unresolved is a global name.
         m_program->scope = function_scope;
+        m_program->dynamic = fn_dynamic;
         for (std::size_t i = references_start; i < kept; ++i) {
-            PendingReference const& reference = m_references[i];
-            if (!reference.node)
-                continue;
-            set_resolution(*reference.node, Resolution::Dynamic, 0, 0, nullptr);
-            // Eval code's names may be its caller's; any other's that passed
-            // no with and no direct eval are the global environment's.
-            if (reference.node->type == NodeType::Identifier && !m_options.eval && !reference.through_with && !reference.through_dynamic)
-                static_cast<Identifier*>(reference.node)->global = true;
+            if (m_references[i].node)
+                resolve_unbound(m_references[i], m_options.eval);
         }
         m_references.resize(references_start);
         return true;
@@ -1540,44 +1602,119 @@ void Parser::Impl::settle_function(FunctionContext& fn)
         m_program->register_count = registers;
     }
     m_infos.resize(fn.infos_start);
-    for (std::size_t i = fn.bound_start; i < m_bound.size(); ++i) {
-        BoundReference const& reference = m_bound[i];
-        ScopeInfo::Binding const& binding = reference.declaring->bindings[reference.index];
-        if (reference.through_with || reference.declaring->dynamic) {
-            set_resolution(*reference.node, Resolution::Dynamic, 0, 0, reference.declaring);
-            // A script's own global declaration, reached through no with and
-            // no scope a direct eval adds to, is the global environment's.
-            if (!reference.through_with && reference.declaring->kind == ScopeInfo::Kind::Program && !m_options.eval
-                && reference.node->type == NodeType::Identifier) {
-                bool passes_dynamic = false;
-                for (ScopeInfo const* walk = reference.from; walk != nullptr && walk != reference.declaring; walk = walk->parent)
-                    passes_dynamic |= walk->dynamic;
-                if (!passes_dynamic)
-                    static_cast<Identifier*>(reference.node)->global = true;
-            }
-            continue;
-        }
-        if (!binding.captured) {
-            set_resolution(*reference.node, Resolution::Local, 0, binding.slot, reference.declaring);
-            continue;
-        }
-        // Passing a dynamic scope on the way (an inner function's, with a
-        // direct eval of its own) means the name may be found there first.
-        std::uint32_t hops = 0;
-        bool passes_dynamic = false;
-        ScopeInfo const* walk = reference.from;
-        while (walk && walk != reference.declaring) {
-            if (walk->materializes)
-                ++hops;
-            passes_dynamic |= walk->dynamic;
-            walk = walk->parent;
-        }
-        if (!walk || passes_dynamic || hops > 0xFFFF)
-            set_resolution(*reference.node, Resolution::Dynamic, 0, 0, reference.declaring);
-        else
-            set_resolution(*reference.node, Resolution::Scoped, hops, binding.slot, reference.declaring);
-    }
+    for (std::size_t i = fn.bound_start; i < m_bound.size(); ++i)
+        settle_reference(m_bound[i], m_options.eval);
     m_bound.resize(fn.bound_start);
+}
+
+namespace {
+
+// A reference whose binding was found, once the declaring function's
+// captures are known: Dynamic through a with or into a dynamic scope,
+// Local in a register, Scoped in an environment so many materialized
+// scopes out.
+void settle_reference(BoundReference const& reference, bool eval_code)
+{
+    ScopeInfo::Binding const& binding = reference.declaring->bindings[reference.index];
+    if (reference.through_with || reference.declaring->dynamic) {
+        set_resolution(*reference.node, Resolution::Dynamic, 0, 0, reference.declaring);
+        // A script's own global declaration, reached through no with and
+        // no scope a direct eval adds to, is the global environment's.
+        if (!reference.through_with && reference.declaring->kind == ScopeInfo::Kind::Program && !eval_code
+            && reference.node->type == NodeType::Identifier) {
+            bool passes_dynamic = false;
+            for (ScopeInfo const* walk = reference.from; walk != nullptr && walk != reference.declaring; walk = walk->parent)
+                passes_dynamic |= walk->dynamic;
+            if (!passes_dynamic)
+                static_cast<Identifier*>(reference.node)->global = true;
+        }
+        return;
+    }
+    if (!binding.captured) {
+        set_resolution(*reference.node, Resolution::Local, 0, binding.slot, reference.declaring);
+        return;
+    }
+    // Passing a dynamic scope on the way (an inner function's, with a
+    // direct eval of its own) means the name may be found there first.
+    std::uint32_t hops = 0;
+    bool passes_dynamic = false;
+    ScopeInfo const* walk = reference.from;
+    while (walk && walk != reference.declaring) {
+        if (walk->materializes)
+            ++hops;
+        passes_dynamic |= walk->dynamic;
+        walk = walk->parent;
+    }
+    if (!walk || passes_dynamic || hops > 0xFFFF)
+        set_resolution(*reference.node, Resolution::Dynamic, 0, 0, reference.declaring);
+    else
+        set_resolution(*reference.node, Resolution::Scoped, hops, binding.slot, reference.declaring);
+}
+
+// A name no scope declared: the global environment's, unless eval code
+// (whose names may be its caller's) or a with or a direct eval on the way
+// may hold it first.
+void resolve_unbound(PendingReference const& reference, bool eval_code)
+{
+    set_resolution(*reference.node, Resolution::Dynamic, 0, 0, nullptr);
+    if (reference.node->type == NodeType::Identifier && !eval_code && !reference.through_with && !reference.through_dynamic)
+        static_cast<Identifier*>(reference.node)->global = true;
+}
+
+}
+
+// A free name of a lazy body's second parse, resolved as the first parse
+// resolved it when the scopes around closed one by one — those scopes are
+// settled now, so the same walk is made over them: outward from the scope
+// the function stands in, the first that binds the name (or, for an
+// implicit use, has the kind) declares it, and leaving a function with a
+// direct eval or a with of its own — or the program, with one at its top
+// level — makes the reference one through a dynamic scope. A with passed on
+// the way needs no mark of its own here: its function is such a function,
+// and its scope, settled, is dynamic for settle_reference's walk. The first
+// parse made the binding captured, since the reference came from an inner
+// function; a binding found uncaptured means the two parses disagree, which
+// is the engine's fault.
+void Parser::Impl::resolve_outside(PendingReference const& pending, ScopeInfo* enclosing)
+{
+    PendingReference reference = pending;
+    for (ScopeInfo* scope = enclosing; scope != nullptr; scope = scope->parent) {
+        std::size_t const count = scope->bindings.size();
+        std::size_t index = count;
+        if (reference.name && count > 16) {
+            auto [names, made] = m_program->binding_indexes.try_emplace(scope);
+            if (made) {
+                for (std::size_t i = 0; i < count; ++i) {
+                    if (scope->bindings[i].name)
+                        names->second.try_emplace(scope->bindings[i].name, static_cast<std::uint32_t>(i));
+                }
+            }
+            auto const found = names->second.find(reference.name);
+            if (found != names->second.end())
+                index = found->second;
+        } else if (reference.name) {
+            index = 0;
+            while (index < count && scope->bindings[index].name != reference.name)
+                ++index;
+        } else {
+            index = 0;
+            while (index < count && (scope->bindings[index].name || scope->bindings[index].kind != reference.implicit))
+                ++index;
+        }
+        if (index < count) {
+            if (!scope->bindings[index].captured) {
+                fail(reference.node->position, "internal error: a lazily parsed function's free name found a binding the first parse did not capture");
+                return;
+            }
+            settle_reference(BoundReference { reference.node, reference.from, scope, static_cast<std::uint32_t>(index), reference.through_with }, false);
+            return;
+        }
+        bool const leaves_function = scope->kind == ScopeInfo::Kind::Function && scope->function != nullptr;
+        bool const leaves_program = scope->kind == ScopeInfo::Kind::Program || scope->kind == ScopeInfo::Kind::Module;
+        if ((leaves_function && scope->function->dynamic) || (leaves_program && m_program->dynamic))
+            reference.through_dynamic = true;
+    }
+    resolve_unbound(reference, false);
 }
 
 // VarDeclaredNames: the name is checked against the lexical names of
@@ -2150,7 +2287,7 @@ Expression* Parser::Impl::parse_binary(int min_precedence, bool allow_in, bool n
         SourcePosition const operator_position = m_current.position;
         if (op.logical) {
             bool const nullish = op.logical_op == LogicalOp::Nullish;
-            bool const mixes_left = left->type == NodeType::LogicalExpression && !m_parenthesised.contains(left)
+            bool const mixes_left = left->type == NodeType::LogicalExpression && !left->parenthesized
                 && (static_cast<LogicalExpression const*>(left)->op == LogicalOp::Nullish) != nullish;
             if (mixes_left || (nullish_operand && !nullish)) {
                 fail_unexpected();
@@ -2158,7 +2295,7 @@ Expression* Parser::Impl::parse_binary(int min_precedence, bool allow_in, bool n
             }
         }
         if (op.precedence == exponent_precedence && left->type == NodeType::UnaryExpression
-            && !m_parenthesised.contains(left)) {
+            && !left->parenthesized) {
             fail(operator_position, "Unary operator used immediately before exponentiation expression. Parenthesis must be used to disambiguate operator precedence");
             return nullptr;
         }
@@ -2645,7 +2782,7 @@ Expression* Parser::Impl::parse_identifier_reference()
 }
 
 // ( Expression ) — the tree keeps no node for the parentheses, only the
-// membership in m_parenthesised that a few early errors consult.
+// expression's `parenthesized` mark that a few early errors consult.
 Expression* Parser::Impl::parse_parenthesised()
 {
     if (!enter())
@@ -2657,12 +2794,17 @@ Expression* Parser::Impl::parse_parenthesised()
         fail_unexpected();
         return nullptr;
     }
+    // A function expression right after the `(` is, as a rule, called at
+    // once: `(function () { … })()` (lazy parsing keeps its body).
+    m_parenthesized_function = m_current.is(Keyword::Function)
+        || (m_current.is_identifier(u"async") && !m_current.has_escape && peek().is(Keyword::Function));
     // The list is parsed by hand rather than as an Expression so that a
     // trailing comma, legal only in an arrow head, is told apart.
     std::vector<Expression*> items;
     bool trailing_comma = false;
     while (true) {
         Expression* item = parse_assignment(true);
+        m_parenthesized_function = false;
         if (!item) {
             leave();
             return nullptr;
@@ -2692,7 +2834,6 @@ Expression* Parser::Impl::parse_parenthesised()
         fail(close, "Unexpected token ')'");
         return nullptr;
     }
-    m_parenthesised.insert(inner);
     inner->parenthesized = true;
     // The expression's span takes in its parentheses, so a message that
     // quotes it quotes what was written.
@@ -3055,6 +3196,7 @@ Expression* Parser::Impl::parse_template(bool tagged)
 // the current token is the `async` before `function`.
 Expression* Parser::Impl::parse_function_expression(bool is_async)
 {
+    bool const parenthesized = std::exchange(m_parenthesized_function, false);
     SourcePosition const start = m_current.position;
     if (is_async)
         advance(); // async
@@ -3087,7 +3229,7 @@ Expression* Parser::Impl::parse_function_expression(bool is_async)
         scope().info->start = start.offset;
         declare_binding(fn->name, BindingKind::FunctionName);
     }
-    if (!parse_function_rest(fn, FunctionKind::Expression, name_token))
+    if (!parse_function_rest(fn, FunctionKind::Expression, name_token, parenthesized))
         return nullptr;
     auto* expression = make<FunctionExpression>(start);
     expression->function = fn;
@@ -3972,11 +4114,19 @@ Expression* Parser::Impl::to_assignment_target(Expression* target, bool allow_pa
 // can be checked against them; their own early errors wait until the
 // body's directive prologue has settled the function's strictness
 // (§15.2.1: "use strict" applies to the parameters too).
-bool Parser::Impl::parse_function_rest(FunctionNode* fn, FunctionKind kind, std::optional<Token> name_token)
+bool Parser::Impl::parse_function_rest(FunctionNode* fn, FunctionKind kind, std::optional<Token> name_token, bool likely_called)
 {
     if (!enter())
         return false;
+    bool const lazy = !likely_called && lazy_candidate(fn, kind);
+    if (lazy) {
+        fn->enclosing_strict = function().is_strict;
+        fn->parameters_position = m_current.position;
+    }
     push_function(fn, &fn->declarations, false);
+    // Everything made from here on is the body's, and goes if it is let go of.
+    Program::Mark const mark = m_program->mark();
+    std::size_t const references_start = m_references.size();
     if (!expect(Punctuator::LeftParen))
         return false;
     std::vector<Token> parameter_tokens;
@@ -3991,7 +4141,56 @@ bool Parser::Impl::parse_function_rest(FunctionNode* fn, FunctionKind kind, std:
     if (!finish_parameters(fn, kind, parameter_tokens, name_token, function().in_generator, function().in_async || function().await_reserved))
         return false;
     leave();
-    return pop_function();
+    if (!pop_function())
+        return false;
+    // Kept after all: a body a direct eval may look into, one with a with,
+    // and an expression called where it is written (`function () {}()`).
+    bool const called_at_once = kind == FunctionKind::Expression && m_current.is(Punctuator::LeftParen);
+    if (lazy && !fn->has_direct_eval && !fn->dynamic && !called_at_once)
+        let_go_of_body(fn, mark, references_start);
+    return true;
+}
+
+// Whether a body may be let go of once parsed: under lazy_functions, any
+// function but an arrow, a class constructor (its fields and source span
+// are the class's) and the one being parsed again. A function expression
+// in parentheses, which as a rule runs at once — `(function () { … })()`,
+// `(function () { … }).call(this)`, V8's heuristic — is not asked about.
+// Bodies inside a candidate are candidates too: one kept keeps its inner
+// bodies' stubs, one let go of takes them with it.
+bool Parser::Impl::lazy_candidate(FunctionNode const* fn, FunctionKind kind) const
+{
+    return m_options.lazy_functions && fn != m_lazy_root && !m_functions.empty() && !fn->is_class_constructor && kind != FunctionKind::Arrow;
+}
+
+// The body is checked and its free names are on their way out: they still
+// make the bindings they name captured as the scopes around close, but
+// have no node left to settle nor a scope of the body to start from. The
+// function keeps its flags, name and source range, and its scope as an
+// empty one for the scopes around to set the parent of; everything made
+// since the mark goes.
+void Parser::Impl::let_go_of_body(FunctionNode* fn, Program::Mark const& mark, std::size_t references_start)
+{
+    for (std::size_t i = references_start; i < m_references.size(); ++i) {
+        m_references[i].node = nullptr;
+        m_references[i].from = nullptr;
+    }
+    ScopeInfo* const scope = fn->scope;
+    std::pmr::vector<ScopeInfo::Binding>(scope->bindings.get_allocator()).swap(scope->bindings);
+    std::vector<Expression const*>().swap(scope->references);
+    scope->dynamic = false;
+    scope->eval_reaches = false;
+    scope->materializes = false;
+    scope->environment_size = 0;
+    std::vector<Parameter>().swap(fn->parameters);
+    std::vector<Statement*>().swap(fn->body);
+    fn->expression_body = nullptr;
+    fn->declarations = Declarations {};
+    fn->body_scope = nullptr;
+    std::vector<ScopeInfo const*>().swap(fn->scopes);
+    fn->register_count = 0;
+    fn->lazy = true;
+    m_program->release_to(mark);
 }
 
 // FormalParameters (§15.1), from after the `(` through the `)`: names,
@@ -4098,7 +4297,7 @@ bool Parser::Impl::parse_directive_prologue(std::vector<Statement*>& body)
         if (statement->type != NodeType::ExpressionStatement)
             break;
         Expression const* expression = static_cast<ExpressionStatement const*>(statement)->expression;
-        if (expression->type != NodeType::StringLiteral || m_parenthesised.contains(expression)
+        if (expression->type != NodeType::StringLiteral || expression->parenthesized
             || expression->end_offset != directive.end_offset)
             break;
         if (directive.value == use_strict_directive && !directive.has_escape) {
@@ -4988,7 +5187,7 @@ Statement* Parser::Impl::parse_for()
             finish(declaration);
         } else if (is_pattern(target)) {
             // Converted above.
-        } else if (is_of && !is_await && target->type == NodeType::Identifier && !m_parenthesised.contains(target)
+        } else if (is_of && !is_await && target->type == NodeType::Identifier && !target->parenthesized
             && static_cast<Identifier const*>(target)->name->equals(u"async")) {
             // §14.7.5.1: `for (async of …)` is kept apart from an async
             // arrow's head; in parentheses the name is a name again.
@@ -5442,7 +5641,7 @@ Parser::~Parser() = default;
 std::unique_ptr<Program> Parser::parse_program(std::string name)
 {
     Impl& impl = *m_impl;
-    if (!impl.m_program) {
+    if (!impl.m_owned_program) {
         if (!m_error)
             m_error = ParseError { SourcePosition {}, "the parser has already produced its program" };
         return nullptr;
@@ -5450,10 +5649,43 @@ std::unique_ptr<Program> Parser::parse_program(std::string name)
     impl.m_program->name = std::move(name);
     if (!impl.parse_program_body()) {
         m_error = impl.m_error ? *impl.m_error : ParseError { impl.m_current.position, "parse failed" };
-        impl.m_program.reset();
+        impl.m_owned_program.reset();
+        impl.m_program = nullptr;
         return nullptr;
     }
-    return std::move(impl.m_program);
+    impl.m_program = nullptr;
+    return std::move(impl.m_owned_program);
+}
+
+// The second parse of a stub. The flags its first parse derived from the
+// body are derived again from scratch, so that the two cannot differ by
+// what was left over; the parse must end where the first one did.
+bool Parser::parse_lazy_function(Heap& heap, FunctionNode& stub, ParseError* error, bool record_references)
+{
+    ParseOptions options;
+    options.record_references = record_references;
+    Impl impl(heap, stub, options);
+    std::uint32_t const source_end = stub.source_end;
+    stub.lazy = false;
+    stub.expected_argument_count = 0;
+    stub.has_simple_parameter_list = true;
+    stub.has_parameter_expressions = false;
+    stub.has_duplicate_parameters = false;
+    stub.uses_arguments = false;
+    stub.uses_this = false;
+    using Kind = Impl::FunctionKind;
+    Kind const kind = stub.is_getter ? Kind::Getter
+        : stub.is_setter             ? Kind::Setter
+        : stub.is_method             ? Kind::Method
+                                     : Kind::Expression;
+    bool const parsed = impl.parse_function_rest(&stub, kind, std::nullopt);
+    if (parsed && !impl.m_error && stub.source_end == source_end)
+        return true;
+    if (error) {
+        *error = impl.m_error ? *impl.m_error : ParseError { stub.parameters_position, "parse failed" };
+        error->message = "internal error: a lazily parsed function did not parse again as it first did: " + error->message;
+    }
+    return false;
 }
 
 // CreateDynamicFunction (§20.2.1.1.1): the texts are wrapped as the
@@ -5657,6 +5889,12 @@ struct Dumper {
             if (fn.name) {
                 name(fn.name);
                 out += ' ';
+            }
+            // A body lazy parsing let go of: nothing to show until it is
+            // parsed again.
+            if (fn.lazy) {
+                out += "lazy)";
+                return;
             }
             out += '(';
         }
@@ -6532,6 +6770,8 @@ struct ScopeDumper {
             if (is_function)
                 out += ' ' + (info.function->name ? utf8_from_utf16(info.function->name->view()) : std::string("(anonymous)"));
         }
+        if (is_function && info.function->lazy)
+            out += " lazy";
         if (info.dynamic)
             out += " dynamic";
         if (info.materializes)

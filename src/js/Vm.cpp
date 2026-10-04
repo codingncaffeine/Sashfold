@@ -14,6 +14,7 @@
 
 #include "js/Compiler.h"
 #include "js/Evaluator.h"
+#include "js/Parser.h"
 #include "js/Runtime.h"
 #include "js/Strings.h"
 #include "platform/Memory.h"
@@ -156,6 +157,18 @@ CodeBlock const* Interpreter::Impl::compiled_body(FunctionNode const& node)
 {
     if (auto const found = code_blocks.find(&node); found != code_blocks.end())
         return found->second.get();
+    if (node.lazy) {
+        // A body the parse let go of (lazy parsing), parsed now in place:
+        // the node is the function's identity, which closures hold.
+        auto const parse_started = std::chrono::steady_clock::now();
+        ParseError parse_error;
+        bool const parsed = Parser::parse_lazy_function(heap(), const_cast<FunctionNode&>(node), &parse_error);
+        self.note_parsed_late(parse_started);
+        if (!parsed) {
+            self.throw_syntax_error(parse_error.message);
+            return nullptr;
+        }
+    }
     std::string error;
     auto const compile_started = std::chrono::steady_clock::now();
     std::unique_ptr<CodeBlock> code = compile_function_body(node, heap(), &error);

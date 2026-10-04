@@ -10,7 +10,10 @@
 //   realm_cost --frames N [--rounds R] [--keep]
 //                                       a page appends N iframes (and removes
 //                                       them unless --keep), R times over
-//   realm_cost --parse <file> ...       each file parsed as a classic script
+//   realm_cost --parse [--complete] <file> ...
+//                                       each file parsed as a classic script;
+//                                       --complete then parses every body lazy
+//                                       parsing let go of, as if all were called
 //
 // SASHFOLD_LAZY=0 gives the same figures with everything made at once.
 #include "bindings/Realm.h"
@@ -36,6 +39,10 @@
 #include <string_view>
 #include <vector>
 
+#if defined(__GLIBC__)
+#include <malloc.h>
+#endif
+
 using namespace sashfold;
 
 namespace {
@@ -43,6 +50,18 @@ namespace {
 double megabytes(std::size_t bytes)
 {
     return static_cast<double>(bytes) / 1048576.0;
+}
+
+// The bytes malloc has handed out and not had back, where the C library
+// says (glibc): what a parse keeps, which the resident set overstates once
+// freed memory stays with the allocator. Zero elsewhere.
+std::size_t heap_in_use()
+{
+#if defined(__GLIBC__)
+    return mallinfo2().uordblks;
+#else
+    return 0;
+#endif
 }
 
 double megabytes_between(std::size_t after, std::size_t before)
@@ -170,9 +189,36 @@ int frames(int count, int rounds, bool keep)
     return 0;
 }
 
-int parse(std::span<char* const> files)
+// The stubs lazy parsing left in a program, and the bodies among them.
+std::size_t lazy_stubs(js::Program const& program)
 {
-    for (char const* const path : files) {
+    std::size_t stubs = 0;
+    for (std::size_t i = 0; i < program.function_count(); ++i)
+        stubs += program.function_at(i)->lazy ? 1 : 0;
+    return stubs;
+}
+
+// The source text the stubs stand for: a stub is never inside another
+// (a body let go of takes its inner functions with it).
+std::size_t lazy_source(js::Program const& program)
+{
+    std::size_t units = 0;
+    for (std::size_t i = 0; i < program.function_count(); ++i) {
+        js::FunctionNode const& function = *program.function_at(i);
+        if (function.lazy)
+            units += function.source_end - function.source_start;
+    }
+    return units;
+}
+
+int parse(std::span<char* const> arguments)
+{
+    bool complete = false;
+    for (char const* const path : arguments) {
+        if (std::strcmp(path, "--complete") == 0) {
+            complete = true;
+            continue;
+        }
         std::ifstream file(path, std::ios::binary);
         if (!file) {
             std::fprintf(stderr, "realm_cost: cannot read %s\n", path);
@@ -182,10 +228,13 @@ int parse(std::span<char* const> files)
         js::Interpreter interpreter;
         std::u16string source = js::utf16_from_utf8(bytes);
         std::size_t const resident = platform::resident_set_bytes();
+        std::size_t const in_use = heap_in_use();
         auto const started = std::chrono::steady_clock::now();
         std::unique_ptr<js::Program> program;
         {
-            js::Parser parser(interpreter.heap(), std::move(source));
+            js::ParseOptions options;
+            options.lazy_functions = js::lazy_natives();
+            js::Parser parser(interpreter.heap(), std::move(source), options);
             program = parser.parse_program(path);
             if (!program) {
                 std::printf("%s: syntax error: %s\n", path, parser.error() ? parser.error()->message.c_str() : "?");
@@ -195,8 +244,29 @@ int parse(std::span<char* const> files)
         double const ms = ms_since(started);
         double const kept = megabytes_between(platform::resident_set_bytes(), resident);
         double const size = megabytes(bytes.size());
-        std::printf("%s: %.2f MB parsed in %.0f ms (%.1f MB/s); resident after the parse %+.1f MB = %.1f bytes a source byte; %zu scopes\n", path, size, ms,
-            size / (ms / 1000.0), kept, kept / size, program->scopes().size());
+        std::printf("%s: %.2f MB parsed in %.0f ms (%.1f MB/s); resident after the parse %+.1f MB = %.1f bytes a source byte (heap in use %+.1f MB); %zu scopes; %zu of %zu functions let go of, %.0f%% of the source\n",
+            path, size, ms, size / (ms / 1000.0), kept, kept / size, megabytes_between(heap_in_use(), in_use), program->scopes().size(), lazy_stubs(*program),
+            program->function_count(), 100.0 * static_cast<double>(lazy_source(*program)) / static_cast<double>(program->source.size()));
+        if (!complete)
+            continue;
+        // Every body parsed as if every function were called once — the
+        // ones inside each as they appear — for what the late parses cost
+        // against the eager one.
+        auto const completing = std::chrono::steady_clock::now();
+        std::size_t late = 0;
+        for (std::size_t i = 0; i < program->function_count(); ++i) {
+            js::FunctionNode& function = *program->function_at(i);
+            if (!function.lazy)
+                continue;
+            js::ParseError error;
+            if (!js::Parser::parse_lazy_function(interpreter.heap(), function, &error)) {
+                std::printf("%s: %s (line %u)\n", path, error.message.c_str(), error.position.line);
+                return 1;
+            }
+            ++late;
+        }
+        std::printf("%s: %zu bodies parsed late in %.0f ms; resident then %+.1f MB (heap in use %+.1f MB); %zu scopes\n", path, late, ms_since(completing),
+            megabytes_between(platform::resident_set_bytes(), resident), megabytes_between(heap_in_use(), in_use), program->scopes().size());
     }
     return 0;
 }
@@ -222,6 +292,6 @@ int main(int argc, char** argv)
     }
     if (std::strcmp(argv[1], "--parse") == 0 && argc >= 3)
         return parse(std::span<char* const>(argv + 2, static_cast<std::size_t>(argc - 2)));
-    std::fputs("usage: realm_cost | realm_cost --frames N [--rounds R] [--keep] | realm_cost --parse <file> ...\n", stderr);
+    std::fputs("usage: realm_cost | realm_cost --frames N [--rounds R] [--keep] | realm_cost --parse [--complete] <file> ...\n", stderr);
     return 2;
 }

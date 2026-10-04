@@ -46,6 +46,14 @@ struct ParseOptions {
     // dump_scopes and the tests; a plain parse keeps only the resolutions
     // on the nodes.
     bool record_references = false;
+    // Let go of a function's body once it is checked and its free names
+    // are known, keeping a stub that parse_lazy_function completes at the
+    // first call: every early error is still reported here, and the scopes
+    // around come out exactly as an eager parse makes them. A body that
+    // runs at once is kept — a parenthesized function expression, one
+    // called where it is written — and so is one with a direct eval or a
+    // with in it, an arrow, and a class constructor.
+    bool lazy_functions = false;
 };
 
 class Parser {
@@ -67,6 +75,14 @@ public:
     static std::unique_ptr<Program> parse_function_constructor(Heap&, std::u16string_view parameters,
         std::u16string_view body, ParseError* error, DynamicFunctionKind kind = DynamicFunctionKind::Normal,
         bool record_references = false);
+
+    // A stub lazy_functions left, made whole in place (closures hold the
+    // node): its parameters and body parsed again from its program's
+    // source into that program, its scopes filled, its free names resolved
+    // in the scopes around it, the functions inside it stubs in turn. False
+    // with `error` set only on a fault of the engine, since the first parse
+    // checked the text. `record_references` as in ParseOptions.
+    static bool parse_lazy_function(Heap&, FunctionNode&, ParseError* error, bool record_references = false);
 
     static constexpr int max_nesting_depth = 1000;
 

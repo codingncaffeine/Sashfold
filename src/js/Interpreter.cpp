@@ -2632,8 +2632,12 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name, bo
         if (auto const found = m_internal_programs.find(name); found != m_internal_programs.end() && found->second.utf16_units == source.size())
             return evaluate_script(*found->second.program, *found->second.body);
     }
+    // A function's body is parsed at its first call (SASHFOLD_LAZY=0: all
+    // of it now, the differential mode).
+    ParseOptions options;
+    options.lazy_functions = lazy_natives();
     auto const parse_started = std::chrono::steady_clock::now();
-    Parser parser(*m_heap, std::u16string(source), {});
+    Parser parser(*m_heap, std::u16string(source), options);
     std::unique_ptr<Program> program = parser.parse_program(name);
     note_parsed(source.size(), parse_started);
     if (!program) {
@@ -2727,6 +2731,7 @@ ModuleRecord* Interpreter::parse_module(std::u16string_view source, std::string 
         return existing;
     ParseOptions options;
     options.module = true;
+    options.lazy_functions = lazy_natives();
     auto const parse_started = std::chrono::steady_clock::now();
     Parser parser(*m_heap, std::u16string(source), options);
     std::unique_ptr<Program> program = parser.parse_program(key);

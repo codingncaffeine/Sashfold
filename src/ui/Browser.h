@@ -633,6 +633,10 @@ public:
     struct EngineAccount {
         double engine_ms = 0;
         double parse_ms = 0;
+        // Of parse_ms: the function bodies the first parse let go of,
+        // parsed at their first call (lazy parsing), and their time.
+        std::size_t bodies_parsed_late = 0;
+        double late_parse_ms = 0;
         double compile_ms = 0;
         double gc_ms = 0;
         double gc_longest_ms = 0;

@@ -707,7 +707,12 @@ public:
     struct Account {
         std::size_t programs_parsed = 0;
         std::size_t source_code_units = 0;
-        double parse_ms = 0;
+        double parse_ms = 0; // with the late parses below
+        // Function bodies the first parse checked and let go of, parsed at
+        // their first call (lazy parsing): how many, and their share of
+        // parse_ms.
+        std::size_t bodies_parsed_late = 0;
+        double late_parse_ms = 0;
         std::size_t functions_compiled = 0;
         double compile_ms = 0;
         // Under SASHFOLD_VM_PROFILE=1 alone: where running went — the run
@@ -776,6 +781,14 @@ public:
         ++m_account.programs_parsed;
         m_account.source_code_units += code_units;
         m_account.parse_ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    }
+    // A body let go of at the first parse was parsed at its first call.
+    void note_parsed_late(std::chrono::steady_clock::time_point started)
+    {
+        double const ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+        ++m_account.bodies_parsed_late;
+        m_account.late_parse_ms += ms;
+        m_account.parse_ms += ms;
     }
     void note_compiled(std::chrono::steady_clock::time_point started)
     {

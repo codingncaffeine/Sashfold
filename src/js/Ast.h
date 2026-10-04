@@ -18,13 +18,27 @@
 #include "js/BigInteger.h"
 #include "js/Value.h"
 
+#include <algorithm>
+#include <cstddef>
 #include <cstdint>
 #include <deque>
 #include <memory>
 #include <memory_resource>
 #include <string>
+#include <unordered_map>
 #include <utility>
 #include <vector>
+
+#if defined(__SANITIZE_ADDRESS__)
+#define SASHFOLD_JS_ARENA_POISON 1
+#elif defined(__has_feature)
+#if __has_feature(address_sanitizer)
+#define SASHFOLD_JS_ARENA_POISON 1
+#endif
+#endif
+#ifdef SASHFOLD_JS_ARENA_POISON
+#include <sanitizer/asan_interface.h>
+#endif
 
 namespace sashfold::js {
 
@@ -35,6 +49,89 @@ struct SourcePosition {
     std::uint32_t offset = 0; // code units from the start
     std::uint32_t line = 1;
     std::uint32_t column = 1;
+};
+
+// The arena a Program's scopes keep their bindings in: memory handed out
+// by bumping a pointer through chunks and never freed one piece at a time,
+// but cut back to an earlier mark when the parser lets go of a body, so
+// that the next body reuses it. Under the address sanitizer what is cut
+// back is poisoned, so a pointer kept into it is caught.
+class ScopeArena final : public std::pmr::memory_resource {
+public:
+    struct Mark {
+        std::size_t chunk = 0;
+        std::size_t used = 0;
+    };
+    ScopeArena() = default;
+    ScopeArena(ScopeArena const&) = delete;
+    ScopeArena& operator=(ScopeArena const&) = delete;
+
+    Mark mark() const { return Mark { m_current, m_used }; }
+    void release_to(Mark mark)
+    {
+#ifdef SASHFOLD_JS_ARENA_POISON
+        for (std::size_t i = mark.chunk; i < m_chunks.size() && i <= m_current; ++i) {
+            std::size_t const from = i == mark.chunk ? mark.used : 0;
+            std::size_t const to = i == m_current ? m_used : m_chunks[i].size;
+            if (to > from)
+                ASAN_POISON_MEMORY_REGION(m_chunks[i].bytes.get() + from, to - from);
+        }
+#endif
+        m_current = mark.chunk;
+        m_used = mark.used;
+    }
+
+private:
+    struct Chunk {
+        std::unique_ptr<std::byte[]> bytes;
+        std::size_t size = 0;
+    };
+    static constexpr std::size_t chunk_size = 32 * 1024;
+
+    void* do_allocate(std::size_t bytes, std::size_t alignment) override
+    {
+        if (m_chunks.empty())
+            m_chunks.push_back(make_chunk(std::max(bytes + alignment, chunk_size)));
+        while (true) {
+            Chunk& chunk = m_chunks[m_current];
+            std::size_t const start = (m_used + alignment - 1) & ~(alignment - 1);
+            if (start + bytes <= chunk.size) {
+                m_used = start + bytes;
+                std::byte* const at = chunk.bytes.get() + start;
+#ifdef SASHFOLD_JS_ARENA_POISON
+                ASAN_UNPOISON_MEMORY_REGION(at, bytes);
+#endif
+                return at;
+            }
+            // The next chunk, kept from a body let go of when it is big
+            // enough, else a new one in its place.
+            ++m_current;
+            m_used = 0;
+            std::size_t const needed = bytes + alignment;
+            if (m_current == m_chunks.size())
+                m_chunks.push_back(make_chunk(std::max(needed, chunk_size)));
+            else if (m_chunks[m_current].size < needed)
+                m_chunks.insert(m_chunks.begin() + static_cast<std::ptrdiff_t>(m_current), make_chunk(std::max(needed, chunk_size)));
+        }
+    }
+    void do_deallocate(void*, std::size_t, std::size_t) override { }
+    bool do_is_equal(std::pmr::memory_resource const& other) const noexcept override
+    {
+        return static_cast<std::pmr::memory_resource const*>(this) == &other;
+    }
+
+    static Chunk make_chunk(std::size_t size)
+    {
+        Chunk chunk { std::make_unique_for_overwrite<std::byte[]>(size), size };
+#ifdef SASHFOLD_JS_ARENA_POISON
+        ASAN_POISON_MEMORY_REGION(chunk.bytes.get(), size);
+#endif
+        return chunk;
+    }
+
+    std::vector<Chunk> m_chunks;
+    std::size_t m_current = 0;
+    std::size_t m_used = 0;
 };
 
 enum class NodeType : std::uint8_t {
@@ -469,6 +566,17 @@ struct FunctionNode {
     // every binding of the function is captured, and names are looked up
     // by name (all of them after the eval, those inside the with).
     bool dynamic = false;
+    // A body the parser checked and then let go of (lazy parsing): the
+    // flags above, the name and the source range are kept; the parameters,
+    // the body, the declarations and the scopes inside are not, until the
+    // first call parses the body again from `parameters_position` (its
+    // `(`), resolving its free names in the scope it stands in —
+    // `scope->parent`, settled by then. Meanwhile `scope` is a function
+    // scope of no bindings, which the second parse fills. `enclosing_strict`:
+    // the code around it was strict.
+    bool lazy = false;
+    bool enclosing_strict = false;
+    SourcePosition parameters_position;
     std::uint32_t register_count = 0; // one per uncaptured binding of the function's scopes
     ScopeInfo* scope = nullptr; // the function scope; the FunctionBody scope, when split, is its child
     ScopeInfo* body_scope = nullptr; // the vars' scope: the FunctionBody scope when split, else the function scope
@@ -1105,6 +1213,13 @@ public:
     // own code needs for the uncaptured bindings of its blocks.
     ScopeInfo* scope = nullptr;
     std::uint32_t register_count = 0;
+    // A direct eval or a with written at the program's own top level: a name
+    // that leaves the program's scope unresolved may then be found by name
+    // there first, so it is not certainly the global's.
+    bool dynamic = false;
+    // The binding names of the big scopes a lazily parsed body has resolved
+    // its free names in, by name, built the first time one is looked in.
+    std::unordered_map<ScopeInfo const*, std::unordered_map<JsString const*, std::uint32_t>> binding_indexes;
 
     ScopeInfo* make_scope(ScopeInfo::Kind kind, std::uint32_t start)
     {
@@ -1113,7 +1228,7 @@ public:
         scope_info.start = start;
         return &scope_info;
     }
-    std::pmr::deque<ScopeInfo> const& scopes() const { return m_scopes; }
+    std::deque<ScopeInfo> const& scopes() const { return m_scopes; }
 
     template<typename T>
     T* make()
@@ -1139,16 +1254,41 @@ public:
         return raw;
     }
     std::size_t node_count() const { return m_nodes.size(); }
+    std::size_t function_count() const { return m_functions.size(); }
+    FunctionNode* function_at(std::size_t index) const { return m_functions[index].get(); }
+
+    // A point in the making of the tree, and going back to it: everything
+    // made since — nodes, functions, classes, scopes and their bindings —
+    // is let go of, which is how the parser drops a body it has checked.
+    // Marks are released in the reverse order they were taken.
+    struct Mark {
+        std::size_t nodes = 0;
+        std::size_t functions = 0;
+        std::size_t classes = 0;
+        std::size_t scopes = 0;
+        ScopeArena::Mark arena;
+    };
+    Mark mark() const { return Mark { m_nodes.size(), m_functions.size(), m_classes.size(), m_scopes.size(), m_scope_arena.mark() }; }
+    void release_to(Mark const& mark)
+    {
+        m_nodes.resize(mark.nodes);
+        m_functions.resize(mark.functions);
+        m_classes.resize(mark.classes);
+        while (m_scopes.size() > mark.scopes)
+            m_scopes.pop_back();
+        m_scope_arena.release_to(mark.arena);
+    }
 
 private:
     std::vector<std::unique_ptr<Node>> m_nodes;
     std::vector<std::unique_ptr<FunctionNode>> m_functions;
     std::vector<std::unique_ptr<ClassNode>> m_classes;
-    // The scopes and their bindings, allocated from one arena that goes
-    // with the Program (the scopes live exactly as long); a deque, since
-    // the parser keeps pointers while it adds more.
-    std::pmr::monotonic_buffer_resource m_scope_arena;
-    std::pmr::deque<ScopeInfo> m_scopes { &m_scope_arena };
+    // The scopes' bindings, allocated from one arena that goes with the
+    // Program (the scopes live exactly as long) and is cut back with them;
+    // the scopes in a deque, since the parser keeps pointers while it adds
+    // more.
+    ScopeArena m_scope_arena;
+    std::deque<ScopeInfo> m_scopes;
 };
 
 }
