@@ -20,6 +20,7 @@
 #include "platform/Memory.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -2938,6 +2939,14 @@ jit::Code const* Interpreter::Impl::machine_code(CodeBlock const& code)
         return code.jit.get();
     if (!jit::available || code.jit_refused)
         return nullptr;
+    // A block past the size the baseline compiler takes stays in T0: a
+    // bundle's module function (hundreds of thousands of instructions) runs
+    // once, and its loops would otherwise bring it megabytes of code
+    // (SpiderMonkey's baseline refuses scripts past a length the same way).
+    if (code.code.size() > jit::max_instructions) {
+        code.jit_refused = true;
+        return nullptr;
+    }
     switch (jit::mode()) {
     case jit::Mode::Off:
         return nullptr;
@@ -2950,23 +2959,28 @@ jit::Code const* Interpreter::Impl::machine_code(CodeBlock const& code)
     }
     auto const started = std::chrono::steady_clock::now();
     static constexpr jit::Helpers helpers { &machine_step, &machine_global };
-    code.jit = jit::compile(code, feedback_for(code), machine_layout(), helpers);
+    code.jit = jit::compile(code, feedback_for(code), machine_layout(), helpers, code_space);
     code.jit_refused = code.jit == nullptr;
     if (code.jit)
-        self.note_machine_code(code.jit->memory.size(), code.jit->inline_instructions, code.jit->instructions, started);
+        self.note_machine_code(code.jit->size, code.jit->inline_instructions, code.jit->instructions, started);
     // SASHFOLD_JIT_DUMP=<dir>: each block's machine code and bytecode
     // written there as it is made, for `objdump -D -b binary -m i386:x86-64`.
     static char const* const dump = std::getenv("SASHFOLD_JIT_DUMP");
     if (dump != nullptr && code.jit) {
-        static std::uint32_t dumped = 0;
-        std::string const stem = std::string(dump) + "/block-" + std::to_string(dumped++);
+        // Named by where the code lies: unique in the process, and a
+        // second process of the browser writing to the same folder lies
+        // elsewhere.
+        char name[32];
+        std::snprintf(name, sizeof name, "/block-%p", static_cast<void const*>(code.jit->start));
+        std::string const stem = std::string(dump) + name;
         if (std::FILE* out = std::fopen((stem + ".bin").c_str(), "wb")) {
-            std::fwrite(code.jit->memory.code(), 1, code.jit->memory.size(), out);
+            std::fwrite(code.jit->start, 1, code.jit->size, out);
             std::fclose(out);
         }
         if (std::FILE* out = std::fopen((stem + ".txt").c_str(), "w")) {
             std::string const listing = disassemble(code);
-            std::fprintf(out, "entry %p\n%s", static_cast<void const*>(code.jit->memory.code()), listing.c_str());
+            std::fprintf(out, "entry %p\n", static_cast<void const*>(code.jit->start));
+            std::fwrite(listing.data(), 1, listing.size(), out); // whole: a constant may hold a NUL
             std::fclose(out);
         }
     }

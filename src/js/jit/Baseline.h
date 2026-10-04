@@ -20,6 +20,7 @@
 #include <cstdint>
 #include <memory>
 #include <utility>
+#include <vector>
 
 namespace sashfold::js {
 
@@ -115,12 +116,10 @@ struct Code {
     // or stays null when it never switched.
     using Entry = std::uint32_t (*)(void* interpreter, Frame* frame, Frame** next);
 
-    explicit Code(platform::ExecutableMemory memory_)
-        : memory(std::move(memory_))
-    {
-    }
-
-    platform::ExecutableMemory memory;
+    // Where it lies in the interpreter's code space (which owns the memory),
+    // its data after its instructions.
+    std::byte const* start = nullptr;
+    std::size_t size = 0;
     Entry entry = nullptr;
     std::uint32_t instructions = 0;
     std::uint32_t inline_instructions = 0; // the ones with a template
@@ -128,20 +127,52 @@ struct Code {
     // Each instruction's address, by pc: where other code that switches to
     // a frame of this block jumps.
     void const* const* table = nullptr;
+    // The block's one copy of the step: a function of its own to Win64's
+    // unwinder (its frame is the return address and one allocation).
+    std::byte const* step_stub = nullptr;
+};
+
+// Where machine code is written: chunks of executable memory an interpreter
+// owns, each block's code after the last one's and sealed once written —
+// no mapping per block, and small blocks share pages. Let go of with every
+// block's code, so it must outlive the code blocks (the interpreter declares
+// it before them).
+class CodeSpace {
+public:
+    // A writable place for `bytes` of code, 16-aligned; null when the OS
+    // refuses memory.
+    std::byte* reserve(std::size_t bytes);
+    // The code just written at the last place reserved sealed executable,
+    // and on Windows its frames described: its function table, two entries
+    // (the block's code, its step stub), `entry` bytes in. False when the
+    // OS refuses.
+    bool seal(std::byte* place, std::size_t bytes, std::size_t entry);
+    std::size_t chunks() const { return m_chunks.size(); }
+
+private:
+    static constexpr std::size_t chunk_bytes = 256 * 1024;
+    std::vector<platform::ExecutableMemory> m_chunks;
+    std::size_t m_used = 0; // of the last chunk
 };
 
 // The block's machine code; null when this build has no backend, the OS
 // refuses the memory or the assembler fails. `feedback` is the block's
 // vector (null when it has no sites): the code reads its records as they
 // change, by address.
-std::unique_ptr<Code> compile(CodeBlock const&, FeedbackVector*, Layout const&, Helpers const&);
+std::unique_ptr<Code> compile(CodeBlock const&, FeedbackVector*, Layout const&, Helpers const&, CodeSpace&);
 
 // When code blocks get machine code: never (T0 alone), at a block's first
 // run (`eager`, the differential mode every suite runs in as well), or
 // when it is hot (`tiered`): `threshold()` calls and loop back-edges
 // counted together, a loop taken into the code at its next back-edge.
-// SASHFOLD_JIT=0|eager|tiered in the environment, read once
-// (SASHFOLD_JIT_THRESHOLD for the count); a test sets them to run each way.
+// The default is tiered; SASHFOLD_JIT=0 (or off) and =eager in the
+// environment choose the others, read once (SASHFOLD_JIT_THRESHOLD for the
+// count); a test sets them to run each way.
+// The most instructions a block may have and be compiled: a larger one
+// stays in T0 (SpiderMonkey's baseline caps a script's length the same
+// way; a bundle's run-once module function is what it keeps out).
+inline constexpr std::size_t max_instructions = 50000;
+
 enum class Mode : std::uint8_t { Off, Eager, Tiered };
 Mode mode();
 void set_mode(Mode);

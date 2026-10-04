@@ -1322,6 +1322,8 @@ ui::Browser::EngineAccount engine_since(ui::Browser::EngineAccount const& now, u
     d.gc_ms -= base.gc_ms;
     d.collections -= base.collections;
     d.functions_compiled -= base.functions_compiled;
+    d.blocks_compiled_to_machine -= base.blocks_compiled_to_machine;
+    d.machine_compile_ms -= base.machine_compile_ms;
     d.vm_ms -= base.vm_ms;
     d.natives_ms -= base.natives_ms;
     d.ic_hits -= base.ic_hits;
@@ -1335,7 +1337,8 @@ std::string engine_json(ui::Browser::EngineAccount const& e)
     std::ostringstream out;
     out << std::fixed << std::setprecision(1) << "{ \"ms\": " << e.engine_ms << ", \"parse\": " << e.parse_ms
         << ", \"bodies_parsed_late\": " << e.bodies_parsed_late << ", \"late_parse\": " << e.late_parse_ms
-        << ", \"compile\": " << e.compile_ms << ", \"functions_compiled\": " << e.functions_compiled << ", \"gc\": " << e.gc_ms
+        << ", \"compile\": " << e.compile_ms << ", \"functions_compiled\": " << e.functions_compiled
+        << ", \"machine_blocks\": " << e.blocks_compiled_to_machine << ", \"machine_compile\": " << e.machine_compile_ms << ", \"gc\": " << e.gc_ms
         << ", \"collections\": " << e.collections << ", \"gc_longest\": " << e.gc_longest_ms << ", \"run\": " << e.run_ms()
         << ", \"live_cells\": " << e.live_cells << ", \"live_mb\": " << static_cast<double>(e.live_bytes) / (1024.0 * 1024.0)
         << ", \"ic_hits\": " << e.ic_hits << ", \"ic_misses\": " << e.ic_misses << " }";

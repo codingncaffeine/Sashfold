@@ -70,11 +70,12 @@ bool small(std::int32_t value)
 
 class Writer {
 public:
-    Writer(CodeBlock const& block, FeedbackVector* feedback, Layout const& layout, Helpers const& helpers)
+    Writer(CodeBlock const& block, FeedbackVector* feedback, Layout const& layout, Helpers const& helpers, CodeSpace& space)
         : m_block(block)
         , m_feedback(feedback)
         , m_layout(layout)
         , m_helpers(helpers)
+        , m_space(space)
         , m_count(static_cast<std::uint32_t>(block.code.size()))
     {
         m_dispatch = a.label();
@@ -84,6 +85,10 @@ public:
         m_step = a.label();
         m_global = a.label();
         m_left = a.label();
+        m_step_stub = a.label();
+        // A block's code is some tens of bytes an instruction, and three
+        // labels or fewer: room for that, taken once.
+        a.reserve(static_cast<std::size_t>(m_count) * 64 + 512, static_cast<std::size_t>(m_count) * 3 + 16);
         m_at.resize(m_count);
         for (Label& label : m_at)
             label = a.label();
@@ -97,10 +102,13 @@ private:
         std::uint32_t pc = 0;
     };
 
-    // The instruction at `pc` run by the interpreter's handler: its pc and
-    // the top written to the frame, the step called, the top read back,
-    // and out of the code with any status but Stepped.
+    // The instruction at `pc` run by the interpreter's handler, through the
+    // block's step stub; on after it only when the frame goes on.
     void call_step(std::uint32_t pc);
+    // The step's one copy in the block: the pc and the top written to the
+    // frame, the step called, the top read back, back to the caller when
+    // the frame goes on, out (or to another frame) with any other status.
+    void step_stub();
     // A path out of line to the step for the instruction at `pc`, taken
     // when a template's fast path does not apply — before the template has
     // changed anything, so the handler runs the instruction whole.
@@ -141,6 +149,7 @@ private:
     FeedbackVector* m_feedback;
     Layout const& m_layout;
     Helpers const& m_helpers;
+    CodeSpace& m_space;
     std::uint32_t m_count;
     std::vector<Label> m_at;
     std::vector<Cold> m_cold;
@@ -151,12 +160,26 @@ private:
     Label m_step;
     Label m_global;
     Label m_left; // a step's status other than Stepped: a switch made here, or out
+    Label m_step_stub;
+    std::uint32_t m_stub_prologue = 0;
     std::uint32_t m_inline = 0;
 };
 
 void Writer::call_step(std::uint32_t pc)
 {
-    a.mov32(Mem::at(frame_reg, m_layout.frame_pc), pc);
+    a.mov32(Reg::rax, pc);
+    a.call_to(m_step_stub);
+}
+
+void Writer::step_stub()
+{
+    // Entered by a call with the pc in eax: its own frame (the return
+    // address and the alignment, Win64's shadow space under them), so it
+    // is a function of its own to an unwinder, its prologue the one sub.
+    a.bind(m_step_stub);
+    a.sub(Reg::rsp, 8 + shadow_space);
+    m_stub_prologue = static_cast<std::uint32_t>(a.size() - a.offset_of(m_step_stub));
+    a.mov32(Mem::at(frame_reg, m_layout.frame_pc), Reg::rax);
     a.mov(Mem::at(frame_reg, m_layout.frame_stack_top), top_reg);
     a.mov(arg0, interpreter_reg);
     a.mov(arg1, frame_reg);
@@ -164,7 +187,15 @@ void Writer::call_step(std::uint32_t pc)
     a.call(m_step);
     a.mov(top_reg, Mem::at(frame_reg, m_layout.frame_stack_top));
     a.cmp32(Reg::rax, static_cast<std::int32_t>(RunStatus::Stepped));
-    a.j(Cond::NotEqual, m_left);
+    Label const leave = a.label();
+    a.j(Cond::NotEqual, leave);
+    a.add(Reg::rsp, 8 + shadow_space);
+    a.ret();
+    // Any other status: the stub's frame and its return let go of, and on
+    // as the block's own code would go.
+    a.bind(leave);
+    a.add(Reg::rsp, 16 + shadow_space);
+    a.jmp(m_left);
 }
 
 void Writer::record(std::uint8_t const* byte, std::uint8_t bit)
@@ -809,6 +840,9 @@ std::unique_ptr<Code> Writer::write()
         }
         a.jmp(m_dispatch);
     }
+    auto const stub_start = static_cast<std::uint32_t>(a.size());
+    step_stub();
+    auto const stub_end = static_cast<std::uint32_t>(a.size());
     std::size_t const code_bytes = a.size() - start;
 
     // The data: the step's address, and each instruction's absolute
@@ -829,7 +863,6 @@ std::unique_ptr<Code> Writer::write()
     // allocations alone find the return address.
     std::uint32_t function_at = 0;
     if constexpr (describes_frames) {
-        std::uint32_t const code_end = static_cast<std::uint32_t>(start + code_bytes);
         a.align(4);
         auto const unwind_at = static_cast<std::uint32_t>(a.size());
         constexpr std::uint8_t push_nonvolatile = 0;
@@ -851,53 +884,94 @@ std::unique_ptr<Code> Writer::write()
             a.emit_u8(0); // the codes padded to an even count
             a.emit_u8(0);
         }
+        // The step stub's: its one allocation (the return address under it).
+        auto const stub_unwind_at = static_cast<std::uint32_t>(a.size());
+        a.emit_u8(1);
+        a.emit_u8(static_cast<std::uint8_t>(m_stub_prologue));
+        a.emit_u8(1);
+        a.emit_u8(0);
+        a.emit_u8(static_cast<std::uint8_t>(m_stub_prologue));
+        a.emit_u8(static_cast<std::uint8_t>(allocate_small | (((8 + shadow_space) / 8 - 1) << 4)));
+        a.emit_u8(0); // padded to an even count
+        a.emit_u8(0);
+        // The function table, in address order: the block's code up to the
+        // stub, then the stub.
         a.align(4);
         function_at = static_cast<std::uint32_t>(a.size());
         a.emit_u32(0);
-        a.emit_u32(code_end);
+        a.emit_u32(stub_start);
         a.emit_u32(unwind_at);
+        a.emit_u32(stub_start);
+        a.emit_u32(stub_end);
+        a.emit_u32(stub_unwind_at);
     } else {
         static_cast<void>(rbp_pushed_at);
         static_cast<void>(pushed_at);
+        static_cast<void>(stub_end);
     }
     if (!a.finish())
         return nullptr;
 
-    std::optional<platform::ExecutableMemory> memory = platform::ExecutableMemory::allocate(a.size());
-    if (!memory)
+    std::byte* const base = m_space.reserve(a.size());
+    if (base == nullptr)
         return nullptr;
-    std::byte* const base = memory->data();
     std::memcpy(base, a.bytes().data(), a.size());
     std::uint32_t const table_offset = a.offset_of(m_table);
     for (std::uint32_t pc = 0; pc < m_count; ++pc) {
         auto const address = reinterpret_cast<std::uint64_t>(base + a.offset_of(m_at[pc]));
         std::memcpy(base + table_offset + 8 * static_cast<std::size_t>(pc), &address, sizeof address);
     }
-    if (!memory->seal())
+    if (!m_space.seal(base, a.size(), function_at))
         return nullptr;
-    if (describes_frames && !memory->describe_frames(function_at))
-        return nullptr;
-    auto code = std::make_unique<Code>(std::move(*memory));
-    code->entry = reinterpret_cast<Code::Entry>(const_cast<std::byte*>(code->memory.code()));
+    auto code = std::make_unique<Code>();
+    code->step_stub = base + stub_start;
+    code->start = base;
+    code->size = a.size();
+    code->entry = reinterpret_cast<Code::Entry>(base);
     code->instructions = m_count;
     code->inline_instructions = m_inline;
     code->code_bytes = code_bytes;
-    code->table = reinterpret_cast<void const* const*>(code->memory.code() + table_offset);
+    code->table = reinterpret_cast<void const* const*>(base + table_offset);
     return code;
 }
 
 }
 
-std::unique_ptr<Code> compile(CodeBlock const& block, FeedbackVector* feedback, Layout const& layout, Helpers const& helpers)
+std::byte* CodeSpace::reserve(std::size_t bytes)
+{
+    m_used = (m_used + 15) / 16 * 16;
+    if (m_chunks.empty() || m_used + bytes > m_chunks.back().size()) {
+        std::optional<platform::ExecutableMemory> chunk = platform::ExecutableMemory::allocate(bytes > chunk_bytes ? bytes : chunk_bytes);
+        if (!chunk)
+            return nullptr;
+        m_chunks.push_back(std::move(*chunk));
+        m_used = 0;
+    } else if (!m_chunks.back().unseal(m_used, bytes)) {
+        return nullptr; // the page the last block ends in, writable again for this one
+    }
+    std::byte* const place = m_chunks.back().base() + m_used;
+    m_used += bytes;
+    return place;
+}
+
+bool CodeSpace::seal(std::byte* place, std::size_t bytes, std::size_t entry)
+{
+    platform::ExecutableMemory& chunk = m_chunks.back();
+    auto const offset = static_cast<std::size_t>(place - chunk.base());
+    return chunk.seal(offset, bytes) && chunk.describe_frames(offset, entry, 2);
+}
+
+std::unique_ptr<Code> compile(CodeBlock const& block, FeedbackVector* feedback, Layout const& layout, Helpers const& helpers, CodeSpace& space)
 {
     if constexpr (!available) {
         static_cast<void>(block);
         static_cast<void>(feedback);
         static_cast<void>(layout);
         static_cast<void>(helpers);
+        static_cast<void>(space);
         return nullptr;
     } else {
-        return Writer(block, feedback, layout, helpers).write();
+        return Writer(block, feedback, layout, helpers, space).write();
     }
 }
 
@@ -921,12 +995,14 @@ Mode mode()
 {
     int value = chosen_mode.load(std::memory_order_relaxed);
     if (value < 0) {
+        // Tiered unless asked otherwise: 0 (or off) for T0 alone, eager for
+        // every block at its first run.
         char const* const asked = std::getenv("SASHFOLD_JIT");
-        Mode chosen = Mode::Off;
+        Mode chosen = Mode::Tiered;
         if (asked != nullptr && std::strcmp(asked, "eager") == 0)
             chosen = Mode::Eager;
-        else if (asked != nullptr && (std::strcmp(asked, "tiered") == 0 || std::strcmp(asked, "1") == 0))
-            chosen = Mode::Tiered;
+        else if (asked != nullptr && (std::strcmp(asked, "0") == 0 || std::strcmp(asked, "off") == 0))
+            chosen = Mode::Off;
         value = static_cast<int>(chosen);
         chosen_mode.store(value, std::memory_order_relaxed);
     }

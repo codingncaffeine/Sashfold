@@ -644,6 +644,10 @@ public:
         std::size_t live_cells = 0;
         std::size_t live_bytes = 0;
         std::size_t functions_compiled = 0;
+        // Code blocks given machine code (the script engine's baseline
+        // compiler) and what making it took, inside engine_ms.
+        std::size_t blocks_compiled_to_machine = 0;
+        double machine_compile_ms = 0;
         // Under SASHFOLD_VM_PROFILE=1: the run loop's own time and the
         // natives' (built-ins and bindings), each net of the other.
         double vm_ms = 0;

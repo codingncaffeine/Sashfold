@@ -202,6 +202,15 @@ void test_labels()
         a.bind(slot);
     }),
         std::string("ff 15 00 00 00 00"));
+    // A call to code: e8 and the distance from its end.
+    CHECK_EQ(assembled([](AssemblerX64& a) {
+        Label const target = a.label();
+        a.call_to(target);
+        a.int3();
+        a.bind(target);
+        a.ret();
+    }),
+        std::string("e8 01 00 00 00 cc c3"));
     // A label used and never bound fails the finish; one never used does not.
     {
         AssemblerX64 a;

@@ -221,6 +221,21 @@ Run run(js::jit::Mode mode)
     return ran;
 }
 
+// A block past the baseline compiler's size stays in T0, even in eager mode:
+// it runs, and none of its instructions are compiled.
+void check_size_cap()
+{
+    js::jit::set_mode(js::jit::Mode::Eager);
+    js::Interpreter in;
+    std::string body = "var x = 0;";
+    for (std::size_t i = 0; i < js::jit::max_instructions / 4; ++i)
+        body += "x = x + 1;";
+    std::string const source = "(function () { " + body + " return '' + x; })()";
+    CHECK_EQ(test::eval_string(in, source), std::to_string(js::jit::max_instructions / 4));
+    CHECK(in.account().machine_instructions < js::jit::max_instructions);
+    CHECK(in.account().blocks_compiled_to_machine >= 1); // the program around it was
+}
+
 #if defined(_WIN32)
 // Win64 unwinds a frame of the code by the data written beside it: from an
 // address in the body, over a frame laid out as the prologue lays it out —
@@ -233,7 +248,8 @@ void check_unwind_data()
     js::CodeBlock block;
     block.code.push_back(js::Instruction { js::Opcode::Nop });
     block.code.push_back(js::Instruction { js::Opcode::Return });
-    std::unique_ptr<js::jit::Code> const code = js::jit::compile(block, nullptr, js::jit::Layout {}, js::jit::Helpers {});
+    js::jit::CodeSpace space;
+    std::unique_ptr<js::jit::Code> const code = js::jit::compile(block, nullptr, js::jit::Layout {}, js::jit::Helpers {}, space);
     CHECK(code != nullptr);
     if (code == nullptr)
         return;
@@ -310,6 +326,7 @@ int main()
         check_interrupt(js::jit::Mode::Tiered);
         js::jit::set_threshold(0);
         check_interrupt(js::jit::Mode::Eager);
+        check_size_cap();
 #if defined(_WIN32)
         check_unwind_data();
 #endif

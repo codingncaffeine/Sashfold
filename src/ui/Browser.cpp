@@ -11816,6 +11816,8 @@ Browser::EngineAccount Browser::engine_account() const
     account.late_parse_ms = code.late_parse_ms;
     account.compile_ms = code.compile_ms;
     account.functions_compiled = code.functions_compiled;
+    account.blocks_compiled_to_machine = code.blocks_compiled_to_machine;
+    account.machine_compile_ms = code.machine_compile_ms;
     account.vm_ms = code.vm_ms;
     account.natives_ms = code.natives_ms;
     account.ic_hits = interpreter.cache_hits();

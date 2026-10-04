@@ -6,9 +6,10 @@
 // (--dump-bytecode). A build tool for the script engine's own work, never
 // shipped.
 //
-//   js_probe "<source>" [--module] [--dump-ast] [--dump-scopes] [--dump-bytecode] [--no-stress] [--vm-profile]
+//   js_probe "<source>"|--file <path> [--module] [--dump-ast] [--dump-scopes] [--dump-bytecode] [--no-stress] [--vm-profile]
 //
-// The source is one argument; a file arrives as "$(cat page.js)". With
+// The source is one argument; a file arrives as "$(cat page.js)", or one
+// too long for an argument by --file page.js. With
 // --no-stress the heap collects as it does in a page, which is how a
 // script is timed here against another engine; --vm-profile prints where the
 // running went (the run loop, the natives) and the instructions run most. With
@@ -46,7 +47,7 @@ namespace {
 
 int usage()
 {
-    std::fputs("usage: js_probe \"<source>\" [--module] [--dump-ast] [--dump-scopes] [--dump-bytecode]\n", stderr);
+    std::fputs("usage: js_probe \"<source>\"|--file <path> [--module] [--dump-ast] [--dump-scopes] [--dump-bytecode]\n", stderr);
     return 2;
 }
 
@@ -89,7 +90,16 @@ int main(int argc, char** argv)
     bool stress = true;
     bool want_profile = false;
     char const* source = nullptr;
+    std::string file_source;
     for (int i = 1; i < argc; ++i) {
+        if (std::strcmp(argv[i], "--file") == 0 && i + 1 < argc && source == nullptr) {
+            std::ifstream file { argv[++i], std::ios::binary };
+            if (!file)
+                return usage();
+            file_source.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+            source = file_source.c_str();
+            continue;
+        }
         if (std::strcmp(argv[i], "--dump-ast") == 0) {
             want_ast = true;
         } else if (std::strcmp(argv[i], "--dump-scopes") == 0) {

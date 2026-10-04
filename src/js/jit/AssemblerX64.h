@@ -66,6 +66,9 @@ private:
 
 class AssemblerX64 {
 public:
+    // Room for this many bytes and labels, taken once (a block's code is
+    // about a known size).
+    void reserve(std::size_t bytes, std::size_t labels);
     Label label();
     void bind(Label);
     bool bound(Label) const;
@@ -131,6 +134,7 @@ public:
     void set(Cond, Reg); // the register's low byte, 1 when the condition holds
     void call(Reg);
     void call(Label); // through a 64-bit address at the label, rip-relative
+    void call_to(Label); // to the label itself, rel32
     void jmp(Label);
     void jmp(Mem); // through a 64-bit address in memory
     void j(Cond, Label);
@@ -167,16 +171,16 @@ private:
     // instruction, whose last `trailing` bytes follow the displacement.
     void label_use(Label, std::uint32_t trailing = 0);
 
+    // Every use of every label, in one list: a block's code makes thousands,
+    // and a list per label would be an allocation each.
     struct Use {
+        std::uint32_t label = 0;
         std::uint32_t at = 0; // the displacement's offset
         std::uint32_t from = 0; // what it is measured from: the instruction's end
     };
-    struct LabelState {
-        std::int64_t offset = -1;
-        std::vector<Use> uses;
-    };
     std::vector<std::uint8_t> m_bytes;
-    std::vector<LabelState> m_labels;
+    std::vector<std::int64_t> m_labels; // each label's offset, -1 until bound
+    std::vector<Use> m_uses;
 };
 
 }

@@ -30,7 +30,10 @@ jobs:
       - run: ./build/tests/wpt_reftest wpt tests/wpt/directories.txt tests/wpt/passing.txt --revision tests/wpt/REVISION
 
   # test262, the ECMAScript conformance suite: the checkout is fetched at
-  # the pinned revision, and every test the baseline names must still pass.
+  # the pinned revision, and every test the baseline names must still pass —
+  # with the script engine's baseline compiler as it ships (tiered), off,
+  # and giving every code block machine code at its first run (eager), so
+  # the three agree (js-JIT-DESIGN.md §8).
   test262:
     runs-on: ubuntu-latest
     steps:
@@ -40,6 +43,8 @@ jobs:
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build --target test262_runner
       - run: ./build/tests/test262_runner test262 tests/test262/directories.txt tests/test262/passing.txt --revision tests/test262/REVISION
+      - run: SASHFOLD_JIT=0 ./build/tests/test262_runner test262 tests/test262/directories.txt tests/test262/passing.txt --revision tests/test262/REVISION
+      - run: SASHFOLD_JIT=eager ./build/tests/test262_runner test262 tests/test262/directories.txt tests/test262/passing.txt --revision tests/test262/REVISION
 
   # The Unicode bidirectional algorithm against its own conformance files.
   # They are 15 MB, so they are fetched at the version pinned in

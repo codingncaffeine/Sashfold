@@ -16,44 +16,48 @@ bool fits_int8(std::int32_t value)
 
 }
 
+void AssemblerX64::reserve(std::size_t bytes, std::size_t labels)
+{
+    m_bytes.reserve(bytes);
+    m_labels.reserve(labels);
+    m_uses.reserve(labels);
+}
+
 Label AssemblerX64::label()
 {
     Label made;
     made.m_id = static_cast<std::uint32_t>(m_labels.size());
-    m_labels.emplace_back();
+    m_labels.push_back(-1);
     return made;
 }
 
 void AssemblerX64::bind(Label label)
 {
-    m_labels[label.m_id].offset = static_cast<std::int64_t>(m_bytes.size());
+    m_labels[label.m_id] = static_cast<std::int64_t>(m_bytes.size());
 }
 
 bool AssemblerX64::bound(Label label) const
 {
-    return label.valid() && m_labels[label.m_id].offset >= 0;
+    return label.valid() && m_labels[label.m_id] >= 0;
 }
 
 std::uint32_t AssemblerX64::offset_of(Label label) const
 {
-    return static_cast<std::uint32_t>(m_labels[label.m_id].offset);
+    return static_cast<std::uint32_t>(m_labels[label.m_id]);
 }
 
 bool AssemblerX64::finish()
 {
-    for (LabelState const& state : m_labels) {
-        if (state.uses.empty())
-            continue;
-        if (state.offset < 0)
+    for (Use const& use : m_uses) {
+        std::int64_t const offset = m_labels[use.label];
+        if (offset < 0)
             return false;
-        for (Use const& use : state.uses) {
-            std::int64_t const distance = state.offset - static_cast<std::int64_t>(use.from);
-            if (distance < INT32_MIN || distance > INT32_MAX)
-                return false;
-            auto const value = static_cast<std::uint32_t>(static_cast<std::int32_t>(distance));
-            for (int i = 0; i < 4; ++i)
-                m_bytes[use.at + static_cast<std::uint32_t>(i)] = static_cast<std::uint8_t>(value >> (8 * i));
-        }
+        std::int64_t const distance = offset - static_cast<std::int64_t>(use.from);
+        if (distance < INT32_MIN || distance > INT32_MAX)
+            return false;
+        auto const value = static_cast<std::uint32_t>(static_cast<std::int32_t>(distance));
+        for (int i = 0; i < 4; ++i)
+            m_bytes[use.at + static_cast<std::uint32_t>(i)] = static_cast<std::uint8_t>(value >> (8 * i));
     }
     return true;
 }
@@ -143,7 +147,7 @@ void AssemblerX64::group1(std::uint8_t digit, bool wide, Mem const& memory, std:
 void AssemblerX64::label_use(Label label, std::uint32_t trailing)
 {
     auto const at = static_cast<std::uint32_t>(m_bytes.size());
-    m_labels[label.m_id].uses.push_back(Use { at, at + 4 + trailing });
+    m_uses.push_back(Use { label.m_id, at, at + 4 + trailing });
     u32(0);
 }
 
@@ -498,6 +502,12 @@ void AssemblerX64::call(Label label)
 {
     byte(0xFF);
     byte(0x15); // mod 00, /2, rm 101: [rip + disp32]
+    label_use(label);
+}
+
+void AssemblerX64::call_to(Label label)
+{
+    byte(0xE8);
     label_use(label);
 }
 

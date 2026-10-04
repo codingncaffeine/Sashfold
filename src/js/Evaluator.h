@@ -280,6 +280,9 @@ struct Interpreter::Impl {
     bool enumerator_load(Enumerator& enumerator);
     JsString* enumerator_next(Enumerator& enumerator);
 
+    // Where the code blocks' machine code lies (js/jit): declared before
+    // them, so it is let go of after them.
+    jit::CodeSpace code_space;
     // ---- the bytecode machine (Compiler.cpp, Vm.cpp): every body
     // One compiled body per function node, made at the first call; the
     // programs are the realm's for life, so the keys never dangle.
