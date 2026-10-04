@@ -328,6 +328,8 @@ struct Interpreter::Impl {
     // A named read, write or global read through its site's cache (null
     // for an instruction with none): the slow path on a miss, with the
     // answer it took recorded.
+    Value data_hit(PropertyEntry const&, Object const&, Shape const&, PropertyKey const&); // empty: no hit
+    Value named_hit(PropertySite&, Value const& base, JsString* name); // empty: no hit
     std::optional<Value> get_named(PropertySite*, Value const& base, JsString* name);
     bool put_named(PropertySite*, Value const& base, JsString* name, Value const& value, bool strict);
     Value global_hit(PropertySite&, JsString* name); // empty: no answer that holds
@@ -376,6 +378,12 @@ struct Interpreter::Impl {
     // Its end, by a return or a throw: the frame popped and the caller's
     // realm, context and call depth back; the caller's frame.
     Frame* leave_call(Frame& frame);
+    // The run loop's inline call and its return, shared by T0's Call and
+    // Return and the machine code's (Vm.cpp).
+    enum class InlineCall : std::uint8_t { Entered, Threw, Declined };
+    InlineCall inline_call(Frame& frame, std::uint32_t argc, Frame*& next);
+    bool call_out(Frame& frame, Instruction const& call);
+    RunStatus frame_return(Frame& frame, Frame*& next);
     // The member writes' slow paths (a base that is no object, a key that
     // is one, the compound read), out of the run loop so that it stays small.
     bool put_member_slow(Frame& frame, Value const& base, Value const& key, Value const& value);

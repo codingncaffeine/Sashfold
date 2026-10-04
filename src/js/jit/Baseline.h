@@ -29,6 +29,8 @@ class FeedbackVector;
 class Frame;
 class JsString;
 struct PropertySite;
+class Value;
+struct Instruction;
 
 }
 
@@ -57,6 +59,19 @@ struct Helpers {
     // of the global object, a script's let or const), or 0 — the empty
     // value — when the site has no answer that holds.
     std::uint64_t (*global)(void* interpreter, PropertySite* site, JsString* name) = nullptr;
+    // A named read of an object (the value's bits) as its site's answer
+    // gives it when the answer calls nothing — an own or inherited data
+    // property, an absent one, an array's length — or 0 when it has none
+    // that holds.
+    std::uint64_t (*named)(void* interpreter, PropertySite* site, Value const* base, JsString* name) = nullptr;
+    // A Call (the frame's pc already past it, its top written back): the
+    // site recorded and a plain script function entered (Switched, `next`
+    // the callee), or any other callee called and its result in place
+    // (Stepped); Threw, or Stepped at a handler that caught the throw.
+    std::uint32_t (*call)(void* interpreter, Frame* frame, Frame** next, Instruction const* call) = nullptr;
+    // A Return (the top written back): Switched to the caller (`next`), or
+    // Completed.
+    std::uint32_t (*ret)(void* interpreter, Frame* frame, Frame** next) = nullptr;
 };
 
 // A status no RunStatus has: the code was entered at, or jumped to, a pc

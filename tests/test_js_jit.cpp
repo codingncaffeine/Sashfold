@@ -157,6 +157,9 @@ constexpr std::string_view edges_script = R"JS(
     function addOne(t) { return t + 1; }
     for (var w = 0; w < 5000; w++) { total = addOne(total); if (w % 1000 === 999) total = total * 2 % 1000003; }
     out.push(total);
+    // A call that throws as it is entered (the depth limit), caught by a
+    // handler of the same frame.
+    out.push((function deep(n) { try { return deep(n + 1); } catch (e) { return e instanceof RangeError && n > 100; } })(0));
     return out.join('\n');
 })()
 )JS";
@@ -190,6 +193,7 @@ this ReferenceError
 undefined,1,undefined,3,undefined,undefined,proto,b,o,9
 1,2,3,4,5,1,2,3,4,5,1,2,3,4,5,2,1,6,3,TypeError
 62000
+true
 )";
 
 // An async body: awaited at several instructions and resumed from the job

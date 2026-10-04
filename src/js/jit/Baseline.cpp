@@ -31,20 +31,22 @@ constexpr Reg top_reg = Reg::r15;
 // rbp and the five registers it saves.
 constexpr std::int32_t next_slot = -48;
 
-// The calling convention: where the first three arguments go, and the room
+// The calling convention: where the first four arguments go, and the room
 // a callee may use above its return address (Win64's shadow space, under
 // the slot above). The code keeps to registers both conventions let a
-// callee clobber (rax, rcx, rdx, r8) besides the ones it saves.
+// callee clobber (rax, rcx, rdx, r8, r9) besides the ones it saves.
 #if defined(_WIN32)
 constexpr Reg arg0 = Reg::rcx;
 constexpr Reg arg1 = Reg::rdx;
 constexpr Reg arg2 = Reg::r8;
+constexpr Reg arg3 = Reg::r9;
 constexpr std::int32_t shadow_space = 32;
 constexpr bool describes_frames = true;
 #else
 constexpr Reg arg0 = Reg::rdi;
 constexpr Reg arg1 = Reg::rsi;
 constexpr Reg arg2 = Reg::rdx;
+constexpr Reg arg3 = Reg::rcx;
 constexpr std::int32_t shadow_space = 0;
 constexpr bool describes_frames = false;
 #endif
@@ -84,6 +86,9 @@ public:
         m_table = a.label();
         m_step = a.label();
         m_global = a.label();
+        m_named = a.label();
+        m_call = a.label();
+        m_ret = a.label();
         m_left = a.label();
         m_step_stub = a.label();
         // A block's code is some tens of bytes an instruction, and three
@@ -159,6 +164,9 @@ private:
     Label m_table;
     Label m_step;
     Label m_global;
+    Label m_named;
+    Label m_call;
+    Label m_ret;
     Label m_left; // a step's status other than Stepped: a switch made here, or out
     Label m_step_stub;
     std::uint32_t m_stub_prologue = 0;
@@ -658,6 +666,39 @@ bool Writer::instruction(std::uint32_t pc)
         return true;
     }
 
+    // ---- a call and a return, through the interpreter's own functions for
+    // them (the step's way to them is long): a script callee's frame
+    // switched to from here, any other callee called the C++ way, a throw
+    // unwound.
+    case Opcode::Call: {
+        if (m_helpers.call == nullptr || pc + 1 >= m_count)
+            return false;
+        a.mov32(Mem::at(frame_reg, m_layout.frame_pc), pc + 1);
+        a.mov(Mem::at(frame_reg, m_layout.frame_stack_top), top_reg);
+        a.mov(arg0, interpreter_reg);
+        a.mov(arg1, frame_reg);
+        a.mov(arg2, Mem::at(Reg::rbp, next_slot));
+        a.mov_imm64(arg3, reinterpret_cast<std::uint64_t>(&ins));
+        a.call(m_call);
+        a.mov(top_reg, Mem::at(frame_reg, m_layout.frame_stack_top));
+        a.cmp32(Reg::rax, static_cast<std::int32_t>(RunStatus::Stepped));
+        a.j(Cond::NotEqual, m_left); // the callee's frame, or out
+        a.cmp32(Mem::at(frame_reg, m_layout.frame_pc), static_cast<std::int32_t>(pc + 1));
+        a.j(Cond::NotEqual, m_dispatch); // a handler caught the call's throw
+        return true;
+    }
+    case Opcode::Return:
+        if (m_helpers.ret == nullptr)
+            return false;
+        a.mov32(Mem::at(frame_reg, m_layout.frame_pc), pc + 1);
+        a.mov(Mem::at(frame_reg, m_layout.frame_stack_top), top_reg);
+        a.mov(arg0, interpreter_reg);
+        a.mov(arg1, frame_reg);
+        a.mov(arg2, Mem::at(Reg::rbp, next_slot));
+        a.call(m_ret);
+        a.jmp(m_left); // to the caller, or out
+        return true;
+
     // ---- a name only the global environment can have: its site's answer
     // read by the helper (a data property of the global object, a
     // script's let or const); an accessor, a miss and the dead zone by
@@ -678,13 +719,34 @@ bool Writer::instruction(std::uint32_t pc)
 
     // ---- members: the site's one answer, an own data property
     case Opcode::GetMemberNamed: {
-        if (ins.site == no_site || m_feedback == nullptr)
+        // The site's one own-data answer inline; any other answer that
+        // calls nothing (inherited, absent, a length, a site of several
+        // shapes) through the helper; an accessor and a miss by the step.
+        if (ins.site == no_site || m_feedback == nullptr || ins.a >= m_block.names.size())
             return false;
+        PropertySite& site = m_feedback->property(ins.site);
         Label const miss = cold(pc);
+        Label const other = a.label();
+        Label const done = a.label();
         a.mov(Reg::rax, operand(0));
-        property_hit(Reg::rax, m_feedback->property(ins.site), miss);
+        property_hit(Reg::rax, site, other);
         a.mov(Reg::rax, Mem::at_index(Reg::rax, Reg::rdx, 8));
         a.mov(operand(0), Reg::rax);
+        a.jmp(done);
+        a.bind(other);
+        if (m_helpers.named != nullptr) {
+            a.mov(arg0, interpreter_reg);
+            a.mov_imm64(arg1, reinterpret_cast<std::uint64_t>(&site));
+            a.lea(arg2, operand(0));
+            a.mov_imm64(arg3, reinterpret_cast<std::uint64_t>(m_block.names[ins.a]));
+            a.call(m_named);
+            a.test(Reg::rax, Reg::rax);
+            a.j(Cond::Equal, miss);
+            a.mov(operand(0), Reg::rax);
+        } else {
+            a.jmp(miss);
+        }
+        a.bind(done);
         return true;
     }
     case Opcode::PutMemberNamed:
@@ -852,6 +914,12 @@ std::unique_ptr<Code> Writer::write()
     a.emit_u64(reinterpret_cast<std::uint64_t>(m_helpers.step));
     a.bind(m_global);
     a.emit_u64(reinterpret_cast<std::uint64_t>(m_helpers.global));
+    a.bind(m_named);
+    a.emit_u64(reinterpret_cast<std::uint64_t>(m_helpers.named));
+    a.bind(m_call);
+    a.emit_u64(reinterpret_cast<std::uint64_t>(m_helpers.call));
+    a.bind(m_ret);
+    a.emit_u64(reinterpret_cast<std::uint64_t>(m_helpers.ret));
     a.bind(m_table);
     for (std::uint32_t pc = 0; pc < m_count; ++pc)
         a.emit_u64(0);

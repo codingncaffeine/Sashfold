@@ -349,6 +349,62 @@ Object* Interpreter::Impl::named_access_target(Object& object)
     return static_cast<ProxyObject&>(object).forwards_named_access(self);
 }
 
+// What an answer that calls nothing gives — an own or inherited data
+// property, a name the chain lacks, an array's length — while it holds;
+// empty when it is another kind or no longer holds.
+Value Interpreter::Impl::data_hit(PropertyEntry const& entry, Object const& object, Shape const& shape, PropertyKey const& key)
+{
+    switch (entry.kind) {
+    case CacheKind::OwnData:
+        if (own_holds(entry, shape, key, false)) {
+            if (Value const& value = object.slot_value(entry.slot); !value.is_lazy_mark()) {
+                ++ic_hits;
+                return value;
+            }
+        }
+        break;
+    case CacheKind::ProtoData:
+        if (chain_holds(entry, shape, heap(), key)) {
+            if (Value const& value = static_cast<Object*>(entry.other)->slot_value(entry.slot); !value.is_lazy_mark()) {
+                ++ic_hits;
+                return value;
+            }
+        }
+        break;
+    case CacheKind::Absent:
+        if (chain_holds(entry, shape, heap(), key)) {
+            ++ic_hits;
+            return Value::undefined();
+        }
+        break;
+    case CacheKind::ArrayLength:
+        if (object.class_id() == Object::Class::Array) {
+            ++ic_hits;
+            return Value::number(static_cast<double>(static_cast<ArrayObject const&>(object).length()));
+        }
+        break;
+    default:
+        break;
+    }
+    return Value::empty();
+}
+
+// A named read of an object through its site's answer, when the answer
+// calls nothing (data_hit), else empty: get_named's hit without the
+// accessors and the miss path, which the machine code calls with nothing
+// written back to the frame, since it neither throws nor allocates.
+Value Interpreter::Impl::named_hit(PropertySite& site, Value const& base, JsString* name)
+{
+    Object* const target = base.is_object() ? named_access_target(*base.as_object()) : nullptr;
+    if (target == nullptr)
+        return Value::empty();
+    Shape const* const shape = target->shape();
+    PropertyEntry const* const entry = entry_for(site, shape, stub_cache.get(), name, false);
+    if (entry == nullptr)
+        return Value::empty();
+    return data_hit(*entry, *target, *shape, heap().key(name));
+}
+
 std::optional<Value> Interpreter::Impl::get_named(PropertySite* site, Value const& base, JsString* name)
 {
     Heap& h = heap();
@@ -360,15 +416,9 @@ std::optional<Value> Interpreter::Impl::get_named(PropertySite* site, Value cons
     PropertyKey const key = h.key(name);
     PropertyEntry const* const entry = entry_for(*site, shape, stub_cache.get(), name, false);
     if (entry != nullptr) {
+        if (Value const value = data_hit(*entry, object, *shape, key); !value.is_empty())
+            return value;
         switch (entry->kind) {
-        case CacheKind::OwnData:
-            if (own_holds(*entry, *shape, key, false)) {
-                if (Value const& value = object.slot_value(entry->slot); !value.is_lazy_mark()) {
-                    ++ic_hits;
-                    return value;
-                }
-            }
-            break;
         case CacheKind::OwnAccessor:
             if (own_holds(*entry, *shape, key, true)) {
                 if (AccessorPair const* const pair = pair_in(object.slot_value(entry->slot))) {
@@ -376,14 +426,6 @@ std::optional<Value> Interpreter::Impl::get_named(PropertySite* site, Value cons
                     if (pair->getter == nullptr)
                         return Value::undefined();
                     return self.call(Value::object(pair->getter), base, {});
-                }
-            }
-            break;
-        case CacheKind::ProtoData:
-            if (chain_holds(*entry, *shape, h, key)) {
-                if (Value const& value = static_cast<Object*>(entry->other)->slot_value(entry->slot); !value.is_lazy_mark()) {
-                    ++ic_hits;
-                    return value;
                 }
             }
             break;
@@ -395,18 +437,6 @@ std::optional<Value> Interpreter::Impl::get_named(PropertySite* site, Value cons
                         return Value::undefined();
                     return self.call(Value::object(pair->getter), base, {});
                 }
-            }
-            break;
-        case CacheKind::Absent:
-            if (chain_holds(*entry, *shape, h, key)) {
-                ++ic_hits;
-                return Value::undefined();
-            }
-            break;
-        case CacheKind::ArrayLength:
-            if (object.class_id() == Object::Class::Array) {
-                ++ic_hits;
-                return Value::number(static_cast<double>(static_cast<ArrayObject const&>(object).length()));
             }
             break;
         default:
@@ -1034,6 +1064,65 @@ Frame* Interpreter::Impl::leave_call(Frame& frame)
     self.m_script_realm = frame.caller_script_realm;
     pop_frame(frame);
     return vm_stacks.frames[vm_stacks.depth - 1];
+}
+
+// The Call at hand (its operands [callee, this, args…] on the frame's
+// stack): a plain script function entered on a frame above, `next` — the
+// run loop's inline call, T0's and the machine code's. Declined, it is
+// another kind of call, for the generic path (nothing done); Threw,
+// enter_call's depth or interrupt, nothing pushed.
+Interpreter::Impl::InlineCall Interpreter::Impl::inline_call(Frame& frame, std::uint32_t argc, Frame*& next)
+{
+    std::size_t const size = frame.stack.size();
+    Value const& target = frame.stack[size - argc - 2];
+    if (!target.is_object() || target.as_object()->class_id() != Object::Class::Function || !static_cast<Function*>(target.as_object())->is_script())
+        return InlineCall::Declined;
+    bool threw = false;
+    Args const arguments(frame.stack.data() + size - argc, argc);
+    if (Frame* callee = enter_call(target, frame.stack[size - argc - 1], arguments, threw)) {
+        next = callee;
+        return InlineCall::Entered;
+    }
+    return threw ? InlineCall::Threw : InlineCall::Declined;
+}
+
+// A Call whose callee the loop does not enter (a native, a bound function,
+// a proxy, the TypeError of what is not callable): called the C++ way and
+// its result put in place of the operands — T0's and the machine code's.
+// False with the exception pending.
+bool Interpreter::Impl::call_out(Frame& frame, Instruction const& call)
+{
+    std::size_t const argc = call.a;
+    std::size_t const size = frame.stack.size();
+    Value const& callee = frame.stack[size - argc - 2];
+    if (!Interpreter::is_callable(callee)) {
+        self.throw_type_error(expression_text(frame.code->nodes[call.b], frame_context(frame)) + " is not a function");
+        return false;
+    }
+    std::optional<Value> const result = self.call(callee, frame.stack[size - argc - 1], Args(frame.stack.data() + size - argc, argc));
+    if (!result)
+        return false;
+    frame.stack.resize(size - argc - 2);
+    frame.push(*result);
+    return true;
+}
+
+// A frame's Return: an inline call's back to its caller, which takes the
+// call's operands off its stack and the result on (Switched, `next` the
+// caller); anything else the run's end, the value in the frame's result.
+RunStatus Interpreter::Impl::frame_return(Frame& frame, Frame*& next)
+{
+    if (frame.inlined) {
+        Value const result = frame.pop();
+        Frame* caller = leave_call(frame);
+        std::size_t const argc = caller->code->code[caller->pc - 1].a;
+        caller->stack.resize(caller->stack.size() - argc - 2);
+        caller->push(result);
+        next = caller;
+        return RunStatus::Switched;
+    }
+    frame.result = frame.pop();
+    return RunStatus::Completed;
 }
 
 bool Interpreter::Impl::put_member_named_slow(Frame& frame, Value const& base, JsString* name, Value const& value)
@@ -2185,21 +2274,8 @@ RunStatus Interpreter::Impl::vm_run_frame_impl(Frame& frame, Frame*& next, std::
             if (frame.resume_kind == ResumeKind::Return)
                 frame.pc = ins->a;
             VM_NEXT;
-        VM_CASE(Return): {
-            if (frame.inlined) {
-                // A call this loop made: back to its caller, which takes the
-                // call's operands off its stack and the result on.
-                Value const result = frame.pop();
-                Frame* caller = leave_call(frame);
-                std::size_t const argc = caller->code->code[caller->pc - 1].a;
-                caller->stack.resize(caller->stack.size() - argc - 2);
-                caller->push(result);
-                next = caller;
-                return RunStatus::Switched;
-            }
-            frame.result = frame.pop();
-            return RunStatus::Completed;
-        }
+        VM_CASE(Return):
+            return frame_return(frame, next);
         VM_CASE(Throw):
             self.throw_value(frame.pop());
             VM_FAIL;
@@ -2226,18 +2302,16 @@ RunStatus Interpreter::Impl::vm_run_frame_impl(Frame& frame, Frame*& next, std::
             if (ins->site != no_site)
                 note_call(feedback->call(ins->site), frame.stack[size - argc - 2]);
             // A plain script function runs here, on a frame pushed above this
-            // one: no C++ call, no second run loop. Its Return takes the
-            // callee, `this` and the arguments off this stack.
-            if (Value const& target = frame.stack[size - argc - 2]; ins->op == Opcode::Call && target.is_object()
-                && target.as_object()->class_id() == Object::Class::Function && static_cast<Function*>(target.as_object())->is_script()) {
-                bool threw = false;
-                if (Frame* callee = enter_call(target, frame.stack[size - argc - 1], arguments, threw)) {
-                    next = callee;
+            // one: no C++ call, no second run loop; any other callee is called
+            // the C++ way.
+            if (ins->op == Opcode::Call) {
+                InlineCall const called = inline_call(frame, ins->a, next);
+                if (called == InlineCall::Entered)
                     return RunStatus::Switched;
-                }
-                if (threw) {
+                if (called == InlineCall::Threw || !call_out(frame, *ins)) {
                     VM_FAIL;
                 }
+                VM_NEXT;
             }
             std::optional<Value> const result = call_with(*ins, frame.stack[size - argc - 2], frame.stack[size - argc - 1], arguments,
                 ins->op == Opcode::CallEval);
@@ -2827,6 +2901,37 @@ std::uint64_t machine_global(void* interpreter, PropertySite* site, JsString* na
     return static_cast<Interpreter::Impl*>(interpreter)->global_hit(*site, name).bits();
 }
 
+// Its Call and Return: the run loop's inline call and its return, and a
+// call the C++ way, T0's own, with a throw unwound as T0's Call unwinds it.
+std::uint32_t machine_call(void* interpreter, Frame* frame, Frame** next, Instruction const* call)
+{
+    auto& impl = *static_cast<Interpreter::Impl*>(interpreter);
+    if (call->site != no_site)
+        note_call(impl.feedback_for(*frame->code)->call(call->site), frame->stack[frame->stack.size() - call->a - 2]);
+    switch (impl.inline_call(*frame, call->a, *next)) {
+    case Interpreter::Impl::InlineCall::Entered:
+        return static_cast<std::uint32_t>(RunStatus::Switched);
+    case Interpreter::Impl::InlineCall::Threw:
+        return static_cast<std::uint32_t>(impl.vm_unwind(*frame) ? RunStatus::Stepped : RunStatus::Threw);
+    case Interpreter::Impl::InlineCall::Declined:
+        break;
+    }
+    if (!impl.call_out(*frame, *call))
+        return static_cast<std::uint32_t>(impl.vm_unwind(*frame) ? RunStatus::Stepped : RunStatus::Threw);
+    return static_cast<std::uint32_t>(RunStatus::Stepped);
+}
+
+std::uint32_t machine_return(void* interpreter, Frame* frame, Frame** next)
+{
+    return static_cast<std::uint32_t>(static_cast<Interpreter::Impl*>(interpreter)->frame_return(*frame, *next));
+}
+
+// And to a named read's.
+std::uint64_t machine_named(void* interpreter, PropertySite* site, Value const* base, JsString* name)
+{
+    return static_cast<Interpreter::Impl*>(interpreter)->named_hit(*site, *base, name).bits();
+}
+
 }
 
 // The offsets the machine code reads (js/jit/Baseline.h), as this build
@@ -2958,7 +3063,7 @@ jit::Code const* Interpreter::Impl::machine_code(CodeBlock const& code)
         break;
     }
     auto const started = std::chrono::steady_clock::now();
-    static constexpr jit::Helpers helpers { &machine_step, &machine_global };
+    static constexpr jit::Helpers helpers { &machine_step, &machine_global, &machine_named, &machine_call, &machine_return };
     code.jit = jit::compile(code, feedback_for(code), machine_layout(), helpers, code_space);
     code.jit_refused = code.jit == nullptr;
     if (code.jit)
