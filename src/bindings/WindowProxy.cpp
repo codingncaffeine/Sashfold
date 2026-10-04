@@ -107,7 +107,7 @@ js::Object* forwarding_function(js::Interpreter& interpreter, std::string_view n
         [](js::Interpreter& interp, js::ClosureFunction& function, js::Value const& this_value, std::span<js::Value const> arguments) -> std::optional<js::Value> {
             js::Value const member = function.slot(0);
             if (auto* const native = member.is_object() ? dynamic_cast<js::NativeFunction*>(member.as_object()) : nullptr)
-                return native->callback()(interp, this_value, arguments);
+                return native->perform(interp, this_value, arguments);
             return interp.call(member, this_value, arguments);
         });
 }
@@ -785,7 +785,9 @@ void install_window_proxy(Realm::Internals& in, std::vector<js::PropertyKey> con
         std::optional<js::PropertyDescriptor> const name = native->get_own_property(interpreter.key("name"));
         int const arity = length && length->value && length->value->is_number() ? static_cast<int>(length->value->as_number()) : 0;
         std::string const function_name = name && name->value && name->value->is_string() ? name->value->as_string()->to_utf8() : std::string();
-        return interpreter.new_native(function_name, arity, window_member(native->callback(), shown, lenient, forwards));
+        if (native->closure() == nullptr)
+            return function;
+        return interpreter.new_native(function_name, arity, window_member(*native->closure(), shown, lenient, forwards));
     };
     for (js::PropertyKey const& key : global.own_keys()) {
         if (!key.is_atom() || std::find(language_globals.begin(), language_globals.end(), key) != language_globals.end())

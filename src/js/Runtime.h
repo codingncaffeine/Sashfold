@@ -8,9 +8,12 @@
 
 #include "js/Interpreter.h"
 
+#include <concepts>
 #include <span>
 #include <string>
 #include <string_view>
+#include <type_traits>
+#include <utility>
 
 namespace sashfold::js {
 
@@ -55,7 +58,7 @@ Value perform_then(Interpreter&, PromiseObject& promise, Value const& on_fulfill
 
 // Defines `name` on `target` as a non-enumerable native method, or with
 // the attributes given (the bindings' operations are enumerable, as
-// WebIDL has them).
+// WebIDL has them). A closure is made into its function at once.
 NativeFunction* define_method(Interpreter&, Object& target, std::string_view name, int length,
     NativeFunction::Callback);
 NativeFunction* define_method(Interpreter&, Object& target, std::string_view name, int length,
@@ -66,6 +69,73 @@ void define_accessor(Interpreter&, Object& target, std::string_view name, Native
     NativeFunction::Callback setter = {});
 void define_accessor(Interpreter&, Object& target, std::string_view name, NativeFunction::Callback getter,
     NativeFunction::Callback setter, std::uint8_t attributes);
+
+// The same from plain functions — which a lambda that captures nothing is,
+// and nearly every built-in is one. The property is defined now; the
+// function object behind it is made when something first asks for it (a
+// script that reads the property, or the definer through the handle these
+// return), since a realm has thousands of built-ins and a page calls few.
+template<typename F>
+concept PlainNative = std::convertible_to<F, NativeFunction::Entry> && !std::same_as<std::remove_cvref_t<F>, std::nullptr_t>;
+
+// A method defined from a plain function, for a definer that wants the
+// function itself (to put it under a second key): asking makes it.
+class DefinedMethod {
+public:
+    DefinedMethod(Object& target, PropertyKey key)
+        : m_target(&target)
+        , m_key(key)
+    {
+    }
+    NativeFunction* function() const;
+    operator NativeFunction*() const { return function(); }
+    NativeFunction* operator->() const { return function(); }
+
+private:
+    Object* m_target;
+    PropertyKey m_key;
+};
+
+DefinedMethod define_plain_method(Interpreter&, Object& target, std::string_view name, int length, NativeFunction::Entry,
+    std::uint8_t attributes);
+void define_plain_accessor(Interpreter&, Object& target, std::string_view name, NativeFunction::Entry getter, NativeFunction::Entry setter,
+    std::uint8_t attributes);
+
+template<PlainNative F>
+DefinedMethod define_method(Interpreter& in, Object& target, std::string_view name, int length, F&& callback)
+{
+    return define_plain_method(in, target, name, length, static_cast<NativeFunction::Entry>(callback), builtin_attributes);
+}
+template<PlainNative F>
+DefinedMethod define_method(Interpreter& in, Object& target, std::string_view name, int length, F&& callback, std::uint8_t attributes)
+{
+    return define_plain_method(in, target, name, length, static_cast<NativeFunction::Entry>(callback), attributes);
+}
+template<PlainNative G>
+void define_accessor(Interpreter& in, Object& target, std::string_view name, G&& getter)
+{
+    define_plain_accessor(in, target, name, static_cast<NativeFunction::Entry>(getter), nullptr, Configurable);
+}
+template<PlainNative G, PlainNative S>
+void define_accessor(Interpreter& in, Object& target, std::string_view name, G&& getter, S&& setter)
+{
+    define_plain_accessor(in, target, name, static_cast<NativeFunction::Entry>(getter), static_cast<NativeFunction::Entry>(setter), Configurable);
+}
+template<PlainNative G, PlainNative S>
+void define_accessor(Interpreter& in, Object& target, std::string_view name, G&& getter, S&& setter, std::uint8_t attributes)
+{
+    define_plain_accessor(in, target, name, static_cast<NativeFunction::Entry>(getter), static_cast<NativeFunction::Entry>(setter), attributes);
+}
+// A plain getter beside a setter given as a closure, or as none (`{}`).
+template<PlainNative G>
+void define_accessor(Interpreter& in, Object& target, std::string_view name, G&& getter, NativeFunction::Callback setter,
+    std::uint8_t attributes = Configurable)
+{
+    if (setter)
+        define_accessor(in, target, name, NativeFunction::Callback(std::forward<G>(getter)), std::move(setter), attributes);
+    else
+        define_plain_accessor(in, target, name, static_cast<NativeFunction::Entry>(getter), nullptr, attributes);
+}
 // A data property with the given attributes (a constant like Math.PI).
 void define_value(Interpreter&, Object& target, std::string_view name, Value, std::uint8_t attributes = builtin_attributes);
 // The argument at `index`, or undefined.

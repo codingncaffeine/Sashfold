@@ -876,7 +876,9 @@ void share_getter(js::Interpreter& interpreter, js::Object& from, js::Object& to
     auto* const getter = dynamic_cast<js::NativeFunction*>(*found->get);
     if (getter == nullptr)
         return;
-    define_attribute(interpreter, to, name, getter->unwrapped ? getter->unwrapped : getter->callback());
+    js::NativeFunction::Callback const* const steps = getter->unwrapped() != nullptr ? getter->unwrapped() : getter->closure();
+    if (steps != nullptr)
+        define_attribute(interpreter, to, name, *steps);
 }
 
 }

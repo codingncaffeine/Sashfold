@@ -1100,8 +1100,9 @@ ScriptFunction* Interpreter::Impl::new_class_constructor(FunctionNode const& nod
     Heap::NoCollect const guard(heap());
     auto* function = heap().allocate<ScriptFunction>(constructor_parent, node, scope, true);
     function->set_realm(self.current_realm());
-    function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.expected_argument_count)), Configurable);
-    function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);
+    // `length` and `name` wait until looked for and then take their places
+    // before `prototype`, which is the class's own object and is put now.
+    function->defer_own_properties(false);
     function->put(PropertyKey::atom(atoms().prototype), Value::object(proto), frozen_attributes);
     proto->put(PropertyKey::atom(atoms().constructor), Value::object(function), builtin_attributes);
     function->set_home_object(proto);
@@ -2471,7 +2472,41 @@ Interpreter::~Interpreter()
     // The profile is said when the realm's interpreter ends, by every host.
     if (m_vm_profile && (m_account.vm_ms > 0 || m_account.natives_ms > 0))
         std::fputs(profile_text(25).c_str(), stderr);
+    if (Heap::lazy_census_asked())
+        std::fputs(lazy_census_text(std::getenv("SASHFOLD_LAZY_CENSUS_ALL") != nullptr ? 100000 : 40).c_str(), stderr);
     m_heap->remove_root_provider(this);
+}
+
+std::string Interpreter::lazy_census_text(std::size_t rows) const
+{
+    // What was put off, what was asked for after all, and what was still
+    // made at once, by name: the natives a definer made from closures or
+    // asked for itself.
+    Heap::LazyCensus const& census = m_heap->lazy_census();
+    auto const percent = [](std::uint64_t part, std::uint64_t whole) {
+        return whole == 0 ? 0.0 : 100.0 * static_cast<double>(part) / static_cast<double>(whole);
+    };
+    std::string text;
+    char line[256];
+    std::snprintf(line, sizeof line, "lazy: natives described %llu, made later %llu (%.1f%%), made at once %llu\n",
+        static_cast<unsigned long long>(census.natives_described), static_cast<unsigned long long>(census.natives_made_later),
+        percent(census.natives_made_later, census.natives_described), static_cast<unsigned long long>(census.natives_made_at_once));
+    text += line;
+    std::snprintf(line, sizeof line, "lazy: script functions %llu, prototype asked of %llu (%.1f%%), length or name asked %llu times\n",
+        static_cast<unsigned long long>(census.script_functions), static_cast<unsigned long long>(census.prototypes_asked),
+        percent(census.prototypes_asked, census.script_functions), static_cast<unsigned long long>(census.names_or_lengths_asked));
+    text += line;
+    std::vector<std::pair<std::string, std::uint32_t>> names(census.at_once_names.begin(), census.at_once_names.end());
+    std::sort(names.begin(), names.end(), [](auto const& a, auto const& b) { return a.second != b.second ? a.second > b.second : a.first < b.first; });
+    if (!names.empty())
+        text += "lazy: made at once, by name:";
+    for (std::size_t i = 0; i < names.size() && i < rows; ++i)
+        text += " " + (names[i].first.empty() ? std::string("(anonymous)") : names[i].first) + "\xc3\x97" + std::to_string(names[i].second);
+    if (names.size() > rows)
+        text += " \xe2\x80\xa6 and " + std::to_string(names.size() - rows) + " more names";
+    if (!names.empty())
+        text += "\n";
+    return text;
 }
 
 std::string Interpreter::profile_text(std::size_t rows) const
@@ -3127,40 +3162,28 @@ ScriptFunction* Interpreter::new_script_function(FunctionNode const& node, Envir
     // prototype (§27.3.3, §27.7.3, §27.4.3), and a generator's instances
     // off a fresh object that inherits from the kind's %…Prototype%.
     Object* function_prototype = m_realm->intrinsics.function_prototype;
-    Object* instance_prototype = nullptr;
     if (node.is_generator && node.is_async) {
         if (m_realm->intrinsics.async_generator_function_prototype)
             function_prototype = m_realm->intrinsics.async_generator_function_prototype;
-        instance_prototype = m_realm->intrinsics.async_generator_prototype;
     } else if (node.is_generator) {
         if (m_realm->intrinsics.generator_function_prototype)
             function_prototype = m_realm->intrinsics.generator_function_prototype;
-        instance_prototype = m_realm->intrinsics.generator_prototype;
     } else if (node.is_async && m_realm->intrinsics.async_function_prototype) {
         function_prototype = m_realm->intrinsics.async_function_prototype;
     }
     auto* function = m_heap->allocate<ScriptFunction>(function_prototype, node, scope, node.is_constructable);
     function->set_realm(m_realm);
     function->set_private_environment(private_environment);
-    function->reserve_properties(3);
-    function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(node.expected_argument_count)), Configurable);
-    function->put(PropertyKey::atom(atoms().name), Value::string(node.name ? node.name : atoms().empty), Configurable);
     // No own `caller` or `arguments`, sloppy or not: §17.1 leaves them to
     // the implementation, and V8 (Chrome, Node) gives a function only
     // `length`, `name` and `prototype` of its own, so a script that lists
     // a function's own properties sees what it sees there. Reads of
     // `caller` and `arguments` reach Function.prototype's accessors.
-    if (node.is_constructable) {
-        Object* prototype = new_object();
-        prototype->reserve_properties(1);
-        prototype->put(PropertyKey::atom(atoms().constructor), Value::object(function), builtin_attributes);
-        function->put(PropertyKey::atom(atoms().prototype), Value::object(prototype), Writable);
-    } else if (node.is_generator) {
-        // §15.5.4 / §15.6.4: writable, not enumerable, not configurable,
-        // and with no `constructor` back-link.
-        Object* prototype = new_object(instance_prototype);
-        function->put(PropertyKey::atom(atoms().prototype), Value::object(prototype), Writable);
-    }
+    // None of the three is made here: the function owes them to itself and
+    // makes each when it is first looked for (ScriptFunction::make_pending),
+    // as every shipping engine does, since a closure is made far more often
+    // than it is asked its length, its name or for the object `new` reads.
+    function->defer_own_properties(true);
     return function;
 }
 

@@ -174,13 +174,31 @@ NativeFunction* Interpreter::new_native(std::string_view name, int length, Nativ
     NativeFunction::ConstructCallback construct)
 {
     // CreateBuiltinFunction (§10.3.3): `length` first, then `name`, both
-    // read-only and hidden from enumeration. The atom for the name may be
-    // new, so nothing may collect until the function holds it.
+    // read-only and hidden from enumeration — said to the function, which
+    // gives each its room when one is first looked for. The atom for the
+    // name may be new, so nothing may collect until the function holds it.
     Heap::NoCollect const guard(*m_heap);
     auto* function = m_heap->allocate<NativeFunction>(m_realm->intrinsics.function_prototype, std::move(call), std::move(construct));
     function->set_realm(m_realm);
-    function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(length)), Configurable);
-    function->put(PropertyKey::atom(atoms().name), Value::string(m_heap->atom(name)), Configurable);
+    function->set_name_and_length(name.empty() ? atoms().empty : m_heap->atom(name), length);
+    Heap::LazyCensus& census = m_heap->lazy_census();
+    ++census.natives_made_at_once;
+    if (Heap::lazy_census_asked()) [[unlikely]]
+        ++census.at_once_names[std::string(name)];
+    return function;
+}
+
+NativeFunction* Interpreter::new_native(NativeSpec const& spec, PropertyKey const& key, NativeFunction::Role role, Object* home)
+{
+    Heap::NoCollect const guard(*m_heap);
+    auto* function = m_heap->allocate<NativeFunction>(m_realm->intrinsics.function_prototype, spec, key, role, home);
+    function->set_realm(m_realm);
+    if (!lazy_natives())
+        function->settle_pending();
+    Heap::LazyCensus& census = m_heap->lazy_census();
+    ++census.natives_made_at_once;
+    if (Heap::lazy_census_asked()) [[unlikely]]
+        ++census.at_once_names[key.is_atom() ? key.as_atom()->to_utf8() : std::string("(symbol or index)")];
     return function;
 }
 
@@ -189,8 +207,7 @@ ClosureFunction* Interpreter::new_closure(std::string_view name, int length, std
     Heap::NoCollect const guard(*m_heap);
     auto* function = m_heap->allocate<ClosureFunction>(m_realm->intrinsics.function_prototype, std::move(slots), std::move(callback));
     function->set_realm(m_realm);
-    function->put(PropertyKey::atom(atoms().length), Value::number(static_cast<double>(length)), Configurable);
-    function->put(PropertyKey::atom(atoms().name), Value::string(m_heap->atom(name)), Configurable);
+    function->set_name_and_length(name.empty() ? atoms().empty : m_heap->atom(name), length);
     return function;
 }
 

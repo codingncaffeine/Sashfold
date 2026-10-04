@@ -114,6 +114,15 @@ Heap::Heap()
     intern_well_known();
 }
 
+bool Heap::lazy_census_asked()
+{
+    static bool const asked = [] {
+        char const* const value = std::getenv("SASHFOLD_LAZY_CENSUS");
+        return value != nullptr && value[0] == '1';
+    }();
+    return asked;
+}
+
 Heap::~Heap()
 {
     // A Persistent that outlives its heap must not touch the dead

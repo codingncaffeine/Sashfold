@@ -55,6 +55,48 @@ void define_accessor(Interpreter& in, Object& target, std::string_view name, Nat
     target.put_accessor(in.key(name), get, set, attributes);
 }
 
+DefinedMethod define_plain_method(Interpreter& in, Object& target, std::string_view name, int length, NativeFunction::Entry entry,
+    std::uint8_t attributes)
+{
+    NativeSpec spec;
+    spec.call = entry;
+    spec.length = static_cast<std::uint8_t>(length);
+    PropertyKey const key = in.key(name);
+    target.put_lazy(key, NativeSpec::intern(spec), *in.current_realm(), attributes);
+    return DefinedMethod(target, key);
+}
+
+void define_plain_accessor(Interpreter& in, Object& target, std::string_view name, NativeFunction::Entry getter, NativeFunction::Entry setter,
+    std::uint8_t attributes)
+{
+    NativeSpec get;
+    get.call = getter;
+    NativeSpec const* set = nullptr;
+    if (setter != nullptr) {
+        NativeSpec description;
+        description.call = setter;
+        description.length = 1;
+        set = &NativeSpec::intern(description);
+    }
+    target.put_lazy_accessor(in.key(name), &NativeSpec::intern(get), set, *in.current_realm(), attributes);
+}
+
+NativeFunction* DefinedMethod::function() const
+{
+    // The lookup makes it; made here, it is one its definer made at once.
+    Property const* const before = m_target->peek_own(m_key);
+    bool const made_now = before != nullptr && before->lazy;
+    Property const* const property = m_target->find_own(m_key);
+    if (made_now) {
+        Heap::LazyCensus& census = m_target->heap()->lazy_census();
+        --census.natives_made_later;
+        ++census.natives_made_at_once;
+        if (Heap::lazy_census_asked()) [[unlikely]]
+            ++census.at_once_names[m_key.is_atom() ? m_key.as_atom()->to_utf8() : std::string("(symbol or index)")];
+    }
+    return static_cast<NativeFunction*>(property->value.as_object());
+}
+
 void define_value(Interpreter& in, Object& target, std::string_view name, Value value, std::uint8_t attributes)
 {
     Heap::NoCollect const guard(in.heap());

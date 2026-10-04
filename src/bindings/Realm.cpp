@@ -614,12 +614,12 @@ void define_attribute(js::Interpreter& interpreter, js::Object& target, std::str
     js::Heap::NoCollect const guard(interpreter.heap());
     js::NativeFunction* const get = interpreter.new_native("get " + std::string(name), 0, std::move(getter));
     get->run_in_receivers_realm();
-    get->unwrapped = inner_getter;
+    get->set_unwrapped(inner_getter);
     js::NativeFunction* set = nullptr;
     if (setter) {
         set = interpreter.new_native("set " + std::string(name), 1, std::move(setter));
         set->run_in_receivers_realm();
-        set->unwrapped = inner_setter;
+        set->set_unwrapped(inner_setter);
     }
     target.put_accessor(interpreter.key(name), get, set, js::Enumerable | js::Configurable);
 }
@@ -682,7 +682,7 @@ js::NativeFunction* define_operation(js::Interpreter& interpreter, js::Object& t
     js::NativeFunction* const function
         = sashfold::js::define_method(interpreter, target, name, length, std::move(callback), js::Writable | js::Enumerable | js::Configurable);
     function->run_in_receivers_realm(); // an interface's operation, likewise
-    function->unwrapped = inner;
+    function->set_unwrapped(inner);
     return function;
 }
 

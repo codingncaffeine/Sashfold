@@ -6,10 +6,14 @@
 #include "js/Module.h"
 
 #include <algorithm>
+#include <atomic>
+#include <bit>
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
 #include <deque>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -262,7 +266,7 @@ bool is_compatible_property_descriptor(bool extensible, PropertyDescriptor const
 
 // ---------------------------------------------------------------- Object
 
-Property const* Object::find_own(PropertyKey const& key) const
+Property const* Object::lookup(PropertyKey const& key) const
 {
     if (m_properties.size() > index_threshold) {
         auto const found = m_index.find(key);
@@ -275,9 +279,164 @@ Property const* Object::find_own(PropertyKey const& key) const
     return nullptr;
 }
 
+// The lookup every property read in the engine goes through, inlined into
+// each of this file's internal methods as the plain search was: what is
+// put off is made out of line, so a read that finds an ordinary property
+// pays one byte's test for it, and a read that finds none one more.
+[[gnu::always_inline]] inline Property const* Object::find_whole(PropertyKey const& key) const
+{
+    Property const* found = nullptr;
+    if (m_properties.size() > index_threshold) {
+        auto const at = m_index.find(key);
+        if (at != m_index.end())
+            found = &m_properties[at->second];
+    } else {
+        for (Property const& property : m_properties) {
+            if (property.key == key) {
+                found = &property;
+                break;
+            }
+        }
+    }
+    if (found != nullptr) {
+        if (found->lazy) [[unlikely]]
+            const_cast<Object*>(this)->make_lazy(const_cast<Property&>(*found));
+        return found;
+    }
+    if (m_pending != 0) [[unlikely]]
+        return const_cast<Object*>(this)->find_pending(key);
+    return nullptr;
+}
+
+Property const* Object::find_own(PropertyKey const& key) const
+{
+    return find_whole(key);
+}
+
+// Making what was put off changes nothing a caller can tell from its
+// having been there all along, which is what lets a const lookup do it.
+[[gnu::noinline]] Property* Object::find_pending(PropertyKey const& key)
+{
+    if (std::uint8_t const which = pending_named(key))
+        return &settle(which);
+    return nullptr;
+}
+
 Property* Object::find_own(PropertyKey const& key)
 {
     return const_cast<Property*>(static_cast<Object const*>(this)->find_own(key));
+}
+
+Property* Object::peek_own(PropertyKey const& key)
+{
+    return const_cast<Property*>(lookup(key));
+}
+
+// The native a lazy property described, made now: its function is of the
+// realm it was defined in, whichever realm's code asks first, and no
+// collection runs under a caller that only looked a property up.
+[[gnu::noinline]] void Object::make_lazy(Property& property, bool at_once)
+{
+    Heap& owner = *heap();
+    Heap::NoCollect const guard(owner);
+    RealmRecord* const realm = property.lazy_realm;
+    NativeSpec const* const get = property.lazy_get;
+    NativeSpec const* const set = property.lazy_set;
+    auto const make = [&](NativeSpec const& spec, NativeFunction::Role role) {
+        auto* const function = owner.allocate<NativeFunction>(realm->intrinsics.function_prototype, spec, property.key, role, this);
+        function->set_realm(realm);
+        if (at_once) {
+            ++owner.lazy_census().natives_made_at_once;
+            function->settle_pending();
+        } else {
+            ++owner.lazy_census().natives_made_later;
+        }
+        return function;
+    };
+    property.lazy = false;
+    if (property.accessor) {
+        property.value = Value::undefined();
+        property.getter = get != nullptr ? make(*get, NativeFunction::Role::Getter) : nullptr;
+        property.setter = set != nullptr ? make(*set, NativeFunction::Role::Setter) : nullptr;
+    } else {
+        property.getter = nullptr;
+        property.setter = nullptr;
+        property.value = Value::object(make(*get, NativeFunction::Role::Method));
+    }
+}
+
+void Object::set_pending(std::uint8_t which)
+{
+    m_pending = which;
+}
+
+std::pair<Value, std::uint8_t> Object::make_pending(std::uint8_t)
+{
+    return { Value::undefined(), default_attributes };
+}
+
+// Which pending property a key names; 0 for a key that names none.
+std::uint8_t Object::pending_named(PropertyKey const& key) const
+{
+    if (!key.is_atom())
+        return 0;
+    Heap const* const owner = heap();
+    if (owner == nullptr)
+        return 0;
+    WellKnownAtoms const& atoms = owner->atoms();
+    JsString const* const name = key.as_atom();
+    std::uint8_t const which = name == atoms.length ? PendingLength : name == atoms.name ? PendingName : name == atoms.prototype ? PendingPrototype : 0;
+    return static_cast<std::uint8_t>(which & m_pending);
+}
+
+// Room for a pending property, where the standard's order puts it: after
+// the pending properties before it that already have theirs (they sit at
+// the storage's front, in that order) and before everything else.
+Property& Object::insert_settled(std::uint8_t which)
+{
+    WellKnownAtoms const& atoms = heap()->atoms();
+    JsString* const name = which == PendingLength ? atoms.length : which == PendingName ? atoms.name : atoms.prototype;
+    auto const position = static_cast<std::size_t>(std::popcount(static_cast<unsigned>(m_settled & (which - 1))));
+    m_pending = static_cast<std::uint8_t>(m_pending & ~which);
+    m_settled = static_cast<std::uint8_t>(m_settled | which);
+    Property& property = *m_properties.emplace(m_properties.begin() + static_cast<std::ptrdiff_t>(position));
+    property.key = PropertyKey::atom(name);
+    heap()->grew(sizeof(Property));
+    // Everything after it moved up one place.
+    if (m_properties.size() > index_threshold)
+        rebuild_index();
+    return property;
+}
+
+Property& Object::settle(std::uint8_t which)
+{
+    Heap::NoCollect const guard(*heap());
+    // The value first: making it may look this object's other properties up.
+    auto const [value, attributes] = make_pending(which);
+    Property& property = insert_settled(which);
+    property.value = value;
+    property.attributes = attributes;
+    return property;
+}
+
+void Object::settle_all()
+{
+    m_properties.reserve(m_properties.size() + static_cast<std::size_t>(std::popcount(static_cast<unsigned>(m_pending))));
+    for (std::uint8_t const which : { PendingLength, PendingName, PendingPrototype }) {
+        if ((m_pending & which) != 0)
+            settle(which);
+    }
+}
+
+void Object::settle_pending()
+{
+    if (m_pending != 0)
+        settle_all();
+}
+
+std::size_t Object::own_property_count() const
+{
+    return m_properties.size() + static_cast<std::size_t>(std::popcount(static_cast<unsigned>(m_pending)));
 }
 
 Property& Object::insert(PropertyKey const& key)
@@ -298,6 +457,19 @@ Property& Object::insert(PropertyKey const& key)
 
 void Object::erase_at(std::size_t index)
 {
+    // One of the settled properties at the front going: the ones after it
+    // keep their order, and it is no longer among them.
+    if (index < static_cast<std::size_t>(std::popcount(static_cast<unsigned>(m_settled)))) {
+        std::size_t seen = 0;
+        for (std::uint8_t const which : { PendingLength, PendingName, PendingPrototype }) {
+            if ((m_settled & which) == 0)
+                continue;
+            if (seen++ == index) {
+                m_settled = static_cast<std::uint8_t>(m_settled & ~which);
+                break;
+            }
+        }
+    }
     PropertyKey const key = m_properties[index].key;
     m_properties.erase(m_properties.begin() + static_cast<std::ptrdiff_t>(index));
     if (m_properties.size() <= index_threshold) {
@@ -350,26 +522,70 @@ void Object::put(PropertyKey const& key, Value const& value, std::uint8_t attrib
         }
         return;
     }
-    Property* property = find_own(key);
-    if (property == nullptr)
-        property = &insert(key);
+    // What is there is overwritten whole, so a native not yet made is
+    // simply dropped, and a pending property takes its place in the order
+    // without its own value ever being made.
+    Property* property = peek_own(key);
+    if (property == nullptr) {
+        std::uint8_t const which = m_pending != 0 ? pending_named(key) : 0;
+        property = which != 0 ? &insert_settled(which) : &insert(key);
+    }
     property->value = value;
     property->getter = nullptr;
     property->setter = nullptr;
     property->attributes = attributes;
     property->accessor = false;
+    property->lazy = false;
 }
 
 void Object::put_accessor(PropertyKey const& key, Object* getter, Object* setter, std::uint8_t attributes)
 {
-    Property* property = find_own(key);
-    if (property == nullptr)
-        property = &insert(key);
+    Property* property = peek_own(key);
+    if (property == nullptr) {
+        std::uint8_t const which = m_pending != 0 ? pending_named(key) : 0;
+        property = which != 0 ? &insert_settled(which) : &insert(key);
+    }
     property->value = Value::undefined();
     property->getter = getter;
     property->setter = setter;
     property->attributes = static_cast<std::uint8_t>(attributes & ~Writable);
     property->accessor = true;
+    property->lazy = false;
+}
+
+void Object::put_lazy(PropertyKey const& key, NativeSpec const& method, RealmRecord& realm, std::uint8_t attributes)
+{
+    Property* property = peek_own(key);
+    if (property == nullptr)
+        property = &insert(key);
+    property->lazy_realm = &realm;
+    property->lazy_get = &method;
+    property->lazy_set = nullptr;
+    property->attributes = attributes;
+    property->accessor = false;
+    property->lazy = true;
+    if (!lazy_natives())
+        make_lazy(*property, true);
+    else
+        ++heap()->lazy_census().natives_described;
+}
+
+void Object::put_lazy_accessor(PropertyKey const& key, NativeSpec const* getter, NativeSpec const* setter, RealmRecord& realm,
+    std::uint8_t attributes)
+{
+    Property* property = peek_own(key);
+    if (property == nullptr)
+        property = &insert(key);
+    property->lazy_realm = &realm;
+    property->lazy_get = getter;
+    property->lazy_set = setter;
+    property->attributes = static_cast<std::uint8_t>(attributes & ~Writable);
+    property->accessor = true;
+    property->lazy = true;
+    if (!lazy_natives())
+        make_lazy(*property, true);
+    else
+        heap()->lazy_census().natives_described += (getter != nullptr ? 1u : 0u) + (setter != nullptr ? 1u : 0u);
 }
 
 bool Object::remove_own(PropertyKey const& key)
@@ -385,9 +601,15 @@ bool Object::remove_own(PropertyKey const& key)
             return present;
         }
     }
-    Property const* property = find_own(key);
-    if (property == nullptr)
+    Property const* property = lookup(key);
+    if (property == nullptr) {
+        // A pending property gone before it was ever given room.
+        if (std::uint8_t const which = m_pending != 0 ? pending_named(key) : 0) {
+            m_pending = static_cast<std::uint8_t>(m_pending & ~which);
+            return true;
+        }
         return false;
+    }
     erase_at(static_cast<std::size_t>(property - m_properties.data()));
     return true;
 }
@@ -411,7 +633,7 @@ bool Object::set_prototype(Object* proto)
 
 std::optional<PropertyDescriptor> Object::get_own_property(PropertyKey const& key) const
 {
-    Property const* property = find_own(key);
+    Property const* property = find_whole(key);
     if (property == nullptr)
         return std::nullopt;
     return descriptor_of(*property);
@@ -422,7 +644,7 @@ bool Object::define_own_property(PropertyKey const& key, PropertyDescriptor cons
     // OrdinaryDefineOwnProperty (§10.1.6.1) over the ordinary storage.
     // The exotic subclasses handle their own keys before coming here, so
     // the current descriptor is read from the storage, not virtually.
-    Property* existing = find_own(key);
+    Property* existing = const_cast<Property*>(find_whole(key));
     std::optional<PropertyDescriptor> current;
     if (existing != nullptr)
         current = descriptor_of(*existing);
@@ -558,7 +780,10 @@ bool Object::delete_property(PropertyKey const& key)
 
 std::vector<PropertyKey> Object::own_keys() const
 {
-    // OrdinaryOwnPropertyKeys (§10.1.11.1).
+    // OrdinaryOwnPropertyKeys (§10.1.11.1). Every key is listed, so what
+    // the object still owes itself is given its room first.
+    if (m_pending != 0)
+        const_cast<Object*>(this)->settle_all();
     std::vector<std::uint32_t> indices;
     std::vector<PropertyKey> atoms;
     std::vector<PropertyKey> symbols;
@@ -593,6 +818,12 @@ void Object::trace(Tracer& tracer)
     tracer.visit(m_prototype);
     for (Property const& property : m_properties) {
         tracer.visit(property.key);
+        if (property.lazy) [[unlikely]] {
+            // No function yet: what it keeps alive is the realm it will be
+            // made in, as the function itself would.
+            tracer.visit(property.lazy_realm);
+            continue;
+        }
         tracer.visit(property.value);
         tracer.visit(property.getter);
         tracer.visit(property.setter);
@@ -993,6 +1224,40 @@ bool ScriptFunction::is_strict() const
     return m_node->is_strict;
 }
 
+void ScriptFunction::defer_own_properties(bool with_prototype)
+{
+    bool const has_prototype = with_prototype && (m_node->is_constructable || m_node->is_generator);
+    set_pending(static_cast<std::uint8_t>(PendingLength | PendingName | (has_prototype ? PendingPrototype : 0)));
+    ++heap()->lazy_census().script_functions;
+    if (!lazy_natives())
+        settle_pending();
+}
+
+std::pair<Value, std::uint8_t> ScriptFunction::make_pending(std::uint8_t which)
+{
+    Heap& owner = *heap();
+    if (which != PendingPrototype)
+        ++owner.lazy_census().names_or_lengths_asked;
+    else
+        ++owner.lazy_census().prototypes_asked;
+    if (which == PendingLength)
+        return { Value::number(static_cast<double>(m_node->expected_argument_count)), Configurable };
+    if (which == PendingName)
+        return { Value::string(m_node->name ? m_node->name : owner.atoms().empty), Configurable };
+    // MakeConstructor: a fresh object pointing back. A generator's is
+    // writable, not enumerable, not configurable and has no `constructor`
+    // (§15.5.4, §15.6.4), and inherits from its kind's %…Prototype%.
+    Intrinsics const& intrinsics = realm()->intrinsics;
+    if (m_node->is_constructable) {
+        auto* const prototype = owner.allocate<Object>(intrinsics.object_prototype);
+        prototype->reserve_properties(1);
+        prototype->put(PropertyKey::atom(owner.atoms().constructor), Value::object(this), builtin_attributes);
+        return { Value::object(prototype), Writable };
+    }
+    Object* const instance_prototype = m_node->is_async ? intrinsics.async_generator_prototype : intrinsics.generator_prototype;
+    return { Value::object(owner.allocate<Object>(instance_prototype != nullptr ? instance_prototype : intrinsics.object_prototype)), Writable };
+}
+
 void ScriptFunction::trace(Tracer& tracer)
 {
     // The node is the program's, which the realm keeps for as long as it
@@ -1028,9 +1293,125 @@ template<typename Call>
 
 }
 
+// ------------------------------------------------------- NativeFunction
+
+// What a native made of closures carries, apart from the cell: nearly
+// every native is a described one and has none of this.
+struct NativeFunction::Closures {
+    Callback call;
+    ConstructCallback construct;
+    Callback unwrapped;
+    JsString* name = nullptr;
+    std::int32_t length = 0;
+};
+
+NativeFunction::NativeFunction(Object* prototype, Callback call, ConstructCallback construct)
+    : Function(prototype)
+    , m_closures(new Closures { std::move(call), std::move(construct), {}, nullptr, 0 })
+    , m_closures_made(true)
+{
+}
+
+NativeFunction::NativeFunction(Object* prototype, NativeSpec const& spec, PropertyKey key, Role role, Object* home)
+    : Function(prototype)
+    , m_spec(&spec)
+    , m_key(key)
+    , m_home(home)
+    , m_role(role)
+    , m_in_receivers_realm((spec.flags & NativeSpec::ReceiversRealm) != 0)
+{
+    set_pending(PendingLength | PendingName);
+}
+
+NativeFunction::~NativeFunction()
+{
+    if (m_closures_made)
+        delete m_closures;
+}
+
+bool NativeFunction::is_constructor() const
+{
+    return m_closures_made ? static_cast<bool>(m_closures->construct) : m_spec->construct != nullptr;
+}
+
+NativeFunction::Callback const* NativeFunction::closure() const
+{
+    return m_closures_made ? &m_closures->call : nullptr;
+}
+
+NativeFunction::Callback const* NativeFunction::unwrapped() const
+{
+    return m_closures_made && m_closures->unwrapped ? &m_closures->unwrapped : nullptr;
+}
+
+void NativeFunction::set_unwrapped(Callback callback)
+{
+    if (m_closures_made)
+        m_closures->unwrapped = std::move(callback);
+}
+
+void NativeFunction::set_name_and_length(JsString* name, int length)
+{
+    if (!m_closures_made)
+        return;
+    m_closures->name = name;
+    m_closures->length = length;
+    set_pending(PendingLength | PendingName);
+    if (!lazy_natives())
+        settle_pending();
+}
+
+// CreateBuiltinFunction's `length` and `name` (§10.3.3), read-only and
+// hidden from enumeration. A described native is named by the key it was
+// defined as: the key itself, or the key after "get " or "set " (§10.2.9).
+std::pair<Value, std::uint8_t> NativeFunction::make_pending(std::uint8_t which)
+{
+    Heap& owner = *heap();
+    if (which == PendingLength)
+        return { Value::number(static_cast<double>(m_closures_made ? m_closures->length : m_spec->length)), Configurable };
+    if (m_closures_made)
+        return { Value::string(m_closures->name != nullptr ? m_closures->name : owner.atoms().empty), Configurable };
+    JsString* name = owner.atoms().empty;
+    if (m_key.is_symbol()) {
+        JsString const* const description = m_key.as_symbol()->description();
+        name = owner.atom(description != nullptr ? u"[" + std::u16string(description->view()) + u"]" : std::u16string());
+    } else if (m_key.is_atom() || m_key.is_index()) {
+        name = owner.key_to_string(m_key);
+    }
+    if (m_role != Role::Method)
+        name = owner.atom((m_role == Role::Getter ? u"get " : u"set ") + std::u16string(name->view()));
+    return { Value::string(name), Configurable };
+}
+
+void NativeFunction::trace(Tracer& tracer)
+{
+    Function::trace(tracer);
+    tracer.visit(m_key);
+    tracer.visit(m_home);
+    if (m_closures_made)
+        tracer.visit(m_closures->name);
+}
+
+std::size_t NativeFunction::size_in_bytes() const
+{
+    return sizeof(*this) + (Object::size_in_bytes() - sizeof(Object)) + (m_closures_made ? sizeof(Closures) : 0);
+}
+
+std::optional<Value> NativeFunction::perform(Interpreter& interpreter, Value const& this_value, std::span<Value const> arguments)
+{
+    if (m_closures_made)
+        return m_closures->call(interpreter, this_value, arguments);
+    // The entry may serve several properties: it reads which one it was
+    // called as off the function, which the interpreter holds meanwhile.
+    Interpreter::ActiveNative const active(interpreter, this);
+    if (m_spec->guard != nullptr)
+        return m_spec->guard(interpreter, *this, this_value, arguments);
+    return m_spec->call(interpreter, this_value, arguments);
+}
+
 std::optional<Value> NativeFunction::call(Interpreter& interpreter, Value const& this_value, std::span<Value const> arguments)
 {
-    if (!m_call)
+    if (m_closures_made ? !m_closures->call : m_spec->call == nullptr)
         return interpreter.throw_type_error("not a function");
     // A built-in's [[Call]] (§10.3.1): its realm is current while it runs —
     // or, for a host's native called on a host's object, that object's.
@@ -1041,18 +1422,96 @@ std::optional<Value> NativeFunction::call(Interpreter& interpreter, Value const&
     }
     Interpreter::RealmScope const realm_scope(interpreter, running_in);
     if (interpreter.vm_profiling()) [[unlikely]]
-        return profiled(interpreter, *this, [&] { return m_call(interpreter, this_value, arguments); });
-    return m_call(interpreter, this_value, arguments);
+        return profiled(interpreter, *this, [&] { return perform(interpreter, this_value, arguments); });
+    return perform(interpreter, this_value, arguments);
 }
 
 std::optional<Value> NativeFunction::construct(Interpreter& interpreter, std::span<Value const> arguments, Object* new_target)
 {
-    if (!m_construct)
+    if (!is_constructor())
         return interpreter.throw_type_error("not a constructor");
     Interpreter::RealmScope const realm_scope(interpreter, realm());
+    auto const run = [&]() -> std::optional<Value> {
+        if (m_closures_made)
+            return m_closures->construct(interpreter, arguments, new_target);
+        Interpreter::ActiveNative const active(interpreter, this);
+        return m_spec->construct(interpreter, arguments, new_target);
+    };
     if (interpreter.vm_profiling()) [[unlikely]]
-        return profiled(interpreter, *this, [&] { return m_construct(interpreter, arguments, new_target); });
-    return m_construct(interpreter, arguments, new_target);
+        return profiled(interpreter, *this, run);
+    return run();
+}
+
+namespace {
+
+struct NativeSpecHash {
+    std::size_t operator()(NativeSpec const& spec) const
+    {
+        auto const mix = [](std::size_t seed, std::size_t value) { return seed ^ (value + 0x9e3779b97f4a7c15ull + (seed << 6) + (seed >> 2)); };
+        std::size_t hash = reinterpret_cast<std::uintptr_t>(spec.call);
+        hash = mix(hash, reinterpret_cast<std::uintptr_t>(spec.construct));
+        hash = mix(hash, reinterpret_cast<std::uintptr_t>(spec.guard));
+        hash = mix(hash, (static_cast<std::size_t>(spec.datum) << 24) | (static_cast<std::size_t>(spec.flags) << 8) | spec.length);
+        return hash;
+    }
+};
+
+std::atomic<int> lazy_mode { -1 };
+
+}
+
+NativeSpec const& NativeSpec::intern(NativeSpec const& spec)
+{
+    // A thread's own view first: a description it has met costs no lock.
+    // The records themselves are one set for the process, never freed (a
+    // property of any engine on any thread may hold one), and a set's
+    // elements do not move.
+    thread_local std::unordered_map<NativeSpec, NativeSpec const*, NativeSpecHash> seen;
+    if (auto const found = seen.find(spec); found != seen.end())
+        return *found->second;
+    static std::mutex lock;
+    static auto* const records = new std::unordered_set<NativeSpec, NativeSpecHash>();
+    NativeSpec const* record = nullptr;
+    {
+        std::lock_guard<std::mutex> const held(lock);
+        record = &*records->insert(spec).first;
+    }
+    seen.emplace(spec, record);
+    return *record;
+}
+
+bool lazy_natives()
+{
+    int mode = lazy_mode.load(std::memory_order_relaxed);
+    if (mode < 0) {
+        char const* const asked = std::getenv("SASHFOLD_LAZY");
+        mode = asked != nullptr && asked[0] == '0' ? 0 : 1;
+        lazy_mode.store(mode, std::memory_order_relaxed);
+    }
+    return mode == 1;
+}
+
+void set_lazy_natives(bool lazy)
+{
+    lazy_mode.store(lazy ? 1 : 0, std::memory_order_relaxed);
+}
+
+// ------------------------------------------------------ ClosureFunction
+
+void ClosureFunction::set_name_and_length(JsString* name, int length)
+{
+    m_name = name;
+    m_length = length;
+    set_pending(PendingLength | PendingName);
+    if (!lazy_natives())
+        settle_pending();
+}
+
+std::pair<Value, std::uint8_t> ClosureFunction::make_pending(std::uint8_t which)
+{
+    if (which == PendingLength)
+        return { Value::number(static_cast<double>(m_length)), Configurable };
+    return { Value::string(m_name != nullptr ? m_name : heap()->atoms().empty), Configurable };
 }
 
 std::optional<Value> ClosureFunction::call(Interpreter& interpreter, Value const& this_value, std::span<Value const> arguments)
@@ -1066,6 +1525,7 @@ std::optional<Value> ClosureFunction::call(Interpreter& interpreter, Value const
 void ClosureFunction::trace(Tracer& tracer)
 {
     Function::trace(tracer);
+    tracer.visit(m_name);
     for (Value const& slot : m_slots)
         tracer.visit(slot);
 }

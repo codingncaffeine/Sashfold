@@ -327,6 +327,31 @@ public:
     // they have told it since; a collection asks every live cell again.
     void grew(std::size_t bytes) { m_bytes += bytes; }
 
+    // What was put off and what was asked for after all, counted for the
+    // life of the heap: natives defined as descriptions and how many of
+    // them something made into functions; natives made at once (from
+    // closures, or by a definer that wanted the function); script functions
+    // made, and how many were ever asked for their `prototype` object or
+    // for their `length` or `name`. The measure of whether making things at
+    // first use pays — and, read at a realm's birth, of what is still made
+    // up front. SASHFOLD_LAZY_CENSUS=1 prints it when an engine ends, with
+    // the names of the natives made at once.
+    struct LazyCensus {
+        std::uint64_t natives_described = 0;
+        std::uint64_t natives_made_later = 0;
+        std::uint64_t natives_made_at_once = 0;
+        std::uint64_t script_functions = 0;
+        std::uint64_t prototypes_asked = 0;
+        std::uint64_t names_or_lengths_asked = 0;
+        // By name, the natives made at once; kept only under the census.
+        std::unordered_map<std::string, std::uint32_t> at_once_names;
+    };
+    LazyCensus& lazy_census() { return m_lazy_census; }
+    LazyCensus const& lazy_census() const { return m_lazy_census; }
+    // Whether the census was asked for (the names are kept, and an engine
+    // prints its figures as it ends).
+    static bool lazy_census_asked();
+
     // What the collector has cost, for the host's account of a page: the
     // collections run, what they took all together on the steady clock and
     // the longest of them, and what the last one found live. Measured,
@@ -433,6 +458,7 @@ private:
     std::size_t m_bytes = 0; // estimated live + garbage since the last collection
     std::size_t m_threshold = 8u * 1024u * 1024u;
     Account m_account;
+    LazyCensus m_lazy_census;
     std::function<void(Collection const&)> m_on_collect;
     std::size_t m_max_string_length = js::max_string_length;
     std::size_t m_limit = 0; // the ceiling; 0 is none

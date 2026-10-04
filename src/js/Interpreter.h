@@ -516,6 +516,30 @@ public:
     // A native function with `name` and `length` set as §10.3.3 has them.
     NativeFunction* new_native(std::string_view name, int length, NativeFunction::Callback,
         NativeFunction::ConstructCallback = {});
+    // The same from a description (a plain function, no closure), named by
+    // the key it is defined as; `home` is the object it is defined on.
+    NativeFunction* new_native(NativeSpec const&, PropertyKey const& key, NativeFunction::Role = NativeFunction::Role::Method,
+        Object* home = nullptr);
+    // The described native running now, innermost: how an entry that serves
+    // several properties reads which one it was called as (its key, its
+    // role, its description's datum). Null outside one.
+    NativeFunction* active_native() const { return m_active_native; }
+    class ActiveNative {
+    public:
+        ActiveNative(Interpreter& interpreter, NativeFunction* function)
+            : m_interpreter(interpreter)
+            , m_saved(interpreter.m_active_native)
+        {
+            interpreter.m_active_native = function;
+        }
+        ~ActiveNative() { m_interpreter.m_active_native = m_saved; }
+        ActiveNative(ActiveNative const&) = delete;
+        ActiveNative& operator=(ActiveNative const&) = delete;
+
+    private:
+        Interpreter& m_interpreter;
+        NativeFunction* m_saved;
+    };
     // A native function carrying traced slots (see ClosureFunction).
     ClosureFunction* new_closure(std::string_view name, int length, std::vector<Value> slots, ClosureFunction::Callback);
     // An AggregateError with `errors` as given (an array) and a message.
@@ -715,6 +739,9 @@ public:
     double* vm_activity() { return m_vm_profile ? &m_account.vm_ms : nullptr; }
     // The profile as text: the split, and the `rows` natives that took most.
     std::string profile_text(std::size_t rows) const;
+    // The heap's lazy census as text (Heap::LazyCensus): what was put off,
+    // what was asked for after all, and the `rows` names made at once most.
+    std::string lazy_census_text(std::size_t rows) const;
     double* native_activity(Object const& function);
     // A program was parsed from this many code units, from that moment on.
     void note_parsed(std::size_t code_units, std::chrono::steady_clock::time_point started)
@@ -782,6 +809,7 @@ private:
     RealmRecord* m_script_realm = nullptr;
     // Every realm made here and not let go, traced.
     std::vector<RealmRecord*> m_realms;
+    NativeFunction* m_active_native = nullptr;
     Object* m_symbol_registry = nullptr;
     // Blocks that never move, so that the reference root() hands out
     // survives every later push, and that stay once made: a deque gave a

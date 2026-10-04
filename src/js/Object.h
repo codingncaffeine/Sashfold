@@ -75,13 +75,32 @@ struct PropertyDescriptor {
     }
 };
 
+struct NativeSpec;
+
+// One own property. A native method or accessor may be `lazy`: the
+// property is there — its key, its attributes, its place in the order — and
+// the function behind it is not made yet. What will make it stands where
+// the function will: the description of the method (or of the getter) and
+// of the setter, and the realm the functions will be of. Object::find_own
+// makes them before it hands the property to anyone, so only the storage's
+// own code ever sees one in this state.
 struct Property {
     PropertyKey key;
-    Value value; // data property
-    Object* getter = nullptr; // accessor property
-    Object* setter = nullptr;
+    union {
+        Value value = {}; // data property
+        RealmRecord* lazy_realm; // lazy: the realm the function is made in
+    };
+    union {
+        Object* getter = nullptr; // accessor property
+        NativeSpec const* lazy_get; // lazy: the method's description, or the getter's
+    };
+    union {
+        Object* setter = nullptr;
+        NativeSpec const* lazy_set; // lazy: the setter's description, or null
+    };
     std::uint8_t attributes = default_attributes;
     bool accessor = false;
+    bool lazy = false;
 
     bool writable() const { return (attributes & Writable) != 0; }
     bool enumerable() const { return (attributes & Enumerable) != 0; }
@@ -184,18 +203,35 @@ public:
     // method can run its trap.
     bool is_proxy() const { return m_class == Class::Proxy; }
 
-    // Shortcuts that never run script.
+    // Shortcuts that never run script. The property found is whole: a
+    // native not yet made is made first, and a property the object has by
+    // its nature and has not been given room for (a function's length,
+    // name and prototype) is given it.
     Property const* find_own(PropertyKey const&) const;
     Property* find_own(PropertyKey const&);
     // Define or overwrite a data property outright, no validation: how
     // intrinsics are built and how a fresh object is filled.
     void put(PropertyKey const&, Value const&, std::uint8_t attributes = default_attributes);
     void put_accessor(PropertyKey const&, Object* getter, Object* setter, std::uint8_t attributes = Configurable);
+    // The same for a native kept as its description until something asks
+    // for the function: a method, or an accessor's pair (the setter may be
+    // null). The function, when made, is of `realm` whoever asks.
+    void put_lazy(PropertyKey const&, NativeSpec const& method, RealmRecord& realm, std::uint8_t attributes);
+    void put_lazy_accessor(PropertyKey const&, NativeSpec const* getter, NativeSpec const* setter, RealmRecord& realm,
+        std::uint8_t attributes);
+    // The storage's own entry as it stands — a native not yet made stays
+    // unmade — for a host that reshapes its members before any script has
+    // seen them. Null for a key the storage does not hold.
+    Property* peek_own(PropertyKey const&);
+    // Gives every property the object still owes itself its room now (a
+    // function's length, name and prototype): what the eager mode does to
+    // each function as it is made.
+    void settle_pending();
     // Room for the properties a maker is about to put, taken once rather
     // than grown a property at a time.
     void reserve_properties(std::size_t count) { m_properties.reserve(count); }
     bool remove_own(PropertyKey const&); // unconditional erase
-    std::size_t own_property_count() const { return m_properties.size(); }
+    std::size_t own_property_count() const;
     // The storage in creation order, for callers that iterate everything
     // (JSON, for-in, the devtools).
     std::vector<Property> const& properties() const { return m_properties; }
@@ -211,6 +247,22 @@ protected:
     void erase_at(std::size_t index);
     void rebuild_index();
 
+    // The properties an object has by its nature and gives room to only
+    // when one is first looked for: a function's `length`, `name` and
+    // `prototype`, in the order the standard lists them (§10.2.3, §10.2.5,
+    // §10.3.3), which is the order they take in the storage whenever each
+    // is made. One bit each, lowest first.
+    enum : std::uint8_t {
+        PendingLength = 1,
+        PendingName = 2,
+        PendingPrototype = 4,
+    };
+    void set_pending(std::uint8_t which);
+    bool is_pending(std::uint8_t which) const { return (m_pending & which) != 0; }
+    // What a pending property is: its value and attributes. Called once,
+    // with no collection possible, when the property is first looked for.
+    virtual std::pair<Value, std::uint8_t> make_pending(std::uint8_t which);
+
     std::vector<Property> m_properties;
     // Built once the object has more properties than a linear scan likes.
     std::unordered_map<PropertyKey, std::size_t, PropertyKeyHash> m_index;
@@ -218,6 +270,19 @@ protected:
     Class m_class;
     bool m_extensible = true;
     bool m_is_html_dda = false;
+
+private:
+    Property const* lookup(PropertyKey const&) const;
+    Property const* find_whole(PropertyKey const&) const;
+    Property* find_pending(PropertyKey const&);
+    void make_lazy(Property&, bool at_once = false);
+    std::uint8_t pending_named(PropertyKey const&) const;
+    Property& settle(std::uint8_t which);
+    Property& insert_settled(std::uint8_t which);
+    void settle_all();
+
+    std::uint8_t m_pending = 0; // not in the storage yet
+    std::uint8_t m_settled = 0; // in the storage, at its front, in the standard's order
 };
 
 // IsCompatiblePropertyDescriptor (§10.1.6.2): may `desc` be applied over
@@ -396,11 +461,20 @@ public:
     // kept here so that a call needs no lookup.
     CodeBlock const* compiled() const { return m_compiled; }
     void set_compiled(CodeBlock const* code) { m_compiled = code; }
+    // `length` and `name` (OrdinaryFunctionCreate, §10.2.3) and, when asked
+    // and the function is a constructor or a generator, the `prototype`
+    // object MakeConstructor gives it (§10.2.5), put off until one of them
+    // is looked for: most closures are made, called and dropped without
+    // anyone asking. Said once by the function's maker, with its realm set.
+    void defer_own_properties(bool with_prototype);
 
     std::optional<Value> call(Interpreter&, Value const& this_value, std::span<Value const> arguments) override;
     std::optional<Value> construct(Interpreter&, std::span<Value const> arguments, Object* new_target) override;
 
     void trace(Tracer&) override;
+
+protected:
+    std::pair<Value, std::uint8_t> make_pending(std::uint8_t which) override;
 
 private:
     FunctionNode const* m_node;
@@ -416,37 +490,111 @@ private:
 // A function written in C++: the built-in library and the DOM bindings.
 class NativeFunction : public Function {
 public:
+    // A native that carries state of its own: a closure.
     using Callback = std::function<std::optional<Value>(Interpreter&, Value const& this_value, std::span<Value const> arguments)>;
     using ConstructCallback = std::function<std::optional<Value>(Interpreter&, std::span<Value const> arguments, Object* new_target)>;
+    // A native that carries none, which is nearly every one: a plain
+    // function. It can be described once for every realm (NativeSpec) and
+    // its function object made only when something asks for it.
+    using Entry = std::optional<Value> (*)(Interpreter&, Value const& this_value, std::span<Value const> arguments);
+    using ConstructEntry = std::optional<Value> (*)(Interpreter&, std::span<Value const> arguments, Object* new_target);
+    // A host's function in front of a described native's own: handed the
+    // function called, it decides what the entry is called with — the
+    // bindings' receiver and argument checks, which read their terms from
+    // the description's flags instead of each holding a closure.
+    using Guard = std::optional<Value> (*)(Interpreter&, NativeFunction& function, Value const& this_value,
+        std::span<Value const> arguments);
+    // What a described native is to the property it was defined as: its
+    // name is the key, or the key after "get " or "set ".
+    enum class Role : std::uint8_t { Method, Getter, Setter };
 
-    NativeFunction(Object* prototype, Callback call, ConstructCallback construct = {})
-        : Function(prototype)
-        , m_call(std::move(call))
-        , m_construct(std::move(construct))
-    {
-    }
+    NativeFunction(Object* prototype, Callback call, ConstructCallback construct = {});
+    NativeFunction(Object* prototype, NativeSpec const& spec, PropertyKey key, Role role, Object* home);
+    ~NativeFunction() override;
 
-    bool is_constructor() const override { return static_cast<bool>(m_construct); }
+    bool is_constructor() const override;
     std::optional<Value> call(Interpreter&, Value const& this_value, std::span<Value const> arguments) override;
     std::optional<Value> construct(Interpreter&, std::span<Value const> arguments, Object* new_target) override;
-    // What a call runs, for a host that puts a function of its own in front.
-    Callback const& callback() const { return m_call; }
+    // The native's own steps with nothing in front of them — no realm
+    // entered, no guard — for a host that performs them in another
+    // function's place (the bindings' cross-origin members).
+    std::optional<Value> perform(Interpreter&, Value const& this_value, std::span<Value const> arguments);
     // A host's operation or attribute: called on an object that names a home
     // realm, it runs in that realm and not in the one it was made in, so the
     // state it works on is the receiver's. A built-in of the language runs
     // in its own realm whatever it is called on (§10.3.1).
     void run_in_receivers_realm() { m_in_receivers_realm = true; }
+
+    // A described native: its description, the key and role it was defined
+    // with, and the object it was defined on (an interface's prototype,
+    // which its guard compares a receiver's chain against). Null, an empty
+    // key and null for a native made of closures.
+    NativeSpec const* spec() const { return m_closures_made ? nullptr : m_spec; }
+    PropertyKey const& key() const { return m_key; }
+    Role role() const { return m_role; }
+    Object* home() const { return m_home; }
+    // A closure-made native's callback; empty for a described one.
+    Callback const* closure() const;
     // A host's member as it was before the host put its receiver check in
-    // front of it (bindings: define_attribute, define_operation): what a
-    // second interface sharing the member is defined with, so that it gets
-    // a check of its own. Empty for every other native.
-    Callback unwrapped;
+    // front of it (bindings: define_attribute, define_operation, for a
+    // member made of closures): what a second interface sharing the member
+    // is defined with, so that it gets a check of its own.
+    Callback const* unwrapped() const;
+    void set_unwrapped(Callback);
+    // A closure-made native's `name` (an atom) and `length`, which its maker
+    // says once; a described one reads them off its key and description.
+    void set_name_and_length(JsString* name, int length);
+    // A guard's own note on this function (what it worked out at the first
+    // call and need not work out again).
+    std::uint8_t guard_note = 0;
+
+    void trace(Tracer&) override;
+    std::size_t size_in_bytes() const override;
+
+protected:
+    std::pair<Value, std::uint8_t> make_pending(std::uint8_t which) override;
 
 private:
-    Callback m_call;
-    ConstructCallback m_construct;
+    struct Closures;
+    union {
+        NativeSpec const* m_spec;
+        Closures* m_closures;
+    };
+    PropertyKey m_key;
+    Object* m_home = nullptr;
+    Role m_role = Role::Method;
+    bool m_closures_made = false;
     bool m_in_receivers_realm = false;
 };
+
+// What a native function is, apart from any realm: its entry, what `length`
+// it reports, what a host put in front of it and the host's flags for that,
+// and a number of the definer's own (which of several properties one entry
+// serves). Interned for the life of the process — the same description is
+// the same record in every realm and every engine — so a property can hold
+// one in place of the function until the function is asked for.
+struct NativeSpec {
+    NativeFunction::Entry call = nullptr;
+    NativeFunction::ConstructEntry construct = nullptr;
+    NativeFunction::Guard guard = nullptr;
+    std::uint32_t datum = 0;
+    std::uint16_t flags = 0; // ReceiversRealm, and from HostFlag up the host's own
+    std::uint8_t length = 0;
+
+    static constexpr std::uint16_t ReceiversRealm = 1; // NativeFunction::run_in_receivers_realm
+    static constexpr std::uint16_t HostFlag = 2;
+
+    bool operator==(NativeSpec const&) const = default;
+    // The record for this description: one per distinct description, never freed.
+    static NativeSpec const& intern(NativeSpec const&);
+};
+
+// Whether natives are made when asked for (the default) or all at once as
+// they are defined, which is what the engine did before and is kept as the
+// differential mode: SASHFOLD_LAZY=0 in the environment, read once.
+bool lazy_natives();
+// For a test that runs both ways in one process.
+void set_lazy_natives(bool);
 
 // A function written in C++ that carries values: the resolving functions
 // of a promise, a combinator's element functions, `finally`'s thunks. The
@@ -468,14 +616,23 @@ public:
     Value const& slot(std::size_t index) const { return m_slots[index]; }
     void set_slot(std::size_t index, Value const& value) { m_slots[index] = value; }
     std::size_t slot_count() const { return m_slots.size(); }
+    // Its `name` (an atom) and `length`, said once by its maker and given
+    // room as properties only when one is looked for: a promise's resolving
+    // functions are made by the pair for every promise and almost never asked.
+    void set_name_and_length(JsString* name, int length);
 
     std::optional<Value> call(Interpreter&, Value const& this_value, std::span<Value const> arguments) override;
     void trace(Tracer&) override;
     std::size_t size_in_bytes() const override { return Object::size_in_bytes() + m_slots.size() * sizeof(Value); }
 
+protected:
+    std::pair<Value, std::uint8_t> make_pending(std::uint8_t which) override;
+
 private:
     std::vector<Value> m_slots;
     Callback m_callback;
+    JsString* m_name = nullptr;
+    std::int32_t m_length = 0;
 };
 
 // Function.prototype.bind's result (§10.4.1).
