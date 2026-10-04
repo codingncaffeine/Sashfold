@@ -233,6 +233,7 @@ add_library(sashfold_core STATIC
   src/js/Strings.cpp
   src/js/TimeZone.cpp
   src/js/Vm.cpp
+  src/js/jit/AssemblerA64.cpp
   src/js/jit/AssemblerX64.cpp
   src/js/jit/Baseline.cpp
 )

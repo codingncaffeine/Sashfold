@@ -95,6 +95,7 @@ sashfold_test(test_js_lazy_parse)
 sashfold_test(test_js_shapes)
 sashfold_test(test_js_ic)
 sashfold_test(test_assembler)
+sashfold_test(test_assembler_a64)
 sashfold_test(test_js_jit)
 # The check on a cell value's address, turned on in every build: linked to
 # nothing of the engine's, whose files have the check as their build has it.
