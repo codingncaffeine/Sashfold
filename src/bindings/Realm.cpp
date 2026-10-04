@@ -490,6 +490,7 @@ Native illegal_constructor(js::Interpreter& interpreter, Args, js::Object*)
 js::Object* finish_interface(Realm::Internals& in, std::string_view name, js::Object& prototype, js::NativeFunction& constructor)
 {
     js::Interpreter& interpreter = in.interpreter;
+    constructor.take_prototype_from_new_target();
     constructor.put(interpreter.key("prototype"), js::Value::object(&prototype), js::frozen_attributes);
     prototype.put(interpreter.key("constructor"), js::Value::object(&constructor), js::builtin_attributes);
     prototype.put(js::PropertyKey::symbol(interpreter.atoms().symbol_to_string_tag), in.string(name), js::Configurable);
@@ -1260,12 +1261,33 @@ std::string trimmed(std::string_view text)
 
 } // namespace
 
+void Realm::Internals::run_inserted_scripts()
+{
+    while (!inserted_scripts.empty()) {
+        std::function<void()> const next = std::move(inserted_scripts.front());
+        inserted_scripts.pop_front();
+        next();
+    }
+}
+
 void Realm::Internals::prepare_script(dom::Element& script, bool from_parser)
 {
     // §4.12.1.1, the parts a classic script needs.
     if (started_scripts.contains(&script))
         return;
     started_scripts.insert(&script);
+    // Once the parser's own script is done and no other script is running,
+    // the scripts it inserted run: they have arrived, as far as a page can
+    // tell, the moment it yields.
+    struct RunInserted {
+        Internals& in;
+        bool after;
+        ~RunInserted()
+        {
+            if (after && in.current_script == nullptr)
+                in.run_inserted_scripts();
+        }
+    } const run_inserted { *this, from_parser };
     // Scripting is disabled for an element whose document has no window —
     // one made by `new Document()`, createHTMLDocument, a parser or a clone:
     // a script put into it has started, and never runs.
@@ -1288,48 +1310,74 @@ void Realm::Internals::prepare_script(dom::Element& script, bool from_parser)
         type = "text/javascript";
     }
     if (type == "module") {
-        prepare_module_script(script, from_parser);
+        // A module a script inserted is never run inside the insertion:
+        // its graph is fetched and it runs once the inserting script is done.
+        if (from_parser) {
+            prepare_module_script(script, true);
+        } else {
+            inserted_scripts.push_back([this, &script] { prepare_module_script(script, false); });
+            post_task([this] { run_inserted_scripts(); });
+        }
         return;
     }
     if (!is_javascript_type(type)) {
         ++stats.scripts_skipped; // a data block: JSON, a template, an import map
         return;
     }
-    std::string source;
-    std::string name;
     std::string const nonce = attribute_or_empty(script, "nonce");
     if (dom::Attr const* src = script.find_attribute("src")) {
+        // The address is settled now, against the base as it stands.
         std::optional<net::Url> const resolved = src->value.empty() ? std::nullopt : net::parse_url(src->value, &base_url());
-        std::optional<std::string> fetched;
-        if (resolved && hooks.fetch_script)
-            fetched = hooks.fetch_script(*resolved, request_guard(net::ResourceKind::Script, nonce, from_parser));
-        if (!fetched) {
-            ++stats.external_failed;
-            console("error", "script " + (resolved ? resolved->serialize() : src->value) + " could not be loaded");
-            realm.dispatch_event(&script, "error");
-            return;
+        auto fetch_and_run = [this, &script, resolved, written = src->value, nonce, from_parser] {
+            std::optional<std::string> fetched;
+            if (resolved && resolved->scheme == "blob") {
+                // A script at a blob: URL is read out of the blob URL store,
+                // under the page's policy as any other address is.
+                net::RequestGuard const guard = request_guard(net::ResourceKind::Script, nonce, from_parser);
+                auto const entry = agent.blob_urls.find(resolved->serialize(true));
+                if (entry != agent.blob_urls.end() && !(guard.refusal && guard.refusal(*resolved, false)))
+                    fetched = std::string(entry->second.bytes.begin(), entry->second.bytes.end());
+            } else if (resolved && hooks.fetch_script) {
+                fetched = hooks.fetch_script(*resolved, request_guard(net::ResourceKind::Script, nonce, from_parser));
+            }
+            if (!fetched) {
+                ++stats.external_failed;
+                console("error", "script " + (resolved ? resolved->serialize() : written) + " could not be loaded");
+                realm.dispatch_event(&script, "error");
+                return;
+            }
+            ++stats.external_fetched;
+            std::string source = std::move(*fetched);
+            // A byte-order mark is not source text.
+            if (source.starts_with("\xEF\xBB\xBF"))
+                source.erase(0, 3);
+            std::string name = resolved->serialize();
+            bool const deferred = from_parser && (script.has_attribute("defer") || script.has_attribute("async"));
+            if (deferred) {
+                deferred_scripts.push_back(PendingScript { &script, std::move(source), std::move(name) });
+                return;
+            }
+            execute_script(script, source, name);
+        };
+        // An external script a script inserted is fetched in parallel and
+        // run when it has arrived (§4.12.1.1, steps 31 to 33): never inside
+        // the insertion, so the inserting script can still give it its
+        // load handler. In the order inserted, once no script is running.
+        if (from_parser) {
+            fetch_and_run();
+        } else {
+            inserted_scripts.push_back(std::move(fetch_and_run));
+            post_task([this] { run_inserted_scripts(); });
         }
-        ++stats.external_fetched;
-        source = std::move(*fetched);
-        // A byte-order mark is not source text.
-        if (source.starts_with("\xEF\xBB\xBF"))
-            source.erase(0, 3);
-        name = resolved->serialize();
-        bool const deferred = from_parser && (script.has_attribute("defer") || script.has_attribute("async"));
-        if (deferred) {
-            deferred_scripts.push_back(PendingScript { &script, std::move(source), std::move(name) });
-            return;
-        }
-    } else {
-        source = html::text_content(script);
-        name = url.serialize() + " (inline)";
-        // §4.12.1.1 step 20: the inline check, the text as written.
-        if (inline_refused(net::InlineKind::Script, nonce, source)) {
-            ++stats.scripts_refused;
-            return;
-        }
+        return;
     }
-    execute_script(script, source, name);
+    std::string const source = html::text_content(script);
+    // §4.12.1.1 step 20: the inline check, the text as written.
+    if (inline_refused(net::InlineKind::Script, nonce, source)) {
+        ++stats.scripts_refused;
+        return;
+    }
+    execute_script(script, source, url.serialize() + " (inline)");
 }
 
 void Realm::Internals::execute_script(dom::Element& script, std::string const& source, std::string const& name)
@@ -2493,6 +2541,8 @@ void Realm::document_parsed()
         if (frame->is_connected())
             in.fire_frame_load(*frame);
     }
+    // The window's load waits for the scripts that scripts inserted.
+    in.run_inserted_scripts();
     in.ready_state = "complete";
     dispatch_event(in.document, "readystatechange");
     dispatch_event(nullptr, "load");
@@ -2832,6 +2882,7 @@ void Realm::Internals::reuse_frame_window(ChildFrame& frame, FrameDocument answe
     window.active_parser = nullptr;
     window.current_script = nullptr;
     window.deferred_scripts.clear();
+    window.inserted_scripts.clear();
     window.history_state = js::Value {};
     window.fallback_focus = nullptr;
     // A frame shown anew counts on from its predecessor, so no picture of the

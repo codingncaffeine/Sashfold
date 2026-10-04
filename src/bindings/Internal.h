@@ -1189,6 +1189,14 @@ struct Realm::Internals {
         js::ModuleRecord* module = nullptr;
     };
     std::vector<PendingScript> deferred_scripts;
+    // The external scripts and modules that scripts inserted and that have
+    // not run yet, in the order inserted (§4.12.1.1: fetched in parallel,
+    // run as soon as they are there — never inside the insertion). They
+    // run once no script is running: when the parser's own script that
+    // inserted them is done, in a task of their own otherwise, and before
+    // the window's load at the latest, which waits for them.
+    std::deque<std::function<void()>> inserted_scripts;
+    void run_inserted_scripts();
     // Inline modules keyed uniquely in the module map, each with the
     // document's URL as its base; and the credentials mode of the module
     // graph being loaded, which its dependencies inherit.

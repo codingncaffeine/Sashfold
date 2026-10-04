@@ -1317,6 +1317,8 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             }
             return js::Value::object(internals.wrap(*img));
         });
+    // A legacy factory function makes its element for new.target too (WebIDL §3.7.2).
+    image->take_prototype_from_new_target();
     image->put(interpreter.key("prototype"), js::Value::object(&proto_of("HTMLImageElement")), js::frozen_attributes);
     interpreter.global()->put(interpreter.key("Image"), js::Value::object(image), js::builtin_attributes);
     js::NativeFunction* option_constructor = interpreter.new_native("Option", 0,
@@ -1342,6 +1344,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 option->attributes().push_back(dom::Attr { "selected", "", "", "" });
             return js::Value::object(internals.wrap(*option));
         });
+    option_constructor->take_prototype_from_new_target();
     option_constructor->put(interpreter.key("prototype"), js::Value::object(&proto_of("HTMLOptionElement")), js::frozen_attributes);
     interpreter.global()->put(interpreter.key("Option"), js::Value::object(option_constructor), js::builtin_attributes);
 
@@ -1361,6 +1364,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             }
             return js::Value::object(internals.wrap(*audio));
         });
+    audio_constructor->take_prototype_from_new_target();
     audio_constructor->put(interpreter.key("prototype"), js::Value::object(&proto_of("HTMLAudioElement")), js::frozen_attributes);
     interpreter.global()->put(interpreter.key("Audio"), js::Value::object(audio_constructor), js::builtin_attributes);
 }

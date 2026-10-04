@@ -2437,6 +2437,517 @@ void install_media_element(Realm::Internals& in)
     });
 }
 
+// --- Text track cues (HTML §4.8.11.11.4, WebVTT §6) ----------------------------------------------
+
+// A cue as a script makes and keeps one: its times, its text and where
+// WebVTT says to put it. A player's own caption code builds these whether
+// or not a track ever shows them.
+class CueObject final : public EventTargetObject {
+public:
+    explicit CueObject(js::Object* prototype)
+        : EventTargetObject(prototype)
+    {
+    }
+    std::string id;
+    double start = 0;
+    double end = 0;
+    bool pause_on_exit = false;
+    std::string text;
+    js::Value region = js::Value::null();
+    std::string vertical;
+    bool snap_to_lines = true;
+    std::optional<double> line; // none: "auto"
+    std::string line_align = "start";
+    std::optional<double> position; // none: "auto"
+    std::string position_align = "auto";
+    double size = 100;
+    std::string align = "center";
+    void trace(js::Tracer& tracer) override
+    {
+        EventTargetObject::trace(tracer);
+        tracer.visit(region);
+    }
+};
+
+class CueRegionObject final : public js::Object {
+public:
+    explicit CueRegionObject(js::Object* prototype)
+        : Object(prototype, Class::Host)
+    {
+    }
+    std::string id;
+    double width = 100;
+    double lines = 3;
+    double region_anchor_x = 0;
+    double region_anchor_y = 100;
+    double viewport_anchor_x = 0;
+    double viewport_anchor_y = 100;
+    std::string scroll;
+};
+
+// A WebVTT timestamp (§4.2.1, "collect a WebVTT timestamp"): hours are
+// optional, minutes and seconds two digits each under sixty, three digits
+// of milliseconds. Its time in milliseconds, or nothing.
+std::optional<std::uint64_t> parse_cue_timestamp(std::string_view text)
+{
+    std::size_t at = 0;
+    auto const digits = [&](std::size_t& count) -> std::uint64_t {
+        std::uint64_t value = 0;
+        count = 0;
+        while (at < text.size() && text[at] >= '0' && text[at] <= '9') {
+            value = value * 10 + static_cast<std::uint64_t>(text[at] - '0');
+            ++at;
+            ++count;
+        }
+        return value;
+    };
+    std::size_t count = 0;
+    std::uint64_t first = digits(count);
+    bool const hours_given = count != 2 || first > 59;
+    if (count == 0 || at >= text.size() || text[at] != ':')
+        return std::nullopt;
+    ++at;
+    std::uint64_t second = digits(count);
+    if (count != 2)
+        return std::nullopt;
+    std::uint64_t hours = 0;
+    std::uint64_t minutes = first;
+    std::uint64_t seconds = second;
+    if (hours_given || (at < text.size() && text[at] == ':')) {
+        if (at >= text.size() || text[at] != ':')
+            return std::nullopt;
+        ++at;
+        std::uint64_t const third = digits(count);
+        if (count != 2)
+            return std::nullopt;
+        hours = first;
+        minutes = second;
+        seconds = third;
+    }
+    if (at >= text.size() || text[at] != '.')
+        return std::nullopt;
+    ++at;
+    std::uint64_t const milliseconds = digits(count);
+    if (count != 3 || at != text.size() || minutes > 59 || seconds > 59)
+        return std::nullopt;
+    return ((hours * 60 + minutes) * 60 + seconds) * 1000 + milliseconds;
+}
+
+// WebVTT §6.4, the cue text parsed (§6.3) and made into nodes: text, the
+// spans (c, i, b, u, ruby, rt, v, lang) with their classes and their
+// annotation, and each timestamp as a processing instruction.
+dom::Node* cue_text_fragment(dom::Document& document, std::string_view text)
+{
+    dom::Node* const fragment = document.create<dom::DocumentFragment>();
+    std::vector<std::pair<dom::Node*, std::string>> open { { fragment, "" } };
+    std::string pending;
+    auto const flush = [&] {
+        if (pending.empty())
+            return;
+        dom::Text* const node = document.create<dom::Text>();
+        node->data = std::move(pending);
+        pending.clear();
+        open.back().first->append_child(*node);
+    };
+    std::size_t at = 0;
+    while (at < text.size()) {
+        char const c = text[at];
+        if (c == '&') {
+            static constexpr std::pair<std::string_view, std::string_view> references[] = { { "&amp;", "&" }, { "&lt;", "<" },
+                { "&gt;", ">" }, { "&lrm;", "\xE2\x80\x8E" }, { "&rlm;", "\xE2\x80\x8F" }, { "&nbsp;", "\xC2\xA0" } };
+            bool matched = false;
+            for (auto const& [name, value] : references) {
+                if (text.substr(at).starts_with(name)) {
+                    pending += value;
+                    at += name.size();
+                    matched = true;
+                    break;
+                }
+            }
+            if (!matched) {
+                pending += c;
+                ++at;
+            }
+            continue;
+        }
+        if (c != '<') {
+            pending += c;
+            ++at;
+            continue;
+        }
+        std::size_t const close = text.find('>', at);
+        std::string_view const tag = text.substr(at + 1, (close == std::string_view::npos ? text.size() : close) - at - 1);
+        at = close == std::string_view::npos ? text.size() : close + 1;
+        if (tag.empty())
+            continue;
+        if (tag.front() == '/') {
+            std::string_view const name = tag.substr(1);
+            if (open.size() > 1 && open.back().second == name) {
+                flush();
+                open.pop_back();
+            } else if (name == "ruby" && open.size() > 2 && open.back().second == "rt" && open[open.size() - 2].second == "ruby") {
+                flush();
+                open.pop_back();
+                open.pop_back();
+            }
+            continue;
+        }
+        if (tag.front() >= '0' && tag.front() <= '9') {
+            if (std::optional<std::uint64_t> const time = parse_cue_timestamp(tag)) {
+                flush();
+                dom::ProcessingInstruction* const instruction = document.create<dom::ProcessingInstruction>();
+                instruction->target = "timestamp";
+                char written[32];
+                std::snprintf(written, sizeof written, "%02llu:%02llu:%02llu.%03llu", static_cast<unsigned long long>(*time / 3600000),
+                    static_cast<unsigned long long>(*time / 60000 % 60), static_cast<unsigned long long>(*time / 1000 % 60),
+                    static_cast<unsigned long long>(*time % 1000));
+                instruction->data = written;
+                open.back().first->append_child(*instruction);
+            }
+            continue;
+        }
+        // A start tag: its name, then .classes, then an annotation.
+        std::size_t const name_end = std::min(tag.find_first_of(". \t\n\f"), tag.size());
+        std::string_view const name = tag.substr(0, name_end);
+        std::size_t const classes_end = std::min(tag.find_first_of(" \t\n\f", name_end), tag.size());
+        std::string classes;
+        for (std::size_t from = name_end; from < classes_end;) {
+            std::size_t const next = std::min(tag.find('.', from + 1), classes_end);
+            if (next > from + 1)
+                classes += (classes.empty() ? "" : " ") + std::string(tag.substr(from + 1, next - from - 1));
+            from = next;
+        }
+        std::string annotation(tag.substr(classes_end));
+        while (!annotation.empty() && (annotation.front() == ' ' || annotation.front() == '\t' || annotation.front() == '\n' || annotation.front() == '\f'))
+            annotation.erase(0, 1);
+        while (!annotation.empty() && (annotation.back() == ' ' || annotation.back() == '\t' || annotation.back() == '\n' || annotation.back() == '\f'))
+            annotation.pop_back();
+        std::string_view local;
+        if (name == "c" || name == "v" || name == "lang")
+            local = "span";
+        else if (name == "i" || name == "b" || name == "u" || name == "ruby")
+            local = name;
+        else if (name == "rt" && open.back().second == "ruby")
+            local = name;
+        else
+            continue;
+        flush();
+        dom::Element* const element = document.create<dom::Element>(std::string(dom::ns::html), std::string(local));
+        if (!classes.empty())
+            element->attributes().push_back({ "class", classes, "", "" });
+        if (name == "v")
+            element->attributes().push_back({ "title", annotation, "", "" });
+        else if (name == "lang")
+            element->attributes().push_back({ "lang", annotation, "", "" });
+        open.back().first->append_child(*element);
+        open.push_back({ element, std::string(name) });
+    }
+    flush();
+    return fragment;
+}
+
+void install_text_track_cues(Realm::Internals& in)
+{
+    js::Interpreter& interpreter = in.interpreter;
+    using Callback = js::NativeFunction::Callback;
+
+    // TextTrackCue: what every kind of cue has. Only its kinds are made.
+    js::Object* const cue = define_interface(in, "TextTrackCue", in.prototype("EventTarget"));
+    define_getter(in, *cue, "track", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        if (!this_as<CueObject>(interp, this_value))
+            return std::nullopt;
+        return js::Value::null();
+    });
+    auto const text_attribute = [&in](js::Object& proto, std::string_view name, std::string CueObject::* field) {
+        define_getter(
+            in, proto, name,
+            Callback([field](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+                std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                return internals_of(interp).string((*found)->*field);
+            }),
+            Callback([field](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+                std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                std::optional<std::string> value = internals_of(interp).to_utf8(js::argument(args, 0));
+                if (!value)
+                    return std::nullopt;
+                (*found)->*field = std::move(*value);
+                return js::Value::undefined();
+            }),
+            MemberKind::Plain);
+    };
+    // A time: startTime refuses what is not finite, endTime does not
+    // (HTML: `unrestricted double`, for a cue with no end).
+    auto const time_attribute = [&in](js::Object& proto, std::string_view name, double CueObject::* field, bool restricted) {
+        define_getter(
+            in, proto, name,
+            Callback([field](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+                std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                return js::Value::number((*found)->*field);
+            }),
+            Callback([field, restricted](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+                std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                std::optional<double> const value = interp.to_number(js::argument(args, 0));
+                if (!value)
+                    return std::nullopt;
+                if (restricted && !std::isfinite(*value))
+                    return interp.throw_type_error("The provided double value is non-finite.");
+                (*found)->*field = *value;
+                return js::Value::undefined();
+            }),
+            MemberKind::Plain);
+    };
+    text_attribute(*cue, "id", &CueObject::id);
+    time_attribute(*cue, "startTime", &CueObject::start, true);
+    time_attribute(*cue, "endTime", &CueObject::end, false);
+    auto const flag_attribute = [&in](js::Object& proto, std::string_view name, bool CueObject::* field) {
+        define_getter(
+            in, proto, name,
+            Callback([field](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+                std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                return js::Value::boolean((*found)->*field);
+            }),
+            Callback([field](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+                std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                (*found)->*field = js::Interpreter::to_boolean(js::argument(args, 0));
+                return js::Value::undefined();
+            }),
+            MemberKind::Plain);
+    };
+    flag_attribute(*cue, "pauseOnExit", &CueObject::pause_on_exit);
+    static constexpr std::string_view cue_events[] = { "enter", "exit" };
+    define_event_handlers(in, *cue, cue_events);
+
+    // VTTCue(startTime, endTime, text).
+    js::Object* const vtt = define_interface(
+        in, "VTTCue", cue,
+        [](js::Interpreter& interp, Args args, js::Object*) -> Native {
+            Realm::Internals& internals = internals_of(interp);
+            if (args.size() < 3)
+                return interp.throw_type_error("Failed to construct 'VTTCue': 3 arguments required, but only " + std::to_string(args.size()) + " present.");
+            std::optional<double> const start = interp.to_number(args[0]);
+            if (!start)
+                return std::nullopt;
+            if (!std::isfinite(*start))
+                return interp.throw_type_error("Failed to construct 'VTTCue': The provided double value is non-finite.");
+            std::optional<double> const end = interp.to_number(args[1]);
+            if (!end)
+                return std::nullopt;
+            std::optional<std::string> text = internals.to_utf8(args[2]);
+            if (!text)
+                return std::nullopt;
+            auto* const made = interp.heap().allocate<CueObject>(internals.prototype("VTTCue"));
+            made->start = *start;
+            made->end = *end;
+            made->text = std::move(*text);
+            return js::Value::object(made);
+        },
+        3);
+    text_attribute(*vtt, "text", &CueObject::text);
+    flag_attribute(*vtt, "snapToLines", &CueObject::snap_to_lines);
+    // An enumeration: a value that is not one of its words is not set
+    // (WebIDL §3.10.9), and nothing is thrown.
+    auto const word_attribute = [&in](js::Object& proto, std::string_view name, std::string CueObject::* field,
+                                    std::vector<std::string_view> words) {
+        define_getter(
+            in, proto, name,
+            Callback([field](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+                std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                return internals_of(interp).string((*found)->*field);
+            }),
+            Callback([field, words = std::move(words)](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+                std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                std::optional<std::string> const value = internals_of(interp).to_utf8(js::argument(args, 0));
+                if (!value)
+                    return std::nullopt;
+                if (std::find(words.begin(), words.end(), std::string_view(*value)) != words.end())
+                    (*found)->*field = *value;
+                return js::Value::undefined();
+            }),
+            MemberKind::Plain);
+    };
+    word_attribute(*vtt, "vertical", &CueObject::vertical, { "", "rl", "lr" });
+    word_attribute(*vtt, "lineAlign", &CueObject::line_align, { "start", "center", "end" });
+    word_attribute(*vtt, "positionAlign", &CueObject::position_align, { "line-left", "center", "line-right", "auto" });
+    word_attribute(*vtt, "align", &CueObject::align, { "start", "center", "end", "left", "right" });
+    // line and position: a number or "auto"; position is a percentage.
+    auto const setting_attribute = [&in](js::Object& proto, std::string_view name, std::optional<double> CueObject::* field, bool percentage) {
+        define_getter(
+            in, proto, name,
+            Callback([field](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+                std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                if (std::optional<double> const& held = (*found)->*field)
+                    return js::Value::number(*held);
+                return internals_of(interp).string("auto");
+            }),
+            Callback([field, percentage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+                std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                Realm::Internals& internals = internals_of(interp);
+                js::Value const given = js::argument(args, 0);
+                if (given.is_string()) {
+                    std::optional<std::string> const word = internals.to_utf8(given);
+                    if (word && *word == "auto") {
+                        ((*found)->*field).reset();
+                        return js::Value::undefined();
+                    }
+                }
+                std::optional<double> const value = interp.to_number(given);
+                if (!value)
+                    return std::nullopt;
+                if (!std::isfinite(*value))
+                    return interp.throw_type_error("The provided value is neither a finite number nor 'auto'.");
+                if (percentage && (*value < 0 || *value > 100))
+                    return internals.throw_dom_exception("IndexSizeError", "The value provided is outside the range [0, 100].");
+                (*found)->*field = *value;
+                return js::Value::undefined();
+            }),
+            MemberKind::Plain);
+    };
+    setting_attribute(*vtt, "line", &CueObject::line, false);
+    setting_attribute(*vtt, "position", &CueObject::position, true);
+    define_getter(
+        in, *vtt, "size",
+        Callback([](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+            std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+            if (!found)
+                return std::nullopt;
+            return js::Value::number((*found)->size);
+        }),
+        Callback([](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+            std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+            if (!found)
+                return std::nullopt;
+            std::optional<double> const value = interp.to_number(js::argument(args, 0));
+            if (!value)
+                return std::nullopt;
+            if (!std::isfinite(*value))
+                return interp.throw_type_error("The provided double value is non-finite.");
+            if (*value < 0 || *value > 100)
+                return internals_of(interp).throw_dom_exception("IndexSizeError", "The value provided is outside the range [0, 100].");
+            (*found)->size = *value;
+            return js::Value::undefined();
+        }),
+        MemberKind::Plain);
+    define_getter(
+        in, *vtt, "region",
+        Callback([](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+            std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+            if (!found)
+                return std::nullopt;
+            return (*found)->region;
+        }),
+        Callback([](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+            std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+            if (!found)
+                return std::nullopt;
+            js::Value const given = js::argument(args, 0);
+            if (given.is_null() || given.is_undefined())
+                (*found)->region = js::Value::null();
+            else if (given.is_object() && dynamic_cast<CueRegionObject*>(given.as_object()) != nullptr)
+                (*found)->region = given;
+            else
+                return interp.throw_type_error("Failed to set the 'region' property on 'VTTCue': the value is not a VTTRegion.");
+            return js::Value::undefined();
+        }),
+        MemberKind::Plain);
+    define_operation(interpreter, *vtt, "getCueAsHTML", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        std::optional<CueObject*> const found = this_as<CueObject>(interp, this_value);
+        if (!found)
+            return std::nullopt;
+        Realm::Internals& internals = internals_of(interp);
+        return js::Value::object(internals.wrap(*cue_text_fragment(*internals.document, (*found)->text)));
+    });
+
+    // VTTRegion(): where a group of cues scrolls.
+    js::Object* const region = define_interface(
+        in, "VTTRegion", nullptr,
+        [](js::Interpreter& interp, Args, js::Object*) -> Native {
+            return js::Value::object(interp.heap().allocate<CueRegionObject>(internals_of(interp).prototype("VTTRegion")));
+        },
+        0);
+    auto const region_number = [&in, region](std::string_view name, double CueRegionObject::* field, bool percentage) {
+        define_getter(
+            in, *region, name,
+            Callback([field](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+                std::optional<CueRegionObject*> const found = this_as<CueRegionObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                return js::Value::number((*found)->*field);
+            }),
+            Callback([field, percentage](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+                std::optional<CueRegionObject*> const found = this_as<CueRegionObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                std::optional<double> const value = interp.to_number(js::argument(args, 0));
+                if (!value)
+                    return std::nullopt;
+                if (percentage) {
+                    if (!std::isfinite(*value))
+                        return interp.throw_type_error("The provided double value is non-finite.");
+                    if (*value < 0 || *value > 100)
+                        return internals_of(interp).throw_dom_exception("IndexSizeError", "The value provided is outside the range [0, 100].");
+                    (*found)->*field = *value;
+                } else {
+                    // unsigned long: what is not finite is 0, the rest wraps.
+                    (*found)->*field = std::isfinite(*value) ? std::fmod(std::trunc(*value), 4294967296.0) : 0;
+                    if ((*found)->*field < 0)
+                        (*found)->*field += 4294967296.0;
+                }
+                return js::Value::undefined();
+            }),
+            MemberKind::Plain);
+    };
+    region_number("width", &CueRegionObject::width, true);
+    region_number("lines", &CueRegionObject::lines, false);
+    region_number("regionAnchorX", &CueRegionObject::region_anchor_x, true);
+    region_number("regionAnchorY", &CueRegionObject::region_anchor_y, true);
+    region_number("viewportAnchorX", &CueRegionObject::viewport_anchor_x, true);
+    region_number("viewportAnchorY", &CueRegionObject::viewport_anchor_y, true);
+    auto const region_text = [&in, region](std::string_view name, std::string CueRegionObject::* field, bool scroll_word) {
+        define_getter(
+            in, *region, name,
+            Callback([field](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+                std::optional<CueRegionObject*> const found = this_as<CueRegionObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                return internals_of(interp).string((*found)->*field);
+            }),
+            Callback([field, scroll_word](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+                std::optional<CueRegionObject*> const found = this_as<CueRegionObject>(interp, this_value);
+                if (!found)
+                    return std::nullopt;
+                std::optional<std::string> value = internals_of(interp).to_utf8(js::argument(args, 0));
+                if (!value)
+                    return std::nullopt;
+                if (!scroll_word || value->empty() || *value == "up")
+                    (*found)->*field = std::move(*value);
+                return js::Value::undefined();
+            }),
+            MemberKind::Plain);
+    };
+    region_text("id", &CueRegionObject::id, false);
+    region_text("scroll", &CueRegionObject::scroll, true);
+}
+
 }
 
 int media_type_support(std::string_view type)
@@ -2447,6 +2958,7 @@ int media_type_support(std::string_view type)
 void install_media(Realm::Internals& in)
 {
     install_media_element(in);
+    install_text_track_cues(in);
     if (playback_enabled()) {
         install_source_buffer(in);
         install_media_source(in);

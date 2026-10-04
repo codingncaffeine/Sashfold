@@ -1882,9 +1882,21 @@ std::optional<Value> NativeFunction::construct(Interpreter& interpreter, std::sp
         Interpreter::ActiveNative const active(interpreter, this);
         return m_spec->construct(interpreter, arguments, new_target);
     };
-    if (interpreter.vm_profiling()) [[unlikely]]
-        return profiled(interpreter, *this, run);
-    return run();
+    std::optional<Value> const made = interpreter.vm_profiling() ? profiled(interpreter, *this, run) : run();
+    // A host's interface constructor called for another function (a class
+    // that extends it, Reflect.construct): what it made takes that
+    // function's prototype.
+    if (m_prototype_from_new_target && made && made->is_object() && new_target != nullptr && new_target != this) [[unlikely]] {
+        Interpreter::Roots const roots(interpreter);
+        Value const kept = interpreter.root(*made);
+        std::optional<Value> const wanted = interpreter.get(*new_target, PropertyKey::atom(interpreter.atoms().prototype));
+        if (!wanted)
+            return std::nullopt;
+        if (wanted->is_object() && wanted->as_object() != kept.as_object()->prototype())
+            kept.as_object()->set_prototype(wanted->as_object());
+        return kept;
+    }
+    return made;
 }
 
 namespace {

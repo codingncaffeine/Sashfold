@@ -1258,6 +1258,36 @@ std::vector<net::Header> filter_cors_headers(std::vector<net::Header> const& hea
 FetchOutcome perform_fetch(Realm::Internals& in, PageRequest const& page_request)
 {
     FetchOutcome outcome;
+    // A blob: URL is answered from the blob URL store (Fetch §4.2 "scheme
+    // fetch"): only to GET, with the blob's type and length as its headers;
+    // one that names nothing, or was revoked, is a network error. The
+    // page's policy still has its say over the address.
+    if (page_request.url.scheme == "blob") {
+        if (page_request.method != "GET") {
+            outcome.error = "a blob: URL answers only GET";
+            return outcome;
+        }
+        auto const entry = in.agent.blob_urls.find(page_request.url.serialize(true));
+        if (entry == in.agent.blob_urls.end()) {
+            outcome.error = "the blob: URL names nothing";
+            return outcome;
+        }
+        net::RequestGuard const guard = in.request_guard(
+            page_request.destination == "script" ? net::ResourceKind::Script : net::ResourceKind::Xhr, page_request.nonce,
+            page_request.parser_inserted);
+        if (guard.refusal && guard.refusal(page_request.url, false)) {
+            outcome.error = "the page's policy refuses " + page_request.url.serialize();
+            return outcome;
+        }
+        outcome.ok = true;
+        outcome.status = 200;
+        outcome.status_text = "OK";
+        outcome.headers.push_back({ "Content-Type", entry->second.type });
+        outcome.headers.push_back({ "Content-Length", std::to_string(entry->second.bytes.size()) });
+        outcome.body = entry->second.bytes;
+        outcome.url = page_request.url;
+        return outcome;
+    }
     if (!in.hooks.fetch_resource) {
         outcome.error = "the host gave no loader";
         return outcome;

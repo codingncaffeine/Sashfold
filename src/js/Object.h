@@ -690,6 +690,12 @@ public:
     // state it works on is the receiver's. A built-in of the language runs
     // in its own realm whatever it is called on (§10.3.1).
     void run_in_receivers_realm() { m_in_receivers_realm = true; }
+    // A host's interface constructor: the object it makes takes its
+    // prototype from new.target when that is another function (WebIDL
+    // §3.7.1, "internally create a new object implementing the interface"),
+    // so `class Mine extends EventTarget` makes a Mine. A built-in of the
+    // language reads new.target itself.
+    void take_prototype_from_new_target() { m_prototype_from_new_target = true; }
 
     // A described native: its description, the key and role it was defined
     // with, and the object it was defined on (an interface's prototype,
@@ -725,6 +731,7 @@ private:
     Role m_role = Role::Method;
     bool m_closures_made = false;
     bool m_in_receivers_realm = false;
+    bool m_prototype_from_new_target = false;
 };
 
 // What a native function is, apart from any realm: its entry, what `length`

@@ -3905,6 +3905,153 @@ void test_scripts_that_must_not_run_again()
     CHECK_EQ(page.console, std::string(""));
 }
 
+// An interface's constructor makes what new.target names (WebIDL §3.7.1): a
+// class that extends EventTarget, Event or URL gets an object of its own
+// prototype, with the interface's members still working on it.
+void test_interface_constructors_make_what_new_target_names()
+{
+    Page page("<!DOCTYPE html><body></body>");
+    page.load();
+    page.eval(R"JS(
+        function made(Base, args) {
+            class Mine extends Base { constructor() { super(...args); this.mark = 1; } hello() { return 'hi'; } }
+            var one = new Mine();
+            return one instanceof Mine && one instanceof Base && Object.getPrototypeOf(one) === Mine.prototype && one.hello() === 'hi';
+        }
+    )JS");
+    CHECK(page.boolean("made(EventTarget, [])"));
+    CHECK(page.boolean("made(Event, ['x'])"));
+    CHECK(page.boolean("made(CustomEvent, ['x'])"));
+    CHECK(page.boolean("made(URL, ['https://a.test/'])"));
+    CHECK(page.boolean("made(Headers, [])"));
+    CHECK(page.boolean("made(AbortController, [])"));
+    CHECK(page.boolean("made(MutationObserver, [function () {}])"));
+    CHECK(page.boolean("made(DocumentFragment, [])"));
+    CHECK(page.boolean("made(VTTCue, [0, 1, 'text'])"));
+    // The legacy factory functions too.
+    CHECK(page.boolean("made(Image, [])"));
+    CHECK(page.boolean("made(Audio, [])"));
+    CHECK(page.boolean("made(Option, [])"));
+    // It is still the interface's object: its own members answer on it.
+    CHECK_EQ(page.string("(function () { class Ping extends Event { constructor() { super('ping', { bubbles: true }); } }"
+                         " var e = new Ping(); return e.type + ' ' + e.bubbles; })()"),
+        "ping true");
+    CHECK_EQ(page.string("(function () { class Bus extends EventTarget { fire() { var got = 'nothing';"
+                         " this.addEventListener('x', function (e) { got = e.type + ' ' + (e.target === this); }.bind(this));"
+                         " this.dispatchEvent(new Event('x')); return got; } } return new Bus().fire(); })()"),
+        "x true");
+    // Reflect.construct names the prototype the same way; a new.target whose
+    // prototype is no object leaves the interface's own.
+    CHECK(page.boolean("(function () { function Other() {} return Object.getPrototypeOf(Reflect.construct(EventTarget, [], Other)) === Other.prototype; })()"));
+    CHECK(page.boolean("(function () { function Other() {} Other.prototype = 1;"
+                       " return Object.getPrototypeOf(Reflect.construct(EventTarget, [], Other)) === EventTarget.prototype; })()"));
+    CHECK(page.boolean("Object.getPrototypeOf(new EventTarget()) === EventTarget.prototype"));
+    CHECK_EQ(page.console, "");
+}
+
+// A blob: URL is answered from the blob URL store for a classic script, a
+// module and fetch(); one revoked, or asked with another method, is a
+// network error.
+void test_blob_urls_are_fetched_from_the_store()
+{
+    Page page("<!DOCTYPE html><body></body>");
+    page.load();
+    page.eval(R"JS(
+        var out = [];
+        var classic = document.createElement('script');
+        classic.src = URL.createObjectURL(new Blob(['out.push("classic ran");'], { type: 'text/javascript' }));
+        document.body.appendChild(classic);
+        classic.onload = function () { out.push('classic load'); };
+        classic.onerror = function () { out.push('classic error'); };
+        import(URL.createObjectURL(new Blob(['export var answer = 42;'], { type: 'text/javascript' })))
+            .then(function (m) { out.push('module ' + m.answer); }, function (e) { out.push('module refused ' + e); });
+        fetch(URL.createObjectURL(new Blob(['hello'], { type: 'text/plain' }))).then(function (r) {
+            return r.text().then(function (t) { out.push('fetch ' + r.status + ' ' + r.headers.get('content-type') + ' ' + t); });
+        });
+        var gone = URL.createObjectURL(new Blob(['x']));
+        URL.revokeObjectURL(gone);
+        fetch(gone).then(function () { out.push('revoked answered'); }, function (e) { out.push('revoked ' + e.name); });
+        fetch(URL.createObjectURL(new Blob(['x'])), { method: 'POST' })
+            .then(function () { out.push('post answered'); }, function (e) { out.push('post ' + e.name); });
+    )JS");
+    while (page.realm->run_pending()) { }
+    CHECK(page.boolean("out.indexOf('classic ran') >= 0 && out.indexOf('classic load') > out.indexOf('classic ran')"));
+    CHECK(page.boolean("out.indexOf('classic error') < 0"));
+    CHECK(page.boolean("out.indexOf('module 42') >= 0"));
+    CHECK(page.boolean("out.indexOf('fetch 200 text/plain hello') >= 0"));
+    CHECK(page.boolean("out.indexOf('revoked TypeError') >= 0"));
+    CHECK(page.boolean("out.indexOf('post TypeError') >= 0"));
+    // The two refused fetches are said on the console as warnings; nothing is an error.
+    CHECK(page.console.find("error:") == std::string::npos);
+}
+
+// An external script a script inserts never runs inside the insertion
+// (HTML §4.12.1.1): the inserting script goes on first, and can still give
+// it a load handler. The window's load waits for it.
+void test_an_inserted_script_runs_after_the_script_that_inserted_it()
+{
+    Page page(R"HTML(<!DOCTYPE html><body><script>
+        var out = [];
+        var s = document.createElement('script');
+        s.src = 'https://example.test/late.js';
+        document.body.appendChild(s);
+        out.push('inserted');
+        s.onload = function () { out.push('load handler'); };
+        window.addEventListener('load', function () { out.push('window load'); });
+        document.addEventListener('DOMContentLoaded', function () {
+            var d = document.createElement('script');
+            d.src = 'https://example.test/at-end.js';
+            document.body.appendChild(d);
+            out.push('content loaded');
+        });
+    </script><script>out.push('next parser script');</script></body>)HTML");
+    page.scripts["https://example.test/late.js"] = "out.push('late ran');";
+    page.scripts["https://example.test/at-end.js"] = "out.push('at-end ran');";
+    page.load();
+    CHECK_EQ(page.string("out.join('|')"), "inserted|late ran|load handler|next parser script|content loaded|at-end ran|window load");
+    // After the parse, the same from a task: nothing runs until the
+    // inserting script has ended.
+    page.scripts["https://example.test/later.js"] = "out.push('later ran');";
+    page.eval("out = []; var t = document.createElement('script'); t.src = 'https://example.test/later.js';"
+              " document.body.appendChild(t); out.push('inserted'); t.addEventListener('load', function () { out.push('load listener'); });");
+    CHECK_EQ(page.string("out.join('|')"), "inserted");
+    while (page.realm->run_pending()) { }
+    CHECK_EQ(page.string("out.join('|')"), "inserted|later ran|load listener");
+    // One that cannot be had fires error, in its turn as well.
+    page.eval("out = []; var u = document.createElement('script'); u.src = 'https://example.test/missing.js';"
+              " document.body.appendChild(u); u.onerror = function () { out.push('error handler'); }; out.push('inserted');");
+    while (page.realm->run_pending()) { }
+    CHECK_EQ(page.string("out.join('|')"), "inserted|error handler");
+}
+
+// The cue interfaces a player's caption code builds (HTML §4.8.11.11.4,
+// WebVTT §6): a VTTCue's settings with their rules, and its text as nodes.
+void test_text_track_cues()
+{
+    Page page("<!DOCTYPE html><body></body>");
+    page.load();
+    page.eval("var c = new VTTCue(1, 2.5, '<v.loud Mary>Hi &amp; <i>bye</i> <00:01.500>now');");
+    CHECK(page.boolean("c instanceof TextTrackCue && c instanceof EventTarget"));
+    CHECK_EQ(page.string("[c.startTime, c.endTime, c.id, c.pauseOnExit, c.track].join('|')"), "1|2.5||false|");
+    CHECK_EQ(page.string("[c.vertical, c.snapToLines, c.line, c.lineAlign, c.position, c.positionAlign, c.size, c.align, c.region].join('|')"),
+        "|true|auto|start|auto|auto|100|center|");
+    // An enumeration keeps what it had when given a word it does not have.
+    CHECK_EQ(page.string("c.align = 'bogus'; c.vertical = 'rl'; c.vertical = 'up'; c.align + ' ' + c.vertical"), "center rl");
+    CHECK_EQ(page.string("c.line = 3; c.position = 30; c.size = 50; [c.line, c.position, c.size].join('|')"), "3|30|50");
+    CHECK_EQ(page.string("c.line = 'auto'; c.position = 'auto'; c.line + ' ' + c.position"), "auto auto");
+    CHECK_EQ(page.throws("c.size = 101"), "IndexSizeError: The value provided is outside the range [0, 100].");
+    CHECK_EQ(page.throws("c.position = -1"), "IndexSizeError: The value provided is outside the range [0, 100].");
+    CHECK(page.boolean("(function () { try { new VTTCue(0, 1); return false; } catch (e) { return e instanceof TypeError; } })()"));
+    CHECK(page.boolean("(function () { try { c.startTime = Infinity; return false; } catch (e) { return e instanceof TypeError; } })()"));
+    CHECK(page.boolean("c.endTime = Infinity, c.endTime === Infinity"));
+    CHECK_EQ(page.string("var d = document.createElement('div'); d.appendChild(c.getCueAsHTML()); d.innerHTML"),
+        "<span class=\"loud\" title=\"Mary\">Hi &amp; <i>bye</i> <?timestamp 00:00:01.500>now</span>");
+    CHECK_EQ(page.string("var r = new VTTRegion(); r.scroll = 'up'; r.scroll = 'sideways'; c.region = r;"
+                         " [r.width, r.lines, r.regionAnchorX, r.regionAnchorY, r.viewportAnchorX, r.viewportAnchorY, r.scroll, c.region === r].join('|')"),
+        "100|3|0|100|0|100|up|true");
+    CHECK_EQ(page.console, "");
+}
+
 // The Audio constructor (HTML §4.8.11) makes a preload="auto" element off
 // the tree, its src content attribute set only when a caller gave one.
 void test_the_audio_constructor()
@@ -5576,6 +5723,10 @@ int main()
     test_platform_objects_and_message_arrivals();
     test_a_frame_measures_itself();
     test_the_computed_appearance();
+    test_interface_constructors_make_what_new_target_names();
+    test_blob_urls_are_fetched_from_the_store();
+    test_an_inserted_script_runs_after_the_script_that_inserted_it();
+    test_text_track_cues();
     test_the_audio_constructor();
     test_interfaces_that_promise();
     test_the_small_things_a_page_asks_for();
