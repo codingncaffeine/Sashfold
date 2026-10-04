@@ -52,6 +52,25 @@ bool is_ascii_letter(char32_t c)
     return (c >= U'a' && c <= U'z') || (c >= U'A' && c <= U'Z');
 }
 
+// A letter, digit, `$` or `_`: an identifier character below 0x80.
+constexpr std::array<bool, 128> ascii_identifier_parts = [] {
+    std::array<bool, 128> parts {};
+    for (char16_t c = u'a'; c <= u'z'; ++c)
+        parts[c] = true;
+    for (char16_t c = u'A'; c <= u'Z'; ++c)
+        parts[c] = true;
+    for (char16_t c = u'0'; c <= u'9'; ++c)
+        parts[c] = true;
+    parts[u'$'] = true;
+    parts[u'_'] = true;
+    return parts;
+}();
+
+bool is_ascii_identifier_part(char16_t c)
+{
+    return ascii_identifier_parts[c];
+}
+
 bool is_high_surrogate(char32_t c)
 {
     return c >= 0xD800 && c <= 0xDBFF;
@@ -119,6 +138,12 @@ public:
         for (std::size_t i = 0; i < units; ++i)
             advance();
     }
+    // Consumes units the caller knows hold no line terminator.
+    void advance_within_line(std::size_t units)
+    {
+        m_state.offset += units;
+        m_state.column += static_cast<std::uint32_t>(units);
+    }
     bool eat(char16_t c)
     {
         if (peek() != static_cast<char32_t>(c))
@@ -140,11 +165,10 @@ private:
     Lexer::State& m_state;
 };
 
-Token invalid(Token token, std::string message)
+void invalid(Token& token, std::string message)
 {
     token.type = TokenType::Invalid;
     token.message = std::move(message);
-    return token;
 }
 
 void skip_to_line_end(Scanner& s)
@@ -308,11 +332,50 @@ constexpr std::array<KeywordEntry, 36> keyword_table { {
     { u"with", Keyword::With },
 } };
 
+// Where the table's words of each first letter begin and end: the table is
+// in alphabetical order, so a name is compared with those few alone.
+struct KeywordRange {
+    std::uint8_t begin = 0;
+    std::uint8_t end = 0;
+};
+constexpr std::array<KeywordRange, 26> keyword_ranges = [] {
+    std::array<KeywordRange, 26> ranges {};
+    for (std::size_t i = 0; i < keyword_table.size(); ++i) {
+        KeywordRange& range = ranges[static_cast<std::size_t>(keyword_table[i].text[0] - u'a')];
+        if (range.begin == range.end)
+            range.begin = static_cast<std::uint8_t>(i);
+        range.end = static_cast<std::uint8_t>(i + 1);
+    }
+    return ranges;
+}();
+
 // IdentifierName (§12.7): the escapes are decoded into the name and
 // flagged, and a name spelled with an escape is never a keyword (§12.7.2:
 // an escaped ReservedWord is a Syntax Error, which the parser raises).
-Token scan_identifier(Scanner& s, Token token)
+void scan_identifier(Scanner& s, Token& token)
 {
+    // Nearly every name is ASCII with no escape: its characters are taken
+    // in one run and copied once. Anything else is read a code point at a
+    // time below, from the start.
+    {
+        std::u16string_view const source = s.source();
+        std::size_t const start = s.offset();
+        std::size_t end = start;
+        while (end < source.size() && source[end] < 0x80 && is_ascii_identifier_part(source[end]))
+            ++end;
+        bool const plain = end > start && !is_decimal_digit(source[start])
+            && (end == source.size() || (source[end] < 0x80 && source[end] != u'\\'));
+        if (plain) {
+            token.type = TokenType::Identifier;
+            token.value.assign(source.substr(start, end - start));
+            s.advance_within_line(end - start);
+            if (std::optional<Keyword> const keyword = Lexer::keyword_for(token.value)) {
+                token.type = TokenType::Keyword;
+                token.keyword = *keyword;
+            }
+            return;
+        }
+    }
     std::u16string name;
     bool escaped = false;
     bool first = true;
@@ -320,7 +383,7 @@ Token scan_identifier(Scanner& s, Token token)
         if (s.peek() == U'\\') {
             if (s.peek(1) != U'u') {
                 s.advance(); // the error still consumes something: a caller that goes on makes progress
-                return invalid(std::move(token), "Invalid or unexpected token");
+                return invalid(token, "Invalid or unexpected token");
             }
             s.advance(2);
             bool too_large = false;
@@ -328,9 +391,9 @@ Token scan_identifier(Scanner& s, Token token)
             // §12.7.1 early errors: the escaped code point must itself be
             // an identifier character in that position.
             if (!code_point)
-                return invalid(std::move(token), too_large ? "Undefined Unicode code-point" : "Invalid Unicode escape sequence");
+                return invalid(token, too_large ? "Undefined Unicode code-point" : "Invalid Unicode escape sequence");
             if (!(first ? Lexer::is_identifier_start(*code_point) : Lexer::is_identifier_part(*code_point)))
-                return invalid(std::move(token), "Invalid or unexpected token");
+                return invalid(token, "Invalid or unexpected token");
             append_code_point(name, *code_point);
             escaped = true;
         } else {
@@ -352,7 +415,6 @@ Token scan_identifier(Scanner& s, Token token)
             token.keyword = *keyword;
         }
     }
-    return token;
 }
 
 struct DigitRun {
@@ -446,7 +508,7 @@ double decimal_value(std::string const& integer, std::string const& fraction, st
 
 // NumericLiteral (§12.9.3, plus Annex B.1.1's legacy octal and 08/09
 // forms). `s` sits on a digit, or on a `.` followed by one.
-Token scan_number(Scanner& s, Token token)
+void scan_number(Scanner& s, Token& token)
 {
     std::size_t const start = s.offset();
     std::string integer;
@@ -464,9 +526,9 @@ Token scan_number(Scanner& s, Token token)
         s.advance(2);
         DigitRun const run = scan_digits(s, hex ? is_hex_digit : octal ? is_octal_digit : is_binary_digit, integer);
         if (run.error)
-            return invalid(std::move(token), *run.error);
+            return invalid(token, *run.error);
         if (run.count == 0)
-            return invalid(std::move(token), "Invalid or unexpected token");
+            return invalid(token, "Invalid or unexpected token");
         value = power_of_two_value(integer, hex ? 4 : octal ? 3 : 1);
         decimal = false;
     } else if (s.peek() == U'0' && is_decimal_digit(prefix)) {
@@ -492,11 +554,11 @@ Token scan_number(Scanner& s, Token token)
         integer.push_back('0');
         s.advance();
         if (s.peek() == U'_')
-            return invalid(std::move(token), "Numeric separator can not be used after leading 0.");
+            return invalid(token, "Numeric separator can not be used after leading 0.");
     } else if (is_decimal_digit(s.peek())) {
         DigitRun const run = scan_digits(s, is_decimal_digit, integer);
         if (run.error)
-            return invalid(std::move(token), *run.error);
+            return invalid(token, *run.error);
     }
 
     if (decimal) {
@@ -505,7 +567,7 @@ Token scan_number(Scanner& s, Token token)
             bigint_allowed = false;
             DigitRun const run = scan_digits(s, is_decimal_digit, fraction);
             if (run.error)
-                return invalid(std::move(token), *run.error);
+                return invalid(token, *run.error);
         }
         if (s.peek() == U'e' || s.peek() == U'E') {
             s.advance();
@@ -516,9 +578,9 @@ Token scan_number(Scanner& s, Token token)
             }
             DigitRun const run = scan_digits(s, is_decimal_digit, exponent);
             if (run.error)
-                return invalid(std::move(token), *run.error);
+                return invalid(token, *run.error);
             if (run.count == 0)
-                return invalid(std::move(token), "Invalid or unexpected token");
+                return invalid(token, "Invalid or unexpected token");
         }
         value = decimal_value(integer, fraction, exponent);
     }
@@ -535,24 +597,23 @@ Token scan_number(Scanner& s, Token token)
     std::size_t units = 0;
     char32_t const following = s.code_point(&units);
     if (following == U'\\' || is_decimal_digit(following) || Lexer::is_identifier_start(following))
-        return invalid(std::move(token), "Invalid or unexpected token");
+        return invalid(token, "Invalid or unexpected token");
 
     if (is_bigint) {
         token.type = TokenType::BigInt;
         token.value = std::u16string(integer.begin(), integer.end());
         token.radix = hex ? 16 : octal ? 8 : binary ? 2 : 10;
-        return token;
+        return;
     }
     token.type = TokenType::Number;
     token.value = std::u16string(s.source().substr(start, s.offset() - start));
     token.number = value;
-    return token;
 }
 
 // StringLiteral (§12.9.4, escapes per Annex B.1.2). A raw LF or CR ends
 // the literal as an error; LS and PS are ordinary string characters since
 // ES2019.
-Token scan_string(Scanner& s, Token token)
+void scan_string(Scanner& s, Token& token)
 {
     char32_t const quote = s.peek();
     s.advance();
@@ -560,7 +621,7 @@ Token scan_string(Scanner& s, Token token)
     while (true) {
         char32_t const c = s.peek();
         if (c == eof_sentinel || c == U'\n' || c == U'\r')
-            return invalid(std::move(token), "Invalid or unexpected token");
+            return invalid(token, "Invalid or unexpected token");
         if (c == quote) {
             s.advance();
             break;
@@ -574,7 +635,7 @@ Token scan_string(Scanner& s, Token token)
         s.advance();
         char32_t const e = s.peek();
         if (e == eof_sentinel)
-            return invalid(std::move(token), "Invalid or unexpected token");
+            return invalid(token, "Invalid or unexpected token");
         if (Lexer::is_line_terminator(e)) {
             s.advance(); // LineContinuation: contributes nothing (a CR LF is one)
             continue;
@@ -601,7 +662,7 @@ Token scan_string(Scanner& s, Token token)
             break;
         case U'x': {
             if (!is_hex_digit(s.peek()) || !is_hex_digit(s.peek(1)))
-                return invalid(std::move(token), "Invalid hexadecimal escape sequence");
+                return invalid(token, "Invalid hexadecimal escape sequence");
             int const v = hex_value(s.peek()) * 16 + hex_value(s.peek(1));
             s.advance(2);
             value.push_back(static_cast<char16_t>(v));
@@ -611,7 +672,7 @@ Token scan_string(Scanner& s, Token token)
             bool too_large = false;
             std::optional<char32_t> const code_point = scan_unicode_escape(s, &too_large);
             if (!code_point)
-                return invalid(std::move(token), too_large ? "Undefined Unicode code-point" : "Invalid Unicode escape sequence");
+                return invalid(token, too_large ? "Undefined Unicode code-point" : "Invalid Unicode escape sequence");
             append_code_point(value, *code_point);
             break;
         }
@@ -657,7 +718,6 @@ Token scan_string(Scanner& s, Token token)
     }
     token.type = TokenType::String;
     token.value = std::move(value);
-    return token;
 }
 
 // Appends source[from, to) to a template's raw text with CR and CR LF
@@ -681,7 +741,7 @@ void append_raw(std::u16string& raw, std::u16string_view text, std::size_t from,
 // escape (NotEscapeSequence) does not end the span: a tagged template
 // accepts it with an undefined cooked value, so the span reports
 // cooked_valid false and the parser decides.
-Token scan_template_span(Scanner& s, Token token)
+void scan_template_span(Scanner& s, Token& token)
 {
     std::u16string cooked;
     std::u16string raw;
@@ -695,7 +755,7 @@ Token scan_template_span(Scanner& s, Token token)
     while (true) {
         char32_t const c = s.peek();
         if (c == eof_sentinel)
-            return invalid(std::move(token), "Unexpected end of input");
+            return invalid(token, "Unexpected end of input");
         if (c == U'`') {
             s.advance();
             token.template_tail = true;
@@ -722,7 +782,7 @@ Token scan_template_span(Scanner& s, Token token)
         s.advance();
         char32_t const e = s.peek();
         if (e == eof_sentinel)
-            return invalid(std::move(token), "Unexpected end of input");
+            return invalid(token, "Unexpected end of input");
         s.advance();
         if (!Lexer::is_line_terminator(e)) {
             switch (e) {
@@ -794,14 +854,13 @@ Token scan_template_span(Scanner& s, Token token)
     else
         token.message = std::move(cooked_error);
     token.raw = std::move(raw);
-    return token;
 }
 
 // RegularExpressionLiteral (§12.9.5): the body runs to the first `/` that
 // is neither escaped nor inside a class; a line terminator cannot appear
 // even escaped. The flags are whatever IdentifierPartChars follow — their
 // validity is the parser's early error.
-Token scan_regex(Scanner& s, Token token)
+void scan_regex(Scanner& s, Token& token)
 {
     s.advance(); // the opening slash
     std::u16string body;
@@ -809,12 +868,12 @@ Token scan_regex(Scanner& s, Token token)
     while (true) {
         char32_t const c = s.peek();
         if (c == eof_sentinel || Lexer::is_line_terminator(c))
-            return invalid(std::move(token), "Invalid regular expression: missing /");
+            return invalid(token, "Invalid regular expression: missing /");
         if (c == U'\\') {
             s.advance();
             char32_t const e = s.peek();
             if (e == eof_sentinel || Lexer::is_line_terminator(e))
-                return invalid(std::move(token), "Invalid regular expression: missing /");
+                return invalid(token, "Invalid regular expression: missing /");
             body.push_back(u'\\');
             body.push_back(static_cast<char16_t>(e));
             s.advance();
@@ -843,13 +902,12 @@ Token scan_regex(Scanner& s, Token token)
     token.type = TokenType::RegExp;
     token.value = std::move(body);
     token.raw = std::move(flags);
-    return token;
 }
 
 // Punctuator (§12.8), longest match first. Anything else is an Invalid
 // token that consumes one code point, so a caller that keeps going still
 // makes progress.
-Token scan_punctuator(Scanner& s, Token token)
+void scan_punctuator(Scanner& s, Token& token)
 {
     char32_t const c = s.peek();
     char32_t const c1 = s.peek(1);
@@ -1069,12 +1127,11 @@ Token scan_punctuator(Scanner& s, Token token)
         char32_t const code_point = s.code_point(&units);
         s.advance(units);
         (void)code_point;
-        return invalid(std::move(token), "Invalid or unexpected token");
+        return invalid(token, "Invalid or unexpected token");
     }
     s.advance(length);
     token.type = TokenType::Punctuator;
     token.punctuator = p;
-    return token;
 }
 
 } // namespace
@@ -1084,19 +1141,18 @@ namespace {
 // PrivateIdentifier (§12.7): `#` and an IdentifierName — any name, a
 // reserved word included. The `#` stays in the value, so a private name
 // reads as it is written and never collides with a property name.
-Token scan_private_name(Scanner& s, Token token)
+void scan_private_name(Scanner& s, Token& token)
 {
     s.advance(); // #
     std::size_t units = 0;
     char32_t const c = s.code_point(&units);
     if (!(c == U'\\' || Lexer::is_identifier_start(c)))
-        return invalid(std::move(token), "Invalid or unexpected token");
-    token = scan_identifier(s, std::move(token));
+        return invalid(token, "Invalid or unexpected token");
+    scan_identifier(s, token);
     if (token.type == TokenType::Invalid)
-        return token;
+        return;
     token.type = TokenType::PrivateName;
     token.value.insert(token.value.begin(), u'#');
-    return token;
 }
 
 } // namespace
@@ -1107,56 +1163,96 @@ Lexer::Lexer(std::u16string_view source, bool html_comments)
 {
 }
 
+namespace {
+
+// A token made empty again — every field as Token's own initializers have
+// it — with its strings' storage kept for the next one.
+void reset(Token& token)
+{
+    token.type = TokenType::EndOfInput;
+    token.keyword = Keyword::Break;
+    token.punctuator = Punctuator::Semicolon;
+    token.value.clear();
+    token.raw.clear();
+    token.number = 0;
+    token.radix = 10;
+    token.position = SourcePosition {};
+    token.end_offset = 0;
+    token.newline_before = false;
+    token.has_escape = false;
+    token.template_tail = false;
+    token.cooked_valid = true;
+    token.legacy_octal = false;
+    token.message.clear();
+}
+
+}
+
 Token Lexer::next(bool regex_allowed)
 {
+    Token token;
+    next_into(token, regex_allowed);
+    return token;
+}
+
+Token Lexer::next_template_continuation()
+{
+    Token token;
+    next_template_continuation_into(token);
+    return token;
+}
+
+void Lexer::next_into(Token& token, bool regex_allowed)
+{
+    reset(token);
     Scanner scanner(m_source, m_state);
     Trivia const trivia = skip_trivia(scanner, m_html_comments);
-    Token token;
     token.newline_before = trivia.newline;
     token.position = scanner.position();
     if (trivia.unterminated_comment) {
         token.position = trivia.comment_start;
-        token = invalid(std::move(token), "Invalid or unexpected token");
+        invalid(token, "Invalid or unexpected token");
     } else {
         std::size_t units = 0;
         char32_t const c = scanner.code_point(&units);
         if (c == eof_sentinel)
             token.type = TokenType::EndOfInput;
         else if (c == U'\\' || is_identifier_start(c))
-            token = scan_identifier(scanner, std::move(token));
+            scan_identifier(scanner, token);
         else if (c == U'#')
-            token = scan_private_name(scanner, std::move(token));
+            scan_private_name(scanner, token);
         else if (is_decimal_digit(c) || (c == U'.' && is_decimal_digit(scanner.peek(1))))
-            token = scan_number(scanner, std::move(token));
+            scan_number(scanner, token);
         else if (c == U'"' || c == U'\'')
-            token = scan_string(scanner, std::move(token));
+            scan_string(scanner, token);
         else if (c == U'`') {
             scanner.advance();
-            token = scan_template_span(scanner, std::move(token));
+            scan_template_span(scanner, token);
         } else if (c == U'/' && regex_allowed)
-            token = scan_regex(scanner, std::move(token));
+            scan_regex(scanner, token);
         else
-            token = scan_punctuator(scanner, std::move(token));
+            scan_punctuator(scanner, token);
     }
     token.end_offset = static_cast<std::uint32_t>(scanner.offset());
-    return token;
 }
 
-Token Lexer::next_template_continuation()
+void Lexer::next_template_continuation_into(Token& token)
 {
+    reset(token);
     Scanner scanner(m_source, m_state);
-    Token token;
     token.position = scanner.position();
-    token = scan_template_span(scanner, std::move(token));
+    scan_template_span(scanner, token);
     token.end_offset = static_cast<std::uint32_t>(scanner.offset());
-    return token;
 }
 
 std::optional<Keyword> Lexer::keyword_for(std::u16string_view name)
 {
-    for (KeywordEntry const& entry : keyword_table) {
-        if (entry.text == name)
-            return entry.keyword;
+    if (name.size() < 2 || name[0] < u'a' || name[0] > u'z')
+        return std::nullopt;
+    KeywordRange const range = keyword_ranges[static_cast<std::size_t>(name[0] - u'a')];
+    for (std::size_t i = range.begin; i < range.end; ++i) {
+        if (keyword_table[i].text == name)
+            return keyword_table[i].keyword;
     }
     return std::nullopt;
 }

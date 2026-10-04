@@ -615,6 +615,13 @@ void test_identifiers()
     CHECK(first(u"\U0001D400x").value == u"\U0001D400x");
     CHECK(first(u"a‍b‌c").value == u"a‍b‌c");
     CHECK_TOKENS(u"é è", { { Id, u"é" }, { Id, u"è" } });
+    // A name's ASCII run is taken whole; a non-ASCII letter or an escape
+    // after it continues the same name, and a keyword's spelling continued
+    // is a name.
+    CHECK(first(u"café").value == u"café");
+    CHECK_EQ(first(u"ifé").type == Id, true);
+    CHECK(first(u"ifé").value == u"ifé");
+    CHECK_TOKENS(u"in\\u0061 x", { { Id, u"ina" }, { Id, u"x" } });
     // The character classes.
     CHECK(Lexer::is_identifier_start(U'a'));
     CHECK(Lexer::is_identifier_start(U'Z'));

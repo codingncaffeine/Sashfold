@@ -150,6 +150,8 @@ struct Token {
     bool cooked_valid = true; // a template span with a bad escape has no cooked value (§12.9.6.1)
     bool legacy_octal = false; // a number like 017 or a string with \1: forbidden in strict code
     std::string message; // when Invalid
+    // (Lexer::next_into empties a token field by field: a field added here
+    // is added to its reset too.)
 
     bool is(Punctuator p) const { return type == TokenType::Punctuator && punctuator == p; }
     bool is(Keyword k) const { return type == TokenType::Keyword && keyword == k; }
@@ -168,6 +170,10 @@ public:
     // After the parser has consumed the `}` closing a `${…}` substitution,
     // the remainder of the template is lexed with this instead of next().
     Token next_template_continuation();
+    // The same into a token the caller keeps, whose strings' storage is
+    // reused: the parser's current token, one per token read.
+    void next_into(Token&, bool regex_allowed);
+    void next_template_continuation_into(Token&);
 
     struct State {
         std::size_t offset = 0;

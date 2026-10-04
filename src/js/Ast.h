@@ -24,6 +24,7 @@
 #include <deque>
 #include <memory>
 #include <memory_resource>
+#include <new>
 #include <string>
 #include <unordered_map>
 #include <utility>
@@ -51,20 +52,21 @@ struct SourcePosition {
     std::uint32_t column = 1;
 };
 
-// The arena a Program's scopes keep their bindings in: memory handed out
-// by bumping a pointer through chunks and never freed one piece at a time,
-// but cut back to an earlier mark when the parser lets go of a body, so
-// that the next body reuses it. Under the address sanitizer what is cut
-// back is poisoned, so a pointer kept into it is caught.
-class ScopeArena final : public std::pmr::memory_resource {
+// An arena a Program keeps its tree in — the nodes, and the scopes'
+// bindings: memory handed out by bumping a pointer through chunks and never
+// freed one piece at a time, but cut back to an earlier mark when the
+// parser lets go of a body, so that the next body reuses it. Under the
+// address sanitizer what is cut back is poisoned, so a pointer kept into it
+// is caught.
+class TreeArena final : public std::pmr::memory_resource {
 public:
     struct Mark {
         std::size_t chunk = 0;
         std::size_t used = 0;
     };
-    ScopeArena() = default;
-    ScopeArena(ScopeArena const&) = delete;
-    ScopeArena& operator=(ScopeArena const&) = delete;
+    TreeArena() = default;
+    TreeArena(TreeArena const&) = delete;
+    TreeArena& operator=(TreeArena const&) = delete;
 
     Mark mark() const { return Mark { m_current, m_used }; }
     void release_to(Mark mark)
@@ -1221,22 +1223,28 @@ public:
     // its free names in, by name, built the first time one is looked in.
     std::unordered_map<ScopeInfo const*, std::unordered_map<JsString const*, std::uint32_t>> binding_indexes;
 
+    Program() = default;
+    Program(Program const&) = delete;
+    Program& operator=(Program const&) = delete;
+    ~Program() { destroy_nodes_from(0); }
+
     ScopeInfo* make_scope(ScopeInfo::Kind kind, std::uint32_t start)
     {
-        ScopeInfo& scope_info = m_scopes.emplace_back(&m_scope_arena);
+        ScopeInfo& scope_info = m_scopes.emplace_back(&m_arena);
         scope_info.kind = kind;
         scope_info.start = start;
         return &scope_info;
     }
     std::deque<ScopeInfo> const& scopes() const { return m_scopes; }
 
+    // A node lives in the arena; the list is what its destructor is run
+    // from, for the lists a node holds.
     template<typename T>
     T* make()
     {
-        auto node = std::make_unique<T>();
-        T* raw = node.get();
-        m_nodes.push_back(std::move(node));
-        return raw;
+        T* node = new (m_arena.allocate(sizeof(T), alignof(T))) T();
+        m_nodes.push_back(node);
+        return node;
     }
     FunctionNode* make_function()
     {
@@ -1266,28 +1274,35 @@ public:
         std::size_t functions = 0;
         std::size_t classes = 0;
         std::size_t scopes = 0;
-        ScopeArena::Mark arena;
+        TreeArena::Mark arena;
     };
-    Mark mark() const { return Mark { m_nodes.size(), m_functions.size(), m_classes.size(), m_scopes.size(), m_scope_arena.mark() }; }
+    Mark mark() const { return Mark { m_nodes.size(), m_functions.size(), m_classes.size(), m_scopes.size(), m_arena.mark() }; }
     void release_to(Mark const& mark)
     {
-        m_nodes.resize(mark.nodes);
+        destroy_nodes_from(mark.nodes);
         m_functions.resize(mark.functions);
         m_classes.resize(mark.classes);
         while (m_scopes.size() > mark.scopes)
             m_scopes.pop_back();
-        m_scope_arena.release_to(mark.arena);
+        m_arena.release_to(mark.arena);
     }
 
 private:
-    std::vector<std::unique_ptr<Node>> m_nodes;
+    void destroy_nodes_from(std::size_t first)
+    {
+        for (std::size_t i = m_nodes.size(); i > first; --i)
+            m_nodes[i - 1]->~Node();
+        m_nodes.resize(first);
+    }
+
+    // The nodes and the scopes' bindings, allocated from one arena that goes
+    // with the Program (they live exactly as long) and is cut back with them;
+    // the scopes in a deque, since the parser keeps pointers while it adds
+    // more. Declared first, so it is the last to go.
+    TreeArena m_arena;
+    std::vector<Node*> m_nodes;
     std::vector<std::unique_ptr<FunctionNode>> m_functions;
     std::vector<std::unique_ptr<ClassNode>> m_classes;
-    // The scopes' bindings, allocated from one arena that goes with the
-    // Program (the scopes live exactly as long) and is cut back with them;
-    // the scopes in a deque, since the parser keeps pointers while it adds
-    // more.
-    ScopeArena m_scope_arena;
     std::deque<ScopeInfo> m_scopes;
 };
 

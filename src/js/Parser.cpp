@@ -998,7 +998,7 @@ void Parser::Impl::advance()
     bool const regex_allowed = !ends_expression(m_current);
     m_current_start = m_lexer.save();
     m_current_regex_allowed = regex_allowed;
-    m_current = m_lexer.next(regex_allowed);
+    m_lexer.next_into(m_current, regex_allowed);
 }
 
 // Lexes the current token again with the other reading of `/`.
@@ -1006,7 +1006,7 @@ void Parser::Impl::relex(bool regex_allowed)
 {
     m_lexer.restore(m_current_start);
     m_current_regex_allowed = regex_allowed;
-    m_current = m_lexer.next(regex_allowed);
+    m_lexer.next_into(m_current, regex_allowed);
 }
 
 Parser::Impl::Snapshot Parser::Impl::snapshot() const
@@ -3185,7 +3185,7 @@ Expression* Parser::Impl::parse_template(bool tagged)
         m_previous_end = m_current.end_offset;
         m_current_start = m_lexer.save();
         m_current_regex_allowed = false;
-        m_current = m_lexer.next_template_continuation();
+        m_lexer.next_template_continuation_into(m_current);
     }
     leave();
     return finish(literal);
@@ -3268,7 +3268,7 @@ bool Parser::Impl::looks_like_arrow_head()
                 m_previous_end = m_current.end_offset;
                 m_current_start = m_lexer.save();
                 m_current_regex_allowed = false;
-                m_current = m_lexer.next_template_continuation();
+                m_lexer.next_template_continuation_into(m_current);
                 continue;
             }
             if (m_current.is(Punctuator::LeftBrace)) {
