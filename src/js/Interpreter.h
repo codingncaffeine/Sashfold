@@ -172,12 +172,20 @@ public:
     // `globalThis` names. The global object itself unless the host gives
     // another — a browser's WindowProxy, which stands for the window.
     Object* global_this = nullptr;
+    // The natives of this realm that carry state of their own, kept here
+    // while each is a description (define_method and its kin given a
+    // closure): the description says which by its number, and the function,
+    // if one is ever made, calls it from here. A deque: a closure running
+    // may define another, and must not move under itself. Its captures are
+    // not traced, as they never were.
+    std::deque<NativeFunction::Callback> native_closures;
 
     void trace(Tracer&) override;
     std::size_t size_in_bytes() const override
     {
         return sizeof(*this) + var_names.size() * sizeof(JsString*)
-            + (template_objects.size() + modules.size() + module_programs.size()) * 2 * sizeof(void*);
+            + (template_objects.size() + modules.size() + module_programs.size()) * 2 * sizeof(void*)
+            + native_closures.size() * sizeof(NativeFunction::Callback);
     }
 };
 
@@ -406,6 +414,13 @@ public:
     // calls the virtual instead silently skips the trap.
     // Outer nullopt = a throw; inner = absent.
     std::optional<std::optional<PropertyDescriptor>> get_own_property(Object&, PropertyKey const&);
+    // What the listing operations ask of [[GetOwnProperty]] — is there such
+    // an own property, and is it enumerable (for-in, Object.keys and its
+    // kin, spread, JSON) — answered for a property whose value is not made
+    // yet without making it: listing an object's keys builds none of its
+    // functions. nullopt = a throw.
+    enum class Listed : std::uint8_t { Absent, Hidden, Enumerable };
+    std::optional<Listed> own_enumerability(Object&, PropertyKey const&);
     // [[DefineOwnProperty]]: the array-length conversion of ArraySetLength
     // and a typed array's ToNumber happen here too. false = rejected.
     std::optional<bool> define_own_property(Object&, PropertyKey const&, PropertyDescriptor const&);

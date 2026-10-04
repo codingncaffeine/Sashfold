@@ -108,78 +108,174 @@ std::optional<css::SelectorList> parse_selector(Realm::Internals&, std::string_v
 std::vector<dom::Node*> query_all(dom::Node& root, css::SelectorList const& list, bool first_only);
 
 // --- Accessor templates --------------------------------------------------------------
+//
+// Each gives a member its receiver as the node, element or document it is,
+// and is itself a plain function when what it is given captures nothing —
+// which is what lets the member be a description until a script asks for
+// its function (Internal.h, define_plain_attribute). A reader or body that
+// does capture keeps a closure, as before.
+
+template<typename Read>
+Native read_node(js::Interpreter& interpreter, js::Value const& this_value, Read const& read)
+{
+    std::optional<dom::Node*> const node = this_node(interpreter, this_value);
+    if (!node)
+        return std::nullopt;
+    return read(internals_of(interpreter), **node);
+}
+
+template<typename Write>
+Native write_node(js::Interpreter& interpreter, js::Value const& this_value, Args args, Write const& write)
+{
+    std::optional<dom::Node*> const node = this_node(interpreter, this_value);
+    if (!node)
+        return std::nullopt;
+    return write(internals_of(interpreter), **node, js::argument(args, 0));
+}
+
+template<typename Body>
+Native call_node(js::Interpreter& interpreter, js::Value const& this_value, Args args, Body const& body)
+{
+    std::optional<dom::Node*> const node = this_node(interpreter, this_value);
+    if (!node)
+        return std::nullopt;
+    return body(internals_of(interpreter), **node, args);
+}
+
+template<typename Read>
+Native read_element(js::Interpreter& interpreter, js::Value const& this_value, Read const& read)
+{
+    std::optional<dom::Element*> const element = this_element(interpreter, this_value);
+    if (!element)
+        return std::nullopt;
+    return read(internals_of(interpreter), **element);
+}
+
+template<typename Write>
+Native write_element(js::Interpreter& interpreter, js::Value const& this_value, Args args, Write const& write)
+{
+    std::optional<dom::Element*> const element = this_element(interpreter, this_value);
+    if (!element)
+        return std::nullopt;
+    return write(internals_of(interpreter), **element, js::argument(args, 0));
+}
+
+template<typename Body>
+Native call_element(js::Interpreter& interpreter, js::Value const& this_value, Args args, Body const& body)
+{
+    std::optional<dom::Element*> const element = this_element(interpreter, this_value);
+    if (!element)
+        return std::nullopt;
+    return body(internals_of(interpreter), **element, args);
+}
+
+template<typename Read>
+Native read_document(js::Interpreter& interpreter, js::Value const& this_value, Read const& read)
+{
+    std::optional<dom::Document*> const document = this_document(interpreter, this_value);
+    if (!document)
+        return std::nullopt;
+    return read(internals_of(interpreter), **document);
+}
+
+template<typename Write>
+Native write_document(js::Interpreter& interpreter, js::Value const& this_value, Args args, Write const& write)
+{
+    std::optional<dom::Document*> const document = this_document(interpreter, this_value);
+    if (!document)
+        return std::nullopt;
+    return write(internals_of(interpreter), **document, js::argument(args, 0));
+}
+
+template<typename Body>
+Native call_document(js::Interpreter& interpreter, js::Value const& this_value, Args args, Body const& body)
+{
+    std::optional<dom::Document*> const document = this_document(interpreter, this_value);
+    if (!document)
+        return std::nullopt;
+    return body(internals_of(interpreter), **document, args);
+}
 
 template<typename Read>
 void node_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, Read read)
 {
-    define_getter(in, prototype, name, [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
-        std::optional<dom::Node*> const node = this_node(interpreter, this_value);
-        if (!node)
-            return std::nullopt;
-        return read(internals_of(interpreter), **node);
-    });
+    if constexpr (Stateless<Read>) {
+        define_getter(in, prototype, name,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_node(interpreter, this_value, Read {}); });
+    } else {
+        define_getter(in, prototype, name,
+            [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_node(interpreter, this_value, read); });
+    }
 }
 
 template<typename Read, typename Write>
 void node_accessor(Realm::Internals& in, js::Object& prototype, std::string_view name, Read read, Write write)
 {
-    define_getter(
-        in, prototype, name,
-        [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
-            std::optional<dom::Node*> const node = this_node(interpreter, this_value);
-            if (!node)
-                return std::nullopt;
-            return read(internals_of(interpreter), **node);
-        },
-        [write](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
-            std::optional<dom::Node*> const node = this_node(interpreter, this_value);
-            if (!node)
-                return std::nullopt;
-            return write(internals_of(interpreter), **node, js::argument(args, 0));
-        });
+    if constexpr (Stateless<Read> && Stateless<Write>) {
+        define_getter(
+            in, prototype, name,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_node(interpreter, this_value, Read {}); },
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return write_node(interpreter, this_value, args, Write {});
+            });
+    } else {
+        define_getter(
+            in, prototype, name,
+            [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_node(interpreter, this_value, read); },
+            [write](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return write_node(interpreter, this_value, args, write);
+            });
+    }
 }
 
+// (An interface's operation runs in the realm of the object it is called
+// on: define_operation says so for every one.)
 template<typename Body>
 void node_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, Body body)
 {
-    define_operation(in.interpreter, prototype, name, length,
-        [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
-            std::optional<dom::Node*> const node = this_node(interpreter, this_value);
-            if (!node)
-                return std::nullopt;
-            return body(internals_of(interpreter), **node, args);
-        })
-        ->run_in_receivers_realm(); // the node it is called on says which realm
+    if constexpr (Stateless<Body>) {
+        define_operation(in.interpreter, prototype, name, length,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return call_node(interpreter, this_value, args, Body {});
+            });
+    } else {
+        define_operation(in.interpreter, prototype, name, length,
+            [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return call_node(interpreter, this_value, args, body);
+            });
+    }
 }
 
 template<typename Read>
 void element_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, Read read)
 {
-    define_getter(in, prototype, name, [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
-        std::optional<dom::Element*> const element = this_element(interpreter, this_value);
-        if (!element)
-            return std::nullopt;
-        return read(internals_of(interpreter), **element);
-    });
+    if constexpr (Stateless<Read>) {
+        define_getter(in, prototype, name,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_element(interpreter, this_value, Read {}); });
+    } else {
+        define_getter(in, prototype, name,
+            [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_element(interpreter, this_value, read); });
+    }
 }
 
 template<typename Read, typename Write>
 void element_accessor(Realm::Internals& in, js::Object& prototype, std::string_view name, Read read, Write write)
 {
-    define_getter(
-        in, prototype, name,
-        [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
-            std::optional<dom::Element*> const element = this_element(interpreter, this_value);
-            if (!element)
-                return std::nullopt;
-            return read(internals_of(interpreter), **element);
-        },
-        [write](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
-            std::optional<dom::Element*> const element = this_element(interpreter, this_value);
-            if (!element)
-                return std::nullopt;
-            return write(internals_of(interpreter), **element, js::argument(args, 0));
-        });
+    if constexpr (Stateless<Read> && Stateless<Write>) {
+        define_getter(
+            in, prototype, name,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_element(interpreter, this_value, Read {}); },
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return write_element(interpreter, this_value, args, Write {});
+            });
+    } else {
+        define_getter(
+            in, prototype, name,
+            [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_element(interpreter, this_value, read); },
+            [write](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return write_element(interpreter, this_value, args, write);
+            });
+    }
 }
 
 // An attribute declared [PutForwards=forward] (WebIDL §3.7.8): reading it
@@ -191,12 +287,7 @@ void element_forwarding_getter(Realm::Internals& in, js::Object& prototype, std:
 {
     define_getter(
         in, prototype, name,
-        [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
-            std::optional<dom::Element*> const element = this_element(interpreter, this_value);
-            if (!element)
-                return std::nullopt;
-            return read(internals_of(interpreter), **element);
-        },
+        [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_element(interpreter, this_value, read); },
         [read, forward = std::string(forward), name = std::string(name)](
             js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
             std::optional<dom::Element*> const element = this_element(interpreter, this_value);
@@ -218,57 +309,65 @@ void element_forwarding_getter(Realm::Internals& in, js::Object& prototype, std:
 template<typename Body>
 void element_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, Body body)
 {
-    define_operation(in.interpreter, prototype, name, length,
-        [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
-            std::optional<dom::Element*> const element = this_element(interpreter, this_value);
-            if (!element)
-                return std::nullopt;
-            return body(internals_of(interpreter), **element, args);
-        })
-        ->run_in_receivers_realm(); // the element it is called on says which realm
+    if constexpr (Stateless<Body>) {
+        define_operation(in.interpreter, prototype, name, length,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return call_element(interpreter, this_value, args, Body {});
+            });
+    } else {
+        define_operation(in.interpreter, prototype, name, length,
+            [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return call_element(interpreter, this_value, args, body);
+            });
+    }
 }
 
 template<typename Read>
 void document_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, Read read)
 {
-    define_getter(in, prototype, name, [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
-        std::optional<dom::Document*> const document = this_document(interpreter, this_value);
-        if (!document)
-            return std::nullopt;
-        return read(internals_of(interpreter), **document);
-    });
+    if constexpr (Stateless<Read>) {
+        define_getter(in, prototype, name,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_document(interpreter, this_value, Read {}); });
+    } else {
+        define_getter(in, prototype, name,
+            [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_document(interpreter, this_value, read); });
+    }
 }
 
 template<typename Read, typename Write>
 void document_accessor(Realm::Internals& in, js::Object& prototype, std::string_view name, Read read, Write write)
 {
-    define_getter(
-        in, prototype, name,
-        [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
-            std::optional<dom::Document*> const document = this_document(interpreter, this_value);
-            if (!document)
-                return std::nullopt;
-            return read(internals_of(interpreter), **document);
-        },
-        [write](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
-            std::optional<dom::Document*> const document = this_document(interpreter, this_value);
-            if (!document)
-                return std::nullopt;
-            return write(internals_of(interpreter), **document, js::argument(args, 0));
-        });
+    if constexpr (Stateless<Read> && Stateless<Write>) {
+        define_getter(
+            in, prototype, name,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_document(interpreter, this_value, Read {}); },
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return write_document(interpreter, this_value, args, Write {});
+            });
+    } else {
+        define_getter(
+            in, prototype, name,
+            [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_document(interpreter, this_value, read); },
+            [write](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return write_document(interpreter, this_value, args, write);
+            });
+    }
 }
 
 template<typename Body>
 void document_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, Body body)
 {
-    define_operation(in.interpreter, prototype, name, length,
-        [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
-            std::optional<dom::Document*> const document = this_document(interpreter, this_value);
-            if (!document)
-                return std::nullopt;
-            return body(internals_of(interpreter), **document, args);
-        })
-        ->run_in_receivers_realm(); // the document it is called on says which realm
+    if constexpr (Stateless<Body>) {
+        define_operation(in.interpreter, prototype, name, length,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return call_document(interpreter, this_value, args, Body {});
+            });
+    } else {
+        define_operation(in.interpreter, prototype, name, length,
+            [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return call_document(interpreter, this_value, args, body);
+            });
+    }
 }
 
 // The same two for an operation of Promise type: a wrong receiver or too
@@ -276,27 +375,33 @@ void document_method(Realm::Internals& in, js::Object& prototype, std::string_vi
 template<typename Body>
 void element_promise_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, Body body)
 {
-    define_promise_operation(in.interpreter, prototype, name, length,
-        [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
-            std::optional<dom::Element*> const element = this_element(interpreter, this_value);
-            if (!element)
-                return std::nullopt;
-            return body(internals_of(interpreter), **element, args);
-        })
-        ->run_in_receivers_realm();
+    if constexpr (Stateless<Body>) {
+        define_promise_operation(in.interpreter, prototype, name, length,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return call_element(interpreter, this_value, args, Body {});
+            });
+    } else {
+        define_promise_operation(in.interpreter, prototype, name, length,
+            [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return call_element(interpreter, this_value, args, body);
+            });
+    }
 }
 
 template<typename Body>
 void document_promise_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, Body body)
 {
-    define_promise_operation(in.interpreter, prototype, name, length,
-        [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
-            std::optional<dom::Document*> const document = this_document(interpreter, this_value);
-            if (!document)
-                return std::nullopt;
-            return body(internals_of(interpreter), **document, args);
-        })
-        ->run_in_receivers_realm();
+    if constexpr (Stateless<Body>) {
+        define_promise_operation(in.interpreter, prototype, name, length,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return call_document(interpreter, this_value, args, Body {});
+            });
+    } else {
+        define_promise_operation(in.interpreter, prototype, name, length,
+            [body](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return call_document(interpreter, this_value, args, body);
+            });
+    }
 }
 
 // A DOMRect for a box in client coordinates.

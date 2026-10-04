@@ -334,6 +334,13 @@ target_link_libraries(sashfold100 PRIVATE sashfold_core sashfold_warnings)
 add_executable(js_probe tools/js-probe.cpp)
 target_link_libraries(js_probe PRIVATE sashfold_core sashfold_warnings)
 
+# realm_cost says what the script world costs to make — an engine, a page's
+# realm, a frame, a parsed script — in time, memory and cells, with what was
+# described against what was made at once (tools/realm-cost.cpp). A build
+# tool, never shipped.
+add_executable(realm_cost tools/realm-cost.cpp)
+target_link_libraries(realm_cost PRIVATE sashfold_core sashfold_warnings)
+
 # png_diff says where two pictures differ and whether that is only inside
 # the boxes given (tools/png-diff.cpp): what a change to the chrome shows
 # before its goldens are blessed. A build tool, never shipped.

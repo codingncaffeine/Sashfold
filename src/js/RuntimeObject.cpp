@@ -27,18 +27,51 @@ using Args = std::span<Value const>;
 
 // ------------------------------------------------------------ helpers
 
-NativeFunction* define_method(Interpreter& in, Object& target, std::string_view name, int length, NativeFunction::Callback callback)
+std::uint32_t keep_native_closure(Interpreter& in, NativeFunction::Callback callback)
+{
+    std::deque<NativeFunction::Callback>& closures = in.current_realm()->native_closures;
+    closures.push_back(std::move(callback));
+    return static_cast<std::uint32_t>(closures.size() - 1);
+}
+
+std::optional<Value> closure_native(Interpreter& in, Value const& this_value, std::span<Value const> arguments)
+{
+    // The function called says which closure, and its own realm keeps it:
+    // the realm it was defined in, whatever realm the call runs in.
+    NativeFunction const* const function = in.active_native();
+    if (function == nullptr || function->spec() == nullptr || function->realm() == nullptr)
+        return in.throw_type_error("not a function");
+    std::deque<NativeFunction::Callback> const& closures = function->realm()->native_closures;
+    std::uint32_t const index = function->spec()->datum;
+    if (index >= closures.size() || !closures[index])
+        return in.throw_type_error("not a function");
+    return closures[index](in, this_value, arguments);
+}
+
+namespace {
+
+NativeSpec const& closure_spec(Interpreter& in, NativeFunction::Callback callback, int length)
+{
+    NativeSpec spec;
+    spec.call = closure_native;
+    spec.datum = keep_native_closure(in, std::move(callback));
+    spec.length = static_cast<std::uint8_t>(length);
+    return NativeSpec::intern(spec);
+}
+
+}
+
+DefinedMethod define_method(Interpreter& in, Object& target, std::string_view name, int length, NativeFunction::Callback callback)
 {
     return define_method(in, target, name, length, std::move(callback), builtin_attributes);
 }
 
-NativeFunction* define_method(Interpreter& in, Object& target, std::string_view name, int length, NativeFunction::Callback callback,
+DefinedMethod define_method(Interpreter& in, Object& target, std::string_view name, int length, NativeFunction::Callback callback,
     std::uint8_t attributes)
 {
-    Heap::NoCollect const guard(in.heap());
-    NativeFunction* function = in.new_native(name, length, std::move(callback));
-    target.put(in.key(name), Value::object(function), attributes);
-    return function;
+    PropertyKey const key = in.key(name);
+    target.put_lazy(key, closure_spec(in, std::move(callback), length), *in.current_realm(), attributes);
+    return DefinedMethod(target, key);
 }
 
 void define_accessor(Interpreter& in, Object& target, std::string_view name, NativeFunction::Callback getter, NativeFunction::Callback setter)
@@ -49,10 +82,9 @@ void define_accessor(Interpreter& in, Object& target, std::string_view name, Nat
 void define_accessor(Interpreter& in, Object& target, std::string_view name, NativeFunction::Callback getter, NativeFunction::Callback setter,
     std::uint8_t attributes)
 {
-    Heap::NoCollect const guard(in.heap());
-    NativeFunction* get = in.new_native("get " + std::string(name), 0, std::move(getter));
-    NativeFunction* set = setter ? in.new_native("set " + std::string(name), 1, std::move(setter)) : nullptr;
-    target.put_accessor(in.key(name), get, set, attributes);
+    NativeSpec const* const get = getter ? &closure_spec(in, std::move(getter), 0) : nullptr;
+    NativeSpec const* const set = setter ? &closure_spec(in, std::move(setter), 1) : nullptr;
+    target.put_lazy_accessor(in.key(name), get, set, *in.current_realm(), attributes);
 }
 
 DefinedMethod define_plain_method(Interpreter& in, Object& target, std::string_view name, int length, NativeFunction::Entry entry,
@@ -382,10 +414,10 @@ std::optional<Value> enumerable_own_properties(Interpreter& in, Object& object, 
     for (PropertyKey const& key : *keys) {
         if (key.is_symbol())
             continue;
-        std::optional<std::optional<PropertyDescriptor>> const desc = in.get_own_property(object, key);
-        if (!desc)
+        std::optional<Interpreter::Listed> const listed = in.own_enumerability(object, key);
+        if (!listed)
             return std::nullopt;
-        if (!*desc || !(*desc)->enumerable.value_or(false))
+        if (*listed != Interpreter::Listed::Enumerable)
             continue;
         Value const name = Value::string(in.heap().key_to_string(key));
         if (kind == OwnKind::Keys) {
@@ -458,10 +490,10 @@ void install_object_statics(Interpreter& in, Object& constructor)
             if (!keys)
                 return std::nullopt;
             for (PropertyKey const& key : *keys) {
-                std::optional<std::optional<PropertyDescriptor>> const desc = interp.get_own_property(**from, key);
-                if (!desc)
+                std::optional<Interpreter::Listed> const listed = interp.own_enumerability(**from, key);
+                if (!listed)
                     return std::nullopt;
-                if (!*desc || !(*desc)->enumerable.value_or(false))
+                if (*listed != Interpreter::Listed::Enumerable)
                     continue;
                 std::optional<Value> const value = interp.get(**from, key);
                 if (!value)
@@ -813,10 +845,10 @@ void install_object_prototype(Interpreter& in, Object& prototype)
         std::optional<Object*> const object = interp.to_object(this_value);
         if (!object)
             return std::nullopt;
-        std::optional<std::optional<PropertyDescriptor>> const desc = interp.get_own_property(**object, *key);
-        if (!desc)
+        std::optional<Interpreter::Listed> const listed = interp.own_enumerability(**object, *key);
+        if (!listed)
             return std::nullopt;
-        return Value::boolean(*desc && (*desc)->enumerable.value_or(false));
+        return Value::boolean(*listed == Interpreter::Listed::Enumerable);
     });
     define_method(in, prototype, "toLocaleString", 0, [](Interpreter& interp, Value const& this_value, Args) -> std::optional<Value> {
         return interp.invoke(this_value, PropertyKey::atom(interp.atoms().to_string), {});

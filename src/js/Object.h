@@ -76,31 +76,43 @@ struct PropertyDescriptor {
 };
 
 struct NativeSpec;
+struct Property;
 
-// One own property. A native method or accessor may be `lazy`: the
-// property is there — its key, its attributes, its place in the order — and
-// the function behind it is not made yet. What will make it stands where
-// the function will: the description of the method (or of the getter) and
-// of the setter, and the realm the functions will be of. Object::find_own
-// makes them before it hands the property to anyone, so only the storage's
-// own code ever sees one in this state.
+// What makes a data property's value the first time anything looks at the
+// property (Property::LazyValue): called once, with the object, the key and
+// the realm the property was defined in. It may run script and may define
+// other properties of the object, this one included; what it answers is the
+// value unless it has put one itself.
+using LazyValueMaker = Value (*)(Object& holder, PropertyKey const& key, RealmRecord& realm);
+
+// One own property. A property may be `lazy`: it is there — its key, its
+// attributes, its place in the order — and what it holds is not made yet.
+// A native method or accessor (LazyNative) keeps, where its function will
+// stand, the description of the method (or of the getter) and of the
+// setter; a value made on demand (LazyValue) keeps its maker; both keep
+// the realm they were defined in. Object::find_own makes the property
+// whole before it hands it to anyone, so only the storage's own code ever
+// sees one in this state.
 struct Property {
+    enum : std::uint8_t { NotLazy = 0, LazyNative = 1, LazyValue = 2 };
+
     PropertyKey key;
     union {
         Value value = {}; // data property
-        RealmRecord* lazy_realm; // lazy: the realm the function is made in
+        RealmRecord* lazy_realm; // lazy: the realm it is made in
     };
     union {
         Object* getter = nullptr; // accessor property
-        NativeSpec const* lazy_get; // lazy: the method's description, or the getter's
+        NativeSpec const* lazy_get; // LazyNative: the method's description, or the getter's
+        LazyValueMaker lazy_make; // LazyValue: what makes the value
     };
     union {
         Object* setter = nullptr;
-        NativeSpec const* lazy_set; // lazy: the setter's description, or null
+        NativeSpec const* lazy_set; // LazyNative: the setter's description, or null
     };
     std::uint8_t attributes = default_attributes;
     bool accessor = false;
-    bool lazy = false;
+    std::uint8_t lazy = NotLazy;
 
     bool writable() const { return (attributes & Writable) != 0; }
     bool enumerable() const { return (attributes & Enumerable) != 0; }
@@ -219,6 +231,10 @@ public:
     void put_lazy(PropertyKey const&, NativeSpec const& method, RealmRecord& realm, std::uint8_t attributes);
     void put_lazy_accessor(PropertyKey const&, NativeSpec const* getter, NativeSpec const* setter, RealmRecord& realm,
         std::uint8_t attributes);
+    // A data property whose value `make` makes when something first looks at
+    // it: an interface's object on the global, which a host builds when a
+    // page first names it.
+    void put_lazy_value(PropertyKey const&, LazyValueMaker make, RealmRecord& realm, std::uint8_t attributes);
     // The storage's own entry as it stands — a native not yet made stays
     // unmade — for a host that reshapes its members before any script has
     // seen them. Null for a key the storage does not hold.
@@ -275,6 +291,7 @@ private:
     Property const* lookup(PropertyKey const&) const;
     Property const* find_whole(PropertyKey const&) const;
     Property* find_pending(PropertyKey const&);
+    Property* find_made(Property&);
     void make_lazy(Property&, bool at_once = false);
     std::uint8_t pending_named(PropertyKey const&) const;
     Property& settle(std::uint8_t which);
@@ -533,14 +550,8 @@ public:
     PropertyKey const& key() const { return m_key; }
     Role role() const { return m_role; }
     Object* home() const { return m_home; }
-    // A closure-made native's callback; empty for a described one.
+    // A closure-made native's callback; null for a described one.
     Callback const* closure() const;
-    // A host's member as it was before the host put its receiver check in
-    // front of it (bindings: define_attribute, define_operation, for a
-    // member made of closures): what a second interface sharing the member
-    // is defined with, so that it gets a check of its own.
-    Callback const* unwrapped() const;
-    void set_unwrapped(Callback);
     // A closure-made native's `name` (an atom) and `length`, which its maker
     // says once; a described one reads them off its key and description.
     void set_name_and_length(JsString* name, int length);
@@ -1328,6 +1339,13 @@ public:
     virtual std::optional<bool> is_extensible(Interpreter&);
     virtual std::optional<bool> prevent_extensions(Interpreter&);
     virtual std::optional<std::optional<PropertyDescriptor>> get_own_property(Interpreter&, PropertyKey const&);
+    // The object whose own property this one's [[GetOwnProperty]] answers
+    // with, unchanged, for this key — a host's window proxy standing for
+    // its window — so that a listing may ask that object whether the
+    // property is enumerable without anything being made for the answer
+    // (Interpreter::own_enumerability). Null where the answer is its own:
+    // a proxy with a handler always, since its trap must run.
+    virtual Object* stands_for_own_property(Interpreter&, PropertyKey const&) { return nullptr; }
     virtual std::optional<bool> define_own_property(Interpreter&, PropertyKey const&, PropertyDescriptor const&);
     virtual std::optional<bool> has_property(Interpreter&, PropertyKey const&);
     virtual std::optional<bool> delete_property(Interpreter&, PropertyKey const&);

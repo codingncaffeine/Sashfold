@@ -646,6 +646,8 @@ public:
     std::optional<bool> is_extensible(js::Interpreter&) override;
     std::optional<bool> prevent_extensions(js::Interpreter&) override;
     std::optional<std::optional<js::PropertyDescriptor>> get_own_property(js::Interpreter&, js::PropertyKey const&) override;
+    // Its window's own property is its own, to a script of the window's origin.
+    js::Object* stands_for_own_property(js::Interpreter&, js::PropertyKey const&) override;
     std::optional<bool> define_own_property(js::Interpreter&, js::PropertyKey const&, js::PropertyDescriptor const&) override;
     std::optional<bool> delete_property(js::Interpreter&, js::PropertyKey const&) override;
     std::optional<std::vector<js::PropertyKey>> own_keys(js::Interpreter&) override;
@@ -1201,8 +1203,14 @@ struct Realm::Internals {
     dom::Element const* fallback_focus = nullptr;
     js::Object* location = nullptr;
     // What the Streams interfaces (Streams.js) hand the engine: bytesStream,
-    // isReadableStream, isUnusable, readAll. Null until they are installed.
+    // isReadableStream, isUnusable, readAll. Null until the script has run,
+    // which is when a page first touches a stream (Streams.cpp).
     js::Object* streams = nullptr;
+    // The built-ins that script works with, as this realm was born with
+    // them: kept from the realm's start, out of any page's reach.
+    js::Object* stream_primordials = nullptr;
+    bool streams_loading = false; // the script is running now
+    bool streams_failed = false; // it ran and did not install; not tried again
     // The objects an attribute marked [SameObject] hands out — crypto.subtle,
     // screen.orientation, document.fonts and the rest — made once each and
     // kept here with the realm's roots (see same_object).
@@ -1623,13 +1631,33 @@ dom::Element const* focused_element(Realm::Internals&);
 
 // Makes an interface: a constructor on the global (throwing "Illegal
 // constructor" when called unless `construct` is given) whose prototype
-// inherits `parent`'s; registered under `name`.
+// inherits `parent`'s; registered under `name`. A constructor given as a
+// plain function (a lambda that captures nothing) costs the realm no
+// closure; one that captures is made of closures as before.
+js::Object* define_interface(Realm::Internals&, std::string_view name, js::Object* parent_prototype);
 js::Object* define_interface(Realm::Internals&, std::string_view name, js::Object* parent_prototype,
-    js::NativeFunction::ConstructCallback construct = {}, int length = 0);
+    js::NativeFunction::ConstructCallback construct, int length = 0);
 // The same around a prototype already made, for an interface whose
 // prototype is an exotic object.
+js::Object* define_interface_with(Realm::Internals&, std::string_view name, js::Object& prototype);
 js::Object* define_interface_with(Realm::Internals&, std::string_view name, js::Object& prototype,
-    js::NativeFunction::ConstructCallback construct = {}, int length = 0);
+    js::NativeFunction::ConstructCallback construct, int length = 0);
+js::Object* define_plain_interface(Realm::Internals&, std::string_view name, js::Object& prototype,
+    js::NativeFunction::ConstructEntry construct, int length);
+template<typename F>
+concept PlainConstruct = std::convertible_to<F, js::NativeFunction::ConstructEntry> && !std::same_as<std::remove_cvref_t<F>, std::nullptr_t>;
+template<PlainConstruct C>
+js::Object* define_interface_with(Realm::Internals& in, std::string_view name, js::Object& prototype, C&& construct, int length = 0)
+{
+    return define_plain_interface(in, name, prototype, static_cast<js::NativeFunction::ConstructEntry>(construct), length);
+}
+js::Object* new_interface_prototype(Realm::Internals&, js::Object* parent_prototype);
+template<PlainConstruct C>
+js::Object* define_interface(Realm::Internals& in, std::string_view name, js::Object* parent_prototype, C&& construct, int length = 0)
+{
+    return define_plain_interface(in, name, *new_interface_prototype(in, parent_prototype), static_cast<js::NativeFunction::ConstructEntry>(construct),
+        length);
+}
 // An accessor pair on a prototype: an IDL attribute, enumerable and
 // configurable as WebIDL §3.7.6 has it, so that `for (k in element)`
 // lists it the way it does in a browser.
@@ -1651,12 +1679,114 @@ void define_promise_getter(Realm::Internals&, js::Object& prototype, std::string
 // configurable (WebIDL §3.7.7), unlike the language's own built-ins, and
 // that throws a TypeError when it is called with fewer arguments than
 // `length`, which is how many it requires. (`count_arguments` false for a
-// caller that counts them itself, after it has looked at `this`.)
-js::NativeFunction* define_operation(js::Interpreter&, js::Object& target, std::string_view name, int length,
+// caller that counts them itself, after it has looked at `this`.) Given as
+// a closure, the member keeps it in its realm's table until it is used.
+js::DefinedMethod define_operation(js::Interpreter&, js::Object& target, std::string_view name, int length,
     js::NativeFunction::Callback, bool count_arguments = true, MemberKind kind = MemberKind::Plain);
 // An operation of Promise type.
-js::NativeFunction* define_promise_operation(js::Interpreter&, js::Object& target, std::string_view name, int length,
+js::DefinedMethod define_promise_operation(js::Interpreter&, js::Object& target, std::string_view name, int length,
     js::NativeFunction::Callback, bool count_arguments = true);
+
+// The same members given as plain functions — which a lambda that captures
+// nothing is, and nearly every member is one. Such a member is defined as
+// a description (js::NativeSpec): its property is there at once and its
+// function object is made when a script first asks for it, since a realm
+// has thousands of members and a page calls few. What the closures above
+// each held — the receiver check, the argument count, how a refusal is
+// said — the description carries as flags, and one guard applies them.
+namespace member_flag {
+inline constexpr std::uint16_t counts_arguments = js::NativeSpec::HostFlag; // fewer than `length` arguments is refused
+inline constexpr std::uint16_t returns_promise = js::NativeSpec::HostFlag << 1; // MemberKind::ReturnsPromise
+inline constexpr std::uint16_t lenient_this = js::NativeSpec::HostFlag << 2; // MemberKind::LenientThis
+// A window's own member (WindowProxy.cpp): the window's checks stand in
+// front of it — whether another origin may reach it, [LegacyLenientThis],
+// and the location setter's forwarding to href.
+inline constexpr std::uint16_t window = js::NativeSpec::HostFlag << 3;
+inline constexpr std::uint16_t window_shown = js::NativeSpec::HostFlag << 4;
+inline constexpr std::uint16_t window_lenient = js::NativeSpec::HostFlag << 5;
+inline constexpr std::uint16_t window_forwards_href = js::NativeSpec::HostFlag << 6;
+}
+// The guard of every described member: the receiver must implement the
+// interface whose prototype the member was defined on (worked out at the
+// function's first call: a member put on the global object or on an
+// instance is not checked), then the arguments are counted, then the
+// member's own function runs with the receiver found.
+Native member_guard(js::Interpreter&, js::NativeFunction&, js::Value const& this_value, Args);
+// The name a described member was defined as ("appendChild", "nodeType").
+std::string member_name(js::NativeFunction const&);
+// `datum` is the definer's own number, read back by the function through
+// Interpreter::active_native (which of several properties one function serves).
+void define_plain_attribute(js::Interpreter&, js::Object& target, std::string_view name, js::NativeFunction::Entry getter,
+    js::NativeFunction::Entry setter, MemberKind kind, std::uint32_t datum = 0);
+js::DefinedMethod define_plain_operation(js::Interpreter&, js::Object& target, std::string_view name, int length, js::NativeFunction::Entry,
+    bool count_arguments, MemberKind kind, std::uint32_t datum = 0);
+
+template<js::PlainNative G>
+void define_attribute(js::Interpreter& interpreter, js::Object& target, std::string_view name, G&& getter)
+{
+    define_plain_attribute(interpreter, target, name, static_cast<js::NativeFunction::Entry>(getter), nullptr, MemberKind::Plain);
+}
+template<js::PlainNative G, js::PlainNative S>
+void define_attribute(js::Interpreter& interpreter, js::Object& target, std::string_view name, G&& getter, S&& setter,
+    MemberKind kind = MemberKind::Plain)
+{
+    define_plain_attribute(interpreter, target, name, static_cast<js::NativeFunction::Entry>(getter),
+        static_cast<js::NativeFunction::Entry>(setter), kind);
+}
+// A plain getter beside a setter given as a closure, or as none (`{}`).
+template<js::PlainNative G>
+void define_attribute(js::Interpreter& interpreter, js::Object& target, std::string_view name, G&& getter, js::NativeFunction::Callback setter,
+    MemberKind kind = MemberKind::Plain)
+{
+    if (setter)
+        define_attribute(interpreter, target, name, js::NativeFunction::Callback(std::forward<G>(getter)), std::move(setter), kind);
+    else
+        define_plain_attribute(interpreter, target, name, static_cast<js::NativeFunction::Entry>(getter), nullptr, kind);
+}
+template<js::PlainNative G>
+void define_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, G&& getter)
+{
+    define_plain_attribute(in.interpreter, prototype, name, static_cast<js::NativeFunction::Entry>(getter), nullptr, MemberKind::Plain);
+}
+template<js::PlainNative G, js::PlainNative S>
+void define_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, G&& getter, S&& setter, MemberKind kind = MemberKind::Plain)
+{
+    define_plain_attribute(in.interpreter, prototype, name, static_cast<js::NativeFunction::Entry>(getter),
+        static_cast<js::NativeFunction::Entry>(setter), kind);
+}
+template<js::PlainNative G>
+void define_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, G&& getter, js::NativeFunction::Callback setter,
+    MemberKind kind = MemberKind::Plain)
+{
+    if (setter)
+        define_attribute(in.interpreter, prototype, name, js::NativeFunction::Callback(std::forward<G>(getter)), std::move(setter), kind);
+    else
+        define_plain_attribute(in.interpreter, prototype, name, static_cast<js::NativeFunction::Entry>(getter), nullptr, kind);
+}
+template<js::PlainNative G>
+void define_promise_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, G&& getter)
+{
+    define_plain_attribute(in.interpreter, prototype, name, static_cast<js::NativeFunction::Entry>(getter), nullptr, MemberKind::ReturnsPromise);
+}
+template<js::PlainNative F>
+js::DefinedMethod define_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length, F&& callback,
+    bool count_arguments = true, MemberKind kind = MemberKind::Plain)
+{
+    return define_plain_operation(interpreter, target, name, length, static_cast<js::NativeFunction::Entry>(callback), count_arguments, kind);
+}
+template<js::PlainNative F>
+js::DefinedMethod define_promise_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length, F&& callback,
+    bool count_arguments = true)
+{
+    return define_plain_operation(interpreter, target, name, length, static_cast<js::NativeFunction::Entry>(callback), count_arguments,
+        MemberKind::ReturnsPromise);
+}
+// Whether a function object carries no state: a lambda that captures
+// nothing, which the accessor templates can call from a plain function by
+// making one where they need it.
+template<typename F>
+concept Stateless = std::is_empty_v<F> && std::is_default_constructible_v<F>;
+
 // That TypeError: "Failed to execute 'name' on 'Interface': 2 arguments
 // required, but only 1 present."
 Native too_few_arguments(js::Interpreter&, std::string_view operation, std::string_view on, std::size_t required, std::size_t given);

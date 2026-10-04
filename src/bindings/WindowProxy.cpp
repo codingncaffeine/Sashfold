@@ -127,18 +127,6 @@ std::optional<std::vector<js::Value>> with_url_converted(js::Interpreter& interp
     return converted;
 }
 
-std::uint8_t attributes_of(js::PropertyDescriptor const& descriptor)
-{
-    std::uint8_t attributes = 0;
-    if (descriptor.writable.value_or(false))
-        attributes |= js::Writable;
-    if (descriptor.enumerable.value_or(false))
-        attributes |= js::Enumerable;
-    if (descriptor.configurable.value_or(false))
-        attributes |= js::Configurable;
-    return attributes;
-}
-
 // A member of a [Global] interface called with `this` (WebIDL §3.7.6,
 // §3.7.7): undefined or null is the function's own window, and so is its
 // global object; a WindowProxy is the window it stands for; anything else is
@@ -492,6 +480,15 @@ std::optional<std::optional<js::PropertyDescriptor>> WindowProxyObject::get_own_
     return cross_origin_fallback(interpreter, key);
 }
 
+js::Object* WindowProxyObject::stands_for_own_property(js::Interpreter& interpreter, js::PropertyKey const& key)
+{
+    // As get_own_property answers: a child frame's index is the proxy's
+    // own, and another origin is shown the cross-origin properties.
+    if (child_window(key) || !is_platform_object_same_origin(interpreter, *m_record))
+        return nullptr;
+    return &window();
+}
+
 std::optional<bool> WindowProxyObject::define_own_property(js::Interpreter& interpreter, js::PropertyKey const& key, js::PropertyDescriptor const& descriptor)
 {
     if (!is_platform_object_same_origin(interpreter, *m_record)) {
@@ -702,116 +699,176 @@ bool listed(std::span<std::string_view const> names, std::string_view name)
     return std::find(names.begin(), names.end(), name) != names.end();
 }
 
-js::NativeFunction::Callback replaceable_setter(std::string name)
+// The window's own steps in front of a described member: what window_member
+// does for one made of closures, read off the description's flags.
+Native window_guard(js::Interpreter& interpreter, js::NativeFunction& function, js::Value const& this_value, Args arguments)
 {
-    return [name = std::move(name)](js::Interpreter& interp, js::Value const&, Args args) -> Native {
-        interp.global()->put(interp.key(name), js::argument(args, 0), js::default_attributes);
+    std::uint16_t const flags = function.spec()->flags;
+    js::RealmRecord* target = nullptr;
+    if (this_value.is_nullish()) {
+        target = interpreter.current_realm();
+    } else if (WindowProxyObject* const proxy = as_window_proxy(this_value)) {
+        target = &proxy->record();
+    } else if (this_value.is_object() && this_value.as_object() == interpreter.global()) {
+        target = interpreter.current_realm();
+    }
+    if (target == nullptr) {
+        if ((flags & member_flag::window_lenient) != 0)
+            return js::Value::undefined();
+        return interpreter.throw_type_error("Illegal invocation");
+    }
+    if ((flags & member_flag::window_shown) == 0 && !is_platform_object_same_origin(interpreter, *target))
+        return throw_security_error(interpreter);
+    if ((flags & member_flag::window_forwards_href) != 0) {
+        // The location setter: an ordinary Set of href on the window's
+        // Location, from the realm it was called in (see window_member).
+        if (target->host_defined == nullptr)
+            return interpreter.throw_type_error("Illegal invocation");
+        js::Object* const location = static_cast<Realm*>(target->host_defined)->internals().location;
+        if (location == nullptr)
+            return interpreter.throw_type_error("Illegal invocation");
+        js::Interpreter::Roots const roots(interpreter);
+        js::Value const value = interpreter.root(js::argument(arguments, 0));
+        if (!interpreter.set(js::Value::object(location), interpreter.key("href"), value, false))
+            return std::nullopt;
         return js::Value::undefined();
-    };
+    }
+    js::Interpreter::RealmScope const inside(interpreter, target);
+    return member_guard(interpreter, function, this_value, arguments);
 }
+
+// A member's description with the window's checks in front of it.
+js::NativeSpec const* window_spec(js::NativeSpec const* spec, bool shown_to_other_origins, bool lenient_this, bool forwards_to_href)
+{
+    if (spec == nullptr)
+        return nullptr;
+    js::NativeSpec guarded = *spec;
+    guarded.guard = window_guard;
+    guarded.flags = static_cast<std::uint16_t>(guarded.flags | member_flag::window | (shown_to_other_origins ? member_flag::window_shown : 0)
+        | (lenient_this ? member_flag::window_lenient : 0) | (forwards_to_href ? member_flag::window_forwards_href : 0));
+    return &js::NativeSpec::intern(guarded);
+}
+
+// The accessors every window shares, each serving every property it is
+// defined as (the property is the called function's key): the getter over
+// a value the installers kept, and a [Replaceable] attribute's setter,
+// which makes the property a data property of the window's own.
+Native window_value_getter(js::Interpreter& interpreter, js::Value const&, Args)
+{
+    js::NativeFunction const* const accessor = interpreter.active_native();
+    auto const& values = internals_of(interpreter).window_values;
+    auto const found = values.find(accessor != nullptr ? member_name(*accessor) : std::string());
+    return found != values.end() ? found->second : js::Value::undefined();
+}
+
+Native replaceable_setter(js::Interpreter& interpreter, js::Value const&, Args args)
+{
+    js::NativeFunction const* const accessor = interpreter.active_native();
+    if (accessor != nullptr)
+        interpreter.global()->put(accessor->key(), js::argument(args, 0), js::default_attributes);
+    return js::Value::undefined();
+}
+
+Native status_setter(js::Interpreter& interpreter, js::Value const&, Args args)
+{
+    Realm::Internals& internals = internals_of(interpreter);
+    std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
+    if (!text)
+        return std::nullopt;
+    internals.window_values["status"] = internals.string(*text);
+    return js::Value::undefined();
+}
+
+js::NativeSpec const* accessor_spec(js::NativeFunction::Entry entry, int length)
+{
+    js::NativeSpec spec;
+    spec.call = entry;
+    spec.length = static_cast<std::uint8_t>(length);
+    return &js::NativeSpec::intern(spec);
+}
+
+} // namespace
 
 // The window's members as WebIDL makes a [Global] interface's (§3.7.5 to
 // §3.7.7): operations writable, enumerable and configurable; attributes
 // accessors, enumerable, configurable unless unforgeable, with a setter
 // when replaceable; an attribute the installers kept as a plain value
-// becomes a getter over it.
-void shape_window_members(Realm::Internals& in, std::vector<js::PropertyKey> const& language_globals)
-{
-    js::Interpreter& interpreter = in.interpreter;
-    js::Object& global = *interpreter.global();
-    for (js::PropertyKey const& key : global.own_keys()) {
-        if (!key.is_atom() || std::find(language_globals.begin(), language_globals.end(), key) != language_globals.end())
-            continue;
-        std::optional<js::PropertyDescriptor> const own = global.get_own_property(key);
-        if (!own)
-            continue;
-        std::string const name = key.as_atom()->to_utf8();
-        bool const replaceable = listed(replaceable_members, name);
-        std::uint8_t const accessor_attributes = listed(unforgeable_members, name) ? js::Enumerable : js::Enumerable | js::Configurable;
-        if (own->is_accessor()) {
-            js::Object* setter = own->set ? *own->set : nullptr;
-            if (setter == nullptr && replaceable)
-                setter = interpreter.new_native("set " + name, 1, replaceable_setter(name));
-            global.put_accessor(key, own->get ? *own->get : nullptr, setter, accessor_attributes);
-            continue;
-        }
-        js::Value const value = own->value.value_or(js::Value::undefined());
-        if (js::Interpreter::is_callable(value)) {
-            auto* const native = dynamic_cast<js::NativeFunction*>(value.as_object());
-            if (native != nullptr && !native->is_constructor() && !native->get_own_property(interpreter.key("prototype")))
-                global.put(key, value, js::Writable | js::Enumerable | js::Configurable);
-            continue;
-        }
-        if (listed(namespace_members, name))
-            continue;
-        in.window_values[name] = value;
-        js::NativeFunction* const getter = interpreter.new_native("get " + name, 0, [name](js::Interpreter& interp, js::Value const&, Args) -> Native {
-            auto const& values = internals_of(interp).window_values;
-            auto const found = values.find(name);
-            return found != values.end() ? found->second : js::Value::undefined();
-        });
-        js::NativeFunction* setter = nullptr;
-        if (replaceable) {
-            setter = interpreter.new_native("set " + name, 1, replaceable_setter(name));
-        } else if (name == "status") {
-            setter = interpreter.new_native("set status", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
-                Realm::Internals& internals = internals_of(interp);
-                std::optional<std::string> const text = internals.to_utf8(js::argument(args, 0));
-                if (!text)
-                    return std::nullopt;
-                internals.window_values["status"] = internals.string(*text);
-                return js::Value::undefined();
-            });
-        }
-        global.put_accessor(key, getter, setter, accessor_attributes);
-    }
-}
-
-} // namespace
-
+// becomes a getter over it — and each behind the window's checks. A member
+// still a description is reshaped as one, so that nothing here makes a
+// function no script has asked for; only the members other origins are
+// shown are made, since the proxy hands their functions out.
 void install_window_proxy(Realm::Internals& in, std::vector<js::PropertyKey> const& language_globals)
 {
     js::Interpreter& interpreter = in.interpreter;
     js::Heap::NoCollect const guard(interpreter.heap());
     js::Object& global = *interpreter.global();
-    shape_window_members(in, language_globals);
-    // A method or an accessor function made by the interfaces, put behind the
-    // checks; an interface object, which has a prototype, is left as it is.
+    js::RealmRecord& realm = *interpreter.current_realm();
+    // A function already made by the interfaces, put behind the checks; an
+    // interface object, which has a prototype, is left as it is.
     auto const guarded = [&interpreter](js::Object* function, bool shown, bool lenient, bool forwards) -> js::Object* {
         auto* const native = dynamic_cast<js::NativeFunction*>(function);
-        if (native == nullptr || native->is_constructor() || native->get_own_property(interpreter.key("prototype")))
+        if (native == nullptr || native->is_constructor() || native->peek_own(interpreter.key("prototype")) != nullptr)
             return function;
+        if (js::NativeSpec const* const spec = native->spec())
+            return interpreter.new_native(*window_spec(spec, shown, lenient, forwards), native->key(), native->role(), native->home());
         std::optional<js::PropertyDescriptor> const length = native->get_own_property(interpreter.key("length"));
         std::optional<js::PropertyDescriptor> const name = native->get_own_property(interpreter.key("name"));
         int const arity = length && length->value && length->value->is_number() ? static_cast<int>(length->value->as_number()) : 0;
         std::string const function_name = name && name->value && name->value->is_string() ? name->value->as_string()->to_utf8() : std::string();
-        if (native->closure() == nullptr)
-            return function;
         return interpreter.new_native(function_name, arity, window_member(*native->closure(), shown, lenient, forwards));
     };
     for (js::PropertyKey const& key : global.own_keys()) {
         if (!key.is_atom() || std::find(language_globals.begin(), language_globals.end(), key) != language_globals.end())
             continue;
-        std::optional<js::PropertyDescriptor> const own = global.get_own_property(key);
-        if (!own)
+        js::Property* const own = global.peek_own(key);
+        // (A value made at first look is an interface's object, which is
+        // left as it is, like one already made.)
+        if (own == nullptr || own->lazy == js::Property::LazyValue)
             continue;
         std::string const name = key.as_atom()->to_utf8();
-        CrossOriginProperty const* const shown = find_cross_origin(window_cross_origin, name);
+        bool const replaceable = listed(replaceable_members, name);
+        std::uint8_t const accessor_attributes = listed(unforgeable_members, name) ? js::Enumerable : js::Enumerable | js::Configurable;
+        constexpr std::uint8_t operation_attributes = js::Writable | js::Enumerable | js::Configurable;
+        bool const shown = find_cross_origin(window_cross_origin, name) != nullptr;
         bool const lenient = name == "onmouseenter" || name == "onmouseleave";
         // window.location's setter forwards to the Location's href.
         bool const forwards_to_href = name == "location";
-        if (own->is_accessor()) {
-            js::Object* const getter = own->get && *own->get ? guarded(*own->get, shown != nullptr, lenient, false) : nullptr;
-            js::Object* const setter = own->set && *own->set ? guarded(*own->set, shown != nullptr, lenient, forwards_to_href) : nullptr;
-            global.put_accessor(key, getter, setter, attributes_of(*own));
-            if (shown)
-                in.cross_origin_members[shown->name] = js::PropertyDescriptor::accessor(getter, setter, attributes_of(*own));
-        } else if (own->value && js::Interpreter::is_callable(*own->value)) {
-            js::Object* const function = guarded(own->value->as_object(), shown != nullptr, lenient, false);
-            if (function != own->value->as_object())
-                global.put(key, js::Value::object(function), attributes_of(*own));
-            if (shown)
-                in.cross_origin_members[shown->name] = js::PropertyDescriptor::data(js::Value::object(function), attributes_of(*own));
+        if (own->lazy) {
+            if (own->accessor) {
+                js::NativeSpec const* setter = own->lazy_set;
+                if (setter == nullptr && replaceable)
+                    setter = accessor_spec(replaceable_setter, 1);
+                global.put_lazy_accessor(key, window_spec(own->lazy_get, shown, lenient, false),
+                    window_spec(setter, shown, lenient, forwards_to_href), realm, accessor_attributes);
+            } else {
+                global.put_lazy(key, *window_spec(own->lazy_get, shown, lenient, false), realm, operation_attributes);
+            }
+        } else if (own->accessor) {
+            js::Object* getter = own->getter;
+            js::Object* setter = own->setter;
+            if (setter == nullptr && replaceable)
+                setter = interpreter.new_native(*accessor_spec(replaceable_setter, 1), key, js::NativeFunction::Role::Setter, &global);
+            getter = getter != nullptr ? guarded(getter, shown, lenient, false) : nullptr;
+            setter = setter != nullptr ? guarded(setter, shown, lenient, forwards_to_href) : nullptr;
+            global.put_accessor(key, getter, setter, accessor_attributes);
+        } else if (js::Interpreter::is_callable(own->value)) {
+            js::Value const value = own->value;
+            auto* const native = dynamic_cast<js::NativeFunction*>(value.as_object());
+            if (native != nullptr && !native->is_constructor() && native->peek_own(interpreter.key("prototype")) == nullptr)
+                global.put(key, js::Value::object(guarded(native, shown, lenient, false)), operation_attributes);
+        } else if (!listed(namespace_members, name)) {
+            // A value the installers kept: a getter over it, with a setter
+            // when the attribute is replaceable (and window.status's own).
+            in.window_values[name] = own->value;
+            js::NativeSpec const* const setter
+                = replaceable ? accessor_spec(replaceable_setter, 1) : name == "status" ? accessor_spec(status_setter, 1) : nullptr;
+            global.put_lazy_accessor(key, window_spec(accessor_spec(window_value_getter, 0), shown, lenient, false),
+                window_spec(setter, shown, lenient, forwards_to_href), realm, accessor_attributes);
+        }
+        if (CrossOriginProperty const* const property = find_cross_origin(window_cross_origin, name)) {
+            // What the proxy shows another origin is the function itself.
+            if (std::optional<js::PropertyDescriptor> const made = global.get_own_property(key); made && (made->is_accessor() || (made->value && js::Interpreter::is_callable(*made->value))))
+                in.cross_origin_members[property->name] = *made;
         }
     }
     interpreter.set_global_this(*in.realm_record, interpreter.heap().allocate<WindowProxyObject>(*in.realm_record));

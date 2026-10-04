@@ -5,79 +5,72 @@
 // as the spec's algorithms are written, and run as the engine's own code:
 // to a page these are native (no source text, no stack frames).
 //
-// The script is one function of the realm's global; it defines the
-// interfaces there and answers with what the engine itself needs: a byte
-// stream over a body it already holds, and reading a stream to its end.
-(function (global) {
+// The script is one function of the realm's global and of the built-ins it
+// works with; it defines the interfaces on the global and answers with what
+// the engine itself needs: a byte stream over a body it already holds, and
+// reading a stream to its end.
+//
+// It is run when a page first touches a stream, which may be long after
+// the page's own scripts began. So nothing here reads a built-in off the
+// global or off a prototype as the script loads: `primordials` holds each
+// one as it was when the realm was made, kept apart from anything a page
+// can reach, and a page replacing a global or a prototype method changes
+// nothing here.
+(function (global, primordials) {
 "use strict";
 
-// What the algorithms use, taken before any page script runs, so that a
-// page replacing a global or a prototype method changes nothing here.
-const Promise_ = Promise;
-const promiseThen = Promise.prototype.then;
-const PromiseResolve = Promise.resolve.bind(Promise);
-const ReflectApply = Reflect.apply;
-const ObjectDefineProperty = Object.defineProperty;
-const ObjectGetOwnPropertyNames = Object.getOwnPropertyNames;
-const ObjectGetOwnPropertyDescriptor = Object.getOwnPropertyDescriptor;
-const ObjectCreate = Object.create;
-const TypeError_ = TypeError;
-const RangeError_ = RangeError;
-const ArrayBuffer_ = ArrayBuffer;
-const ArrayBufferIsView = ArrayBuffer.isView;
-const arrayBufferSlice = ArrayBuffer.prototype.slice;
-const arrayBufferTransfer = ArrayBuffer.prototype.transfer;
-const arrayBufferByteLength = ObjectGetOwnPropertyDescriptor(ArrayBuffer.prototype, "byteLength").get;
-const arrayBufferDetached = ObjectGetOwnPropertyDescriptor(ArrayBuffer.prototype, "detached").get;
-const Uint8Array_ = Uint8Array;
-const DataView_ = DataView;
-const TypedArrayPrototype = Object.getPrototypeOf(Uint8Array.prototype);
-const typedArrayName = ObjectGetOwnPropertyDescriptor(TypedArrayPrototype, Symbol.toStringTag).get;
-const typedArrayBuffer = ObjectGetOwnPropertyDescriptor(TypedArrayPrototype, "buffer").get;
-const typedArrayByteOffset = ObjectGetOwnPropertyDescriptor(TypedArrayPrototype, "byteOffset").get;
-const typedArrayByteLength = ObjectGetOwnPropertyDescriptor(TypedArrayPrototype, "byteLength").get;
-const typedArrayLength = ObjectGetOwnPropertyDescriptor(TypedArrayPrototype, "length").get;
-const typedArraySet = TypedArrayPrototype.set;
-const dataViewBuffer = ObjectGetOwnPropertyDescriptor(DataView.prototype, "buffer").get;
-const dataViewByteOffset = ObjectGetOwnPropertyDescriptor(DataView.prototype, "byteOffset").get;
-const dataViewByteLength = ObjectGetOwnPropertyDescriptor(DataView.prototype, "byteLength").get;
-const SymbolAsyncIterator = Symbol.asyncIterator;
-const SymbolIterator = Symbol.iterator;
-const SymbolToStringTag = Symbol.toStringTag;
-const NumberIsNaN = Number.isNaN;
-const MathMin = Math.min;
-const StringFromCharCode = String.fromCharCode;
-const queueMicrotask_ = global.queueMicrotask;
-const AbortController_ = global.AbortController;
-const AbortSignal_ = global.AbortSignal;
-// An interface attribute's getter, or an ordinary read where the
-// attribute is not an accessor on the prototype.
-function attributeGetter(constructor, name)
-{
-    for (let prototype = constructor ? constructor.prototype : null; prototype; prototype = Object.getPrototypeOf(prototype)) {
-        const descriptor = ObjectGetOwnPropertyDescriptor(prototype, name);
-        if (descriptor && descriptor.get)
-            return descriptor.get;
-    }
-    return function () { return this[name]; };
-}
-const abortSignalAborted = AbortSignal_ ? attributeGetter(AbortSignal_, "aborted") : undefined;
-const abortSignalReason = AbortSignal_ ? attributeGetter(AbortSignal_, "reason") : undefined;
-const abortControllerAbort = AbortController_ ? AbortController_.prototype.abort : undefined;
-const abortControllerSignal = AbortController_ ? attributeGetter(AbortController_, "signal") : undefined;
-const eventTargetAdd = global.EventTarget ? global.EventTarget.prototype.addEventListener : undefined;
-const eventTargetRemove = global.EventTarget ? global.EventTarget.prototype.removeEventListener : undefined;
-const TextEncoder_ = global.TextEncoder;
-const TextDecoder_ = global.TextDecoder;
-const textEncoderEncode = TextEncoder_ ? TextEncoder_.prototype.encode : undefined;
-const textDecoderDecode = TextDecoder_ ? TextDecoder_.prototype.decode : undefined;
-const AsyncIteratorPrototype = Object.getPrototypeOf(Object.getPrototypeOf(async function* () {}).prototype);
-const typedArrayConstructors = {
-    Int8Array, Uint8Array, Uint8ClampedArray, Int16Array, Uint16Array, Int32Array, Uint32Array,
-    Float32Array, Float64Array, BigInt64Array, BigUint64Array,
-};
-if (typeof Float16Array === "function")
-    typedArrayConstructors.Float16Array = Float16Array;
+const Promise_ = primordials.Promise;
+const promiseThen = primordials.promiseThen;
+const ReflectApply = primordials.ReflectApply;
+const PromiseResolve = ReflectApply(primordials.functionBind, primordials.promiseResolve, [Promise_]);
+const ObjectDefineProperty = primordials.ObjectDefineProperty;
+const ObjectGetOwnPropertyNames = primordials.ObjectGetOwnPropertyNames;
+const ObjectGetOwnPropertyDescriptor = primordials.ObjectGetOwnPropertyDescriptor;
+const ObjectSetPrototypeOf = primordials.ObjectSetPrototypeOf;
+const ObjectCreate = primordials.ObjectCreate;
+const TypeError_ = primordials.TypeError;
+const RangeError_ = primordials.RangeError;
+const ArrayBuffer_ = primordials.ArrayBuffer;
+const ArrayBufferIsView = primordials.ArrayBufferIsView;
+const arrayBufferSlice = primordials.arrayBufferSlice;
+const arrayBufferTransfer = primordials.arrayBufferTransfer;
+const arrayBufferByteLength = primordials.arrayBufferByteLength;
+const arrayBufferDetached = primordials.arrayBufferDetached;
+const Uint8Array_ = primordials.Uint8Array;
+const DataView_ = primordials.DataView;
+const typedArrayName = primordials.typedArrayName;
+const typedArrayBuffer = primordials.typedArrayBuffer;
+const typedArrayByteOffset = primordials.typedArrayByteOffset;
+const typedArrayByteLength = primordials.typedArrayByteLength;
+const typedArrayLength = primordials.typedArrayLength;
+const typedArraySet = primordials.typedArraySet;
+const dataViewBuffer = primordials.dataViewBuffer;
+const dataViewByteOffset = primordials.dataViewByteOffset;
+const dataViewByteLength = primordials.dataViewByteLength;
+const SymbolAsyncIterator = primordials.SymbolAsyncIterator;
+const SymbolIterator = primordials.SymbolIterator;
+const SymbolToStringTag = primordials.SymbolToStringTag;
+const NumberIsNaN = primordials.NumberIsNaN;
+const MathMin = primordials.MathMin;
+const StringFromCharCode = primordials.StringFromCharCode;
+const queueMicrotask_ = primordials.queueMicrotask;
+const AbortController_ = primordials.AbortController;
+const AbortSignal_ = primordials.AbortSignal;
+// An interface attribute's getter as the realm was born with it, or an
+// ordinary read where the attribute is not an accessor on the prototype.
+const abortSignalAborted = AbortSignal_ ? primordials.abortSignalAborted || function () { return this.aborted; } : undefined;
+const abortSignalReason = AbortSignal_ ? primordials.abortSignalReason || function () { return this.reason; } : undefined;
+const abortControllerAbort = AbortController_ ? primordials.abortControllerAbort : undefined;
+const abortControllerSignal = AbortController_ ? primordials.abortControllerSignal || function () { return this.signal; } : undefined;
+const eventTargetAdd = primordials.eventTargetAdd;
+const eventTargetRemove = primordials.eventTargetRemove;
+const TextEncoder_ = primordials.TextEncoder;
+const TextDecoder_ = primordials.TextDecoder;
+const textEncoderEncode = TextEncoder_ ? primordials.textEncoderEncode : undefined;
+const textDecoderDecode = TextDecoder_ ? primordials.textDecoderDecode : undefined;
+const AsyncIteratorPrototype = primordials.AsyncIteratorPrototype;
+// By name: Int8Array to BigUint64Array, and Float16Array where the engine has it.
+const typedArrayConstructors = primordials.typedArrayConstructors;
 
 // The one argument that makes an interface's constructor build the object
 // for the algorithms without running the page-facing steps.
@@ -3586,8 +3579,12 @@ class TextDecoderStream {
 // writable and configurable but not enumerable.
 function expose(constructor, name)
 {
+    // (Counted, not iterated: this runs as the script loads, and a page may
+    // have replaced the array iterator by then.)
     const prototype = constructor.prototype;
-    for (const key of ObjectGetOwnPropertyNames(prototype)) {
+    const keys = ObjectGetOwnPropertyNames(prototype);
+    for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
         if (key === "constructor")
             continue;
         const descriptor = ObjectGetOwnPropertyDescriptor(prototype, key);
@@ -3623,8 +3620,10 @@ if (TextDecoder_)
 // own methods enumerable, named as WebIDL names it.
 {
     const prototype = ReadableStreamAsyncIterator.prototype;
-    Object.setPrototypeOf(prototype, AsyncIteratorPrototype);
-    for (const key of ["next", "return"]) {
+    ObjectSetPrototypeOf(prototype, AsyncIteratorPrototype);
+    const keys = ["next", "return"];
+    for (let i = 0; i < keys.length; i++) {
+        const key = keys[i];
         const descriptor = ObjectGetOwnPropertyDescriptor(prototype, key);
         descriptor.enumerable = true;
         ObjectDefineProperty(prototype, key, descriptor);

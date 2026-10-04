@@ -587,14 +587,24 @@ js::NativeFunction::ConstructCallback event_constructor(std::string interface)
 
 // A read-only accessor over an EventObject field.
 template<typename Read>
+Native read_event(js::Interpreter& interpreter, js::Value const& this_value, Read const& read)
+{
+    std::optional<EventObject*> const event = this_event(interpreter, this_value);
+    if (!event)
+        return std::nullopt;
+    return read(internals_of(interpreter), **event);
+}
+
+template<typename Read>
 void event_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, Read read)
 {
-    define_getter(in, prototype, name, [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
-        std::optional<EventObject*> const event = this_event(interpreter, this_value);
-        if (!event)
-            return std::nullopt;
-        return read(internals_of(interpreter), **event);
-    });
+    if constexpr (Stateless<Read>) {
+        define_getter(in, prototype, name,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_event(interpreter, this_value, Read {}); });
+    } else {
+        define_getter(in, prototype, name,
+            [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_event(interpreter, this_value, read); });
+    }
 }
 
 // A pointer position relative to the target's box, for offsetX/offsetY.
@@ -786,37 +796,61 @@ void window_handler_attribute_written(Realm::Internals& in, dom::Element& elemen
     }
 }
 
+namespace {
+
+// The event type an on<type> accessor serves: one getter and one setter are
+// every handler property's, each called as the function made for its
+// property, whose key says which.
+std::string handler_type_called(js::Interpreter& interpreter)
+{
+    js::NativeFunction const* const accessor = interpreter.active_native();
+    std::string const name = accessor != nullptr ? member_name(*accessor) : std::string();
+    return name.size() > 2 ? name.substr(2) : std::string();
+}
+
+Native event_handler_getter(js::Interpreter& interpreter, js::Value const& this_value, Args)
+{
+    js::NativeFunction const* const accessor = interpreter.active_native();
+    std::string const type = handler_type_called(interpreter);
+    Realm::Internals& internals = internals_of(interpreter);
+    if (!this_value.is_object() || !internals.handlers_of(this_value.as_object())) {
+        bool const lenient = accessor != nullptr && accessor->spec() != nullptr && (accessor->spec()->flags & member_flag::lenient_this) != 0;
+        return lenient ? Native(js::Value::undefined()) : interpreter.throw_type_error("Illegal invocation");
+    }
+    return handler_value(internals, this_value.as_object(), type);
+}
+
+Native event_handler_setter(js::Interpreter& interpreter, js::Value const& this_value, Args args)
+{
+    std::string const type = handler_type_called(interpreter);
+    Realm::Internals& internals = internals_of(interpreter);
+    if (!this_value.is_object())
+        return interpreter.throw_type_error("Illegal invocation");
+    HandlerMap* map = internals.handlers_of(this_value.as_object());
+    if (!map)
+        return interpreter.throw_type_error("Illegal invocation");
+    js::Value const value = js::argument(args, 0);
+    EventHandler handler;
+    handler.from_attribute = false;
+    if (value.is_object())
+        handler.function = value; // a callable, or an object the spec keeps and never calls
+    (*map)[type] = handler;
+    return js::Value::undefined();
+}
+
+}
+
 void define_event_handlers(Realm::Internals& in, js::Object& target, std::span<std::string_view const> types)
 {
+    std::string name;
     for (std::string_view const type : types) {
-        std::string const type_name(type);
         // onmouseenter and onmouseleave are [LegacyLenientThis] (HTML
         // §8.1.8.2.1), and Chromium treats onreadystatechange so too: read
         // on the wrong object they are undefined, written they do nothing.
         MemberKind const kind = type == "mouseenter" || type == "mouseleave" || type == "readystatechange" ? MemberKind::LenientThis : MemberKind::Plain;
-        define_getter(in, target, "on" + type_name,
-            [type_name, kind](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
-                Realm::Internals& internals = internals_of(interpreter);
-                if (!this_value.is_object() || !internals.handlers_of(this_value.as_object()))
-                    return kind == MemberKind::LenientThis ? Native(js::Value::undefined()) : interpreter.throw_type_error("Illegal invocation");
-                return handler_value(internals, this_value.as_object(), type_name);
-            },
-            [type_name](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
-                Realm::Internals& internals = internals_of(interpreter);
-                if (!this_value.is_object())
-                    return interpreter.throw_type_error("Illegal invocation");
-                HandlerMap* map = internals.handlers_of(this_value.as_object());
-                if (!map)
-                    return interpreter.throw_type_error("Illegal invocation");
-                js::Value const value = js::argument(args, 0);
-                EventHandler handler;
-                handler.from_attribute = false;
-                if (value.is_object())
-                    handler.function = value; // a callable, or an object the spec keeps and never calls
-                (*map)[type_name] = handler;
-                return js::Value::undefined();
-            },
-            kind);
+        name.assign("on");
+        name.append(type);
+        define_plain_attribute(in.interpreter, target, name, event_handler_getter, event_handler_setter, kind);
     }
 }
 

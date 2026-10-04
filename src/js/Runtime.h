@@ -56,30 +56,11 @@ Value perform_then(Interpreter&, PromiseObject& promise, Value const& on_fulfill
 
 // Helpers shared by the installers and the bindings.
 
-// Defines `name` on `target` as a non-enumerable native method, or with
-// the attributes given (the bindings' operations are enumerable, as
-// WebIDL has them). A closure is made into its function at once.
-NativeFunction* define_method(Interpreter&, Object& target, std::string_view name, int length,
-    NativeFunction::Callback);
-NativeFunction* define_method(Interpreter&, Object& target, std::string_view name, int length,
-    NativeFunction::Callback, std::uint8_t attributes);
-// A getter (and optional setter) pair, non-enumerable, configurable; or
-// with the attributes given.
-void define_accessor(Interpreter&, Object& target, std::string_view name, NativeFunction::Callback getter,
-    NativeFunction::Callback setter = {});
-void define_accessor(Interpreter&, Object& target, std::string_view name, NativeFunction::Callback getter,
-    NativeFunction::Callback setter, std::uint8_t attributes);
-
-// The same from plain functions — which a lambda that captures nothing is,
-// and nearly every built-in is one. The property is defined now; the
-// function object behind it is made when something first asks for it (a
-// script that reads the property, or the definer through the handle these
-// return), since a realm has thousands of built-ins and a page calls few.
-template<typename F>
-concept PlainNative = std::convertible_to<F, NativeFunction::Entry> && !std::same_as<std::remove_cvref_t<F>, std::nullptr_t>;
-
-// A method defined from a plain function, for a definer that wants the
-// function itself (to put it under a second key): asking makes it.
+// A method as its definer gets it back: the property is defined, and the
+// function object behind it is made when something first asks for it — a
+// script that reads the property, or the definer through this handle (to
+// put the one function under a second key) — since a realm has thousands
+// of built-ins and a page calls few.
 class DefinedMethod {
 public:
     DefinedMethod(Object& target, PropertyKey key)
@@ -95,6 +76,31 @@ private:
     Object* m_target;
     PropertyKey m_key;
 };
+
+// Defines `name` on `target` as a non-enumerable native method, or with
+// the attributes given (the bindings' operations are enumerable, as
+// WebIDL has them). A native given as a closure — a lambda that captures —
+// is kept in the current realm's table (RealmRecord::native_closures) and
+// described by its place there, so it too waits for a first use.
+DefinedMethod define_method(Interpreter&, Object& target, std::string_view name, int length, NativeFunction::Callback);
+DefinedMethod define_method(Interpreter&, Object& target, std::string_view name, int length, NativeFunction::Callback,
+    std::uint8_t attributes);
+// A getter (and optional setter) pair, non-enumerable, configurable; or
+// with the attributes given.
+void define_accessor(Interpreter&, Object& target, std::string_view name, NativeFunction::Callback getter,
+    NativeFunction::Callback setter = {});
+void define_accessor(Interpreter&, Object& target, std::string_view name, NativeFunction::Callback getter,
+    NativeFunction::Callback setter, std::uint8_t attributes);
+// A closure's place in the current realm's table, for a description's
+// datum, and the entry every such description has: it calls the closure
+// kept at the running function's datum in that function's own realm.
+std::uint32_t keep_native_closure(Interpreter&, NativeFunction::Callback);
+std::optional<Value> closure_native(Interpreter&, Value const& this_value, std::span<Value const> arguments);
+
+// The same from plain functions — which a lambda that captures nothing is,
+// and nearly every built-in is one: nothing is kept per realm at all.
+template<typename F>
+concept PlainNative = std::convertible_to<F, NativeFunction::Entry> && !std::same_as<std::remove_cvref_t<F>, std::nullptr_t>;
 
 DefinedMethod define_plain_method(Interpreter&, Object& target, std::string_view name, int length, NativeFunction::Entry,
     std::uint8_t attributes);

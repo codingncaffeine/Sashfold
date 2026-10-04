@@ -299,13 +299,28 @@ Property const* Object::lookup(PropertyKey const& key) const
         }
     }
     if (found != nullptr) {
-        if (found->lazy) [[unlikely]]
-            const_cast<Object*>(this)->make_lazy(const_cast<Property&>(*found));
+        if (found->lazy != Property::NotLazy) [[unlikely]]
+            return const_cast<Object*>(this)->find_made(const_cast<Property&>(*found));
         return found;
     }
     if (m_pending != 0) [[unlikely]]
         return const_cast<Object*>(this)->find_pending(key);
     return nullptr;
+}
+
+// A lazy property made whole, and the property as it then stands: a
+// native's function is made in place; a value's maker may have defined
+// other properties, so the property is looked for again (it is gone if the
+// maker removed it).
+[[gnu::noinline]] Property* Object::find_made(Property& property)
+{
+    if (property.lazy == Property::LazyNative) {
+        make_lazy(property);
+        return &property;
+    }
+    PropertyKey const key = property.key;
+    make_lazy(property);
+    return const_cast<Property*>(lookup(key));
 }
 
 Property const* Object::find_own(PropertyKey const& key) const
@@ -340,6 +355,24 @@ Property* Object::peek_own(PropertyKey const& key)
     Heap& owner = *heap();
     Heap::NoCollect const guard(owner);
     RealmRecord* const realm = property.lazy_realm;
+    if (property.lazy == Property::LazyValue) {
+        // An ordinary property from here on, undefined until its maker
+        // answers: whatever the maker does to this object — defining other
+        // properties, this one included, or looking this one up again — it
+        // does to a whole object. The maker may have moved the storage, so
+        // the property is found again before its answer is put.
+        LazyValueMaker const make = property.lazy_make;
+        PropertyKey const key = property.key;
+        property.lazy = Property::NotLazy;
+        property.value = Value::undefined();
+        property.getter = nullptr;
+        property.setter = nullptr;
+        ++owner.lazy_census().values_made;
+        Value const made = make(*this, key, *realm);
+        if (Property* const now = const_cast<Property*>(lookup(key)); now != nullptr && !now->accessor && now->lazy == Property::NotLazy && now->value.is_undefined())
+            now->value = made;
+        return;
+    }
     NativeSpec const* const get = property.lazy_get;
     NativeSpec const* const set = property.lazy_set;
     auto const make = [&](NativeSpec const& spec, NativeFunction::Role role) {
@@ -353,7 +386,7 @@ Property* Object::peek_own(PropertyKey const& key)
         }
         return function;
     };
-    property.lazy = false;
+    property.lazy = Property::NotLazy;
     if (property.accessor) {
         property.value = Value::undefined();
         property.getter = get != nullptr ? make(*get, NativeFunction::Role::Getter) : nullptr;
@@ -535,7 +568,7 @@ void Object::put(PropertyKey const& key, Value const& value, std::uint8_t attrib
     property->setter = nullptr;
     property->attributes = attributes;
     property->accessor = false;
-    property->lazy = false;
+    property->lazy = Property::NotLazy;
 }
 
 void Object::put_accessor(PropertyKey const& key, Object* getter, Object* setter, std::uint8_t attributes)
@@ -550,7 +583,7 @@ void Object::put_accessor(PropertyKey const& key, Object* getter, Object* setter
     property->setter = setter;
     property->attributes = static_cast<std::uint8_t>(attributes & ~Writable);
     property->accessor = true;
-    property->lazy = false;
+    property->lazy = Property::NotLazy;
 }
 
 void Object::put_lazy(PropertyKey const& key, NativeSpec const& method, RealmRecord& realm, std::uint8_t attributes)
@@ -563,7 +596,7 @@ void Object::put_lazy(PropertyKey const& key, NativeSpec const& method, RealmRec
     property->lazy_set = nullptr;
     property->attributes = attributes;
     property->accessor = false;
-    property->lazy = true;
+    property->lazy = Property::LazyNative;
     if (!lazy_natives())
         make_lazy(*property, true);
     else
@@ -581,11 +614,27 @@ void Object::put_lazy_accessor(PropertyKey const& key, NativeSpec const* getter,
     property->lazy_set = setter;
     property->attributes = static_cast<std::uint8_t>(attributes & ~Writable);
     property->accessor = true;
-    property->lazy = true;
+    property->lazy = Property::LazyNative;
     if (!lazy_natives())
         make_lazy(*property, true);
     else
         heap()->lazy_census().natives_described += (getter != nullptr ? 1u : 0u) + (setter != nullptr ? 1u : 0u);
+}
+
+void Object::put_lazy_value(PropertyKey const& key, LazyValueMaker make, RealmRecord& realm, std::uint8_t attributes)
+{
+    Property* property = peek_own(key);
+    if (property == nullptr)
+        property = &insert(key);
+    property->lazy_realm = &realm;
+    property->lazy_make = make;
+    property->lazy_set = nullptr;
+    property->attributes = attributes;
+    property->accessor = false;
+    property->lazy = Property::LazyValue;
+    ++heap()->lazy_census().values_described;
+    if (!lazy_natives())
+        make_lazy(*property, true);
 }
 
 bool Object::remove_own(PropertyKey const& key)
@@ -1300,14 +1349,13 @@ template<typename Call>
 struct NativeFunction::Closures {
     Callback call;
     ConstructCallback construct;
-    Callback unwrapped;
     JsString* name = nullptr;
     std::int32_t length = 0;
 };
 
 NativeFunction::NativeFunction(Object* prototype, Callback call, ConstructCallback construct)
     : Function(prototype)
-    , m_closures(new Closures { std::move(call), std::move(construct), {}, nullptr, 0 })
+    , m_closures(new Closures { std::move(call), std::move(construct), nullptr, 0 })
     , m_closures_made(true)
 {
 }
@@ -1337,17 +1385,6 @@ bool NativeFunction::is_constructor() const
 NativeFunction::Callback const* NativeFunction::closure() const
 {
     return m_closures_made ? &m_closures->call : nullptr;
-}
-
-NativeFunction::Callback const* NativeFunction::unwrapped() const
-{
-    return m_closures_made && m_closures->unwrapped ? &m_closures->unwrapped : nullptr;
-}
-
-void NativeFunction::set_unwrapped(Callback callback)
-{
-    if (m_closures_made)
-        m_closures->unwrapped = std::move(callback);
 }
 
 void NativeFunction::set_name_and_length(JsString* name, int length)

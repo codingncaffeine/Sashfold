@@ -725,6 +725,28 @@ std::optional<std::optional<PropertyDescriptor>> Interpreter::get_own_property(O
     return object.get_own_property(key);
 }
 
+std::optional<Interpreter::Listed> Interpreter::own_enumerability(Object& object, PropertyKey const& key)
+{
+    // A property still waiting for its value answers from the storage: the
+    // attributes are there from the start. Only an object whose own
+    // [[GetOwnProperty]] is the storage's is asked this way — a proxy runs
+    // its trap, a module namespace reads its binding, a host's object may
+    // answer a name before its storage does.
+    if (object.is_proxy()) {
+        if (Object* const behind = static_cast<ProxyObject&>(object).stands_for_own_property(*this, key))
+            return own_enumerability(*behind, key);
+    } else if (!object.is_host() && object.class_id() != Object::Class::ModuleNamespace) {
+        if (Property const* const waiting = object.peek_own(key); waiting != nullptr && waiting->lazy != Property::NotLazy)
+            return waiting->enumerable() ? Listed::Enumerable : Listed::Hidden;
+    }
+    std::optional<std::optional<PropertyDescriptor>> const descriptor = get_own_property(object, key);
+    if (!descriptor)
+        return std::nullopt;
+    if (!*descriptor)
+        return Listed::Absent;
+    return (*descriptor)->enumerable.value_or(false) ? Listed::Enumerable : Listed::Hidden;
+}
+
 std::optional<bool> Interpreter::define_own_property(Object& object, PropertyKey const& key, PropertyDescriptor const& descriptor)
 {
     // [[DefineOwnProperty]] with the parts that run script and throw: a

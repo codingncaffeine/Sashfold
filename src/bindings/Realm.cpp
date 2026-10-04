@@ -461,36 +461,90 @@ js::Value node_list(Realm::Internals& in, std::vector<dom::Node*> const& nodes)
     return js::Value::object(list);
 }
 
+namespace {
+
+// An interface object called as a function, which none may be: the error
+// names the interface, which is the key the constructor was defined as.
+Native interface_called(js::Interpreter& interpreter, js::Value const&, Args)
+{
+    js::NativeFunction const* const constructor = interpreter.active_native();
+    std::string const name = constructor != nullptr ? member_name(*constructor) : std::string();
+    return interpreter.throw_type_error("Failed to construct '" + name + "': Please use the 'new' operator");
+}
+
+// An interface nothing constructs with `new`.
+Native illegal_constructor(js::Interpreter& interpreter, Args, js::Object*)
+{
+    return interpreter.throw_type_error("Illegal constructor");
+}
+
+// The constructor and the prototype tied to each other and to the global,
+// and the prototype known to the realm by the interface's name.
+js::Object* finish_interface(Realm::Internals& in, std::string_view name, js::Object& prototype, js::NativeFunction& constructor)
+{
+    js::Interpreter& interpreter = in.interpreter;
+    constructor.put(interpreter.key("prototype"), js::Value::object(&prototype), js::frozen_attributes);
+    prototype.put(interpreter.key("constructor"), js::Value::object(&constructor), js::builtin_attributes);
+    prototype.put(js::PropertyKey::symbol(interpreter.atoms().symbol_to_string_tag), in.string(name), js::Configurable);
+    interpreter.global()->put(interpreter.key(name), js::Value::object(&constructor), js::builtin_attributes);
+    in.prototypes[std::string(name)] = &prototype;
+    return &prototype;
+}
+
+}
+
+js::Object* new_interface_prototype(Realm::Internals& in, js::Object* parent_prototype)
+{
+    return in.interpreter.new_object(parent_prototype);
+}
+
+js::Object* define_interface(Realm::Internals& in, std::string_view name, js::Object* parent_prototype)
+{
+    js::Heap::NoCollect const guard(in.interpreter.heap());
+    return define_plain_interface(in, name, *new_interface_prototype(in, parent_prototype), illegal_constructor, 0);
+}
+
 js::Object* define_interface(Realm::Internals& in, std::string_view name, js::Object* parent_prototype,
     js::NativeFunction::ConstructCallback construct, int length)
 {
     js::Heap::NoCollect const guard(in.interpreter.heap());
-    return define_interface_with(in, name, *in.interpreter.new_object(parent_prototype), std::move(construct), length);
+    return define_interface_with(in, name, *new_interface_prototype(in, parent_prototype), std::move(construct), length);
 }
 
-js::Object* define_interface_with(Realm::Internals& in, std::string_view name, js::Object& the_prototype,
-    js::NativeFunction::ConstructCallback construct, int length)
+js::Object* define_interface_with(Realm::Internals& in, std::string_view name, js::Object& prototype)
 {
+    return define_plain_interface(in, name, prototype, illegal_constructor, 0);
+}
+
+js::Object* define_plain_interface(Realm::Internals& in, std::string_view name, js::Object& prototype,
+    js::NativeFunction::ConstructEntry construct, int length)
+{
+    // The constructor from a description: no closure of its own, its name
+    // read off the key it is defined as.
     js::Interpreter& interpreter = in.interpreter;
     js::Heap::NoCollect const guard(interpreter.heap());
-    js::Object* prototype = &the_prototype;
+    js::NativeSpec spec;
+    spec.call = interface_called;
+    spec.construct = construct;
+    spec.length = static_cast<std::uint8_t>(length);
+    js::NativeFunction* const constructor = interpreter.new_native(js::NativeSpec::intern(spec), interpreter.key(name));
+    return finish_interface(in, name, prototype, *constructor);
+}
+
+js::Object* define_interface_with(Realm::Internals& in, std::string_view name, js::Object& prototype,
+    js::NativeFunction::ConstructCallback construct, int length)
+{
+    if (!construct)
+        return define_plain_interface(in, name, prototype, illegal_constructor, length);
+    js::Interpreter& interpreter = in.interpreter;
+    js::Heap::NoCollect const guard(interpreter.heap());
     std::string const interface_name(name);
-    if (!construct) {
-        construct = [interface_name](js::Interpreter& interp, Args, js::Object*) -> Native {
-            return interp.throw_type_error("Illegal constructor");
-        };
-    }
     js::NativeFunction* constructor = interpreter.new_native(name, length,
         [interface_name](js::Interpreter& interp, js::Value const&, Args) -> Native {
             return interp.throw_type_error("Failed to construct '" + interface_name + "': Please use the 'new' operator");
         },
         std::move(construct));
-    constructor->put(interpreter.key("prototype"), js::Value::object(prototype), js::frozen_attributes);
-    prototype->put(interpreter.key("constructor"), js::Value::object(constructor), js::builtin_attributes);
-    prototype->put(js::PropertyKey::symbol(interpreter.atoms().symbol_to_string_tag), in.string(name), js::Configurable);
-    interpreter.global()->put(interpreter.key(name), js::Value::object(constructor), js::builtin_attributes);
-    in.prototypes[interface_name] = prototype;
-    return prototype;
+    return finish_interface(in, name, prototype, *constructor);
 }
 
 void define_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, js::NativeFunction::Callback getter,
@@ -521,7 +575,9 @@ bool is_global_interface(std::string_view name)
 // another realm has that realm's prototype for the interface, known by its
 // name tag. A window's proxy stands for its window; any other proxy is no
 // platform object.
-bool receiver_implements(js::Interpreter& interpreter, js::Value const& this_value, js::Object const* prototype, std::string const& interface_name)
+// The interface's name is asked of the prototype only when the chain does
+// not hold the prototype itself (a receiver of another realm).
+bool receiver_implements(js::Interpreter& interpreter, js::Value const& this_value, js::Object const* prototype)
 {
     if (!this_value.is_object())
         return false;
@@ -536,8 +592,9 @@ bool receiver_implements(js::Interpreter& interpreter, js::Value const& this_val
         if (p == prototype)
             return true;
     }
+    std::string const name = interface_name_of(interpreter, *prototype);
     for (js::Object const* p = object->prototype(); p != nullptr; p = p->prototype()) {
-        if (interface_name_of(interpreter, *p) == interface_name)
+        if (interface_name_of(interpreter, *p) == name)
             return true;
     }
     return false;
@@ -547,17 +604,16 @@ bool receiver_implements(js::Interpreter& interpreter, js::Value const& this_val
 // the interface; the global object for a `this` of undefined or null (a
 // call with no receiver) when the global implements it; else nothing, and
 // the member throws "Illegal invocation", as the browsers put it.
-std::optional<js::Value> interface_receiver(js::Interpreter& interpreter, js::Value const& this_value, js::Object const* prototype,
-    std::string const& interface_name)
+std::optional<js::Value> interface_receiver(js::Interpreter& interpreter, js::Value const& this_value, js::Object const* prototype)
 {
-    if (receiver_implements(interpreter, this_value, prototype, interface_name))
+    if (receiver_implements(interpreter, this_value, prototype))
         return this_value;
     if (this_value.is_nullish()) {
         // The global as scripts hold it: the window's proxy, which stands
         // for the window (and is what an event's target then is).
         js::Object* const global_this = interpreter.current_realm()->global_this;
         js::Value const global = js::Value::object(global_this != nullptr ? global_this : interpreter.global());
-        if (receiver_implements(interpreter, global, prototype, interface_name))
+        if (receiver_implements(interpreter, global, prototype))
             return global;
     }
     return std::nullopt;
@@ -577,51 +633,6 @@ Native refuse_receiver(js::Interpreter& interpreter, MemberKind kind, std::strin
     return interpreter.throw_type_error(message);
 }
 
-}
-
-void define_attribute(js::Interpreter& interpreter, js::Object& target, std::string_view name, js::NativeFunction::Callback getter,
-    js::NativeFunction::Callback setter, MemberKind kind)
-{
-    // An attribute on an interface's prototype answers only for a receiver
-    // that implements the interface (WebIDL §3.7.6); the prototype is known
-    // by its name tag, which only define_interface_with puts. One put on
-    // the global object or on an instance is not wrapped.
-    std::string const on = interface_name_of(interpreter, target);
-    js::NativeFunction::Callback const inner_getter = getter;
-    js::NativeFunction::Callback const inner_setter = setter;
-    if (!on.empty() && !is_global_interface(on)) {
-        js::Object const* const prototype = &target;
-        std::string const reading = kind == MemberKind::ReturnsPromise
-            ? "Failed to read the '" + std::string(name) + "' property from '" + on + "': Illegal invocation"
-            : std::string("Illegal invocation");
-        getter = [inner = std::move(getter), prototype, on, kind, reading](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
-            std::optional<js::Value> const receiver = interface_receiver(interp, this_value, prototype, on);
-            if (!receiver)
-                return refuse_receiver(interp, kind, reading);
-            return inner(interp, *receiver, args);
-        };
-        if (setter) {
-            setter = [inner = std::move(setter), prototype, on, kind](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
-                std::optional<js::Value> const receiver = interface_receiver(interp, this_value, prototype, on);
-                if (!receiver)
-                    return refuse_receiver(interp, kind, "Illegal invocation");
-                return inner(interp, *receiver, args);
-            };
-        }
-    }
-    // An interface's attribute reads and writes the object it is called on,
-    // in that object's realm.
-    js::Heap::NoCollect const guard(interpreter.heap());
-    js::NativeFunction* const get = interpreter.new_native("get " + std::string(name), 0, std::move(getter));
-    get->run_in_receivers_realm();
-    get->set_unwrapped(inner_getter);
-    js::NativeFunction* set = nullptr;
-    if (setter) {
-        set = interpreter.new_native("set " + std::string(name), 1, std::move(setter));
-        set->run_in_receivers_realm();
-        set->set_unwrapped(inner_setter);
-    }
-    target.put_accessor(interpreter.key(name), get, set, js::Enumerable | js::Configurable);
 }
 
 std::string interface_name_of(js::Interpreter& interpreter, js::Object const& target)
@@ -648,45 +659,161 @@ Native too_few_arguments(js::Interpreter& interpreter, std::string_view operatio
     return interpreter.throw_type_error(too_few_arguments_message(operation, on, required, given));
 }
 
-js::NativeFunction* define_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length,
-    js::NativeFunction::Callback callback, bool count_arguments, MemberKind kind)
+// --- Members as descriptions ---------------------------------------------------------
+//
+// A member is defined as a description of its function (js::NativeSpec) and
+// the function is made when a script first asks for it. What a member
+// checks before it runs — its receiver, its argument count, how it refuses
+// — is said by the description's flags and done by the one guard below,
+// where each member once held closures of its own for it.
+
+namespace {
+
+std::uint16_t flags_of(MemberKind kind)
 {
-    // Called with fewer arguments than it requires — its length is how many
-    // that is — an operation throws before anything else is looked at
-    // (WebIDL §3.7.7, the overload resolution's first step).
-    std::string const on = interface_name_of(interpreter, target);
-    js::NativeFunction::Callback const inner = callback;
-    if (count_arguments && length > 0) {
-        callback = [inner = std::move(callback), required = static_cast<std::size_t>(length), operation = std::string(name), on,
-                       kind](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
-            if (args.size() < required)
-                return refuse_receiver(interp, kind, too_few_arguments_message(operation, on, required, args.size()));
-            return inner(interp, this_value, args);
-        };
-    }
-    // Before even that: an operation on an interface's prototype is for a
-    // receiver that implements the interface (§3.7.7 step 2), "Failed to
-    // execute 'name' on 'Interface': Illegal invocation" for any other —
-    // the short "Illegal invocation" for EventTarget's, as Chromium says it.
-    if (!on.empty() && !is_global_interface(on)) {
-        js::Object const* const prototype = &target;
-        std::string const refusal = on == "EventTarget" ? std::string("Illegal invocation")
-                                                        : "Failed to execute '" + std::string(name) + "' on '" + on + "': Illegal invocation";
-        callback = [inner = std::move(callback), prototype, on, kind, refusal](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
-            std::optional<js::Value> const receiver = interface_receiver(interp, this_value, prototype, on);
-            if (!receiver)
-                return refuse_receiver(interp, kind, refusal);
-            return inner(interp, *receiver, args);
-        };
-    }
-    js::NativeFunction* const function
-        = sashfold::js::define_method(interpreter, target, name, length, std::move(callback), js::Writable | js::Enumerable | js::Configurable);
-    function->run_in_receivers_realm(); // an interface's operation, likewise
-    function->set_unwrapped(inner);
-    return function;
+    return kind == MemberKind::ReturnsPromise ? member_flag::returns_promise : kind == MemberKind::LenientThis ? member_flag::lenient_this : 0;
 }
 
-js::NativeFunction* define_promise_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length,
+MemberKind kind_of(std::uint16_t flags)
+{
+    if ((flags & member_flag::returns_promise) != 0)
+        return MemberKind::ReturnsPromise;
+    return (flags & member_flag::lenient_this) != 0 ? MemberKind::LenientThis : MemberKind::Plain;
+}
+
+// What a described member's guard worked out at the function's first call.
+constexpr std::uint8_t guard_unknown = 0;
+constexpr std::uint8_t guard_checks_receiver = 1;
+constexpr std::uint8_t guard_takes_any_receiver = 2;
+
+// An attribute's function: a plain one's description, or a closure's, kept
+// in the realm's table and described by its place there. Null for none.
+js::NativeSpec const* attribute_spec(js::NativeFunction::Entry entry, std::uint16_t flags, int length, std::uint32_t datum)
+{
+    if (entry == nullptr)
+        return nullptr;
+    js::NativeSpec spec;
+    spec.call = entry;
+    spec.guard = member_guard;
+    spec.datum = datum;
+    spec.flags = flags;
+    spec.length = static_cast<std::uint8_t>(length);
+    return &js::NativeSpec::intern(spec);
+}
+
+js::NativeSpec const* attribute_spec(js::Interpreter& interpreter, js::NativeFunction::Callback callback, std::uint16_t flags, int length)
+{
+    if (!callback)
+        return nullptr;
+    return attribute_spec(js::closure_native, flags, length, js::keep_native_closure(interpreter, std::move(callback)));
+}
+
+}
+
+std::string member_name(js::NativeFunction const& function)
+{
+    js::PropertyKey const& key = function.key();
+    return key.is_atom() ? key.as_atom()->to_utf8() : std::string();
+}
+
+Native member_guard(js::Interpreter& interpreter, js::NativeFunction& function, js::Value const& this_value, Args args)
+{
+    js::NativeSpec const& spec = *function.spec();
+    MemberKind const kind = kind_of(spec.flags);
+    js::Object const* const home = function.home();
+    // A member on an interface's prototype answers only for a receiver that
+    // implements the interface (WebIDL §3.7.6, §3.7.7); the prototype is
+    // known by its name tag, which only define_interface_with puts. One put
+    // on the global object, on a global interface's prototype or on an
+    // instance takes whatever it is called on.
+    if (function.guard_note == guard_unknown) {
+        std::string const on = home != nullptr ? interface_name_of(interpreter, *home) : std::string();
+        function.guard_note = !on.empty() && !is_global_interface(on) ? guard_checks_receiver : guard_takes_any_receiver;
+    }
+    js::Value receiver = this_value;
+    if (function.guard_note == guard_checks_receiver) {
+        std::optional<js::Value> const found = interface_receiver(interpreter, this_value, home);
+        if (!found) {
+            // As the browsers say it: "Failed to execute 'name' on
+            // 'Interface': Illegal invocation" for an operation (the short
+            // form for EventTarget's, as Chromium has it), the short form
+            // for an attribute unless its type is a Promise.
+            std::string const on = interface_name_of(interpreter, *home);
+            std::string message = "Illegal invocation";
+            if (function.role() == js::NativeFunction::Role::Method) {
+                if (on != "EventTarget")
+                    message = "Failed to execute '" + member_name(function) + "' on '" + on + "': Illegal invocation";
+            } else if (function.role() == js::NativeFunction::Role::Getter && kind == MemberKind::ReturnsPromise) {
+                message = "Failed to read the '" + member_name(function) + "' property from '" + on + "': Illegal invocation";
+            }
+            return refuse_receiver(interpreter, kind, message);
+        }
+        receiver = *found;
+    }
+    // Called with fewer arguments than it requires — its length is how many
+    // that is — an operation refuses before it looks at them (WebIDL §3.7.7,
+    // the overload resolution's first step).
+    if ((spec.flags & member_flag::counts_arguments) != 0 && args.size() < spec.length) {
+        std::string const on = home != nullptr ? interface_name_of(interpreter, *home) : std::string();
+        return refuse_receiver(interpreter, kind, too_few_arguments_message(member_name(function), on, spec.length, args.size()));
+    }
+    return spec.call(interpreter, receiver, args);
+}
+
+// An accessor pair: an IDL attribute, enumerable and configurable (WebIDL
+// §3.7.6), which reads and writes the object it is called on, in that
+// object's realm.
+void define_plain_attribute(js::Interpreter& interpreter, js::Object& target, std::string_view name, js::NativeFunction::Entry getter,
+    js::NativeFunction::Entry setter, MemberKind kind, std::uint32_t datum)
+{
+    std::uint16_t const flags = static_cast<std::uint16_t>(js::NativeSpec::ReceiversRealm | flags_of(kind));
+    target.put_lazy_accessor(interpreter.key(name), attribute_spec(getter, flags, 0, datum), attribute_spec(setter, flags, 1, datum),
+        *interpreter.current_realm(), js::Enumerable | js::Configurable);
+}
+
+void define_attribute(js::Interpreter& interpreter, js::Object& target, std::string_view name, js::NativeFunction::Callback getter,
+    js::NativeFunction::Callback setter, MemberKind kind)
+{
+    std::uint16_t const flags = static_cast<std::uint16_t>(js::NativeSpec::ReceiversRealm | flags_of(kind));
+    js::NativeSpec const* const get = attribute_spec(interpreter, std::move(getter), flags, 0);
+    js::NativeSpec const* const set = attribute_spec(interpreter, std::move(setter), flags, 1);
+    target.put_lazy_accessor(interpreter.key(name), get, set, *interpreter.current_realm(), js::Enumerable | js::Configurable);
+}
+
+namespace {
+
+// An operation: writable, enumerable and configurable (WebIDL §3.7.7).
+js::DefinedMethod define_described_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length,
+    js::NativeFunction::Entry entry, bool count_arguments, MemberKind kind, std::uint32_t datum)
+{
+    js::NativeSpec spec;
+    spec.call = entry;
+    spec.guard = member_guard;
+    spec.datum = datum;
+    spec.length = static_cast<std::uint8_t>(length);
+    spec.flags = static_cast<std::uint16_t>(
+        js::NativeSpec::ReceiversRealm | flags_of(kind) | (count_arguments && length > 0 ? member_flag::counts_arguments : 0));
+    js::PropertyKey const key = interpreter.key(name);
+    target.put_lazy(key, js::NativeSpec::intern(spec), *interpreter.current_realm(), js::Writable | js::Enumerable | js::Configurable);
+    return js::DefinedMethod(target, key);
+}
+
+}
+
+js::DefinedMethod define_plain_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length,
+    js::NativeFunction::Entry callback, bool count_arguments, MemberKind kind, std::uint32_t datum)
+{
+    return define_described_operation(interpreter, target, name, length, callback, count_arguments, kind, datum);
+}
+
+js::DefinedMethod define_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length,
+    js::NativeFunction::Callback callback, bool count_arguments, MemberKind kind)
+{
+    return define_described_operation(interpreter, target, name, length, js::closure_native, count_arguments, kind,
+        js::keep_native_closure(interpreter, std::move(callback)));
+}
+
+js::DefinedMethod define_promise_operation(js::Interpreter& interpreter, js::Object& target, std::string_view name, int length,
     js::NativeFunction::Callback callback, bool count_arguments)
 {
     return define_operation(interpreter, target, name, length, std::move(callback), count_arguments, MemberKind::ReturnsPromise);
@@ -3511,6 +3638,7 @@ void Realm::trace_roots(js::Tracer& tracer)
     tracer.visit(in.history_state);
     tracer.visit(in.location);
     tracer.visit(in.streams);
+    tracer.visit(in.stream_primordials);
     tracer.visit(in.active_view_transition);
     for (auto const& [key, object] : in.same_objects)
         tracer.visit(object);

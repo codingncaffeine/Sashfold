@@ -870,14 +870,25 @@ constexpr std::string_view shared_names[] = {
 // it answers for the other interface's objects (WebIDL §3.7.6).
 void share_getter(js::Interpreter& interpreter, js::Object& from, js::Object& to, std::string_view name)
 {
-    std::optional<js::PropertyDescriptor> const found = from.get_own_property(interpreter.key(name));
+    js::PropertyKey const key = interpreter.key(name);
+    // A getter still a description is given as the description: its guard
+    // works out the interface from the prototype it is defined on.
+    if (js::Property const* const described = from.peek_own(key); described != nullptr && described->lazy && described->accessor) {
+        if (described->lazy_get != nullptr)
+            to.put_lazy_accessor(key, described->lazy_get, nullptr, *interpreter.current_realm(), js::Enumerable | js::Configurable);
+        return;
+    }
+    std::optional<js::PropertyDescriptor> const found = from.get_own_property(key);
     if (!found || !found->get || *found->get == nullptr)
         return;
     auto* const getter = dynamic_cast<js::NativeFunction*>(*found->get);
     if (getter == nullptr)
         return;
-    js::NativeFunction::Callback const* const steps = getter->unwrapped() != nullptr ? getter->unwrapped() : getter->closure();
-    if (steps != nullptr)
+    if (js::NativeSpec const* const spec = getter->spec()) {
+        to.put_lazy_accessor(key, spec, nullptr, *interpreter.current_realm(), js::Enumerable | js::Configurable);
+        return;
+    }
+    if (js::NativeFunction::Callback const* const steps = getter->closure())
         define_attribute(interpreter, to, name, *steps);
 }
 

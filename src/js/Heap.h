@@ -340,6 +340,10 @@ public:
         std::uint64_t natives_described = 0;
         std::uint64_t natives_made_later = 0;
         std::uint64_t natives_made_at_once = 0;
+        // Values a host makes on demand (an interface's object on the
+        // global), and how many of them something looked at.
+        std::uint64_t values_described = 0;
+        std::uint64_t values_made = 0;
         std::uint64_t script_functions = 0;
         std::uint64_t prototypes_asked = 0;
         std::uint64_t names_or_lengths_asked = 0;

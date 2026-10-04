@@ -1431,10 +1431,10 @@ bool Interpreter::Impl::copy_data_properties(Object& target, Value const& source
             continue;
         if (key.is_symbol())
             self.root(Value::symbol(key.as_symbol()));
-        std::optional<std::optional<PropertyDescriptor>> const desc = self.get_own_property(**from, key);
-        if (!desc)
+        std::optional<Listed> const listed = self.own_enumerability(**from, key);
+        if (!listed)
             return false;
-        if (!*desc || !(*desc)->enumerable.value_or(false))
+        if (*listed != Listed::Enumerable)
             continue;
         std::optional<Value> const value = self.get(**from, key);
         if (!value)
@@ -2217,13 +2217,13 @@ JsString* Interpreter::Impl::enumerator_next(Enumerator& enumerator)
             JsString* name = heap().key_to_string(key);
             if (enumerator.visited.contains(name))
                 continue;
-            std::optional<std::optional<PropertyDescriptor>> const read = self.get_own_property(*enumerator.object, key);
-            if (!read)
+            std::optional<Listed> const listed = self.own_enumerability(*enumerator.object, key);
+            if (!listed)
                 return nullptr;
-            if (!*read)
+            if (*listed == Listed::Absent)
                 continue;
             enumerator.visited.insert(name);
-            if ((*read)->enumerable.value_or(false))
+            if (*listed == Listed::Enumerable)
                 return name;
         }
         // [[GetPrototypeOf]]: a proxy in the chain answers from its trap.
@@ -2491,6 +2491,9 @@ std::string Interpreter::lazy_census_text(std::size_t rows) const
     std::snprintf(line, sizeof line, "lazy: natives described %llu, made later %llu (%.1f%%), made at once %llu\n",
         static_cast<unsigned long long>(census.natives_described), static_cast<unsigned long long>(census.natives_made_later),
         percent(census.natives_made_later, census.natives_described), static_cast<unsigned long long>(census.natives_made_at_once));
+    text += line;
+    std::snprintf(line, sizeof line, "lazy: values described %llu, made %llu\n", static_cast<unsigned long long>(census.values_described),
+        static_cast<unsigned long long>(census.values_made));
     text += line;
     std::snprintf(line, sizeof line, "lazy: script functions %llu, prototype asked of %llu (%.1f%%), length or name asked %llu times\n",
         static_cast<unsigned long long>(census.script_functions), static_cast<unsigned long long>(census.prototypes_asked),
@@ -2866,10 +2869,10 @@ std::optional<Value> Interpreter::perform_import_call(Program const* referrer, V
             for (PropertyKey const& key : source.own_keys()) {
                 if (key.is_symbol())
                     continue;
-                std::optional<std::optional<PropertyDescriptor>> const descriptor = get_own_property(source, key);
-                if (!descriptor)
+                std::optional<Listed> const listed = own_enumerability(source, key);
+                if (!listed)
                     return reject_pending();
-                if (!*descriptor || !(*descriptor)->enumerable.value_or(false))
+                if (*listed != Listed::Enumerable)
                     continue;
                 std::optional<Value> const value = get(*with, key);
                 if (!value)

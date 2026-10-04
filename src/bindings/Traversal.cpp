@@ -389,26 +389,44 @@ T* this_traversal(js::Interpreter& interpreter, js::Value const& this_value)
 }
 
 template<typename T, typename Body>
+Native with_traversal(js::Interpreter& interpreter, js::Value const& this_value, Body const& body)
+{
+    T* const object = this_traversal<T>(interpreter, this_value);
+    if (!object)
+        return std::nullopt;
+    return body(internals_of(interpreter), *object);
+}
+
+template<typename T, typename Body>
 void traversal_method(Realm::Internals& in, js::Object& prototype, std::string_view name, Body body)
 {
-    define_operation(in.interpreter, prototype, name, 0,
-        [body](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
-            T* const object = this_traversal<T>(interpreter, this_value);
-            if (!object)
-                return std::nullopt;
-            return body(internals_of(interpreter), *object);
-        });
+    if constexpr (Stateless<Body>) {
+        define_operation(in.interpreter, prototype, name, 0,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
+                return with_traversal<T>(interpreter, this_value, Body {});
+            });
+    } else {
+        define_operation(in.interpreter, prototype, name, 0,
+            [body](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
+                return with_traversal<T>(interpreter, this_value, body);
+            });
+    }
 }
 
 template<typename T, typename Read>
 void traversal_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, Read read)
 {
-    define_getter(in, prototype, name, [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
-        T* const object = this_traversal<T>(interpreter, this_value);
-        if (!object)
-            return std::nullopt;
-        return read(internals_of(interpreter), *object);
-    });
+    if constexpr (Stateless<Read>) {
+        define_getter(in, prototype, name,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
+                return with_traversal<T>(interpreter, this_value, Read {});
+            });
+    } else {
+        define_getter(in, prototype, name,
+            [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
+                return with_traversal<T>(interpreter, this_value, read);
+            });
+    }
 }
 
 // The arguments createTreeWalker and createNodeIterator share: the root, a

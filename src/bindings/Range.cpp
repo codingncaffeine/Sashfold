@@ -510,14 +510,36 @@ std::string range_text(dom::Range const& range)
 }
 
 template<typename Read>
+Native read_range(js::Interpreter& interpreter, js::Value const& this_value, Read const& read)
+{
+    std::optional<RangeObject*> const range = this_range(interpreter, this_value, true);
+    if (!range)
+        return std::nullopt;
+    return read(internals_of(interpreter), (*range)->range());
+}
+
+template<typename Read>
 void range_getter(Realm::Internals& in, js::Object& prototype, std::string_view name, Read read)
 {
-    define_getter(in, prototype, name, [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native {
-        std::optional<RangeObject*> const range = this_range(interpreter, this_value, true);
-        if (!range)
-            return std::nullopt;
-        return read(internals_of(interpreter), (*range)->range());
-    });
+    if constexpr (Stateless<Read>) {
+        define_getter(in, prototype, name,
+            [](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_range(interpreter, this_value, Read {}); });
+    } else {
+        define_getter(in, prototype, name,
+            [read](js::Interpreter& interpreter, js::Value const& this_value, Args) -> Native { return read_range(interpreter, this_value, read); });
+    }
+}
+
+template<typename Body>
+Native call_range(js::Interpreter& interpreter, js::Value const& this_value, Args args, bool needs_boundaries, Body const& body)
+{
+    std::optional<RangeObject*> const range = this_range(interpreter, this_value, false);
+    if (!range)
+        return std::nullopt;
+    Realm::Internals& internals = internals_of(interpreter);
+    if (needs_boundaries && is_released((*range)->range()))
+        return throw_released(internals);
+    return body(internals, (*range)->range(), args);
 }
 
 // A Range method; one that reads the boundaries refuses a range whose
@@ -525,16 +547,24 @@ void range_getter(Realm::Internals& in, js::Object& prototype, std::string_view 
 template<typename Body>
 void range_method(Realm::Internals& in, js::Object& prototype, std::string_view name, int length, bool needs_boundaries, Body body)
 {
-    define_operation(in.interpreter, prototype, name, length,
-        [body, needs_boundaries](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
-            std::optional<RangeObject*> const range = this_range(interpreter, this_value, false);
-            if (!range)
-                return std::nullopt;
-            Realm::Internals& internals = internals_of(interpreter);
-            if (needs_boundaries && is_released((*range)->range()))
-                return throw_released(internals);
-            return body(internals, (*range)->range(), args);
-        });
+    if constexpr (Stateless<Body>) {
+        if (needs_boundaries) {
+            define_operation(in.interpreter, prototype, name, length,
+                [](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                    return call_range(interpreter, this_value, args, true, Body {});
+                });
+        } else {
+            define_operation(in.interpreter, prototype, name, length,
+                [](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                    return call_range(interpreter, this_value, args, false, Body {});
+                });
+        }
+    } else {
+        define_operation(in.interpreter, prototype, name, length,
+            [body, needs_boundaries](js::Interpreter& interpreter, js::Value const& this_value, Args args) -> Native {
+                return call_range(interpreter, this_value, args, needs_boundaries, body);
+            });
+    }
 }
 
 } // namespace

@@ -392,10 +392,10 @@ std::optional<Value> internalize(Interpreter& in, Object& holder, PropertyKey co
             for (PropertyKey const& key : *own) {
                 if (key.is_symbol())
                     continue;
-                std::optional<std::optional<PropertyDescriptor>> const desc = in.get_own_property(object, key);
-                if (!desc)
+                std::optional<Interpreter::Listed> const listed = in.own_enumerability(object, key);
+                if (!listed)
                     return std::nullopt;
-                if (*desc && (*desc)->enumerable.value_or(false))
+                if (*listed == Interpreter::Listed::Enumerable)
                     keys.push_back(key);
             }
             for (PropertyKey const& key : keys) {
@@ -577,10 +577,10 @@ struct Stringifier {
             for (PropertyKey const& key : *own) {
                 if (key.is_symbol())
                     continue;
-                std::optional<std::optional<PropertyDescriptor>> const desc = in.get_own_property(object, key);
-                if (!desc)
+                std::optional<Interpreter::Listed> const listed = in.own_enumerability(object, key);
+                if (!listed)
                     return std::nullopt;
-                if (*desc && (*desc)->enumerable.value_or(false))
+                if (*listed == Interpreter::Listed::Enumerable)
                     keys.push_back(key);
             }
         }
