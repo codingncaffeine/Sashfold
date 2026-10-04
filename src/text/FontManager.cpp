@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <bit>
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>
@@ -270,6 +271,18 @@ float FontStack::measure(std::u32string_view text, float size, bool kern) const
     // exact where a running sum would drift.
     if (builtin_alone())
         return static_cast<float>(text.size()) * m_faces[0]->advance(0, size);
+    bool const cacheable = text.size() <= widths_run_limit;
+    std::uint64_t const by = std::uint64_t { std::bit_cast<std::uint32_t>(size) } << 1 | (kern ? 1u : 0u);
+    if (cacheable) {
+        if (auto const runs = m_widths.find(by); runs != m_widths.end()) {
+            if (auto const found = runs->second.find(text); found != runs->second.end())
+                return found->second;
+        }
+    }
+    // A face the page had at hand can come while the run is measured (a
+    // glyph asked for it): the stack is filled again then, its widths let
+    // go of, and this width, made of both sets of faces, is not kept.
+    std::uint64_t const faces = m_faces_filled;
     float width = 0;
     Glyph previous { nullptr, 0 };
     for (char32_t const c : text) {
@@ -278,6 +291,14 @@ float FontStack::measure(std::u32string_view text, float size, bool kern) const
             width += glyph.face->kerning(previous.glyph, glyph.glyph, size);
         width += glyph.face->advance(glyph.glyph, size);
         previous = glyph;
+    }
+    if (cacheable && faces == m_faces_filled) {
+        if (m_widths_count >= widths_bound) {
+            m_widths.clear();
+            m_widths_count = 0;
+        }
+        m_widths[by].emplace(std::u32string(text), width);
+        ++m_widths_count;
     }
     return width;
 }
@@ -671,6 +692,9 @@ void FontManager::fill(FontStack& filled, ThreadFonts& fonts)
     FontRequest const& request = stack->m_request;
     stack->m_faces.clear();
     stack->m_waiting.clear();
+    stack->m_widths.clear(); // measured with the faces it had
+    stack->m_widths_count = 0;
+    ++stack->m_faces_filled;
     auto const add = [&](Face const* face) {
         if (face && std::find(stack->m_faces.begin(), stack->m_faces.end(), face) == stack->m_faces.end())
             stack->m_faces.push_back(face);

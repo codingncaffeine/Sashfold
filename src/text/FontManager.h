@@ -185,6 +185,22 @@ private:
     FontRequest m_request; // what it answers, to answer it again when a face comes
     void const* m_owner = nullptr; // the thread's fonts it was resolved against
     std::uint64_t m_serial = 0; // and which set of them
+    // The widths of the short runs it has measured — words, mostly, which
+    // a layout measures again on every pass, glyph by glyph and pair by
+    // pair (WebKit's WidthCache, Gecko's word cache): by size and kerning,
+    // then by the run, looked up without a copy. Emptied when the faces
+    // change (FontManager::fill) and when it grows past its bound; the
+    // stack is its thread's alone, so nothing else touches it.
+    struct RunHash {
+        using is_transparent = void;
+        std::size_t operator()(std::u32string_view run) const { return std::hash<std::u32string_view> {}(run); }
+    };
+    using RunWidths = std::unordered_map<std::u32string, float, RunHash, std::equal_to<>>;
+    static constexpr std::size_t widths_run_limit = 32; // code points: longer runs are measured each time
+    static constexpr std::size_t widths_bound = 16384;
+    mutable std::unordered_map<std::uint64_t, RunWidths> m_widths;
+    mutable std::size_t m_widths_count = 0;
+    std::uint64_t m_faces_filled = 0; // how many times its faces were filled in
 };
 
 class FontManager {
