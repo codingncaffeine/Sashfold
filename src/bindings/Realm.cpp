@@ -889,12 +889,18 @@ js::Object* Realm::Internals::prototype(std::string_view name) const
     return interface_groups.empty() ? nullptr : deferred_prototype(name);
 }
 
+double coarse_clock_ms()
+{
+    using namespace std::chrono;
+    auto const us = duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
+    return static_cast<double>(us - us % 100) / 1000.0;
+}
+
 double Realm::Internals::now() const
 {
     if (hooks.now)
         return hooks.now();
-    using namespace std::chrono;
-    return static_cast<double>(duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count()) / 1000.0;
+    return coarse_clock_ms();
 }
 
 void Realm::Internals::console(std::string_view level, std::string_view message) const

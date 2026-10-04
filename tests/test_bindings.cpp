@@ -15,6 +15,7 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cmath>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -187,6 +188,28 @@ void test_inline_scripts_run_in_document_order()
     CHECK_EQ(page->realm->stats().scripts_run, 1);
     CHECK_EQ(page->realm->stats().scripts_failed, 0);
     CHECK_EQ(page->console, "");
+}
+
+// The clock a page reads when its host gives none (performance.now(), event
+// time stamps, timers): on a 100 µs grid however finely it is sampled, never
+// going back, and still moving.
+void test_script_clock_is_coarse()
+{
+    double const first = bindings::coarse_clock_ms();
+    double last = first;
+    bool on_grid = true;
+    bool monotonic = true;
+    auto const until = std::chrono::steady_clock::now() + std::chrono::milliseconds(5);
+    while (std::chrono::steady_clock::now() < until) {
+        double const t = bindings::coarse_clock_ms();
+        double const tenths = t * 10;
+        on_grid = on_grid && std::abs(tenths - std::round(tenths)) < 1e-6;
+        monotonic = monotonic && t >= last;
+        last = t;
+    }
+    CHECK(on_grid);
+    CHECK(monotonic);
+    CHECK(last >= first + 4.0); // five milliseconds sampled: it moved
 }
 
 void test_wrapper_identity_and_expandos_survive_collection()
@@ -5495,6 +5518,7 @@ int main()
     setenv("PULSE_SERVER", "unix:/nonexistent/sashfold-tests", 1);
 #endif
     test_inline_scripts_run_in_document_order();
+    test_script_clock_is_coarse();
     test_wrapper_identity_and_expandos_survive_collection();
     test_tree_mutation_and_serialization();
     test_cdata_sections_and_processing_instructions();

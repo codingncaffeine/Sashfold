@@ -657,12 +657,6 @@ std::optional<WorkerObject*> this_worker(js::Interpreter& interp, js::Value cons
     return interp.throw_type_error("Illegal invocation");
 }
 
-double steady_now_ms()
-{
-    using namespace std::chrono;
-    return static_cast<double>(duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count()) / 1000.0;
-}
-
 }
 
 void install_workers(Realm::Internals& in)
@@ -765,7 +759,7 @@ void install_workers(Realm::Internals& in)
                 init.hooks.indexed_db = [storage](std::string const&) { return storage; };
             if (threads != nullptr) {
                 init.hooks.fetch_resource = internals.hooks.worker_fetch;
-                init.hooks.now = [] { return steady_now_ms(); };
+                init.hooks.now = [] { return coarse_clock_ms(); };
                 init.hooks.should_stop = [link] { return link->stop.load(std::memory_order_relaxed); };
                 link->wake_owner = [threads] { threads->wake(); };
                 // A port of this document's entangled with one of a worker's

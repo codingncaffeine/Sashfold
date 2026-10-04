@@ -129,6 +129,13 @@ struct HostPicture {
     bool allow_credentials = false;
 };
 
+// The steady clock as a script may read it, in milliseconds: coarsened to
+// 100 µs, the resolution HR-Time's "coarsen time" asks of a context that
+// is not cross-origin isolated (none is, here). A finer clock in a process
+// that writes machine code makes cache-timing attacks practical
+// (js-JIT-DESIGN.md §7). What `now` is when a host gives none.
+double coarse_clock_ms();
+
 // What the page's host provides to its scripts. Every hook is optional;
 // a missing one answers with the least surprising nothing (no box, the
 // attribute's value, no navigation).
