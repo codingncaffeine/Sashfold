@@ -61,11 +61,13 @@ std::size_t current_thread_stack_bytes();
 // How much stack the process's first thread may grow to. On Linux that is
 // a soft limit the kernel reads as the stack grows, so a process may raise
 // it for itself before its first deep call; the stack it was started with
-// (8 MB by the usual limit) holds fewer than three thousand script calls
-// of the engine's, where V8 on a megabyte of its own frames reaches twelve
-// thousand. Windows and macOS set the first thread's reserve at link time
-// (CMakeLists.txt), and this only reports it. Returns the stack's size
-// afterwards, as current_thread_stack_bytes would from that thread.
+// (8 MB by the usual limit) leaves a budget of 4 MB, about eleven hundred
+// levels of a recursion through natives (a script's calls to its own
+// functions take none of it), where V8 on a megabyte of its own frames
+// reaches twelve thousand calls. Windows and macOS set the first thread's
+// reserve at link time (CMakeLists.txt), and this only reports it. Returns
+// the stack's size afterwards, as current_thread_stack_bytes would from
+// that thread.
 std::size_t widen_main_thread_stack(std::size_t bytes);
 
 // The stack every thread that runs script gets: enough for a recursion as

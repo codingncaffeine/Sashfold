@@ -296,12 +296,19 @@ public:
     RealmRecord* realm() const { return m_realm; }
     void set_realm(RealmRecord* realm) { m_realm = realm; }
     void trace(Tracer&) override;
+    // A ScriptFunction: what the run loop asks before it makes a call itself.
+    bool is_script() const { return m_script; }
+
+protected:
+    void mark_script() { m_script = true; }
 
 private:
     RealmRecord* m_realm = nullptr;
+    bool m_script = false;
 };
 
 class ScriptFunction;
+struct CodeBlock;
 
 // A class field a constructor defines on each instance (§15.7.10
 // ClassFieldDefinition): the key — a Private Name for `#x` — and the
@@ -385,6 +392,10 @@ public:
     // [[PrivateEnvironment]]: the class body's, when made inside one.
     PrivateEnvironment* private_environment() const { return m_private_environment; }
     void set_private_environment(PrivateEnvironment* environment) { m_private_environment = environment; }
+    // Its body compiled, once the first call has asked: the interpreter's,
+    // kept here so that a call needs no lookup.
+    CodeBlock const* compiled() const { return m_compiled; }
+    void set_compiled(CodeBlock const* code) { m_compiled = code; }
 
     std::optional<Value> call(Interpreter&, Value const& this_value, std::span<Value const> arguments) override;
     std::optional<Value> construct(Interpreter&, std::span<Value const> arguments, Object* new_target) override;
@@ -398,6 +409,7 @@ private:
     PrivateEnvironment* m_private_environment = nullptr;
     std::vector<ClassField> m_fields;
     std::vector<PrivateMethod> m_private_methods;
+    CodeBlock const* m_compiled = nullptr;
     bool m_constructable;
 };
 

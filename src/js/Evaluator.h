@@ -128,7 +128,16 @@ struct Interpreter::Impl {
 
     // ---- limits
     bool stack_ok();
-    bool step();
+    // At each loop back-edge and call: one decrement and a test (V8's
+    // interrupt budget); a spent budget brings interrupt(), which looks at
+    // the heap and asks should_stop.
+    bool tick()
+    {
+        if (--self.m_budget > 0) [[likely]]
+            return true;
+        return interrupt();
+    }
+    bool interrupt();
 
     // ---- messages
     std::string expression_text(Expression const* expression, Context const& cx);
@@ -140,7 +149,10 @@ struct Interpreter::Impl {
     Reference resolve(JsString* name, Environment* environment);
     bool ensure_key(Reference& reference);
     std::string reference_key_text(Reference const& reference);
-    std::optional<Value> get_value(Reference& reference, Context const& cx);
+    // GetValue reads nothing of the running context but its strictness (a
+    // name a `with` object lost), so the run loop passes only that.
+    std::optional<Value> get_value(Reference& reference, bool strict);
+    std::optional<Value> get_value(Reference& reference, Context const& cx) { return get_value(reference, cx.strict); }
     bool put_value(Reference& reference, Value const& value, Context const& cx);
     // SetMutableBinding (§9.1.1.1.5) on a binding in hand: its dead zone a
     // ReferenceError, an immutable one a TypeError from strict code or for
@@ -300,7 +312,27 @@ struct Interpreter::Impl {
     Frame* restore_frame(SavedFrame& saved);
     SavedFrame* fresh_saved_frame(CodeBlock const& code, Context const& cx);
     Context frame_context(Frame const& frame) const;
+    // A call the run loop makes itself: a plain script function's frame
+    // pushed above the caller's, its realm and context entered, as
+    // Interpreter::call and run_resolved_function would; null when the
+    // callee is not one the loop runs itself (the generic path takes it),
+    // or when entering threw (`threw` set, the exception pending).
+    Frame* enter_call(Value const& callee, Value const& this_argument, std::span<Value const> arguments, bool& threw);
+    // Its end, by a return or a throw: the frame popped and the caller's
+    // realm, context and call depth back; the caller's frame.
+    Frame* leave_call(Frame& frame);
+    // The member writes' slow paths (a base that is no object, a key that
+    // is one, the compound read), out of the run loop so that it stays small.
+    bool put_member_slow(Frame& frame, Value const& base, Value const& key, Value const& value);
+    bool put_member_named_slow(Frame& frame, Value const& base, JsString* name, Value const& value);
+    bool get_member_slow(Frame& frame);
+    bool get_member_update(Frame& frame);
     RunStatus vm_run(Frame& frame);
+    // One frame's instructions, until it ends, suspends, throws past its own
+    // handlers, or switches to another frame (`next`): a call the loop
+    // makes itself, or such a call's return. vm_run goes from one to the
+    // next; this function's body is the loop the compiler optimizes.
+    RunStatus vm_run_frame(Frame& frame, Frame*& next, std::uint64_t* executed);
     bool vm_unwind(Frame& frame);
     // A plain body run on the machine,
     // and a script's or an eval's statement list as a synthetic body.

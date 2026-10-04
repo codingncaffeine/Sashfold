@@ -183,22 +183,24 @@ bool Interpreter::stack_ok()
 }
 
 
-bool Interpreter::Impl::step()
+bool Interpreter::Impl::interrupt()
 {
-    ++self.m_steps;
-    // What the cells have grown to with nothing allocated — a loop pushing
-    // numbers onto one array — is held against the ceiling every so many
-    // steps.
-    if ((self.m_steps & 0xFFFF) == 0)
-        self.m_heap->poll_growth();
-    // A heap over its ceiling: the script ends here, as a runaway one does,
-    // and so does every script after it at its first step.
+    // The look a spent budget brings: every interval of steps when the host
+    // asked to be asked, else every heap_look_steps. What the cells have
+    // grown to with nothing allocated — a loop pushing numbers onto one
+    // array — is held against the ceiling.
+    self.m_heap->poll_growth();
+    // A heap over its ceiling (found here, or by a collection, which spent
+    // the budget): the script ends here, as a runaway one does, and so does
+    // every script after it at its first step, the budget left spent.
     if (self.m_heap->over_limit()) {
+        self.m_budget = 0;
         self.m_terminated = true;
         self.throw_error(ErrorType::RangeError, "out of memory");
         return false;
     }
-    if (self.m_should_stop && self.m_steps % self.m_interrupt_interval == 0 && self.m_should_stop()) {
+    self.m_budget = self.m_should_stop ? static_cast<std::int32_t>(self.m_interrupt_interval) : Interpreter::heap_look_steps;
+    if (self.m_should_stop && self.m_should_stop()) {
         self.m_terminated = true;
         self.throw_error(ErrorType::RangeError, "script terminated");
         return false;
@@ -312,7 +314,7 @@ std::string Interpreter::Impl::reference_key_text(Reference const& reference)
 
 
 // GetValue (§6.2.5.5).
-std::optional<Value> Interpreter::Impl::get_value(Reference& reference, Context const& cx)
+std::optional<Value> Interpreter::Impl::get_value(Reference& reference, bool strict)
 {
     switch (reference.kind) {
     case Reference::Kind::Value:
@@ -359,7 +361,7 @@ std::optional<Value> Interpreter::Impl::get_value(Reference& reference, Context 
         if (!has)
             return std::nullopt;
         if (!*has) {
-            if (cx.strict)
+            if (strict)
                 return self.throw_reference_error(reference.name->to_utf8() + " is not defined");
             return Value::undefined();
         }
@@ -937,7 +939,7 @@ std::optional<Value> Interpreter::Impl::call_field_initializer(ScriptFunction& i
 {
     if (self.m_call_depth >= self.m_call_depth_limit)
         return self.throw_range_error("Maximum call stack size exceeded");
-    if (!step() || !stack_ok())
+    if (!tick() || !stack_ok())
         return std::nullopt;
     ++self.m_call_depth;
     std::optional<Value> const result = call_script_function(initializer, this_value, {}, nullptr, &key);
@@ -2309,6 +2311,7 @@ Interpreter::Interpreter()
     , m_impl(std::make_unique<Impl>(*this))
 {
     m_heap->add_root_provider(this);
+    m_heap->set_budget(&m_budget);
     m_symbol_registry = m_heap->allocate<Object>(nullptr);
     m_realm = create_realm();
     // SASHFOLD_VM_PROFILE=1: where the running goes, and what it runs.
@@ -2973,7 +2976,7 @@ std::optional<Value> Interpreter::call(Value const& callee, Value const& this_va
     root(this_value);
     for (Value const& argument : arguments)
         root(argument);
-    if (!m_impl->step() || !m_impl->stack_ok())
+    if (!m_impl->tick() || !m_impl->stack_ok())
         return std::nullopt;
     ++m_call_depth;
     std::optional<Value> const result = static_cast<Function*>(callee.as_object())->call(*this, this_value, arguments);
@@ -3000,7 +3003,7 @@ std::optional<Value> Interpreter::construct(Value const& callee, std::span<Value
         root(Value::object(new_target));
     for (Value const& argument : arguments)
         root(argument);
-    if (!m_impl->step() || !m_impl->stack_ok())
+    if (!m_impl->tick() || !m_impl->stack_ok())
         return std::nullopt;
     ++m_call_depth;
     Object* constructor = callee.as_object();

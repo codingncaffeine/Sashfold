@@ -377,6 +377,11 @@ public:
     void set_limit(std::size_t bytes) { m_limit = bytes; }
     std::size_t limit() const { return m_limit; }
     bool over_limit() const { return m_over_limit; }
+    // The interpreter's step budget (it looks at the heap when the budget
+    // is spent): spent at once when the heap is found over its ceiling, so
+    // the running script stops at its next loop back-edge or call rather
+    // than at its next scheduled look.
+    void set_budget(std::int32_t* budget) { m_budget = budget; }
     // The longest string a script of this heap can make (js::max_string_length
     // unless told otherwise — a test tells it a thousand, and need not make
     // a gigabyte of string to see the RangeError).
@@ -432,6 +437,13 @@ private:
     std::size_t m_max_string_length = js::max_string_length;
     std::size_t m_limit = 0; // the ceiling; 0 is none
     bool m_over_limit = false; // what was live after a collection passed it
+    std::int32_t* m_budget = nullptr;
+    void passed_limit()
+    {
+        m_over_limit = true;
+        if (m_budget != nullptr)
+            *m_budget = 0;
+    }
     int m_no_collect = 0;
     bool m_stress = false;
     bool m_collecting = false;

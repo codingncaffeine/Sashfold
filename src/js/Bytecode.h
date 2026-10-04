@@ -50,6 +50,10 @@ namespace sashfold::js {
     X(RefSuper, -1) X(RefSuperNamed, 0) /* a: name */ X(RefPrivate, -1) /* a: name */                               \
     X(RefGet, 1) X(RefPut, -1) X(RefPutKeep, 0) X(RefThis, 1) X(RefDrop, 0) X(RefDelete, 1)                          \
     X(GetName, 1) /* a: name */ X(TypeofName, 1) /* a: name */ X(GetMemberNamed, 0) /* a: name */ X(GetMember, -1)  \
+    /* member writes with no reference: [base, value] or [base, key, value]; the Keep forms leave the value; */     \
+    /* GetMemberUpdate reads [base, key] for a compound write and leaves [base, key, value] */                      \
+    X(PutMemberNamed, -2) /* a: name */ X(PutMemberNamedKeep, -1) /* a: name */ X(PutMember, -3)                     \
+    X(PutMemberKeep, -2) X(GetMemberUpdate, 1)                                                                        \
     /* operators */                                                                                                \
     X(Binary, -1) /* a: BinaryOp */ X(Unary, 0) /* a: UnaryOp */ X(ToNumeric, 0) X(Inc, 0) X(Dec, 0)               \
     X(ToPropertyKey, 0) X(ToString, 0) X(StringConcat, -1) X(PrivateIn, 0) /* a: name */                            \
@@ -206,6 +210,7 @@ enum class RunStatus : std::uint8_t {
     Yielded, // a `yield`: the value is in the frame's result
     Awaiting, // an `await`: the operand is in the frame's result
     Threw, // an exception is pending in the interpreter
+    Switched, // (inside vm_run alone) a call the loop made, or its return: run the next frame
 };
 
 // What a suspended frame is resumed with (§27.5.3.3 GeneratorResume and

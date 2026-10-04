@@ -184,7 +184,7 @@ void Heap::poll_growth()
     if (m_collecting)
         return;
     if (m_limit != 0 && m_bytes / 2 > m_limit)
-        m_over_limit = true;
+        passed_limit();
 }
 
 void Heap::maybe_collect()
@@ -316,7 +316,9 @@ void Heap::collect()
     // worth on, for a live set that already stands at it).
     if (m_limit != 0) {
         m_threshold = std::min(m_threshold, std::max(m_limit, live + floor));
-        m_over_limit = live > m_limit;
+        m_over_limit = false;
+        if (live > m_limit)
+            passed_limit();
     }
     double const ms = ms_since(started);
     ++m_account.collections;

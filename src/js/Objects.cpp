@@ -980,6 +980,7 @@ ScriptFunction::ScriptFunction(Object* prototype, FunctionNode const& node, Envi
     , m_scope(scope)
     , m_constructable(constructable)
 {
+    mark_script();
 }
 
 bool ScriptFunction::is_arrow() const
@@ -1013,6 +1014,20 @@ void ScriptFunction::trace(Tracer& tracer)
     }
 }
 
+namespace {
+
+// A native's call under the profile: its time is its own (net of the
+// script it calls back). Out of the way of the call that is not profiled,
+// which pays one test for it.
+template<typename Call>
+[[gnu::noinline]] std::optional<Value> profiled(Interpreter& interpreter, Object const& function, Call const& call)
+{
+    Interpreter::ActivityScope const activity(interpreter, interpreter.native_activity(function));
+    return call();
+}
+
+}
+
 std::optional<Value> NativeFunction::call(Interpreter& interpreter, Value const& this_value, std::span<Value const> arguments)
 {
     if (!m_call)
@@ -1025,7 +1040,8 @@ std::optional<Value> NativeFunction::call(Interpreter& interpreter, Value const&
             running_in = home;
     }
     Interpreter::RealmScope const realm_scope(interpreter, running_in);
-    Interpreter::ActivityScope const activity(interpreter, interpreter.vm_profiling() ? interpreter.native_activity(*this) : nullptr);
+    if (interpreter.vm_profiling()) [[unlikely]]
+        return profiled(interpreter, *this, [&] { return m_call(interpreter, this_value, arguments); });
     return m_call(interpreter, this_value, arguments);
 }
 
@@ -1034,14 +1050,16 @@ std::optional<Value> NativeFunction::construct(Interpreter& interpreter, std::sp
     if (!m_construct)
         return interpreter.throw_type_error("not a constructor");
     Interpreter::RealmScope const realm_scope(interpreter, realm());
-    Interpreter::ActivityScope const activity(interpreter, interpreter.vm_profiling() ? interpreter.native_activity(*this) : nullptr);
+    if (interpreter.vm_profiling()) [[unlikely]]
+        return profiled(interpreter, *this, [&] { return m_construct(interpreter, arguments, new_target); });
     return m_construct(interpreter, arguments, new_target);
 }
 
 std::optional<Value> ClosureFunction::call(Interpreter& interpreter, Value const& this_value, std::span<Value const> arguments)
 {
     Interpreter::RealmScope const realm_scope(interpreter, realm());
-    Interpreter::ActivityScope const activity(interpreter, interpreter.vm_profiling() ? interpreter.native_activity(*this) : nullptr);
+    if (interpreter.vm_profiling()) [[unlikely]]
+        return profiled(interpreter, *this, [&] { return m_callback(interpreter, *this, this_value, arguments); });
     return m_callback(interpreter, *this, this_value, arguments);
 }
 

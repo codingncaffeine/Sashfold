@@ -6,6 +6,7 @@
 #include "platform/ScriptThread.h"
 
 #include <cmath>
+#include <cstdio>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -558,17 +559,22 @@ void test_limits_and_termination()
     // of frames it gives one — 12,517 calls of an empty function, measured
     // on Node 26 on 2026-09-24 — and no deeper than the engine's ceiling;
     // the runaway is a RangeError the script catches, and the interpreter
-    // is whole afterwards. On the same thread with the budget of an 8 MB
-    // stack the recursion ends far short of that: the budget sets the
-    // depth, not the thread.
+    // is whole afterwards. A script's call to a script function is no C++
+    // call (the run loop pushes the callee's frame and goes on), so with the
+    // budget of an 8 MB stack a plain recursion still reaches the engine's
+    // ceiling; a recursion through a native — a callback that forEach
+    // calls — is a C++ call a level, and there the budget ends it far
+    // short: the budget guards the thread's stack, not the script's depth.
     {
         int deep_reach = 0;
         int small_reach = 0;
+        int small_native_reach = 0;
         bool after_ok = false;
         platform::ScriptThread thread([&] {
             js::Interpreter deep;
             deep.set_stack_budget(platform::js_stack_budget_for(platform::current_thread_stack_bytes()));
             char const* const runaway = "var n = 0; function f() { ++n; f(); } try { f(); } catch (e) { e instanceof RangeError ? n : -1 }";
+            char const* const through_native = "var n = 0; function f() { ++n; [0].forEach(f); } try { f(); } catch (e) { e instanceof RangeError ? n : -1 }";
             test::JsRun const run = test::run_js(deep, runaway);
             deep_reach = run.ok && run.value.is_number() ? static_cast<int>(run.value.as_number()) : -1;
             test::JsRun const after = test::run_js(deep, "(function () { return 1 + 1; })()");
@@ -577,13 +583,18 @@ void test_limits_and_termination()
             small.set_stack_budget(platform::js_stack_budget_for(8u * 1024u * 1024u));
             test::JsRun const short_run = test::run_js(small, runaway);
             small_reach = short_run.ok && short_run.value.is_number() ? static_cast<int>(short_run.value.as_number()) : -1;
+            test::JsRun const native_run = test::run_js(small, through_native);
+            small_native_reach = native_run.ok && native_run.value.is_number() ? static_cast<int>(native_run.value.as_number()) : -1;
         });
         thread.join();
         CHECK(deep_reach >= 12517);
         CHECK(deep_reach <= 20000);
         CHECK(after_ok);
-        CHECK(small_reach > 100);
-        CHECK(small_reach < 12517);
+        CHECK(small_reach >= 12517);
+        CHECK(small_reach <= 20000);
+        CHECK(small_native_reach > 100);
+        CHECK(small_native_reach < 12517);
+        std::printf("  recursion: %d deep, %d on an 8 MB budget, %d through a native there\n", deep_reach, small_reach, small_native_reach);
     }
     // A runaway loop is stopped by the interrupt; the finally inside it
     // does not get to run, and the stop is reported as a RangeError.

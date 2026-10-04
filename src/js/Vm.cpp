@@ -416,6 +416,7 @@ Frame* Interpreter::Impl::push_frame(CodeBlock const& code, Context const& cx)
     frame.envs.push_back(cx.lexical);
     frame.refs.clear();
     frame.builders.clear();
+    frame.inlined = false;
     return &frame;
 }
 
@@ -498,6 +499,169 @@ SavedFrame* Interpreter::Impl::fresh_saved_frame(CodeBlock const& code, Context 
     return saved;
 }
 
+Frame* Interpreter::Impl::enter_call(Value const& callee, Value const& this_argument, std::span<Value const> arguments, bool& threw)
+{
+    threw = false;
+    if (!callee.is_object())
+        return nullptr;
+    Object* const object = callee.as_object();
+    if (object->class_id() != Object::Class::Function || !static_cast<Function*>(object)->is_script())
+        return nullptr;
+    auto& function = *static_cast<ScriptFunction*>(object);
+    FunctionNode const& node = function.node();
+    // What the loop leaves to the generic path: a class constructor (its
+    // TypeError), a generator or async body (their drivers), a body that
+    // finds its names by name (a with, a direct eval), a default
+    // constructor.
+    if (node.is_class_constructor || node.is_generator || node.is_async || node.scope == nullptr || node.dynamic
+        || node.is_default_constructor)
+        return nullptr;
+    // Interpreter::call's limits: the depth, and the interrupt's poll.
+    if (self.m_call_depth >= self.m_call_depth_limit) {
+        self.throw_range_error("Maximum call stack size exceeded");
+        threw = true;
+        return nullptr;
+    }
+    if (!tick()) {
+        threw = true;
+        return nullptr;
+    }
+    CodeBlock const* code = function.compiled();
+    if (code == nullptr) {
+        code = compiled_body(node);
+        if (code == nullptr) {
+            threw = true;
+            return nullptr;
+        }
+        function.set_compiled(code);
+    }
+    // PrepareForOrdinaryCall (§10.2.1.1): the callee's realm is current, for
+    // its script too, until the call ends.
+    RealmRecord* const caller_realm = self.m_realm;
+    RealmRecord* const caller_script_realm = self.m_script_realm;
+    if (RealmRecord* const realm = function.realm())
+        self.m_realm = realm;
+    self.m_script_realm = self.m_realm;
+    Context const cx { function.scope(), function.scope(), node.program, &function, node.is_strict, function.private_environment() };
+    Frame* frame = push_frame(*code, cx);
+    if (frame == nullptr) {
+        self.m_realm = caller_realm;
+        self.m_script_realm = caller_script_realm;
+        threw = true;
+        return nullptr;
+    }
+    frame->inlined = true;
+    frame->caller_realm = caller_realm;
+    frame->caller_script_realm = caller_script_realm;
+    // The arguments stay where the caller left them, on its operand stack.
+    frame->incoming = arguments;
+    // OrdinaryCallBindThis (§10.2.1.2): sloppy code sees its realm's global
+    // `this` for a nullish one and a wrapper for a primitive; an arrow has
+    // none of its own.
+    if (!node.is_arrow) {
+        Value this_value = this_argument;
+        if (!node.is_strict) {
+            if (this_value.is_nullish()) {
+                this_value = Value::object(self.global_this());
+            } else if (!this_value.is_object()) {
+                std::optional<Object*> const boxed = self.to_object(this_value);
+                if (!boxed) {
+                    pop_frame(*frame);
+                    self.m_realm = caller_realm;
+                    self.m_script_realm = caller_script_realm;
+                    threw = true;
+                    return nullptr;
+                }
+                this_value = Value::object(*boxed);
+            }
+        }
+        frame->this_value = this_value;
+    }
+    ++self.m_call_depth;
+    return frame;
+}
+
+Frame* Interpreter::Impl::leave_call(Frame& frame)
+{
+    --self.m_call_depth;
+    self.m_realm = frame.caller_realm;
+    self.m_script_realm = frame.caller_script_realm;
+    pop_frame(frame);
+    return vm_stacks.frames[vm_stacks.depth - 1];
+}
+
+bool Interpreter::Impl::put_member_named_slow(Frame& frame, Value const& base, JsString* name, Value const& value)
+{
+    // PutValue of a reference to base.name: a primitive base, or the
+    // TypeError of a nullish one.
+    Reference reference;
+    reference.kind = Reference::Kind::Property;
+    reference.base = base;
+    reference.key = heap().key(name);
+    reference.key_ready = true;
+    return put_value(reference, value, frame_context(frame));
+}
+
+bool Interpreter::Impl::put_member_slow(Frame& frame, Value const& base, Value const& key, Value const& value)
+{
+    // As a reference to base[key] is put: the key converted at once unless
+    // it is an object, which waits for the base's check.
+    Reference reference;
+    reference.kind = Reference::Kind::Property;
+    reference.base = base;
+    reference.key_value = key;
+    if (!key.is_object()) {
+        std::optional<PropertyKey> const converted = self.to_property_key(key);
+        if (!converted)
+            return false;
+        reference.key = *converted;
+        reference.key_ready = true;
+    }
+    return put_value(reference, value, frame_context(frame));
+}
+
+bool Interpreter::Impl::get_member_slow(Frame& frame)
+{
+    // GetValue of base[key] with an object key: the base checked first
+    // (a nullish one's TypeError describes the key unconverted), then the
+    // key made a property key, then [[Get]]; [base, key] to [value].
+    Reference reference;
+    reference.kind = Reference::Kind::Property;
+    reference.base = frame.peek(1);
+    reference.key_value = frame.peek(0);
+    std::optional<Value> const value = get_value(reference, frame.strict);
+    if (!value)
+        return false;
+    frame.stack.pop_back();
+    frame.top() = *value;
+    return true;
+}
+
+bool Interpreter::Impl::get_member_update(Frame& frame)
+{
+    // A compound write's read of base[key] (§13.15.2): the base checked and
+    // the key made a property key once, here, before the right-hand side;
+    // the key stays on the stack for the write, as made.
+    Reference reference;
+    reference.kind = Reference::Kind::Property;
+    reference.base = frame.peek(1);
+    reference.key_value = frame.peek(0);
+    if (!frame.peek(0).is_object()) {
+        std::optional<PropertyKey> const converted = self.to_property_key(frame.peek(0));
+        if (!converted)
+            return false;
+        reference.key = *converted;
+        reference.key_ready = true;
+    }
+    std::optional<Value> const value = get_value(reference, frame.strict);
+    if (!value)
+        return false;
+    if (frame.peek(0).is_object())
+        frame.peek(0) = key_to_value(heap(), reference.key);
+    frame.push(*value);
+    return true;
+}
+
 Context Interpreter::Impl::frame_context(Frame const& frame) const
 {
     return Context { frame.envs.back(), frame.variable, frame.program, frame.function, frame.strict, frame.private_environment };
@@ -536,20 +700,20 @@ bool Interpreter::Impl::vm_unwind(Frame& frame)
 
 // ---- the loop -------------------------------------------------------------
 
-RunStatus Interpreter::Impl::vm_run(Frame& frame)
+RunStatus Interpreter::Impl::vm_run(Frame& entry)
 {
     if (!stack_ok())
         return RunStatus::Threw;
     // The frame is the top one of the stacks (push_frame or restore_frame
     // put it there), and everything it calls is pushed above it.
-    ContextScope const context_scope(*this, frame_context(frame));
+    ContextScope const context_scope(*this, frame_context(entry));
     // The profile (SASHFOLD_VM_PROFILE=1): the loop's own time, a test per
     // entry when it is off. Each instruction counted by its opcode only in a
     // build made for it (-DSASHFOLD_VM_COUNTS=ON), since a test on every
     // instruction costs every page two per cent.
     Interpreter::ActivityScope const activity(self, self.vm_activity());
-#ifdef SASHFOLD_VM_COUNTS
     std::uint64_t* executed = nullptr;
+#ifdef SASHFOLD_VM_COUNTS
     if (self.vm_profiling()) {
         std::vector<std::uint64_t>& counts = self.account_for_update().executed;
         if (counts.size() < opcode_count)
@@ -557,11 +721,52 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
         executed = counts.data();
     }
 #endif
-    if (frame.resume_pending) {
-        frame.push(frame.resume_value);
-        frame.resume_pending = false;
-        frame.resume_value = Value::undefined();
+    if (entry.resume_pending) {
+        entry.push(entry.resume_value);
+        entry.resume_pending = false;
+        entry.resume_value = Value::undefined();
     }
+    // The frame running: the one this run began with, or a call it made
+    // itself (enter_call), pushed above it.
+    Frame* current = &entry;
+    for (;;) {
+        Frame* next = nullptr;
+        RunStatus const status = vm_run_frame(*current, next, executed);
+        if (status == RunStatus::Switched) {
+            current = next;
+            continue;
+        }
+        if (status == RunStatus::Threw) {
+            // No handler in the frame that threw: a call the loop made ends by
+            // the throw, and its caller looks for one from its call.
+            bool handled = false;
+            while (current->inlined) {
+                current = leave_call(*current);
+                if (vm_unwind(*current)) {
+                    handled = true;
+                    break;
+                }
+            }
+            if (handled)
+                continue;
+        }
+        return status;
+    }
+}
+
+// The run loop dispatches through label addresses where the compiler has
+// them (gcc and clang, GNU extensions both: allowed in this function alone)
+// and by a switch elsewhere, or when built with -DSASHFOLD_VM_SWITCH.
+#if defined(__GNUC__) && !defined(SASHFOLD_VM_SWITCH)
+#define SASHFOLD_VM_THREADED 1
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wpedantic"
+#else
+#define SASHFOLD_VM_THREADED 0
+#endif
+RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint64_t* executed)
+{
+    static_cast<void>(executed);
     CodeBlock const& code = *frame.code;
     Heap& h = heap();
     WellKnownAtoms const& well_known = atoms();
@@ -621,7 +826,7 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
         }
         Interpreter::Roots const roots(self);
         self.root(source);
-        if (!step())
+        if (!tick())
             return std::nullopt;
         return perform_eval(source.as_string()->view(), frame.envs.back(), frame.strict, Value::empty(), true, frame.private_environment,
             frame.program);
@@ -694,98 +899,119 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
         return self.call(callee, this_value, arguments);
     };
 
-    while (true) {
-        Instruction const& ins = code.code[frame.pc++];
+    // Dispatch. Every handler ends in VM_NEXT, back to the head of the loop
+    // for the next instruction, or VM_FAIL, with the exception pending, to
+    // the unwinder at its foot. Under gcc and clang the head jumps through a
+    // table of the handlers' label addresses, with none of a switch's range
+    // check; elsewhere the same handlers are the cases of a switch. The jump
+    // is not copied into every handler (SpiderMonkey's threaded form): on
+    // this machine's predictor that measured no faster (the kernels 0.89x
+    // against 0.90x) and made this function's frame 880 bytes larger, which
+    // a recursion through natives pays at every level; and a computed goto
+    // may not leave a scope holding a destructor, which a few handlers have.
+#if SASHFOLD_VM_THREADED
+    static void* const dispatch[] = {
+#define SASHFOLD_VM_LABEL(name, effect) &&op_##name,
+        SASHFOLD_OPCODES(SASHFOLD_VM_LABEL)
+#undef SASHFOLD_VM_LABEL
+    };
+#define VM_CASE(name) case Opcode::name: op_##name
+#else
+#define VM_CASE(name) case Opcode::name
+#endif
+#define VM_NEXT continue
+#define VM_FAIL goto vm_fail
+    Instruction const* ins;
+    for (;;) {
+        ins = &code.code[frame.pc++];
 #ifdef SASHFOLD_VM_COUNTS
         if (executed != nullptr) [[unlikely]]
-            ++executed[static_cast<std::size_t>(ins.op)];
+            ++executed[static_cast<std::size_t>(ins->op)];
 #endif
-        bool ok = true;
-        switch (ins.op) {
+#if SASHFOLD_VM_THREADED
+        goto* dispatch[static_cast<std::size_t>(ins->op)];
+#endif
+        switch (ins->op) {
         // ---- stack
-        case Opcode::PushUndefined:
+        VM_CASE(PushUndefined):
             frame.push(Value::undefined());
-            break;
-        case Opcode::PushNull:
+            VM_NEXT;
+        VM_CASE(PushNull):
             frame.push(Value::null());
-            break;
-        case Opcode::PushTrue:
+            VM_NEXT;
+        VM_CASE(PushTrue):
             frame.push(Value::boolean(true));
-            break;
-        case Opcode::PushFalse:
+            VM_NEXT;
+        VM_CASE(PushFalse):
             frame.push(Value::boolean(false));
-            break;
-        case Opcode::PushEmpty:
+            VM_NEXT;
+        VM_CASE(PushEmpty):
             frame.push(Value::empty());
-            break;
-        case Opcode::PushConstant:
-            frame.push(code.constants[ins.a]);
-            break;
-        case Opcode::PushBigInt:
-            frame.push(self.bigint(code.bigints[ins.a]));
-            break;
-        case Opcode::PushInt:
-            frame.push(ins.a <= 0x7FFFFFFFu ? Value::int32(static_cast<std::int32_t>(ins.a)) : Value::number(static_cast<double>(ins.a)));
-            break;
-        case Opcode::Pop:
+            VM_NEXT;
+        VM_CASE(PushConstant):
+            frame.push(code.constants[ins->a]);
+            VM_NEXT;
+        VM_CASE(PushBigInt):
+            frame.push(self.bigint(code.bigints[ins->a]));
+            VM_NEXT;
+        VM_CASE(PushInt):
+            frame.push(ins->a <= 0x7FFFFFFFu ? Value::int32(static_cast<std::int32_t>(ins->a)) : Value::number(static_cast<double>(ins->a)));
+            VM_NEXT;
+        VM_CASE(Pop):
             frame.stack.pop_back();
-            break;
-        case Opcode::Dup: {
+            VM_NEXT;
+        VM_CASE(Dup): {
             Value const copy = frame.top();
             frame.push(copy);
-            break;
+            VM_NEXT;
         }
-        case Opcode::Over: {
+        VM_CASE(Over): {
             Value const copy = frame.peek(1);
             frame.push(copy);
-            break;
+            VM_NEXT;
         }
-        case Opcode::Swap:
+        VM_CASE(Swap):
             std::swap(frame.peek(0), frame.peek(1));
-            break;
-        case Opcode::LoadReg:
-            frame.push(frame.registers[ins.a]);
-            break;
-        case Opcode::StoreReg:
-            frame.registers[ins.a] = frame.pop();
-            break;
-        case Opcode::StoreRegKeep:
-            frame.registers[ins.a] = frame.top();
-            break;
+            VM_NEXT;
+        VM_CASE(LoadReg):
+            frame.push(frame.registers[ins->a]);
+            VM_NEXT;
+        VM_CASE(StoreReg):
+            frame.registers[ins->a] = frame.pop();
+            VM_NEXT;
+        VM_CASE(StoreRegKeep):
+            frame.registers[ins->a] = frame.top();
+            VM_NEXT;
 
         // ---- environments
-        case Opcode::PushBlockEnv: {
+        VM_CASE(PushBlockEnv): {
             if (!env_room()) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             Environment* env = new_environment(frame.envs.back());
             frame.envs.push_back(env);
-            instantiate_block(*code.declarations[ins.a], env, frame.private_environment);
-            break;
+            instantiate_block(*code.declarations[ins->a], env, frame.private_environment);
+            VM_NEXT;
         }
-        case Opcode::PushNamesEnv: {
+        VM_CASE(PushNamesEnv): {
             if (!env_room()) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             Environment* env = new_environment(frame.envs.back());
             frame.envs.push_back(env);
-            for (JsString* name : code.name_lists[ins.a])
-                env->declare(name, Value::undefined(), ins.b != 0, false);
-            break;
+            for (JsString* name : code.name_lists[ins->a])
+                env->declare(name, Value::undefined(), ins->b != 0, false);
+            VM_NEXT;
         }
-        case Opcode::PushWithEnv: {
+        VM_CASE(PushWithEnv): {
             if (!env_room()) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             // §14.11.2: an object environment marked as a with's, so calls
             // through it get the object as `this`.
             std::optional<Object*> const object = self.to_object(frame.top());
             if (!object) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             Roots const roots(self);
             self.root(Value::object(*object));
@@ -793,103 +1019,97 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             env->set_with_environment(true);
             frame.stack.pop_back();
             frame.envs.push_back(env);
-            break;
+            VM_NEXT;
         }
-        case Opcode::PopEnv:
+        VM_CASE(PopEnv):
             frame.envs.pop_back();
-            break;
-        case Opcode::CopyIterationEnv: {
+            VM_NEXT;
+        VM_CASE(CopyIterationEnv): {
             // CreatePerIterationEnvironment (§14.7.4.4); a resolved head's
             // environment is copied whole, slot for slot.
             Environment* previous = frame.envs.back();
             Environment* copy = new_environment(previous->outer());
-            if (ins.flags & 1) {
+            if (ins->flags & 1) {
                 copy->assign_bindings(previous->bindings());
                 frame.envs.back() = copy;
-                break;
+                VM_NEXT;
             }
-            for (JsString* name : code.name_lists[ins.a]) {
+            for (JsString* name : code.name_lists[ins->a]) {
                 Environment::Binding const* binding = previous->find(name);
                 copy->declare(name, binding ? binding->value : Value::undefined(), true, binding ? binding->initialized : true);
             }
             frame.envs.back() = copy;
-            break;
+            VM_NEXT;
         }
-        case Opcode::InitializeBinding:
-            if (!initialize_binding(code.names[ins.a], frame.top(), frame.envs.back())) {
-                ok = false;
-                break;
+        VM_CASE(InitializeBinding):
+            if (!initialize_binding(code.names[ins->a], frame.top(), frame.envs.back())) {
+                VM_FAIL;
             }
             frame.stack.pop_back();
-            break;
-        case Opcode::LoadArgument:
-            frame.push(ins.a < frame.incoming.size() ? frame.incoming[ins.a] : Value::undefined());
-            break;
-        case Opcode::RestArguments: {
-            std::span<Value const> const rest = ins.a < frame.incoming.size() ? frame.incoming.subspan(ins.a) : std::span<Value const>();
+            VM_NEXT;
+        VM_CASE(LoadArgument):
+            frame.push(ins->a < frame.incoming.size() ? frame.incoming[ins->a] : Value::undefined());
+            VM_NEXT;
+        VM_CASE(RestArguments): {
+            std::span<Value const> const rest = ins->a < frame.incoming.size() ? frame.incoming.subspan(ins->a) : std::span<Value const>();
             frame.push(Value::object(self.new_array(rest)));
-            break;
+            VM_NEXT;
         }
 
         // ---- resolved bindings
-        case Opcode::GetLocal: {
-            Value const value = frame.registers[ins.a];
+        VM_CASE(GetLocal): {
+            Value const value = frame.registers[ins->a];
             if (value.is_empty()) {
-                dead_zone(register_name(ins.a));
-                ok = false;
-                break;
+                dead_zone(register_name(ins->a));
+                VM_FAIL;
             }
             frame.push(value);
-            break;
+            VM_NEXT;
         }
-        case Opcode::SetLocal:
-            if (!write_local(ins.a, (ins.flags & 1) != 0, frame.top()))
-                ok = false;
-            break;
-        case Opcode::GetScoped: {
-            Environment::Binding const* binding = scoped_binding(ins.a, ins.b);
+        VM_CASE(SetLocal):
+            if (!write_local(ins->a, (ins->flags & 1) != 0, frame.top()))
+                VM_FAIL;
+            VM_NEXT;
+        VM_CASE(GetScoped): {
+            Environment::Binding const* binding = scoped_binding(ins->a, ins->b);
             if (binding == nullptr) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             if (!binding->initialized) {
                 dead_zone(binding->name);
-                ok = false;
-                break;
+                VM_FAIL;
             }
             Value const value = binding->value;
             frame.push(value);
-            break;
+            VM_NEXT;
         }
-        case Opcode::SetScoped: {
-            Environment::Binding* binding = scoped_binding(ins.a, ins.b);
+        VM_CASE(SetScoped): {
+            Environment::Binding* binding = scoped_binding(ins->a, ins->b);
             if (binding == nullptr || !set_mutable_binding(*binding, frame.top(), frame.strict))
-                ok = false;
-            break;
+                VM_FAIL;
+            VM_NEXT;
         }
-        case Opcode::InitScoped: {
-            Environment::Binding* binding = scoped_binding(ins.a, ins.b);
+        VM_CASE(InitScoped): {
+            Environment::Binding* binding = scoped_binding(ins->a, ins->b);
             if (binding == nullptr) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             binding->value = frame.top();
             binding->initialized = true;
             frame.stack.pop_back();
-            break;
+            VM_NEXT;
         }
-        case Opcode::PushEnv: {
+        VM_CASE(PushEnv): {
             if (!env_room()) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             // A scope that materializes: its environment with every binding
             // laid out at once. The function's own also holds what the
             // chain is searched for by arrows and eval code: the function,
             // `this` (none yet in a derived constructor) and new.target.
             Environment* env = new_environment(frame.envs.back());
-            env->assign_bindings(code.environments[ins.a].bindings);
-            if (ins.flags & 1) {
+            env->assign_bindings(code.environments[ins->a].bindings);
+            if (ins->flags & 1) {
                 env->set_function(frame.function);
                 if (frame.function != nullptr && !frame.function->node().is_arrow) {
                     if (frame.this_value.is_empty())
@@ -900,115 +1120,111 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 }
                 frame.function_env = env;
             }
-            if (ins.flags & 2)
+            if (ins->flags & 2)
                 env->set_var_scope();
             frame.envs.push_back(env);
-            break;
+            VM_NEXT;
         }
-        case Opcode::MakeArguments: {
-            bool const mapped = (ins.flags & 1) != 0;
+        VM_CASE(MakeArguments): {
+            bool const mapped = (ins->flags & 1) != 0;
             Object* arguments_object = make_arguments_object(*frame.function, mapped ? frame.function_env : nullptr, frame.incoming, mapped);
             frame.push(Value::object(arguments_object));
-            break;
+            VM_NEXT;
         }
-        case Opcode::LoadThis: {
+        VM_CASE(LoadThis): {
             std::optional<Value> const value = frame_this();
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(*value);
-            break;
+            VM_NEXT;
         }
-        case Opcode::LoadNewTarget:
+        VM_CASE(LoadNewTarget):
             frame.push(frame.new_target ? Value::object(frame.new_target) : Value::undefined());
-            break;
-        case Opcode::Suspend:
+            VM_NEXT;
+        VM_CASE(Suspend):
             // FunctionDeclarationInstantiation done at the call (§15.5.2);
             // the arguments are the caller's and are not kept past it.
             frame.incoming = {};
             frame.result = Value::empty();
             frame.resume_pending = true;
             return RunStatus::Yielded;
-        case Opcode::AnnexBCopy: {
+        VM_CASE(AnnexBCopy): {
             // B.3.2.1 step 2.b: a sloppy block-level function's current value
             // to the var binding the parser hoisted for it.
-            JsString* name = code.names[ins.a];
+            JsString* name = code.names[ins->a];
             if (frame.strict || frame.envs.back() == frame.variable)
-                break;
+                VM_NEXT;
             Environment::Binding const* block_binding = frame.envs.back()->find(name);
             if (block_binding == nullptr)
-                break;
+                VM_NEXT;
             Value const value = block_binding->value;
             if (frame.variable->is_object_environment()) {
                 if (!self.set(*frame.variable->object(), PropertyKey::atom(name), value, false))
-                    ok = false;
+                    VM_FAIL;
             } else if (Environment::Binding* var_binding = frame.variable->find(name)) {
                 var_binding->value = value;
             }
-            break;
+            VM_NEXT;
         }
-        case Opcode::ResolveThis: {
+        VM_CASE(ResolveThis): {
             std::optional<Value> const value = resolve_this(frame.envs.back());
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(*value);
-            break;
+            VM_NEXT;
         }
-        case Opcode::NewTarget: {
+        VM_CASE(NewTarget): {
             Context cx = frame_context(frame);
             frame.push(evaluate_new_target(cx));
-            break;
+            VM_NEXT;
         }
 
         // ---- references
-        case Opcode::RefName:
-            frame.refs.push_back(resolve(code.names[ins.a], frame.envs.back()));
-            break;
-        case Opcode::RefLocal: {
+        VM_CASE(RefName):
+            frame.refs.push_back(resolve(code.names[ins->a], frame.envs.back()));
+            VM_NEXT;
+        VM_CASE(RefLocal): {
             Reference reference;
             reference.kind = Reference::Kind::Local;
-            reference.slot = ins.a;
-            reference.immutable = (ins.flags & 1) != 0;
+            reference.slot = ins->a;
+            reference.immutable = (ins->flags & 1) != 0;
             frame.refs.push_back(reference);
-            break;
+            VM_NEXT;
         }
-        case Opcode::RefScoped: {
-            Environment* env = scoped_environment(ins.a);
-            if (env == nullptr || ins.b >= env->binding_count()) {
+        VM_CASE(RefScoped): {
+            Environment* env = scoped_environment(ins->a);
+            if (env == nullptr || ins->b >= env->binding_count()) {
                 self.throw_type_error("internal: a resolved binding outside its environment");
-                ok = false;
-                break;
+                VM_FAIL;
             }
             Reference reference;
             reference.kind = Reference::Kind::Scoped;
             reference.environment = env;
-            reference.slot = ins.b;
+            reference.slot = ins->b;
             frame.refs.push_back(reference);
-            break;
+            VM_NEXT;
         }
-        case Opcode::RefMember: {
+        VM_CASE(RefMember): {
             Reference reference;
             if (!member_reference(frame.peek(1), frame.peek(0), reference)) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.stack.pop_back();
             frame.stack.pop_back();
             frame.refs.push_back(reference);
-            break;
+            VM_NEXT;
         }
-        case Opcode::RefMemberNamed:
-            frame.refs.push_back(named_reference(frame.top(), code.names[ins.a]));
+        VM_CASE(RefMemberNamed):
+            frame.refs.push_back(named_reference(frame.top(), code.names[ins->a]));
             frame.stack.pop_back();
-            break;
-        case Opcode::RefSuper: {
+            VM_NEXT;
+        VM_CASE(RefSuper): {
             // Flag 1: in the method itself, whose frame has `this` and the
             // function with its home object.
             std::optional<Reference> reference;
-            if (ins.flags & 1) {
+            if (ins->flags & 1) {
                 std::optional<Value> const this_value = frame_this();
                 if (this_value)
                     reference = super_reference_of(*this_value, frame.function ? frame.function->home_object() : nullptr, &frame.top(), nullptr);
@@ -1016,37 +1232,34 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 reference = super_reference(frame_context(frame), &frame.top(), nullptr);
             }
             if (!reference) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.stack.pop_back();
             frame.refs.push_back(*reference);
-            break;
+            VM_NEXT;
         }
-        case Opcode::RefSuperNamed: {
+        VM_CASE(RefSuperNamed): {
             std::optional<Reference> reference;
-            if (ins.flags & 1) {
+            if (ins->flags & 1) {
                 std::optional<Value> const this_value = frame_this();
                 if (this_value)
-                    reference = super_reference_of(*this_value, frame.function ? frame.function->home_object() : nullptr, nullptr, code.names[ins.a]);
+                    reference = super_reference_of(*this_value, frame.function ? frame.function->home_object() : nullptr, nullptr, code.names[ins->a]);
             } else {
-                reference = super_reference(frame_context(frame), nullptr, code.names[ins.a]);
+                reference = super_reference(frame_context(frame), nullptr, code.names[ins->a]);
             }
             if (!reference) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.refs.push_back(*reference);
-            break;
+            VM_NEXT;
         }
-        case Opcode::RefPrivate: {
+        VM_CASE(RefPrivate): {
             // MakePrivateReference (§13.3.3).
-            JsString* name = code.names[ins.a];
+            JsString* name = code.names[ins->a];
             Symbol* private_name = frame.private_environment ? frame.private_environment->lookup(name) : nullptr;
             if (private_name == nullptr) {
                 self.throw_syntax_error("Private field '" + name->to_utf8() + "' must be declared in an enclosing class");
-                ok = false;
-                break;
+                VM_FAIL;
             }
             Reference reference;
             reference.kind = Reference::Kind::Private;
@@ -1056,99 +1269,143 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             reference.key_ready = true;
             frame.stack.pop_back();
             frame.refs.push_back(reference);
-            break;
+            VM_NEXT;
         }
-        case Opcode::RefGet: {
+        VM_CASE(RefGet): {
             if (Reference const& reference = frame.refs.back(); reference.kind == Reference::Kind::Local) {
                 Value const value = frame.registers[reference.slot];
                 if (value.is_empty()) {
                     dead_zone(register_name(reference.slot));
-                    ok = false;
-                    break;
+                    VM_FAIL;
                 }
                 frame.push(value);
-                break;
+                VM_NEXT;
             }
             Context const cx = frame_context(frame);
             std::optional<Value> const value = get_value(frame.refs.back(), cx);
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(*value);
-            break;
+            VM_NEXT;
         }
-        case Opcode::RefPut:
-        case Opcode::RefPutKeep: {
+        VM_CASE(RefPut):
+        VM_CASE(RefPutKeep): {
             Reference& reference = frame.refs.back();
             bool const stored = reference.kind == Reference::Kind::Local
                 ? write_local(reference.slot, reference.immutable, frame.top())
                 : put_value(reference, frame.top(), frame_context(frame));
             if (!stored) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.refs.pop_back();
-            if (ins.op == Opcode::RefPut)
+            if (ins->op == Opcode::RefPut)
                 frame.stack.pop_back();
-            break;
+            VM_NEXT;
         }
-        case Opcode::RefThis:
+        VM_CASE(RefThis):
             frame.push(this_for_call(frame.refs.back()));
-            break;
-        case Opcode::RefDrop:
+            VM_NEXT;
+        VM_CASE(RefDrop):
             frame.refs.pop_back();
-            break;
-        case Opcode::RefDelete: {
+            VM_NEXT;
+        VM_CASE(RefDelete): {
             Context const cx = frame_context(frame);
             std::optional<Value> const value = delete_reference(frame.refs.back(), cx);
             frame.refs.pop_back();
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(*value);
-            break;
+            VM_NEXT;
         }
-        case Opcode::GetName: {
-            Reference reference = resolve(code.names[ins.a], frame.envs.back());
-            Context const cx = frame_context(frame);
-            std::optional<Value> const value = get_value(reference, cx);
+        VM_CASE(GetName): {
+            Reference reference = resolve(code.names[ins->a], frame.envs.back());
+            std::optional<Value> const value = get_value(reference, frame.strict);
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(*value);
-            break;
+            VM_NEXT;
         }
-        case Opcode::TypeofName: {
+        VM_CASE(TypeofName): {
             // §13.5.3: an unresolvable name is "undefined", not an error.
-            Reference reference = resolve(code.names[ins.a], frame.envs.back());
+            Reference reference = resolve(code.names[ins->a], frame.envs.back());
             if (reference.kind == Reference::Kind::Unresolvable) {
                 frame.push(Value::string(well_known.undefined));
-                break;
+                VM_NEXT;
             }
-            Context const cx = frame_context(frame);
-            std::optional<Value> const value = get_value(reference, cx);
+            std::optional<Value> const value = get_value(reference, frame.strict);
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(Value::string(self.type_of(*value)));
-            break;
+            VM_NEXT;
         }
-        case Opcode::GetMemberNamed: {
-            Reference reference = named_reference(frame.top(), code.names[ins.a]);
-            Context const cx = frame_context(frame);
-            std::optional<Value> const value = get_value(reference, cx);
+        VM_CASE(GetMemberNamed): {
+            // GetValue of base.name (§6.2.5.5): [[Get]] with the base as the
+            // receiver, a primitive's through its wrapper's prototype, a
+            // nullish one's TypeError naming the key.
+            Value const base = frame.top();
+            std::optional<Value> const value = self.get(base, h.key(code.names[ins->a]));
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.top() = *value;
-            break;
+            VM_NEXT;
         }
-        case Opcode::GetMember: {
+        // ---- member writes, with no reference made
+        VM_CASE(PutMemberNamed):
+        VM_CASE(PutMemberNamedKeep): {
+            // PutValue (§6.2.5.6) of base.name: an object base is set at
+            // once; any other (a primitive, or the TypeError of a nullish
+            // one) the way a reference to it is put.
+            Value const& base = frame.peek(1);
+            Value const& value = frame.peek(0);
+            if (base.is_object()) {
+                if (!self.set(base, h.key(code.names[ins->a]), value, frame.strict)) {
+                    VM_FAIL;
+                }
+            } else if (!put_member_named_slow(frame, base, code.names[ins->a], value)) {
+                VM_FAIL;
+            }
+            if (ins->op == Opcode::PutMemberNamedKeep)
+                frame.peek(1) = value;
+            else
+                frame.stack.pop_back();
+            frame.stack.pop_back();
+            VM_NEXT;
+        }
+        VM_CASE(PutMember):
+        VM_CASE(PutMemberKeep): {
+            // PutValue of base[key], the key made a property key now, after
+            // the value (§13.3.3 note): a primitive key at once (nothing to
+            // observe), an object one where the reference would.
+            Value const& base = frame.peek(2);
+            Value const& key = frame.peek(1);
+            Value const& value = frame.peek(0);
+            if (base.is_object() && !key.is_object()) {
+                std::optional<PropertyKey> const converted = self.to_property_key(key);
+                if (!converted || !self.set(base, *converted, value, frame.strict)) {
+                    VM_FAIL;
+                }
+            } else if (!put_member_slow(frame, base, key, value)) {
+                VM_FAIL;
+            }
+            if (ins->op == Opcode::PutMemberKeep) {
+                frame.peek(2) = value;
+                frame.stack.pop_back();
+                frame.stack.pop_back();
+            } else {
+                frame.stack.resize(frame.stack.size() - 3);
+            }
+            VM_NEXT;
+        }
+        VM_CASE(GetMemberUpdate):
+            if (!get_member_update(frame))
+                VM_FAIL;
+            VM_NEXT;
+        VM_CASE(GetMember): {
             // An array read at an int32 index inside the dense storage:
             // the element itself, which is what [[Get]] would answer. A
             // hole, an index past the storage and every other base take
@@ -1162,29 +1419,36 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                         Value const element = elements[index];
                         frame.stack.pop_back();
                         frame.top() = element;
-                        break;
+                        VM_NEXT;
                     }
                 }
             }
-            Reference reference;
-            if (!member_reference(frame.peek(1), frame.peek(0), reference)) {
-                ok = false;
-                break;
+            // GetValue of base[key]: a primitive key made a property key at
+            // once (nothing to observe), then [[Get]]; an object key waits
+            // for the base's check, out of the loop.
+            Value const key = frame.peek(0);
+            if (key.is_object()) [[unlikely]] {
+                if (!get_member_slow(frame))
+                    VM_FAIL;
+                VM_NEXT;
             }
-            Context const cx = frame_context(frame);
-            std::optional<Value> const value = get_value(reference, cx);
+            std::optional<PropertyKey> const converted = self.to_property_key(key);
+            if (!converted) {
+                VM_FAIL;
+            }
+            Value const base = frame.peek(1);
+            std::optional<Value> const value = self.get(base, *converted);
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.stack.pop_back();
             frame.top() = *value;
-            break;
+            VM_NEXT;
         }
 
         // ---- operators
-        case Opcode::Binary: {
-            auto const op = static_cast<BinaryOp>(ins.a);
+        VM_CASE(Binary): {
+            auto const op = static_cast<BinaryOp>(ins->a);
             Value const& left = frame.peek(1);
             Value const& right = frame.peek(0);
             // Two numbers, which most operands are: answered here without
@@ -1195,36 +1459,34 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 if (std::optional<Value> const fast = int32_binary(op, left.as_int32(), right.as_int32())) {
                     frame.stack.pop_back();
                     frame.top() = *fast;
-                    break;
+                    VM_NEXT;
                 }
             }
             if (left.is_number() && right.is_number()) {
                 if (std::optional<Value> const fast = number_binary(op, left.as_number(), right.as_number())) {
                     frame.stack.pop_back();
                     frame.top() = *fast;
-                    break;
+                    VM_NEXT;
                 }
             }
             std::optional<Value> const result = apply_binary(op, left, right);
             if (!result) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.stack.pop_back();
             frame.top() = *result;
-            break;
+            VM_NEXT;
         }
-        case Opcode::Unary: {
+        VM_CASE(Unary): {
             Value& operand = frame.top();
-            switch (static_cast<UnaryOp>(ins.a)) {
+            switch (static_cast<UnaryOp>(ins->a)) {
             case UnaryOp::Not:
                 operand = Value::boolean(!to_boolean(operand));
                 break;
             case UnaryOp::Minus: {
                 std::optional<Value> const numeric = self.to_numeric(operand);
                 if (!numeric) {
-                    ok = false;
-                    break;
+                    VM_FAIL;
                 }
                 operand = numeric->is_bigint() ? self.bigint(numeric->as_bigint()->value().negated())
                                                : Value::number(-numeric->as_number());
@@ -1233,251 +1495,263 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             case UnaryOp::Plus: {
                 std::optional<double> const number = self.to_number(operand);
                 if (!number) {
-                    ok = false;
-                    break;
+                    VM_FAIL;
                 }
                 operand = Value::number(*number);
-                break;
+                VM_NEXT;
             }
             case UnaryOp::BitwiseNot: {
                 std::optional<Value> const numeric = self.to_numeric(operand);
                 if (!numeric) {
-                    ok = false;
-                    break;
+                    VM_FAIL;
                 }
                 operand = numeric->is_bigint()
                     ? self.bigint(numeric->as_bigint()->value().bitwise_not())
                     : Value::int32(~Interpreter::double_to_int32(numeric->as_number()));
-                break;
+                VM_NEXT;
             }
             case UnaryOp::Typeof:
                 operand = Value::string(self.type_of(operand));
-                break;
+                VM_NEXT;
             default:
-                break;
+                VM_NEXT;
             }
-            break;
+            VM_NEXT;
         }
-        case Opcode::ToNumeric: {
+        VM_CASE(ToNumeric): {
             if (frame.top().is_number())
-                break; // a number is its own ToNumeric
+                VM_NEXT; // a number is its own ToNumeric
             std::optional<Value> const numeric = self.to_numeric(frame.top());
             if (!numeric) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.top() = *numeric;
-            break;
+            VM_NEXT;
         }
-        case Opcode::Inc:
-        case Opcode::Dec: {
+        VM_CASE(Inc):
+        VM_CASE(Dec): {
             // The operand is numeric already (ToNumeric went before).
             Value const& operand = frame.top();
             if (operand.is_bigint()) {
                 BigInteger const one = BigInteger::from_int64(1);
                 BigInteger const& old = operand.as_bigint()->value();
-                frame.top() = self.bigint(ins.op == Opcode::Inc ? old + one : old - one);
-            } else if (operand.is_int32() && operand.as_int32() != (ins.op == Opcode::Inc ? INT32_MAX : INT32_MIN)) {
-                frame.top() = Value::int32(operand.as_int32() + (ins.op == Opcode::Inc ? 1 : -1));
+                frame.top() = self.bigint(ins->op == Opcode::Inc ? old + one : old - one);
+            } else if (operand.is_int32() && operand.as_int32() != (ins->op == Opcode::Inc ? INT32_MAX : INT32_MIN)) {
+                frame.top() = Value::int32(operand.as_int32() + (ins->op == Opcode::Inc ? 1 : -1));
             } else {
-                frame.top() = Value::number(operand.as_number() + (ins.op == Opcode::Inc ? 1 : -1));
+                frame.top() = Value::number(operand.as_number() + (ins->op == Opcode::Inc ? 1 : -1));
             }
-            break;
+            VM_NEXT;
         }
-        case Opcode::ToPropertyKey: {
+        VM_CASE(ToPropertyKey): {
             std::optional<PropertyKey> const key = self.to_property_key(frame.top());
             if (!key) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.top() = key_to_value(h, *key);
-            break;
+            VM_NEXT;
         }
-        case Opcode::ToString: {
+        VM_CASE(ToString): {
             std::optional<JsString*> const text = self.to_string(frame.top());
             if (!text) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.top() = Value::string(*text);
-            break;
+            VM_NEXT;
         }
-        case Opcode::StringConcat: {
+        VM_CASE(StringConcat): {
             if (frame.peek(1).as_string()->length() + frame.peek(0).as_string()->length() > h.max_string_length()) {
                 self.throw_range_error("Invalid string length");
-                ok = false;
-                break;
+                VM_FAIL;
             }
             // Both halves are on the stack, rooted, through the allocation.
             JsString* joined = h.concat(frame.peek(1).as_string(), frame.peek(0).as_string());
             frame.stack.pop_back();
             frame.top() = Value::string(joined);
-            break;
+            VM_NEXT;
         }
-        case Opcode::PrivateIn: {
+        VM_CASE(PrivateIn): {
             Context const cx = frame_context(frame);
-            std::optional<Value> const value = private_in(code.names[ins.a], frame.top(), cx);
+            std::optional<Value> const value = private_in(code.names[ins->a], frame.top(), cx);
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.top() = *value;
-            break;
+            VM_NEXT;
         }
-        case Opcode::RequireObjectCoercible: {
+        VM_CASE(RequireObjectCoercible): {
             Value const& value = frame.top();
             if (value.is_nullish()) {
                 self.throw_type_error("Cannot destructure '" + self.describe(value) + "' as it is " + (value.is_null() ? "null" : "undefined") + ".");
-                ok = false;
+                VM_FAIL;
             }
-            break;
+            VM_NEXT;
         }
-        case Opcode::ThrowTypeErrorConst:
-            self.throw_type_error(code.constants[ins.a].as_string()->to_utf8());
-            ok = false;
-            break;
+        VM_CASE(ThrowTypeErrorConst):
+            self.throw_type_error(code.constants[ins->a].as_string()->to_utf8());
+            VM_FAIL;
 
         // ---- control
-        case Opcode::Jump:
-            frame.pc = ins.a;
-            break;
-        case Opcode::JumpIfTrue:
+        VM_CASE(Jump):
+            frame.pc = ins->a;
+            VM_NEXT;
+        VM_CASE(JumpIfTrue):
             if (to_boolean(frame.pop()))
-                frame.pc = ins.a;
-            break;
-        case Opcode::JumpIfFalse:
+                frame.pc = ins->a;
+            VM_NEXT;
+        VM_CASE(JumpIfFalse):
             if (!to_boolean(frame.pop()))
-                frame.pc = ins.a;
-            break;
-        case Opcode::JumpIfTrueKeep:
+                frame.pc = ins->a;
+            VM_NEXT;
+        VM_CASE(JumpIfTrueKeep):
             if (to_boolean(frame.top()))
-                frame.pc = ins.a;
-            break;
-        case Opcode::JumpIfFalseKeep:
+                frame.pc = ins->a;
+            VM_NEXT;
+        VM_CASE(JumpIfFalseKeep):
             if (!to_boolean(frame.top()))
-                frame.pc = ins.a;
-            break;
-        case Opcode::JumpIfNullish:
+                frame.pc = ins->a;
+            VM_NEXT;
+        VM_CASE(JumpIfNullish):
             if (frame.pop().is_nullish())
-                frame.pc = ins.a;
-            break;
-        case Opcode::JumpIfNotNullishKeep:
+                frame.pc = ins->a;
+            VM_NEXT;
+        VM_CASE(JumpIfNotNullishKeep):
             if (!frame.top().is_nullish())
-                frame.pc = ins.a;
-            break;
-        case Opcode::JumpIfNotUndefined:
+                frame.pc = ins->a;
+            VM_NEXT;
+        VM_CASE(JumpIfNotUndefined):
             if (!frame.pop().is_undefined())
-                frame.pc = ins.a;
-            break;
-        case Opcode::JumpIfEmpty:
+                frame.pc = ins->a;
+            VM_NEXT;
+        VM_CASE(JumpIfEmpty):
             if (frame.pop().is_empty())
-                frame.pc = ins.a;
-            break;
-        case Opcode::Switch: {
-            Value const& token = frame.registers[ins.a];
-            std::vector<std::uint32_t> const& table = code.jump_tables[ins.b];
+                frame.pc = ins->a;
+            VM_NEXT;
+        VM_CASE(Switch): {
+            Value const& token = frame.registers[ins->a];
+            std::vector<std::uint32_t> const& table = code.jump_tables[ins->b];
             std::size_t const index = token.is_number() ? static_cast<std::size_t>(token.as_number()) : table.size();
             if (index >= table.size()) {
                 self.throw_type_error("internal: a finally block was entered with no token");
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.pc = table[index];
-            break;
+            VM_NEXT;
         }
-        case Opcode::JumpIfResumeNormal:
+        VM_CASE(JumpIfResumeNormal):
             if (frame.resume_kind == ResumeKind::Normal)
-                frame.pc = ins.a;
-            break;
-        case Opcode::JumpIfResumeReturn:
+                frame.pc = ins->a;
+            VM_NEXT;
+        VM_CASE(JumpIfResumeReturn):
             if (frame.resume_kind == ResumeKind::Return)
-                frame.pc = ins.a;
-            break;
-        case Opcode::Return:
+                frame.pc = ins->a;
+            VM_NEXT;
+        VM_CASE(Return): {
+            if (frame.inlined) {
+                // A call this loop made: back to its caller, which takes the
+                // call's operands off its stack and the result on.
+                Value const result = frame.pop();
+                Frame* caller = leave_call(frame);
+                std::size_t const argc = caller->code->code[caller->pc - 1].a;
+                caller->stack.resize(caller->stack.size() - argc - 2);
+                caller->push(result);
+                next = caller;
+                return RunStatus::Switched;
+            }
             frame.result = frame.pop();
             return RunStatus::Completed;
-        case Opcode::Throw:
+        }
+        VM_CASE(Throw):
             self.throw_value(frame.pop());
-            ok = false;
-            break;
-        case Opcode::Step:
-            if (!step())
-                ok = false;
-            break;
+            VM_FAIL;
+        VM_CASE(Step):
+            if (!tick())
+                VM_FAIL;
+            VM_NEXT;
 
         // ---- calls
-        case Opcode::Call:
-        case Opcode::CallEval: {
-            std::size_t const argc = ins.a;
+        VM_CASE(Call):
+        VM_CASE(CallEval): {
+            std::size_t const argc = ins->a;
             std::size_t const size = frame.stack.size();
             Args const arguments(frame.stack.data() + size - argc, argc);
-            std::optional<Value> const result = call_with(ins, frame.stack[size - argc - 2], frame.stack[size - argc - 1], arguments,
-                ins.op == Opcode::CallEval);
+            // A plain script function runs here, on a frame pushed above this
+            // one: no C++ call, no second run loop. Its Return takes the
+            // callee, `this` and the arguments off this stack.
+            if (Value const& target = frame.stack[size - argc - 2]; ins->op == Opcode::Call && target.is_object()
+                && target.as_object()->class_id() == Object::Class::Function && static_cast<Function*>(target.as_object())->is_script()) {
+                bool threw = false;
+                if (Frame* callee = enter_call(target, frame.stack[size - argc - 1], arguments, threw)) {
+                    next = callee;
+                    return RunStatus::Switched;
+                }
+                if (threw) {
+                    VM_FAIL;
+                }
+            }
+            std::optional<Value> const result = call_with(*ins, frame.stack[size - argc - 2], frame.stack[size - argc - 1], arguments,
+                ins->op == Opcode::CallEval);
             if (!result) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.stack.resize(size - argc - 2);
             frame.push(*result);
-            break;
+            VM_NEXT;
         }
-        case Opcode::CallArray:
-        case Opcode::CallEvalArray: {
+        VM_CASE(CallArray):
+        VM_CASE(CallEvalArray): {
             std::size_t const size = frame.stack.size();
             std::vector<Value> const arguments = array_arguments(frame.stack[size - 1]);
-            std::optional<Value> const result = call_with(ins, frame.stack[size - 3], frame.stack[size - 2], arguments,
-                ins.op == Opcode::CallEvalArray);
+            std::optional<Value> const result = call_with(*ins, frame.stack[size - 3], frame.stack[size - 2], arguments,
+                ins->op == Opcode::CallEvalArray);
             if (!result) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.stack.resize(size - 3);
             frame.push(*result);
-            break;
+            VM_NEXT;
         }
-        case Opcode::New:
-        case Opcode::NewArray: {
+        VM_CASE(New):
+        VM_CASE(NewArray): {
             std::size_t const size = frame.stack.size();
             std::vector<Value> spread_arguments;
             Args arguments;
             std::size_t consumed = 0;
-            if (ins.op == Opcode::NewArray) {
+            if (ins->op == Opcode::NewArray) {
                 spread_arguments = array_arguments(frame.stack[size - 1]);
                 arguments = spread_arguments;
                 consumed = 2;
             } else {
-                arguments = Args(frame.stack.data() + size - ins.a, ins.a);
-                consumed = ins.a + 1;
+                arguments = Args(frame.stack.data() + size - ins->a, ins->a);
+                consumed = ins->a + 1;
             }
             Value const& constructor = frame.stack[size - consumed];
             if (!Interpreter::is_constructor(constructor)) {
                 Context const cx = frame_context(frame);
-                self.throw_type_error(expression_text(code.nodes[ins.b], cx) + " is not a constructor");
-                ok = false;
-                break;
+                self.throw_type_error(expression_text(code.nodes[ins->b], cx) + " is not a constructor");
+                VM_FAIL;
             }
             std::optional<Value> const result = self.construct(constructor, arguments);
             if (!result) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.stack.resize(size - consumed);
             frame.push(*result);
-            break;
+            VM_NEXT;
         }
-        case Opcode::SuperCall:
-        case Opcode::SuperCallArray: {
+        VM_CASE(SuperCall):
+        VM_CASE(SuperCallArray): {
             std::size_t const size = frame.stack.size();
             std::vector<Value> spread_arguments;
             Args arguments;
             std::size_t consumed = 0;
-            if (ins.op == Opcode::SuperCallArray) {
+            if (ins->op == Opcode::SuperCallArray) {
                 spread_arguments = array_arguments(frame.stack[size - 1]);
                 arguments = spread_arguments;
                 consumed = 1;
             } else {
-                arguments = Args(frame.stack.data() + size - ins.a, ins.a);
-                consumed = ins.a;
+                arguments = Args(frame.stack.data() + size - ins->a, ins->a);
+                consumed = ins->a;
             }
             std::optional<Value> result;
             if (code.slots && frame.function != nullptr && !frame.function->node().is_arrow && frame.function_env == nullptr) {
@@ -1499,137 +1773,129 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 result = super_call(cx, arguments);
             }
             if (!result) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.stack.resize(size - consumed);
             frame.push(*result);
-            break;
+            VM_NEXT;
         }
 
         // ---- literals
-        case Opcode::NewArrayLiteral: {
+        VM_CASE(NewArrayLiteral): {
             auto* array = static_cast<ArrayObject*>(self.new_array());
-            if (ins.a != 0)
-                array->reserve_elements(ins.a);
+            if (ins->a != 0)
+                array->reserve_elements(ins->a);
             frame.push(Value::object(array));
-            break;
+            VM_NEXT;
         }
-        case Opcode::ArrayPush: {
+        VM_CASE(ArrayPush): {
             auto* array = static_cast<ArrayObject*>(frame.peek(1).as_object());
             array->push(frame.top());
             frame.stack.pop_back();
-            break;
+            VM_NEXT;
         }
-        case Opcode::ArrayHole: {
+        VM_CASE(ArrayHole): {
             auto* array = static_cast<ArrayObject*>(frame.top().as_object());
             array->set_length(array->length() + 1);
-            break;
+            VM_NEXT;
         }
-        case Opcode::ArraySpread: {
+        VM_CASE(ArraySpread): {
             // §13.2.4.1: the iterable's values, each an element of its own.
             std::optional<std::vector<Value>> const values = self.iterable_to_list(frame.top());
             if (!values) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.stack.pop_back();
             auto* array = static_cast<ArrayObject*>(frame.top().as_object());
             for (Value const& value : *values)
                 array->push(value);
-            break;
+            VM_NEXT;
         }
-        case Opcode::NewObject: {
+        VM_CASE(NewObject): {
             Object* object = self.new_object();
-            if (ins.a != 0)
-                object->reserve_properties(ins.a);
+            if (ins->a != 0)
+                object->reserve_properties(ins->a);
             frame.push(Value::object(object));
-            break;
+            VM_NEXT;
         }
-        case Opcode::SetPrototype: {
+        VM_CASE(SetPrototype): {
             Value const value = frame.pop();
             Object* object = frame.top().as_object();
             if (value.is_object())
                 object->set_prototype(value.as_object());
             else if (value.is_null())
                 object->set_prototype(nullptr);
-            break;
+            VM_NEXT;
         }
-        case Opcode::CopyDataProperties: {
+        VM_CASE(CopyDataProperties): {
             Object* target = frame.peek(1).as_object();
             if (!copy_data_properties(*target, frame.top(), {})) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.stack.pop_back();
-            break;
+            VM_NEXT;
         }
-        case Opcode::CopyDataPropertiesExcluding: {
-            auto* taken = static_cast<ArrayObject*>(frame.registers[ins.a].as_object());
+        VM_CASE(CopyDataPropertiesExcluding): {
+            auto* taken = static_cast<ArrayObject*>(frame.registers[ins->a].as_object());
             std::vector<PropertyKey> excluded;
             for (std::uint32_t i = 0; i < taken->length(); ++i)
                 excluded.push_back(key_from_value(h, taken->element(i)));
             Object* target = frame.peek(1).as_object();
             if (!copy_data_properties(*target, frame.top(), excluded)) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.stack.pop_back();
-            break;
+            VM_NEXT;
         }
-        case Opcode::DefinePropertyNamed: {
+        VM_CASE(DefinePropertyNamed): {
             Object* object = frame.peek(1).as_object();
-            if (!self.create_data_property(*object, h.key(code.names[ins.a]), frame.top())) {
-                ok = false;
-                break;
+            if (!self.create_data_property(*object, h.key(code.names[ins->a]), frame.top())) {
+                VM_FAIL;
             }
             frame.stack.pop_back();
-            break;
+            VM_NEXT;
         }
-        case Opcode::DefinePropertyDyn: {
+        VM_CASE(DefinePropertyDyn): {
             Object* object = frame.peek(2).as_object();
             PropertyKey const key = key_from_value(h, frame.peek(1));
             if (!self.create_data_property(*object, key, frame.top())) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.stack.pop_back();
             frame.stack.pop_back();
-            break;
+            VM_NEXT;
         }
-        case Opcode::DefineMethod:
-        case Opcode::DefineMethodDyn: {
+        VM_CASE(DefineMethod):
+        VM_CASE(DefineMethodDyn): {
             // A method shorthand (§15.4.5): named after its key, with the
             // object as its home for `super.x`.
-            bool const dynamic = ins.op == Opcode::DefineMethodDyn;
+            bool const dynamic = ins->op == Opcode::DefineMethodDyn;
             Object* object = dynamic ? frame.peek(1).as_object() : frame.top().as_object();
-            PropertyKey const key = dynamic ? key_from_value(h, frame.top()) : h.key(code.names[ins.b]);
+            PropertyKey const key = dynamic ? key_from_value(h, frame.top()) : h.key(code.names[ins->b]);
             Context cx = frame_context(frame);
-            std::optional<Value> const value = make_closure(*code.functions[ins.a], cx, &key);
+            std::optional<Value> const value = make_closure(*code.functions[ins->a], cx, &key);
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             Roots const roots(self);
             self.root(*value);
             static_cast<ScriptFunction*>(value->as_object())->set_home_object(object);
             if (!self.create_data_property(*object, key, *value)) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             if (dynamic)
                 frame.stack.pop_back();
-            break;
+            VM_NEXT;
         }
-        case Opcode::DefineAccessor:
-        case Opcode::DefineAccessorDyn: {
+        VM_CASE(DefineAccessor):
+        VM_CASE(DefineAccessorDyn): {
             // A getter or setter joins an existing accessor's other half.
-            bool const dynamic = ins.op == Opcode::DefineAccessorDyn;
-            bool const is_setter = (ins.flags & 1) != 0;
+            bool const dynamic = ins->op == Opcode::DefineAccessorDyn;
+            bool const is_setter = (ins->flags & 1) != 0;
             Object* object = dynamic ? frame.peek(1).as_object() : frame.top().as_object();
-            PropertyKey const key = dynamic ? key_from_value(h, frame.top()) : h.key(code.names[ins.b]);
+            PropertyKey const key = dynamic ? key_from_value(h, frame.top()) : h.key(code.names[ins->b]);
             Heap::NoCollect const no_collect(h);
-            ScriptFunction* accessor = self.new_script_function(*code.functions[ins.a], frame.envs.back(), frame.private_environment);
+            ScriptFunction* accessor = self.new_script_function(*code.functions[ins->a], frame.envs.back(), frame.private_environment);
             accessor->set_home_object(object);
             set_function_name(*accessor, key, is_setter ? "set" : "get");
             Object* getter = nullptr;
@@ -1642,103 +1908,98 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             object->put_accessor(key, getter, setter, Enumerable | Configurable);
             if (dynamic)
                 frame.stack.pop_back();
-            break;
+            VM_NEXT;
         }
-        case Opcode::NewRegExp: {
-            std::optional<Value> const value = evaluate_regexp(*code.regexps[ins.a]);
+        VM_CASE(NewRegExp): {
+            std::optional<Value> const value = evaluate_regexp(*code.regexps[ins->a]);
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(*value);
-            break;
+            VM_NEXT;
         }
-        case Opcode::TemplateObject: {
-            std::optional<Object*> const site = template_object(*code.templates[ins.a]);
+        VM_CASE(TemplateObject): {
+            std::optional<Object*> const site = template_object(*code.templates[ins->a]);
             if (!site) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(Value::object(*site));
-            break;
+            VM_NEXT;
         }
-        case Opcode::MakeClosure:
-        case Opcode::MakeClosureNamedDyn: {
-            bool const dynamic = ins.op == Opcode::MakeClosureNamedDyn;
+        VM_CASE(MakeClosure):
+        VM_CASE(MakeClosureNamedDyn): {
+            bool const dynamic = ins->op == Opcode::MakeClosureNamedDyn;
             PropertyKey key;
             PropertyKey const* name_key = nullptr;
             if (dynamic) {
                 key = key_from_value(h, frame.top());
                 name_key = &key;
-            } else if (ins.b != None) {
-                key = h.key(code.names[ins.b]);
+            } else if (ins->b != None) {
+                key = h.key(code.names[ins->b]);
                 name_key = &key;
             }
             Context cx = frame_context(frame);
-            std::optional<Value> const value = make_closure(*code.functions[ins.a], cx, name_key, (ins.flags & 1) == 0);
+            std::optional<Value> const value = make_closure(*code.functions[ins->a], cx, name_key, (ins->flags & 1) == 0);
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             if (dynamic)
                 frame.stack.pop_back();
             frame.push(*value);
-            break;
+            VM_NEXT;
         }
-        case Opcode::LoadFieldKey:
+        VM_CASE(LoadFieldKey):
             frame.push(frame.field_key);
-            break;
-        case Opcode::ClassScope:
-        case Opcode::ClassScopeNamedDyn: {
+            VM_NEXT;
+        VM_CASE(ClassScope):
+        VM_CASE(ClassScopeNamedDyn): {
             if (!env_room()) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             // The class's scope goes on the frame: its environment is the
             // lexical one until ClassFinish, its body strict.
-            bool const dynamic = ins.op == Opcode::ClassScopeNamedDyn;
+            bool const dynamic = ins->op == Opcode::ClassScopeNamedDyn;
             PropertyKey key;
             PropertyKey const* name_key = nullptr;
             if (dynamic) {
                 key = key_from_value(h, frame.top());
                 name_key = &key;
-            } else if (ins.b != None) {
-                key = h.key(code.names[ins.b]);
+            } else if (ins->b != None) {
+                key = h.key(code.names[ins->b]);
                 name_key = &key;
             }
             ClassBuilder* builder
-                = class_scope(*code.classes[ins.a], frame.envs.back(), frame.private_environment, frame.strict, name_key, (ins.flags & 1) == 0);
+                = class_scope(*code.classes[ins->a], frame.envs.back(), frame.private_environment, frame.strict, name_key, (ins->flags & 1) == 0);
             if (dynamic)
                 frame.stack.pop_back();
             frame.builders.push_back(builder);
             frame.envs.push_back(builder->class_env);
             frame.strict = true;
-            break;
+            VM_NEXT;
         }
-        case Opcode::ClassBegin:
-        case Opcode::ClassBeginHeritage: {
+        VM_CASE(ClassBegin):
+        VM_CASE(ClassBeginHeritage): {
             ClassBuilder& builder = *frame.builders.back();
             Value heritage;
-            if (ins.op == Opcode::ClassBeginHeritage)
+            if (ins->op == Opcode::ClassBeginHeritage)
                 heritage = frame.pop();
-            if (!class_begin(builder, ins.op == Opcode::ClassBeginHeritage ? &heritage : nullptr)) {
-                ok = false;
-                break;
+            if (!class_begin(builder, ins->op == Opcode::ClassBeginHeritage ? &heritage : nullptr)) {
+                VM_FAIL;
             }
             frame.private_environment = builder.private_env; // the class's names, for its keys and bodies
-            break;
+            VM_NEXT;
         }
-        case Opcode::ClassElement:
-        case Opcode::ClassElementKeyed: {
+        VM_CASE(ClassElement):
+        VM_CASE(ClassElementKeyed): {
             ClassBuilder& builder = *frame.builders.back();
             Value key_value;
-            if (ins.op == Opcode::ClassElementKeyed)
+            if (ins->op == Opcode::ClassElementKeyed)
                 key_value = frame.pop();
-            if (!class_element(builder, ins.a, ins.op == Opcode::ClassElementKeyed ? &key_value : nullptr))
-                ok = false;
-            break;
+            if (!class_element(builder, ins->a, ins->op == Opcode::ClassElementKeyed ? &key_value : nullptr))
+                VM_FAIL;
+            VM_NEXT;
         }
-        case Opcode::ClassFinish: {
+        VM_CASE(ClassFinish): {
             ClassBuilder& builder = *frame.builders.back();
             std::optional<Value> const value = class_finish(builder);
             frame.envs.pop_back();
@@ -1746,51 +2007,48 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             frame.strict = builder.saved_strict;
             frame.builders.pop_back();
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(*value);
-            break;
+            VM_NEXT;
         }
-        case Opcode::AppendToReg: {
-            auto* array = static_cast<ArrayObject*>(frame.registers[ins.a].as_object());
+        VM_CASE(AppendToReg): {
+            auto* array = static_cast<ArrayObject*>(frame.registers[ins->a].as_object());
             array->push(frame.top());
             frame.stack.pop_back();
-            break;
+            VM_NEXT;
         }
 
         // ---- iteration
-        case Opcode::GetIterator:
-        case Opcode::GetAsyncIterator: {
+        VM_CASE(GetIterator):
+        VM_CASE(GetAsyncIterator): {
             std::optional<IteratorRecord> const record
-                = ins.op == Opcode::GetIterator ? self.get_iterator(frame.top()) : self.get_async_iterator(frame.top());
+                = ins->op == Opcode::GetIterator ? self.get_iterator(frame.top()) : self.get_async_iterator(frame.top());
             if (!record) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.top() = record->iterator;
             frame.push(record->next_method);
-            break;
+            VM_NEXT;
         }
-        case Opcode::IteratorNextCall: {
+        VM_CASE(IteratorNextCall): {
             // The async protocol's step: next() called, its answer pushed
             // for the Await that follows; the object check comes after.
-            std::optional<Value> const result = self.call(frame.registers[ins.a + 1], frame.registers[ins.a], {});
+            std::optional<Value> const result = self.call(frame.registers[ins->a + 1], frame.registers[ins->a], {});
             if (!result) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(*result);
-            break;
+            VM_NEXT;
         }
-        case Opcode::IteratorReturnCall:
-        case Opcode::IteratorReturnCallQuiet: {
+        VM_CASE(IteratorReturnCall):
+        VM_CASE(IteratorReturnCallQuiet): {
             // AsyncIteratorClose's first half: return() called when there
             // is one, its answer pushed for an Await; Empty when there is
             // none. The quiet form runs under a pending throw, which wins
             // over anything return() does.
-            Value const iterator = frame.registers[ins.a];
-            bool const quiet = ins.op == Opcode::IteratorReturnCallQuiet;
+            Value const iterator = frame.registers[ins->a];
+            bool const quiet = ins->op == Opcode::IteratorReturnCallQuiet;
             Value pending;
             if (quiet)
                 pending = frame.top();
@@ -1800,132 +2058,123 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
                 result = self.call(*method, iterator, {});
             if ((!method || (!method->is_undefined() && !result))) {
                 if (!quiet || self.m_terminated) {
-                    ok = false;
-                    break;
+                    VM_FAIL;
                 }
                 self.take_exception();
                 frame.push(Value::empty());
-                break;
+                VM_NEXT;
             }
             frame.push(method->is_undefined() ? Value::empty() : *result);
-            break;
+            VM_NEXT;
         }
-        case Opcode::RequireIterResult: {
+        VM_CASE(RequireIterResult): {
             if (!frame.top().is_object()) {
                 self.throw_type_error("Iterator result " + self.describe(frame.top()) + " is not an object");
-                ok = false;
+                VM_FAIL;
             }
-            break;
+            VM_NEXT;
         }
-        case Opcode::IteratorNext: {
-            std::optional<Value> const result = self.call(frame.registers[ins.a + 1], frame.registers[ins.a], {});
+        VM_CASE(IteratorNext): {
+            std::optional<Value> const result = self.call(frame.registers[ins->a + 1], frame.registers[ins->a], {});
             if (!result) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             if (!result->is_object()) {
                 self.throw_type_error("Iterator result " + self.describe(*result) + " is not an object");
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(*result);
-            break;
+            VM_NEXT;
         }
-        case Opcode::IteratorResultDone: {
+        VM_CASE(IteratorResultDone): {
             std::optional<Value> const done = iter_result_field(frame.top(), well_known.done);
             if (!done) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.top() = Value::boolean(to_boolean(*done));
-            break;
+            VM_NEXT;
         }
-        case Opcode::IteratorResultValue: {
+        VM_CASE(IteratorResultValue): {
             std::optional<Value> const value = iter_result_field(frame.top(), well_known.value);
             if (!value) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.top() = *value;
-            break;
+            VM_NEXT;
         }
-        case Opcode::IteratorStep: {
+        VM_CASE(IteratorStep): {
             // IteratorStepValue for a pattern: undefined once the iterator
             // is done; the iterator's own throw marks it done unclosed.
-            if (iterator_done(ins.a)) {
+            if (iterator_done(ins->a)) {
                 frame.push(Value::undefined());
-                break;
+                VM_NEXT;
             }
-            IteratorRecord record = iterator_record(ins.a);
+            IteratorRecord record = iterator_record(ins->a);
             Value out;
             std::optional<bool> const stepped = self.iterator_step(record, out);
             if (!stepped) {
-                frame.registers[ins.a + 2] = Value::boolean(true);
-                ok = false;
-                break;
+                frame.registers[ins->a + 2] = Value::boolean(true);
+                VM_FAIL;
             }
             if (!*stepped) {
-                frame.registers[ins.a + 2] = Value::boolean(true);
+                frame.registers[ins->a + 2] = Value::boolean(true);
                 frame.push(Value::undefined());
-                break;
+                VM_NEXT;
             }
             frame.push(out);
-            break;
+            VM_NEXT;
         }
-        case Opcode::IteratorRestArray: {
+        VM_CASE(IteratorRestArray): {
             ArrayObject* rest = self.new_array();
             Roots const roots(self);
             self.root(Value::object(rest));
-            while (!iterator_done(ins.a)) {
-                IteratorRecord record = iterator_record(ins.a);
+            while (!iterator_done(ins->a)) {
+                IteratorRecord record = iterator_record(ins->a);
                 Value out;
                 std::optional<bool> const stepped = self.iterator_step(record, out);
                 if (!stepped) {
-                    frame.registers[ins.a + 2] = Value::boolean(true);
-                    ok = false;
-                    break;
+                    frame.registers[ins->a + 2] = Value::boolean(true);
+                    VM_FAIL;
                 }
                 if (!*stepped) {
-                    frame.registers[ins.a + 2] = Value::boolean(true);
+                    frame.registers[ins->a + 2] = Value::boolean(true);
                     break;
                 }
                 rest->push(out);
             }
-            if (ok)
-                frame.push(Value::object(rest));
-            break;
+            frame.push(Value::object(rest));
+            VM_NEXT;
         }
-        case Opcode::IteratorClose: {
+        VM_CASE(IteratorClose): {
             // IteratorClose on a normal exit: return() runs, and its own
             // failure is the outcome.
-            if (iterator_done(ins.a))
-                break;
-            IteratorRecord const record = iterator_record(ins.a);
+            if (iterator_done(ins->a))
+                VM_NEXT;
+            IteratorRecord const record = iterator_record(ins->a);
             if (!self.iterator_close(record, false))
-                ok = false;
-            break;
+                VM_FAIL;
+            VM_NEXT;
         }
-        case Opcode::IteratorCloseThrowing: {
+        VM_CASE(IteratorCloseThrowing): {
             // IteratorClose with a throw pending — the thrown value is on the
             // stack for the Throw that follows; it stays the outcome whatever
             // return() does.
-            if (iterator_done(ins.a))
-                break;
+            if (iterator_done(ins->a))
+                VM_NEXT;
             self.throw_value(frame.top());
-            IteratorRecord const record = iterator_record(ins.a);
+            IteratorRecord const record = iterator_record(ins->a);
             self.iterator_close(record, true);
             self.throw_value(frame.top());
-            break;
+            VM_NEXT;
         }
-        case Opcode::ForInStart: {
+        VM_CASE(ForInStart): {
             // §14.7.5.6 enumerate: nothing to walk for null or undefined.
             Value const& subject = frame.top();
             Object* object = nullptr;
             if (!subject.is_nullish()) {
                 std::optional<Object*> const boxed = self.to_object(subject);
                 if (!boxed) {
-                    ok = false;
-                    break;
+                    VM_FAIL;
                 }
                 object = *boxed;
             }
@@ -1935,62 +2184,67 @@ RunStatus Interpreter::Impl::vm_run(Frame& frame)
             auto* enumerator = h.allocate<ForInIteratorObject>(object);
             frame.top() = Value::object(enumerator);
             if (!enumerator_load(enumerator->enumerator()))
-                ok = false;
-            break;
+                VM_FAIL;
+            VM_NEXT;
         }
-        case Opcode::ForInNext: {
-            auto* enumerator = static_cast<ForInIteratorObject*>(frame.registers[ins.a].as_object());
+        VM_CASE(ForInNext): {
+            auto* enumerator = static_cast<ForInIteratorObject*>(frame.registers[ins->a].as_object());
             JsString* key = enumerator_next(enumerator->enumerator());
             if (key == nullptr && self.has_exception()) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(key ? Value::string(key) : Value::empty());
-            break;
+            VM_NEXT;
         }
 
         // ---- suspension
-        case Opcode::Yield:
+        VM_CASE(Yield):
             frame.result = frame.pop();
-            frame.result_is_iter_result = (ins.flags & 1) != 0;
+            frame.result_is_iter_result = (ins->flags & 1) != 0;
             frame.resume_pending = true;
             return RunStatus::Yielded;
-        case Opcode::Await:
+        VM_CASE(Await):
             frame.result = frame.pop();
             frame.resume_pending = true;
             return RunStatus::Awaiting;
 
         // ---- modules
-        case Opcode::ImportCall: {
+        VM_CASE(ImportCall): {
             // The specifier sits below the options; both stay on the
             // stack — and so traced — until the promise replaces them.
             Value const specifier = frame.peek(1);
             Value const options = frame.peek(0);
             std::optional<Value> const promise = self.perform_import_call(frame.program, specifier, options);
             if (!promise) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.pop();
             frame.top() = *promise;
-            break;
+            VM_NEXT;
         }
-        case Opcode::ImportMeta: {
+        VM_CASE(ImportMeta): {
             std::optional<Value> const meta = self.import_meta_for(frame.program);
             if (!meta) {
-                ok = false;
-                break;
+                VM_FAIL;
             }
             frame.push(*meta);
-            break;
+            VM_NEXT;
         }
-        case Opcode::Nop:
-            break;
+        VM_CASE(Nop):
+            VM_NEXT;
         }
-        if (!ok && !vm_unwind(frame))
+        continue;
+    vm_fail:
+        if (!vm_unwind(frame))
             return RunStatus::Threw;
     }
+#undef VM_CASE
+#undef VM_NEXT
+#undef VM_FAIL
 }
+#if SASHFOLD_VM_THREADED
+#pragma GCC diagnostic pop
+#endif
 
 // ---- generators -------------------------------------------------------------
 
@@ -2107,6 +2361,7 @@ std::optional<Value> Interpreter::Impl::generator_resume(GeneratorObject& genera
         generator.release_frame();
         return std::nullopt;
     case RunStatus::Awaiting:
+    case RunStatus::Switched: // never leaves vm_run
         break;
     }
     pop_frame(*frame);

@@ -204,6 +204,11 @@ public:
     EnvStack envs;
     std::vector<Reference> refs;
     std::vector<ClassBuilder*> builders; // the classes under construction, innermost last
+    // A call the run loop made itself (Interpreter::Impl::enter_call): what
+    // it replaced of the caller's, put back when the call returns or throws.
+    bool inlined = false;
+    RealmRecord* caller_realm = nullptr;
+    RealmRecord* caller_script_realm = nullptr;
 
     Value& top() { return stack.back(); }
     Value& peek(std::size_t below) { return stack[stack.size() - 1 - below]; }

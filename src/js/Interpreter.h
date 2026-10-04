@@ -18,6 +18,7 @@
 #include "js/Object.h"
 #include "js/Value.h"
 
+#include <algorithm>
 #include <chrono>
 #include <cstddef>
 #include <cstdint>
@@ -627,24 +628,26 @@ public:
     void set_stack_budget(std::size_t bytes) { m_stack_budget = bytes; }
     std::size_t stack_budget() const { return m_stack_budget; }
     // The stack so far against that budget: false with a RangeError
-    // pending. Every script call is held to it; a native that recurses
+    // pending. Every entry to the run loop from C++ (a native calling back,
+    // a getter, a constructor) is held to it, but not a script's call to a
+    // script function, which takes no C++ stack; a native that recurses
     // once per level of a structure the script built — a chain of proxies
     // falling through to one another's targets — asks before descending.
     bool stack_ok();
-    // Stopping a runaway script. The evaluator counts steps (a statement,
-    // a loop iteration, a call) and every `interval` of them asks
-    // should_stop; a yes ends the script with an uncatchable termination
-    // — no catch or finally runs — which run_script reports as a thrown
-    // RangeError "script terminated" and terminated() remembers. The
-    // shell's slow-script stop and the test runners' deadlines use it.
+    // Stopping a runaway script. The evaluator counts steps (a loop's
+    // back-edge, a call) and every `interval` of them asks should_stop; a
+    // yes ends the script with an uncatchable termination — no catch or
+    // finally runs — which run_script reports as a thrown RangeError
+    // "script terminated" and terminated() remembers. The shell's
+    // slow-script stop and the test runners' deadlines use it.
     void set_interrupt(std::function<bool()> should_stop, std::uint32_t interval = 10000)
     {
         m_should_stop = std::move(should_stop);
-        m_interrupt_interval = interval;
+        m_interrupt_interval = std::clamp<std::uint32_t>(interval, 1, 0x7FFFFFFF);
+        m_budget = std::min(m_budget, static_cast<std::int32_t>(m_interrupt_interval));
     }
     bool terminated() const { return m_terminated; }
     void clear_termination() { m_terminated = false; }
-    std::uint64_t steps() const { return m_steps; }
     // What turning source into code has cost, for the host's account of a
     // page: the programs parsed (scripts, modules and evals) and the code
     // units they came to, what parsing took on the steady clock, and the
@@ -814,17 +817,24 @@ private:
     std::function<void(Value const&)> m_throw_watcher;
     std::uint64_t m_compiled_strings = 0; // numbers what on_compiled_string is handed
     int m_call_depth = 0;
-    // The stack budget is the guard; this is the ceiling over it, above
-    // what V8 reaches on the megabyte of frames it gives a page (12,517
-    // calls of a function with nothing in it, measured on Node 26,
-    // 2026-09-24), so a page written against Chrome never meets a
-    // RangeError here that it does not meet there.
+    // The ceiling on calls in progress, above what V8 reaches on the
+    // megabyte of frames it gives a page (12,517 calls of a function with
+    // nothing in it, measured on Node 26, 2026-09-24), so a page written
+    // against Chrome never meets a RangeError here that it does not meet
+    // there. A script's call to a script function takes no C++ stack (the
+    // run loop pushes its frame and goes on), so for a plain recursion this
+    // is the guard; one through natives is held to the stack budget first.
     int m_call_depth_limit = 20000;
     char const* m_stack_base = nullptr; // recorded whenever script is entered from outside
-    std::size_t m_stack_budget = 4u * 1024u * 1024u; // about 1,400 script calls on an 8 MB stack; hosts set theirs
+    std::size_t m_stack_budget = 4u * 1024u * 1024u; // about 1,100 levels of a recursion through a native; hosts set theirs
     std::function<bool()> m_should_stop;
     std::uint32_t m_interrupt_interval = 10000;
-    std::uint64_t m_steps = 0;
+    // Steps left before the next look at the heap and should_stop
+    // (Impl::tick): one spent at each loop back-edge and call, all of them
+    // by the heap when it passes its ceiling. With no should_stop the
+    // looks come every heap_look_steps.
+    static constexpr std::int32_t heap_look_steps = 0x10000;
+    std::int32_t m_budget = heap_look_steps;
     bool m_terminated = false;
     Account m_account;
     // The profile's clock: which of the account's figures the time now

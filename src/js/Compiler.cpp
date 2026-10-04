@@ -311,6 +311,15 @@ private:
     }
 
     std::uint32_t new_register() { return m_code->register_count++; }
+    // One register of the body's for a value held across a few instructions
+    // that evaluate nothing else of this body (a postfix update's old value).
+    std::uint32_t scratch_register()
+    {
+        if (m_scratch == None)
+            m_scratch = new_register();
+        return m_scratch;
+    }
+    std::uint32_t m_scratch = None;
     std::uint32_t new_jump_table()
     {
         m_code->jump_tables.emplace_back();
@@ -1393,6 +1402,10 @@ private:
             compile_pattern(target, BindMode::Assign);
             return {};
         }
+        if (plain_member(target)) {
+            compile_member_put_of_value(*static_cast<MemberExpression const*>(target));
+            return {};
+        }
         compile_reference(target);
         emit(Opcode::RefPut);
         return {};
@@ -2445,15 +2458,21 @@ private:
             optional_check(context, Opcode::Dup, 1, 0);
         if (member.is_private) {
             emit(Opcode::RefPrivate, name(member.name));
-        } else if (member.property) {
-            compile_expression(member.property);
-            emit(Opcode::RefMember);
-        } else {
-            emit(Opcode::RefMemberNamed, name(member.name));
+            emit(Opcode::RefGet);
+            emit(Opcode::RefThis);
+            emit(Opcode::RefDrop);
+            return;
         }
-        emit(Opcode::RefGet);
-        emit(Opcode::RefThis);
-        emit(Opcode::RefDrop);
+        // [base] to [base, base] to [base, method] to [method, base]: the
+        // call's `this` is the base, kept on the stack, with no reference.
+        emit(Opcode::Dup);
+        if (member.property) {
+            compile_expression(member.property);
+            emit(Opcode::GetMember);
+        } else {
+            emit(Opcode::GetMemberNamed, name(member.name));
+        }
+        emit(Opcode::Swap);
     }
 
     void compile_call(CallExpression const& call, ChainContext& context)
@@ -2620,6 +2639,10 @@ private:
                 return;
             }
         }
+        if (update.target->type == NodeType::MemberExpression && !static_cast<MemberExpression const*>(update.target)->is_private) {
+            compile_member_update(update, *static_cast<MemberExpression const*>(update.target));
+            return;
+        }
         compile_reference(update.target);
         emit(Opcode::RefGet);
         emit(Opcode::ToNumeric);
@@ -2631,6 +2654,45 @@ private:
             emit(update.increment ? Opcode::Inc : Opcode::Dec);
             emit(Opcode::RefPut);
         }
+    }
+
+    // ++ and -- of a member with no reference: the member read (the key made
+    // a property key once), the old value as a number, the new one written;
+    // the prefix form yields the new, the postfix the old, kept below the
+    // write (a register of the body's holds it for a computed member).
+    void compile_member_update(UpdateExpression const& update, MemberExpression const& member)
+    {
+        Opcode const step = update.increment ? Opcode::Inc : Opcode::Dec;
+        compile_expression(member.object);
+        if (member.property) {
+            compile_expression(member.property);
+            emit(Opcode::GetMemberUpdate);
+            emit(Opcode::ToNumeric);
+            if (update.prefix) {
+                emit(step);
+                emit(Opcode::PutMemberKeep);
+                return;
+            }
+            std::uint32_t const old_value = scratch_register();
+            emit(Opcode::StoreRegKeep, old_value);
+            emit(step);
+            emit(Opcode::PutMember);
+            emit(Opcode::LoadReg, old_value);
+            return;
+        }
+        emit(Opcode::Dup);
+        emit(Opcode::GetMemberNamed, name(member.name));
+        emit(Opcode::ToNumeric);
+        if (update.prefix) {
+            emit(step);
+            emit(Opcode::PutMemberNamedKeep, name(member.name));
+            return;
+        }
+        // [base, old] to [old, base, old + 1], then the write leaves [old].
+        emit(Opcode::Swap);
+        emit(Opcode::Over);
+        emit(step);
+        emit(Opcode::PutMemberNamed, name(member.name));
     }
 
     void compile_logical(LogicalExpression const& logical)
@@ -2683,6 +2745,8 @@ private:
             compile_pattern(assignment.target, BindMode::Assign);
             return;
         }
+        if (assignment.target->type == NodeType::MemberExpression && compile_member_assignment(assignment))
+            return;
         if (assignment.target->type == NodeType::Identifier) {
             // A resolved binding needs no reference: nothing is looked up
             // before the value, and the store checks its own dead zone and
@@ -2741,6 +2805,93 @@ private:
         emit(Opcode::RefPutKeep);
     }
 
+    // An assignment to a member with no reference (§13.15.2): the base (and a
+    // computed key) on the stack, then the value, then the write; a compound
+    // one reads the member first, the key made a property key once there.
+    // A logical one may write nothing: when the member's value decides, it
+    // is the result and the base and key are dropped from under it. A
+    // private member keeps its reference: false, and the caller compiles one.
+    bool compile_member_assignment(AssignmentExpression const& assignment)
+    {
+        auto const& member = *static_cast<MemberExpression const*>(assignment.target);
+        if (member.is_private)
+            return false;
+        compile_expression(member.object);
+        if (member.property)
+            compile_expression(member.property);
+        if (assignment.op == AssignmentOp::Assign) {
+            compile_expression(assignment.value);
+        } else {
+            if (member.property) {
+                emit(Opcode::GetMemberUpdate);
+            } else {
+                emit(Opcode::Dup);
+                emit(Opcode::GetMemberNamed, name(member.name));
+            }
+            if (assignment.op == AssignmentOp::LogicalAnd || assignment.op == AssignmentOp::LogicalOr
+                || assignment.op == AssignmentOp::Nullish) {
+                Label skip;
+                Label end;
+                jump(assignment.op == AssignmentOp::LogicalAnd ? Opcode::JumpIfFalseKeep
+                        : assignment.op == AssignmentOp::LogicalOr ? Opcode::JumpIfTrueKeep
+                                                                   : Opcode::JumpIfNotNullishKeep,
+                    skip);
+                emit(Opcode::Pop);
+                compile_expression(assignment.value);
+                emit_member_put(member, true);
+                jump(Opcode::Jump, end);
+                // [base, (key,) value] to [value].
+                bind(skip);
+                if (member.property) {
+                    emit(Opcode::Swap);
+                    emit(Opcode::Pop);
+                }
+                emit(Opcode::Swap);
+                emit(Opcode::Pop);
+                bind(end);
+                return true;
+            }
+            compile_expression(assignment.value);
+            emit(Opcode::Binary, static_cast<std::uint32_t>(*binary_for(assignment.op)));
+        }
+        emit_member_put(member, true);
+        return true;
+    }
+
+    // [base, (key,) value] written to the member; `keep` leaves the value.
+    void emit_member_put(MemberExpression const& member, bool keep)
+    {
+        if (member.property)
+            emit(keep ? Opcode::PutMemberKeep : Opcode::PutMember);
+        else
+            emit(keep ? Opcode::PutMemberNamedKeep : Opcode::PutMemberNamed, name(member.name));
+    }
+
+    // A member a destructuring or a for-in/of head writes: a private one
+    // takes the reference path.
+    static bool plain_member(Expression const* target)
+    {
+        return target->type == NodeType::MemberExpression && !static_cast<MemberExpression const*>(target)->is_private;
+    }
+
+    // [value] written to a member whose base and key are evaluated now (a
+    // for-in or for-of head assigns after it has the value, §14.7.5.7).
+    void compile_member_put_of_value(MemberExpression const& member)
+    {
+        if (!member.property) {
+            compile_expression(member.object);
+            emit(Opcode::Swap);
+            emit(Opcode::PutMemberNamed, name(member.name));
+            return;
+        }
+        std::uint32_t const held = new_register();
+        emit(Opcode::StoreReg, held);
+        compile_expression(member.object);
+        compile_expression(member.property);
+        emit(Opcode::LoadReg, held);
+        emit(Opcode::PutMember);
+    }
+
     void compile_resolved_assignment(AssignmentExpression const& assignment, Slot const& slot, Identifier const& identifier)
     {
         if (assignment.op == AssignmentOp::Assign) {
@@ -2788,13 +2939,35 @@ private:
             compile_object_pattern(*static_cast<ObjectPattern const*>(pattern), mode);
     }
 
-    // The reference a non-pattern target names, taken before its value is
-    // read (§13.15.5.5, §8.6.3).
-    void compile_target_prepare(Expression const* target, BindMode mode)
+    // Where a member target's base and key wait between their evaluation
+    // and the store: registers, since what runs between (the value, its
+    // default, a pattern's own source on the operand stack) uses the stack.
+    struct TargetSlots {
+        std::uint32_t base = None;
+        std::uint32_t key = None;
+    };
+
+    // What a non-pattern target names, taken before its value is read
+    // (§13.15.5.5, §8.6.3): a member's base and key, or a reference.
+    TargetSlots compile_target_prepare(Expression const* target, BindMode mode)
     {
         if (target == nullptr || is_pattern(target) || mode == BindMode::Initialize)
-            return;
+            return {};
+        if (plain_member(target)) {
+            auto const& member = *static_cast<MemberExpression const*>(target);
+            TargetSlots slots;
+            slots.base = new_register();
+            compile_expression(member.object);
+            emit(Opcode::StoreReg, slots.base);
+            if (member.property) {
+                slots.key = new_register();
+                compile_expression(member.property);
+                emit(Opcode::StoreReg, slots.key);
+            }
+            return slots;
+        }
         compile_reference(target);
+        return {};
     }
 
     // The value on the stack, or its default when it is undefined — an
@@ -2815,7 +2988,7 @@ private:
     }
 
     // Stores the value on the stack into the target, by mode.
-    void compile_target_store(Expression const* target, BindMode mode)
+    void compile_target_store(Expression const* target, BindMode mode, TargetSlots const& slots)
     {
         if (is_pattern(target)) {
             compile_pattern(target, mode);
@@ -2824,6 +2997,17 @@ private:
         if (mode == BindMode::Initialize) {
             auto const& identifier = *static_cast<Identifier const*>(target);
             emit_initialize(slot_of(identifier), identifier.name);
+            return;
+        }
+        if (slots.base != None) {
+            // [value] to [base, (key,) value], then the write.
+            emit(Opcode::LoadReg, slots.base);
+            emit(Opcode::Swap);
+            if (slots.key != None) {
+                emit(Opcode::LoadReg, slots.key);
+                emit(Opcode::Swap);
+            }
+            emit_member_put(*static_cast<MemberExpression const*>(target), false);
             return;
         }
         emit(Opcode::RefPut);
@@ -2853,15 +3037,15 @@ private:
                 emit(Opcode::Pop);
                 continue;
             }
-            compile_target_prepare(element.target, mode);
+            TargetSlots const slots = compile_target_prepare(element.target, mode);
             emit(Opcode::IteratorStep, iterator);
             compile_default(element.target, element.initializer);
-            compile_target_store(element.target, mode);
+            compile_target_store(element.target, mode, slots);
         }
         if (pattern.rest) {
-            compile_target_prepare(pattern.rest, mode);
+            TargetSlots const slots = compile_target_prepare(pattern.rest, mode);
             emit(Opcode::IteratorRestArray, iterator);
-            compile_target_store(pattern.rest, mode);
+            compile_target_store(pattern.rest, mode, slots);
         }
         std::uint32_t const protected_end = here();
         emit(Opcode::IteratorClose, iterator);
@@ -2888,6 +3072,7 @@ private:
             emit(Opcode::StoreReg, taken);
         }
         for (PatternProperty const& property : pattern.properties) {
+            TargetSlots slots;
             if (property.computed_key) {
                 compile_expression(property.computed_key);
                 emit(Opcode::ToPropertyKey);
@@ -2895,7 +3080,7 @@ private:
                     emit(Opcode::Dup);
                     emit(Opcode::AppendToReg, taken);
                 }
-                compile_target_prepare(property.target, mode);
+                slots = compile_target_prepare(property.target, mode);
                 // [source, key] → [source, source, key] → [source, value]
                 emit(Opcode::Over);
                 emit(Opcode::Swap);
@@ -2905,19 +3090,19 @@ private:
                     emit(Opcode::PushConstant, constant(Value::string(property.key)));
                     emit(Opcode::AppendToReg, taken);
                 }
-                compile_target_prepare(property.target, mode);
+                slots = compile_target_prepare(property.target, mode);
                 emit(Opcode::Dup);
                 emit(Opcode::GetMemberNamed, name(property.key));
             }
             compile_default(property.target, property.initializer);
-            compile_target_store(property.target, mode);
+            compile_target_store(property.target, mode, slots);
         }
         if (pattern.rest) {
-            compile_target_prepare(pattern.rest, mode);
+            TargetSlots const slots = compile_target_prepare(pattern.rest, mode);
             emit(Opcode::NewObject);
             emit(Opcode::Over);
             emit(Opcode::CopyDataPropertiesExcluding, taken);
-            compile_target_store(pattern.rest, mode);
+            compile_target_store(pattern.rest, mode, slots);
         }
         emit(Opcode::Pop);
     }
@@ -3018,6 +3203,8 @@ std::string disassemble(CodeBlock const& code)
         case Opcode::GetName:
         case Opcode::TypeofName:
         case Opcode::GetMemberNamed:
+        case Opcode::PutMemberNamed:
+        case Opcode::PutMemberNamedKeep:
         case Opcode::InitializeBinding:
         case Opcode::AnnexBCopy:
         case Opcode::DefinePropertyNamed:
