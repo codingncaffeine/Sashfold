@@ -251,6 +251,21 @@ void AssemblerA64::ldr_literal(XReg t, ALabel label)
     word(0x58000000u | number(t));
 }
 
+void AssemblerA64::str_post(XReg t, XReg base, std::int32_t offset)
+{
+    word(0xF8000400u | (static_cast<std::uint32_t>(offset) & 0x1FFu) << 12 | number(base) << 5 | number(t));
+}
+
+void AssemblerA64::str_pre(XReg t, XReg base, std::int32_t offset)
+{
+    word(0xF8000C00u | (static_cast<std::uint32_t>(offset) & 0x1FFu) << 12 | number(base) << 5 | number(t));
+}
+
+void AssemblerA64::ldr_post(XReg t, XReg base, std::int32_t offset)
+{
+    word(0xF8400400u | (static_cast<std::uint32_t>(offset) & 0x1FFu) << 12 | number(base) << 5 | number(t));
+}
+
 void AssemblerA64::stp_pre(XReg first, XReg second, XReg base, std::int32_t offset)
 {
     word(0xA9800000u | (static_cast<std::uint32_t>(offset / 8) & 0x7Fu) << 15 | number(second) << 10 | number(base) << 5 | number(first));

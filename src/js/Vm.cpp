@@ -3068,6 +3068,13 @@ jit::Code const* Interpreter::Impl::machine_code(CodeBlock const& code)
     code.jit_refused = code.jit == nullptr;
     if (code.jit)
         self.note_machine_code(code.jit->size, code.jit->inline_instructions, code.jit->instructions, started);
+    // SASHFOLD_JIT_A64_SHADOW=1, an instrument for the AArch64 backend on
+    // a machine that cannot run it: each block given code is written for
+    // AArch64 as well, into a space of its own, and one that backend
+    // refuses is said on stderr.
+    static bool const a64_shadow = std::getenv("SASHFOLD_JIT_A64_SHADOW") != nullptr;
+    if (a64_shadow && code.jit && !jit::compile_a64(code, feedback_for(code), machine_layout(), helpers, a64_shadow_space))
+        std::fprintf(stderr, "a64 shadow: a block of %zu instructions refused\n", code.code.size());
     // SASHFOLD_JIT_DUMP=<dir>: each block's machine code and bytecode
     // written there as it is made, for `objdump -D -b binary -m i386:x86-64`.
     static char const* const dump = std::getenv("SASHFOLD_JIT_DUMP");

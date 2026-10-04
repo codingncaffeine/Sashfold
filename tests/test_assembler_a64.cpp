@@ -65,6 +65,10 @@ void test_instructions()
     CHECK_ENCODING("3903fc24", a.strb(XReg::x4, XReg::x1, 255)); // strb w4, [x1, #255]
     CHECK_ENCODING("f86778c5", a.ldr_indexed(XReg::x5, XReg::x6, XReg::x7)); // ldr x5, [x6, x7, lsl #3]
     CHECK_ENCODING("f82778c5", a.str_indexed(XReg::x5, XReg::x6, XReg::x7)); // str x5, [x6, x7, lsl #3]
+    CHECK_ENCODING("f80086e0", a.str_post(XReg::x0, XReg::x23, 8)); // str x0, [x23], #8
+    CHECK_ENCODING("f81f86e5", a.str_post(XReg::x5, XReg::x23, -8)); // str x5, [x23], #-8
+    CHECK_ENCODING("f81f0ffe", a.str_pre(XReg::x30, XReg::sp, -16)); // str x30, [sp, #-16]!
+    CHECK_ENCODING("f84107fe", a.ldr_post(XReg::x30, XReg::sp, 16)); // ldr x30, [sp], #16
     CHECK_ENCODING("a9bf7bfd", a.stp_pre(XReg::x29, XReg::x30, XReg::sp, -16)); // stp x29, x30, [sp, #-16]!
     CHECK_ENCODING("a9bc53f3", a.stp_pre(XReg::x19, XReg::x20, XReg::sp, -64)); // stp x19, x20, [sp, #-64]!
     CHECK_ENCODING("a8c17bfd", a.ldp_post(XReg::x29, XReg::x30, XReg::sp, 16)); // ldp x29, x30, [sp], #16

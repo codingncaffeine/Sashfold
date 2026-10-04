@@ -32,8 +32,8 @@
 
 // Where a backend exists its checks must run: a build that lost one would
 // otherwise pass them all by skipping them.
-#if (defined(__x86_64__) || defined(_M_X64)) && (defined(__linux__) || defined(_WIN32))
-static_assert(sashfold::js::jit::available, "x86-64 Linux and Windows have a backend");
+#if ((defined(__x86_64__) || defined(_M_X64)) && (defined(__linux__) || defined(_WIN32))) || (defined(__aarch64__) && (defined(__linux__) || defined(__APPLE__)))
+static_assert(sashfold::js::jit::available, "x86-64 Linux and Windows and AArch64 Linux and macOS have a backend");
 #endif
 
 using namespace sashfold;

@@ -37,9 +37,11 @@ struct Instruction;
 namespace sashfold::js::jit {
 
 // Whether this build can run machine code it writes: x86-64 on Linux (the
-// System V convention) and on Windows (Win64's, with its unwind data), for
-// now (the design's slice 5 adds AArch64 and macOS).
+// System V convention) and on Windows (Win64's, with its unwind data), and
+// AArch64 on Linux and macOS (AAPCS64; Apple silicon's MAP_JIT).
 #if (defined(__x86_64__) || defined(_M_X64)) && (defined(__linux__) || defined(_WIN32))
+inline constexpr bool available = true;
+#elif defined(__aarch64__) && (defined(__linux__) || defined(__APPLE__))
 inline constexpr bool available = true;
 #else
 inline constexpr bool available = false;
@@ -175,6 +177,10 @@ private:
 // vector (null when it has no sites): the code reads its records as they
 // change, by address.
 std::unique_ptr<Code> compile(CodeBlock const&, FeedbackVector*, Layout const&, Helpers const&, CodeSpace&);
+// The AArch64 code generator's (BaselineA64.cpp), which compile uses on
+// that architecture; built and callable everywhere, so its output can be
+// written and checked on any machine (it runs only on AArch64).
+std::unique_ptr<Code> compile_a64(CodeBlock const&, FeedbackVector*, Layout const&, Helpers const&, CodeSpace&);
 
 // When code blocks get machine code: never (T0 alone), at a block's first
 // run (`eager`, the differential mode every suite runs in as well), or

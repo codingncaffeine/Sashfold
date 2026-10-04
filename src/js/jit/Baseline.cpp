@@ -1014,9 +1014,11 @@ std::byte* CodeSpace::reserve(std::size_t bytes)
             return nullptr;
         m_chunks.push_back(std::move(*chunk));
         m_used = 0;
-    } else if (!m_chunks.back().unseal(m_used, bytes)) {
-        return nullptr; // the page the last block ends in, writable again for this one
     }
+    // Writable for this block: the page the last block ends in again, and
+    // on Apple silicon the region itself for this thread.
+    if (!m_chunks.back().unseal(m_used, bytes))
+        return nullptr;
     std::byte* const place = m_chunks.back().base() + m_used;
     m_used += bytes;
     return place;
@@ -1039,7 +1041,11 @@ std::unique_ptr<Code> compile(CodeBlock const& block, FeedbackVector* feedback, 
         static_cast<void>(space);
         return nullptr;
     } else {
+#if defined(__aarch64__)
+        return compile_a64(block, feedback, layout, helpers, space);
+#else
         return Writer(block, feedback, layout, helpers, space).write();
+#endif
     }
 }
 

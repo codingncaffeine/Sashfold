@@ -78,6 +78,9 @@ public:
     void ldr_indexed(XReg, XReg base, XReg index); // [base, index, lsl #3]
     void str_indexed(XReg, XReg base, XReg index);
     void ldr_literal(XReg, ALabel); // the 64-bit word at the label
+    void str_post(XReg, XReg base, std::int32_t offset); // [base], #offset: base moves after
+    void str_pre(XReg, XReg base, std::int32_t offset); // [base, #offset]!: base moves first
+    void ldr_post(XReg, XReg base, std::int32_t offset);
     void stp_pre(XReg first, XReg second, XReg base, std::int32_t offset); // [base, #offset]!
     void ldp_post(XReg first, XReg second, XReg base, std::int32_t offset); // [base], #offset
     void adr(XReg, ALabel);
@@ -107,9 +110,9 @@ public:
     void tst32(XReg n, XReg m);
     // With a bitmask immediate; false (and nothing written) when the value
     // is not one.
-    bool and_(XReg d, XReg n, std::uint64_t immediate);
-    bool orr(XReg d, XReg n, std::uint64_t immediate);
-    bool tst(XReg n, std::uint64_t immediate);
+    [[nodiscard]] bool and_(XReg d, XReg n, std::uint64_t immediate);
+    [[nodiscard]] bool orr(XReg d, XReg n, std::uint64_t immediate);
+    [[nodiscard]] bool tst(XReg n, std::uint64_t immediate);
     void mul32(XReg d, XReg n, XReg m);
     void smull(XReg d, XReg n, XReg m); // 64-bit product of two 32-bit halves
     void sdiv32(XReg d, XReg n, XReg m);

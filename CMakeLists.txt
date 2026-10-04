@@ -236,6 +236,7 @@ add_library(sashfold_core STATIC
   src/js/jit/AssemblerA64.cpp
   src/js/jit/AssemblerX64.cpp
   src/js/jit/Baseline.cpp
+  src/js/jit/BaselineA64.cpp
 )
 if(WIN32)
   target_sources(sashfold_core PRIVATE src/platform/win32/ClipboardWin32.cpp src/platform/win32/RandomWin32.cpp src/platform/win32/NetWin32.cpp src/platform/win32/TlsWin32.cpp src/platform/win32/MemoryWin32.cpp src/platform/win32/ExecutableMemoryWin32.cpp
