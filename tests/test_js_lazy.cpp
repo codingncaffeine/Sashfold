@@ -27,7 +27,7 @@ namespace {
 
 bool is_lazy(js::Interpreter& in, js::Object* object, std::string_view name)
 {
-    js::Property const* const property = object->peek_own(in.key(name));
+    js::PropertyRef const property = object->peek_own(in.key(name));
     return property != nullptr && property->lazy;
 }
 
@@ -152,7 +152,7 @@ int main()
         CHECK(is_lazy(in, b_array_prototype, "includes"));
         CHECK(in.current_realm() == a);
         // Asked for from realm A, with A current.
-        js::Property const* const made = b_array_prototype->find_own(in.key("includes"));
+        js::PropertyRef const made = b_array_prototype->find_own(in.key("includes"));
         CHECK(made != nullptr && made->value.is_object());
         if (made != nullptr && made->value.is_object()) {
             auto* const function = static_cast<js::Function*>(made->value.as_object());
@@ -161,7 +161,7 @@ int main()
             CHECK(function->prototype() != a->intrinsics.function_prototype);
         }
         // An accessor likewise.
-        js::Property const* const size = b->intrinsics.set_prototype->find_own(in.key("size"));
+        js::PropertyRef const size = b->intrinsics.set_prototype->find_own(in.key("size"));
         CHECK(size != nullptr && size->accessor && size->getter != nullptr);
         if (size != nullptr && size->getter != nullptr)
             CHECK(static_cast<js::Function*>(size->getter)->realm() == b);
@@ -175,7 +175,7 @@ int main()
         in.release_realm(c);
         in.heap().collect();
         CHECK(is_lazy(in, c_string_prototype, "padStart"));
-        js::Property const* const pad = c_string_prototype->find_own(in.key("padStart"));
+        js::PropertyRef const pad = c_string_prototype->find_own(in.key("padStart"));
         CHECK(pad != nullptr && pad->value.is_object());
         if (pad != nullptr && pad->value.is_object()) {
             js::Value const function = in.root(pad->value);

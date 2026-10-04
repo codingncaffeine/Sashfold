@@ -1,5 +1,6 @@
 #include "js/Heap.h"
 
+#include "js/Shape.h"
 #include "js/Strings.h"
 
 #include <algorithm>
@@ -132,6 +133,8 @@ Heap::~Heap()
     m_persistents.clear();
     // The atom table views the cells' data; drop it before the cells go.
     m_atoms.clear();
+    m_weak_holders.clear();
+    m_null_roots.clear();
     m_cells.clear();
 }
 
@@ -250,6 +253,8 @@ void Heap::collect()
         provider->trace_roots(tracer);
     for (Persistent const* persistent : m_persistents)
         tracer.visit(persistent->m_value);
+    for (auto const& [flags, root] : m_null_roots)
+        tracer.visit(root);
 
     // Drain: visit() marked and queued; trace() shows the tracer what
     // each cell keeps alive. Nothing recurses.
@@ -259,6 +264,15 @@ void Heap::collect()
         cell->trace(tracer);
     }
     tracer.m_worklist.swap(m_mark_stack); // empty now, its room kept
+
+    // What is held weakly: each holder that stays lets go of what did not
+    // (a shape of the shapes made from it), before anything is freed.
+    std::erase_if(m_weak_holders, [&](Cell* holder) {
+        if (holder->m_mark != m_mark)
+            return true;
+        holder->clear_weak();
+        return false;
+    });
 
     // What stays is measured exactly — every live cell asked its size —
     // at every eighth collection, at one that traces (the tally by kind

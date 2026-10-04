@@ -1376,9 +1376,9 @@ void install_prototype(Interpreter& in, Object& prototype)
 
     // toString is Array.prototype's very function (§23.2.3.34), and
     // @@iterator is values (§23.2.3.37).
-    if (Property const* to_string = in.intrinsics().array_prototype->find_own(PropertyKey::atom(atoms.to_string)))
+    if (PropertyRef const to_string = in.intrinsics().array_prototype->find_own(PropertyKey::atom(atoms.to_string)))
         prototype.put(PropertyKey::atom(atoms.to_string), to_string->value, builtin_attributes);
-    if (Property const* values = prototype.find_own(in.key("values")))
+    if (PropertyRef const values = prototype.find_own(in.key("values")))
         prototype.put(PropertyKey::symbol(atoms.symbol_iterator), values->value, builtin_attributes);
 }
 

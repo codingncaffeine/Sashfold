@@ -873,7 +873,7 @@ void share_getter(js::Interpreter& interpreter, js::Object& from, js::Object& to
     js::PropertyKey const key = interpreter.key(name);
     // A getter still a description is given as the description: its guard
     // works out the interface from the prototype it is defined on.
-    if (js::Property const* const described = from.peek_own(key); described != nullptr && described->lazy && described->accessor) {
+    if (js::PropertyRef const described = from.peek_own(key); described != nullptr && described->lazy && described->accessor) {
         if (described->lazy_get != nullptr)
             to.put_lazy_accessor(key, described->lazy_get, nullptr, *interpreter.current_realm(), js::Enumerable | js::Configurable);
         return;

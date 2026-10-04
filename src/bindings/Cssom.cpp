@@ -474,6 +474,7 @@ public:
         , sheet(the_sheet)
         , rule(the_rule)
     {
+        mark_uncacheable();
     }
     js::RealmRecord* record;
     SheetObject* sheet; // the sheet's own list, or
@@ -528,6 +529,7 @@ public:
         : Object(prototype, Class::Host)
         , record(&the_record)
     {
+        mark_uncacheable();
     }
     js::RealmRecord* record;
     std::vector<SheetObject*> sheets;

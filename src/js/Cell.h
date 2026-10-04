@@ -34,6 +34,10 @@ public:
     // queues what it is shown, so a long prototype or scope chain costs
     // stack for nothing.
     virtual void trace(Tracer&) { }
+    // For a cell that holds others weakly and asked its heap to be told
+    // (Heap::hold_weakly): called once marking is done and before anything
+    // is freed, to let go of what was not marked.
+    virtual void clear_weak() { }
     // An estimate the collector's threshold is fed with; exactness is not
     // required, monotonic reasonableness is.
     virtual std::size_t size_in_bytes() const { return sizeof(*this); }

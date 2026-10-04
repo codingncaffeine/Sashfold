@@ -10,6 +10,7 @@
 
 #include "js/Heap.h"
 #include "js/Regex.h"
+#include "js/Shape.h"
 #include "js/Value.h"
 
 #include <cstdint>
@@ -76,7 +77,6 @@ struct PropertyDescriptor {
 };
 
 struct NativeSpec;
-struct Property;
 
 // What makes a data property's value the first time anything looks at the
 // property (Property::LazyValue): called once, with the object, the key and
@@ -85,14 +85,15 @@ struct Property;
 // value unless it has put one itself.
 using LazyValueMaker = Value (*)(Object& holder, PropertyKey const& key, RealmRecord& realm);
 
-// One own property. A property may be `lazy`: it is there — its key, its
-// attributes, its place in the order — and what it holds is not made yet.
-// A native method or accessor (LazyNative) keeps, where its function will
-// stand, the description of the method (or of the getter) and of the
-// setter; a value made on demand (LazyValue) keeps its maker; both keep
-// the realm they were defined in. Object::find_own makes the property
-// whole before it hands it to anyone, so only the storage's own code ever
-// sees one in this state.
+// One own property as it stands, read out of the object's shape and slot:
+// what find_own and peek_own answer and properties() lists — a copy, so
+// writing to it changes nothing. A property may be `lazy`: it is there —
+// its key, its attributes, its place in the order — and what it holds is
+// not made yet. A native method or accessor (LazyNative) shows the
+// description of the method (or of the getter) and of the setter; a value
+// made on demand (LazyValue) shows its maker; both show the realm they are
+// made in. Only peek_own and properties() ever show one: find_own makes
+// the property whole first.
 struct Property {
     enum : std::uint8_t { NotLazy = 0, LazyNative = 1, LazyValue = 2 };
 
@@ -117,6 +118,39 @@ struct Property {
     bool writable() const { return (attributes & Writable) != 0; }
     bool enumerable() const { return (attributes & Enumerable) != 0; }
     bool configurable() const { return (attributes & Configurable) != 0; }
+};
+
+// What find_own and peek_own answer: the property, or none, compared with
+// nullptr as the pointer they once answered was.
+class PropertyRef {
+public:
+    PropertyRef() = default;
+    explicit PropertyRef(Property const& property)
+        : m_property(property)
+        , m_found(true)
+    {
+    }
+    explicit operator bool() const { return m_found; }
+    bool operator==(std::nullptr_t) const { return !m_found; }
+    Property const* operator->() const { return &m_property; }
+    Property const& operator*() const { return m_property; }
+
+private:
+    Property m_property;
+    bool m_found = false;
+};
+
+// What a slot keeps for a native accessor with a setter, or for a value
+// made on demand, until it is made: interned for the life of the process,
+// like the descriptions it names, so that the slot can hold its address.
+// A native method, or a getter alone, is kept as its description itself.
+struct LazyRecord {
+    NativeSpec const* get = nullptr;
+    NativeSpec const* set = nullptr;
+    LazyValueMaker make = nullptr;
+
+    bool operator==(LazyRecord const&) const = default;
+    static LazyRecord const& intern(LazyRecord const&);
 };
 
 class Object : public Cell {
@@ -163,20 +197,18 @@ public:
         DisposableStack, // §27.4 and §27.5: a stack of resources to dispose of, sync or async
     };
 
-    explicit Object(Object* prototype, Class class_id = Class::Object)
-        : Cell(CellKind::Object)
-        , m_prototype(prototype)
-        , m_class(class_id)
-    {
-    }
+    // Made by a heap's allocate(), which it takes its first shape from: the
+    // root of its prototype's (js/Shape.h).
+    explicit Object(Object* prototype, Class class_id = Class::Object);
+    ~Object() override;
 
     Class class_id() const { return m_class; }
-    Object* prototype() const { return m_prototype; }
+    Object* prototype() const { return m_shape->prototype(); }
     // [[SetPrototypeOf]]: false when the object is not extensible or the
     // new chain would loop.
     bool set_prototype(Object*);
-    bool is_extensible() const { return m_extensible; }
-    void prevent_extensions() { m_extensible = false; }
+    bool is_extensible() const { return m_shape->is_extensible(); }
+    void prevent_extensions();
 
     virtual bool is_callable() const { return false; }
     virtual bool is_constructor() const { return false; }
@@ -215,12 +247,11 @@ public:
     // method can run its trap.
     bool is_proxy() const { return m_class == Class::Proxy; }
 
-    // Shortcuts that never run script. The property found is whole: a
-    // native not yet made is made first, and a property the object has by
-    // its nature and has not been given room for (a function's length,
-    // name and prototype) is given it.
-    Property const* find_own(PropertyKey const&) const;
-    Property* find_own(PropertyKey const&);
+    // Shortcuts that never run script and never collect. The property
+    // found is whole: a native not yet made is made first, and a property
+    // the object has by its nature and has not been given room for (a
+    // function's length, name and prototype) is given it.
+    PropertyRef find_own(PropertyKey const&) const;
     // Define or overwrite a data property outright, no validation: how
     // intrinsics are built and how a fresh object is filled.
     void put(PropertyKey const&, Value const&, std::uint8_t attributes = default_attributes);
@@ -235,71 +266,121 @@ public:
     // it: an interface's object on the global, which a host builds when a
     // page first names it.
     void put_lazy_value(PropertyKey const&, LazyValueMaker make, RealmRecord& realm, std::uint8_t attributes);
-    // The storage's own entry as it stands — a native not yet made stays
-    // unmade — for a host that reshapes its members before any script has
-    // seen them. Null for a key the storage does not hold.
-    Property* peek_own(PropertyKey const&);
+    // The property as it stands — a native not yet made stays unmade — for
+    // a host that reshapes its members before any script has seen them.
+    // None for a key the storage does not hold.
+    PropertyRef peek_own(PropertyKey const&) const;
+    // An own data property's value written where it stands, its attributes
+    // untouched; false, and nothing written, when there is no such data
+    // property (an accessor, or none).
+    bool write_own_value(PropertyKey const&, Value const&);
     // Gives every property the object still owes itself its room now (a
     // function's length, name and prototype): what the eager mode does to
     // each function as it is made.
     void settle_pending();
     // Room for the properties a maker is about to put, taken once rather
     // than grown a property at a time.
-    void reserve_properties(std::size_t count) { m_properties.reserve(count); }
+    void reserve_properties(std::size_t count);
     bool remove_own(PropertyKey const&); // unconditional erase
     std::size_t own_property_count() const;
-    // The storage in creation order, for callers that iterate everything
-    // (JSON, for-in, the devtools).
-    std::vector<Property> const& properties() const { return m_properties; }
+    // The properties as they stand, in creation order, for callers that
+    // look at everything (the bindings learning what a group added).
+    std::vector<Property> properties() const;
+
+    // What it has, apart from what those hold (js/Shape.h).
+    Shape* shape() const { return m_shape; }
+    // Said once by the constructor of an exotic object some of whose own
+    // properties are not its storage's: its shapes are uncacheable.
+    void mark_uncacheable();
+    // Leaves the shared shapes for a dictionary of its own (js/Shape.h says
+    // when); nothing a script can see changes.
+    void become_dictionary();
 
     void trace(Tracer&) override;
-    std::size_t size_in_bytes() const override { return sizeof(*this) + m_properties.size() * sizeof(Property); }
+    std::size_t size_in_bytes() const override;
 
-    // Bindings park the C++ side of a host object here; untraced, unowned.
-    void* host_data = nullptr;
+    // How many values an object holds inside itself before its slots move
+    // to a block of their own.
+    static constexpr std::uint32_t inline_slot_capacity = 4;
 
 protected:
-    Property& insert(PropertyKey const&);
-    void erase_at(std::size_t index);
-    void rebuild_index();
-
     // The properties an object has by its nature and gives room to only
     // when one is first looked for: a function's `length`, `name` and
     // `prototype`, in the order the standard lists them (§10.2.3, §10.2.5,
-    // §10.3.3), which is the order they take in the storage whenever each
-    // is made. One bit each, lowest first.
+    // §10.3.3). One bit each, lowest first; the shape keeps them (an
+    // object's pending properties are its shape's), and whenever one is
+    // given room, those before it are given theirs first, and all of them
+    // before any other property is added — so the standard's order is the
+    // order they are added in.
     enum : std::uint8_t {
         PendingLength = 1,
         PendingName = 2,
         PendingPrototype = 4,
     };
     void set_pending(std::uint8_t which);
-    bool is_pending(std::uint8_t which) const { return (m_pending & which) != 0; }
+    bool is_pending(std::uint8_t which) const { return (m_shape->pending() & which) != 0; }
     // What a pending property is: its value and attributes. Called once,
     // with no collection possible, when the property is first looked for.
     virtual std::pair<Value, std::uint8_t> make_pending(std::uint8_t which);
 
-    std::vector<Property> m_properties;
-    // Built once the object has more properties than a linear scan likes.
-    std::unordered_map<PropertyKey, std::size_t, PropertyKeyHash> m_index;
-    Object* m_prototype;
+    // The storage, for the exotic objects built on it. own_entry is the
+    // shape's entry as stored; whole_entry makes the property whole first.
+    // Either is good until the object's properties next change.
+    ShapeEntry const* own_entry(PropertyKey const& key) const { return m_shape->find(key); }
+    ShapeEntry const* whole_entry(PropertyKey const&) const;
+    Value const& slot(std::uint32_t index) const { return m_slots[index]; }
+    // A data property added (the key must be new) or its value and
+    // attributes replaced, with no regard to the routing an array's index
+    // takes in put(), and the property's descriptor as it stands.
+    void put_data(PropertyKey const&, Value const&, std::uint8_t attributes);
+    PropertyDescriptor descriptor_of(ShapeEntry const&) const;
+    // Steps 2.c–d and 6 of ValidateAndApplyPropertyDescriptor (§10.1.6.3)
+    // over the storage, once validation has admitted the descriptor.
+    void create_property(PropertyKey const&, PropertyDescriptor const&);
+    void apply_descriptor(ShapeEntry const&, PropertyDescriptor const&);
+    // An own property gone, whatever its attributes.
+    void delete_entry(PropertyKey const&);
+
+    // The header machine code reads: the shape, then the slots (an
+    // object's own block, or its inline room) and how many of them are in
+    // use and there is room for.
+    Shape* m_shape = nullptr;
+    Value* m_slots;
+    std::uint32_t m_slot_count = 0;
+    std::uint32_t m_slot_capacity = inline_slot_capacity;
+
+public:
+    // Bindings park the C++ side of a host object here; untraced, unowned.
+    void* host_data = nullptr;
+
+protected:
     Class m_class;
-    bool m_extensible = true;
     bool m_is_html_dda = false;
+    // The shape is a dictionary of its own (Shape::to_dictionary), which
+    // it deletes: known without reading the shape, which a destructor run
+    // in a sweep may not (a shared shape may have gone first).
+    bool m_owns_shape = false;
 
 private:
-    Property const* lookup(PropertyKey const&) const;
-    Property const* find_whole(PropertyKey const&) const;
-    Property* find_pending(PropertyKey const&);
-    Property* find_made(Property&);
-    void make_lazy(Property&, bool at_once = false);
+    Heap& owner() const;
+    std::uint32_t add_property(PropertyKey const&, std::uint8_t attributes, bool accessor);
+    bool is_function_own(PropertyKey const&) const;
+    std::uint32_t take_slot();
+    void grow_slots(std::uint32_t needed);
+    void reconfigure(std::uint32_t position, std::uint8_t attributes, bool accessor);
+    void set_accessor_slot(std::uint32_t slot, Object* getter, Object* setter, bool reuse);
+    Property view_of(ShapeEntry const&) const;
+    ShapeEntry const* find_lazy(PropertyKey const&);
+    ShapeEntry const* find_pending(PropertyKey const&);
+    void make_lazy(PropertyKey const&, RealmRecord&, bool at_once = false);
     std::uint8_t pending_named(PropertyKey const&) const;
-    Property& settle(std::uint8_t which);
-    Property& insert_settled(std::uint8_t which);
+    void settle(std::uint8_t which);
+    void settle_one(std::uint8_t which);
     void settle_all();
+    bool ready_for_lazy(RealmRecord&);
+    void put_mark(PropertyKey const&, Value const& mark, std::uint8_t attributes, bool accessor);
 
-    std::uint8_t m_pending = 0; // not in the storage yet
-    std::uint8_t m_settled = 0; // in the storage, at its front, in the standard's order
+    Value m_inline_slots[inline_slot_capacity];
 };
 
 // IsCompatiblePropertyDescriptor (§10.1.6.2): may `desc` be applied over
@@ -311,10 +392,52 @@ private:
 bool is_compatible_property_descriptor(bool extensible, PropertyDescriptor const& desc,
     std::optional<PropertyDescriptor> const& current);
 
-// An Array exotic object (§10.4.2). Indices below dense_size() live in a
-// vector, holes as Value::empty(); anything sparse beyond it is an ordinary
-// property. `length` is virtual: it is answered from m_length and never
-// stored as a Property.
+// An array's dense elements: a block of ours — the pointer, the length and
+// the room — at fixed offsets, which machine code reads (std::vector's
+// layout differs between the standard libraries). A hole is
+// Value::empty(); the room grows by half again, as std::vector's would.
+class ElementBlock {
+public:
+    ElementBlock() = default;
+    explicit ElementBlock(std::span<Value const>);
+    ~ElementBlock();
+    ElementBlock(ElementBlock const&) = delete;
+    ElementBlock& operator=(ElementBlock const&) = delete;
+
+    std::size_t size() const { return m_length; }
+    std::size_t capacity() const { return m_capacity; }
+    bool empty() const { return m_length == 0; }
+    Value* data() { return m_data; }
+    Value const* data() const { return m_data; }
+    Value* begin() { return m_data; }
+    Value* end() { return m_data + m_length; }
+    Value const* begin() const { return m_data; }
+    Value const* end() const { return m_data + m_length; }
+    Value& operator[](std::size_t index) { return m_data[index]; }
+    Value const& operator[](std::size_t index) const { return m_data[index]; }
+    // New elements take `fill`; a shorter length lets the rest go (the
+    // room stays).
+    void resize(std::size_t length, Value fill = Value());
+    void reserve(std::size_t capacity);
+    void push_back(Value const& value)
+    {
+        if (m_length == m_capacity)
+            reserve(m_capacity + m_capacity / 2 + 4);
+        m_data[m_length++] = value;
+    }
+
+private:
+    Value* m_data = nullptr;
+    std::uint32_t m_length = 0;
+    std::uint32_t m_capacity = 0;
+};
+
+static_assert(sizeof(ElementBlock) == 16);
+
+// An Array exotic object (§10.4.2). Indices below dense_size() live in its
+// element block, holes as Value::empty(); anything sparse beyond it is an
+// ordinary property. `length` is virtual: it is answered from m_length and
+// never stored as a property.
 class ArrayObject : public Object {
 public:
     explicit ArrayObject(Object* prototype, std::span<Value const> elements = {});
@@ -331,8 +454,8 @@ public:
     void push(Value const&);
     void reserve_elements(std::size_t count) { m_elements.reserve(count); } // room, taken once, for a literal's elements
     std::uint32_t dense_size() const { return static_cast<std::uint32_t>(m_elements.size()); }
-    std::vector<Value>& dense() { return m_elements; }
-    std::vector<Value> const& dense() const { return m_elements; }
+    ElementBlock& dense() { return m_elements; }
+    ElementBlock const& dense() const { return m_elements; }
     // True when every index below length() is a plain, writable, dense
     // element and the prototype chain has no indexed properties: the
     // fast paths' precondition.
@@ -353,7 +476,7 @@ public:
     }
 
 private:
-    std::vector<Value> m_elements;
+    ElementBlock m_elements;
     std::uint32_t m_length = 0;
     bool m_length_writable = true;
 };

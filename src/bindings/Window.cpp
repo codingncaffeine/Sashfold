@@ -743,6 +743,7 @@ public:
         : js::Object(prototype)
         , m_record(&record)
     {
+        mark_uncacheable();
     }
 
     std::optional<js::PropertyDescriptor> get_own_property(js::PropertyKey const& key) const override

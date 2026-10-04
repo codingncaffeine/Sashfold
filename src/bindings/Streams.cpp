@@ -53,7 +53,7 @@ public:
     // A data property of `holder` — a method, a constructor.
     void property(std::string_view name, js::Object* holder, std::string_view key)
     {
-        js::Property const* const found = holder != nullptr ? holder->peek_own(m_interpreter.key(key)) : nullptr;
+        js::PropertyRef const found = holder != nullptr ? holder->peek_own(m_interpreter.key(key)) : js::PropertyRef();
         if (found == nullptr || found->accessor)
             return;
         if (found->lazy == js::Property::LazyNative)
@@ -64,7 +64,7 @@ public:
     // The getter of an accessor of `holder`, kept as a function to call.
     void getter(std::string_view name, js::Object* holder, js::PropertyKey const& key)
     {
-        js::Property const* const found = holder != nullptr ? holder->peek_own(key) : nullptr;
+        js::PropertyRef const found = holder != nullptr ? holder->peek_own(key) : js::PropertyRef();
         if (found == nullptr || !found->accessor)
             return;
         if (found->lazy == js::Property::LazyNative) {
@@ -80,7 +80,7 @@ public:
     void attribute(std::string_view name, std::string_view interface, std::string_view key)
     {
         for (js::Object* prototype = m_in.prototype(interface); prototype != nullptr; prototype = prototype->prototype()) {
-            js::Property const* const found = prototype->peek_own(m_interpreter.key(key));
+            js::PropertyRef const found = prototype->peek_own(m_interpreter.key(key));
             if (found != nullptr && found->accessor) {
                 getter(name, prototype, key);
                 return;
@@ -89,7 +89,7 @@ public:
     }
     js::Object* global_object(std::string_view name)
     {
-        js::Property const* const found = m_interpreter.global()->peek_own(m_interpreter.key(name));
+        js::PropertyRef const found = m_interpreter.global()->peek_own(m_interpreter.key(name));
         bool const whole = found != nullptr && found->lazy == js::Property::NotLazy && !found->accessor && found->value.is_object();
         return whole ? found->value.as_object() : nullptr;
     }
@@ -255,7 +255,7 @@ js::Value stream_interface(js::Object& global, js::PropertyKey const& key, js::R
         realm.host_kept = nullptr;
         loading = nullptr;
     }
-    js::Property const* const now = global.peek_own(key);
+    js::PropertyRef const now = global.peek_own(key);
     return now != nullptr && now->lazy == js::Property::NotLazy && !now->accessor ? now->value : js::Value::undefined();
 }
 

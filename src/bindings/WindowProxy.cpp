@@ -834,7 +834,7 @@ void shape_window_member(Realm::Internals& in, js::PropertyKey const& key)
         return interpreter.new_native(function_name, arity, window_member(*native->closure(), shown, lenient, forwards));
     };
     {
-        js::Property* const own = global.peek_own(key);
+        js::PropertyRef const own = global.peek_own(key);
         // (A value made at first look is left as it is: an interface's
         // object, like one already made, or a member of a group not
         // installed yet, which is shaped when the group is.)

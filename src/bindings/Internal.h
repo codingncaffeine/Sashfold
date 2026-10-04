@@ -248,6 +248,7 @@ public:
         : ElementBackedObject(prototype, &the_wrapper)
         , attribute(std::move(the_attribute))
     {
+        mark_uncacheable();
     }
     std::string attribute;
     Realm::Internals& internals() const;
@@ -275,6 +276,7 @@ public:
         , record(&the_record)
         , computed(is_computed)
     {
+        mark_uncacheable();
     }
     js::RealmRecord* record; // the realm that made it, for a declaration of no element
     bool computed;
@@ -312,6 +314,7 @@ public:
         : Object(prototype)
         , interpreter(&the_interpreter)
     {
+        mark_uncacheable();
     }
     std::optional<js::PropertyDescriptor> get_own_property(js::PropertyKey const&) const override;
     bool define_own_property(js::PropertyKey const&, js::PropertyDescriptor const&) override;
@@ -329,6 +332,7 @@ public:
     DatasetObject(js::Object* prototype, NodeWrapper& the_wrapper)
         : ElementBackedObject(prototype, &the_wrapper)
     {
+        mark_uncacheable();
     }
     Realm::Internals& internals() const;
     std::optional<js::PropertyDescriptor> get_own_property(js::PropertyKey const&) const override;
@@ -349,6 +353,7 @@ public:
         , m_realm(realm)
         , m_backing(backing)
     {
+        mark_uncacheable();
     }
     js::RealmRecord* home_realm() const override { return m_realm; }
     void trace(js::Tracer&) override;

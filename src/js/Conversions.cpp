@@ -41,7 +41,7 @@ std::size_t error_index(ErrorType type)
 std::optional<Value> data_property_up_chain(Object const& object, PropertyKey const& key)
 {
     for (Object const* link = &object; link != nullptr; link = link->prototype()) {
-        Property const* property = link->find_own(key);
+        PropertyRef const property = link->find_own(key);
         if (property == nullptr)
             continue;
         if (property->accessor)
@@ -736,7 +736,7 @@ std::optional<Interpreter::Listed> Interpreter::own_enumerability(Object& object
         if (Object* const behind = static_cast<ProxyObject&>(object).stands_for_own_property(*this, key))
             return own_enumerability(*behind, key);
     } else if (!object.is_host() && object.class_id() != Object::Class::ModuleNamespace) {
-        if (Property const* const waiting = object.peek_own(key); waiting != nullptr && waiting->lazy != Property::NotLazy)
+        if (PropertyRef const waiting = object.peek_own(key); waiting != nullptr && waiting->lazy != Property::NotLazy)
             return waiting->enumerable() ? Listed::Enumerable : Listed::Hidden;
     }
     std::optional<std::optional<PropertyDescriptor>> const descriptor = get_own_property(object, key);

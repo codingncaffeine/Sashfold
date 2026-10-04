@@ -116,9 +116,9 @@ void define_plain_accessor(Interpreter& in, Object& target, std::string_view nam
 NativeFunction* DefinedMethod::function() const
 {
     // The lookup makes it; made here, it is one its definer made at once.
-    Property const* const before = m_target->peek_own(m_key);
+    PropertyRef const before = m_target->peek_own(m_key);
     bool const made_now = before != nullptr && before->lazy;
-    Property const* const property = m_target->find_own(m_key);
+    PropertyRef const property = m_target->find_own(m_key);
     if (made_now) {
         Heap::LazyCensus& census = m_target->heap()->lazy_census();
         --census.natives_made_later;
@@ -1015,7 +1015,7 @@ std::optional<Value> function_to_string(Interpreter& interp, Value const& this_v
         }
     }
     std::string name;
-    if (Property const* property = function->find_own(PropertyKey::atom(interp.atoms().name)); property && !property->accessor && property->value.is_string())
+    if (PropertyRef const property = function->find_own(PropertyKey::atom(interp.atoms().name)); property && !property->accessor && property->value.is_string())
         name = property->value.as_string()->to_utf8();
     if (function->class_id() == Object::Class::BoundFunction)
         name.clear();
@@ -1631,7 +1631,7 @@ void install_symbol(Interpreter& in)
             return std::nullopt;
         Object& registry = *interp.symbol_registry();
         PropertyKey const key = interp.heap().key(*key_string);
-        if (Property const* existing = registry.find_own(key))
+        if (PropertyRef const existing = registry.find_own(key))
             return existing->value;
         Heap::NoCollect const no_collect(interp.heap());
         Symbol* symbol = interp.heap().symbol(interp.heap().atom(*key_string));

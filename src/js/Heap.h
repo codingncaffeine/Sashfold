@@ -258,6 +258,7 @@ struct WellKnownAtoms {
 };
 
 class Persistent;
+class Shape;
 
 class Heap {
 public:
@@ -267,15 +268,23 @@ public:
     Heap& operator=(Heap const&) = delete;
 
     // Makes a cell the heap owns. May collect first (never the new cell).
+    // While the cell is being constructed, constructing() names this heap:
+    // an object's constructor takes its first shape from it.
     template<typename T, typename... Args>
     T* allocate(Args&&... args)
     {
         maybe_collect();
+        Constructing const constructing(*this);
         auto cell = std::make_unique<T>(std::forward<Args>(args)...);
         T* raw = cell.get();
         adopt(std::move(cell));
         return raw;
     }
+    // The heap whose allocate() is constructing a cell on this thread now.
+    static Heap* constructing() { return s_constructing; }
+    // A cell that holds others weakly: told by clear_weak() at every
+    // collection, once marking is done, for as long as it lives.
+    void hold_weakly(Cell* cell) { m_weak_holders.push_back(cell); }
 
     JsString* string(std::u16string data);
     JsString* string(std::u16string_view data) { return string(std::u16string(data)); }
@@ -317,6 +326,16 @@ public:
     bool stress() const { return m_stress; }
 
     std::size_t cell_count() const { return m_cells.size(); }
+    // The cells `keep` says yes to (a test counting the cells it made
+    // apart from the storage's own: shapes, accessor pairs).
+    template<typename Keep>
+    std::size_t cell_count_if(Keep const& keep) const
+    {
+        std::size_t count = 0;
+        for (std::unique_ptr<Cell> const& cell : m_cells)
+            count += keep(*cell) ? 1u : 0u;
+        return count;
+    }
     std::size_t bytes_allocated() const { return m_bytes; }
     std::size_t collections() const { return m_account.collections; }
     std::uint32_t current_mark() const { return m_mark; } // what the last collection marked the cells it reached with
@@ -450,9 +469,31 @@ public:
 
 private:
     friend class Persistent;
+    friend class Shape;
+    class Constructing {
+    public:
+        explicit Constructing(Heap& heap)
+            : m_outer(s_constructing)
+        {
+            s_constructing = &heap;
+        }
+        ~Constructing() { s_constructing = m_outer; }
+        Constructing(Constructing const&) = delete;
+        Constructing& operator=(Constructing const&) = delete;
+
+    private:
+        Heap* m_outer;
+    };
+    static inline thread_local Heap* s_constructing = nullptr;
     void adopt(std::unique_ptr<Cell>);
     void maybe_collect();
     void intern_well_known();
+
+    // The shapes the objects with no prototype start from, by flags (the
+    // other roots are kept by their prototypes), and the cells holding
+    // others weakly.
+    std::vector<std::pair<std::uint8_t, Shape*>> m_null_roots;
+    std::vector<Cell*> m_weak_holders;
 
     std::vector<std::unique_ptr<Cell>> m_cells;
     std::vector<Cell*> m_mark_stack; // the collector's worklist, its room kept between collections

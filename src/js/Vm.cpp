@@ -1900,7 +1900,7 @@ RunStatus Interpreter::Impl::vm_run_frame(Frame& frame, Frame*& next, std::uint6
             set_function_name(*accessor, key, is_setter ? "set" : "get");
             Object* getter = nullptr;
             Object* setter = nullptr;
-            if (Property const* existing = object->find_own(key); existing && existing->accessor) {
+            if (PropertyRef const existing = object->find_own(key); existing && existing->accessor) {
                 getter = existing->getter;
                 setter = existing->setter;
             }

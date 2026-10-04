@@ -12,6 +12,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <mutex>
 #include <optional>
@@ -19,16 +20,13 @@
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 namespace sashfold::js {
 
 namespace {
-
-// A linear scan wins on small objects; past this many properties the
-// hash index is built and kept in step with every insert and erase.
-constexpr std::size_t index_threshold = 8;
 
 // How far past the dense storage an index may land and still grow it
 // with holes rather than becoming an ordinary (sparse) property.
@@ -104,13 +102,6 @@ JsString* code_unit_string(char16_t unit)
     return cell;
 }
 
-PropertyDescriptor descriptor_of(Property const& property)
-{
-    if (property.accessor)
-        return PropertyDescriptor::accessor(property.getter, property.setter, property.attributes);
-    return PropertyDescriptor::data(property.value, property.attributes);
-}
-
 // Steps 2 through 5 of ValidateAndApplyPropertyDescriptor (§10.1.6.3),
 // which are also IsCompatiblePropertyDescriptor (§10.1.6.2): may `desc`
 // be applied over `current` on an object of this extensibility? Nothing
@@ -150,7 +141,7 @@ bool is_compatible(bool extensible, PropertyDescriptor const& desc, std::optiona
 
 // Step 2.c–d of §10.1.6.3: the property a descriptor creates from
 // nothing. Absent fields take their defaults (undefined and false).
-Property make_property(PropertyKey const& key, PropertyDescriptor const& desc)
+Property property_from(PropertyKey const& key, PropertyDescriptor const& desc)
 {
     Property property;
     property.key = key;
@@ -171,7 +162,7 @@ Property make_property(PropertyKey const& key, PropertyDescriptor const& desc)
 // Step 6 of §10.1.6.3, applied to an existing property that validation
 // has already admitted: a change of kind keeps enumerable and
 // configurable and resets the rest; otherwise each present field lands.
-void apply_descriptor(Property& property, PropertyDescriptor const& desc)
+void apply_to(Property& property, PropertyDescriptor const& desc)
 {
     if (!property.accessor && desc.is_accessor()) {
         property.accessor = true;
@@ -222,11 +213,7 @@ std::optional<std::uint32_t> validated_uint32(Value const& value)
 
 bool has_index_key(Object const& object)
 {
-    for (Property const& property : object.properties()) {
-        if (property.key.is_index())
-            return true;
-    }
-    return false;
+    return object.shape()->has_index_keys();
 }
 
 // Does this object, on its own, answer any array index? What the dense
@@ -266,144 +253,230 @@ bool is_compatible_property_descriptor(bool extensible, PropertyDescriptor const
 
 // ---------------------------------------------------------------- Object
 
-Property const* Object::lookup(PropertyKey const& key) const
+namespace {
+
+// The exotic classes whose own properties are not all their storage's:
+// an array's length and elements, a string's units, a typed array's
+// numeric keys, a mapped arguments object's parameters, a namespace's
+// bindings, a proxy's every key.
+std::uint8_t root_flags(Object::Class class_id)
 {
-    if (m_properties.size() > index_threshold) {
-        auto const found = m_index.find(key);
-        return found == m_index.end() ? nullptr : &m_properties[found->second];
+    switch (class_id) {
+    case Object::Class::Array:
+    case Object::Class::String:
+    case Object::Class::Arguments:
+    case Object::Class::TypedArray:
+    case Object::Class::ModuleNamespace:
+    case Object::Class::Proxy:
+        return Shape::Uncacheable;
+    default:
+        return 0;
     }
-    for (Property const& property : m_properties) {
-        if (property.key == key)
-            return &property;
-    }
-    return nullptr;
+}
+
+}
+
+Object::Object(Object* prototype, Class class_id)
+    : Cell(CellKind::Object)
+    , m_slots(m_inline_slots)
+    , m_class(class_id)
+{
+    // Every object is made by a heap's allocate(), which names itself
+    // while the object is constructed.
+    m_shape = Shape::root(*Heap::constructing(), prototype, root_flags(class_id));
+    if (class_id == Class::Global)
+        become_dictionary();
+}
+
+Object::~Object()
+{
+    if (m_slots != m_inline_slots)
+        std::free(m_slots);
+    // A dictionary's shape is the object's own (Shape::to_dictionary).
+    if (m_owns_shape)
+        delete m_shape;
+}
+
+Heap& Object::owner() const
+{
+    Heap* const adopted = heap();
+    return adopted != nullptr ? *adopted : *Heap::constructing();
 }
 
 // The lookup every property read in the engine goes through, inlined into
-// each of this file's internal methods as the plain search was: what is
-// put off is made out of line, so a read that finds an ordinary property
-// pays one byte's test for it, and a read that finds none one more.
-[[gnu::always_inline]] inline Property const* Object::find_whole(PropertyKey const& key) const
+// each of this file's internal methods: what is put off is made out of
+// line, so a read that finds an ordinary property pays one test of its
+// slot for it, and a read that finds none one test of the shape's flags.
+[[gnu::always_inline]] inline ShapeEntry const* Object::whole_entry(PropertyKey const& key) const
 {
-    Property const* found = nullptr;
-    if (m_properties.size() > index_threshold) {
-        auto const at = m_index.find(key);
-        if (at != m_index.end())
-            found = &m_properties[at->second];
-    } else {
-        for (Property const& property : m_properties) {
-            if (property.key == key) {
-                found = &property;
-                break;
-            }
-        }
+    ShapeEntry const* const entry = m_shape->find(key);
+    if (entry != nullptr) {
+        if (m_slots[entry->slot].is_lazy_mark()) [[unlikely]]
+            return const_cast<Object*>(this)->find_lazy(key);
+        return entry;
     }
-    if (found != nullptr) {
-        if (found->lazy != Property::NotLazy) [[unlikely]]
-            return const_cast<Object*>(this)->find_made(const_cast<Property&>(*found));
-        return found;
-    }
-    if (m_pending != 0) [[unlikely]]
+    if (m_shape->pending() != 0) [[unlikely]]
         return const_cast<Object*>(this)->find_pending(key);
     return nullptr;
 }
 
 // A lazy property made whole, and the property as it then stands: a
 // native's function is made in place; a value's maker may have defined
-// other properties, so the property is looked for again (it is gone if the
-// maker removed it).
-[[gnu::noinline]] Property* Object::find_made(Property& property)
+// other properties, this one among them, so the property is looked for
+// again — it is gone if the maker removed it, and still to be made if the
+// maker put a native in its place. Making what was put off changes
+// nothing a caller can tell from its having been there all along, which
+// is what lets a const lookup do it.
+[[gnu::noinline]] ShapeEntry const* Object::find_lazy(PropertyKey const& key)
 {
-    if (property.lazy == Property::LazyNative) {
-        make_lazy(property);
-        return &property;
+    for (;;) {
+        ShapeEntry const* const entry = m_shape->find(key);
+        if (entry == nullptr || !m_slots[entry->slot].is_lazy_mark())
+            return entry;
+        make_lazy(key, *m_shape->realm());
     }
-    PropertyKey const key = property.key;
-    make_lazy(property);
-    // What the maker left there: its answer, or what it put in the
-    // property's place itself — which may be a native still to be made.
-    Property* const now = const_cast<Property*>(lookup(key));
-    return now != nullptr && now->lazy != Property::NotLazy ? find_made(*now) : now;
 }
 
-Property const* Object::find_own(PropertyKey const& key) const
+[[gnu::noinline]] ShapeEntry const* Object::find_pending(PropertyKey const& key)
 {
-    return find_whole(key);
+    std::uint8_t const which = pending_named(key);
+    if (which == 0)
+        return nullptr;
+    settle(which);
+    return m_shape->find(key);
 }
 
-// Making what was put off changes nothing a caller can tell from its
-// having been there all along, which is what lets a const lookup do it.
-[[gnu::noinline]] Property* Object::find_pending(PropertyKey const& key)
+PropertyRef Object::find_own(PropertyKey const& key) const
 {
-    if (std::uint8_t const which = pending_named(key))
-        return &settle(which);
-    return nullptr;
+    ShapeEntry const* const entry = whole_entry(key);
+    return entry != nullptr ? PropertyRef(view_of(*entry)) : PropertyRef();
 }
 
-Property* Object::find_own(PropertyKey const& key)
+PropertyRef Object::peek_own(PropertyKey const& key) const
 {
-    return const_cast<Property*>(static_cast<Object const*>(this)->find_own(key));
+    ShapeEntry const* const entry = m_shape->find(key);
+    return entry != nullptr ? PropertyRef(view_of(*entry)) : PropertyRef();
 }
 
-Property* Object::peek_own(PropertyKey const& key)
+bool Object::write_own_value(PropertyKey const& key, Value const& value)
 {
-    return const_cast<Property*>(lookup(key));
+    ShapeEntry const* const entry = whole_entry(key);
+    if (entry == nullptr || entry->accessor)
+        return false;
+    m_slots[entry->slot] = value;
+    return true;
 }
 
-// The native a lazy property described, made now: its function is of the
-// realm it was defined in, whichever realm's code asks first, and no
-// collection runs under a caller that only looked a property up.
-[[gnu::noinline]] void Object::make_lazy(Property& property, bool at_once)
+// The property as a reader outside the storage sees it.
+Property Object::view_of(ShapeEntry const& entry) const
 {
-    Heap& owner = *heap();
-    Heap::NoCollect const guard(owner);
-    RealmRecord* const realm = property.lazy_realm;
-    if (property.lazy == Property::LazyValue) {
-        // An ordinary property from here on, undefined until its maker
-        // answers: whatever the maker does to this object — defining other
-        // properties, this one included, or looking this one up again — it
-        // does to a whole object. The maker may have moved the storage, so
-        // the property is found again before its answer is put.
-        LazyValueMaker const make = property.lazy_make;
-        PropertyKey const key = property.key;
-        property.lazy = Property::NotLazy;
-        property.value = Value::undefined();
-        property.getter = nullptr;
-        property.setter = nullptr;
-        ++owner.lazy_census().values_made;
-        Value const made = make(*this, key, *realm);
-        if (Property* const now = const_cast<Property*>(lookup(key)); now != nullptr && !now->accessor && now->lazy == Property::NotLazy && now->value.is_undefined())
-            now->value = made;
-        return;
+    Property view;
+    view.key = entry.key;
+    view.attributes = entry.attributes;
+    view.accessor = entry.accessor;
+    Value const held = m_slots[entry.slot];
+    if (held.is_lazy_mark()) {
+        view.lazy_realm = m_shape->realm();
+        if (!held.is_second_lazy_mark()) {
+            view.lazy = Property::LazyNative;
+            view.lazy_get = static_cast<NativeSpec const*>(held.as_lazy_mark());
+            view.lazy_set = nullptr;
+            return view;
+        }
+        LazyRecord const& record = *static_cast<LazyRecord const*>(held.as_lazy_mark());
+        if (record.make != nullptr) {
+            view.lazy = Property::LazyValue;
+            view.lazy_make = record.make;
+            view.lazy_set = nullptr;
+        } else {
+            view.lazy = Property::LazyNative;
+            view.lazy_get = record.get;
+            view.lazy_set = record.set;
+        }
+        return view;
     }
-    NativeSpec const* const get = property.lazy_get;
-    NativeSpec const* const set = property.lazy_set;
+    if (entry.accessor) {
+        auto const* const pair = static_cast<AccessorPair const*>(held.as_cell());
+        view.getter = pair->getter;
+        view.setter = pair->setter;
+    } else {
+        view.value = held;
+    }
+    return view;
+}
+
+PropertyDescriptor Object::descriptor_of(ShapeEntry const& entry) const
+{
+    Value const held = m_slots[entry.slot];
+    if (entry.accessor) {
+        auto const* const pair = static_cast<AccessorPair const*>(held.as_cell());
+        return PropertyDescriptor::accessor(pair->getter, pair->setter, entry.attributes);
+    }
+    return PropertyDescriptor::data(held, entry.attributes);
+}
+
+// The native a lazy property described, or the value it is made by, made
+// now: its function is of the realm the property was defined in,
+// whichever realm's code asks first, and no collection runs under a
+// caller that only looked a property up.
+[[gnu::noinline]] void Object::make_lazy(PropertyKey const& key, RealmRecord& realm, bool at_once)
+{
+    Heap& heap = owner();
+    Heap::NoCollect const guard(heap);
+    ShapeEntry const& entry = *m_shape->find(key);
+    std::uint32_t const slot = entry.slot;
+    bool const accessor = entry.accessor;
+    Value const mark = m_slots[slot];
+    NativeSpec const* get = nullptr;
+    NativeSpec const* set = nullptr;
+    if (mark.is_second_lazy_mark()) {
+        LazyRecord const& record = *static_cast<LazyRecord const*>(mark.as_lazy_mark());
+        if (record.make != nullptr) {
+            // An ordinary property from here on, undefined until its maker
+            // answers: whatever the maker does to this object — defining
+            // other properties, this one included, or looking this one up
+            // again — it does to a whole object. The maker may have changed
+            // the object's shape, so the property is found again before its
+            // answer is put.
+            m_slots[slot] = Value::undefined();
+            ++heap.lazy_census().values_made;
+            Value const made = record.make(*this, key, realm);
+            if (ShapeEntry const* const now = m_shape->find(key); now != nullptr && !now->accessor && m_slots[now->slot].is_undefined())
+                m_slots[now->slot] = made;
+            return;
+        }
+        get = record.get;
+        set = record.set;
+    } else {
+        get = static_cast<NativeSpec const*>(mark.as_lazy_mark());
+    }
     auto const make = [&](NativeSpec const& spec, NativeFunction::Role role) {
-        auto* const function = owner.allocate<NativeFunction>(realm->intrinsics.function_prototype, spec, property.key, role, this);
-        function->set_realm(realm);
+        auto* const function = heap.allocate<NativeFunction>(realm.intrinsics.function_prototype, spec, key, role, this);
+        function->set_realm(&realm);
         if (at_once) {
-            ++owner.lazy_census().natives_made_at_once;
+            ++heap.lazy_census().natives_made_at_once;
             function->settle_pending();
         } else {
-            ++owner.lazy_census().natives_made_later;
+            ++heap.lazy_census().natives_made_later;
         }
         return function;
     };
-    property.lazy = Property::NotLazy;
-    if (property.accessor) {
-        property.value = Value::undefined();
-        property.getter = get != nullptr ? make(*get, NativeFunction::Role::Getter) : nullptr;
-        property.setter = set != nullptr ? make(*set, NativeFunction::Role::Setter) : nullptr;
+    if (accessor) {
+        Object* const getter = get != nullptr ? make(*get, NativeFunction::Role::Getter) : nullptr;
+        Object* const setter = set != nullptr ? make(*set, NativeFunction::Role::Setter) : nullptr;
+        m_slots[slot] = Value::slot_cell(heap.allocate<AccessorPair>(getter, setter));
     } else {
-        property.getter = nullptr;
-        property.setter = nullptr;
-        property.value = Value::object(make(*get, NativeFunction::Role::Method));
+        m_slots[slot] = Value::object(make(*get, NativeFunction::Role::Method));
     }
 }
 
 void Object::set_pending(std::uint8_t which)
 {
-    m_pending = which;
+    auto const flags = static_cast<std::uint8_t>((m_shape->flags() & ~Shape::PendingMask) | which);
+    if (m_shape->is_dictionary())
+        m_shape->set_flags(flags);
+    else
+        m_shape = m_shape->with_flags(owner(), flags);
 }
 
 std::pair<Value, std::uint8_t> Object::make_pending(std::uint8_t)
@@ -414,238 +487,336 @@ std::pair<Value, std::uint8_t> Object::make_pending(std::uint8_t)
 // Which pending property a key names; 0 for a key that names none.
 std::uint8_t Object::pending_named(PropertyKey const& key) const
 {
-    if (!key.is_atom())
+    std::uint8_t const pending = m_shape->pending();
+    if (pending == 0 || !key.is_atom())
         return 0;
-    Heap const* const owner = heap();
-    if (owner == nullptr)
-        return 0;
-    WellKnownAtoms const& atoms = owner->atoms();
+    WellKnownAtoms const& atoms = owner().atoms();
     JsString const* const name = key.as_atom();
     std::uint8_t const which = name == atoms.length ? PendingLength : name == atoms.name ? PendingName : name == atoms.prototype ? PendingPrototype : 0;
-    return static_cast<std::uint8_t>(which & m_pending);
+    return static_cast<std::uint8_t>(which & pending);
 }
 
-// Room for a pending property, where the standard's order puts it: after
-// the pending properties before it that already have theirs (they sit at
-// the storage's front, in that order) and before everything else.
-Property& Object::insert_settled(std::uint8_t which)
+// A pending property given its room, after those before it in the
+// standard's order.
+void Object::settle(std::uint8_t which)
 {
-    WellKnownAtoms const& atoms = heap()->atoms();
-    JsString* const name = which == PendingLength ? atoms.length : which == PendingName ? atoms.name : atoms.prototype;
-    auto const position = static_cast<std::size_t>(std::popcount(static_cast<unsigned>(m_settled & (which - 1))));
-    m_pending = static_cast<std::uint8_t>(m_pending & ~which);
-    m_settled = static_cast<std::uint8_t>(m_settled | which);
-    Property& property = *m_properties.emplace(m_properties.begin() + static_cast<std::ptrdiff_t>(position));
-    property.key = PropertyKey::atom(name);
-    heap()->grew(sizeof(Property));
-    // Everything after it moved up one place.
-    if (m_properties.size() > index_threshold)
-        rebuild_index();
-    return property;
+    for (std::uint8_t const earlier : { PendingLength, PendingName }) {
+        if (earlier < which && is_pending(earlier))
+            settle_one(earlier);
+    }
+    if (is_pending(which))
+        settle_one(which);
 }
 
-Property& Object::settle(std::uint8_t which)
+void Object::settle_one(std::uint8_t which)
 {
-    Heap::NoCollect const guard(*heap());
+    Heap& heap = owner();
+    Heap::NoCollect const guard(heap);
     // The value first: making it may look this object's other properties up.
     auto const [value, attributes] = make_pending(which);
-    Property& property = insert_settled(which);
-    property.value = value;
-    property.attributes = attributes;
-    return property;
+    if (!is_pending(which))
+        return;
+    WellKnownAtoms const& atoms = heap.atoms();
+    JsString* const name = which == PendingLength ? atoms.length : which == PendingName ? atoms.name : atoms.prototype;
+    std::uint32_t const slot = add_property(PropertyKey::atom(name), attributes, false);
+    m_slots[slot] = value;
 }
 
 void Object::settle_all()
 {
-    m_properties.reserve(m_properties.size() + static_cast<std::size_t>(std::popcount(static_cast<unsigned>(m_pending))));
     for (std::uint8_t const which : { PendingLength, PendingName, PendingPrototype }) {
-        if ((m_pending & which) != 0)
-            settle(which);
+        if (is_pending(which))
+            settle_one(which);
     }
 }
 
 void Object::settle_pending()
 {
-    if (m_pending != 0)
+    if (m_shape->pending() != 0)
         settle_all();
 }
 
 std::size_t Object::own_property_count() const
 {
-    return m_properties.size() + static_cast<std::size_t>(std::popcount(static_cast<unsigned>(m_pending)));
+    return m_shape->property_count() + static_cast<std::size_t>(std::popcount(static_cast<unsigned>(m_shape->pending())));
 }
 
-Property& Object::insert(PropertyKey const& key)
+void Object::reserve_properties(std::size_t count)
 {
-    Property& property = m_properties.emplace_back();
-    property.key = key;
-    if (Heap* owner = heap())
-        owner->grew(sizeof(Property));
-    std::size_t const count = m_properties.size();
-    if (count > index_threshold) {
-        if (count == index_threshold + 1)
-            rebuild_index();
-        else
-            m_index.emplace(key, count - 1);
+    grow_slots(static_cast<std::uint32_t>(m_slot_count + count));
+}
+
+void Object::grow_slots(std::uint32_t needed)
+{
+    if (needed <= m_slot_capacity)
+        return;
+    std::uint32_t const capacity = std::max(needed, m_slot_capacity + m_slot_capacity / 2 + 2);
+    bool const inline_before = m_slots == m_inline_slots;
+    Value* block = nullptr;
+    if (inline_before) {
+        block = static_cast<Value*>(std::malloc(capacity * sizeof(Value)));
+        if (block != nullptr)
+            std::memcpy(static_cast<void*>(block), static_cast<void const*>(m_inline_slots), m_slot_count * sizeof(Value));
+    } else {
+        block = static_cast<Value*>(std::realloc(static_cast<void*>(m_slots), capacity * sizeof(Value)));
     }
-    return property;
+    if (block == nullptr)
+        std::abort();
+    if (Heap* const adopted = heap())
+        adopted->grew((capacity - (inline_before ? 0 : m_slot_capacity)) * sizeof(Value));
+    m_slots = block;
+    m_slot_capacity = capacity;
 }
 
-void Object::erase_at(std::size_t index)
+// A slot for a new property: a dictionary's freed one, or the next.
+std::uint32_t Object::take_slot()
 {
-    // One of the settled properties at the front going: the ones after it
-    // keep their order, and it is no longer among them.
-    if (index < static_cast<std::size_t>(std::popcount(static_cast<unsigned>(m_settled)))) {
-        std::size_t seen = 0;
-        for (std::uint8_t const which : { PendingLength, PendingName, PendingPrototype }) {
-            if ((m_settled & which) == 0)
-                continue;
-            if (seen++ == index) {
-                m_settled = static_cast<std::uint8_t>(m_settled & ~which);
-                break;
-            }
+    if (m_shape->is_dictionary()) {
+        std::vector<std::uint32_t>& freed = m_shape->free_slots();
+        if (!freed.empty()) {
+            std::uint32_t const slot = freed.back();
+            freed.pop_back();
+            return slot;
         }
     }
-    PropertyKey const key = m_properties[index].key;
-    m_properties.erase(m_properties.begin() + static_cast<std::ptrdiff_t>(index));
-    if (m_properties.size() <= index_threshold) {
-        m_index.clear();
-        return;
-    }
-    // Everything after the gap moved down one slot.
-    m_index.erase(key);
-    for (auto& entry : m_index) {
-        if (entry.second > index)
-            --entry.second;
-    }
+    grow_slots(m_slot_count + 1);
+    m_slots[m_slot_count] = Value::undefined();
+    return m_slot_count++;
 }
 
-void Object::rebuild_index()
+// A property given room at the end of the order: what the object owes
+// itself first is given its room first (the pending properties before the
+// key, or all of them before any other key); a shared shape moves on by
+// its transition and a dictionary adds in place. The slot it answers holds
+// undefined until the caller fills it. Never collects.
+bool Object::is_function_own(PropertyKey const& key) const
 {
-    m_index.clear();
-    m_index.reserve(m_properties.size());
-    for (std::size_t i = 0; i < m_properties.size(); ++i)
-        m_index.emplace(m_properties[i].key, i);
+    if (!key.is_atom())
+        return false;
+    WellKnownAtoms const& atoms = owner().atoms();
+    JsString const* const name = key.as_atom();
+    return name == atoms.length || name == atoms.name || name == atoms.prototype;
+}
+
+std::uint32_t Object::add_property(PropertyKey const& key, std::uint8_t attributes, bool accessor)
+{
+    Heap& heap = owner();
+    Heap::NoCollect const no_collect(heap);
+    if (m_shape->pending() != 0) [[unlikely]] {
+        std::uint8_t const which = pending_named(key);
+        for (std::uint8_t const earlier : { PendingLength, PendingName, PendingPrototype }) {
+            if (which != 0 && earlier >= which)
+                break;
+            if (is_pending(earlier))
+                settle_one(earlier);
+        }
+    }
+    if (m_shape->is_dictionary()) {
+        std::uint8_t const which = pending_named(key);
+        std::uint32_t const slot = take_slot();
+        m_shape->table()->append(ShapeEntry { key, slot, attributes, accessor }, &heap);
+        if (which != 0)
+            m_shape->set_flags(static_cast<std::uint8_t>(m_shape->flags() & ~which));
+        return slot;
+    }
+    // Past the threshold an object is a dictionary, and so is a function
+    // given anything beyond its own length, name and prototype: the
+    // statics and constants of a class or an interface, which no other
+    // object adds in the same order, so that their shapes would be its alone.
+    if (m_shape->count() >= Shape::dictionary_threshold || (m_class == Class::Function && !is_function_own(key))) {
+        become_dictionary();
+        return add_property(key, attributes, accessor);
+    }
+    Shape* const next = m_shape->adding(heap, key, attributes, accessor);
+    std::uint32_t const slot = take_slot();
+    m_shape = next;
+    return slot;
+}
+
+void Object::reconfigure(std::uint32_t position, std::uint8_t attributes, bool accessor)
+{
+    if (m_shape->is_dictionary()) {
+        ShapeEntry& entry = (*m_shape->table())[position];
+        entry.attributes = attributes;
+        entry.accessor = accessor;
+        return;
+    }
+    m_shape = m_shape->reconfiguring(owner(), position, attributes, accessor);
+}
+
+void Object::set_accessor_slot(std::uint32_t slot, Object* getter, Object* setter, bool reuse)
+{
+    if (reuse) {
+        auto* const pair = static_cast<AccessorPair*>(m_slots[slot].as_cell());
+        pair->getter = getter;
+        pair->setter = setter;
+        return;
+    }
+    Heap& heap = owner();
+    Heap::NoCollect const no_collect(heap);
+    m_slots[slot] = Value::slot_cell(heap.allocate<AccessorPair>(getter, setter));
+}
+
+void Object::become_dictionary()
+{
+    if (m_shape->is_dictionary())
+        return;
+    m_shape = m_shape->to_dictionary(owner());
+    m_owns_shape = true;
+}
+
+void Object::mark_uncacheable()
+{
+    auto const flags = static_cast<std::uint8_t>(m_shape->flags() | Shape::Uncacheable);
+    if (m_shape->is_dictionary())
+        m_shape->set_flags(flags);
+    else
+        m_shape = m_shape->with_flags(owner(), flags);
+}
+
+void Object::prevent_extensions()
+{
+    auto const flags = static_cast<std::uint8_t>(m_shape->flags() | Shape::NotExtensible);
+    if (m_shape->is_dictionary())
+        m_shape->set_flags(flags);
+    else
+        m_shape = m_shape->with_flags(owner(), flags);
 }
 
 void Object::put(PropertyKey const& key, Value const& value, std::uint8_t attributes)
 {
     if (m_class == Class::Array && key.is_index()) {
         // put() is not virtual, and an array answers an index from its
-        // dense vector before its ordinary storage (every index goes
+        // dense storage before its ordinary storage (every index goes
         // through the array's own [[DefineOwnProperty]], §10.4.2.1): an
-        // ordinary property at an index the vector covers would shadow
+        // ordinary property at an index the block covers would shadow
         // the element, or be shadowed by it. So the value goes where
-        // set_element puts it, and attributes the vector has no room for
+        // set_element puts it, and attributes the block has no room for
         // move the element — and everything above it, so that every
         // ordinary index stays at or past the dense size — out of it.
         auto& array = static_cast<ArrayObject&>(*this);
         std::uint32_t const index = key.as_index();
         array.set_element(index, value);
-        std::vector<Value>& dense = array.dense();
+        ElementBlock& dense = array.dense();
         if (attributes != default_attributes && index < dense.size()) {
             for (std::uint32_t i = index; i < dense.size(); ++i) {
                 if (!dense[i].is_empty())
-                    insert(PropertyKey::index(i)).value = dense[i];
+                    put_data(PropertyKey::index(i), dense[i], default_attributes);
             }
             dense.resize(index);
         }
-        if (Property* property = find_own(key)) {
-            property->getter = nullptr;
-            property->setter = nullptr;
-            property->attributes = attributes;
-            property->accessor = false;
-        }
+        if (own_entry(key) != nullptr)
+            put_data(key, value, attributes);
         return;
     }
-    // What is there is overwritten whole, so a native not yet made is
-    // simply dropped, and a pending property takes its place in the order
-    // without its own value ever being made.
-    Property* property = peek_own(key);
-    if (property == nullptr) {
-        std::uint8_t const which = m_pending != 0 ? pending_named(key) : 0;
-        property = which != 0 ? &insert_settled(which) : &insert(key);
+    put_data(key, value, attributes);
+}
+
+// What is there is overwritten whole, so a native not yet made is simply
+// dropped, and a pending property takes its place in the order without
+// its own value ever being made.
+void Object::put_data(PropertyKey const& key, Value const& value, std::uint8_t attributes)
+{
+    Heap::NoCollect const no_collect(owner());
+    if (std::uint32_t const position = m_shape->position_of(key); position != ShapeTable::npos) {
+        ShapeEntry const& entry = m_shape->at(position);
+        std::uint32_t const slot = entry.slot;
+        if (entry.attributes != attributes || entry.accessor)
+            reconfigure(position, attributes, false);
+        m_slots[slot] = value;
+        return;
     }
-    property->value = value;
-    property->getter = nullptr;
-    property->setter = nullptr;
-    property->attributes = attributes;
-    property->accessor = false;
-    property->lazy = Property::NotLazy;
+    std::uint32_t const slot = add_property(key, attributes, false);
+    m_slots[slot] = value;
 }
 
 void Object::put_accessor(PropertyKey const& key, Object* getter, Object* setter, std::uint8_t attributes)
 {
-    Property* property = peek_own(key);
-    if (property == nullptr) {
-        std::uint8_t const which = m_pending != 0 ? pending_named(key) : 0;
-        property = which != 0 ? &insert_settled(which) : &insert(key);
+    Heap::NoCollect const no_collect(owner());
+    auto const accessor_attributes = static_cast<std::uint8_t>(attributes & ~Writable);
+    if (std::uint32_t const position = m_shape->position_of(key); position != ShapeTable::npos) {
+        ShapeEntry const& entry = m_shape->at(position);
+        std::uint32_t const slot = entry.slot;
+        bool const reuse = entry.accessor && !m_slots[slot].is_lazy_mark();
+        if (entry.attributes != accessor_attributes || !entry.accessor)
+            reconfigure(position, accessor_attributes, true);
+        set_accessor_slot(slot, getter, setter, reuse);
+        return;
     }
-    property->value = Value::undefined();
-    property->getter = getter;
-    property->setter = setter;
-    property->attributes = static_cast<std::uint8_t>(attributes & ~Writable);
-    property->accessor = true;
-    property->lazy = Property::NotLazy;
+    std::uint32_t const slot = add_property(key, accessor_attributes, true);
+    set_accessor_slot(slot, getter, setter, false);
+}
+
+// A holder of properties not yet made is a dictionary, whose realm they
+// are made in. False for a holder whose other such properties are another
+// realm's: the caller then makes the property at once.
+bool Object::ready_for_lazy(RealmRecord& realm)
+{
+    become_dictionary();
+    if (m_shape->realm() == nullptr)
+        m_shape->set_realm(&realm);
+    return m_shape->realm() == &realm;
+}
+
+void Object::put_mark(PropertyKey const& key, Value const& mark, std::uint8_t attributes, bool accessor)
+{
+    if (std::uint32_t const position = m_shape->position_of(key); position != ShapeTable::npos) {
+        ShapeEntry const& entry = m_shape->at(position);
+        std::uint32_t const slot = entry.slot;
+        if (entry.attributes != attributes || entry.accessor != accessor)
+            reconfigure(position, attributes, accessor);
+        m_slots[slot] = mark;
+        return;
+    }
+    std::uint32_t const slot = add_property(key, attributes, accessor);
+    m_slots[slot] = mark;
 }
 
 void Object::put_lazy(PropertyKey const& key, NativeSpec const& method, RealmRecord& realm, std::uint8_t attributes)
 {
-    Property* property = peek_own(key);
-    if (property == nullptr)
-        property = &insert(key);
-    property->lazy_realm = &realm;
-    property->lazy_get = &method;
-    property->lazy_set = nullptr;
-    property->attributes = attributes;
-    property->accessor = false;
-    property->lazy = Property::LazyNative;
-    if (!lazy_natives())
-        make_lazy(*property, true);
+    Heap& heap = owner();
+    Heap::NoCollect const no_collect(heap);
+    bool const kept = ready_for_lazy(realm);
+    put_mark(key, Value::lazy_mark(&method, false), attributes, false);
+    if (!lazy_natives() || !kept)
+        make_lazy(key, realm, true);
     else
-        ++heap()->lazy_census().natives_described;
+        ++heap.lazy_census().natives_described;
 }
 
 void Object::put_lazy_accessor(PropertyKey const& key, NativeSpec const* getter, NativeSpec const* setter, RealmRecord& realm,
     std::uint8_t attributes)
 {
-    Property* property = peek_own(key);
-    if (property == nullptr)
-        property = &insert(key);
-    property->lazy_realm = &realm;
-    property->lazy_get = getter;
-    property->lazy_set = setter;
-    property->attributes = static_cast<std::uint8_t>(attributes & ~Writable);
-    property->accessor = true;
-    property->lazy = Property::LazyNative;
-    if (!lazy_natives())
-        make_lazy(*property, true);
+    Heap& heap = owner();
+    Heap::NoCollect const no_collect(heap);
+    bool const kept = ready_for_lazy(realm);
+    Value const mark = setter == nullptr && getter != nullptr
+        ? Value::lazy_mark(getter, false)
+        : Value::lazy_mark(&LazyRecord::intern(LazyRecord { getter, setter, nullptr }), true);
+    put_mark(key, mark, static_cast<std::uint8_t>(attributes & ~Writable), true);
+    if (!lazy_natives() || !kept)
+        make_lazy(key, realm, true);
     else
-        heap()->lazy_census().natives_described += (getter != nullptr ? 1u : 0u) + (setter != nullptr ? 1u : 0u);
+        heap.lazy_census().natives_described += (getter != nullptr ? 1u : 0u) + (setter != nullptr ? 1u : 0u);
 }
 
 void Object::put_lazy_value(PropertyKey const& key, LazyValueMaker make, RealmRecord& realm, std::uint8_t attributes)
 {
-    Property* property = peek_own(key);
-    if (property == nullptr)
-        property = &insert(key);
-    property->lazy_realm = &realm;
-    property->lazy_make = make;
-    property->lazy_set = nullptr;
-    property->attributes = attributes;
-    property->accessor = false;
-    property->lazy = Property::LazyValue;
-    ++heap()->lazy_census().values_described;
-    if (!lazy_natives())
-        make_lazy(*property, true);
+    Heap& heap = owner();
+    Heap::NoCollect const no_collect(heap);
+    bool const kept = ready_for_lazy(realm);
+    put_mark(key, Value::lazy_mark(&LazyRecord::intern(LazyRecord { nullptr, nullptr, make }), true), attributes, false);
+    ++heap.lazy_census().values_described;
+    if (!lazy_natives() || !kept)
+        make_lazy(key, realm, true);
 }
 
 bool Object::remove_own(PropertyKey const& key)
 {
     if (m_class == Class::Array && key.is_index()) {
         // The dense side of the same routing as put(): an element the
-        // vector holds becomes a hole.
-        std::vector<Value>& dense = static_cast<ArrayObject&>(*this).dense();
+        // block holds becomes a hole.
+        ElementBlock& dense = static_cast<ArrayObject&>(*this).dense();
         std::uint32_t const index = key.as_index();
         if (index < dense.size()) {
             bool const present = !dense[index].is_empty();
@@ -653,17 +824,32 @@ bool Object::remove_own(PropertyKey const& key)
             return present;
         }
     }
-    Property const* property = lookup(key);
-    if (property == nullptr) {
+    if (m_shape->position_of(key) == ShapeTable::npos) {
         // A pending property gone before it was ever given room.
-        if (std::uint8_t const which = m_pending != 0 ? pending_named(key) : 0) {
-            m_pending = static_cast<std::uint8_t>(m_pending & ~which);
+        if (std::uint8_t const which = pending_named(key)) {
+            set_pending(static_cast<std::uint8_t>(m_shape->pending() & ~which));
             return true;
         }
         return false;
     }
-    erase_at(static_cast<std::size_t>(property - m_properties.data()));
+    delete_entry(key);
     return true;
+}
+
+// A property gone: the object is a dictionary from here on, the entry a
+// hole and its slot free for the next property.
+void Object::delete_entry(PropertyKey const& key)
+{
+    Heap::NoCollect const no_collect(owner());
+    become_dictionary();
+    ShapeTable& table = *m_shape->table();
+    std::uint32_t const position = m_shape->position_of(key);
+    std::uint32_t const slot = table[position].slot;
+    table.erase(position);
+    m_slots[slot] = Value::undefined();
+    m_shape->free_slots().push_back(slot);
+    if (table.holes() > ShapeTable::linear_limit && table.holes() * 2 > table.size())
+        table.compact();
 }
 
 bool Object::set_prototype(Object* proto)
@@ -671,24 +857,37 @@ bool Object::set_prototype(Object* proto)
     // OrdinarySetPrototypeOf (§10.1.2.1): the same prototype is always
     // fine, even on a non-extensible object; otherwise the object must be
     // extensible and the new chain must not run back into this object.
-    if (proto == m_prototype)
+    if (proto == prototype())
         return true;
-    if (!m_extensible)
+    if (!is_extensible())
         return false;
     for (Object const* link = proto; link != nullptr; link = link->prototype()) {
         if (link == this)
             return false;
     }
-    m_prototype = proto;
+    Heap& heap = owner();
+    Heap::NoCollect const no_collect(heap);
+    if (m_shape->is_dictionary()) {
+        // An object that is another's prototype is a dictionary (Shape.h).
+        if (proto != nullptr)
+            proto->become_dictionary();
+        m_shape->set_prototype(proto);
+        return true;
+    }
+    // A shared shape's properties are replayed from the new prototype's
+    // root, so the pending ones go first if there are others.
+    if (m_shape->pending() != 0 && m_shape->count() != 0)
+        settle_all();
+    m_shape = m_shape->with_prototype(heap, proto);
     return true;
 }
 
 std::optional<PropertyDescriptor> Object::get_own_property(PropertyKey const& key) const
 {
-    Property const* property = find_whole(key);
-    if (property == nullptr)
+    ShapeEntry const* const entry = whole_entry(key);
+    if (entry == nullptr)
         return std::nullopt;
-    return descriptor_of(*property);
+    return descriptor_of(*entry);
 }
 
 bool Object::define_own_property(PropertyKey const& key, PropertyDescriptor const& desc)
@@ -696,17 +895,87 @@ bool Object::define_own_property(PropertyKey const& key, PropertyDescriptor cons
     // OrdinaryDefineOwnProperty (§10.1.6.1) over the ordinary storage.
     // The exotic subclasses handle their own keys before coming here, so
     // the current descriptor is read from the storage, not virtually.
-    Property* existing = const_cast<Property*>(find_whole(key));
+    ShapeEntry const* const existing = whole_entry(key);
     std::optional<PropertyDescriptor> current;
     if (existing != nullptr)
         current = descriptor_of(*existing);
-    if (!is_compatible(m_extensible, desc, current))
+    if (!is_compatible(is_extensible(), desc, current))
         return false;
     if (existing != nullptr)
         apply_descriptor(*existing, desc);
     else
-        insert(key) = make_property(key, desc);
+        create_property(key, desc);
     return true;
+}
+
+// Step 2.c–d of §10.1.6.3: the property a descriptor creates from
+// nothing. Absent fields take their defaults (undefined and false).
+void Object::create_property(PropertyKey const& key, PropertyDescriptor const& desc)
+{
+    Heap::NoCollect const no_collect(owner());
+    std::uint8_t attributes = 0;
+    set_flag(attributes, Enumerable, desc.enumerable.value_or(false));
+    set_flag(attributes, Configurable, desc.configurable.value_or(false));
+    if (desc.is_accessor()) {
+        std::uint32_t const slot = add_property(key, attributes, true);
+        set_accessor_slot(slot, desc.get.value_or(nullptr), desc.set.value_or(nullptr), false);
+        return;
+    }
+    set_flag(attributes, Writable, desc.writable.value_or(false));
+    std::uint32_t const slot = add_property(key, attributes, false);
+    m_slots[slot] = desc.value.value_or(Value::undefined());
+}
+
+// Step 6 of §10.1.6.3, applied to an existing property that validation
+// has already admitted: a change of kind keeps enumerable and
+// configurable and resets the rest; otherwise each present field lands.
+// The shape changes only when the attributes or the kind do.
+void Object::apply_descriptor(ShapeEntry const& entry, PropertyDescriptor const& desc)
+{
+    Heap::NoCollect const no_collect(owner());
+    std::uint32_t const position = m_shape->position_of(entry.key);
+    std::uint32_t const slot = entry.slot;
+    std::uint8_t const attributes_before = entry.attributes;
+    bool const accessor_before = entry.accessor;
+    std::uint8_t attributes = attributes_before;
+    bool accessor = accessor_before;
+    Value value = m_slots[slot];
+    Object* getter = nullptr;
+    Object* setter = nullptr;
+    if (accessor_before) {
+        auto const* const pair = static_cast<AccessorPair const*>(value.as_cell());
+        getter = pair->getter;
+        setter = pair->setter;
+    }
+    if (!accessor_before && desc.is_accessor()) {
+        accessor = true;
+        set_flag(attributes, Writable, false);
+        getter = desc.get.value_or(nullptr);
+        setter = desc.set.value_or(nullptr);
+    } else if (accessor_before && desc.is_data()) {
+        accessor = false;
+        value = desc.value.value_or(Value::undefined());
+        set_flag(attributes, Writable, desc.writable.value_or(false));
+    } else {
+        if (desc.value)
+            value = *desc.value;
+        if (desc.writable)
+            set_flag(attributes, Writable, *desc.writable);
+        if (desc.get)
+            getter = *desc.get;
+        if (desc.set)
+            setter = *desc.set;
+    }
+    if (desc.enumerable)
+        set_flag(attributes, Enumerable, *desc.enumerable);
+    if (desc.configurable)
+        set_flag(attributes, Configurable, *desc.configurable);
+    if (attributes != attributes_before || accessor != accessor_before)
+        reconfigure(position, attributes, accessor);
+    if (accessor)
+        set_accessor_slot(slot, getter, setter, accessor_before);
+    else
+        m_slots[slot] = value;
 }
 
 bool Object::has_property(PropertyKey const& key) const
@@ -821,12 +1090,12 @@ std::optional<bool> Object::set(Interpreter& interpreter, PropertyKey const& key
 bool Object::delete_property(PropertyKey const& key)
 {
     // OrdinaryDelete (§10.1.10.1): a missing property deletes fine.
-    Property const* property = find_own(key);
-    if (property == nullptr)
+    ShapeEntry const* const entry = whole_entry(key);
+    if (entry == nullptr)
         return true;
-    if (!property->configurable())
+    if ((entry->attributes & Configurable) == 0)
         return false;
-    erase_at(static_cast<std::size_t>(property - m_properties.data()));
+    delete_entry(key);
     return true;
 }
 
@@ -834,24 +1103,30 @@ std::vector<PropertyKey> Object::own_keys() const
 {
     // OrdinaryOwnPropertyKeys (§10.1.11.1). Every key is listed, so what
     // the object still owes itself is given its room first.
-    if (m_pending != 0)
+    if (m_shape->pending() != 0)
         const_cast<Object*>(this)->settle_all();
     std::vector<std::uint32_t> indices;
     std::vector<PropertyKey> atoms;
     std::vector<PropertyKey> symbols;
-    for (Property const& property : m_properties) {
-        switch (property.key.kind()) {
+    Shape const& shape = *m_shape;
+    std::uint32_t const count = shape.count();
+    atoms.reserve(count);
+    for (std::uint32_t i = 0; i < count; ++i) {
+        ShapeEntry const& entry = shape.at(i);
+        if (entry.is_hole())
+            continue;
+        switch (entry.key.kind()) {
         case PropertyKey::Kind::Index:
-            indices.push_back(property.key.as_index());
+            indices.push_back(entry.key.as_index());
             break;
         case PropertyKey::Kind::Atom:
-            atoms.push_back(property.key);
+            atoms.push_back(entry.key);
             break;
         case PropertyKey::Kind::Symbol:
             // A Private Name keys a class's `#x`: it is not a property key
             // the language can see (§6.2.10), so no key list has it.
-            if (!property.key.as_symbol()->is_private())
-                symbols.push_back(property.key);
+            if (!entry.key.as_symbol()->is_private())
+                symbols.push_back(entry.key);
             break;
         }
     }
@@ -865,37 +1140,136 @@ std::vector<PropertyKey> Object::own_keys() const
     return keys;
 }
 
+std::vector<Property> Object::properties() const
+{
+    std::vector<Property> listed;
+    std::uint32_t const count = m_shape->count();
+    listed.reserve(count);
+    for (std::uint32_t i = 0; i < count; ++i) {
+        ShapeEntry const& entry = m_shape->at(i);
+        if (!entry.is_hole())
+            listed.push_back(view_of(entry));
+    }
+    return listed;
+}
+
 void Object::trace(Tracer& tracer)
 {
-    tracer.visit(m_prototype);
-    for (Property const& property : m_properties) {
-        tracer.visit(property.key);
-        if (property.lazy) [[unlikely]] {
-            // No function yet: what it keeps alive is the realm it will be
-            // made in, as the function itself would.
-            tracer.visit(property.lazy_realm);
-            continue;
-        }
-        tracer.visit(property.value);
-        tracer.visit(property.getter);
-        tracer.visit(property.setter);
+    // A slot holds a value, an accessor's pair, or the mark of a property
+    // not yet made, which is no cell: what that keeps alive is the realm
+    // it will be made in, which the object's dictionary holds.
+    tracer.visit(m_shape);
+    for (std::uint32_t i = 0; i < m_slot_count; ++i)
+        tracer.visit(m_slots[i]);
+}
+
+std::size_t Object::size_in_bytes() const
+{
+    return sizeof(*this) + (m_slots != m_inline_slots ? m_slot_capacity * sizeof(Value) : 0)
+        + (m_owns_shape ? m_shape->size_in_bytes() : 0);
+}
+
+// ---------------------------------------------------------- LazyRecord
+
+namespace {
+
+struct LazyRecordHash {
+    std::size_t operator()(LazyRecord const& record) const
+    {
+        std::size_t hash = std::hash<void const*> {}(record.get);
+        hash ^= std::hash<void const*> {}(record.set) + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
+        hash ^= std::hash<std::uintptr_t> {}(reinterpret_cast<std::uintptr_t>(record.make)) + 0x9e3779b97f4a7c15ull + (hash << 6) + (hash >> 2);
+        return hash;
     }
+};
+
+}
+
+LazyRecord const& LazyRecord::intern(LazyRecord const& record)
+{
+    // As NativeSpec::intern: a thread's own view first, the records one
+    // set for the process, never freed and never moved.
+    thread_local std::unordered_map<LazyRecord, LazyRecord const*, LazyRecordHash> seen;
+    if (auto const found = seen.find(record); found != seen.end())
+        return *found->second;
+    static std::mutex lock;
+    static auto* const records = new std::unordered_set<LazyRecord, LazyRecordHash>();
+    LazyRecord const* interned = nullptr;
+    {
+        std::lock_guard<std::mutex> const held(lock);
+        interned = &*records->insert(record).first;
+    }
+    seen.emplace(record, interned);
+    return *interned;
 }
 
 // ----------------------------------------------------------- ArrayObject
 
+namespace {
+
+// Does the ordinary storage hold no index in [from, to)? What decides
+// whether the dense storage may grow over the gap.
+bool no_index_between(Shape const& shape, std::uint32_t from, std::uint32_t to)
+{
+    if (!shape.has_index_keys())
+        return true;
+    for (std::uint32_t i = 0; i < shape.count(); ++i) {
+        ShapeEntry const& entry = shape.at(i);
+        if (!entry.is_hole() && entry.key.is_index() && entry.key.as_index() >= from && entry.key.as_index() < to)
+            return false;
+    }
+    return true;
+}
+
+}
+
+ElementBlock::ElementBlock(std::span<Value const> values)
+{
+    if (values.empty())
+        return;
+    reserve(values.size());
+    std::memcpy(static_cast<void*>(m_data), static_cast<void const*>(values.data()), values.size() * sizeof(Value));
+    m_length = static_cast<std::uint32_t>(values.size());
+}
+
+ElementBlock::~ElementBlock()
+{
+    std::free(static_cast<void*>(m_data));
+}
+
+void ElementBlock::reserve(std::size_t capacity)
+{
+    if (capacity <= m_capacity)
+        return;
+    auto* const block = static_cast<Value*>(std::realloc(static_cast<void*>(m_data), capacity * sizeof(Value)));
+    if (block == nullptr)
+        std::abort();
+    m_data = block;
+    m_capacity = static_cast<std::uint32_t>(capacity);
+}
+
+void ElementBlock::resize(std::size_t length, Value fill)
+{
+    if (length > m_length) {
+        if (length > m_capacity)
+            reserve(std::max<std::size_t>(length, m_capacity + m_capacity / 2));
+        std::fill(m_data + m_length, m_data + length, fill);
+    }
+    m_length = static_cast<std::uint32_t>(length);
+}
+
 ArrayObject::ArrayObject(Object* prototype, std::span<Value const> elements)
     : Object(prototype, Class::Array)
-    , m_elements(elements.begin(), elements.end())
+    , m_elements(elements)
     , m_length(static_cast<std::uint32_t>(elements.size()))
 {
 }
 
 // The storage invariant every method below keeps: an index below
-// dense_size() is answered by the vector alone (a hole is absent), and
-// every index held as an ordinary property is at or past dense_size().
-// So element() is exact, and the dense storage never grows over an
-// ordinary index property.
+// dense_size() is answered by the element block alone (a hole is absent),
+// and every index held as an ordinary property is at or past
+// dense_size(). So element() is exact, and the dense storage never grows
+// over an ordinary index property.
 
 bool ArrayObject::set_length(std::uint32_t new_length)
 {
@@ -913,22 +1287,27 @@ bool ArrayObject::set_length(std::uint32_t new_length)
     // only an ordinary index property can be the one that stops it.
     std::uint32_t stop = new_length;
     bool blocked = false;
-    for (Property const& property : m_properties) {
-        if (!property.key.is_index() || property.configurable())
-            continue;
-        std::uint32_t const index = property.key.as_index();
-        if (index >= new_length && index + 1 > stop) {
-            stop = index + 1;
-            blocked = true;
+    std::vector<PropertyKey> going;
+    if (m_shape->has_index_keys()) {
+        Shape const& shape = *m_shape;
+        for (std::uint32_t i = 0; i < shape.count(); ++i) {
+            ShapeEntry const& entry = shape.at(i);
+            if (entry.is_hole() || !entry.key.is_index() || (entry.attributes & Configurable) != 0)
+                continue;
+            std::uint32_t const index = entry.key.as_index();
+            if (index >= new_length && index + 1 > stop) {
+                stop = index + 1;
+                blocked = true;
+            }
+        }
+        for (std::uint32_t i = 0; i < shape.count(); ++i) {
+            ShapeEntry const& entry = shape.at(i);
+            if (!entry.is_hole() && entry.key.is_index() && entry.key.as_index() >= stop)
+                going.push_back(entry.key);
         }
     }
-    std::erase_if(m_properties, [stop](Property const& property) {
-        return property.key.is_index() && property.key.as_index() >= stop;
-    });
-    if (m_properties.size() > index_threshold)
-        rebuild_index();
-    else
-        m_index.clear();
+    for (PropertyKey const& key : going)
+        delete_entry(key);
     if (m_elements.size() > stop)
         m_elements.resize(stop);
     m_length = stop;
@@ -939,19 +1318,19 @@ Value ArrayObject::element(std::uint32_t index) const
 {
     if (index < m_elements.size())
         return m_elements[index];
-    Property const* property = find_own(PropertyKey::index(index));
+    ShapeEntry const* const entry = whole_entry(PropertyKey::index(index));
     // An accessor has no value without running its getter, which this
     // path never does; has_element() still reports it present.
-    if (property == nullptr || property->accessor)
+    if (entry == nullptr || entry->accessor)
         return Value::empty();
-    return property->value;
+    return slot(entry->slot);
 }
 
 bool ArrayObject::has_element(std::uint32_t index) const
 {
     if (index < m_elements.size())
         return !m_elements[index].is_empty();
-    return find_own(PropertyKey::index(index)) != nullptr;
+    return whole_entry(PropertyKey::index(index)) != nullptr;
 }
 
 void ArrayObject::set_element(std::uint32_t index, Value const& value)
@@ -964,30 +1343,18 @@ void ArrayObject::set_element(std::uint32_t index, Value const& value)
     // still frozen. An accessor has no value slot and becomes a plain
     // data element, as put() would make it.
     auto const size = static_cast<std::uint32_t>(m_elements.size());
+    PropertyKey const key = PropertyKey::index(index);
     if (index < size) {
         m_elements[index] = value;
-    } else if (Property* existing = find_own(PropertyKey::index(index))) {
-        if (existing->accessor) {
-            existing->accessor = false;
-            existing->getter = nullptr;
-            existing->setter = nullptr;
-            existing->attributes = default_attributes;
-        }
-        existing->value = value;
+    } else if (ShapeEntry const* const existing = whole_entry(key)) {
+        put_data(key, value, existing->accessor ? default_attributes : existing->attributes);
+    } else if (index - size < dense_growth_limit && no_index_between(*m_shape, size, index)) {
+        m_elements.resize(static_cast<std::size_t>(index) + 1, Value::empty());
+        m_elements[index] = value;
+        if (Heap* owner = heap())
+            owner->grew((static_cast<std::size_t>(index) + 1 - size) * sizeof(Value));
     } else {
-        bool clear_run = true;
-        for (Property const& property : m_properties) {
-            if (property.key.is_index() && property.key.as_index() >= size && property.key.as_index() < index)
-                clear_run = false;
-        }
-        if (index - size < dense_growth_limit && clear_run) {
-            m_elements.resize(static_cast<std::size_t>(index) + 1, Value::empty());
-            m_elements[index] = value;
-            if (Heap* owner = heap())
-                owner->grew((static_cast<std::size_t>(index) + 1 - size) * sizeof(Value));
-        } else {
-            insert(PropertyKey::index(index)).value = value;
-        }
+        put_data(key, value, default_attributes);
     }
     if (index >= m_length)
         m_length = index + 1;
@@ -1040,7 +1407,7 @@ bool ArrayObject::define_own_property(PropertyKey const& key, PropertyDescriptor
         // whose descriptor is {m_length, m_length_writable, false, false}.
         std::optional<PropertyDescriptor> const current = get_own_property(key);
         if (!desc.value) {
-            if (!is_compatible(m_extensible, desc, current))
+            if (!is_compatible(is_extensible(), desc, current))
                 return false;
             if (desc.writable && !*desc.writable)
                 m_length_writable = false;
@@ -1055,7 +1422,7 @@ bool ArrayObject::define_own_property(PropertyKey const& key, PropertyDescriptor
         PropertyDescriptor new_desc = desc;
         new_desc.value = Value::number(static_cast<double>(*new_length));
         if (*new_length >= m_length) {
-            if (!is_compatible(m_extensible, new_desc, current))
+            if (!is_compatible(is_extensible(), new_desc, current))
                 return false;
             m_length = *new_length;
             if (new_desc.writable && !*new_desc.writable)
@@ -1068,7 +1435,7 @@ bool ArrayObject::define_own_property(PropertyKey const& key, PropertyDescriptor
         // and lands even when a truncation stops early (step 16.d).
         bool const new_writable = new_desc.writable.value_or(true);
         new_desc.writable = true;
-        if (!is_compatible(m_extensible, new_desc, current))
+        if (!is_compatible(is_extensible(), new_desc, current))
             return false;
         bool const truncated = set_length(*new_length);
         if (!new_writable)
@@ -1084,7 +1451,7 @@ bool ArrayObject::define_own_property(PropertyKey const& key, PropertyDescriptor
     if (index >= m_length && !m_length_writable)
         return false;
     std::optional<PropertyDescriptor> const current = get_own_property(key);
-    if (!is_compatible(m_extensible, desc, current))
+    if (!is_compatible(is_extensible(), desc, current))
         return false;
     auto const size = static_cast<std::uint32_t>(m_elements.size());
     bool const dense_now = index < size && !m_elements[index].is_empty();
@@ -1096,27 +1463,23 @@ bool ArrayObject::define_own_property(PropertyKey const& key, PropertyDescriptor
         Property scratch;
         scratch.key = key;
         scratch.value = m_elements[index];
-        apply_descriptor(scratch, desc);
+        apply_to(scratch, desc);
         if (is_dense_eligible(scratch)) {
             m_elements[index] = scratch.value;
         } else {
             for (std::uint32_t i = index; i < size; ++i) {
                 if (!m_elements[i].is_empty())
-                    insert(PropertyKey::index(i)).value = m_elements[i];
+                    put_data(PropertyKey::index(i), m_elements[i], default_attributes);
             }
             m_elements.resize(index);
-            apply_descriptor(*find_own(key), desc);
+            apply_descriptor(*whole_entry(key), desc);
         }
     } else if (current) {
-        apply_descriptor(*find_own(key), desc);
+        apply_descriptor(*whole_entry(key), desc);
     } else {
-        Property const fresh = make_property(key, desc);
+        Property const fresh = property_from(key, desc);
         bool const near = index < size || index - size < dense_growth_limit;
-        bool clear_run = true;
-        for (Property const& property : m_properties) {
-            if (property.key.is_index() && property.key.as_index() >= size && property.key.as_index() < index)
-                clear_run = false;
-        }
+        bool const clear_run = no_index_between(*m_shape, size, index);
         if (is_dense_eligible(fresh) && near && clear_run) {
             if (index >= size) {
                 m_elements.resize(static_cast<std::size_t>(index) + 1, Value::empty());
@@ -1130,11 +1493,11 @@ bool ArrayObject::define_own_property(PropertyKey const& key, PropertyDescriptor
             if (index < size) {
                 for (std::uint32_t i = index; i < size; ++i) {
                     if (!m_elements[i].is_empty())
-                        insert(PropertyKey::index(i)).value = m_elements[i];
+                        put_data(PropertyKey::index(i), m_elements[i], default_attributes);
                 }
                 m_elements.resize(index);
             }
-            insert(key) = fresh;
+            create_property(key, desc);
         }
     }
     if (index >= m_length)
@@ -1217,13 +1580,16 @@ std::vector<PropertyKey> ArrayObject::own_keys() const
         if (!m_elements[i].is_empty())
             indices.push_back(i);
     }
-    for (Property const& property : m_properties) {
-        if (property.key.is_index())
-            indices.push_back(property.key.as_index());
+    if (m_shape->has_index_keys()) {
+        for (std::uint32_t i = 0; i < m_shape->count(); ++i) {
+            ShapeEntry const& entry = m_shape->at(i);
+            if (!entry.is_hole() && entry.key.is_index())
+                indices.push_back(entry.key.as_index());
+        }
     }
     std::sort(indices.begin(), indices.end());
     std::vector<PropertyKey> keys;
-    keys.reserve(indices.size() + m_properties.size() + 1);
+    keys.reserve(indices.size() + m_shape->count() + 1);
     for (std::uint32_t const index : indices)
         keys.push_back(PropertyKey::index(index));
     // `length` is the first string key: ArrayCreate defines it before
@@ -1652,7 +2018,7 @@ bool StringObject::define_own_property(PropertyKey const& key, PropertyDescripto
     // §10.4.3.2: a unit or the length accepts only a descriptor it already
     // satisfies, and accepting changes nothing.
     if (is_length_key(key) || (key.is_index() && key.as_index() < string()->length()))
-        return is_compatible(m_extensible, desc, get_own_property(key));
+        return is_compatible(is_extensible(), desc, get_own_property(key));
     return Object::define_own_property(key, desc);
 }
 

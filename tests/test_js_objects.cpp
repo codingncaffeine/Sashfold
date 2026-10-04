@@ -96,6 +96,15 @@ js::Value num(double d)
     return js::Value::number(d);
 }
 
+// The cells a test made, apart from the storage's own: the shapes of the
+// objects (js/Shape.h) and the pairs their accessors' slots hold.
+std::size_t made_cells(js::Heap const& heap)
+{
+    return heap.cell_count_if([](js::Cell const& cell) {
+        return dynamic_cast<js::Shape const*>(&cell) == nullptr && dynamic_cast<js::AccessorPair const*>(&cell) == nullptr;
+    });
+}
+
 js::PropertyKey idx(std::uint32_t i)
 {
     return js::PropertyKey::index(i);
@@ -197,7 +206,7 @@ void test_descriptors_round_trip(Fixture& fx)
         CHECK(is_data_value(d, num(attributes)));
         CHECK(has_attributes(d, (attributes & js::Writable) != 0, (attributes & js::Enumerable) != 0,
             (attributes & js::Configurable) != 0));
-        js::Property const* p = o->find_own(k);
+        js::PropertyRef const p = o->find_own(k);
         CHECK(p != nullptr && p->attributes == attributes && !p->accessor);
     }
     CHECK_EQ(o->own_property_count(), 9u);
@@ -427,7 +436,7 @@ void test_define_own_property(Fixture& fx)
         CHECK(d && d->is_accessor() && !d->is_data());
         CHECK(d && *d->get == g1 && *d->set == nullptr);
         CHECK(d && d->enumerable == false && d->configurable == true);
-        js::Property const* p = o->find_own(fx.key("p"));
+        js::PropertyRef const p = o->find_own(fx.key("p"));
         CHECK(p != nullptr && p->accessor && !p->writable() && p->value.is_undefined());
     }
     // 29. Accessor → data: value undefined and writable false unless given.
@@ -609,7 +618,7 @@ void test_index_map(Fixture& fx)
     auto verify = [&](std::size_t additional = 0) {
         std::size_t count = additional;
         for (int i = 0; i < 25; ++i) {
-            js::Property const* p = o->find_own(keys[static_cast<std::size_t>(i)]);
+            js::PropertyRef const p = o->find_own(keys[static_cast<std::size_t>(i)]);
             if (present[static_cast<std::size_t>(i)]) {
                 ++count;
                 CHECK(p != nullptr && p->value == num(i));
@@ -622,7 +631,7 @@ void test_index_map(Fixture& fx)
         CHECK_EQ(o->own_property_count(), count);
         // The storage itself agrees with the lookups.
         for (js::Property const& property : o->properties())
-            CHECK(o->find_own(property.key) == &property);
+            CHECK(o->find_own(property.key) != nullptr && o->find_own(property.key)->value == property.value);
     };
     verify();
     auto erase = [&](int i) {
@@ -814,7 +823,7 @@ void test_delete(Fixture& fx)
     for (int i = 0; i < 20; i += 3)
         CHECK(o->delete_property(fx.key("d" + std::to_string(i))));
     for (int i = 0; i < 20; ++i) {
-        js::Property const* p = o->find_own(fx.key("d" + std::to_string(i)));
+        js::PropertyRef const p = o->find_own(fx.key("d" + std::to_string(i)));
         if (i % 3 == 0)
             CHECK(p == nullptr);
         else
@@ -1575,7 +1584,8 @@ void test_trace_under_stress(Fixture& fx)
     js::JsString* const regexp_flags = heap.atom("g"sv);
     js::FunctionNode node;
     heap.collect();
-    std::size_t const before = heap.cell_count();
+    std::size_t const before_all = heap.cell_count();
+    std::size_t const before = made_cells(heap);
 
     // Every cell is attached to the graph before the next allocation, so
     // the Persistent alone keeps it.
@@ -1707,7 +1717,7 @@ void test_trace_under_stress(Fixture& fx)
     heap.collect();
     for (js::Cell const* cell : made)
         CHECK(cell->marked());
-    CHECK_EQ(heap.cell_count(), before + made.size());
+    CHECK_EQ(made_cells(heap), before + made.size());
     CHECK(text->view() == u"held");
     CHECK(is_data_value(proto2->get_own_property(k_value), js::Value::string(text)));
     CHECK(array->element(0) == js::Value::string(element));
@@ -1720,13 +1730,13 @@ void test_trace_under_stress(Fixture& fx)
     // ... a dropped link frees its subgraph ...
     CHECK(top->remove_own(k_arr));
     heap.collect();
-    CHECK_EQ(heap.cell_count(), before + made.size() - 3);
+    CHECK_EQ(made_cells(heap), before + made.size() - 3);
     CHECK(top->marked() && proto->marked() && bound_with_argument->marked() && argument_text->marked());
 
     // ... and letting go of the root frees the rest.
     root.set(js::Value::undefined());
     heap.collect();
-    CHECK_EQ(heap.cell_count(), before);
+    CHECK_EQ(heap.cell_count(), before_all);
 }
 
 // ===========================================================================
@@ -2415,7 +2425,8 @@ void test_review_trace_through_accessor(Fixture& fx)
     js::PropertyKey const k_tmp = fx.key("tmp");
     js::PropertyKey const k_bound = fx.key("bound");
     heap.collect();
-    std::size_t const before = heap.cell_count();
+    std::size_t const before_all = heap.cell_count();
+    std::size_t const before = made_cells(heap);
 
     js::Persistent root(heap);
     js::Object* owner = heap.allocate<js::Object>(nullptr);
@@ -2426,18 +2437,18 @@ void test_review_trace_through_accessor(Fixture& fx)
     owner->put_accessor(k, getter, nullptr);
     heap.collect();
     CHECK(getter->marked());
-    CHECK_EQ(heap.cell_count(), before + 2);
+    CHECK_EQ(made_cells(heap), before + 2);
     // The same through define_own_property, with a setter.
     js::Object* setter = heap.allocate<js::Object>(nullptr);
     CHECK(owner->define_own_property(k, setter_desc(setter)));
     heap.collect();
     CHECK(getter->marked() && setter->marked());
-    CHECK_EQ(heap.cell_count(), before + 3);
+    CHECK_EQ(made_cells(heap), before + 3);
     // Replacing the getter lets the old one go.
     js::Object* getter2 = heap.allocate<js::Object>(nullptr);
     CHECK(owner->define_own_property(k, getter_desc(getter2)));
     heap.collect();
-    CHECK_EQ(heap.cell_count(), before + 3);
+    CHECK_EQ(made_cells(heap), before + 3);
     CHECK(getter2->marked() && setter->marked());
 
     // An array element made an accessor: it leaves the dense storage and
@@ -2451,7 +2462,7 @@ void test_review_trace_through_accessor(Fixture& fx)
     CHECK_EQ(array->dense_size(), 0u);
     heap.collect();
     CHECK(element_getter->marked());
-    CHECK_EQ(heap.cell_count(), before + 5);
+    CHECK_EQ(made_cells(heap), before + 5);
 
     // A string wrapper with an accessor beside its units.
     js::JsString* text = heap.string("ab"sv);
@@ -2462,7 +2473,7 @@ void test_review_trace_through_accessor(Fixture& fx)
     CHECK(wrapper->define_own_property(idx(5), setter_desc(unit_setter)));
     heap.collect();
     CHECK(unit_setter->marked() && text->marked());
-    CHECK_EQ(heap.cell_count(), before + 8);
+    CHECK_EQ(made_cells(heap), before + 8);
 
     // A bound function reached through an accessor, holding its target.
     js::NativeFunction* target = heap.allocate<js::NativeFunction>(nullptr, js::NativeFunction::Callback {});
@@ -2472,18 +2483,18 @@ void test_review_trace_through_accessor(Fixture& fx)
     CHECK(owner->remove_own(k_tmp));
     heap.collect();
     CHECK(bound->marked() && target->marked());
-    CHECK_EQ(heap.cell_count(), before + 10);
+    CHECK_EQ(made_cells(heap), before + 10);
 
     // Cutting the accessor frees what only it reached.
     CHECK(owner->delete_property(k));
     heap.collect();
-    CHECK_EQ(heap.cell_count(), before + 8);
+    CHECK_EQ(made_cells(heap), before + 8);
     CHECK(owner->remove_own(k_bound));
     heap.collect();
-    CHECK_EQ(heap.cell_count(), before + 6);
+    CHECK_EQ(made_cells(heap), before + 6);
     root.set(js::Value::undefined());
     heap.collect();
-    CHECK_EQ(heap.cell_count(), before);
+    CHECK_EQ(heap.cell_count(), before_all);
 }
 
 // put() and remove_own() are not virtual, yet an array keeps its indices

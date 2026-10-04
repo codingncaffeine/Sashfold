@@ -206,6 +206,7 @@ add_library(sashfold_core STATIC
   src/js/MissCensus.cpp
   src/js/Module.cpp
   src/js/Objects.cpp
+  src/js/Shape.cpp
   src/js/Parser.cpp
   src/js/Regex.cpp
   src/js/RuntimeArray.cpp

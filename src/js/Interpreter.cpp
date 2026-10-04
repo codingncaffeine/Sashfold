@@ -965,7 +965,7 @@ std::string Interpreter::Impl::private_name_text(PropertyKey const& key)
 // PrivateGet (§7.3.32).
 std::optional<Value> Interpreter::Impl::private_get(Value const& base, PropertyKey const& key)
 {
-    Property const* element = base.is_object() ? base.as_object()->find_own(key) : nullptr;
+    PropertyRef const element = base.is_object() ? base.as_object()->find_own(key) : PropertyRef();
     if (element == nullptr)
         return self.throw_type_error("Cannot read private member " + private_name_text(key) + " from an object whose class did not declare it");
     if (!element->accessor)
@@ -979,7 +979,7 @@ std::optional<Value> Interpreter::Impl::private_get(Value const& base, PropertyK
 // PrivateSet (§7.3.33).
 bool Interpreter::Impl::private_set(Value const& base, PropertyKey const& key, Value const& value)
 {
-    Property* element = base.is_object() ? base.as_object()->find_own(key) : nullptr;
+    PropertyRef const element = base.is_object() ? base.as_object()->find_own(key) : PropertyRef();
     if (element == nullptr) {
         self.throw_type_error("Cannot write private member " + private_name_text(key) + " to an object whose class did not declare it");
         return false;
@@ -996,7 +996,7 @@ bool Interpreter::Impl::private_set(Value const& base, PropertyKey const& key, V
         self.throw_type_error("Private method '" + private_name_text(key) + "' is not writable");
         return false;
     }
-    element->value = value;
+    base.as_object()->write_own_value(key, value);
     return true;
 }
 
@@ -1277,7 +1277,7 @@ bool Interpreter::Impl::class_element(ClassBuilder& builder, std::size_t index, 
         }
         Object* getter = nullptr;
         Object* setter = nullptr;
-        if (Property const* existing = target->find_own(key); existing && existing->accessor) {
+        if (PropertyRef const existing = target->find_own(key); existing && existing->accessor) {
             getter = existing->getter;
             setter = existing->setter;
         }
@@ -2329,7 +2329,7 @@ double* Interpreter::native_activity(Object const& function)
     if (made) {
         // Its name as it was when first called: a data property no script
         // runs to read.
-        if (Property const* name = function.find_own(PropertyKey::atom(atoms().name)); name != nullptr && name->value.is_string())
+        if (PropertyRef const name = function.find_own(PropertyKey::atom(atoms().name)); name != nullptr && name->value.is_string())
             tally.name = name->value.as_string()->to_utf8();
         if (tally.name.empty())
             tally.name = "(anonymous)";

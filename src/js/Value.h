@@ -144,6 +144,27 @@ public:
     // collector traces.
     Cell* as_cell() const { return (m_bits & NotCellMask) == 0 ? reinterpret_cast<Cell*>(m_bits) : nullptr; }
 
+    // An object's slot (Object.h, Shape.h) may hold two things no script
+    // value is: an accessor's pair, a cell that is never a script value,
+    // and the mark of a property there and not made — the address of a
+    // record of the process's, 8-aligned, with OtherTag set and BoolTag
+    // telling one kind of record from the other. No script value has
+    // those bits (null is OtherTag alone; false, true and undefined are
+    // all below 16), and neither is ever handed to a script.
+    static Value slot_cell(Cell* cell) { return Value::cell(cell); }
+    static Value lazy_mark(void const* record, bool second)
+    {
+        auto const bits = static_cast<std::uint64_t>(reinterpret_cast<std::uintptr_t>(record));
+#ifdef SASHFOLD_JS_VALUE_CHECKS
+        if (bits <= 0xf || (bits & 7u) != 0 || (bits & 0xffff000000000000ull) != 0)
+            std::abort();
+#endif
+        return from_bits(bits | OtherTag | (second ? BoolTag : 0));
+    }
+    constexpr bool is_lazy_mark() const { return (m_bits & (NumberTag | 1)) == 0 && (m_bits & OtherTag) != 0 && m_bits > 0xf; }
+    constexpr bool is_second_lazy_mark() const { return (m_bits & BoolTag) != 0; }
+    void const* as_lazy_mark() const { return reinterpret_cast<void const*>(static_cast<std::uintptr_t>(m_bits & ~std::uint64_t { 7 })); }
+
     // The encoded word itself, for the tests of the encoding; the engine
     // asks the questions above instead.
     constexpr std::uint64_t bits() const { return m_bits; }

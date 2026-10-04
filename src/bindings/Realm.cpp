@@ -502,7 +502,11 @@ js::Object* finish_interface(Realm::Internals& in, std::string_view name, js::Ob
 
 js::Object* new_interface_prototype(Realm::Internals& in, js::Object* parent_prototype)
 {
-    return in.interpreter.new_object(parent_prototype);
+    // A dictionary from the start, which a prototype is (js/Shape.h):
+    // the members it is about to be given are its alone.
+    js::Object* const prototype = in.interpreter.new_object(parent_prototype);
+    prototype->become_dictionary();
+    return prototype;
 }
 
 js::Object* define_interface(Realm::Internals& in, std::string_view name, js::Object* parent_prototype)
@@ -1630,7 +1634,7 @@ GroupTable& group_table()
 
 js::Object* interface_object(Realm::Internals& in, std::string const& name)
 {
-    js::Property* const own = in.realm_record->intrinsics.global->peek_own(in.interpreter.key(name));
+    js::PropertyRef const own = in.realm_record->intrinsics.global->peek_own(in.interpreter.key(name));
     return own != nullptr && !own->lazy && !own->accessor && own->value.is_object() ? own->value.as_object() : nullptr;
 }
 
@@ -1726,7 +1730,7 @@ void finish_learning(Realm::Internals& in, GroupTable& table)
         if (!provided.deferred)
             continue;
         for (ProvidedBy::Name& name : provided.globals) {
-            js::Property const* const own = global.peek_own(in.interpreter.key(name.key));
+            js::PropertyRef const own = global.peek_own(in.interpreter.key(name.key));
             if (own != nullptr)
                 name.attributes = own->attributes;
             if (!table.by_key.emplace(name.key, static_cast<std::uint8_t>(i)).second)
@@ -1777,7 +1781,7 @@ js::Value group_member(js::Object& holder, js::PropertyKey const& key, js::Realm
     // defining it, and finds what it would have found — nothing there yet.
     if (group == table.by_key.end() || !install_group(host->internals(), group->second))
         return js::Value::undefined();
-    js::Property const* const now = holder.peek_own(key);
+    js::PropertyRef const now = holder.peek_own(key);
     if (now == nullptr)
         return js::Value::undefined();
     if (now->lazy == js::Property::NotLazy && !now->accessor && now->value.is_undefined()) {
@@ -1832,7 +1836,7 @@ bool install_group(Realm::Internals& in, std::size_t index)
     // no longer.
     auto const settle = [&](js::Object& holder, std::string const& name) {
         js::PropertyKey const key = interpreter.key(name);
-        js::Property const* const own = holder.peek_own(key);
+        js::PropertyRef const own = holder.peek_own(key);
         if (own != nullptr && own->lazy == js::Property::LazyValue && own->lazy_make == group_member)
             holder.remove_own(key);
         return key;
