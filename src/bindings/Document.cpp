@@ -5,10 +5,12 @@
 
 #include "core/Ascii.h"
 #include "core/Unicode.h"
+#include "css/StyleResolver.h"
 #include "html/Serializer.h"
 #include "html/TreeBuilder.h"
 #include "js/Runtime.h"
 #include "net/Filters.h"
+#include "text/FontManager.h"
 
 #include <cstdint>
 #include <memory>
@@ -680,14 +682,46 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         return style_sheet_list(internals, d);
     });
     // FontFaceSet (CSS Font Loading §4), an EventTarget and a set with
-    // nothing in it: the page's fonts are loaded by the layout, not through
-    // here, so load() answers at once with no faces and ready is already so.
+    // nothing in it: the page's fonts are loaded by the layout — each when
+    // its text first needs it — so ready is already so, and load() answers
+    // at once with no faces, having asked for the ones its font and text
+    // name: what a page does to have a font there before it draws with it
+    // on a canvas, where no layout would ask.
     js::Object* font_face_set = define_interface(in, "FontFaceSet", in.prototype("EventTarget"));
     define_getter(in, *font_face_set, "status", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return internals_of(interp).string("loaded"); });
     define_getter(in, *font_face_set, "size", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
     define_promise_getter(in, *font_face_set, "ready", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native { return resolved_promise(interp, this_value); });
     define_operation(interpreter, *font_face_set, "check", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
-    define_promise_operation(interpreter, *font_face_set, "load", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
+    define_promise_operation(interpreter, *font_face_set, "load", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+        Realm::Internals& internals = internals_of(interp);
+        std::optional<std::string> const font = internals.to_utf8(args.empty() ? js::Value::undefined() : args[0]);
+        if (!font)
+            return std::nullopt;
+        std::string text = " ";
+        if (args.size() > 1 && !args[1].is_undefined()) {
+            std::optional<std::string> const given = internals.to_utf8(args[1]);
+            if (!given)
+                return std::nullopt;
+            text = *given;
+        }
+        auto const ask = [&font, &text] {
+            std::optional<css::FontShorthandValue> const parsed = css::parse_font_shorthand_text(*font, 16);
+            if (!parsed)
+                return;
+            text::FontRequest request;
+            request.families = parsed->families;
+            request.weight = parsed->weight;
+            request.italic = parsed->italic;
+            request.stretch = parsed->stretch;
+            text::FontStack const& stack = text::FontManager::instance().resolve(request);
+            (void)stack.primary();
+            for (char32_t const c : decode_utf8(text))
+                (void)stack.glyph_for(c);
+        };
+        if (internals.hooks.with_fonts)
+            internals.hooks.with_fonts(ask);
+        else
+            ask();
         return resolved_promise(interp, js::Value::object(interp.new_array()));
     });
     define_operation(interpreter, *font_face_set, "add", 1, [](js::Interpreter&, js::Value const& this_value, Args) -> Native { return this_value; });

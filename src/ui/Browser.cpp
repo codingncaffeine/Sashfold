@@ -654,6 +654,18 @@ struct Browser::Impl {
         bool fonts_owed = false;
         std::vector<std::shared_ptr<net::FetchTicket>> fonts_coming;
         std::chrono::steady_clock::time_point fonts_taken_at {};
+        // A font is fetched when the page's text first needs it: the ones
+        // asked for so far, each by the first of its sources; what its
+        // waiting fonts ask through (load_font); and what is left of the
+        // moment a collection gives its fonts to come from the cache.
+        std::set<std::string> fonts_asked;
+        std::shared_ptr<text::PageFontLoader> font_loader;
+        int font_grace_ms = 0;
+        // The bytes of the fonts the page has fetched, by where each came
+        // from: a later collection takes them from here and not from the
+        // loader again — the cache may not keep a font, and the page's
+        // thread would then stand waiting on the network for what it holds.
+        std::map<std::string, std::shared_ptr<std::vector<std::uint8_t> const>> font_bytes;
         int scroll_y = 0;
         // How far the reader has moved each box that scrolls, and how much
         // of that the fragment tree already carries: a fresh layout carries
@@ -2072,6 +2084,7 @@ struct Browser::Impl {
         sum.video_paint_ms += page.video_paint_ms;
         sum.sheet_collections += page.sheet_collections;
         sum.sheet_decodes += page.sheet_decodes;
+        sum.fonts_asked += page.fonts_asked;
         sum.commit_ms += page.commit_ms;
         sum.sheets_ms += page.sheets_ms;
         sum.fonts_ms += page.fonts_ms;
@@ -3799,6 +3812,163 @@ struct Browser::Impl {
         };
     }
 
+    // A font fetched on the page's behalf, under its policy, the once: what
+    // came is kept for the page's later collections, and so is the fact
+    // that nothing did.
+    std::optional<css::FetchedSheet> fetch_font_bytes(Tab& tab, net::Url const& page_url, net::Url const& url,
+        std::string_view nonce = {})
+    {
+        std::string const key = url.serialize(true);
+        if (auto const held = tab.font_bytes.find(key); held != tab.font_bytes.end())
+            return css::FetchedSheet { *held->second, "" };
+        std::string const failure_key = "font " + url.serialize();
+        if (tab.sheet_failures.contains(failure_key))
+            return std::nullopt;
+        net::ContentSecurityPolicy* const policy = tab.policy.get();
+        net::RequestGuard const guard = policy ? policy->guard(net::ResourceKind::Font, std::string(nonce)) : net::RequestGuard {};
+        net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url),
+            net::ResourceKind::Font, guard, tab.container);
+        if (!result.response || result.response->status != 200) {
+            tab.sheet_failures.insert(failure_key);
+            return std::nullopt;
+        }
+        std::string const* header = net::find_header(result.response->headers, "content-type");
+        auto bytes = std::make_shared<std::vector<std::uint8_t> const>(std::move(result.response->body));
+        tab.font_bytes.emplace(key, bytes);
+        return css::FetchedSheet { *bytes, header ? *header : "" };
+    }
+
+    // What a tab's waiting fonts ask through, made for the document the tab
+    // shows: found again by that document when a font is asked for, since a
+    // tab's place in the list is not its own for good.
+    std::shared_ptr<text::PageFontLoader> const& font_loader_of(Tab& tab)
+    {
+        if (!tab.font_loader) {
+            dom::Document const* const document = tab.document.get();
+            tab.font_loader = std::make_shared<text::PageFontLoader>([this, document](text::PageFontWait const& wait) {
+                Tab* const owner = tab_of(document);
+                return owner ? load_font(*owner, wait) : text::PageFontLoad {};
+            });
+        }
+        return tab.font_loader;
+    }
+
+    // A font the page declared, needed for the first time by its text: asked
+    // for on a thread of the loader's, like everything the page fetches. One
+    // the cache holds is here within the moment given and is in the text from
+    // this layout on, so nothing is seen to swap; one that has to cross the
+    // network is not waited for — the text takes the next face it has, and
+    // the pass over the page's fonts (continue_fonts) lays the page out in
+    // this one when it has come.
+    text::PageFontLoad load_font(Tab& tab, text::PageFontWait const& wait)
+    {
+        text::PageFontLoad load;
+        HistoryEntry const* const entry = tab.current();
+        std::optional<net::Url> const url = wait.urls.empty() ? std::nullopt : net::parse_url(wait.urls.front());
+        if (!entry || !url)
+            return load;
+        ++profile.fonts_asked;
+        // Every collection from here on takes it as it has come, and its
+        // fallbacks should this source fail.
+        tab.fonts_asked.insert(wait.urls.front());
+        net::Url const page_url = entry->final_url;
+        // Held already: nothing is asked of the network for it again.
+        if (tab.font_bytes.contains(url->serialize(true))) {
+            if (std::optional<text::PageFontLoad> loaded = css::loaded_page_font(wait.urls.front(), fetch_font_bytes(tab, page_url, *url)))
+                return std::move(*loaded);
+        }
+        if (std::shared_ptr<net::FetchTicket> ticket = ask_ahead(tab, page_url, *url, net::ResourceKind::Font, tab.policy.get())) {
+            if (!ticket->done()) {
+                auto const from = std::chrono::steady_clock::now();
+                ticket->wait_for(std::max(2, tab.font_grace_ms));
+                auto const waited = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - from).count();
+                tab.font_grace_ms = std::max(0, tab.font_grace_ms - static_cast<int>(waited));
+            }
+            if (!ticket->done()) {
+                tab.fonts_coming.push_back(std::move(ticket));
+                tab.fonts_owed = true;
+                load.outcome = text::PageFontLoad::Outcome::Coming;
+                return load;
+            }
+        }
+        // Here — or not something asked for ahead at all: a local page's
+        // file, a data: URL, a request the page's policy refuses — and taken
+        // where it stands.
+        if (std::optional<text::PageFontLoad> loaded = css::loaded_page_font(wait.urls.front(), fetch_font_bytes(tab, page_url, *url)))
+            return std::move(*loaded);
+        // The first source gave nothing: the others, where there are any,
+        // are tried in order by the next pass, as a collection tries them.
+        if (wait.urls.size() > 1) {
+            tab.fonts_owed = true;
+            load.outcome = text::PageFontLoad::Outcome::Coming;
+        }
+        return load;
+    }
+
+    // A page's fonts as its sheets declare them: with fonts on demand, the
+    // ones its text has asked for taken as they have come and the rest left
+    // waiting; without, every one fetched.
+    std::vector<text::PageFont> collect_fonts(Tab& tab, css::SheetFetcher const& fetch_font, bool& owed)
+    {
+        if (!text::page_fonts_on_demand())
+            return css::collect_page_fonts(tab.sheets, font_fetcher_now(tab, fetch_font, owed), media_context());
+        return css::collect_page_fonts(tab.sheets, font_fetcher_now(tab, fetch_font, owed), media_context(), font_loader_of(tab),
+            [&tab](std::string const& source) { return tab.fonts_asked.contains(source); });
+    }
+
+    // Every font a page's sheets name, fetched as the sheets are read: how a
+    // page's fonts are had with fonts on demand switched off. They are asked
+    // for together first — the same choosing with nothing fetched, told that
+    // each face's first readable source arrived, so that a face's fallbacks
+    // are not asked for as well — and the collecting then finds them
+    // arriving together.
+    void collect_every_font(Tab& tab, net::Url const& page_url, css::SheetFetcher const& fetch_font)
+    {
+        tab.fonts_coming.clear();
+        {
+            std::vector<net::Url> wanted;
+            css::collect_page_fonts(tab.sheets,
+                [&wanted](net::Url const& url, std::string_view) -> std::optional<css::FetchedSheet> {
+                    wanted.push_back(url);
+                    return css::FetchedSheet { std::vector<std::uint8_t> { 0 }, "" };
+                },
+                media_context());
+            for (net::Url const& url : wanted) {
+                if (std::shared_ptr<net::FetchTicket> ticket = ask_ahead(tab, page_url, url, net::ResourceKind::Font, tab.policy.get()))
+                    tab.fonts_coming.push_back(std::move(ticket));
+            }
+        }
+        // The page is not held for its fonts: what has come is taken,
+        // the text is laid out in the fonts the machine has for the
+        // rest, and laid out again in the page's own as they arrive
+        // (the swap every engine shows). A moment is given first, so a
+        // font the cache holds is in from the start and nothing swaps.
+        {
+            auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
+            for (std::shared_ptr<net::FetchTicket> const& ticket : tab.fonts_coming) {
+                auto const left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
+                if (left <= 0)
+                    break;
+                if (!ticket->done())
+                    ticket->wait_for(static_cast<int>(left));
+            }
+        }
+        bool owed = false;
+        tab.fonts = css::collect_page_fonts(tab.sheets, font_fetcher_now(tab, fetch_font, owed), media_context());
+        tab.fonts_owed = owed;
+    }
+
+    // How many of a page's fonts its text can be set in, with how many it
+    // declares: what a pass over them compares to tell whether one came, or
+    // turned out not to exist.
+    static std::pair<std::size_t, std::size_t> fonts_standing(Tab const& tab)
+    {
+        std::size_t usable = 0;
+        for (text::PageFont const& font : tab.fonts)
+            usable += !font.waiting || font.waiting->came() ? 1 : 0;
+        return { usable, tab.fonts.size() };
+    }
+
     // The next pass over a page's fonts, for a page laid out before they
     // were all in: collected again from what has come, and the page laid
     // out in them.
@@ -3811,26 +3981,19 @@ struct Browser::Impl {
         std::erase_if(tab.fonts_coming, [](std::shared_ptr<net::FetchTicket> const& ticket) { return ticket->done(); });
         tab.fonts_taken_at = std::chrono::steady_clock::now();
         net::Url const page_url = entry->final_url;
-        net::ContentSecurityPolicy* const policy = tab.policy.get();
         css::SheetFetcher const fetch_font = [&](net::Url const& url, std::string_view nonce) -> std::optional<css::FetchedSheet> {
-            net::RequestGuard const guard = policy ? policy->guard(net::ResourceKind::Font, std::string(nonce)) : net::RequestGuard {};
-            net::FetchResult result = loader.load_subresource(url, page_url, referrer_for(&page_url, url),
-                net::ResourceKind::Font, guard, tab.container);
-            if (!result.response || result.response->status != 200)
-                return std::nullopt;
-            std::string const* header = net::find_header(result.response->headers, "content-type");
-            return css::FetchedSheet { std::move(result.response->body), header ? *header : "" };
+            return fetch_font_bytes(tab, page_url, url, nonce);
         };
         bool owed = false;
-        std::size_t const had = tab.fonts.size();
+        std::pair<std::size_t, std::size_t> const had = fonts_standing(tab);
         {
             Stopwatch const fonting(profile.fonts_ms);
-            tab.fonts = css::collect_page_fonts(tab.sheets, font_fetcher_now(tab, fetch_font, owed), media_context());
+            tab.fonts = collect_fonts(tab, fetch_font, owed);
         }
         tab.fonts_owed = owed;
         // Laid out again only when a font came: a pass that found them all
         // still on their way changes nothing.
-        if (tab.fonts.size() != had) {
+        if (fonts_standing(tab) != had) {
             // The ex and ch lengths are measured in these faces: the next
             // restyle computes everything.
             tab.document->mark_style_everything();
@@ -4372,44 +4535,23 @@ struct Browser::Impl {
                 if (std::optional<css::SheetSource> hiding = cosmetic_sheet(*lists, page_url, *tab.document))
                     tab.sheets.push_back(std::move(*hiding));
             }
-            // The fonts the sheets name are asked for together first: the
-            // same choosing with nothing fetched — told that each face's
-            // first readable source arrived, so that a face's fallbacks are
-            // not asked for as well — and the collecting below then finds
-            // them arriving together.
             Stopwatch const fonting(profile.fonts_ms);
-            tab.fonts_coming.clear();
-            {
-                std::vector<net::Url> wanted;
-                css::collect_page_fonts(tab.sheets,
-                    [&wanted](net::Url const& url, std::string_view) -> std::optional<css::FetchedSheet> {
-                        wanted.push_back(url);
-                        return css::FetchedSheet { std::vector<std::uint8_t> { 0 }, "" };
-                    },
-                    media_context());
-                for (net::Url const& url : wanted) {
-                    if (std::shared_ptr<net::FetchTicket> ticket = ask_ahead(tab, page_url, url, net::ResourceKind::Font, tab.policy.get()))
-                        tab.fonts_coming.push_back(std::move(ticket));
-                }
+            if (text::page_fonts_on_demand()) {
+                // Nothing is asked for here: a font is fetched when the
+                // page's text first needs it (load_font), which is the only
+                // way to know that it does. The ones asked for already are
+                // taken as they have come, and the moment a font is given
+                // to come from the cache starts over.
+                tab.font_grace_ms = 50;
+                bool owed = false;
+                tab.fonts = collect_fonts(
+                    tab,
+                    [&](net::Url const& url, std::string_view nonce) { return fetch_font_bytes(tab, page_url, url, nonce); },
+                    owed);
+                tab.fonts_owed = owed;
+            } else {
+                collect_every_font(tab, page_url, fetch_font);
             }
-            // The page is not held for its fonts: what has come is taken,
-            // the text is laid out in the fonts the machine has for the
-            // rest, and laid out again in the page's own as they arrive
-            // (the swap every engine shows). A moment is given first, so a
-            // font the cache holds is in from the start and nothing swaps.
-            {
-                auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(50);
-                for (std::shared_ptr<net::FetchTicket> const& ticket : tab.fonts_coming) {
-                    auto const left = std::chrono::duration_cast<std::chrono::milliseconds>(deadline - std::chrono::steady_clock::now()).count();
-                    if (left <= 0)
-                        break;
-                    if (!ticket->done())
-                        ticket->wait_for(static_cast<int>(left));
-                }
-            }
-            bool owed = false;
-            tab.fonts = css::collect_page_fonts(tab.sheets, font_fetcher_now(tab, fetch_font, owed), media_context());
-            tab.fonts_owed = owed;
             tab.fonts_taken_at = std::chrono::steady_clock::now();
             tab.style_set.reset();
             tab.sheet_signature = signature;
@@ -4576,6 +4718,15 @@ struct Browser::Impl {
         tab.sheet_texts.clear();
         tab.sheet_failures.clear();
         tab.fonts.clear();
+        // The fonts of the page that is going are asked for no more: its
+        // loader is emptied for whatever still holds one of its waits.
+        tab.fonts_asked.clear();
+        tab.font_bytes.clear();
+        tab.fonts_coming.clear();
+        tab.fonts_owed = false;
+        if (tab.font_loader)
+            *tab.font_loader = nullptr;
+        tab.font_loader.reset();
         tab.style_set.reset();
         tab.sheet_signature.clear();
         tab.styles.clear();

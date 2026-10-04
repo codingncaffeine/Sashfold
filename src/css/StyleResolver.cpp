@@ -1356,9 +1356,11 @@ struct LengthContext {
     float viewport_height = 768;
     // One `ex` and one `ch` in px: the x-height of the first available face,
     // and the advance of its "0", at this font size. Half the font size when
-    // the face does not say — the fallback the specification names.
-    float ex_size = 8;
-    float ch_size = 8;
+    // the face does not say — the fallback the specification names. Measured
+    // when a length in one of them is met, and not before.
+    struct FontRatios const* ratios = nullptr;
+    float ex_size() const;
+    float ch_size() const;
     // Device px per CSS px: what an absolute length is multiplied by. The
     // relative units above are already in device px.
     float device_scale = 1;
@@ -1370,10 +1372,72 @@ struct LengthContext {
 
 // How much of a font size one `ex` and one `ch` are, for a face: ratios, not
 // pixels, because they depend on the face and not on the size it is used at.
+// The face is the one a style names, and it is measured the first time one
+// of the two is read: measuring asks for the face, and a face a page
+// declared is fetched when something asks for it — which a style with no
+// length in either unit never does.
 struct FontRatios {
-    float ex = 0.5f;
-    float ch = 0.5f;
+    FontRatios() = default;
+    explicit FontRatios(ComputedStyle const& style)
+        : m_families(style.font_family)
+        , m_weight(style.font_weight)
+        , m_stretch(style.font_stretch)
+        , m_italic(style.slanted())
+        , m_measured(false)
+    {
+    }
+    float ex() const
+    {
+        measure();
+        return m_ex;
+    }
+    float ch() const
+    {
+        measure();
+        return m_ch;
+    }
+
+private:
+    // A face that does not say its x-height, and one with no "0", keep the
+    // halves the specification falls back to.
+    void measure() const
+    {
+        if (m_measured)
+            return;
+        m_measured = true;
+        text::FontRequest request;
+        if (m_families)
+            request.families = *m_families;
+        request.weight = m_weight;
+        request.stretch = m_stretch;
+        request.italic = m_italic;
+        text::Face const& face = text::FontManager::instance().resolve(request).primary();
+        // Measured at a size large enough that the division keeps its digits.
+        constexpr float probe = 1024;
+        if (float const x = face.metrics(probe).x_height; x > 0)
+            m_ex = x / probe;
+        if (float const zero = face.advance(face.glyph_index(U'0'), probe); zero > 0)
+            m_ch = zero / probe;
+    }
+
+    std::shared_ptr<std::vector<std::string> const> m_families;
+    int m_weight = 400;
+    int m_stretch = 100;
+    bool m_italic = false;
+    mutable bool m_measured = true; // one made from no style is the halves
+    mutable float m_ex = 0.5f;
+    mutable float m_ch = 0.5f;
 };
+
+float LengthContext::ex_size() const
+{
+    return font_size * (ratios ? ratios->ex() : 0.5f);
+}
+
+float LengthContext::ch_size() const
+{
+    return font_size * (ratios ? ratios->ch() : 0.5f);
+}
 
 std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
     LengthContext const& context, bool allow_auto, bool allow_percent = true);
@@ -1624,9 +1688,9 @@ std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
     // The font-relative pair: `ex` is the face's x-height, `ch` the advance
     // of its "0".
     if (ascii_ci_equals(unit, "ex"))
-        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.ex_size)));
+        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.ex_size())));
     if (ascii_ci_equals(unit, "ch"))
-        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.ch_size)));
+        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.ch_size())));
     // The viewport units, against the viewport this resolution is for.
     if (context.used_viewport && unit.size() >= 2 && (unit[0] == 'v' || unit[0] == 'V'))
         *context.used_viewport |= ascii_ci_equals(unit, "vw") ? 1u : ascii_ci_equals(unit, "vh") ? 2u : 3u;
@@ -3021,40 +3085,17 @@ struct Resolver {
         return false;
     }
     // What one `ex` and one `ch` come to for the element being cascaded and
-    // for its parent: settled as soon as the font is, and read by every
-    // length in those units afterwards.
+    // for its parent: which face they are of is settled as soon as the font
+    // is, and the face is measured by the first length in those units.
     FontRatios own_ratios;
     FontRatios parent_ratios;
-
-    // The ratios for the face a style names — its x-height and the advance
-    // of its "0", as fractions of the font size, since neither depends on
-    // the size. A face that does not say its x-height, and one with no "0",
-    // keep the halves the specification falls back to.
-    static FontRatios ratios_for(ComputedStyle const& style)
-    {
-        text::FontRequest request;
-        if (style.font_family)
-            request.families = *style.font_family;
-        request.weight = style.font_weight;
-        request.stretch = style.font_stretch;
-        request.italic = style.slanted();
-        text::Face const& face = text::FontManager::instance().resolve(request).primary();
-        // Measured at a size large enough that the division keeps its digits.
-        constexpr float probe = 1024;
-        FontRatios ratios;
-        if (float const x = face.metrics(probe).x_height; x > 0)
-            ratios.ex = x / probe;
-        if (float const zero = face.advance(face.glyph_index(U'0'), probe); zero > 0)
-            ratios.ch = zero / probe;
-        return ratios;
-    }
 
     // A length context: this style's font size, with one `ex` and one `ch`
     // of the face it names.
     LengthContext length_context(ComputedStyle const& style, FontRatios const& ratios) const
     {
-        return LengthContext { style.font_size, root_font_size, set.media.width, set.media.height,
-            style.font_size * ratios.ex, style.font_size * ratios.ch, set.media.device_scale, &set.viewport_lengths };
+        return LengthContext { style.font_size, root_font_size, set.media.width, set.media.height, &ratios,
+            set.media.device_scale, &set.viewport_lengths };
     }
 
     explicit Resolver(RuleSet const& the_set)
@@ -4448,7 +4489,7 @@ struct Resolver {
         // weight and the slant choose between. All four are settled here,
         // whatever order they were written in, and applied again with the
         // rest below, to the same values.
-        parent_ratios = ratios_for(parent);
+        parent_ratios = FontRatios(parent);
         bool font_pass_top = false;
         bool font_pass_right = false;
         bool font_pass_bottom = false;
@@ -4498,7 +4539,7 @@ struct Resolver {
                 }
             });
         }
-        own_ratios = ratios_for(style);
+        own_ratios = FontRatios(style);
         // `direction` goes next, before anything that depends on it: a
         // flow-relative property is the physical one this element's own
         // direction names, so the direction has to be settled first

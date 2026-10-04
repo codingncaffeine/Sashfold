@@ -1,0 +1,48 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<title>fonts</title>
+<style>
+  @font-face { font-family: Used; src: url(../fixtures/fonts/SashfoldMono.ttf) }
+  @font-face { font-family: Used; font-weight: 700; src: url(../fixtures/fonts/SashfoldMono.ttf?bold) }
+  @font-face { font-family: Greek; src: url(../fixtures/fonts/SashfoldMono.ttf?greek); unicode-range: U+370-3FF }
+  @font-face { font-family: Unused; src: url(../fixtures/fonts/SashfoldMono.ttf?unused) }
+  @font-face { font-family: Drawn; src: url(../fixtures/fonts/SashfoldMono.ttf?drawn) }
+  @font-face { font-family: Sized; src: url(../fixtures/fonts/SashfoldMono.ttf?sized) }
+  p { font-family: Greek, Used }
+  div { font-family: Sized }
+</style>
+</head>
+<body>
+<p id="p">plain text</p>
+<div id="d"></div>
+<canvas id="c" width="100" height="40"></canvas>
+<script>
+  // Five fonts beyond the first are declared, and each is fetched at the
+  // step that first needs it: bold words, Greek letters, a length in the
+  // font's own units on a box with no text, and a canvas's text asked for
+  // through document.fonts. The sixth is never needed.
+  setTimeout(function () {
+    document.getElementById('p').innerHTML = 'plain <b>bold</b>';
+    document.title = 'bold';
+  }, 50);
+  setTimeout(function () {
+    document.getElementById('p').textContent = 'αβγ';
+    document.title = 'greek';
+  }, 150);
+  setTimeout(function () {
+    document.getElementById('d').style.width = '10ch';
+    document.title = 'sized ' + document.getElementById('d').offsetWidth;
+  }, 250);
+  setTimeout(function () {
+    document.fonts.load('20px Drawn').then(function () {
+      var context = document.getElementById('c').getContext('2d');
+      context.font = '20px Drawn';
+      context.fillText('text', 5, 25);
+      document.title = 'drawn';
+    });
+  }, 350);
+</script>
+</body>
+</html>

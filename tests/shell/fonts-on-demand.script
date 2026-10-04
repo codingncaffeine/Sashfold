@@ -1,0 +1,23 @@
+# A page's fonts are fetched when its text needs them, not when its sheets
+# declare them. fonts-on-demand.html declares six and opens with text in
+# one: one is asked for. Each step then brings the first need of another —
+# bold words, Greek letters (a font kept to their range), a width in the
+# `ch` of the font of a box with no text in it, and a canvas's text, asked
+# for through document.fonts.load() — and the font nothing uses is never
+# asked for. The counts are of the fonts asked for since the script began.
+resize 800 600
+open fonts-on-demand.html
+assert-title fonts
+assert-fonts-asked 1
+advance 100
+assert-title bold
+assert-fonts-asked 2
+advance 100
+assert-title greek
+assert-fonts-asked 3
+advance 100
+assert-title sized 100
+assert-fonts-asked 4
+advance 100
+assert-title drawn
+assert-fonts-asked 5

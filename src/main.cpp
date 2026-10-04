@@ -944,7 +944,8 @@ int render_page(std::string const& path, std::string const& output, int viewport
     // seconds, without waiting for them. A script that asks for a box gets
     // the page laid out as it stands.
     auto document = std::make_unique<dom::Document>();
-    bindings::LayoutOracle oracle(*document, loaded.url, sheet_fetcher(loaded), media);
+    bindings::LayoutOracle oracle(*document, loaded.url, sheet_fetcher(loaded), media,
+        sheet_fetcher(loaded, nullptr, net::ResourceKind::Font));
     oracle.set_policy(loaded.policy.get());
     std::unique_ptr<bindings::Realm> realm;
     double script_clock = 0;
@@ -1023,8 +1024,9 @@ int render_page(std::string const& path, std::string const& output, int viewport
         if (std::optional<css::SheetSource> hiding = ui::cosmetic_sheet(loaded.loader->blocklists(), loaded.url, *document))
             sheets.push_back(std::move(*hiding));
     }
-    std::vector<text::PageFont> const fonts
-        = css::collect_page_fonts(sheets, sheet_fetcher(loaded, &sheet_failures, net::ResourceKind::Font), media);
+    // The page's fonts, each fetched when its text is first laid out.
+    css::FontsOnDemand const fonts_on_demand(sheet_fetcher(loaded, &sheet_failures, net::ResourceKind::Font));
+    std::vector<text::PageFont> const fonts = fonts_on_demand.collect(sheets, media);
     text::FontManager::instance().set_page_fonts(fonts);
     auto const t2 = clock::now();
     net::Url const base = html::document_base_url(*document, loaded.url);
@@ -1093,6 +1095,12 @@ int render_page(std::string const& path, std::string const& output, int viewport
         std::size_t runs = 0;
         std::size_t characters = 0;
         count_text(page.root, runs, characters);
+        // Of the fonts the page declares, the ones its text is set in: every
+        // one that could be had where they are fetched as the sheets are
+        // read, the ones the text needed where they are fetched on demand.
+        std::size_t fonts_fetched = 0;
+        for (text::PageFont const& font : fonts)
+            fonts_fetched += !font.waiting || font.waiting->came() ? 1 : 0;
         net::ConnectionPool::Stats const connections = loaded.loader->pool().stats();
         std::ofstream out(extras.report, std::ios::binary);
         out << "{\n"
@@ -1115,7 +1123,8 @@ int render_page(std::string const& path, std::string const& output, int viewport
             << " },\n"
             << "  \"images\": { \"count\": " << images.size() << ", \"failed\": " << image_failures
             << " },\n"
-            << "  \"fonts\": " << fonts.size() << ",\n"
+            << "  \"fonts\": " << fonts_fetched << ",\n"
+            << "  \"fonts_declared\": " << fonts.size() << ",\n"
             << "  \"blocked\": " << loaded.loader->blocked_requests() << ",\n"
             << "  \"csp\": { \"policies\": " << loaded.policy->policies().size() << ", \"refused\": " << loaded.policy->refusals() << " },\n";
         if (realm) {
@@ -1285,6 +1294,7 @@ ui::Profile profile_since(ui::Profile const& now, ui::Profile const& base)
     d.restyled_elements -= base.restyled_elements;
     d.whole_restyles -= base.whole_restyles;
     d.relayouts -= base.relayouts;
+    d.fonts_asked -= base.fonts_asked;
     d.paints -= base.paints;
     d.painted_pixels -= base.painted_pixels;
     d.commit_ms -= base.commit_ms;
@@ -1332,7 +1342,7 @@ std::string profile_json(ui::Profile const& p)
     std::ostringstream out;
     out << std::fixed << std::setprecision(1) << "{ \"restyles\": " << p.restyles
         << ", \"restyled_elements\": " << p.restyled_elements << ", \"whole_restyles\": " << p.whole_restyles
-        << ", \"relayouts\": " << p.relayouts
+        << ", \"relayouts\": " << p.relayouts << ", \"fonts_asked\": " << p.fonts_asked
         << ", \"paints\": " << p.paints << ", \"painted_pixels\": " << p.painted_pixels << ", \"ms\": { \"commit\": " << p.commit_ms
         << ", \"sheets\": " << p.sheets_ms
         << ", \"fonts\": " << p.fonts_ms << ", \"compile\": " << p.style_compile_ms

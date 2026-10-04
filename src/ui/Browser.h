@@ -301,6 +301,9 @@ struct Profile {
     // bytes coming back from the cache are not decoded again.
     std::uint64_t sheet_collections = 0;
     std::uint64_t sheet_decodes = 0;
+    // The fonts a page's text needed and the page was asked for: of the
+    // ones its sheets declare, the ones fetched.
+    std::uint64_t fonts_asked = 0;
     // A page committed: its markup parsed, the scripts that run as it is
     // parsed run, its stylesheets collected and its first styles resolved.
     double commit_ms = 0;

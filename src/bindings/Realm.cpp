@@ -2258,21 +2258,26 @@ std::shared_ptr<FrameGeometry> frame_geometry(Realm::Internals& parent, dom::Ele
     auto geometry = std::make_shared<FrameGeometry>();
     geometry->parent = &parent;
     geometry->container = &container;
-    css::SheetFetcher fetch = [geometry](net::Url const& target, std::string_view nonce) -> std::optional<css::FetchedSheet> {
-        if (geometry->realm == nullptr || !geometry->realm->hooks().fetch_resource)
-            return std::nullopt;
-        HostHooks& own = geometry->realm->hooks();
-        net::ResourceRequest request;
-        request.destination = "style";
-        net::RequestGuard const guard = own.policy ? own.policy->guard(net::ResourceKind::Stylesheet, std::string(nonce)) : net::RequestGuard {};
-        net::FetchResult const result = own.fetch_resource(target, request, guard);
-        if (!result.response || result.response->status != 200)
-            return std::nullopt;
-        std::string const* const type = net::find_header(result.response->headers, "Content-Type");
-        return css::FetchedSheet { result.response->body, type ? *type : std::string() };
+    // A sheet under the policy's say on stylesheets, a font under its say on
+    // fonts.
+    auto const fetch_as = [geometry](net::ResourceKind kind, char const* destination) -> css::SheetFetcher {
+        return [geometry, kind, destination](net::Url const& target, std::string_view nonce) -> std::optional<css::FetchedSheet> {
+            if (geometry->realm == nullptr || !geometry->realm->hooks().fetch_resource)
+                return std::nullopt;
+            HostHooks& own = geometry->realm->hooks();
+            net::ResourceRequest request;
+            request.destination = destination;
+            net::RequestGuard const guard = own.policy ? own.policy->guard(kind, std::string(nonce)) : net::RequestGuard {};
+            net::FetchResult const result = own.fetch_resource(target, request, guard);
+            if (!result.response || result.response->status != 200)
+                return std::nullopt;
+            std::string const* const type = net::find_header(result.response->headers, "Content-Type");
+            return css::FetchedSheet { result.response->body, type ? *type : std::string() };
+        };
     };
     // Laid out in CSS px, which is what the hooks answer in.
-    geometry->made = std::make_unique<LayoutOracle>(document, url, std::move(fetch), css::MediaContext { 300, 150, 1 });
+    geometry->made = std::make_unique<LayoutOracle>(document, url, fetch_as(net::ResourceKind::Stylesheet, "style"),
+        css::MediaContext { 300, 150, 1 }, fetch_as(net::ResourceKind::Font, "font"));
     geometry->oracle = geometry->made.get();
     geometry->oracle->keep_page_fonts(true);
     frame_hooks.layout_box = [geometry](dom::Element const& element) {

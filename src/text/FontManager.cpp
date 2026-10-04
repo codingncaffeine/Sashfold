@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <array>
 #include <atomic>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
@@ -171,6 +172,66 @@ private:
 
 } // namespace
 
+bool FontStack::Waiting::covers(char32_t code_point) const
+{
+    if (ranges.empty())
+        return true;
+    for (auto const& [first, last] : ranges) {
+        if (code_point >= first && code_point <= last)
+            return true;
+    }
+    return false;
+}
+
+// The waiting faces a code point gets as far as — the ones that keep it in
+// their range, ahead of the first face with a glyph for it — are asked
+// for. A face that comes changes the stack, and the walk starts again.
+void FontStack::ask_for(char32_t code_point) const
+{
+    for (;;) {
+        std::size_t answering = m_faces.size();
+        for (std::size_t i = 0; i < m_faces.size(); ++i) {
+            if (m_faces[i]->glyph_index(code_point) != 0) {
+                answering = i;
+                break;
+            }
+        }
+        bool changed = false;
+        for (std::size_t i = 0; i < m_waiting.size() && !changed; ++i) {
+            Waiting const& waiting = m_waiting[i];
+            if (waiting.asked || waiting.before > answering || !waiting.covers(code_point))
+                continue;
+            changed = m_manager->ask(*this, i);
+        }
+        if (!changed)
+            return;
+    }
+}
+
+// The same for the first available font: a waiting face that would be it
+// is asked for by whoever reads the line's metrics, text or no text.
+void FontStack::ask_primary() const
+{
+    for (;;) {
+        std::size_t primary = m_faces.size();
+        for (std::size_t i = 0; i < m_faces.size(); ++i) {
+            if (m_faces[i] == m_primary) {
+                primary = i;
+                break;
+            }
+        }
+        bool changed = false;
+        for (std::size_t i = 0; i < m_waiting.size() && !changed; ++i) {
+            Waiting const& waiting = m_waiting[i];
+            if (waiting.asked || waiting.before > primary || !waiting.covers(U' '))
+                continue;
+            changed = m_manager->ask(*this, i);
+        }
+        if (!changed)
+            return;
+    }
+}
+
 Face const& FontStack::face_for(char32_t code_point) const
 {
     // A character drawn as a picture by default — a smiling face, a flag
@@ -181,6 +242,8 @@ Face const& FontStack::face_for(char32_t code_point) const
         if (Face const* face = m_manager->color_face_for(code_point))
             return *face;
     }
+    if (m_unasked != 0) [[unlikely]]
+        ask_for(code_point);
     for (Face const* face : m_faces) {
         if (face->glyph_index(code_point) != 0)
             return *face;
@@ -205,7 +268,7 @@ float FontStack::measure(std::u32string_view text, float size, bool kern) const
 {
     // The built-in face alone is fixed pitch: count times advance, which is
     // exact where a running sum would drift.
-    if (m_faces.size() == 1)
+    if (builtin_alone())
         return static_cast<float>(text.size()) * m_faces[0]->advance(0, size);
     float width = 0;
     Glyph previous { nullptr, 0 };
@@ -265,6 +328,7 @@ void FontManager::retire_stacks(ThreadFonts& fonts)
     for (auto& [key, stack] : fonts.stacks)
         m_retired_stacks.push_back(std::move(stack));
     fonts.stacks.clear();
+    ++fonts.serial;
 }
 
 FontManager::ThreadFonts& FontManager::mine() const
@@ -275,25 +339,84 @@ FontManager::ThreadFonts& FontManager::mine() const
     return *fonts;
 }
 
+bool FontManager::same_page_faces(std::vector<PageFace> const& left, std::vector<PageFace> const& right)
+{
+    if (left.size() != right.size())
+        return false;
+    for (std::size_t i = 0; i < left.size(); ++i) {
+        if (left[i].face != right[i].face || left[i].wait != right[i].wait || left[i].family_lower != right[i].family_lower
+            || left[i].weight != right[i].weight || left[i].italic != right[i].italic || left[i].stretch != right[i].stretch
+            || left[i].weight_max != right[i].weight_max || left[i].stretch_max != right[i].stretch_max)
+            return false;
+    }
+    return true;
+}
+
+void FontManager::settle_page_faces(std::vector<PageFace>& faces)
+{
+    std::erase_if(faces, [](PageFace& entry) {
+        if (!entry.wait || !entry.wait->settled)
+            return false;
+        if (!entry.wait->face)
+            return true;
+        entry.face = entry.wait->face;
+        entry.wait = nullptr;
+        entry.ranges.clear();
+        return false;
+    });
+}
+
 void FontManager::restore_page_faces(std::vector<PageFace> faces)
 {
     std::lock_guard<std::recursive_mutex> const lock(m_mutex);
     ThreadFonts& fonts = mine();
-    bool same = faces.size() == fonts.page_faces.size();
-    for (std::size_t i = 0; same && i < faces.size(); ++i) {
-        same = faces[i].face == fonts.page_faces[i].face && faces[i].family_lower == fonts.page_faces[i].family_lower
-            && faces[i].weight == fonts.page_faces[i].weight && faces[i].italic == fonts.page_faces[i].italic
-            && faces[i].stretch == fonts.page_faces[i].stretch && faces[i].weight_max == fonts.page_faces[i].weight_max
-            && faces[i].stretch_max == fonts.page_faces[i].stretch_max;
-    }
-    if (same)
+    // A font that came since the set was taken is in it from here on.
+    settle_page_faces(faces);
+    if (same_page_faces(faces, fonts.page_faces))
         return;
     fonts.page_faces = std::move(faces);
     retire_stacks(fonts);
 }
 
+std::size_t FontManager::page_font_count() const
+{
+    std::lock_guard<std::recursive_mutex> const lock(m_mutex);
+    std::size_t here = 0;
+    for (PageFace const& entry : mine().page_faces)
+        here += entry.face ? 1 : 0;
+    return here;
+}
+
+std::size_t FontManager::page_fonts_waiting() const
+{
+    std::lock_guard<std::recursive_mutex> const lock(m_mutex);
+    std::size_t waiting = 0;
+    for (PageFace const& entry : mine().page_faces)
+        waiting += entry.wait ? 1 : 0;
+    return waiting;
+}
+
 namespace {
 std::atomic<std::size_t> g_font_bytes_hashed { 0 };
+std::atomic<std::size_t> g_fonts_asked { 0 };
+std::atomic<std::size_t> g_fonts_loaded { 0 };
+std::atomic<std::size_t> g_fonts_coming { 0 };
+std::atomic<std::size_t> g_fonts_failed { 0 };
+}
+
+bool page_fonts_on_demand()
+{
+    static bool const on_demand = [] {
+        char const* const value = std::getenv("SASHFOLD_LAZY");
+        return !(value && value[0] == '0' && value[1] == '\0');
+    }();
+    return on_demand;
+}
+
+PageFontCensus page_font_census()
+{
+    return PageFontCensus { g_fonts_asked.load(std::memory_order_relaxed), g_fonts_loaded.load(std::memory_order_relaxed),
+        g_fonts_coming.load(std::memory_order_relaxed), g_fonts_failed.load(std::memory_order_relaxed) };
 }
 
 std::uint64_t font_bytes_hash(std::vector<std::uint8_t> const& bytes)
@@ -307,50 +430,67 @@ std::size_t font_bytes_hashed()
     return g_font_bytes_hashed.load(std::memory_order_relaxed);
 }
 
+// The face a font's bytes parse to, under the family and descriptors it
+// was declared with: parsed once, and kept for as long as the manager
+// lives. Null for bytes this engine draws nothing from.
+Face const* FontManager::page_face_of(PageFace const& described, std::vector<std::uint8_t> const& bytes,
+    std::uint64_t bytes_hash)
+{
+    std::string key = described.family_lower;
+    key += '\n';
+    key += std::to_string(described.weight);
+    key += described.italic ? 'i' : 'n';
+    key += '\n';
+    key += std::to_string(described.stretch);
+    key += '-';
+    key += std::to_string(described.stretch_max);
+    key += '/';
+    key += std::to_string(described.weight_max);
+    key += '\n';
+    key += std::to_string(bytes.size());
+    key += '\n';
+    key += std::to_string(bytes_hash != 0 ? bytes_hash : fnv1a(bytes));
+    auto it = m_page_face_cache.find(key);
+    if (it == m_page_face_cache.end()) {
+        std::unique_ptr<Face> face;
+        if (std::optional<TrueTypeFont> parsed = TrueTypeFont::parse(bytes); parsed && parsed->has_outlines())
+            face = make_truetype_face(std::move(*parsed));
+        it = m_page_face_cache.emplace(std::move(key), std::move(face)).first;
+    }
+    return it->second.get();
+}
+
 void FontManager::set_page_fonts(std::vector<PageFont> const& fonts)
 {
     std::lock_guard<std::recursive_mutex> const lock(m_mutex);
     std::vector<PageFace> faces;
     for (PageFont const& font : fonts) {
-        std::string key = lowercased(font.family);
-        key += '\n';
-        key += std::to_string(font.weight);
-        key += font.italic ? 'i' : 'n';
-        key += '\n';
-        key += std::to_string(font.stretch);
-        key += '-';
-        key += std::to_string(font.stretch_max);
-        key += '/';
-        key += std::to_string(font.weight_max);
-        key += '\n';
-        key += std::to_string(font.bytes.size());
-        key += '\n';
-        key += std::to_string(font.bytes_hash != 0 ? font.bytes_hash : fnv1a(font.bytes));
-        auto it = m_page_face_cache.find(key);
-        if (it == m_page_face_cache.end()) {
-            std::unique_ptr<Face> face;
-            if (std::optional<TrueTypeFont> parsed = TrueTypeFont::parse(font.bytes);
-                parsed && parsed->has_outlines())
-                face = make_truetype_face(std::move(*parsed));
-            it = m_page_face_cache.emplace(std::move(key), std::move(face)).first;
+        PageFace described { lowercased(font.family), font.weight, font.italic, nullptr, font.stretch,
+            std::max(font.weight, font.weight_max), std::max(font.stretch, font.stretch_max) };
+        if (font.waiting) {
+            // Nothing fetched: its place is taken by what it waits on, or,
+            // where the page has been asked since, by what came of that.
+            if (font.waiting->settled) {
+                if (!font.waiting->face)
+                    continue;
+                described.face = font.waiting->face;
+            } else {
+                described.wait = font.waiting;
+                described.ranges = font.unicode_ranges;
+            }
+            faces.push_back(std::move(described));
+            continue;
         }
-        if (!it->second)
+        Face const* face = page_face_of(described, font.bytes, font.bytes_hash);
+        if (!face)
             continue; // not a font this engine draws: the family falls through to the next
-        Face const* face = it->second.get();
         if (!font.unicode_ranges.empty())
             face = ranged_face(face, font.unicode_ranges);
-        faces.push_back(PageFace { lowercased(font.family), font.weight, font.italic, face, font.stretch,
-            std::max(font.weight, font.weight_max), std::max(font.stretch, font.stretch_max) });
+        described.face = face;
+        faces.push_back(std::move(described));
     }
     ThreadFonts& mine_now = mine();
-    bool same = faces.size() == mine_now.page_faces.size();
-    for (std::size_t i = 0; same && i < faces.size(); ++i) {
-        same = faces[i].face == mine_now.page_faces[i].face && faces[i].family_lower == mine_now.page_faces[i].family_lower
-            && faces[i].weight == mine_now.page_faces[i].weight && faces[i].italic == mine_now.page_faces[i].italic
-            && faces[i].stretch == mine_now.page_faces[i].stretch && faces[i].weight_max == mine_now.page_faces[i].weight_max
-            && faces[i].stretch_max == mine_now.page_faces[i].stretch_max;
-    }
-    if (same)
+    if (same_page_faces(faces, mine_now.page_faces))
         return; // the same fonts as the last page: every stack still answers right
     mine_now.page_faces = std::move(faces);
     retire_stacks(mine_now);
@@ -359,11 +499,12 @@ void FontManager::set_page_fonts(std::vector<PageFont> const& fonts)
 // The page's own face for a family, chosen the way best_face chooses: the
 // requested stretch and slant first, then the nearest weight; every face
 // that matches equally well — a family split into unicode-range pieces —
-// answers together, in the order declared.
-std::vector<Face const*> FontManager::page_faces(std::string const& family_lower, int weight, int stretch,
+// answers together, in the order declared. A face not fetched yet is
+// matched by what it was declared as, like any other.
+std::vector<FontManager::PageFace const*> FontManager::page_faces(std::string const& family_lower, int weight, int stretch,
     bool italic) const
 {
-    std::vector<Face const*> best;
+    std::vector<PageFace const*> best;
     long best_score = -1;
     for (PageFace const& candidate : mine().page_faces) {
         if (candidate.family_lower != family_lower)
@@ -378,7 +519,7 @@ std::vector<Face const*> FontManager::page_faces(std::string const& family_lower
             best.clear();
         }
         if (score == best_score)
-            best.push_back(candidate.face);
+            best.push_back(&candidate);
     }
     return best;
 }
@@ -514,6 +655,22 @@ FontStack const& FontManager::resolve(FontRequest const& request)
 
     auto stack = std::make_unique<FontStack>();
     stack->m_manager = this;
+    stack->m_request = request;
+    fill(*stack, fonts);
+    FontStack const& result = *stack;
+    fonts.stacks.emplace(std::move(key), std::move(stack));
+    return result;
+}
+
+// A stack's faces for the request it answers, against the calling thread's
+// page fonts as they stand: what resolve() hands out, and what a stack is
+// given again when one of its waiting faces has come.
+void FontManager::fill(FontStack& filled, ThreadFonts& fonts)
+{
+    FontStack* const stack = &filled;
+    FontRequest const& request = stack->m_request;
+    stack->m_faces.clear();
+    stack->m_waiting.clear();
     auto const add = [&](Face const* face) {
         if (face && std::find(stack->m_faces.begin(), stack->m_faces.end(), face) == stack->m_faces.end())
             stack->m_faces.push_back(face);
@@ -521,13 +678,20 @@ FontStack const& FontManager::resolve(FontRequest const& request)
     auto const add_family = [&](std::string const& name) {
         std::string const lower = lowercased(name);
         // A page's own font shadows an installed one of the same name —
-        // for whoever asks on a page's behalf.
-        std::vector<Face const*> const page = request.page_fonts
+        // for whoever asks on a page's behalf — and does so from the
+        // moment it is declared: while it waits, the text goes on to the
+        // next family, not to the machine's font of that name.
+        std::vector<PageFace const*> const page = request.page_fonts
             ? page_faces(lower, request.weight, request.stretch, request.italic)
-            : std::vector<Face const*> {};
+            : std::vector<PageFace const*> {};
         if (!page.empty()) {
-            for (Face const* face : page)
-                add(face);
+            for (PageFace const* entry : page) {
+                if (entry->face)
+                    add(entry->face);
+                else
+                    stack->m_waiting.push_back(
+                        FontStack::Waiting { stack->m_faces.size(), entry->wait, entry->ranges, entry->wait->coming });
+            }
             return;
         }
         // A face handed over by name answers next, with the machine's fonts
@@ -560,15 +724,116 @@ FontStack const& FontManager::resolve(FontRequest const& request)
     // unicode-range has the space in it — a face kept to a range without
     // one is not, whatever glyphs it has.
     stack->m_primary = stack->m_faces.back();
-    for (Face const* face : stack->m_faces) {
-        if (face->covers(U' ')) {
-            stack->m_primary = face;
+    std::size_t primary = stack->m_faces.size() - 1;
+    for (std::size_t i = 0; i < stack->m_faces.size(); ++i) {
+        if (stack->m_faces[i]->covers(U' ')) {
+            stack->m_primary = stack->m_faces[i];
+            primary = i;
             break;
         }
     }
-    FontStack const& result = *stack;
-    fonts.stacks.emplace(std::move(key), std::move(stack));
-    return result;
+    stack->m_owner = &fonts;
+    stack->m_serial = fonts.serial;
+    stack->m_unasked = 0;
+    stack->m_asks_primary = false;
+    for (FontStack::Waiting const& waiting : stack->m_waiting) {
+        if (waiting.asked)
+            continue;
+        ++stack->m_unasked;
+        if (waiting.before <= primary && waiting.covers(U' '))
+            stack->m_asks_primary = true;
+    }
+}
+
+bool FontManager::ask(FontStack const& asking, std::size_t index)
+{
+    FontStack& stack = const_cast<FontStack&>(asking);
+    // One waiting face of the stack is not asked for twice: whatever comes
+    // of this, the stack's note of it is that it has been.
+    auto const note_asked = [&stack](std::shared_ptr<PageFontWait> const& wait) {
+        std::size_t primary = stack.m_faces.size();
+        for (std::size_t i = 0; i < stack.m_faces.size(); ++i) {
+            if (stack.m_faces[i] == stack.m_primary) {
+                primary = i;
+                break;
+            }
+        }
+        stack.m_unasked = 0;
+        stack.m_asks_primary = false;
+        for (FontStack::Waiting& waiting : stack.m_waiting) {
+            if (waiting.wait == wait)
+                waiting.asked = true;
+            if (waiting.asked)
+                continue;
+            ++stack.m_unasked;
+            if (waiting.before <= primary && waiting.covers(U' '))
+                stack.m_asks_primary = true;
+        }
+    };
+    std::shared_ptr<PageFontWait> wait;
+    std::shared_ptr<PageFontLoader> loader;
+    {
+        std::lock_guard<std::recursive_mutex> const lock(m_mutex);
+        if (index >= stack.m_waiting.size())
+            return false;
+        wait = stack.m_waiting[index].wait;
+        ThreadFonts& fonts = mine();
+        // A stack set aside answers the layout that holds it as it did
+        // when that layout was made; a face on its way is waited for; and
+        // a page with no way to fetch leaves the face waiting.
+        bool const current = stack.m_owner == &fonts && stack.m_serial == fonts.serial;
+        if (!current || wait->coming || (!wait->settled && !(wait->loader && *wait->loader))) {
+            note_asked(wait);
+            return false;
+        }
+        loader = wait->loader;
+    }
+    if (!wait->settled) {
+        // The page is asked with the lock let go: its answer may take a
+        // fetch, and the other threads' text is not held for it.
+        g_fonts_asked.fetch_add(1, std::memory_order_relaxed);
+        PageFontLoad load = (*loader)(*wait);
+        std::lock_guard<std::recursive_mutex> const lock(m_mutex);
+        ThreadFonts& fonts = mine();
+        if (load.outcome == PageFontLoad::Outcome::Coming) {
+            g_fonts_coming.fetch_add(1, std::memory_order_relaxed);
+            wait->coming = true;
+            note_asked(wait);
+            return false;
+        }
+        Face const* face = nullptr;
+        if (load.outcome == PageFontLoad::Outcome::Loaded) {
+            for (PageFace const& entry : fonts.page_faces) {
+                if (entry.wait != wait)
+                    continue;
+                face = page_face_of(entry, load.bytes, load.bytes_hash);
+                if (face && !entry.ranges.empty())
+                    face = ranged_face(face, entry.ranges);
+                break;
+            }
+        }
+        (face ? g_fonts_loaded : g_fonts_failed).fetch_add(1, std::memory_order_relaxed);
+        wait->face = face;
+        wait->settled = true;
+    }
+    // The font has come, or cannot: the thread's set and every stack of it
+    // that had the face waiting are what they would have been resolved to
+    // with the answer known.
+    std::lock_guard<std::recursive_mutex> const lock(m_mutex);
+    ThreadFonts& fonts = mine();
+    settle_page_faces(fonts.page_faces);
+    for (auto& [key, kept] : fonts.stacks) {
+        bool had = false;
+        for (FontStack::Waiting const& waiting : kept->m_waiting)
+            had = had || waiting.wait->settled;
+        if (had)
+            fill(*kept, fonts);
+    }
+    if (stack.m_owner != &fonts || stack.m_serial != fonts.serial) {
+        note_asked(wait);
+        return false;
+    }
+    return true;
 }
 
 // A face is asked only when its OS/2 ranges claim the code point's block

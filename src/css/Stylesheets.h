@@ -24,6 +24,9 @@ class Element;
 
 namespace sashfold::text {
 struct PageFont;
+struct PageFontLoad;
+struct PageFontWait;
+using PageFontLoader = std::function<PageFontLoad(PageFontWait const&)>;
 }
 
 namespace sashfold::css {
@@ -168,6 +171,47 @@ std::vector<FontFaceRule> font_face_rules(std::string_view sheet_text, MediaCont
 // per page. Hand the result to text::FontManager::set_page_fonts.
 std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& sheets,
     SheetFetcher const& fetch, MediaContext const& media = {});
+
+// The same with nothing fetched until text needs it: every font the sheets
+// declare is returned waiting, with its readable sources in order and with
+// `on_demand`, which its page is asked through the first time the layout
+// gets as far as it (text::PageFontWait). `asked`, when given, names the
+// fonts — each by the first of its sources — that the page has asked for
+// already: those are fetched here as the first form fetches every font,
+// and one of them still on its way is returned waiting and marked coming.
+// The bound is on what is fetched, which the text decides, and no longer on
+// how many a page may declare.
+std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& sheets, SheetFetcher const& fetch,
+    MediaContext const& media, std::shared_ptr<text::PageFontLoader> const& on_demand,
+    std::function<bool(std::string const&)> const& asked = {});
+
+// What a fetch for a waiting font comes to, for a loader to answer with:
+// the bytes as the manager takes them, hashed as a collection hashes them;
+// nothing for a fetch that failed or bytes past the bound on one font.
+// `address` is the source the fetch was for.
+std::optional<text::PageFontLoad> loaded_page_font(std::string const& address, std::optional<FetchedSheet> got);
+
+// A page that fetches where it stands — a render to a file, a frame's
+// document, a test — and so loads a font the moment it is asked for one:
+// the sources tried in order with the fetcher, as the collection tries
+// them. The fetcher is used for as long as this lives and never after; the
+// fonts that came by then stay.
+class FontsOnDemand {
+public:
+    explicit FontsOnDemand(SheetFetcher fetch);
+    ~FontsOnDemand();
+    FontsOnDemand(FontsOnDemand const&) = delete;
+    FontsOnDemand& operator=(FontsOnDemand const&) = delete;
+
+    // The page's fonts, waiting — or all fetched now, where fonts on demand
+    // are switched off (text::page_fonts_on_demand).
+    std::vector<text::PageFont> collect(std::vector<SheetSource> const& sheets, MediaContext const& media = {}) const;
+    void set_fetcher(SheetFetcher fetch);
+
+private:
+    std::shared_ptr<SheetFetcher> m_fetch;
+    std::shared_ptr<text::PageFontLoader> m_loader;
+};
 
 // Media Queries evaluated against the context: media types (screen and
 // all apply), not/only/and/or, width and height features in both plain

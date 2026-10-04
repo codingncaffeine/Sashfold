@@ -90,11 +90,17 @@ std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Ele
     return std::nullopt;
 }
 
-LayoutOracle::LayoutOracle(dom::Document& document, net::Url const& base, css::SheetFetcher fetch, css::MediaContext media)
+LayoutOracle::LayoutOracle(dom::Document& document, net::Url const& base, css::SheetFetcher fetch, css::MediaContext media,
+    css::SheetFetcher font_fetch)
     : m_document(&document)
     , m_base(base)
     , m_fetch(std::move(fetch))
+    , m_font_fetch(std::move(font_fetch))
     , m_media(media)
+    , m_fonts_on_demand([this](net::Url const& url, std::string_view nonce) -> std::optional<css::FetchedSheet> {
+        css::SheetFetcher const& fetch_font = m_font_fetch ? m_font_fetch : m_fetch;
+        return fetch_font ? fetch_font(url, nonce) : std::nullopt;
+    })
 {
 }
 
@@ -233,7 +239,7 @@ void LayoutOracle::sheets_up_to_date()
         // The page's own fonts answer its measurements, as they do the
         // render: a test that measures text in Ahem and then sets a width
         // from it must measure in Ahem.
-        m_fonts = css::collect_page_fonts(sheets, m_fetch, m_media);
+        m_fonts = m_fonts_on_demand.collect(sheets, m_media);
         net::Url const named_against = html::document_base_url(*m_document, m_base);
         m_style_set.emplace(sheets, m_media, &named_against);
         if (m_policy) {

@@ -33,7 +33,11 @@ layout::EmbeddedStates embedded_states(Realm& realm);
 
 class LayoutOracle {
 public:
-    LayoutOracle(dom::Document& document, net::Url const& base, css::SheetFetcher fetch, css::MediaContext media);
+    // `fetch` fetches the document's stylesheets and `font_fetch` its fonts,
+    // each under the page's say on that kind of request; with no font
+    // fetcher given the fonts come the way the sheets do.
+    LayoutOracle(dom::Document& document, net::Url const& base, css::SheetFetcher fetch, css::MediaContext media,
+        css::SheetFetcher font_fetch = {});
     // The realm whose mutation count says when the answers are stale.
     void set_realm(Realm* realm) { m_realm = realm; }
     // The document's Content Security Policy, whose say on inline styles
@@ -67,6 +71,7 @@ private:
     net::Url m_base;
     bool m_keep_page_fonts = false;
     css::SheetFetcher m_fetch;
+    css::SheetFetcher m_font_fetch;
     css::MediaContext m_media;
     Realm* m_realm = nullptr;
     net::ContentSecurityPolicy* m_policy = nullptr;
@@ -78,6 +83,9 @@ private:
     std::string m_sheet_signature;
     std::optional<css::StyleSet> m_style_set;
     std::vector<text::PageFont> m_fonts; // the document's own, from its sheets
+    // Each of them fetched when a layout here first needs it, through the
+    // fetcher above for as long as this lives.
+    css::FontsOnDemand m_fonts_on_demand;
     css::StyleMap m_styles;
     css::StyleRecord m_style_record; // what the next update needs to compute only what changed
     layout::LayoutResult m_layout;

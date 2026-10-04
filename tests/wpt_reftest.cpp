@@ -477,7 +477,8 @@ private:
         };
         std::vector<css::SheetSource> const sheets
             = css::collect_stylesheets(*document, &*url, fetch_sheet, media);
-        std::vector<text::PageFont> const fonts = css::collect_page_fonts(sheets, fetch_sheet, media);
+        css::FontsOnDemand const fonts_on_demand(fetch_sheet);
+        std::vector<text::PageFont> const fonts = fonts_on_demand.collect(sheets, media);
         text::FontManager::instance().set_page_fonts(fonts);
         css::StyleMap const styles = css::resolve_styles(*document, sheets, media);
         // The objects and embeds as the page's realm decided them; a page with no

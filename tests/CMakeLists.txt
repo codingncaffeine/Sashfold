@@ -210,6 +210,12 @@ add_test(NAME shell_link_events
 add_test(NAME shell_sheet_cache
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/sheet-cache.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+# A page's fonts are fetched when its text first needs them: the counts are
+# of that, so the test runs with fonts on demand whatever the run's mode.
+add_test(NAME shell_fonts_on_demand
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/fonts-on-demand.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+set_tests_properties(shell_fonts_on_demand PROPERTIES ENVIRONMENT "SASHFOLD_LAZY=1")
 # The resize band along a shell-drawn frame's edges shows the arrows.
 add_test(NAME shell_resize_band
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/resize-band.script

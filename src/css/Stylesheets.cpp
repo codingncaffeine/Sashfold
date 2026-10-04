@@ -391,6 +391,9 @@ namespace {
 
 constexpr std::size_t max_page_fonts = 32;
 constexpr std::size_t max_font_bytes = 16u * 1024u * 1024u;
+// Fonts declared and left waiting cost a record each and no fetch: the
+// bound on them is only against a sheet written to exhaust memory.
+constexpr std::size_t max_declared_fonts = 4096;
 
 // A family name: one string, or a run of identifiers joined by spaces.
 std::string family_of(std::vector<ComponentValue> const& values)
@@ -675,8 +678,15 @@ std::vector<FontFaceRule> font_face_rules(std::string_view sheet_text, MediaCont
 std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& sheets,
     SheetFetcher const& fetch, MediaContext const& media)
 {
+    return collect_page_fonts(sheets, fetch, media, nullptr);
+}
+
+std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& sheets, SheetFetcher const& fetch,
+    MediaContext const& media, std::shared_ptr<text::PageFontLoader> const& on_demand,
+    std::function<bool(std::string const&)> const& asked)
+{
     std::vector<text::PageFont> fonts;
-    if (!fetch)
+    if (!fetch && !on_demand)
         return fonts;
     // By URL, once each: the bytes, none for a source that could not be
     // had, and a source still on its way marked as such.
@@ -687,20 +697,41 @@ std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& s
     std::map<std::string, Source> fetched;
     for (SheetSource const& sheet : sheets) {
         for (FontFaceRule const& rule : font_face_rules(sheet.text, media)) {
-            if (fonts.size() >= max_page_fonts)
+            if (fonts.size() >= (on_demand ? max_declared_fonts : max_page_fonts))
                 return fonts;
+            // The sources this engine reads, where they are: the ones a
+            // fetch is tried from, in order.
+            std::vector<net::Url> urls;
             for (FontFaceSource const& source : rule.sources) {
                 if (!readable_source(source))
                     continue;
-                std::optional<net::Url> const url
-                    = net::parse_url(source.url, sheet.url ? &*sheet.url : nullptr);
-                if (!url)
-                    continue;
-                std::string const key = url->serialize(true);
+                if (std::optional<net::Url> url = net::parse_url(source.url, sheet.url ? &*sheet.url : nullptr))
+                    urls.push_back(std::move(*url));
+            }
+            if (urls.empty())
+                continue;
+            auto const waiting = [&](bool coming) {
+                auto wait = std::make_shared<text::PageFontWait>();
+                for (net::Url const& url : urls)
+                    wait->urls.push_back(url.serialize(true));
+                wait->loader = on_demand;
+                wait->coming = coming;
+                text::PageFont font { rule.family, rule.weight, rule.italic, {}, rule.stretch, rule.unicode_ranges,
+                    rule.weight_max, rule.stretch_max, 0, std::move(wait) };
+                fonts.push_back(std::move(font));
+            };
+            if (on_demand && !(asked && asked(urls.front().serialize(true)))) {
+                waiting(false);
+                continue;
+            }
+            if (!fetch)
+                continue;
+            for (net::Url const& url : urls) {
+                std::string const key = url.serialize(true);
                 auto it = fetched.find(key);
                 if (it == fetched.end()) {
                     Source got_source;
-                    if (std::optional<FetchedSheet> got = fetch(*url, {}); got && got->pending)
+                    if (std::optional<FetchedSheet> got = fetch(url, {}); got && got->pending)
                         got_source.pending = true;
                     else if (got && !got->bytes.empty() && got->bytes.size() <= max_font_bytes)
                         got_source.bytes = std::move(got->bytes);
@@ -709,17 +740,74 @@ std::vector<text::PageFont> collect_page_fonts(std::vector<SheetSource> const& s
                 // A source on its way is the rule's first readable one: the
                 // rule waits for it rather than take a fallback it would
                 // then be seen to swap away from.
-                if (it->second.pending)
+                if (it->second.pending) {
+                    if (on_demand)
+                        waiting(true);
                     break;
+                }
                 if (!it->second.bytes)
                     continue; // unreachable: the next source may do
                 fonts.push_back(text::PageFont { rule.family, rule.weight, rule.italic, *it->second.bytes, rule.stretch,
-                    rule.unicode_ranges, rule.weight_max, rule.stretch_max, page_font_hash(key, *it->second.bytes) });
+                    rule.unicode_ranges, rule.weight_max, rule.stretch_max, page_font_hash(key, *it->second.bytes), nullptr });
                 break;
             }
         }
     }
     return fonts;
+}
+
+std::optional<text::PageFontLoad> loaded_page_font(std::string const& address, std::optional<FetchedSheet> got)
+{
+    if (!got || got->pending || got->bytes.empty() || got->bytes.size() > max_font_bytes)
+        return std::nullopt;
+    text::PageFontLoad load;
+    load.outcome = text::PageFontLoad::Outcome::Loaded;
+    load.bytes = std::move(got->bytes);
+    load.bytes_hash = page_font_hash(address, load.bytes);
+    return load;
+}
+
+FontsOnDemand::FontsOnDemand(SheetFetcher fetch)
+    : m_fetch(std::make_shared<SheetFetcher>(std::move(fetch)))
+{
+    m_loader = std::make_shared<text::PageFontLoader>([fetcher = m_fetch](text::PageFontWait const& wait) {
+        text::PageFontLoad load;
+        if (!*fetcher)
+            return load;
+        for (std::string const& address : wait.urls) {
+            std::optional<net::Url> const url = net::parse_url(address);
+            if (!url)
+                continue;
+            std::optional<FetchedSheet> got = (*fetcher)(*url, {});
+            if (got && got->pending) {
+                load.outcome = text::PageFontLoad::Outcome::Coming;
+                return load;
+            }
+            if (std::optional<text::PageFontLoad> loaded = loaded_page_font(address, std::move(got)))
+                return std::move(*loaded);
+            // Unreachable: the next source may do.
+        }
+        return load;
+    });
+}
+
+FontsOnDemand::~FontsOnDemand()
+{
+    // The fonts outlive this in the page's list and the manager's faces;
+    // the fetcher does not, and what still waits now waits for good.
+    *m_loader = nullptr;
+}
+
+void FontsOnDemand::set_fetcher(SheetFetcher fetch)
+{
+    *m_fetch = std::move(fetch);
+}
+
+std::vector<text::PageFont> FontsOnDemand::collect(std::vector<SheetSource> const& sheets, MediaContext const& media) const
+{
+    if (!text::page_fonts_on_demand())
+        return collect_page_fonts(sheets, *m_fetch, media);
+    return collect_page_fonts(sheets, *m_fetch, media, m_loader);
 }
 
 // --- Media queries -------------------------------------------------------------

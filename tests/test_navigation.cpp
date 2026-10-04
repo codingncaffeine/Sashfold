@@ -396,13 +396,72 @@ int main()
         CHECK(shown < 400); // not held for the font's 400
         CHECK_EQ(text::FontManager::instance().page_font_count(), 0u); // laid out without it
         CHECK(browser.has_pending_load()); // and owed it
+        std::uint64_t const layouts_without = browser.profile().relayouts;
         load_fully(browser);
         double const swapped = ms_since(started);
         CHECK(swapped >= 400);
         CHECK(swapped < 2000);
+        CHECK(browser.profile().relayouts > layouts_without); // laid out again, in the font
         CHECK_EQ(text::FontManager::instance().page_font_count(), 1u);
         CHECK(!browser.has_pending_load());
         CHECK_EQ(server.asked("/late.ttf"), std::size_t { 1 });
+    }
+
+    // A page's fonts are fetched when its text needs them. Of three it
+    // declares — one its text is set in, a piece of the same family kept to
+    // code points the text has none of, and a family nothing uses — one is
+    // asked for; the piece is asked for when a script writes text in its
+    // range, and nothing is asked for twice, however often the page's fonts
+    // are collected meanwhile.
+    if (text::page_fonts_on_demand()) {
+        std::map<std::string, Served> picky = site();
+        std::vector<std::uint8_t> const ttf = text::SashfoldMono::instance().to_truetype();
+        std::string const font(ttf.begin(), ttf.end());
+        picky["/picky"] = { "text/html",
+            "<!doctype html><title>Picky</title><style>"
+            "@font-face { font-family: Used; src: url(/used.ttf) }"
+            "@font-face { font-family: Used; src: url(/greek.ttf); unicode-range: U+370-3FF }"
+            "@font-face { font-family: Unused; src: url(/unused.ttf) }"
+            " p { font-family: Used }</style><p id=p>text</p>"
+            "<script>addEventListener('click', function () { document.getElementById('p').textContent = '\u03b1\u03b2\u03b3';"
+            " document.title = 'Greek'; });</script>",
+            0 };
+        picky["/used.ttf"] = { "font/ttf", font, 0 };
+        picky["/greek.ttf"] = { "font/ttf", font, 100 };
+        picky["/unused.ttf"] = { "font/ttf", font, 0 };
+        SiteServer server(picky);
+        ui::ShellLoader loader;
+        ui::Browser browser(loader, ui::Theme {}, 800, 600);
+        browser.open(server.url("/picky"));
+        load_fully(browser);
+        CHECK_EQ(browser.page_title(), std::string("Picky"));
+        CHECK_EQ(server.asked("/used.ttf"), std::size_t { 1 });
+        CHECK_EQ(server.asked("/greek.ttf"), std::size_t { 0 });
+        CHECK_EQ(server.asked("/unused.ttf"), std::size_t { 0 });
+        CHECK_EQ(text::FontManager::instance().page_font_count(), 1u);
+        CHECK_EQ(text::FontManager::instance().page_fonts_waiting(), 2u);
+        CHECK_EQ(browser.profile().fonts_asked, std::uint64_t { 1 });
+        // The text turns Greek: the piece for it is on its way, the page
+        // shown in what it has meanwhile, and laid out in the piece when it
+        // has come.
+        Rect const area = browser.chrome_layout().content;
+        browser.mouse_move(area.x + 50, area.y + 50);
+        browser.mouse_down(area.x + 50, area.y + 50, 1);
+        browser.mouse_up(area.x + 50, area.y + 50, 1);
+        auto const clicked = std::chrono::steady_clock::now();
+        while ((browser.page_title() != "Greek" || server.asked("/greek.ttf") == 0) && ms_since(clicked) < 5000)
+            browser.tick();
+        CHECK_EQ(browser.page_title(), std::string("Greek"));
+        std::uint64_t const layouts_without = browser.profile().relayouts;
+        load_fully(browser);
+        CHECK(browser.profile().relayouts > layouts_without); // laid out again, in the piece
+        CHECK_EQ(server.asked("/greek.ttf"), std::size_t { 1 });
+        CHECK_EQ(server.asked("/used.ttf"), std::size_t { 1 });
+        CHECK_EQ(server.asked("/unused.ttf"), std::size_t { 0 });
+        CHECK_EQ(text::FontManager::instance().page_font_count(), 2u);
+        CHECK_EQ(text::FontManager::instance().page_fonts_waiting(), 1u);
+        CHECK_EQ(browser.profile().fonts_asked, std::uint64_t { 2 });
+        CHECK(!browser.has_pending_load());
     }
 
     // A page that states its policy in a <meta>, and a policy that admits a

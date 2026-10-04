@@ -11,7 +11,10 @@
 #include <filesystem>
 #include <fstream>
 #include <iostream>
+#include <map>
+#include <memory>
 #include <string>
+#include <utility>
 #include <vector>
 
 // The font manager: with system fonts off every request is the built-in
@@ -172,6 +175,213 @@ int main()
         CHECK_EQ(kerned.measure(U"To", 1024), 960.0f);
         float const question = kerned.measure(U"?", 2048); // the built-in face's, the font having none
         CHECK_EQ(kerned.measure(U"A?", 2048), 1000.0f + question);
+        manager.set_page_fonts({});
+    }
+
+    // --- Fonts on demand -----------------------------------------------------------------
+    // A font a page declares and does not fetch stands in its family
+    // without a glyph to its name; the first code point that gets as far as
+    // it — in its range, with no face ahead of it to draw it — has the page
+    // asked for it, and where the page has it at hand the stack carries it
+    // from that moment on.
+    {
+        int calls = 0;
+        std::string last_asked;
+        std::map<std::string, text::PageFontLoad> answers; // by the first source; no entry: the font's bytes
+        auto loader = std::make_shared<text::PageFontLoader>([&](text::PageFontWait const& wait) {
+            ++calls;
+            last_asked = wait.urls.empty() ? std::string() : wait.urls.front();
+            if (auto const it = answers.find(last_asked); it != answers.end())
+                return it->second;
+            text::PageFontLoad load;
+            load.outcome = text::PageFontLoad::Outcome::Loaded;
+            load.bytes = ttf;
+            return load;
+        });
+        auto const waiting = [&loader](std::string family, int weight, std::string url,
+                                 std::vector<std::pair<char32_t, char32_t>> ranges = {}) {
+            auto wait = std::make_shared<text::PageFontWait>();
+            wait->urls = { std::move(url) };
+            wait->loader = loader;
+            return text::PageFont { std::move(family), weight, false, {}, 100, std::move(ranges), 0, 0, 0, std::move(wait) };
+        };
+        text::PageFontCensus const census_before = text::page_font_census();
+
+        // Declared, set, resolved: nothing is asked for.
+        std::vector<text::PageFont> declared { waiting("Wait", 400, "https://fonts.test/wait.ttf") };
+        manager.set_page_fonts(declared);
+        CHECK_EQ(manager.page_font_count(), 0u);
+        CHECK_EQ(manager.page_fonts_waiting(), 1u);
+        FontStack const& stack = manager.resolve(FontRequest { { "Wait" }, 400, false });
+        CHECK_EQ(calls, 0);
+        CHECK_EQ(stack.faces().size(), 1u); // the built-in face, so far
+        CHECK(!stack.builtin_alone()); // and not a stack that will never have more
+        // The first character of text asks, once, and is drawn in the font.
+        text::Face const& came = stack.face_for(U'A');
+        CHECK_EQ(calls, 1);
+        CHECK_EQ(last_asked, std::string("https://fonts.test/wait.ttf"));
+        CHECK(&came != &builtin);
+        CHECK_EQ(stack.faces().size(), 2u);
+        CHECK(&stack.primary() == &came);
+        CHECK(&stack.face_for(U'B') == &came);
+        CHECK(stack.measure(U"ABC", 16) > 0);
+        CHECK_EQ(calls, 1);
+        CHECK_EQ(manager.page_font_count(), 1u);
+        CHECK_EQ(manager.page_fonts_waiting(), 0u);
+        // The page's list knows what came: set again, as a page sets its
+        // fonts before every layout, it is the same set and the stack stands;
+        // and a copy of the list — a frame's view keeps one — has the font
+        // without asking.
+        manager.set_page_fonts(declared);
+        CHECK(&manager.resolve(FontRequest { { "Wait" }, 400, false }) == &stack);
+        std::vector<text::PageFont> const copy = declared;
+        manager.set_page_fonts({});
+        manager.set_page_fonts(copy);
+        CHECK_EQ(manager.page_font_count(), 1u);
+        CHECK(&manager.resolve(FontRequest { { "Wait" }, 400, false }).face_for(U'A') == &came);
+        CHECK_EQ(calls, 1);
+
+        // The line's metrics are the first available font's: read without a
+        // character of text, they ask for it.
+        declared = { waiting("Line", 400, "https://fonts.test/line.ttf") };
+        manager.set_page_fonts(declared);
+        FontStack const& line = manager.resolve(FontRequest { { "Line" }, 400, false });
+        CHECK_EQ(calls, 1);
+        CHECK(&line.primary() != &builtin);
+        CHECK_EQ(calls, 2);
+        text::Face const& line_face = line.face_for(U'A');
+        CHECK(&line.primary() == &line_face);
+        CHECK_EQ(calls, 2);
+
+        // A family in unicode-range pieces is fetched piece by piece, each
+        // when a code point in its range arrives; a code point in no range
+        // asks for none, and neither do the metrics when no piece has the
+        // space.
+        declared = { waiting("Parts", 400, "https://fonts.test/upper.ttf", { { 0x41, 0x5A } }),
+            waiting("Parts", 400, "https://fonts.test/lower.ttf", { { 0x61, 0x7A } }) };
+        manager.set_page_fonts(declared);
+        FontStack const& parts = manager.resolve(FontRequest { { "Parts" }, 400, false });
+        CHECK(&parts.primary() == &builtin);
+        CHECK(&parts.face_for(U'0') == &builtin);
+        CHECK_EQ(calls, 2);
+        text::Face const& upper = parts.face_for(U'A');
+        CHECK(&upper != &builtin);
+        CHECK_EQ(calls, 3);
+        CHECK_EQ(last_asked, std::string("https://fonts.test/upper.ttf"));
+        CHECK_EQ(manager.page_fonts_waiting(), 1u);
+        CHECK(&parts.face_for(U'Z') == &upper);
+        CHECK_EQ(calls, 3);
+        text::Face const& lower = parts.face_for(U'a');
+        CHECK(&lower != &builtin && &lower != &upper);
+        CHECK_EQ(calls, 4);
+        CHECK_EQ(last_asked, std::string("https://fonts.test/lower.ttf"));
+        CHECK_EQ(manager.page_fonts_waiting(), 0u);
+
+        // A face ahead that draws the code point keeps the waiting one
+        // unasked: it is fetched for the first code point that face lacks.
+        text::FontDescription few;
+        few.family = "Few";
+        few.units_per_em = 2048;
+        few.ascender = 1600;
+        few.descender = -400;
+        for (int i = 0; i < 2; ++i) {
+            text::WriterGlyph glyph;
+            glyph.advance = 1000;
+            glyph.outline.points = { { 0, 0, true }, { 500, 1000, true }, { 1000, 0, true } };
+            glyph.outline.contour_ends = { 2 };
+            few.glyphs.push_back(glyph);
+        }
+        few.mappings = { { U'A', 1 } };
+        declared = { text::PageFont { "Few", 400, false, text::write_truetype(few), 100, {} },
+            waiting("Rest", 400, "https://fonts.test/rest.ttf") };
+        manager.set_page_fonts(declared);
+        FontStack const& both = manager.resolve(FontRequest { { "Few", "Rest" }, 400, false });
+        if (CHECK_EQ(both.faces().size(), 2u)) {
+            text::Face const* const first = both.faces()[0];
+            CHECK(&both.face_for(U'A') == first);
+            CHECK(&both.primary() == first);
+            CHECK_EQ(calls, 4);
+            text::Face const& rest = both.face_for(U'z');
+            CHECK(&rest != first && &rest != &builtin);
+            CHECK_EQ(calls, 5);
+            CHECK(&both.face_for(U'A') == first);
+        }
+
+        // A font that has to cross the network is on its way: the text takes
+        // the next face it has, and the page is asked the once — whichever
+        // stack's text came first, and however much text follows.
+        answers["https://fonts.test/slow.ttf"].outcome = text::PageFontLoad::Outcome::Coming;
+        declared = { waiting("Slow", 400, "https://fonts.test/slow.ttf") };
+        manager.set_page_fonts(declared);
+        FontStack const& slow = manager.resolve(FontRequest { { "Slow" }, 400, false });
+        FontStack const& slow_bold = manager.resolve(FontRequest { { "Slow" }, 700, false }); // before either has asked
+        CHECK(&slow.face_for(U'A') == &builtin);
+        CHECK_EQ(calls, 6);
+        CHECK(declared[0].waiting->coming);
+        CHECK(!declared[0].waiting->came());
+        CHECK(&slow.face_for(U'B') == &builtin);
+        CHECK(&slow.primary() == &builtin);
+        CHECK(&slow_bold.face_for(U'A') == &builtin);
+        CHECK_EQ(calls, 6);
+        CHECK(&manager.resolve(FontRequest { { "Slow" }, 300, false }).face_for(U'A') == &builtin); // and one resolved after
+        CHECK_EQ(calls, 6);
+        CHECK_EQ(manager.page_fonts_waiting(), 1u);
+        CHECK_EQ(manager.page_font_count(), 0u);
+
+        // A font that cannot be had is as if it had not been declared: the
+        // family's other face answers in its place.
+        answers["https://fonts.test/gone.ttf"].outcome = text::PageFontLoad::Outcome::Failed;
+        declared = { text::PageFont { "Pair", 400, false, ttf, 100, {} }, waiting("Pair", 700, "https://fonts.test/gone.ttf") };
+        manager.set_page_fonts(declared);
+        FontStack const& bold = manager.resolve(FontRequest { { "Pair" }, 700, false });
+        CHECK_EQ(bold.faces().size(), 1u); // the bold face is the family's answer, and it waits
+        text::Face const& regular = manager.resolve(FontRequest { { "Pair" }, 400, false }).face_for(U'A');
+        CHECK(&regular != &builtin);
+        CHECK_EQ(calls, 6);
+        CHECK(&bold.face_for(U'A') == &regular);
+        CHECK_EQ(calls, 7);
+        CHECK_EQ(manager.page_fonts_waiting(), 0u);
+        CHECK_EQ(manager.page_font_count(), 1u);
+        CHECK(&bold.face_for(U'B') == &regular);
+        CHECK_EQ(calls, 7);
+        // And so is one whose bytes are not a font.
+        answers["https://fonts.test/junk.ttf"].outcome = text::PageFontLoad::Outcome::Loaded;
+        answers["https://fonts.test/junk.ttf"].bytes = { 1, 2, 3 };
+        declared = { waiting("Junk", 400, "https://fonts.test/junk.ttf") };
+        manager.set_page_fonts(declared);
+        CHECK(&manager.resolve(FontRequest { { "Junk" }, 400, false }).face_for(U'A') == &builtin);
+        CHECK_EQ(calls, 8);
+        CHECK_EQ(manager.page_fonts_waiting(), 0u);
+        CHECK_EQ(manager.page_font_count(), 0u);
+
+        // A stack set aside — another page's fonts are the thread's now —
+        // answers the layout that holds it as it did, and asks for nothing.
+        declared = { waiting("Stale", 400, "https://fonts.test/stale.ttf") };
+        manager.set_page_fonts(declared);
+        FontStack const& stale = manager.resolve(FontRequest { { "Stale" }, 400, false });
+        manager.set_page_fonts({});
+        CHECK(&stale.face_for(U'A') == &builtin);
+        CHECK(&stale.primary() == &builtin);
+        CHECK_EQ(calls, 8);
+
+        // The census, since this block began: every time the page was asked,
+        // and what came of it.
+        text::PageFontCensus const census = text::page_font_census();
+        CHECK_EQ(census.asked - census_before.asked, std::size_t { 8 });
+        CHECK_EQ(census.loaded - census_before.loaded, std::size_t { 5 });
+        CHECK_EQ(census.coming - census_before.coming, std::size_t { 1 });
+        CHECK_EQ(census.failed - census_before.failed, std::size_t { 2 });
+
+        // A page whose fetcher is gone empties the loader: what still waits
+        // stays waiting, and the text has its fallback.
+        declared = { waiting("Never", 400, "https://fonts.test/never.ttf") };
+        manager.set_page_fonts(declared);
+        *loader = nullptr;
+        FontStack const& never = manager.resolve(FontRequest { { "Never" }, 400, false });
+        CHECK(&never.face_for(U'A') == &builtin);
+        CHECK(&never.primary() == &builtin);
+        CHECK_EQ(calls, 8);
+        CHECK_EQ(manager.page_fonts_waiting(), 1u);
         manager.set_page_fonts({});
     }
 

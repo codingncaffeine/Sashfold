@@ -545,6 +545,36 @@ int main()
         std::optional<bindings::LayoutBox> const late_after = late ? oracle.box(*late) : std::nullopt;
         CHECK(late_after && late_after->width == 50.0f);
 
+        // A document's fonts reach the geometry through the font fetcher — the
+        // one whose requests the page's policy judges as fonts, not the
+        // stylesheets' — and only the ones its text is set in.
+        {
+            dom::Document fonted;
+            html::parse_document_bytes_into(fonted,
+                "<!doctype html><style>@font-face { font-family: Asked; src: url(asked.ttf) }"
+                "@font-face { font-family: Idle; src: url(idle.ttf) } p { font-family: Asked }</style><p id=p>text</p>");
+            std::vector<std::string> sheets_asked;
+            std::vector<std::string> fonts_asked;
+            bindings::LayoutOracle fonted_oracle(
+                fonted, base,
+                [&](net::Url const& url, std::string_view) -> std::optional<css::FetchedSheet> {
+                    sheets_asked.push_back(url.serialize());
+                    return std::nullopt;
+                },
+                media,
+                [&](net::Url const& url, std::string_view) -> std::optional<css::FetchedSheet> {
+                    fonts_asked.push_back(url.serialize());
+                    return std::nullopt;
+                });
+            dom::Element* const text = by_id(fonted, "p");
+            CHECK(text != nullptr && fonted_oracle.box(*text));
+            CHECK(sheets_asked.empty());
+            if (text::page_fonts_on_demand())
+                CHECK(fonts_asked == (std::vector<std::string> { "https://example.test/asked.ttf" }));
+            else
+                CHECK(fonts_asked == (std::vector<std::string> { "https://example.test/asked.ttf", "https://example.test/idle.ttf" }));
+        }
+
         // A frameset's frame: a window, and the whole viewport for its cell,
         // drawn from its live document.
         std::unique_ptr<Live> const framed = open_live("<!doctype html><frameset><frame id=f src='green.html'></frameset>");

@@ -586,5 +586,133 @@ int main()
         }
     }
 
+    // --- Fonts on demand ---------------------------------------------------------------------
+    // Collected to be fetched when text needs them, a page's fonts are every
+    // rule's descriptors and readable sources and not one fetch; the ones
+    // the page has asked for already are fetched as they always were.
+    {
+        std::vector<css::SheetSource> const lazy_sheets {
+            css::SheetSource { "@font-face { font-family: One; src: url(one.eot), url(one.woff2) format(\"woff2\"), url(one.ttf); }\n"
+                               "@font-face { font-family: Two; font-weight: 700; unicode-range: U+41-5A; src: url(two.ttf); }\n"
+                               "@font-face { font-family: Old; src: url(old.eot); }\n"
+                               "@font-face { font-family: Slow; src: url(slow.ttf), url(one.ttf); }\n",
+                *net::parse_url("https://example.test/lazy/page.css") },
+        };
+        std::vector<std::string> fetched;
+        bool slow_pending = true;
+        css::SheetFetcher const lazy_fetch = [&](net::Url const& url, std::string_view) -> std::optional<css::FetchedSheet> {
+            std::string const key = url.serialize();
+            fetched.push_back(key);
+            if (key == "https://example.test/lazy/slow.ttf" && slow_pending) {
+                css::FetchedSheet waiting { {}, "" };
+                waiting.pending = true;
+                return waiting;
+            }
+            if (key.ends_with(".woff2"))
+                return std::nullopt;
+            return css::FetchedSheet { bytes_of("FONT " + key), "" };
+        };
+        auto const font_loader = std::make_shared<text::PageFontLoader>();
+        std::vector<text::PageFont> const declared = css::collect_page_fonts(lazy_sheets, lazy_fetch, {}, font_loader);
+        CHECK(fetched.empty());
+        if (CHECK_EQ(declared.size(), 3u)) { // Old has no source this engine reads
+            CHECK_EQ(declared[0].family, std::string("One"));
+            CHECK(declared[0].bytes.empty());
+            if (CHECK(declared[0].waiting != nullptr)) {
+                // The sources in the order to try them, each where it is; the .eot left out.
+                CHECK(declared[0].waiting->urls
+                    == (std::vector<std::string> { "https://example.test/lazy/one.woff2", "https://example.test/lazy/one.ttf" }));
+                CHECK(declared[0].waiting->loader == font_loader);
+                CHECK(!declared[0].waiting->coming);
+            }
+            CHECK_EQ(declared[1].family, std::string("Two"));
+            CHECK_EQ(declared[1].weight, 700);
+            CHECK(declared[1].unicode_ranges == (std::vector<std::pair<char32_t, char32_t>> { { 0x41, 0x5A } }));
+            CHECK(declared[1].waiting != nullptr);
+            CHECK_EQ(declared[2].family, std::string("Slow"));
+        }
+        // What the page has asked for, by its first source, is fetched as a
+        // collection fetches: the next source where the first cannot be had,
+        // and a font still on its way left waiting and marked as coming.
+        auto const was_asked = [](std::string const& source) {
+            return source == "https://example.test/lazy/one.woff2" || source == "https://example.test/lazy/slow.ttf";
+        };
+        std::vector<text::PageFont> const some = css::collect_page_fonts(lazy_sheets, lazy_fetch, {}, font_loader, was_asked);
+        CHECK(fetched
+            == (std::vector<std::string> { "https://example.test/lazy/one.woff2", "https://example.test/lazy/one.ttf",
+                "https://example.test/lazy/slow.ttf" }));
+        if (CHECK_EQ(some.size(), 3u)) {
+            CHECK(some[0].waiting == nullptr);
+            CHECK(some[0].bytes == bytes_of("FONT https://example.test/lazy/one.ttf"));
+            CHECK(some[0].bytes_hash != 0);
+            CHECK(some[1].waiting != nullptr && some[1].bytes.empty());
+            CHECK(some[2].waiting != nullptr && some[2].waiting->coming);
+        }
+        slow_pending = false;
+        std::vector<text::PageFont> const all = css::collect_page_fonts(lazy_sheets, lazy_fetch, {}, font_loader, was_asked);
+        if (CHECK_EQ(all.size(), 3u)) {
+            CHECK(all[2].waiting == nullptr);
+            CHECK(all[2].bytes == bytes_of("FONT https://example.test/lazy/slow.ttf"));
+        }
+
+        // A page may declare more fonts than it will ever be allowed to
+        // fetch at once: collected whole, the fortieth is among them, where
+        // the collection that fetches every one stops at its bound.
+        std::string many;
+        for (int i = 0; i < 40; ++i)
+            many += "@font-face { font-family: Many" + std::to_string(i) + "; src: url(many" + std::to_string(i) + ".ttf); }\n";
+        std::vector<css::SheetSource> const many_sheets {
+            css::SheetSource { many, *net::parse_url("https://example.test/lazy/many.css") },
+        };
+        std::vector<text::PageFont> const many_declared = css::collect_page_fonts(many_sheets, lazy_fetch, {}, font_loader);
+        if (CHECK_EQ(many_declared.size(), 40u))
+            CHECK_EQ(many_declared[39].family, std::string("Many39"));
+        CHECK_EQ(css::collect_page_fonts(many_sheets, lazy_fetch).size(), 32u);
+
+        // A page that fetches where it stands: the loader tries a font's
+        // sources in order, hashes what came as a collection does, and
+        // answers that there is none when none can be had — and once the
+        // page's fetcher is gone, the loader is empty.
+        std::shared_ptr<text::PageFontLoader> kept;
+        if (!text::page_fonts_on_demand()) {
+            // Switched off (SASHFOLD_LAZY=0), the same page fetches every
+            // font as its sheets are read, as it always did.
+            css::FontsOnDemand const on_demand(lazy_fetch);
+            slow_pending = false;
+            std::vector<text::PageFont> const eager = on_demand.collect(lazy_sheets);
+            if (CHECK_EQ(eager.size(), 3u)) {
+                CHECK(eager[0].waiting == nullptr && !eager[0].bytes.empty());
+                CHECK(eager[2].waiting == nullptr && !eager[2].bytes.empty());
+            }
+        } else {
+            css::FontsOnDemand const on_demand(lazy_fetch);
+            std::vector<text::PageFont> const waiting = on_demand.collect(lazy_sheets);
+            if (CHECK_EQ(waiting.size(), 3u) && CHECK(waiting[0].waiting != nullptr)) {
+                kept = waiting[0].waiting->loader;
+                fetched.clear();
+                text::PageFontLoad const one = (*kept)(*waiting[0].waiting);
+                CHECK(one.outcome == text::PageFontLoad::Outcome::Loaded);
+                CHECK(one.bytes == bytes_of("FONT https://example.test/lazy/one.ttf"));
+                CHECK(one.bytes_hash != 0);
+                CHECK(fetched
+                    == (std::vector<std::string> { "https://example.test/lazy/one.woff2", "https://example.test/lazy/one.ttf" }));
+                text::PageFontWait nowhere;
+                nowhere.urls = { "https://example.test/lazy/none.woff2" };
+                CHECK((*kept)(nowhere).outcome == text::PageFontLoad::Outcome::Failed);
+                slow_pending = true;
+                CHECK((*kept)(*waiting[2].waiting).outcome == text::PageFontLoad::Outcome::Coming);
+            }
+        }
+        CHECK(!text::page_fonts_on_demand() || (kept && !*kept));
+
+        // A fetch's answer as a loader gives it: nothing for a fetch that
+        // failed, that is still on its way, or that came back empty.
+        CHECK(!css::loaded_page_font("https://example.test/x.ttf", std::nullopt));
+        CHECK(!css::loaded_page_font("https://example.test/x.ttf", css::FetchedSheet { {}, "" }));
+        std::optional<text::PageFontLoad> const loaded
+            = css::loaded_page_font("https://example.test/x.ttf", css::FetchedSheet { bytes_of("X"), "" });
+        CHECK(loaded && loaded->outcome == text::PageFontLoad::Outcome::Loaded && loaded->bytes == bytes_of("X"));
+    }
+
     return test::report("stylesheets");
 }

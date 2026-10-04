@@ -750,6 +750,10 @@ struct Runner {
                 std::to_string(browser.profile().sheet_collections - marked.sheet_collections), argument);
         } else if (command == "assert-sheet-decodes") {
             expect_equal("assert-sheet-decodes", std::to_string(browser.profile().sheet_decodes - marked.sheet_decodes), argument);
+        } else if (command == "assert-fonts-asked") {
+            // The fonts the page's text has needed since the mark: of the
+            // ones its sheets declare, the ones that were fetched.
+            expect_equal("assert-fonts-asked", std::to_string(browser.profile().fonts_asked - marked.fonts_asked), argument);
         } else if (command == "assert-cursor") {
             // The pointer the window would show where the mouse is, by the
             // CSS cursor keyword nearest it.

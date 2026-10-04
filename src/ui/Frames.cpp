@@ -239,7 +239,11 @@ Rendered render_document(dom::Document& document, net::Url const& document_url, 
     };
     std::vector<css::SheetSource> const sheets = css::collect_stylesheets(document, &document_url,
         fetch_kind(net::ResourceKind::Stylesheet), media, inline_check);
-    std::vector<text::PageFont> const fonts = css::collect_page_fonts(sheets, fetch_kind(net::ResourceKind::Font), media);
+    // The frame's fonts, each fetched when its text is first laid out: by
+    // the time the frame is drawn the ones it needs are in its list, which a
+    // live document's view keeps to paint with.
+    css::FontsOnDemand const fonts_on_demand(fetch_kind(net::ResourceKind::Font));
+    std::vector<text::PageFont> const fonts = fonts_on_demand.collect(sheets, media);
     text::FontManager::instance().set_page_fonts(fonts);
     net::Url const base = html::document_base_url(document, document_url);
     css::StyleSet style_set(sheets, media, &base);

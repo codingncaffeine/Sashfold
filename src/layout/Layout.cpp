@@ -4469,7 +4469,7 @@ struct Layouter {
                 while (line.empty() && width - hang > line_avail) {
                     std::size_t fit = 0;
                     float fit_width = 0;
-                    if (fonts_for(*item.style).faces().size() == 1) {
+                    if (fonts_for(*item.style).builtin_alone()) {
                         // Fixed pitch: the count is a division.
                         float const advance = measure(*item.style, U" ");
                         fit = std::max<std::size_t>(1, static_cast<std::size_t>(line_avail / advance));
