@@ -1882,6 +1882,14 @@ void test_frames_have_realms_of_their_own()
     // A node of the frame's document adopted into the page's.
     CHECK(page->boolean("document.body.appendChild(document.getElementById('f').contentDocument.getElementById('inner')).parentNode === document.body"));
     CHECK_EQ(page->string("document.getElementById('inner').textContent"), "hi");
+    // The engine's Streams program, parsed once for the interpreter the page
+    // and its frame share and run again in the frame: the frame's classes are
+    // its own, made from its own intrinsics, and they work there.
+    CHECK(page->boolean("(function () { var w = document.getElementById('f').contentWindow;"
+                        " var s = new w.ReadableStream({ start: function (c) { c.enqueue(1); c.close(); } });"
+                        " return w.ReadableStream !== ReadableStream && w.TransformStream !== TransformStream && typeof w.WritableStream === 'function'"
+                        " && Object.getPrototypeOf(s) === w.ReadableStream.prototype && Object.getPrototypeOf(w.ReadableStream.prototype) === w.Object.prototype"
+                        " && s instanceof w.ReadableStream && !(s instanceof ReadableStream) && s.getReader().read() instanceof w.Promise; })()"));
     CHECK_EQ(page->console, "");
 }
 

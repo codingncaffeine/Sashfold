@@ -1406,18 +1406,37 @@ void install_interfaces(Realm::Internals& in)
     // What the global object has before the Web's interfaces: the language's
     // own globals, which are no window's members.
     std::vector<js::PropertyKey> const language_globals = in.interpreter.global()->own_keys();
-    install_events(in);
-    install_nodes(in);
-    install_ranges(in);
-    install_traversal(in);
-    install_style(in);
-    install_window(in);
-    install_binary(in);
-    install_fetch(in);
-    install_xhr(in);
-    install_tasks(in);
-    install_origin(in);
-    install_trusted_types(in);
+    // SASHFOLD_REALM_PROFILE=1: what each installer cost this realm on
+    // stderr — its time, what it added to the script heap, and what the
+    // process's resident set grew by meanwhile (the C++ side: closures,
+    // tables, a parsed program) — since every frame and worker pays for a
+    // realm, and these say where.
+    static bool const profile = [] { char const* v = std::getenv("SASHFOLD_REALM_PROFILE"); return v != nullptr && v[0] == '1'; }();
+    auto step = [&](char const* name, auto const& install) {
+        if (!profile) {
+            install();
+            return;
+        }
+        auto const t = std::chrono::steady_clock::now();
+        std::size_t const rss = platform::resident_set_bytes();
+        std::size_t const heap = in.interpreter.heap().bytes_allocated();
+        install();
+        std::cerr << "realm: " << name << " " << std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - t).count()
+                  << " ms, heap " << (static_cast<long>(in.interpreter.heap().bytes_allocated()) - static_cast<long>(heap)) / 1024
+                  << " KB, rss " << (static_cast<long>(platform::resident_set_bytes()) - static_cast<long>(rss)) / 1024 << " KB\n";
+    };
+    step("events", [&] { install_events(in); });
+    step("nodes", [&] { install_nodes(in); });
+    step("ranges", [&] { install_ranges(in); });
+    step("traversal", [&] { install_traversal(in); });
+    step("style", [&] { install_style(in); });
+    step("window", [&] { install_window(in); });
+    step("binary", [&] { install_binary(in); });
+    step("fetch", [&] { install_fetch(in); });
+    step("xhr", [&] { install_xhr(in); });
+    step("tasks", [&] { install_tasks(in); });
+    step("origin", [&] { install_origin(in); });
+    step("trusted_types", [&] { install_trusted_types(in); });
     if (in.worker != nullptr) {
         // A worker's scope is its own global object: no WindowProxy stands in
         // front of it, and no other origin ever reaches it.
@@ -1425,19 +1444,19 @@ void install_interfaces(Realm::Internals& in)
         install_indexeddb(in);
         return;
     }
-    install_workers(in);
-    install_media(in);
-    install_geometry(in);
-    install_canvas(in);
+    step("workers", [&] { install_workers(in); });
+    step("media", [&] { install_media(in); });
+    step("geometry", [&] { install_geometry(in); });
+    step("canvas", [&] { install_canvas(in); });
     // Last of the element machinery: it makes HTMLElement constructible,
     // which every interface above it must already exist for.
-    install_custom_elements(in);
-    install_mutation_observer(in);
-    install_intersection_observer(in);
-    install_indexeddb(in);
-    install_cssom(in);
-    install_streams(in);
-    install_window_proxy(in, language_globals);
+    step("custom_elements", [&] { install_custom_elements(in); });
+    step("mutation_observer", [&] { install_mutation_observer(in); });
+    step("intersection", [&] { install_intersection_observer(in); });
+    step("indexeddb", [&] { install_indexeddb(in); });
+    step("cssom", [&] { install_cssom(in); });
+    step("streams", [&] { install_streams(in); });
+    step("window_proxy", [&] { install_window_proxy(in, language_globals); });
 }
 
 // The host's half of HostPromiseRejectionTracker (HTML §8.1.7.3), on the

@@ -288,6 +288,10 @@ public:
 
     // Runs a script as global code (§16.1.6). A parse error is a thrown
     // SyntaxError. `name` is for messages: a URL, "<inline>", a test path.
+    // An `internal` script is one of the engine's own, named by `name`: it
+    // is parsed once for the interpreter and run again in each realm that
+    // asks, since every realm of a page (its frames') shares the
+    // interpreter, which keeps each program it parses for its life.
     Outcome run_script(std::u16string_view source, std::string name = "", bool internal = false);
     Outcome run_script(std::string_view utf8_source, std::string name = "", bool internal = false);
 
@@ -786,6 +790,19 @@ private:
     // block's edge.
     ChunkedStack<Value> m_roots;
     std::vector<std::unique_ptr<Program>> m_programs;
+    // The engine's own scripts already parsed, by name: the tree (kept in
+    // m_programs), its statement list as a body, and the source's length in
+    // each encoding it arrived in, which a later run must match.
+    struct InternalProgram {
+        Program const* program = nullptr;
+        FunctionNode const* body = nullptr;
+        std::size_t utf16_units = 0;
+        std::size_t utf8_bytes = 0;
+    };
+    std::unordered_map<std::string, InternalProgram> m_internal_programs;
+    // ScriptEvaluation's steps after the parse: the global declarations, then
+    // the statement list, in the current realm.
+    Outcome evaluate_script(Program const& tree, FunctionNode const& body);
     // An eval Program against the program it takes its script or module
     // from: the program of the context the direct eval ran in, already
     // walked out of any eval of its own, so no chain here is longer than

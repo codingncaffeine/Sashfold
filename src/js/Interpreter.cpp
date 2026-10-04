@@ -2543,9 +2543,12 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name, bo
 {
     // ScriptEvaluation (§16.1.6): parse, instantiate the global
     // declarations, evaluate; a parse error is a thrown SyntaxError.
-    Outcome outcome;
     if (m_call_depth == 0)
         m_stack_base = stack_position();
+    if (internal) {
+        if (auto const found = m_internal_programs.find(name); found != m_internal_programs.end() && found->second.utf16_units == source.size())
+            return evaluate_script(*found->second.program, *found->second.body);
+    }
     auto const parse_started = std::chrono::steady_clock::now();
     Parser parser(*m_heap, std::u16string(source), {});
     std::unique_ptr<Program> program = parser.parse_program(name);
@@ -2556,6 +2559,7 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name, bo
         if (!name.empty())
             message += " (" + name + ":" + std::to_string(error.position.line) + ":" + std::to_string(error.position.column) + ")";
         throw_syntax_error(message);
+        Outcome outcome;
         outcome.ok = false;
         outcome.value = take_exception();
         return outcome;
@@ -2567,16 +2571,28 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name, bo
     // compiler tracks.
     FunctionNode const* body = m_impl->program_body(*program, tree->is_strict);
     keep(std::move(program));
+    if (internal) {
+        InternalProgram& kept = m_internal_programs[name];
+        kept.program = tree;
+        kept.body = body;
+        kept.utf16_units = source.size();
+    }
+    return evaluate_script(*tree, *body);
+}
+
+Outcome Interpreter::evaluate_script(Program const& tree, FunctionNode const& body)
+{
+    Outcome outcome;
     // The script's code is the incumbent realm's while it runs.
     RealmScope const script_realm(*this, nullptr, RealmScope::Code::Script);
-    Impl::ContextScope scope(*m_impl, Context { m_realm->global_lexical, m_realm->intrinsics.global_environment, tree, nullptr, tree->is_strict, nullptr });
+    Impl::ContextScope scope(*m_impl, Context { m_realm->global_lexical, m_realm->intrinsics.global_environment, &tree, nullptr, tree.is_strict, nullptr });
     Context& cx = scope.context();
-    if (!m_impl->global_declaration_instantiation(*tree, cx)) {
+    if (!m_impl->global_declaration_instantiation(tree, cx)) {
         outcome.ok = false;
         outcome.value = take_exception();
         return outcome;
     }
-    std::optional<Value> const value = m_impl->run_compiled_node(*body, cx);
+    std::optional<Value> const value = m_impl->run_compiled_node(body, cx);
     if (!value) {
         outcome.ok = false;
         outcome.value = take_exception();
@@ -2589,7 +2605,20 @@ Outcome Interpreter::run_script(std::u16string_view source, std::string name, bo
 
 Outcome Interpreter::run_script(std::string_view utf8_source, std::string name, bool internal)
 {
-    return run_script(std::u16string_view(utf16_from_utf8(utf8_source)), std::move(name), internal);
+    // An internal script already parsed needs no UTF-16 copy of its text.
+    if (internal) {
+        if (auto const found = m_internal_programs.find(name); found != m_internal_programs.end() && found->second.utf8_bytes == utf8_source.size()) {
+            if (m_call_depth == 0)
+                m_stack_base = stack_position();
+            return evaluate_script(*found->second.program, *found->second.body);
+        }
+    }
+    Outcome outcome = run_script(std::u16string_view(utf16_from_utf8(utf8_source)), name, internal);
+    if (internal) {
+        if (auto const found = m_internal_programs.find(name); found != m_internal_programs.end())
+            found->second.utf8_bytes = utf8_source.size();
+    }
+    return outcome;
 }
 
 // ---- modules (§16.2)
