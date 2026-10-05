@@ -4222,6 +4222,27 @@ void test_events_through_shadow_trees()
     CHECK_EQ(page.console, "");
 }
 
+// ::slotted() takes the elements a slot holds once nested slots are
+// flattened (css-scoping-1 §3.2.2): a slot given to a slot further in is
+// replaced by what it holds, so the rules reach those and never the slot
+// itself, which keeps the box it had (none: display: contents).
+void test_slotted_rules_skip_a_nested_slot()
+{
+    LaidOutPage laid("<!DOCTYPE html><body><div id=outer><ul id=list><li>a</li></ul></div></body>");
+    Page& page = *laid.page;
+    page.eval(R"JS(
+        var outer = document.getElementById('outer'), list = document.getElementById('list');
+        var o = outer.attachShadow({ mode: 'open' });
+        o.innerHTML = '<div id=ih><slot id=mid></slot></div>';
+        var mid = o.getElementById('mid');
+        o.getElementById('ih').attachShadow({ mode: 'open' }).innerHTML
+            = '<style>::slotted(*) { display: grid; margin-left: 5px }</style><slot></slot>';
+        function seen(e) { var s = getComputedStyle(e); return s.display + ' ' + s.marginLeft; }
+    )JS");
+    CHECK_EQ(page.string("seen(mid) + ', ' + seen(list)"), "contents 0px, grid 5px");
+    CHECK_EQ(page.console, "");
+}
+
 // A shadow root the parser makes from a template (HTML §13.2.6.4.4), where
 // it does and where a template stays one, and the markup that writes one
 // back (getHTML) or reads one in (setHTMLUnsafe, parseHTMLUnsafe).
@@ -6033,6 +6054,7 @@ int main()
     test_an_inserted_script_runs_after_the_script_that_inserted_it();
     test_shadow_trees();
     test_events_through_shadow_trees();
+    test_slotted_rules_skip_a_nested_slot();
     test_declarative_shadow_roots();
     test_the_parser_makes_custom_elements();
     test_the_xml_serializer();

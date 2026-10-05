@@ -3759,9 +3759,12 @@ struct Resolver {
             }
         }
         // ::slotted(): the slot that takes the element, and the slot that
-        // takes that slot, each in a tree further in.
+        // takes that slot, each in a tree further in. A slot is never one
+        // of what a slot holds once nested slots are flattened — what it
+        // holds stands in its place — so it takes none of these.
         int context = -1;
-        for (dom::Element const* slot = element.assigned_slot(); slot != nullptr; slot = slot->assigned_slot(), --context) {
+        dom::Element const* const first_slot = element.is_html("slot") ? nullptr : element.assigned_slot();
+        for (dom::Element const* slot = first_slot; slot != nullptr; slot = slot->assigned_slot(), --context) {
             dom::Node const& slot_root = slot->root();
             if (!slot_root.is_shadow_root())
                 break;
