@@ -3471,11 +3471,11 @@ struct Resolver {
     StyleMap const* previous_styles = nullptr;
     float root_font_size = 16;
     float initial_font_size = 16; // `medium`, in device px
-    // Rules are matched for four targets at once — the element itself, its
-    // ::before, its ::after and its ::first-letter — since one selector walk
-    // serves all four. Per target and rule: the element (stamp) it last
+    // Rules are matched for five targets at once — the element itself, its
+    // ::before, its ::after, its ::first-letter and its ::placeholder — since
+    // one selector walk serves all five. Per target and rule: the element (stamp) it last
     // matched and its best matching selector for that element.
-    static constexpr int target_count = 4;
+    static constexpr int target_count = 5;
     // The marks are kept per rule set: the document's, and one for each
     // kind of shadow tree met (RuleSet::scope_rules).
     struct Scratch {
@@ -3654,6 +3654,8 @@ struct Resolver {
             return 2;
         case ComplexSelector::PseudoElement::FirstLetter:
             return 3;
+        case ComplexSelector::PseudoElement::Placeholder:
+            return 4;
         }
         return 0;
     }
@@ -3940,6 +3942,10 @@ struct Resolver {
         // way.
         if (is_block_container_display(style.display) && !matched_rules[3].empty())
             style.first_letter = std::make_shared<ComputedStyle const>(cascade(3, element, style, false));
+        // ::placeholder addresses a field: an input that takes text, or a
+        // textarea.
+        if (!matched_rules[4].empty() && (element.is_html("input") || element.is_html("textarea")))
+            style.placeholder = std::make_shared<ComputedStyle const>(cascade(4, element, style, false));
         return generated;
     }
 
@@ -5295,7 +5301,12 @@ struct Resolver {
                 std::string const name = lowercase_name(entry.declaration->name);
                 bool const border = name.starts_with("border") && name != "border-collapse"
                     && name != "border-spacing";
-                if (border || name.starts_with("background") || name == "all")
+                bool const background = name.starts_with("background");
+                if (border || name == "all")
+                    style.author_border = true;
+                if (background || name == "all")
+                    style.author_background = true;
+                if (border || background || name == "all")
                     style.author_decorated = true;
             }
         }
@@ -5506,6 +5517,12 @@ struct Resolver {
             if (side->style == BorderStyle::None || side->style == BorderStyle::Hidden)
                 side->width = 0;
         }
+        // A text field the page gave a border of its own and no background
+        // has lost its built-in face, and shows the field's own white as a
+        // background (HTML's `background-color: Field`): under the border
+        // and within its corners, as any background is.
+        if (target == 0 && style.author_border && !style.author_background && takes_text(element))
+            style.background_color = Color::rgb(255, 255, 255);
         // css-text-3 §7.1: `match-parent` computes to the parent's own
         // alignment, with `start` and `end` resolved against the PARENT's
         // direction — which is the whole point of it, since inheriting the

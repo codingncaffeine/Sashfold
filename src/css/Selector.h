@@ -169,6 +169,8 @@ struct ComplexSelector {
         Before,
         After,
         FirstLetter,
+        // css-pseudo-4 §4.4: the text a field shows while it holds none.
+        Placeholder,
         // css-scoping-1 §3.3 and css-shadow-parts-1: the rest of the
         // selector matches a slot, or a shadow host, and the rule styles
         // the elements assigned to that slot which match `slotted`, or the
@@ -242,5 +244,9 @@ bool contains_has(SimpleSelector const& simple);
 // names (:hover, :checked, :disabled...): what an invalidation asks of an
 // element whose state may have turned.
 bool element_in_state(SimpleSelector::PseudoKind kind, dom::Element const& element);
+
+// A field a reader types text into: a textarea, or an input of a type that
+// takes a placeholder.
+bool takes_text(dom::Element const& element);
 
 }

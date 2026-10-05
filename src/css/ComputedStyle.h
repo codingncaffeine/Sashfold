@@ -1039,6 +1039,9 @@ struct ComputedStyle {
     // which takes the built-in face away, as it does in every engine.
     Appearance appearance = Appearance::None;
     bool author_decorated = false;
+    // Which of the two: a field keeps the half of its face the page left it.
+    bool author_border = false;
+    bool author_background = false;
 
     // Hiding: visibility is inherited and keeps the box's room; opacity is
     // not, and at zero hides the box and everything in it (between zero and
@@ -1205,6 +1208,10 @@ struct ComputedStyle {
     // first letter of this block's first line wears, cascaded from the
     // element. Null when nothing addresses it.
     std::shared_ptr<ComputedStyle const> first_letter;
+    // What ::placeholder asks for, on a field: the style of the text it shows
+    // while it holds none, cascaded from the field. Null when nothing
+    // addresses it.
+    std::shared_ptr<ComputedStyle const> placeholder;
     // The custom properties in force (--name → its component values, as
     // written, var() references already substituted): inherited, shared
     // with the parent until an element declares one of its own.

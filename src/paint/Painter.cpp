@@ -919,11 +919,19 @@ void paint_run(Context& context, TextRun const& run)
         return;
     bool const kern = style.font_kerning != css::FontKerning::None;
     float const start_x = run.x + context.dx;
-    // A placeholder is the field's own color at a little over half strength,
-    // so that it reads as a hint on a light field and on a dark one.
+    // A placeholder wears what ::placeholder gives it, its color at its
+    // opacity; given no color of its own, it is the field's at a little over
+    // half strength, so that it reads as a hint on a light field and on a
+    // dark one.
     Color color = style.color;
-    if (run.placeholder)
-        color.a = static_cast<std::uint8_t>(color.a * 0.54f);
+    if (run.placeholder) {
+        if (style.placeholder && style.placeholder->color != style.color)
+            color = style.placeholder->color;
+        else
+            color.a = static_cast<std::uint8_t>(color.a * 0.54f);
+        if (style.placeholder)
+            color.a = static_cast<std::uint8_t>(std::lround(color.a * std::clamp(style.placeholder->opacity, 0.0f, 1.0f)));
+    }
     // The run drawn onto a target with its pen at (`left`, `line`): the
     // glyphs, then the decoration line. Measures it when `onto` is null.
     // Returns the run's width.
@@ -1057,10 +1065,19 @@ void paint_control(Context& context, Fragment const& fragment)
     default: {
         bool const button = control.kind == ControlKind::Submit || control.kind == ControlKind::Button
             || control.kind == ControlKind::File;
-        if (!author_look) {
+        // A field keeps whichever half of its face the page left it: any
+        // border it was given — `border: none` too — takes the frame away,
+        // any background the fill, as in every engine (Blink's
+        // hasAuthorBorder and hasAuthorBackground). Once its border is the
+        // page's, the white is a CSS background (the cascade gives it one),
+        // drawn under that border and within its corners.
+        bool const field = !control.contents
+            && (control.kind == ControlKind::Text || control.kind == ControlKind::Password
+                || control.kind == ControlKind::TextArea);
+        if (field ? !style.author_background && !style.author_border : !author_look)
             context.target.fill_rect(rect, button || control.disabled ? gray : white);
+        if (field ? !style.author_border : !author_look)
             frame(rect, border);
-        }
         if (control.kind == ControlKind::Select) {
             // A small triangle pointing down, near the right edge: four
             // rows of 7, 5, 3 and 1 CSS px, each row `line` device px tall.

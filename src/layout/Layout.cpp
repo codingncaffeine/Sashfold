@@ -2850,16 +2850,24 @@ struct Layouter {
         float const line = line_height_of(style);
         float const ascent = ascent_in_line(style);
         text::FontStack const* const stack = &fonts_for(style);
+        // The text sits inside the built-in frame; a field whose border the
+        // page wrote has its CSS border there instead.
+        bool const own_frame = style.author_border
+            && (spec.box.kind == ControlKind::Text || spec.box.kind == ControlKind::Password
+                || spec.box.kind == ControlKind::TextArea);
+        float const inset_left = own_frame ? style.border_left.width : 4.0f;
+        float const inset_top = own_frame ? style.border_top.width : 3.0f;
+        float const inset_bottom = own_frame ? style.border_bottom.width : 2.0f;
         if (spec.box.kind != ControlKind::TextArea) {
             control.pad_top = spec.pad_top;
             control.pad_bottom = spec.pad_bottom;
         }
         if (spec.box.kind == ControlKind::TextArea) {
             // One run per line, as many as fit; the caret sits at the end.
-            float const text_x = box.x + 4 + spec.pad_left;
-            float baseline = box.y + 3 + spec.pad_top + ascent;
+            float const text_x = box.x + inset_left + spec.pad_left;
+            float baseline = box.y + inset_top + spec.pad_top + ascent;
             std::size_t start = 0;
-            while (baseline - ascent + line <= box.y + box.height - 2 - spec.pad_bottom) {
+            while (baseline - ascent + line <= box.y + box.height - inset_bottom - spec.pad_bottom) {
                 std::size_t const end = spec.shown.find(U'\n', start);
                 std::u32string const text
                     = spec.shown.substr(start, end == std::u32string::npos ? std::u32string::npos : end - start);
@@ -2883,7 +2891,7 @@ struct Layouter {
             // text starts where the left padding ends.
             float const text_x = spec.centered
                 ? box.x + spec.pad_left + (box.width - spec.pad_left - spec.pad_right - measure(style, spec.shown)) / 2.0f
-                : box.x + 4 + spec.pad_left;
+                : box.x + inset_left + spec.pad_left;
             float const baseline = box.y + spec.pad_top + (box.height - spec.pad_top - spec.pad_bottom - line) / 2.0f + ascent;
             if (!spec.shown.empty()) {
                 box.runs.push_back(TextRun { text_x, baseline, spec.shown, &style, box.element, stack,

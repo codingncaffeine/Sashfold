@@ -307,6 +307,40 @@ input:-webkit-autofill, #vendor { color: rgb(23, 0, 0) }
     CHECK(style_of_id("o2").background_color != Color::rgb(26, 0, 0));
 }
 
+// ::placeholder (css-pseudo-4 §4.4) and its vendor spellings: a field's
+// placeholder text is cascaded from the field, which it inherits from;
+// an element that is no field, or a field no rule addresses, has none.
+// Which half of a field's built-in face the page took: its border, its
+// background, both — `border: none` is a border.
+void test_placeholder_and_field_faces()
+{
+    std::unique_ptr<dom::Document> document = html::parse_document(std::string_view(R"(<!doctype html>
+<input id=a placeholder=p><textarea id=b placeholder=p></textarea><input id=c placeholder=p><div id=d></div>
+<input id=e style="border: none"><input id=f style="background: transparent"><input id=g>
+)"));
+    css::SheetSource sheet;
+    sheet.text = R"CSS(
+input { color: rgb(9, 9, 9) }
+#a::placeholder { color: rgb(1, 2, 3); opacity: 0.5 }
+#b::-webkit-input-placeholder { color: transparent }
+#d::placeholder { color: red }
+)CSS";
+    css::StyleSet const set({ sheet });
+    css::StyleMap const styles = css::resolve_styles(*document, set);
+    auto const style_of = [&](std::string_view id) -> ComputedStyle const& { return styles.at(find_by_id(*document, id)); };
+    if (CHECK(style_of("a").placeholder)) {
+        CHECK(style_of("a").placeholder->color == Color::rgb(1, 2, 3));
+        CHECK_EQ(style_of("a").placeholder->opacity, 0.5f);
+    }
+    if (CHECK(style_of("b").placeholder))
+        CHECK_EQ(static_cast<int>(style_of("b").placeholder->color.a), 0);
+    CHECK(!style_of("c").placeholder);
+    CHECK(!style_of("d").placeholder);
+    CHECK(style_of("e").author_border && !style_of("e").author_background);
+    CHECK(!style_of("f").author_border && style_of("f").author_background);
+    CHECK(!style_of("g").author_border && !style_of("g").author_background);
+}
+
 } // namespace
 
 int main()
@@ -314,6 +348,7 @@ int main()
     test_prepared_sheets_from_many_threads();
     test_nesting_and_layers();
     test_state_pseudo_classes();
+    test_placeholder_and_field_faces();
     g_document = html::parse_document(std::string_view(R"(
 <!doctype html>
 <html><head><style>

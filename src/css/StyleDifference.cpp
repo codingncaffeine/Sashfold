@@ -325,6 +325,8 @@ std::optional<std::string_view> first_style_difference(ComputedStyle const& a, C
     field("blockified", a.blockified, b.blockified);
     field("appearance", a.appearance, b.appearance);
     field("author_decorated", a.author_decorated, b.author_decorated);
+    field("author_border", a.author_border, b.author_border);
+    field("author_background", a.author_background, b.author_background);
     field("visibility", a.visibility, b.visibility);
     field("opacity", a.opacity, b.opacity);
     field("pointer_events", a.pointer_events, b.pointer_events);
@@ -409,6 +411,7 @@ std::optional<std::string_view> first_style_difference(ComputedStyle const& a, C
     field("counter_increment", a.counter_increment, b.counter_increment);
     field("counter_set", a.counter_set, b.counter_set);
     field("first_letter", a.first_letter, b.first_letter);
+    field("placeholder", a.placeholder, b.placeholder);
     field("custom", a.custom, b.custom);
     field("animation", a.animation, b.animation);
     field("transition", a.transition, b.transition);

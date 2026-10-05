@@ -823,6 +823,8 @@ bool settle_pseudo_elements(ComplexSelector& selector)
             selector.pseudo_element = ComplexSelector::PseudoElement::After;
         else if (last[i].name == "first-letter")
             selector.pseudo_element = ComplexSelector::PseudoElement::FirstLetter;
+        else if (last[i].name == "placeholder" || last[i].name == "-webkit-input-placeholder" || last[i].name == "-moz-placeholder")
+            selector.pseudo_element = ComplexSelector::PseudoElement::Placeholder;
         else if (last[i].name == "slotted" && last[i].argument && i + 1 == last.size()) {
             selector.pseudo_element = ComplexSelector::PseudoElement::Slotted;
             selector.slotted = last[i].argument;
@@ -2095,6 +2097,11 @@ bool matches(SelectorList const& list, dom::Element const& element, Specificity*
     if (any && matched)
         *matched = best;
     return any;
+}
+
+bool takes_text(dom::Element const& element)
+{
+    return element.is_html("textarea") || (element.is_html("input") && takes_placeholder(input_type(element)));
 }
 
 }
