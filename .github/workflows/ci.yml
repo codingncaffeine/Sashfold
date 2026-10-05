@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # A branch run on request: what a commit did on the runners, without
+  # putting it on main.
+  workflow_dispatch:
 
 jobs:
   linux-gcc:
