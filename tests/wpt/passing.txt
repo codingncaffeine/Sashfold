@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (10265 of 15682) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (10272 of 15682) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -6335,6 +6335,8 @@ css/css-flexbox/flexbox-iframe-intrinsic-size-001.html
 css/css-flexbox/flexbox-items-as-stacking-contexts-002.html
 css/css-flexbox/flexbox-items-as-stacking-contexts-003.html
 css/css-flexbox/flexbox-min-width-auto-001.html
+css/css-flexbox/flexbox-min-width-auto-003.html
+css/css-flexbox/flexbox-min-width-auto-004.html
 css/css-flexbox/flexbox-order-only-flexitems.html
 css/css-flexbox/flexbox-overflow-horiz-001.html
 css/css-flexbox/flexbox-overflow-horiz-002.html
@@ -6353,7 +6355,9 @@ css/css-flexbox/flexbox-root-node-001a.html
 css/css-flexbox/flexbox-root-node-001b.html
 css/css-flexbox/flexbox-safe-overflow-position-002.html
 css/css-flexbox/flexbox-safe-overflow-position-005.html
+css/css-flexbox/flexbox-single-line-clamp-1.html
 css/css-flexbox/flexbox-single-line-clamp-2.html
+css/css-flexbox/flexbox-single-line-clamp-3.html
 css/css-flexbox/flexbox-sizing-horiz-002.xhtml
 css/css-flexbox/flexbox-sizing-vert-002.xhtml
 css/css-flexbox/flexbox-vert-lr-with-img.html
@@ -6663,6 +6667,7 @@ css/css-flexbox/stretch-input-in-column.html
 css/css-flexbox/stretch-obeys-min-max-001.html
 css/css-flexbox/stretched-child-in-nested-flexbox-001.html
 css/css-flexbox/stretched-child-in-nested-flexbox-002.html
+css/css-flexbox/stretched-child-in-nested-flexbox-003.html
 css/css-flexbox/stretching-orthogonal-flows.html
 css/css-flexbox/svg-root-as-flex-item-001.html
 css/css-flexbox/svg-root-as-flex-item-003.html
@@ -7050,6 +7055,7 @@ css/css-grid/alignment/grid-justify-content-space-between-001.html
 css/css-grid/alignment/grid-self-alignment-baseline-gfc-001.html
 css/css-grid/alignment/grid-self-alignment-baseline-with-grid-001.html
 css/css-grid/alignment/grid-self-alignment-baseline-with-grid-002.html
+css/css-grid/alignment/grid-self-alignment-stretch-input-range.html
 css/css-grid/alignment/self-baseline/grid-self-baseline-changes-grid-area-size-001.html
 css/css-grid/alignment/self-baseline/grid-self-baseline-changes-grid-area-size-002.html
 css/css-grid/alignment/self-baseline/grid-self-baseline-changes-grid-area-size-004.html
@@ -8720,6 +8726,7 @@ css/css-text/white-space/text-wrap-balance-float-006.html
 css/css-text/white-space/text-wrap-balance-line-clamp-001.html
 css/css-text/white-space/text-wrap-balance-overflow-001.html
 css/css-text/white-space/textarea-always-preserves-spaces-001.tentative.html
+css/css-text/white-space/textarea-pre-wrap-011.html
 css/css-text/white-space/trailing-ideographic-space-007.html
 css/css-text/white-space/trailing-ideographic-space-009.html
 css/css-text/white-space/trailing-ideographic-space-011.html
@@ -8888,7 +8895,6 @@ css/css-values/attr-dynamic-marker-content.html
 css/css-values/attr-namespace-wildcard.html
 css/css-values/attr-notype-fallback.html
 css/css-values/attr-pseudo-element-marker.html
-css/css-values/attr-pseudo-element-placeholder.html
 css/css-values/attr-style-sharing-5.html
 css/css-values/calc-background-image-gradient-1.html
 css/css-values/calc-background-linear-gradient-1.html
@@ -8904,6 +8910,7 @@ css/css-values/calc-margin-block-1.html
 css/css-values/calc-max-width-block-1.html
 css/css-values/calc-min-height.html
 css/css-values/calc-min-width-block-1.html
+css/css-values/calc-min-width-block-intrinsic-1.html
 css/css-values/calc-offsets-absolute-bottom-1.html
 css/css-values/calc-offsets-absolute-left-1.html
 css/css-values/calc-offsets-absolute-right-1.html

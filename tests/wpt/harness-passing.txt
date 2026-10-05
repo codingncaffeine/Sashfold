@@ -13947,6 +13947,7 @@ custom-elements/reactions/Node.html	textContent on Node must not enqueue an attr
 custom-elements/reactions/ParentNode.html	append on ParentNode must enqueue a connected reaction
 custom-elements/reactions/ParentNode.html	prepend on ParentNode must enqueue a connected reaction
 custom-elements/reactions/Range.html	deleteContents on Range must enqueue a disconnected reaction
+custom-elements/reactions/Range.html	extractContents on Range must enqueue a disconnected reaction
 custom-elements/reactions/Range.html	insertNode on Range must enqueue a connected reaction
 custom-elements/reactions/Range.html	surroundContents on Range must enqueue a connected reaction
 custom-elements/reactions/ShadowRoot.html	innerHTML on ShadowRoot must enqueue connectedCallback on newly upgraded custom elements when the shadow root is connected

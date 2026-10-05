@@ -1,7 +1,7 @@
 {
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
   "date": "2026-10-05",
-  "passed": 157845,
+  "passed": 157846,
   "total": 192269,
   "files": 6343,
   "completed": 6323,
@@ -24,7 +24,7 @@
     { "path": "html/infrastructure", "passed": 605, "total": 1007, "files": 115, "completed": 115 },
     { "path": "html/syntax/parsing", "passed": 2564, "total": 7785, "files": 231, "completed": 231 },
     { "path": "url", "passed": 7828, "total": 10006, "files": 40, "completed": 40 },
-    { "path": "custom-elements", "passed": 2446, "total": 4000, "files": 185, "completed": 185 },
+    { "path": "custom-elements", "passed": 2447, "total": 4000, "files": 185, "completed": 185 },
     { "path": "shadow-dom", "passed": 464, "total": 956, "files": 277, "completed": 277 },
     { "path": "dom/abort", "passed": 35, "total": 37, "files": 6, "completed": 6 },
     { "path": "dom/collections", "passed": 9, "total": 53, "files": 10, "completed": 10 },
