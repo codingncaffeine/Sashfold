@@ -12,6 +12,8 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <utility>
@@ -56,6 +58,74 @@ class ConnectionPool;
 class CookieJar;
 class HttpCache;
 
+// A response body as it arrives, for whoever wants to look at it before it
+// is whole (a document's preload scan): the bytes as they came off the
+// wire, not yet decoded, and the Content-Encoding they are in. Only a
+// successful response is kept — a redirect's body is not the one asked
+// for — and each new one starts it over. The fetching threads append; any
+// thread reads.
+class BodyTap {
+public:
+    // The address a request goes to, before each hop: where the response
+    // begun next is from.
+    void request(Url const& url)
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        m_requested = url;
+    }
+    // A successful response: its body is kept from here, with what its
+    // headers say of it.
+    void begin(std::string encoding, std::vector<std::string> policies)
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        m_raw.clear();
+        m_encoding = std::move(encoding);
+        m_policies = std::move(policies);
+        m_url = m_requested;
+        m_open = true;
+        ++m_response;
+    }
+    void append(std::uint8_t const* data, std::size_t size)
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        if (m_open)
+            m_raw.insert(m_raw.end(), data, data + size);
+    }
+    // Nothing more is appended to the response begun last.
+    void end()
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        m_open = false;
+    }
+    std::size_t size() const
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        return m_raw.size();
+    }
+    struct Snapshot {
+        std::vector<std::uint8_t> raw;
+        std::string encoding;
+        Url url; // where it is from
+        std::vector<std::string> policies; // its Content-Security-Policy headers
+        std::uint64_t response = 0; // which response it is of, counting from 1
+    };
+    Snapshot snapshot() const
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        return { m_raw, m_encoding, m_url, m_policies, m_response };
+    }
+
+private:
+    mutable std::mutex m_mutex;
+    std::vector<std::uint8_t> m_raw;
+    std::string m_encoding;
+    Url m_requested;
+    Url m_url;
+    std::vector<std::string> m_policies;
+    bool m_open = false;
+    std::uint64_t m_response = 0;
+};
+
 struct FetchOptions {
     int max_redirects = 20;
     std::size_t max_body = 64u * 1024u * 1024u;
@@ -98,6 +168,8 @@ struct FetchOptions {
     // blocklists and the page's Content Security Policy judge each hop
     // the way they judged the first request.
     std::function<std::optional<std::string>(Url& next)> hop_refusal;
+    // Told the body of the response as it arrives (BodyTap).
+    std::shared_ptr<BodyTap> tap;
     // HTTP/2 goes wherever TLS negotiates it. Over plain http:// it is
     // spoken only with prior knowledge (RFC 9113 Section 3.3), which no
     // browser uses on the open web: the loopback tests set this, since
@@ -156,6 +228,8 @@ struct FetchResult {
 FetchResult fetch(Url const& url, FetchOptions const& options = {});
 
 std::string const* find_header(std::vector<Header> const& headers, std::string_view name);
+// Every value of a field the response may carry more than once.
+std::vector<std::string> header_values(std::vector<Header> const& headers, std::string_view name);
 
 // The UA policy token: compat-shaped, honest suffix.
 std::string_view user_agent();
@@ -175,10 +249,16 @@ struct RawResponse {
 };
 std::optional<RawResponse> read_response(
     std::function<std::ptrdiff_t(std::uint8_t*, std::size_t)> const& read,
-    std::size_t max_body, bool head = false); // head: a HEAD's response carries no body
+    std::size_t max_body, bool head = false, BodyTap* tap = nullptr); // head: a HEAD's response carries no body
 
 // Exposed for tests: content decoding per Content-Encoding.
 std::optional<std::vector<std::uint8_t>> decode_content(std::string_view encoding,
+    std::vector<std::uint8_t> const& body, std::size_t max_output);
+
+// What the first bytes of a body decode to while the rest is still to come
+// (BodyTap): every byte decoded whole from them; nullopt for an encoding
+// not known or bytes already malformed.
+std::optional<std::vector<std::uint8_t>> decode_content_prefix(std::string_view encoding,
     std::vector<std::uint8_t> const& body, std::size_t max_output);
 
 }

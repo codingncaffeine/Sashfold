@@ -81,6 +81,8 @@ public:
         // lowercased, without the ones HTTP/2 forbids (Section 8.2.2).
         std::vector<Header> headers;
         std::vector<std::uint8_t> body;
+        // Told the response's body as it arrives (BodyTap).
+        std::shared_ptr<BodyTap> tap;
     };
 
     enum class Outcome {

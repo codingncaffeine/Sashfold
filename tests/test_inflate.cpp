@@ -102,6 +102,32 @@ int main(int argc, char** argv)
         CHECK(!zlib_decompress({ 0x78, 0x02, 0x00 }).has_value()); // bad FCHECK
     }
 
+    // --- A stream still arriving ---------------------------------------------
+    // Every cut of a gzip stream decodes to a prefix of the whole, and the
+    // whole to all of it, the checks at its end not made; a cut whose header
+    // is already wrong is refused.
+    for (char const* name : { "hello", "spec", "binary" }) {
+        auto const raw = read_file(g_fixtures / (std::string(name) + ".raw"));
+        auto const gzipped = read_file(g_fixtures / (std::string(name) + ".gzip"));
+        if (!CHECK(raw && gzipped))
+            continue;
+        bool prefixes = true;
+        std::size_t at_three_quarters = 0;
+        for (std::size_t cut = 0; cut <= gzipped->size(); ++cut) {
+            std::vector<std::uint8_t> const part(gzipped->begin(), gzipped->begin() + static_cast<std::ptrdiff_t>(cut));
+            auto const out = gzip_decompress_prefix(part);
+            if (!out || out->size() > raw->size() || !std::equal(out->begin(), out->end(), raw->begin()))
+                prefixes = false;
+            if (cut == gzipped->size() * 3 / 4 && out)
+                at_three_quarters = out->size();
+            if (cut == gzipped->size() && (!out || *out != *raw))
+                prefixes = false;
+        }
+        CHECK(prefixes);
+        CHECK(at_three_quarters > 0);
+    }
+    CHECK(!gzip_decompress_prefix({ 0x1F, 0x8C, 0x08 }).has_value());
+
     // --- The output cap holds against decompression bombs --------------------
     {
         auto gzipped = read_file(g_fixtures / "binary.gzip");

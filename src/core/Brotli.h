@@ -18,6 +18,12 @@ namespace sashfold {
 std::optional<std::vector<std::uint8_t>> brotli_decompress(std::uint8_t const* data, std::size_t size,
     std::size_t max_output = 256u * 1024u * 1024u);
 
+// What the first bytes of a stream decode to, while the rest is still to
+// come: every byte decoded whole from them. nullopt when what has come is
+// already malformed.
+std::optional<std::vector<std::uint8_t>> brotli_decompress_prefix(std::uint8_t const* data, std::size_t size,
+    std::size_t max_output = 256u * 1024u * 1024u);
+
 inline std::optional<std::vector<std::uint8_t>> brotli_decompress(std::vector<std::uint8_t> const& data,
     std::size_t max_output = 256u * 1024u * 1024u)
 {

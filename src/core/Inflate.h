@@ -26,6 +26,12 @@ std::optional<std::vector<std::uint8_t>> zlib_decompress(std::vector<std::uint8_
 std::optional<std::vector<std::uint8_t>> gzip_decompress(std::vector<std::uint8_t> const& data,
     std::size_t max_output = 256u * 1024u * 1024u);
 
+// What the first bytes of a gzip stream decode to, while the rest is still
+// to come: every byte decoded whole from them, the checks at its end not
+// made. nullopt when what has come is already malformed.
+std::optional<std::vector<std::uint8_t>> gzip_decompress_prefix(std::vector<std::uint8_t> const& data,
+    std::size_t max_output = 256u * 1024u * 1024u);
+
 // The CRC-32 of the bytes (the polynomial gzip, zip and PNG share): what a
 // gzip member and a zip entry are checked against once they are unpacked.
 std::uint32_t crc32_of(std::vector<std::uint8_t> const& data);

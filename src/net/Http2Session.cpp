@@ -114,6 +114,7 @@ struct Http2Session::Stream {
     std::optional<Clock::time_point> first;
     Clock::time_point finished;
     std::size_t bytes = 0;
+    std::shared_ptr<BodyTap> tap;
 };
 
 Http2Session::Http2Session(Connection connection, Http2Config config)
@@ -227,6 +228,8 @@ void Http2Session::end_stream(Stream& stream, Outcome outcome, std::string error
     if (stream.ended)
         return;
     stream.ended = true;
+    if (stream.tap)
+        stream.tap->end();
     stream.outcome = outcome;
     stream.error = std::move(error);
     stream.finished = Clock::now();
@@ -541,6 +544,8 @@ bool Http2Session::handle_data(h2::Frame const& frame)
         return true;
     }
     stream.response.body.insert(stream.response.body.end(), content.begin(), content.end());
+    if (stream.tap)
+        stream.tap->append(content.data(), content.size());
     if (frame.has(h2::flags::end_stream)) {
         finish_stream(stream);
         return true;
@@ -637,6 +642,11 @@ bool Http2Session::finish_header_block()
     stream.headers_done = true;
     stream.response.status = status;
     stream.response.headers = std::move(headers);
+    if (stream.tap && !stream.head && status < 300) {
+        std::string const* const encoding = find_header(stream.response.headers, "content-encoding");
+        stream.tap->begin(encoding ? std::string(trim(*encoding)) : std::string(),
+            header_values(stream.response.headers, "content-security-policy"));
+    }
     if (m_block_end_stream)
         finish_stream(stream);
     return true;
@@ -752,6 +762,7 @@ Http2Session::Result Http2Session::exchange(Request const& request, std::size_t 
 
     auto stream = std::make_shared<Stream>();
     stream->max_body = max_body;
+    stream->tap = request.tap;
     stream->head = head;
     stream->replayable = idempotent(request.method);
     {

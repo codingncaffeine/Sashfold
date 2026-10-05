@@ -43,6 +43,7 @@
 #include <algorithm>
 #include <cctype>
 #include <chrono>
+#include <future>
 #include <cmath>
 #include <cstdio>
 #include <cstring>
@@ -489,6 +490,14 @@ struct Browser::Impl {
     // A load begun on another thread and not yet shown (perform,
     // advance_navigations): first its document is awaited, then — the entry
     // made of it kept here — the stylesheets and scripts its markup names.
+    // What a scan of a document still arriving found, and where the document
+    // is from and what its headers allow.
+    struct ArrivingScan {
+        html::PreloadScan scan;
+        net::Url url;
+        std::vector<std::string> policies;
+    };
+
     struct Navigating {
         Pending load;
         std::string referrer;
@@ -500,6 +509,11 @@ struct Browser::Impl {
         bool fell_back = false;
         std::vector<std::shared_ptr<net::FetchTicket>> blocking;
         std::chrono::steady_clock::time_point waiting_since;
+        // The document's body as it arrives, and the scan of it that may be
+        // under way (scan_arriving): how much had come when the last began.
+        std::shared_ptr<net::BodyTap> tap;
+        std::future<std::optional<ArrivingScan>> scanning;
+        std::size_t scanned_bytes = 0;
     };
 
     // Where a picture's bytes came from: the URL its redirects ended at and
@@ -3662,10 +3676,15 @@ struct Browser::Impl {
     std::vector<std::shared_ptr<net::FetchTicket>> ask_ahead_for_markup(Tab& tab, net::Url const& page_url,
         std::string_view source, net::ContentSecurityPolicy const* policy)
     {
-        std::vector<std::shared_ptr<net::FetchTicket>> asked;
         if (page_url.scheme != "http" && page_url.scheme != "https")
-            return asked;
-        html::PreloadScan const scan = html::scan_for_preloads(source);
+            return {};
+        return ask_ahead_for_scan(tab, page_url, html::scan_for_preloads(source), policy);
+    }
+
+    std::vector<std::shared_ptr<net::FetchTicket>> ask_ahead_for_scan(Tab& tab, net::Url const& page_url,
+        html::PreloadScan const& scan, net::ContentSecurityPolicy const* policy)
+    {
+        std::vector<std::shared_ptr<net::FetchTicket>> asked;
         std::optional<net::ContentSecurityPolicy> with_meta;
         if (!scan.meta_policies.empty()) {
             with_meta.emplace(policy ? *policy : net::ContentSecurityPolicy(page_url));
@@ -3685,6 +3704,49 @@ struct Browser::Impl {
             }
         }
         return asked;
+    }
+
+    // The same while the document is still arriving — the speculative scan
+    // every engine runs over the bytes as they come, so that the scripts
+    // and stylesheets a page's head names are on their way before its body
+    // has come. Each time the body has grown by a step, what has come is
+    // decoded and scanned on a thread of its own, up to its last whole tag;
+    // what the scan finds is asked for here, under the policy the
+    // response's headers state. The loader asks for each address once, so
+    // the scan of the whole document after it asks again for nothing.
+    static constexpr std::size_t arriving_scan_step = 16 * 1024;
+
+    void scan_arriving(Tab& tab, Navigating& navigating)
+    {
+        if (!navigating.tap || navigating.entry)
+            return;
+        if (navigating.scanning.valid()) {
+            if (navigating.scanning.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+                return;
+            std::optional<ArrivingScan> const found = navigating.scanning.get();
+            if (found && (found->url.scheme == "http" || found->url.scheme == "https")) {
+                net::ContentSecurityPolicy policy(found->url);
+                for (std::string const& header : found->policies)
+                    policy.add_header(header, false);
+                ask_ahead_for_scan(tab, found->url, found->scan, &policy);
+            }
+        }
+        std::size_t const arrived = navigating.tap->size();
+        if (arrived < navigating.scanned_bytes + arriving_scan_step)
+            return;
+        navigating.scanned_bytes = arrived;
+        navigating.scanning = std::async(std::launch::async, [tap = navigating.tap]() -> std::optional<ArrivingScan> {
+            net::BodyTap::Snapshot const sofar = tap->snapshot();
+            std::optional<std::vector<std::uint8_t>> const decoded
+                = net::decode_content_prefix(sofar.encoding, sofar.raw, 64u * 1024u * 1024u);
+            if (!decoded)
+                return std::nullopt;
+            std::string_view source(reinterpret_cast<char const*>(decoded->data()), decoded->size());
+            std::size_t const last_tag = source.rfind('>');
+            if (last_tag == std::string_view::npos)
+                return std::nullopt;
+            return ArrivingScan { html::scan_for_preloads(source.substr(0, last_tag + 1)), sofar.url, sofar.policies };
+        });
     }
 
     // How many of a page's pictures one pass fetches: the page shows after
@@ -5194,13 +5256,15 @@ struct Browser::Impl {
             // strip and the bar. Whatever the tab was waiting for before
             // this is let go of.
             if (load.url.scheme == "http" || load.url.scheme == "https") {
+                std::shared_ptr<net::BodyTap> tap = load.post ? nullptr : std::make_shared<net::BodyTap>();
                 if (std::shared_ptr<net::FetchTicket> ticket = load.post
                         ? loader.submit_ahead(load.url, referrer, *load.post, tab.container)
-                        : loader.load_ahead(load.url, referrer, load.mode == Mode::Reload, tab.container)) {
+                        : loader.load_ahead(load.url, referrer, load.mode == Mode::Reload, tab.container, tap)) {
                     Navigating navigating;
                     navigating.load = load;
                     navigating.referrer = referrer;
                     navigating.document = std::move(ticket);
+                    navigating.tap = std::move(tap);
                     navigating.started = entry.navigation_started;
                     tab.navigating = std::move(navigating);
                     dirty = true;
@@ -5345,6 +5409,8 @@ struct Browser::Impl {
     {
         for (std::size_t index = 0; index < tabs.size(); ++index) {
             Tab& tab = tabs[index];
+            if (tab.navigating)
+                scan_arriving(tab, *tab.navigating);
             if (!tab.navigating || !navigation_ready(*tab.navigating))
                 continue;
             Navigating& navigating = *tab.navigating;

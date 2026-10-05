@@ -134,13 +134,15 @@ public:
     // load(), begun on another thread: a ticket to ask after the document
     // by, so that the window is not held still while it comes. Null from a
     // loader that fetches where it is asked — and load() is then the way.
+    // `tap`, when given, is told the document's body as it arrives.
     virtual std::shared_ptr<net::FetchTicket> load_ahead(net::Url const& url, std::string const& referrer,
-        bool bypass_cache, std::string_view container = {})
+        bool bypass_cache, std::string_view container = {}, std::shared_ptr<net::BodyTap> tap = nullptr)
     {
         (void)url;
         (void)referrer;
         (void)bypass_cache;
         (void)container;
+        (void)tap;
         return nullptr;
     }
     // A request a page's script makes — fetch(), XMLHttpRequest — carried

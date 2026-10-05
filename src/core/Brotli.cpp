@@ -157,13 +157,18 @@ public:
     [[nodiscard]] bool read(unsigned count, std::uint32_t& value)
     {
         fill();
-        if (m_count < count)
+        if (m_count < count) {
+            m_starved = true;
             return false;
+        }
         value = static_cast<std::uint32_t>(m_buffer & ((std::uint64_t { 1 } << count) - 1));
         m_buffer >>= count;
         m_count -= count;
         return true;
     }
+
+    // Whether a read failed for want of input, not because of what it read.
+    bool starved() const { return m_starved; }
 
     // The next 15 bits without taking them, zeros past the end: what a
     // prefix code's table is looked up by.
@@ -198,8 +203,15 @@ public:
             m_count -= 8;
             --count;
         }
-        if (count > m_size - m_next)
+        if (count > m_size - m_next) {
+            // What has come is given before the want is said: a stream still
+            // arriving decodes as far as it has.
+            if (out)
+                out->insert(out->end(), m_data + m_next, m_data + m_size);
+            m_next = m_size;
+            m_starved = true;
             return false;
+        }
         if (out)
             out->insert(out->end(), m_data + m_next, m_data + m_next + count);
         m_next += count;
@@ -220,6 +232,7 @@ private:
     std::size_t m_next = 0;
     std::uint64_t m_buffer = 0;
     unsigned m_count = 0;
+    bool m_starved = false;
 };
 
 // --- Prefix codes ---------------------------------------------------------------
@@ -685,7 +698,17 @@ public:
     {
     }
 
-    std::optional<std::vector<std::uint8_t>> run()
+    // With `prefix`, a stream that ends early gives what it decoded whole.
+    std::optional<std::vector<std::uint8_t>> run(bool prefix = false)
+    {
+        std::optional<std::vector<std::uint8_t>> whole = run_whole();
+        if (!whole && prefix && m_in.starved())
+            return std::move(m_out);
+        return whole;
+    }
+
+private:
+    std::optional<std::vector<std::uint8_t>> run_whole()
     {
         // The window (§9.1): a variable-length code for WBITS 10..24.
         std::uint32_t bit = 0;
@@ -960,6 +983,14 @@ std::optional<std::vector<std::uint8_t>> brotli_decompress(std::uint8_t const* d
         return std::nullopt;
     Decoder decoder(data, size, max_output);
     return decoder.run();
+}
+
+std::optional<std::vector<std::uint8_t>> brotli_decompress_prefix(std::uint8_t const* data, std::size_t size, std::size_t max_output)
+{
+    if (!data && size > 0)
+        return std::nullopt;
+    Decoder decoder(data, size, max_output);
+    return decoder.run(true);
 }
 
 std::vector<std::uint8_t> brotli_transform_bytes()

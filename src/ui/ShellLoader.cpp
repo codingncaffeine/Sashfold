@@ -289,6 +289,12 @@ std::vector<std::string> ShellLoader::container_names() const
 net::FetchResult ShellLoader::load(net::Url const& url, std::string const& referrer,
     bool bypass_cache, std::string_view container)
 {
+    return load_document(url, referrer, bypass_cache, container, nullptr);
+}
+
+net::FetchResult ShellLoader::load_document(net::Url const& url, std::string const& referrer,
+    bool bypass_cache, std::string_view container, std::shared_ptr<net::BodyTap> const& tap)
+{
     net::RequestGuard const none;
     if (std::optional<std::string> refused = refusal(url, nullptr, net::ResourceKind::Document, none, false))
         return { std::nullopt, std::move(*refused) };
@@ -302,7 +308,11 @@ net::FetchResult ShellLoader::load(net::Url const& url, std::string const& refer
     options.pool = &m_pool;
     // A navigation redirected onto a listed site is refused where it lands.
     options.hop_refusal = hop_refusal(nullptr, net::ResourceKind::Document, none);
-    return noted(net::ResourceKind::Document, net::fetch(url, options));
+    options.tap = tap;
+    net::FetchResult result = noted(net::ResourceKind::Document, net::fetch(url, options));
+    if (net_tracing())
+        trace_request("GET", url, options.body, result);
+    return result;
 }
 
 void ShellLoader::Census::Kind::add(Kind const& more)
@@ -478,12 +488,12 @@ bool ShellLoader::ahead_pending(net::Url const& url, net::ResourceKind kind, std
 }
 
 std::shared_ptr<net::FetchTicket> ShellLoader::load_ahead(net::Url const& url, std::string const& referrer,
-    bool bypass_cache, std::string_view container)
+    bool bypass_cache, std::string_view container, std::shared_ptr<net::BodyTap> tap)
 {
     if (url.scheme != "http" && url.scheme != "https")
         return nullptr;
-    return m_fetches.submit([this, url, referrer, bypass_cache, held = std::string(container)] {
-        return load(url, referrer, bypass_cache, held);
+    return m_fetches.submit([this, url, referrer, bypass_cache, held = std::string(container), tap = std::move(tap)] {
+        return load_document(url, referrer, bypass_cache, held, tap);
     });
 }
 

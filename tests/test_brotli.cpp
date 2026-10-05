@@ -154,6 +154,36 @@ int main(int argc, char** argv)
         CHECK(!out || out->size() <= (1u << 16));
     }
 
+    // A stream still arriving: every cut of it decodes to a prefix of what the
+    // whole decodes to — the text and context-modeled streams, a window of 10
+    // bits and one of 24, and the uncompressed meta-blocks random bytes go
+    // over as — and three quarters of the way through a stream whose
+    // content is even throughout, to at least half of it (words6 is not:
+    // its second half is copies a few bytes say). A cut of a stream that is
+    // malformed before the cut is still refused.
+    for (auto const& [name, original] : { std::pair<char const*, std::vector<std::uint8_t> const*> { "mixed.txt.q0.br", &mixed },
+             { "mixed.txt.q5.br", &mixed }, { "mixed.txt.q11.br", &mixed }, { "mixed.txt.w10.br", &mixed },
+             { "words6.txt.w24.br", &words6 }, { "random.bin.q11.br", &noise } }) {
+        std::optional<std::vector<std::uint8_t>> const stream = read_file(g_fixtures / name);
+        if (!CHECK(stream.has_value()))
+            continue;
+        bool prefixes = true;
+        std::size_t at_three_quarters = 0;
+        for (std::size_t cut = 0; cut <= stream->size(); ++cut) {
+            std::optional<std::vector<std::uint8_t>> const out = brotli_decompress_prefix(stream->data(), cut);
+            if (!out || out->size() > original->size() || !std::equal(out->begin(), out->end(), original->begin()))
+                prefixes = false;
+            if (cut == stream->size() * 3 / 4 && out)
+                at_three_quarters = out->size();
+            if (cut == stream->size() && (!out || *out != *original))
+                prefixes = false;
+        }
+        CHECK(prefixes);
+        if (original != &words6)
+            CHECK(at_three_quarters >= original->size() / 2);
+    }
+    CHECK(!brotli_decompress_prefix(std::vector<std::uint8_t> { 0x11, 0, 0 }.data(), 3).has_value());
+
     // Content-Encoding: br, the way the loader decodes a response body.
     if (std::optional<std::vector<std::uint8_t>> const stream = read_file(g_fixtures / "words.txt.q11.br")) {
         std::optional<std::vector<std::uint8_t>> const decoded = net::decode_content("br", *stream, 1u << 20);

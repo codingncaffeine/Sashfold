@@ -160,28 +160,36 @@ std::optional<HuffmanTable> fixed_distance_table()
     return HuffmanTable::build(lengths.data(), lengths.size());
 }
 
-std::optional<std::vector<std::uint8_t>> inflate_from(BitReader& reader, std::size_t max_output)
+// Decodes into `out`: false on malformed input, on the cap, or when the
+// input ends first — the reader says which (`overrun`), and `out` then
+// holds every symbol decoded whole before it.
+bool inflate_into(BitReader& reader, std::size_t max_output, std::vector<std::uint8_t>& out)
 {
-    std::vector<std::uint8_t> out;
     while (true) {
         unsigned const is_final = reader.take(1);
         unsigned const type = reader.take(2);
         if (reader.overrun)
-            return std::nullopt;
+            return false;
 
         if (type == 0) { // stored
             reader.align();
-            if (reader.byte + 4 > reader.data.size())
-                return std::nullopt;
+            if (reader.byte + 4 > reader.data.size()) {
+                reader.overrun = true;
+                return false;
+            }
             unsigned const length = reader.data[reader.byte]
                 | (static_cast<unsigned>(reader.data[reader.byte + 1]) << 8);
             unsigned const inverted = reader.data[reader.byte + 2]
                 | (static_cast<unsigned>(reader.data[reader.byte + 3]) << 8);
             if ((length ^ inverted) != 0xFFFFu)
-                return std::nullopt;
+                return false;
             reader.byte += 4;
-            if (reader.byte + length > reader.data.size() || out.size() + length > max_output)
-                return std::nullopt;
+            if (reader.byte + length > reader.data.size()) {
+                reader.overrun = true;
+                return false;
+            }
+            if (out.size() + length > max_output)
+                return false;
             out.insert(out.end(), reader.data.begin() + static_cast<std::ptrdiff_t>(reader.byte),
                 reader.data.begin() + static_cast<std::ptrdiff_t>(reader.byte + length));
             reader.byte += length;
@@ -189,38 +197,38 @@ std::optional<std::vector<std::uint8_t>> inflate_from(BitReader& reader, std::si
             static std::optional<HuffmanTable> const literals = fixed_literal_table();
             static std::optional<HuffmanTable> const distances = fixed_distance_table();
             if (!literals || !distances)
-                return std::nullopt;
+                return false;
             if (!inflate_block_body(reader, *literals, *distances, out, max_output))
-                return std::nullopt;
+                return false;
         } else if (type == 2) { // dynamic Huffman
             unsigned const hlit = reader.take(5) + 257;
             unsigned const hdist = reader.take(5) + 1;
             unsigned const hclen = reader.take(4) + 4;
             if (reader.overrun || hlit > 286 || hdist > 30)
-                return std::nullopt;
+                return false;
             static constexpr std::uint8_t order[19] = { 16, 17, 18, 0, 8, 7, 9, 6, 10, 5, 11, 4,
                 12, 3, 13, 2, 14, 1, 15 };
             std::array<std::uint8_t, 19> code_lengths {};
             for (unsigned i = 0; i < hclen; ++i)
                 code_lengths[order[i]] = static_cast<std::uint8_t>(reader.take(3));
             if (reader.overrun)
-                return std::nullopt;
+                return false;
             std::optional<HuffmanTable> const length_table
                 = HuffmanTable::build(code_lengths.data(), code_lengths.size());
             if (!length_table)
-                return std::nullopt;
+                return false;
 
             std::vector<std::uint8_t> lengths;
             lengths.reserve(hlit + hdist);
             while (lengths.size() < hlit + hdist) {
                 std::optional<unsigned> const symbol = length_table->decode(reader);
                 if (!symbol)
-                    return std::nullopt;
+                    return false;
                 if (*symbol < 16) {
                     lengths.push_back(static_cast<std::uint8_t>(*symbol));
                 } else if (*symbol == 16) {
                     if (lengths.empty())
-                        return std::nullopt;
+                        return false;
                     unsigned const repeat = 3 + reader.take(2);
                     lengths.insert(lengths.end(), repeat, lengths.back());
                 } else if (*symbol == 17) {
@@ -231,27 +239,35 @@ std::optional<std::vector<std::uint8_t>> inflate_from(BitReader& reader, std::si
                     lengths.insert(lengths.end(), repeat, 0);
                 }
                 if (reader.overrun)
-                    return std::nullopt;
+                    return false;
             }
             if (lengths.size() != hlit + hdist)
-                return std::nullopt;
+                return false;
             if (lengths[256] == 0)
-                return std::nullopt; // no end-of-block code
+                return false; // no end-of-block code
             std::optional<HuffmanTable> const literals
                 = HuffmanTable::build(lengths.data(), hlit);
             std::optional<HuffmanTable> const distances
                 = HuffmanTable::build(lengths.data() + hlit, hdist);
             if (!literals || !distances)
-                return std::nullopt;
+                return false;
             if (!inflate_block_body(reader, *literals, *distances, out, max_output))
-                return std::nullopt;
+                return false;
         } else {
-            return std::nullopt; // BTYPE == 3 is reserved
+            return false; // BTYPE == 3 is reserved
         }
 
         if (is_final)
-            return out;
+            return true;
     }
+}
+
+std::optional<std::vector<std::uint8_t>> inflate_from(BitReader& reader, std::size_t max_output)
+{
+    std::vector<std::uint8_t> out;
+    if (!inflate_into(reader, max_output, out))
+        return std::nullopt;
+    return out;
 }
 
 std::uint32_t adler32(std::vector<std::uint8_t> const& data)
@@ -365,6 +381,41 @@ std::optional<std::vector<std::uint8_t>> gzip_decompress(std::vector<std::uint8_
     if (crc32_of(*out) != le32(reader.byte))
         return std::nullopt;
     if (le32(reader.byte + 4) != static_cast<std::uint32_t>(out->size() & 0xFFFFFFFFu))
+        return std::nullopt;
+    return out;
+}
+
+std::optional<std::vector<std::uint8_t>> gzip_decompress_prefix(std::vector<std::uint8_t> const& data,
+    std::size_t max_output)
+{
+    // The header as far as it has come: too little of it is nothing yet.
+    if (data.size() >= 3 && (data[0] != 0x1F || data[1] != 0x8B || data[2] != 8))
+        return std::nullopt;
+    if (data.size() < 10)
+        return std::vector<std::uint8_t> {};
+    std::uint8_t const flags = data[3];
+    if (flags & 0xE0)
+        return std::nullopt;
+    std::size_t at = 10;
+    if (flags & 0x04) {
+        if (at + 2 > data.size())
+            return std::vector<std::uint8_t> {};
+        at += 2 + (data[at] | (static_cast<std::size_t>(data[at + 1]) << 8));
+    }
+    for (int field = 0; field < 2; ++field) {
+        if (!(flags & (field == 0 ? 0x08 : 0x10)))
+            continue;
+        while (at < data.size() && data[at] != 0)
+            ++at;
+        ++at;
+    }
+    if (flags & 0x02)
+        at += 2;
+    if (at >= data.size())
+        return std::vector<std::uint8_t> {};
+    BitReader reader { data, at, 0, false };
+    std::vector<std::uint8_t> out;
+    if (!inflate_into(reader, max_output, out) && !reader.overrun)
         return std::nullopt;
     return out;
 }

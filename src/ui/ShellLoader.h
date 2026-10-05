@@ -37,7 +37,7 @@ public:
     std::shared_ptr<net::FetchTicket> prefetch(net::Url const& url, net::Url const& first_party,
         std::string const& referrer, net::ResourceKind kind, std::string_view container = {}) override;
     std::shared_ptr<net::FetchTicket> load_ahead(net::Url const& url, std::string const& referrer,
-        bool bypass_cache, std::string_view container = {}) override;
+        bool bypass_cache, std::string_view container = {}, std::shared_ptr<net::BodyTap> tap = nullptr) override;
     bool ahead_pending(net::Url const& url, net::ResourceKind kind, std::string_view container = {}) override;
     net::FetchResult submit(net::Url const& url, std::string const& referrer, PostedForm const& form,
         std::string_view container = {}) override;
@@ -102,6 +102,9 @@ public:
     std::vector<std::string> container_names() const;
 
 private:
+    // load(), with the body told to `tap` as it arrives when one is given.
+    net::FetchResult load_document(net::Url const& url, std::string const& referrer, bool bypass_cache,
+        std::string_view container, std::shared_ptr<net::BodyTap> const& tap);
     // The refusal for a request — the lists', then the page's guard's —
     // or nullopt when it may go. Asked of the URL requested and of every
     // redirect hop alike.

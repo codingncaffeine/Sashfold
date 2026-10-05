@@ -356,5 +356,47 @@ int main(int argc, char** argv)
         }
     }
 
+    // A body told to a tap as it arrives: read a few bytes at a time, the tap
+    // holds part of it before the response has ended, all of it after, and
+    // the encoding and the policies the headers state; a redirect's body is
+    // not kept, and the response after it starts the tap over.
+    {
+        std::string const text = "HTTP/1.1 200 OK\r\nContent-Encoding: gzip\r\nContent-Security-Policy: script-src 'self'\r\n"
+                                 "Transfer-Encoding: chunked\r\n\r\n5\r\nhello\r\n6\r\n world\r\n0\r\n\r\n";
+        net::BodyTap tap;
+        std::size_t at = 0;
+        std::size_t seen_midway = 0;
+        auto const read = [&](std::uint8_t* buffer, std::size_t size) -> std::ptrdiff_t {
+            if (at >= text.size())
+                return 0;
+            if (at > text.size() - 12 && seen_midway == 0)
+                seen_midway = tap.size();
+            std::size_t const take = std::min({ size, text.size() - at, std::size_t { 3 } });
+            std::memcpy(buffer, text.data() + at, take);
+            at += take;
+            return static_cast<std::ptrdiff_t>(take);
+        };
+        std::optional<net::RawResponse> const response = net::read_response(read, 1u << 20, false, &tap);
+        CHECK(response.has_value());
+        CHECK(seen_midway > 0 && seen_midway < 11);
+        net::BodyTap::Snapshot const kept = tap.snapshot();
+        CHECK_EQ(std::string(kept.raw.begin(), kept.raw.end()), std::string("hello world"));
+        CHECK_EQ(kept.encoding, std::string("gzip"));
+        CHECK(kept.policies.size() == 1 && kept.policies[0] == "script-src 'self'");
+        CHECK_EQ(kept.response, std::uint64_t { 1 });
+
+        net::BodyTap redirected;
+        std::optional<net::RawResponse> const moved = [&] {
+            CannedSource source { std::vector<std::uint8_t>(), 0 };
+            std::string const hop = "HTTP/1.1 302 Found\r\nLocation: /b\r\nContent-Length: 4\r\n\r\nmove";
+            source.data.assign(hop.begin(), hop.end());
+            auto const from = [&source](std::uint8_t* buffer, std::size_t size) { return source(buffer, size); };
+            return net::read_response(from, 1u << 20, false, &redirected);
+        }();
+        CHECK(moved.has_value());
+        CHECK_EQ(redirected.size(), std::size_t { 0 });
+        CHECK_EQ(redirected.snapshot().response, std::uint64_t { 0 });
+    }
+
     return sashfold::test::report("http");
 }

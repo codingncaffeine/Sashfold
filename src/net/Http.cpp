@@ -63,6 +63,8 @@ public:
                 std::size_t const take = std::min(count, m_buffer.size() - m_position);
                 out.insert(out.end(), m_buffer.begin() + static_cast<std::ptrdiff_t>(m_position),
                     m_buffer.begin() + static_cast<std::ptrdiff_t>(m_position + take));
+                if (tap)
+                    tap->append(m_buffer.data() + m_position, take);
                 m_position += take;
                 count -= take;
                 continue;
@@ -72,6 +74,9 @@ public:
         }
         return true;
     }
+
+    // Told the body's bytes as they are read, once the headers are.
+    BodyTap* tap = nullptr;
 
     // Bytes received but not consumed — past the end of a delimited body,
     // they belong to nothing we asked for.
@@ -87,6 +92,8 @@ public:
                     return false;
                 out.insert(out.end(), m_buffer.begin() + static_cast<std::ptrdiff_t>(m_position),
                     m_buffer.end());
+                if (tap)
+                    tap->append(m_buffer.data() + m_position, take);
                 m_position = m_buffer.size();
             }
             if (m_closed)
@@ -152,6 +159,16 @@ std::string const* find_header(std::vector<Header> const& headers, std::string_v
     return nullptr;
 }
 
+std::vector<std::string> header_values(std::vector<Header> const& headers, std::string_view name)
+{
+    std::vector<std::string> values;
+    for (Header const& header : headers) {
+        if (ascii_ci_equals(header.name, name))
+            values.push_back(header.value);
+    }
+    return values;
+}
+
 std::string_view user_agent()
 {
     // A string of the user's own choosing when SASHFOLD_USER_AGENT is set, as
@@ -174,7 +191,7 @@ std::string_view user_agent()
 
 std::optional<RawResponse> read_response(
     std::function<std::ptrdiff_t(std::uint8_t*, std::size_t)> const& read,
-    std::size_t max_body, bool head)
+    std::size_t max_body, bool head, BodyTap* tap)
 {
     ResponseReader reader(read);
     RawResponse response;
@@ -230,6 +247,21 @@ std::optional<RawResponse> read_response(
             return std::nullopt;
     }
 
+    // A successful response's body is told to the tap as it comes.
+    if (tap && !head && response.status >= 200 && response.status < 300) {
+        std::string const* const encoding = find_header(response.headers, "content-encoding");
+        tap->begin(encoding ? std::string(trim_ows(*encoding)) : std::string(),
+            header_values(response.headers, "content-security-policy"));
+        reader.tap = tap;
+    }
+    struct TapEnd {
+        BodyTap* tap;
+        ~TapEnd()
+        {
+            if (tap)
+                tap->end();
+        }
+    } const tap_end { reader.tap };
     // Framing: 204 and 304 carry no body whatever their headers say; then
     // chunked wins over Content-Length; neither means read-to-close, which
     // uses the connection up.
@@ -347,6 +379,19 @@ std::optional<std::vector<std::uint8_t>> decode_content(std::string_view encodin
     return std::nullopt; // unknown encoding
 }
 
+std::optional<std::vector<std::uint8_t>> decode_content_prefix(std::string_view encoding,
+    std::vector<std::uint8_t> const& body, std::size_t max_output)
+{
+    std::string_view const trimmed = trim_ows(encoding);
+    if (trimmed.empty() || ascii_ci_equals(trimmed, "identity"))
+        return body;
+    if (ascii_ci_equals(trimmed, "gzip") || ascii_ci_equals(trimmed, "x-gzip"))
+        return gzip_decompress_prefix(body, max_output);
+    if (ascii_ci_equals(trimmed, "br"))
+        return brotli_decompress_prefix(body.data(), body.size(), max_output);
+    return std::nullopt; // deflate is left to the whole body
+}
+
 namespace {
 
 // The revocation lists a chain's validation asks for come over plain HTTP
@@ -444,6 +489,8 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
         return out;
     };
     for (int hop = 0; hop <= options.max_redirects; ++hop) {
+        if (options.tap)
+            options.tap->request(current);
         bool const secure = current.scheme == "https";
         if (secure && !platform::TlsSocket::available())
             return { std::nullopt,
@@ -566,7 +613,7 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
                 }
                 return got;
             };
-            raw = read_response(read, options.max_body, method == "HEAD");
+            raw = read_response(read, options.max_body, method == "HEAD", options.tap.get());
             auto const done = clock::now();
             timing.first_byte_ms += ms(first.value_or(done) - sent).count();
             if (first)
@@ -663,6 +710,7 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
                 exchanged.path = target;
                 exchanged.headers = fields;
                 exchanged.body = body;
+                exchanged.tap = options.tap;
                 Http2Session::Result result = session->exchange(exchanged, options.max_body, method == "HEAD", options.receive_timeout_ms);
                 ++timing.requests;
                 ++timing.http2;
