@@ -38,6 +38,81 @@ char const* default_accept(net::ResourceKind kind)
     }
 }
 
+// Fetch Metadata (the Sec-Fetch-* request headers every engine sends): what a
+// request is for, how it was made, and how far its initiator is from where
+// it goes — "none" when the reader asked for it. A server may refuse a
+// request that claims a browser and says none of it.
+std::string fetch_site(net::Url const* initiator, net::Url const& target)
+{
+    if (initiator == nullptr || (initiator->scheme != "http" && initiator->scheme != "https"))
+        return "none";
+    if (initiator->serialize_origin() == target.serialize_origin())
+        return "same-origin";
+    if (initiator->scheme == target.scheme
+        && net::registrable_domain(initiator->serialize_host()) == net::registrable_domain(target.serialize_host()))
+        return "same-site";
+    return "cross-site";
+}
+
+char const* fetch_destination(net::ResourceKind kind)
+{
+    switch (kind) {
+    case net::ResourceKind::Document: return "document";
+    case net::ResourceKind::Subdocument: return "iframe";
+    case net::ResourceKind::Object: return "object";
+    case net::ResourceKind::Image: return "image";
+    case net::ResourceKind::Script: return "script";
+    case net::ResourceKind::Stylesheet: return "style";
+    case net::ResourceKind::Font: return "font";
+    case net::ResourceKind::Worker: return "worker";
+    default: return "empty";
+    }
+}
+
+// The mode a destination is fetched in: a document navigates, a font and
+// what fetch() and XMLHttpRequest ask for go in cors mode, a worker's
+// script same-origin, and a picture, a classic script or a stylesheet
+// no-cors.
+char const* fetch_mode(net::ResourceKind kind)
+{
+    switch (kind) {
+    case net::ResourceKind::Document:
+    case net::ResourceKind::Subdocument:
+    case net::ResourceKind::Object:
+        return "navigate";
+    case net::ResourceKind::Font:
+    case net::ResourceKind::Xhr:
+        return "cors";
+    case net::ResourceKind::Worker:
+        return "same-origin";
+    default:
+        return "no-cors";
+    }
+}
+
+void add_fetch_metadata(std::vector<net::Header>& headers, std::string_view destination, std::string_view mode,
+    std::string const& site, bool navigation)
+{
+    auto const has = [&headers](std::string_view name) {
+        return std::any_of(headers.begin(), headers.end(), [name](net::Header const& header) { return ascii_ci_equals(header.name, name); });
+    };
+    if (!has("sec-fetch-dest"))
+        headers.push_back({ "Sec-Fetch-Dest", std::string(destination) });
+    if (!has("sec-fetch-mode"))
+        headers.push_back({ "Sec-Fetch-Mode", std::string(mode) });
+    if (!has("sec-fetch-site"))
+        headers.push_back({ "Sec-Fetch-Site", site });
+    if (navigation) {
+        // A navigation the reader made (Fetch Metadata §2.4); and the
+        // wish every engine states before a navigation, that an http
+        // address be sent on to its https one.
+        if (!has("sec-fetch-user"))
+            headers.push_back({ "Sec-Fetch-User", "?1" });
+        if (!has("upgrade-insecure-requests"))
+            headers.push_back({ "Upgrade-Insecure-Requests", "1" });
+    }
+}
+
 // A page's requests on stderr under SASHFOLD_NET_TRACE=1: the method, the
 // status or the error, the address and the size — what a stream that
 // starts failing looks like from here.
@@ -262,6 +337,8 @@ net::FetchResult ShellLoader::submit(net::Url const& url, std::string const& ref
     options.method = "POST";
     options.headers.push_back({ "Content-Type", form.content_type });
     options.headers.push_back({ "Origin", form.origin.empty() ? std::string("null") : form.origin });
+    std::optional<net::Url> const initiator = referrer.empty() ? std::nullopt : net::parse_url(referrer);
+    add_fetch_metadata(options.headers, "document", "navigate", fetch_site(initiator ? &*initiator : nullptr, url), true);
     options.body = form.body;
     options.hop_refusal = hop_refusal(nullptr, net::ResourceKind::Document, none);
     return noted(net::ResourceKind::Document, net::fetch(url, options));
@@ -309,6 +386,8 @@ net::FetchResult ShellLoader::load_document(net::Url const& url, std::string con
     // A navigation redirected onto a listed site is refused where it lands.
     options.hop_refusal = hop_refusal(nullptr, net::ResourceKind::Document, none);
     options.tap = tap;
+    std::optional<net::Url> const initiator = referrer.empty() ? std::nullopt : net::parse_url(referrer);
+    add_fetch_metadata(options.headers, "document", "navigate", fetch_site(initiator ? &*initiator : nullptr, url), true);
     net::FetchResult result = noted(net::ResourceKind::Document, net::fetch(url, options));
     if (net_tracing())
         trace_request("GET", url, options.body, result);
@@ -428,6 +507,7 @@ net::FetchResult ShellLoader::fetch_subresource(net::Url const& url, net::Url co
     options.cache = &m_cache;
     options.pool = &m_pool;
     options.headers.push_back({ "Accept", default_accept(kind) });
+    add_fetch_metadata(options.headers, fetch_destination(kind), fetch_mode(kind), fetch_site(&first_party, url), false);
     options.hop_refusal = hop_refusal(&first_party, kind, guard);
     net::FetchResult result = noted(kind, net::fetch(url, options));
     if (net_tracing())
@@ -550,6 +630,7 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
     options.headers = request.headers;
     if (std::none_of(options.headers.begin(), options.headers.end(), [](net::Header const& header) { return ascii_ci_equals(header.name, "accept"); }))
         options.headers.push_back({ "Accept", default_accept(kind) });
+    add_fetch_metadata(options.headers, request.destination == "script" ? "script" : "empty", "cors", fetch_site(&first_party, url), false);
     options.body = request.body;
     options.follow_redirects = request.follow_redirects;
     options.hop_refusal = hop_refusal(&first_party, kind, guard);

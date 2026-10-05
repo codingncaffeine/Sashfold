@@ -10,6 +10,7 @@
 #include <cstdint>
 #include <iostream>
 #include <memory>
+#include <map>
 #include <mutex>
 #include <optional>
 #include <string>
@@ -71,6 +72,14 @@ public:
         return m_asked;
     }
 
+    // The head of the request last made for a path, as it came.
+    std::string head_of(std::string const& path) const
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        auto const found = m_heads.find(path);
+        return found == m_heads.end() ? std::string() : found->second;
+    }
+
 private:
     void run()
     {
@@ -92,6 +101,7 @@ private:
         {
             std::lock_guard<std::mutex> const lock(m_mutex);
             m_asked.push_back(path);
+            m_heads[path] = *head;
         }
         std::this_thread::sleep_for(std::chrono::milliseconds(m_delay_ms));
         std::string response;
@@ -111,6 +121,7 @@ private:
     std::atomic<bool> m_stop = false;
     mutable std::mutex m_mutex;
     std::vector<std::string> m_asked;
+    std::map<std::string, std::string> m_heads;
     std::vector<std::thread> m_handlers;
     std::thread m_thread; // last: everything above is ready when it starts
 };
@@ -137,6 +148,34 @@ std::size_t count_of(std::vector<std::string> const& asked, std::string const& p
 
 int main()
 {
+    // Every request says what it is for, how it was made and how far it
+    // goes (Fetch Metadata), and asks for what its destination takes: a
+    // navigation the reader made, a picture and a font of the same origin,
+    // and a picture a page elsewhere asks for.
+    {
+        SlowServer server(0);
+        ui::ShellLoader loader;
+        net::Url const page = server.url("/page");
+        net::Url const elsewhere = *net::parse_url("https://example.test/");
+        (void)loader.load(server.url("/doc"), "", false);
+        (void)loader.load_subresource(server.url("/pic"), page, page.serialize(), net::ResourceKind::Image);
+        (void)loader.load_subresource(server.url("/face"), page, page.serialize(), net::ResourceKind::Font);
+        (void)loader.load_subresource(server.url("/far"), elsewhere, elsewhere.serialize(), net::ResourceKind::Image);
+        auto const says = [&](std::string const& path, std::string const& line) {
+            bool const found = server.head_of(path).find("\r\n" + line + "\r\n") != std::string::npos;
+            if (!found)
+                std::cerr << path << " lacks " << line << "\n";
+            return found;
+        };
+        CHECK(says("/doc", "Sec-Fetch-Dest: document") && says("/doc", "Sec-Fetch-Mode: navigate") && says("/doc", "Sec-Fetch-Site: none")
+            && says("/doc", "Sec-Fetch-User: ?1") && says("/doc", "Upgrade-Insecure-Requests: 1"));
+        CHECK(says("/pic", "Sec-Fetch-Dest: image") && says("/pic", "Sec-Fetch-Mode: no-cors") && says("/pic", "Sec-Fetch-Site: same-origin")
+            && says("/pic", "Accept: image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5"));
+        CHECK(server.head_of("/pic").find("Sec-Fetch-User") == std::string::npos);
+        CHECK(says("/face", "Sec-Fetch-Dest: font") && says("/face", "Sec-Fetch-Mode: cors"));
+        CHECK(says("/far", "Sec-Fetch-Site: cross-site"));
+    }
+
     // Six resources that each take 200 ms, asked for ahead and then asked
     // for by the page one after another: about 200 ms in all, not 1200 —
     // and the server was asked for each of them once.
