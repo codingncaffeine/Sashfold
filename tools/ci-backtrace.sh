@@ -11,8 +11,10 @@ if [ ! -f "$failed" ]; then
     exit 0
 fi
 while IFS=: read -r _ name; do
+    # Windows writes the list, and ctest its output, with CRLF line ends.
+    name=${name//$'\r'/}
     [ -n "$name" ] || continue
-    line=$(ctest --test-dir "$build" -R "^${name}\$" -N -V | sed -n 's/^[0-9]*: Test command: //p' | head -1)
+    line=$(ctest --test-dir "$build" -R "^${name}\$" -N -V | tr -d '\r' | sed -n 's/^[0-9]*: Test command: //p' | head -1)
     if [ -z "$line" ]; then
         echo "ci-backtrace: $name: no command found"
         continue
