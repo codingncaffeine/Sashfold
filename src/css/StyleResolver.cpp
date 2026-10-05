@@ -1964,6 +1964,83 @@ std::vector<Values> split_commas(Values const& values)
     return groups;
 }
 
+// A shadow list (css-backgrounds-3 §7.1 for box-shadow, css-text-decor-4
+// §7 for text-shadow): `none`, or shadows separated by commas, each a color,
+// the lengths in one run (two offsets, a blur that is not negative, and for
+// a box a spread) and for a box `inset`, in any order. Nullopt when the
+// declaration is not one; an empty list for none.
+std::optional<Shadows> parse_shadows(Values const& values, LengthContext const& context, Color current, bool box)
+{
+    if (values.size() == 1 && is_ident(values[0], "none"))
+        return Shadows {};
+    Shadows shadows;
+    for (Values const& group : split_commas(values)) {
+        Shadow shadow;
+        bool color_seen = false;
+        bool inset_seen = false;
+        bool lengths_seen = false;
+        std::size_t i = 0;
+        while (i < group.size()) {
+            ComponentValue const& value = *group[i];
+            if (box && !inset_seen && is_ident(&value, "inset")) {
+                inset_seen = true;
+                shadow.inset = true;
+                ++i;
+                continue;
+            }
+            if (!lengths_seen) {
+                std::vector<float> lengths;
+                bool blur_calculated = false;
+                while (i < group.size() && lengths.size() < (box ? 4u : 3u)) {
+                    std::optional<LengthPercent> const length = parse_length_percent(*group[i], context, false, false);
+                    // A calc() of lengths alone (em and px) is a length.
+                    if (!length || !(length->kind == LengthPercent::Kind::Px || (length->kind == LengthPercent::Kind::Calc && length->percent == 0)))
+                        break;
+                    if (lengths.size() == 2)
+                        blur_calculated = group[i]->is_function();
+                    lengths.push_back(length->value);
+                    ++i;
+                }
+                if (!lengths.empty()) {
+                    // A negative blur written as such is no shadow; one a calc()
+                    // comes to is held at zero (css-values-4 §10.12).
+                    if (lengths.size() < 2 || (lengths.size() > 2 && lengths[2] < 0 && !blur_calculated))
+                        return std::nullopt;
+                    shadow.x = lengths[0];
+                    shadow.y = lengths[1];
+                    shadow.blur = lengths.size() > 2 ? std::max(0.0f, lengths[2]) : 0;
+                    shadow.spread = lengths.size() > 3 ? lengths[3] : 0;
+                    lengths_seen = true;
+                    continue;
+                }
+            }
+            if (!color_seen) {
+                if (is_ident(&value, "currentcolor")) {
+                    color_seen = true;
+                    shadow.current_color = true;
+                    shadow.color = current;
+                    ++i;
+                    continue;
+                }
+                if (std::optional<Color> const color = parse_color_component(value, current)) {
+                    color_seen = true;
+                    shadow.current_color = false;
+                    shadow.color = *color;
+                    ++i;
+                    continue;
+                }
+            }
+            return std::nullopt;
+        }
+        if (!lengths_seen)
+            return std::nullopt;
+        if (!color_seen)
+            shadow.color = current; // a shadow with no color takes currentcolor
+        shadows.push_back(shadow);
+    }
+    return shadows;
+}
+
 bool all_none(std::vector<BackgroundImage> const& images)
 {
     for (BackgroundImage const& image : images) {
@@ -3981,7 +4058,7 @@ struct Resolver {
         &ComputedStyle::hyphens, &ComputedStyle::hyphenate_character, &ComputedStyle::line_break,
         &ComputedStyle::overflow_wrap, &ComputedStyle::font_kerning, &ComputedStyle::font_synthesis_weight,
         &ComputedStyle::font_synthesis_style, &ComputedStyle::font_synthesis_small_caps,
-        &ComputedStyle::font_synthesis_position, &ComputedStyle::text_transform, &ComputedStyle::list_style_type,
+        &ComputedStyle::font_synthesis_position, &ComputedStyle::text_transform, &ComputedStyle::text_shadow, &ComputedStyle::list_style_type,
         &ComputedStyle::list_style_position, &ComputedStyle::quotes, &ComputedStyle::custom, &ComputedStyle::visibility,
         &ComputedStyle::pointer_events, &ComputedStyle::border_collapse, &ComputedStyle::border_spacing_horizontal,
         &ComputedStyle::border_spacing_vertical, &ComputedStyle::caption_side, &ComputedStyle::empty_cells,
@@ -4106,6 +4183,8 @@ struct Resolver {
             { "outline-width", false, [](S& to, S const& from) { to.outline.width = from.outline.width; }, 0 },
             { "outline-color", false, [](S& to, S const& from) { to.outline.color = from.outline.color; to.outline.current_color = from.outline.current_color; }, 0 },
             { "outline-offset", false, [](S& to, S const& from) { to.outline.offset = from.outline.offset; }, 0 },
+            { "box-shadow", false, [](S& to, S const& from) { to.box_shadow = from.box_shadow; }, 0 },
+            { "text-shadow", true, [](S& to, S const& from) { to.text_shadow = from.text_shadow; }, 0 },
             { "border-right-width", false, [](S& to, S const& from) { to.border_right.width = from.border_right.width; }, 0 },
             { "border-bottom-width", false, [](S& to, S const& from) { to.border_bottom.width = from.border_bottom.width; }, 0 },
             { "border-left-width", false, [](S& to, S const& from) { to.border_left.width = from.border_left.width; }, 0 },
@@ -7716,7 +7795,9 @@ struct Resolver {
                 }
                 if (auto color = parse_color_component(*value, style.color)) {
                     result.color = *color;
-                    color_seen = true;
+                    // currentcolor written out is what an omitted color
+                    // is: the element's color, settled when it is known.
+                    color_seen = !is_ident(value, "currentcolor");
                     continue;
                 }
                 return; // junk: whole declaration ignored
@@ -7858,6 +7939,14 @@ struct Resolver {
             }
             return;
         }
+        if (name == "box-shadow" || name == "text-shadow") {
+            bool const box = name == "box-shadow";
+            if (std::optional<Shadows> parsed = parse_shadows(values, context, style.color, box)) {
+                std::shared_ptr<Shadows const> list = parsed->empty() ? nullptr : std::make_shared<Shadows const>(std::move(*parsed));
+                (box ? style.box_shadow : style.text_shadow) = std::move(list);
+            }
+            return;
+        }
         if (name == "outline-offset") {
             if (values.size() == 1) {
                 std::optional<LengthPercent> const length = parse_length_percent(*values[0], context, false, false);
@@ -7880,8 +7969,14 @@ struct Resolver {
             style.border_right.color = colors.size() > 1 ? colors[1] : colors[0];
             style.border_bottom.color = colors.size() > 2 ? colors[2] : colors[0];
             style.border_left.color = colors.size() > 3 ? colors[3] : style.border_right.color;
-            border_top_color_set = border_right_color_set = true;
-            border_bottom_color_set = border_left_color_set = true;
+            // A side given currentcolor follows the element's color, as an
+            // unset one does: the value is settled once that is known.
+            auto const written = [&](std::size_t i) { return !is_ident(values[i], "currentcolor"); };
+            std::size_t const n = colors.size();
+            border_top_color_set = written(0);
+            border_right_color_set = written(n > 1 ? 1 : 0);
+            border_bottom_color_set = written(n > 2 ? 2 : 0);
+            border_left_color_set = written(n > 3 ? 3 : n > 1 ? 1 : 0);
             return;
         }
         // Rounded corners. A radius is never negative and never auto; the
@@ -7995,7 +8090,7 @@ struct Resolver {
                 } else if (property == "color") {
                     if (auto color = parse_color_component(*values[0], style.color)) {
                         side->color = *color;
-                        *color_flag = true;
+                        *color_flag = !is_ident(values[0], "currentcolor");
                     }
                 }
                 return;
@@ -9286,6 +9381,7 @@ ComputedStyle const& perturbed_style_baseline()
                  "flex-shrink: 3; flex-basis: 10px; row-gap: 3px; column-gap: 4px; min-width: 5px; "
                  "min-height: 6px; max-width: 7px; max-height: 8px; outline: 2px dotted rgb(1, 2, 3); "
                  "outline-offset: 2px; border-radius: 3px; text-orientation: upright; unicode-bidi: isolate; "
+                 "box-shadow: 1px 2px; text-shadow: 3px 4px; "
                  "line-break: strict; fill: rgb(4, 5, 6); stroke: rgb(7, 8, 9); stroke-width: 3px; "
                  "fill-opacity: 0.5; stroke-opacity: 0.5; stroke-linecap: round; stroke-linejoin: round; "
                  "stroke-miterlimit: 7; stroke-dasharray: 1 2; stroke-dashoffset: 3; fill-rule: evenodd; "

@@ -1,0 +1,19 @@
+<!doctype html>
+<html><head><style>
+body { margin: 16px; background: white; font: 20px sans-serif }
+.b { display: inline-block; vertical-align: top; width: 100px; height: 60px; margin: 24px; background: white }
+.hard { box-shadow: 8px 8px 0 0 rgb(200, 0, 0) }
+.soft { box-shadow: 0 4px 12px rgba(0, 0, 0, 0.5) }
+.ring { box-shadow: 0 0 0 6px rgb(0, 0, 200); border-radius: 12px }
+.inset { box-shadow: inset 0 0 8px 3px rgb(0, 128, 0) }
+.two { box-shadow: 4px 4px 0 rgb(200, 0, 0), 8px 8px 0 rgb(0, 0, 200) }
+.round { box-shadow: 0 6px 16px -2px black; border-radius: 50% }
+p { margin: 10px 24px }
+.t1 { text-shadow: 2px 2px 0 rgb(200, 0, 0) }
+.t2 { text-shadow: 0 0 4px rgb(0, 0, 200) }
+.t3 { color: rgb(0, 128, 0); text-shadow: 3px 3px; text-decoration: underline }
+</style></head><body>
+<div class="b hard"></div><div class="b soft"></div><div class="b ring"></div>
+<div class="b inset"></div><div class="b two"></div><div class="b round"></div>
+<p class="t1">A hard text shadow</p><p class="t2">A blurred glow</p><p class="t3">currentcolor, underlined</p>
+</body></html>

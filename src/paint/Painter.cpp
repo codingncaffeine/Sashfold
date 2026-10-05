@@ -1,6 +1,7 @@
 #include "paint/Painter.h"
 
 #include "dom/Dom.h"
+#include "paint/Blur.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
 
@@ -603,6 +604,181 @@ void paint_rounded_borders(Context& context, Fragment const& fragment, RoundedRe
     });
 }
 
+// --- Shadows ----------------------------------------------------------------------
+
+// A shadow larger than this many pixels is laid down unblurred: the blur
+// costs time in proportion, and nothing that size is a soft edge anyone sees.
+constexpr std::size_t max_blurred_shadow_pixels = std::size_t { 1 } << 24;
+
+// css-backgrounds-3 §6.1.1 and §4.2's "outset-adjusted border radius": a
+// corner's radius moved by a spread distance. Shrunk, it loses the spread
+// and stops at zero. Grown — an outer shadow's shape, or an inset shadow's
+// hole under a negative spread, as the engines all draw it — a small radius
+// on a rectangular box grows by less than the spread, so that a nearly
+// sharp corner does not turn round; `coverage` (twice the corner's smaller
+// share of the box's sides) leaves a nearly elliptical box as round as it
+// was.
+float spread_radius(float radius, float spread, float coverage)
+{
+    if (spread <= 0)
+        return std::max(0.0f, radius + spread);
+    if (radius > spread || coverage > 1)
+        return radius + spread;
+    float const t = 1 - radius / spread;
+    return radius + spread * (1 - t * t * t * (1 - coverage * coverage * coverage));
+}
+
+// A box's shape moved by an offset and grown (or, below zero, shrunk) by a
+// spread distance on every side: an outer shadow's shape, or an inset
+// shadow's hole.
+RoundedRect spread_shape(RoundedRect const& box, float dx, float dy, float spread)
+{
+    RoundedRect shape = box;
+    shape.x = box.x + dx - spread;
+    shape.y = box.y + dy - spread;
+    shape.width = std::max(0.0f, box.width + 2 * spread);
+    shape.height = std::max(0.0f, box.height + 2 * spread);
+    auto const corner = [&](float& x, float& y) {
+        float const coverage = box.width > 0 && box.height > 0 ? 2 * std::min(x / box.width, y / box.height) : 0;
+        x = spread_radius(x, spread, coverage);
+        y = spread_radius(y, spread, coverage);
+    };
+    corner(shape.top_left_x, shape.top_left_y);
+    corner(shape.top_right_x, shape.top_right_y);
+    corner(shape.bottom_right_x, shape.bottom_right_y);
+    corner(shape.bottom_left_x, shape.bottom_left_y);
+    shape.settle();
+    return shape;
+}
+
+Rect intersected(Rect const& a, Rect const& b)
+{
+    int const left = std::max(a.x, b.x);
+    int const top = std::max(a.y, b.y);
+    int const right = std::min(a.x + a.width, b.x + b.width);
+    int const bottom = std::min(a.y + a.height, b.y + b.height);
+    return Rect { left, top, std::max(0, right - left), std::max(0, bottom - top) };
+}
+
+// The pixels a shadow blurred `margin` beyond `bounds` can reach and still
+// be seen: no further than that reach beyond the target's edges.
+Rect shadow_work_area(Context const& context, Rect bounds, int margin)
+{
+    Rect const grown { bounds.x - margin, bounds.y - margin, bounds.width + 2 * margin, bounds.height + 2 * margin };
+    Rect const reach { -margin, -margin, context.target.width() + 2 * margin, context.target.height() + 2 * margin };
+    return intersected(grown, reach);
+}
+
+// How far a blur radius reaches: three deviations, the blur's deviation
+// being half the radius (css-backgrounds-3 §7.1).
+int blur_margin(float blur)
+{
+    return blur > 0 ? static_cast<int>(std::ceil(static_cast<double>(blur) / 2 * 3)) + 1 : 0;
+}
+
+// `color` laid over the target through `mask` (one value per pixel of
+// `area`, 0 to 1).
+void paint_through_mask(Context& context, std::vector<float> const& mask, Rect const& area, Color color)
+{
+    for (int y = 0; y < area.height; ++y) {
+        for (int x = 0; x < area.width; ++x) {
+            float const a = mask[static_cast<std::size_t>(y) * static_cast<std::size_t>(area.width) + static_cast<std::size_t>(x)];
+            if (a <= 0)
+                continue;
+            Color shade = color;
+            shade.a = static_cast<std::uint8_t>(std::lround(static_cast<float>(color.a) * std::min(a, 1.0f)));
+            if (shade.a != 0)
+                context.target.blend_pixel(area.x + x, area.y + y, shade);
+        }
+    }
+}
+
+// The coverage of `shape` over `area`, 0 to 1 per pixel.
+std::vector<float> coverage_of(RoundedRect const& shape, Rect const& area)
+{
+    std::vector<float> plane(static_cast<std::size_t>(area.width) * static_cast<std::size_t>(area.height), 0);
+    Rect const inside = intersected(area, shape.bounds());
+    for (int y = inside.y; y < inside.y + inside.height; ++y) {
+        for (int x = inside.x; x < inside.x + inside.width; ++x)
+            plane[static_cast<std::size_t>(y - area.y) * static_cast<std::size_t>(area.width) + static_cast<std::size_t>(x - area.x)]
+                = static_cast<float>(shape.coverage(x, y)) / 255.0f;
+    }
+    return plane;
+}
+
+// css-backgrounds-3 §7.1: the outer shadows, under the background, drawn
+// only outside the border box; the first in the list on top.
+void paint_outer_shadows(Context& context, Fragment const& fragment, RoundedRect const& border_box)
+{
+    ComputedStyle const& style = *fragment.style;
+    for (auto it = style.box_shadow->rbegin(); it != style.box_shadow->rend(); ++it) {
+        css::Shadow const& shadow = *it;
+        Color const color = shadow.current_color ? style.color : shadow.color;
+        if (shadow.inset || color.a == 0)
+            continue;
+        RoundedRect const shape = spread_shape(border_box, shadow.x, shadow.y, shadow.spread);
+        if (shape.is_empty())
+            continue;
+        int const margin = blur_margin(shadow.blur);
+        Rect const area = shadow_work_area(context, shape.bounds(), margin);
+        if (area.width <= 0 || area.height <= 0)
+            continue;
+        std::vector<float> mask = coverage_of(shape, area);
+        if (shadow.blur > 0 && mask.size() <= max_blurred_shadow_pixels)
+            gaussian_plane(mask, area.width, area.height, static_cast<double>(shadow.blur) / 2);
+        // The box itself casts it: none falls inside the border box.
+        Rect const under = intersected(area, border_box.bounds());
+        for (int y = under.y; y < under.y + under.height; ++y) {
+            for (int x = under.x; x < under.x + under.width; ++x) {
+                float& a = mask[static_cast<std::size_t>(y - area.y) * static_cast<std::size_t>(area.width) + static_cast<std::size_t>(x - area.x)];
+                a *= 1.0f - static_cast<float>(border_box.coverage(x, y)) / 255.0f;
+            }
+        }
+        paint_through_mask(context, mask, area, color);
+    }
+}
+
+// The inset shadows, over the background and under the border: the padding
+// box shaded but for a hole the shadow's shape cuts, moved by the offset and
+// shrunk by the spread, its edge blurred.
+void paint_inset_shadows(Context& context, Fragment const& fragment)
+{
+    ComputedStyle const& style = *fragment.style;
+    RoundedRect const padding = rounded_area(context, fragment, css::BackgroundBox::PaddingBox);
+    if (padding.is_empty())
+        return;
+    for (auto it = style.box_shadow->rbegin(); it != style.box_shadow->rend(); ++it) {
+        css::Shadow const& shadow = *it;
+        Color const color = shadow.current_color ? style.color : shadow.color;
+        if (!shadow.inset || color.a == 0)
+            continue;
+        RoundedRect const hole = spread_shape(padding, shadow.x, shadow.y, -shadow.spread);
+        int const margin = blur_margin(shadow.blur);
+        Rect const area = shadow_work_area(context, padding.bounds(), margin);
+        if (area.width <= 0 || area.height <= 0)
+            continue;
+        std::vector<float> mask = hole.is_empty()
+            ? std::vector<float>(static_cast<std::size_t>(area.width) * static_cast<std::size_t>(area.height), 0)
+            : coverage_of(hole, area);
+        if (shadow.blur > 0 && mask.size() <= max_blurred_shadow_pixels)
+            gaussian_plane(mask, area.width, area.height, static_cast<double>(shadow.blur) / 2);
+        for (int y = 0; y < area.height; ++y) {
+            for (int x = 0; x < area.width; ++x) {
+                float& a = mask[static_cast<std::size_t>(y) * static_cast<std::size_t>(area.width) + static_cast<std::size_t>(x)];
+                a = (1.0f - a) * static_cast<float>(padding.coverage(area.x + x, area.y + y)) / 255.0f;
+            }
+        }
+        paint_through_mask(context, mask, area, color);
+    }
+}
+
+bool casts_shadow(ComputedStyle const& style, bool inset)
+{
+    if (!style.box_shadow)
+        return false;
+    return std::any_of(style.box_shadow->begin(), style.box_shadow->end(), [inset](css::Shadow const& s) { return s.inset == inset; });
+}
+
 void paint_background_and_borders(Context& context, Fragment const& fragment,
     bool skip_it)
 {
@@ -612,6 +788,8 @@ void paint_background_and_borders(Context& context, Fragment const& fragment,
     float const y = fragment.y + context.dy;
     RoundedRect const shape = style.rounded() ? rounded_box(context, fragment) : RoundedRect {};
     bool const round = !shape.is_rectangular();
+    if (casts_shadow(style, false))
+        paint_outer_shadows(context, fragment, rounded_box(context, fragment));
     if (!skip_background && style.background_color.a != 0) {
         // The color fills the last layer's clip box.
         css::BackgroundBox clip = css::BackgroundBox::BorderBox;
@@ -627,6 +805,8 @@ void paint_background_and_borders(Context& context, Fragment const& fragment,
     }
     if (!skip_background && style.background_images && !style.background_images->empty())
         paint_background_layers(context, fragment);
+    if (casts_shadow(style, true))
+        paint_inset_shadows(context, fragment);
 
     if (round) {
         paint_rounded_borders(context, fragment, shape);
@@ -662,29 +842,60 @@ void paint_vertical_run(Context& context, TextRun const& run)
         return;
     bool const clockwise = !css::inline_runs_up(run.mode);
     float const start = run.x + context.dy + (clockwise ? 0.0f : run.width);
-    float y = start;
-    for (char32_t const c : run.text) {
-        text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
-        float const advance = glyph.face->advance(glyph.glyph, style.font_size);
-        float const pen = clockwise ? y : y - advance;
-        bool const designed = glyph.face->designs_every_style();
-        glyph.face->draw_glyph_turned(context.target, glyph.glyph, baseline_x, pen, style.font_size,
-            style.color, style.drawn_bold(designed), style.drawn_slant(designed), clockwise);
-        float step = advance + style.letter_spacing;
-        if (c == U' ')
-            step += style.word_spacing;
-        y += clockwise ? step : -step;
+    // The run drawn onto a target with its baseline at `line` and its pen
+    // starting at `from`: the glyphs, then the decoration line.
+    auto const draw = [&](Bitmap& onto, float line, float from, Color ink) {
+        float y = from;
+        for (char32_t const c : run.text) {
+            text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
+            float const advance = glyph.face->advance(glyph.glyph, style.font_size);
+            float const pen = clockwise ? y : y - advance;
+            bool const designed = glyph.face->designs_every_style();
+            glyph.face->draw_glyph_turned(onto, glyph.glyph, line, pen, style.font_size,
+                ink, style.drawn_bold(designed), style.drawn_slant(designed), clockwise);
+            float step = advance + style.letter_spacing;
+            if (c == U' ')
+                step += style.word_spacing;
+            y += clockwise ? step : -step;
+        }
+        if (style.text_decoration == css::TextDecorationLine::None || run.text.empty())
+            return;
+        float const thickness = std::max(1.0f, style.font_size / 14.0f);
+        // The line sits on the side the ascenders do not point at.
+        float const offset = style.text_decoration == css::TextDecorationLine::Underline
+            ? -(style.font_size * 2.0f / 32.0f + 1.0f)
+            : style.font_size * 8.0f / 32.0f;
+        float const line_x = clockwise ? line + offset : line - offset;
+        onto.fill_rect(snap(line_x, std::min(from, y), thickness, std::abs(y - from)), ink);
+    };
+    // The shadows, as a horizontal run's: the run drawn apart in each,
+    // blurred, and laid down in its color, the first on top.
+    if (style.text_shadow && !run.text.empty()) {
+        float const pad = style.font_size / 3;
+        Rect const ink = snap(baseline_x - style.font_size * 1.25f, run.x + context.dy - pad, style.font_size * 2.5f, run.width + 2 * pad);
+        for (auto it = style.text_shadow->rbegin(); it != style.text_shadow->rend(); ++it) {
+            css::Shadow const& shadow = *it;
+            Color const shade = shadow.current_color ? style.color : shadow.color;
+            if (shade.a == 0)
+                continue;
+            int const margin = blur_margin(shadow.blur);
+            Rect const moved = snap(static_cast<float>(ink.x) + shadow.x, static_cast<float>(ink.y) + shadow.y,
+                static_cast<float>(ink.width), static_cast<float>(ink.height));
+            Rect const area = shadow_work_area(context, moved, margin);
+            if (area.width <= 0 || area.height <= 0)
+                continue;
+            Bitmap apart(area.width, area.height, Color::rgba(0, 0, 0, 0));
+            draw(apart, baseline_x + shadow.x - static_cast<float>(area.x), start + shadow.y - static_cast<float>(area.y), Color::rgb(0, 0, 0));
+            std::vector<float> mask(static_cast<std::size_t>(area.width) * static_cast<std::size_t>(area.height));
+            std::vector<std::uint8_t> const& pixels = apart.pixels();
+            for (std::size_t i = 0; i < mask.size(); ++i)
+                mask[i] = static_cast<float>(pixels[i * 4 + 3]) / 255.0f;
+            if (shadow.blur > 0 && mask.size() <= max_blurred_shadow_pixels)
+                gaussian_plane(mask, area.width, area.height, static_cast<double>(shadow.blur) / 2);
+            paint_through_mask(context, mask, area, shade);
+        }
     }
-    if (style.text_decoration == css::TextDecorationLine::None || run.text.empty())
-        return;
-    float const thickness = std::max(1.0f, style.font_size / 14.0f);
-    // The line sits on the side the ascenders do not point at.
-    float const offset = style.text_decoration == css::TextDecorationLine::Underline
-        ? -(style.font_size * 2.0f / 32.0f + 1.0f)
-        : style.font_size * 8.0f / 32.0f;
-    float const line_x = clockwise ? baseline_x + offset : baseline_x - offset;
-    context.target.fill_rect(
-        snap(line_x, std::min(start, y), thickness, std::abs(y - start)), style.color);
+    draw(context.target, baseline_x, start, style.color);
 }
 
 void paint_run(Context& context, TextRun const& run)
@@ -708,39 +919,78 @@ void paint_run(Context& context, TextRun const& run)
         return;
     bool const kern = style.font_kerning != css::FontKerning::None;
     float const start_x = run.x + context.dx;
-    float x = start_x;
     // A placeholder is the field's own color at a little over half strength,
     // so that it reads as a hint on a light field and on a dark one.
     Color color = style.color;
     if (run.placeholder)
         color.a = static_cast<std::uint8_t>(color.a * 0.54f);
-    text::FontStack::Glyph previous { nullptr, 0 };
-    for (char32_t const c : run.text) {
-        text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
-        // The steps layout measured: a pair's kerning before the glyph, the
-        // glyph's advance, a letter's worth of extra room after it, and a
-        // word's worth after a word separator.
-        if (kern && previous.face == glyph.face)
-            x += glyph.face->kerning(previous.glyph, glyph.glyph, style.font_size);
-        bool const designed = glyph.face->designs_every_style();
-        glyph.face->draw_glyph(context.target, glyph.glyph, x, baseline, style.font_size,
-            color, style.drawn_bold(designed), style.drawn_slant(designed));
-        x += glyph.face->advance(glyph.glyph, style.font_size) + style.letter_spacing;
-        if (c == U' ')
-            x += style.word_spacing;
-        previous = glyph;
+    // The run drawn onto a target with its pen at (`left`, `line`): the
+    // glyphs, then the decoration line. Measures it when `onto` is null.
+    // Returns the run's width.
+    auto const draw = [&](Bitmap* onto, float left, float line, Color ink, Color decoration) {
+        float x = left;
+        text::FontStack::Glyph previous { nullptr, 0 };
+        for (char32_t const c : run.text) {
+            text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
+            // The steps layout measured: a pair's kerning before the glyph,
+            // the glyph's advance, a letter's worth of extra room after it,
+            // and a word's worth after a word separator.
+            if (kern && previous.face == glyph.face)
+                x += glyph.face->kerning(previous.glyph, glyph.glyph, style.font_size);
+            bool const designed = glyph.face->designs_every_style();
+            if (onto)
+                glyph.face->draw_glyph(*onto, glyph.glyph, x, line, style.font_size,
+                    ink, style.drawn_bold(designed), style.drawn_slant(designed));
+            x += glyph.face->advance(glyph.glyph, style.font_size) + style.letter_spacing;
+            if (c == U' ')
+                x += style.word_spacing;
+            previous = glyph;
+        }
+        float const width = x - left;
+        if (!onto || style.text_decoration == css::TextDecorationLine::None || run.text.empty())
+            return width;
+        float const thickness = std::max(1.0f, style.font_size / 14.0f);
+        float line_y;
+        if (style.text_decoration == css::TextDecorationLine::Underline)
+            line_y = line + style.font_size * 2.0f / 32.0f + 1.0f;
+        else
+            line_y = line - style.font_size * 8.0f / 32.0f;
+        onto->fill_rect(snap(left, line_y, width, thickness), decoration);
+        return width;
+    };
+    // css-text-decor-4 §7: the shadows under the text, the first on top, each
+    // the run and its decoration drawn apart, blurred, and laid down in the
+    // shadow's color.
+    if (style.text_shadow && !run.text.empty()) {
+        float const width = draw(nullptr, start_x, baseline, color, style.color);
+        // The run's ink: an em and a quarter above the baseline, half an em
+        // below, a third of an em to either side for slants and overhangs.
+        float const pad = style.font_size / 3;
+        Rect const ink = snap(start_x - pad, baseline - style.font_size * 1.25f, width + 2 * pad, style.font_size * 1.75f);
+        for (auto it = style.text_shadow->rbegin(); it != style.text_shadow->rend(); ++it) {
+            css::Shadow const& shadow = *it;
+            Color const shade = shadow.current_color ? style.color : shadow.color;
+            if (shade.a == 0)
+                continue;
+            int const margin = blur_margin(shadow.blur);
+            Rect const moved = snap(static_cast<float>(ink.x) + shadow.x, static_cast<float>(ink.y) + shadow.y,
+                static_cast<float>(ink.width), static_cast<float>(ink.height));
+            Rect const area = shadow_work_area(context, moved, margin);
+            if (area.width <= 0 || area.height <= 0)
+                continue;
+            Bitmap apart(area.width, area.height, Color::rgba(0, 0, 0, 0));
+            Color const opaque = Color::rgb(0, 0, 0);
+            draw(&apart, start_x + shadow.x - static_cast<float>(area.x), baseline + shadow.y - static_cast<float>(area.y), opaque, opaque);
+            std::vector<float> mask(static_cast<std::size_t>(area.width) * static_cast<std::size_t>(area.height));
+            std::vector<std::uint8_t> const& pixels = apart.pixels();
+            for (std::size_t i = 0; i < mask.size(); ++i)
+                mask[i] = static_cast<float>(pixels[i * 4 + 3]) / 255.0f;
+            if (shadow.blur > 0 && mask.size() <= max_blurred_shadow_pixels)
+                gaussian_plane(mask, area.width, area.height, static_cast<double>(shadow.blur) / 2);
+            paint_through_mask(context, mask, area, shade);
+        }
     }
-
-    if (style.text_decoration == css::TextDecorationLine::None || run.text.empty())
-        return;
-    float const width = x - start_x;
-    float const thickness = std::max(1.0f, style.font_size / 14.0f);
-    float line_y;
-    if (style.text_decoration == css::TextDecorationLine::Underline)
-        line_y = baseline + style.font_size * 2.0f / 32.0f + 1.0f;
-    else
-        line_y = baseline - style.font_size * 8.0f / 32.0f;
-    context.target.fill_rect(snap(start_x, line_y, width, thickness), style.color);
+    draw(&context.target, start_x, baseline, color, style.color);
 }
 
 // A form control's look: the page's own background and borders when the

@@ -123,3 +123,7 @@ web-animations
 css/css-animations
 css/css-transitions
 css/css-easing
+# Added 2026-10-04 with box and text shadows: their parsing, computed values
+# and interpolation live with the backgrounds and the text decorations.
+css/css-backgrounds
+css/css-text-decor

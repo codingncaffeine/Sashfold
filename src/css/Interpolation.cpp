@@ -118,6 +118,49 @@ Color to_color(V const& v)
     return Color { channel(v.r), channel(v.g), channel(v.b), channel(v.a) };
 }
 
+// A shadow list as it animates: currentcolor taken as the element's color.
+std::optional<V> shadows_of(std::shared_ptr<Shadows const> const& list, Color current)
+{
+    V value;
+    value.kind = V::Kind::ShadowList;
+    if (!list)
+        return value;
+    for (Shadow const& shadow : *list) {
+        Color const c = shadow.current_color ? current : shadow.color;
+        value.shadows.push_back(AnimatedShadow { static_cast<double>(shadow.x), static_cast<double>(shadow.y),
+            static_cast<double>(shadow.blur), static_cast<double>(shadow.spread), c.r / 255.0, c.g / 255.0,
+            c.b / 255.0, c.a / 255.0, shadow.inset });
+    }
+    return value;
+}
+
+// A shadow list written back: blur held at zero and up, colors to the gamut.
+void write_shadows(V const& v, std::shared_ptr<Shadows const>& to)
+{
+    if (v.shadows.empty()) {
+        to.reset();
+        return;
+    }
+    Shadows list;
+    for (AnimatedShadow const& from : v.shadows) {
+        Shadow shadow;
+        shadow.x = static_cast<float>(from.x);
+        shadow.y = static_cast<float>(from.y);
+        shadow.blur = static_cast<float>(std::max(0.0, from.blur));
+        shadow.spread = static_cast<float>(from.spread);
+        V color_value;
+        color_value.r = from.r;
+        color_value.g = from.g;
+        color_value.b = from.b;
+        color_value.a = from.a;
+        shadow.color = to_color(color_value);
+        shadow.current_color = false;
+        shadow.inset = from.inset;
+        list.push_back(shadow);
+    }
+    to = std::make_shared<Shadows const>(std::move(list));
+}
+
 #define LENGTH(css, member, range)                                                                                    \
     AnimatableProperty                                                                                                \
     {                                                                                                                 \
@@ -272,6 +315,12 @@ std::vector<AnimatableProperty> const& property_table()
                 s.outline.color = to_color(v);
                 s.outline.current_color = false;
             } },
+        AnimatableProperty { "box-shadow", false, V::Kind::ShadowList, Any, false,
+            [](S const& s) { return shadows_of(s.box_shadow, s.color); },
+            [](V const& v, S& s, unsigned&) { write_shadows(v, s.box_shadow); } },
+        AnimatableProperty { "text-shadow", true, V::Kind::ShadowList, Any, false,
+            [](S const& s) { return shadows_of(s.text_shadow, s.color); },
+            [](V const& v, S& s, unsigned&) { write_shadows(v, s.text_shadow); } },
         AnimatableProperty { "fill", true, V::Kind::Color, Any, false, [](S const& s) { return svg_paint_color(s.fill); },
             [](V const& v, S& s, unsigned&) { write_svg_paint(s.fill, v); } },
         AnimatableProperty { "stroke", true, V::Kind::Color, Any, false, [](S const& s) { return svg_paint_color(s.stroke); },
@@ -529,6 +578,53 @@ void write_animated(AnimatableProperty const& property, AnimatedValue const& val
     property.write(value, style, border_colors);
 }
 
+namespace {
+
+// Two shadow lists made the same length (css-backgrounds-3 §7.1, "as shadow
+// list"): the shorter padded with transparent zero shadows, each inset as
+// its partner is; nullopt when a pair differs in inset.
+std::optional<std::pair<std::vector<AnimatedShadow>, std::vector<AnimatedShadow>>> matched_shadows(
+    std::vector<AnimatedShadow> a, std::vector<AnimatedShadow> b)
+{
+    while (a.size() < b.size()) {
+        AnimatedShadow blank;
+        blank.inset = b[a.size()].inset;
+        a.push_back(blank);
+    }
+    while (b.size() < a.size()) {
+        AnimatedShadow blank;
+        blank.inset = a[b.size()].inset;
+        b.push_back(blank);
+    }
+    for (std::size_t i = 0; i < a.size(); ++i) {
+        if (a[i].inset != b[i].inset)
+            return std::nullopt;
+    }
+    return std::pair { std::move(a), std::move(b) };
+}
+
+// `b` scaled by `t` added to `a` (an interpolation is a's (1 - p) plus b's p),
+// lengths as they are and colors premultiplied.
+AnimatedShadow weighted_shadow(AnimatedShadow const& a, double s, AnimatedShadow const& b, double t)
+{
+    AnimatedShadow out;
+    out.x = a.x * s + b.x * t;
+    out.y = a.y * s + b.y * t;
+    out.blur = a.blur * s + b.blur * t;
+    out.spread = a.spread * s + b.spread * t;
+    double const alpha = std::clamp(a.a * s + b.a * t, 0.0, 1.0);
+    out.a = alpha;
+    if (alpha > 0) {
+        out.r = (a.r * a.a * s + b.r * b.a * t) / alpha;
+        out.g = (a.g * a.a * s + b.g * b.a * t) / alpha;
+        out.b = (a.b * a.a * s + b.b * b.a * t) / alpha;
+    }
+    out.inset = a.inset;
+    return out;
+}
+
+}
+
 std::optional<AnimatedValue> interpolate_animated(AnimatableProperty const& property, AnimatedValue const& a,
     AnimatedValue const& b, double p)
 {
@@ -581,6 +677,14 @@ std::optional<AnimatedValue> interpolate_animated(AnimatableProperty const& prop
             return std::nullopt;
         for (std::size_t i = 0; i < lists->first.size(); ++i)
             out.numbers.push_back(mix(lists->first[i], lists->second[i], p));
+        return out;
+    }
+    case V::Kind::ShadowList: {
+        auto const lists = matched_shadows(a.shadows, b.shadows);
+        if (!lists)
+            return std::nullopt;
+        for (std::size_t i = 0; i < lists->first.size(); ++i)
+            out.shadows.push_back(weighted_shadow(lists->first[i], 1 - p, lists->second[i], p));
         return out;
     }
     case V::Kind::Visibility:
@@ -639,6 +743,14 @@ std::optional<AnimatedValue> accumulate_animated(AnimatableProperty const& prope
     case V::Kind::Numbers:
         // A dash list is not additive (SVG 2 §13.5.7): the value replaces.
         return std::nullopt;
+    case V::Kind::ShadowList: {
+        auto const lists = matched_shadows(a.shadows, b.shadows);
+        if (!lists)
+            return std::nullopt;
+        for (std::size_t i = 0; i < lists->first.size(); ++i)
+            out.shadows.push_back(weighted_shadow(lists->first[i], 1, lists->second[i], count));
+        return out;
+    }
     case V::Kind::Visibility: return std::nullopt;
     }
     return std::nullopt;
@@ -647,6 +759,13 @@ std::optional<AnimatedValue> accumulate_animated(AnimatableProperty const& prope
 std::optional<AnimatedValue> add_animated(AnimatableProperty const& property, AnimatedValue const& a,
     AnimatedValue const& b)
 {
+    // Shadow lists add by putting one after the other (css-backgrounds-3
+    // §7.1): the shadows under, then the ones added.
+    if (a.kind == V::Kind::ShadowList && b.kind == V::Kind::ShadowList) {
+        V out = a;
+        out.shadows.insert(out.shadows.end(), b.shadows.begin(), b.shadows.end());
+        return out;
+    }
     return accumulate_animated(property, a, b, 1);
 }
 
@@ -661,6 +780,7 @@ bool same_animated(AnimatedValue const& a, AnimatedValue const& b)
     case V::Kind::Lengths: return a.lengths == b.lengths;
     case V::Kind::Numbers: return a.numbers == b.numbers;
     case V::Kind::Visibility: return a.visible == b.visible;
+    case V::Kind::ShadowList: return a.shadows == b.shadows;
     }
     return false;
 }
@@ -735,6 +855,28 @@ std::string serialize_animated(AnimatableProperty const& property, AnimatedValue
         return text;
     }
     case V::Kind::Visibility: return value.visible ? "visible" : "hidden";
+    case V::Kind::ShadowList: {
+        if (value.shadows.empty())
+            return "none";
+        bool const box = property.name == "box-shadow";
+        std::string text;
+        for (AnimatedShadow const& shadow : value.shadows) {
+            V color_value;
+            color_value.kind = V::Kind::Color;
+            color_value.r = shadow.r;
+            color_value.g = shadow.g;
+            color_value.b = shadow.b;
+            color_value.a = shadow.a;
+            text += (text.empty() ? "" : ", ") + serialize_animated(property, color_value) + " " + length_text(shadow.x, 0) + " "
+                + length_text(shadow.y, 0) + " " + length_text(std::max(0.0, shadow.blur), 0);
+            if (box) {
+                text += " " + length_text(shadow.spread, 0);
+                if (shadow.inset)
+                    text += " inset";
+            }
+        }
+        return text;
+    }
     }
     return {};
 }

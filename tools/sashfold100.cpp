@@ -274,16 +274,11 @@ struct FeatureName {
 };
 
 constexpr FeatureName feature_names[] = {
-    { "display-contents", "display: contents" },
     { "transforms", "rotations, scales and skews (translations are drawn)" },
-    { "animations", "animations and transitions" },
-    { "shadows", "shadows" },
     { "effects", "filters, clipping paths, masks" },
     { "text-properties", "text-overflow" },
     { "multi-column", "multi-column layout" },
-    { "sizing", "object-fit and aspect-ratio" },
-    { "outline", "outlines" },
-    { "at-rules", "@supports, @layer, @container, @keyframes, @scope" },
+    { "at-rules", "@supports, @layer, @container, @scope" },
 };
 
 std::string feature_label(std::string const& key)

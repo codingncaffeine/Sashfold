@@ -795,6 +795,25 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         return animation_property_text(style, name);
     if (name == "background-image")
         return style.background_images && !style.background_images->empty() ? "url()" : "none";
+    if (name == "box-shadow" || name == "text-shadow") {
+        bool const of_box = name == "box-shadow";
+        std::shared_ptr<Shadows const> const& list = of_box ? style.box_shadow : style.text_shadow;
+        if (!list || list->empty())
+            return "none";
+        std::string out;
+        for (Shadow const& shadow : *list) {
+            if (!out.empty())
+                out += ", ";
+            out += color_text(shadow.current_color ? style.color : shadow.color) + " " + px(shadow.x) + " " + px(shadow.y) + " "
+                + px(shadow.blur);
+            if (of_box) {
+                out += " " + px(shadow.spread);
+                if (shadow.inset)
+                    out += " inset";
+            }
+        }
+        return out;
+    }
     return "";
 }
 

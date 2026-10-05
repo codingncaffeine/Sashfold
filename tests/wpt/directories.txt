@@ -29,3 +29,5 @@ html/canvas/element
 # the rule families the cascade used to drop whole.
 css/css-nesting
 css/css-conditional
+# Added 2026-10-04 with text shadows, which are drawn with the decorations.
+css/css-text-decor

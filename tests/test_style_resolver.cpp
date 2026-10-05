@@ -668,6 +668,82 @@ int main()
         CHECK(style_of("g").color == Color::rgb(0, 0, 0)); // a length is no hue: the declaration is ignored
     }
 
+    // --- box-shadow and text-shadow ------------------------------------------------
+    // The lengths in one run, a color and (for a box) inset in any order,
+    // a list by commas; what breaks the grammar leaves the declaration out.
+    g_document = html::parse_document(std::string_view(R"(<!doctype html>
+<html><head><style>
+  body { font-size: 10px; color: rgb(9, 9, 9) }
+  #a { box-shadow: 1px 2px }
+  #b { box-shadow: inset 1em 2px 3px -4px rgb(1, 2, 3), 5px 6px red }
+  #c { box-shadow: 7px 8px; box-shadow: 1px 2px -3px }
+  #d { box-shadow: 7px 8px; box-shadow: 1px }
+  #e { box-shadow: 7px 8px; box-shadow: 1px 2px 3px 4px 5px }
+  #f { text-shadow: 1px 2px 3px blue }
+  #g { text-shadow: 7px 8px; text-shadow: 1px 2px 3px 4px }
+  #h { text-shadow: 7px 8px; text-shadow: inset 1px 2px }
+  #i { box-shadow: 1px 2px; box-shadow: none }
+  #j { text-shadow: 1px 1px } #j span { color: blue }
+  #k { box-shadow: 1px 2px calc(1em - 20px) }
+</style></head>
+<body><p id="a">a</p><p id="b">b</p><p id="c">c</p><p id="d">d</p><p id="e">e</p>
+<p id="f">f <span id="fs">s</span></p><p id="g">g</p><p id="h">h</p><p id="i">i</p>
+<p id="j">j <span id="js">s</span></p><p id="k">k</p></body></html>)"));
+    g_styles = css::resolve_styles(*g_document);
+    {
+        auto const shadows = [](css::ComputedStyle const& style, bool box) -> css::Shadows {
+            std::shared_ptr<css::Shadows const> const& list = box ? style.box_shadow : style.text_shadow;
+            return list ? *list : css::Shadows {};
+        };
+        css::Shadows const a = shadows(style_of("a"), true);
+        CHECK(a.size() == 1 && close(a[0].x, 1) && close(a[0].y, 2) && close(a[0].blur, 0) && a[0].current_color && !a[0].inset);
+        css::Shadows const b = shadows(style_of("b"), true);
+        CHECK(b.size() == 2);
+        if (b.size() == 2) {
+            CHECK(b[0].inset && close(b[0].x, 10) && close(b[0].blur, 3) && close(b[0].spread, -4) && b[0].color == Color::rgb(1, 2, 3));
+            CHECK(!b[1].inset && close(b[1].x, 5) && b[1].color == Color::rgb(255, 0, 0) && !b[1].current_color);
+        }
+        // A negative blur, one length, five: the earlier declaration stands.
+        for (char const* const id : { "c", "d", "e" }) {
+            css::Shadows const kept = shadows(style_of(id), true);
+            CHECK(kept.size() == 1 && close(kept[0].x, 7));
+        }
+        // A text shadow inherits; it has no spread and no inset.
+        css::Shadows const fs = shadows(style_of("fs"), false);
+        CHECK(fs.size() == 1 && close(fs[0].blur, 3) && fs[0].color == Color::rgb(0, 0, 255));
+        CHECK(shadows(style_of("g"), false).size() == 1 && close(shadows(style_of("g"), false)[0].x, 7));
+        CHECK(shadows(style_of("h"), false).size() == 1 && close(shadows(style_of("h"), false)[0].x, 7));
+        CHECK(!style_of("i").box_shadow);
+        // currentcolor inherits as the keyword: the span's own blue is drawn.
+        css::Shadows const js = shadows(style_of("js"), false);
+        CHECK(js.size() == 1 && js[0].current_color);
+        // A blur a calc() comes to below zero is held at zero.
+        css::Shadows const k = shadows(style_of("k"), true);
+        CHECK(k.size() == 1 && close(k[0].blur, 0));
+    }
+
+    // --- currentcolor written in a border ----------------------------------------
+    // The keyword is the element's color, whatever sets that color later in
+    // the cascade (here the style attribute): the border follows it, as one
+    // with no color written does.
+    g_document = html::parse_document(std::string_view(R"(<!doctype html>
+<html><head><style>
+  p { color: red; border: 3px solid currentcolor }
+  #b { border-color: currentcolor rgb(1, 2, 3) }
+  #c { border-left-color: currentcolor }
+</style></head>
+<body><p id="a" style="color: blue">a</p><p id="b" style="color: lime">b</p><p id="c" style="color: purple">c</p></body></html>)"));
+    g_styles = css::resolve_styles(*g_document);
+    {
+        CHECK(style_of("a").border_top.color == Color::rgb(0, 0, 255));
+        CHECK(style_of("a").border_top.current_color);
+        CHECK(style_of("b").border_top.color == Color::rgb(0, 255, 0));
+        CHECK(style_of("b").border_bottom.color == Color::rgb(0, 255, 0));
+        CHECK(style_of("b").border_right.color == Color::rgb(1, 2, 3));
+        CHECK(!style_of("b").border_right.current_color);
+        CHECK(style_of("c").border_left.color == Color::rgb(128, 0, 128));
+    }
+
     // --- The border side longhands ---------------------------------------------
     g_document = html::parse_document(std::string_view(R"(<!doctype html>
 <html><head><style>

@@ -156,6 +156,7 @@ add_library(sashfold_core STATIC
   src/net/tls/TrustStore.cpp
   src/net/tls/Validate.cpp
   src/net/tls/X509.cpp
+  src/paint/Blur.cpp
   src/paint/Canvas2D.cpp
   src/paint/Painter.cpp
   src/platform/Clipboard.cpp

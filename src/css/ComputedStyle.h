@@ -120,6 +120,27 @@ struct CounterOp {
 // they were written. An empty list is `none`.
 using CounterOps = std::vector<CounterOp>;
 
+// One shadow of box-shadow (css-backgrounds-3 §7.1) or text-shadow
+// (css-text-decor-4 §7): its offset, blur radius and spread distance in px
+// (a text shadow has no spread and is never inset), and its color —
+// currentcolor kept as such, so that an inherited text shadow takes the
+// color of the element it falls on.
+struct Shadow {
+    float x = 0;
+    float y = 0;
+    float blur = 0;
+    float spread = 0;
+    Color color;
+    bool current_color = true;
+    bool inset = false;
+
+    bool operator==(Shadow const&) const = default;
+};
+
+// A shadow list, in the order written: the first is drawn on top. An empty
+// list (or none at all) is `none`.
+using Shadows = std::vector<Shadow>;
+
 // The content property: normal (a ::before or ::after generates no box),
 // none (the same), or the items a generated box shows.
 struct Content {
@@ -964,6 +985,9 @@ struct ComputedStyle {
         float offset = 0;
     };
     Outline outline;
+    // css-backgrounds-3 §7.1: the shadows the box casts, outer and inset,
+    // in the order written; null for none. Shared: most boxes cast none.
+    std::shared_ptr<Shadows const> box_shadow;
     // The four corners' radii, clockwise from the top left.
     CornerRadius border_top_left_radius;
     CornerRadius border_top_right_radius;
@@ -1146,6 +1170,9 @@ struct ComputedStyle {
     bool font_synthesis_small_caps = true;
     bool font_synthesis_position = true;
     TextTransform text_transform = TextTransform::None;
+    // css-text-decor-4 §7: the shadows the text casts (inherited); null for
+    // none.
+    std::shared_ptr<Shadows const> text_shadow;
     ListStyleType list_style_type = ListStyleType::Disc;
     ListStylePosition list_style_position = ListStylePosition::Outside;
     // What this list item's marker counts to: the `list-item` counter as it

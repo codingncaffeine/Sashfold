@@ -411,13 +411,15 @@ private:
         // and external classic scripts as the parser meets them, then the
         // timers on a virtual clock until none is pending, so a test that
         // waits on a timeout or an animation frame before it removes
-        // reftest-wait gets to remove it. Pages without scripts skip the
-        // realm, which is most of the suite.
+        // reftest-wait gets to remove it; a page with only a load handler
+        // in an attribute (<body onload=...>) runs that. Pages without
+        // scripts skip the realm, which is most of the suite.
         auto document = std::make_unique<dom::Document>();
         std::unique_ptr<bindings::Realm> realm;
         bindings::LayoutOracle oracle(*document, *url, fetch_sheet, media);
         double script_clock = 0;
-        if (lowercased(*source).find("<script") != std::string::npos) {
+        if (std::string const lower = lowercased(*source);
+            lower.find("<script") != std::string::npos || lower.find("onload") != std::string::npos) {
             bindings::HostHooks hooks;
             hooks.fetch_script = [this](net::Url const& target, net::RequestGuard const&) { return read_url(target); };
             hooks.fetch_resource = [this](net::Url const& target, net::ResourceRequest const& request,

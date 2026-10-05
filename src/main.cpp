@@ -838,7 +838,7 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
     if (name == "display" && first_ident == "inline-block")
         return; // inline-block is written
     else if (name == "display" && first_ident == "contents")
-        ++census["display-contents"];
+        return; // display: contents is written
     else if (name == "rotate" || name == "scale")
         ++census["transforms"];
     else if (name == "transform") {
@@ -854,13 +854,13 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
         }
     }
     else if (name.starts_with("animation") || name.starts_with("transition"))
-        ++census["animations"];
+        return; // animations and transitions are written
     else if (name == "vertical-align")
         return; // vertical-align is written
     else if (name.starts_with("border") && name.find("radius") != std::string::npos)
         return; // rounded corners are drawn
     else if (name == "box-shadow" || name == "text-shadow")
-        ++census["shadows"];
+        return; // shadows are drawn
     else if (name == "filter" || name == "backdrop-filter" || name == "clip-path" || name == "mask")
         ++census["effects"];
     else if (name == "text-transform")
@@ -870,9 +870,9 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
     else if (name == "columns" || name == "column-count" || name == "column-width")
         ++census["multi-column"];
     else if (name == "object-fit" || name == "aspect-ratio")
-        ++census["sizing"];
+        return; // object-fit and aspect-ratio are written
     else if (name == "outline" || name.starts_with("outline-"))
-        ++census["outline"];
+        return; // outlines are drawn
     else if (name == "direction" || name == "writing-mode")
         return; // both are written, and the bidirectional algorithm under them
     if (name != "src")
@@ -892,7 +892,7 @@ void census_rules(std::vector<css::Rule> const& rules, FeatureCensus& census)
             // format its sources name is read.
             if (name == "font-face")
                 continue;
-            if (name == "supports" || name == "layer" || name == "container" || name == "keyframes" || name == "scope")
+            if (name == "supports" || name == "layer" || name == "container" || name == "scope")
                 ++census["at-rules"];
             census_rules(rule.at_rule().child_rules, census);
         } else if (rule.is_nested_declarations()) {

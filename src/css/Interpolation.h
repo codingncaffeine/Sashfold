@@ -6,7 +6,7 @@
 // computed style, combined with another of its kind, and written back into
 // a style: lengths and percentages (px and percent, interpolated part by
 // part, so a length meets a percentage as calc()), numbers, integers,
-// colors (premultiplied), lists of these, and visibility. What has no such
+// colors (premultiplied), lists of these, shadow lists, and visibility. What has no such
 // form — a keyword that does not interpolate, a property with none — is
 // discrete: the value flips at the halfway point, copied whole from the
 // style one keyframe computes.
@@ -21,6 +21,19 @@
 
 namespace sashfold::css {
 
+// One shadow of a shadow list as it animates: lengths in px, the color
+// unpremultiplied, each channel 0..1.
+struct AnimatedShadow {
+    double x = 0;
+    double y = 0;
+    double blur = 0;
+    double spread = 0;
+    double r = 0, g = 0, b = 0, a = 0;
+    bool inset = false;
+
+    bool operator==(AnimatedShadow const&) const = default;
+};
+
 struct AnimatedValue {
     enum class Kind : std::uint8_t {
         Number,
@@ -29,6 +42,7 @@ struct AnimatedValue {
         Lengths, // pairs and lists of lengths
         Numbers,
         Visibility,
+        ShadowList, // box-shadow and text-shadow
     };
     Kind kind = Kind::Number;
     double number = 0;
@@ -38,6 +52,7 @@ struct AnimatedValue {
     std::vector<std::pair<double, double>> lengths; // (px, percent)
     std::vector<double> numbers;
     bool visible = true;
+    std::vector<AnimatedShadow> shadows;
 };
 
 // The longhands a style can animate, by name. Null for a name that is not

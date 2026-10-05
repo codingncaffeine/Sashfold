@@ -318,6 +318,65 @@ void test_css_animations_and_transitions()
     CHECK(near(styles[t].opacity, 1, 1e-6));
 }
 
+// Shadow lists as they animate: the shorter padded with transparent zero
+// shadows, inset meeting only inset, addition one list after the other,
+// and the blur held at zero when written back.
+void test_shadow_lists()
+{
+    css::AnimatableProperty const* box = css::animatable_property("box-shadow");
+    CHECK(box && css::animatable_property("text-shadow"));
+    if (!box)
+        return;
+    css::Shadow one;
+    one.x = 10;
+    one.y = 20;
+    one.blur = 30;
+    one.spread = 40;
+    one.color = Color::rgb(100, 100, 100);
+    one.current_color = false;
+    css::Shadow inner = one;
+    inner.inset = true;
+    css::ComputedStyle outer_style;
+    outer_style.box_shadow = std::make_shared<css::Shadows const>(css::Shadows { one });
+    css::ComputedStyle inset_style;
+    inset_style.box_shadow = std::make_shared<css::Shadows const>(css::Shadows { inner });
+    css::ComputedStyle none;
+    std::optional<css::AnimatedValue> const outer = css::read_animated(*box, outer_style);
+    std::optional<css::AnimatedValue> const inset = css::read_animated(*box, inset_style);
+    std::optional<css::AnimatedValue> const nothing = css::read_animated(*box, none);
+    CHECK(outer && inset && nothing && nothing->shadows.empty());
+    if (!outer || !inset || !nothing)
+        return;
+    CHECK(css::serialize_animated(*box, *outer) == "rgb(100, 100, 100) 10px 20px 30px 40px");
+    CHECK(css::serialize_animated(*box, *nothing) == "none");
+    // none meets a shadow as a transparent one: halfway is half of each
+    // length, the color unchanged at half strength.
+    std::optional<css::AnimatedValue> const half = css::interpolate_animated(*box, *outer, *nothing, 0.5);
+    CHECK(half && half->shadows.size() == 1);
+    if (half && half->shadows.size() == 1) {
+        css::AnimatedShadow const& s = half->shadows[0];
+        CHECK(near(s.x, 5) && near(s.y, 10) && near(s.blur, 15) && near(s.spread, 20));
+        CHECK(near(s.a, 0.5) && near(s.r, 100 / 255.0));
+    }
+    // An outer shadow and an inset one do not interpolate: discrete.
+    CHECK(!css::interpolate_animated(*box, *outer, *inset, 0.5));
+    // Added, the lists follow one another; accumulated, they add up.
+    std::optional<css::AnimatedValue> const sum = css::add_animated(*box, *outer, *inset);
+    CHECK(sum && sum->shadows.size() == 2 && !sum->shadows[0].inset && sum->shadows[1].inset);
+    std::optional<css::AnimatedValue> const twice = css::accumulate_animated(*box, *outer, *outer, 1);
+    CHECK(twice && twice->shadows.size() == 1 && near(twice->shadows[0].x, 20) && near(twice->shadows[0].a, 1));
+    // An easing's overshoot below zero blur is held at zero when written.
+    std::optional<css::AnimatedValue> const under = css::interpolate_animated(*box, *outer, *nothing, 1.5);
+    CHECK(under && under->shadows.size() == 1);
+    if (under) {
+        css::ComputedStyle written;
+        unsigned sides = 0;
+        css::write_animated(*box, *under, written, sides);
+        CHECK(written.box_shadow && written.box_shadow->size() == 1 && near(written.box_shadow->front().blur, 0)
+            && near(written.box_shadow->front().x, -5));
+    }
+}
+
 // A number written as calc(): the evaluator reads a length context, which
 // must outlive it (the sanitizer lane is the test that sees it).
 void test_calc_numbers()
@@ -410,5 +469,6 @@ int main()
     test_play_state();
     test_css_animations_and_transitions();
     test_calc_numbers();
+    test_shadow_lists();
     return test::report("test_animations");
 }

@@ -1,4 +1,5 @@
 #include "paint/Canvas2D.h"
+#include "paint/Blur.h"
 
 #include "core/Bidi.h"
 #include "text/FontManager.h"
@@ -795,46 +796,6 @@ void composite_layer(Surface& surface, Layer const& layer, DrawState const& stat
     }
 }
 
-// Three box blurs one after another along an axis, as SVG's feGaussianBlur
-// approximates a Gaussian of deviation sigma (Filter Effects section9.3).
-void box_blur_line(std::vector<float>& line, std::vector<float>& scratch, int size, int offset)
-{
-    int const n = static_cast<int>(line.size());
-    if (size <= 1 || n == 0)
-        return;
-    scratch.assign(line.size(), 0);
-    // Pixel i averages [i - offset, i - offset + size).
-    double sum = 0;
-    int const first = -offset;
-    for (int j = first; j < first + size; ++j)
-        sum += (j >= 0 && j < n) ? static_cast<double>(line[static_cast<std::size_t>(j)]) : 0.0;
-    for (int i = 0; i < n; ++i) {
-        scratch[static_cast<std::size_t>(i)] = static_cast<float>(sum / size);
-        int const leaving = i - offset;
-        int const entering = i - offset + size;
-        if (leaving >= 0 && leaving < n)
-            sum -= static_cast<double>(line[static_cast<std::size_t>(leaving)]);
-        if (entering >= 0 && entering < n)
-            sum += static_cast<double>(line[static_cast<std::size_t>(entering)]);
-    }
-    line.swap(scratch);
-}
-
-void gaussian_line(std::vector<float>& line, std::vector<float>& scratch, double sigma)
-{
-    int const d = static_cast<int>(std::floor(sigma * 3 * 2.5066282746310002 / 4 + 0.5));
-    if (d <= 1)
-        return;
-    if (d % 2 == 1) {
-        for (int pass = 0; pass < 3; ++pass)
-            box_blur_line(line, scratch, d, d / 2);
-    } else {
-        box_blur_line(line, scratch, d, d / 2);
-        box_blur_line(line, scratch, d, d / 2 - 1);
-        box_blur_line(line, scratch, d + 1, d / 2);
-    }
-}
-
 // The shadow a layer casts: its alpha moved by the offset, blurred, and
 // colored in the shadow color.
 Layer shadow_of(Layer const& layer, DrawState const& state)
@@ -856,24 +817,8 @@ Layer shadow_of(Layer const& layer, DrawState const& state)
             alpha[static_cast<std::size_t>(y + spread) * static_cast<std::size_t>(shadow.width) + static_cast<std::size_t>(x + spread)]
                 = layer.rgba[(static_cast<std::size_t>(y) * static_cast<std::size_t>(layer.width) + static_cast<std::size_t>(x)) * 4u + 3u];
     }
-    if (sigma > 0) {
-        std::vector<float> line;
-        std::vector<float> scratch;
-        for (int y = 0; y < shadow.height; ++y) {
-            auto const row = alpha.begin() + static_cast<std::ptrdiff_t>(y) * shadow.width;
-            line.assign(row, row + shadow.width);
-            gaussian_line(line, scratch, sigma);
-            std::copy(line.begin(), line.end(), row);
-        }
-        for (int x = 0; x < shadow.width; ++x) {
-            line.resize(static_cast<std::size_t>(shadow.height));
-            for (int y = 0; y < shadow.height; ++y)
-                line[static_cast<std::size_t>(y)] = alpha[static_cast<std::size_t>(y) * static_cast<std::size_t>(shadow.width) + static_cast<std::size_t>(x)];
-            gaussian_line(line, scratch, sigma);
-            for (int y = 0; y < shadow.height; ++y)
-                alpha[static_cast<std::size_t>(y) * static_cast<std::size_t>(shadow.width) + static_cast<std::size_t>(x)] = line[static_cast<std::size_t>(y)];
-        }
-    }
+    if (sigma > 0)
+        paint::gaussian_plane(alpha, shadow.width, shadow.height, sigma);
     float color[4];
     premultiplied(state.shadow_color, color);
     shadow.rgba.resize(alpha.size() * 4u);
