@@ -124,13 +124,16 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ninja
-            mingw-w64-x86_64-gdb
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
-      # A test that failed here, run again under gdb: where it died.
+      # A test that failed here, run again under gdb: where it died. The
+      # debugger is installed only then, so that the tests run with exactly
+      # the runtime the toolchain brought.
       - if: failure()
-        run: bash tools/ci-backtrace.sh build
+        run: |
+          pacman -S --noconfirm --needed mingw-w64-x86_64-gdb > /dev/null
+          bash tools/ci-backtrace.sh build
       - run: bash tools/pledge-check.sh build/sashfold.exe
       - run: bash tools/egress-check.sh
       # The Windows download, staged as the release ships it: the binary, the
