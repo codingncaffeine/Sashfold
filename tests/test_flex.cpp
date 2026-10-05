@@ -154,6 +154,36 @@ int main()
         }
     }
 
+    // A scroll container's automatic minimum is zero (css-flexbox-1 §4.5):
+    // its 400 px word no longer holds it wider than the line, on either
+    // axis. A clipped item is no scroll container and keeps its content's.
+    {
+        Page const page = lay_out(page_with(R"(<div class="c"><div id="s" style="flex:1 1 0%;overflow:hidden">abcdefghijklmnopqrstuvwxyzabcdefghijklmn</div></div>
+<div class="c"><div id="k" style="flex:1 1 0%;overflow:clip">abcdefghijklmnopqrstuvwxyzabcdefghijklmn</div></div>
+<div class="c" style="flex-direction:column;height:100px"><div id="v" style="flex:1 1 0%;overflow:auto">a<br>b<br>c<br>d<br>e<br>f</div></div>)"));
+        layout::Fragment const* s = find_box(page.result.root, "s");
+        layout::Fragment const* k = find_box(page.result.root, "k");
+        layout::Fragment const* v = find_box(page.result.root, "v");
+        if (CHECK(s && k && v)) {
+            CHECK_EQ(s->width, 300.0f);
+            CHECK_EQ(k->width, 400.0f);
+            CHECK_EQ(v->height, 100.0f); // its six lines are 120 tall
+        }
+    }
+
+    // A single line in a container of no definite height is held to the
+    // container's maximum (css-flexbox-1 §9.4 step 8), and what stretches
+    // stretches to that: the 80 px item too, which then overflows.
+    {
+        Page const page = lay_out(page_with(R"(<div class="c" style="max-height:50px"><div id="t">a<br>b<br>c<br>d</div><div id="u">x</div></div>)"));
+        layout::Fragment const* t = find_box(page.result.root, "t");
+        layout::Fragment const* u = find_box(page.result.root, "u");
+        if (CHECK(t && u)) {
+            CHECK_EQ(t->height, 50.0f);
+            CHECK_EQ(u->height, 50.0f);
+        }
+    }
+
     // --- Wrapping ---------------------------------------------------------------
     {
         Page const page = lay_out(page_with(R"(<div class="c" id="c" style="flex-wrap:wrap"><div id="a" style="width:100px">a</div><div id="b" style="width:100px">b</div><div id="d" style="width:100px">d</div><div id="e" style="width:100px">e</div></div>)"));

@@ -6141,31 +6141,33 @@ struct Layouter {
     }
 
     // A block's intrinsic widths seen from outside: its width when written
-    // in px, else its contents', plus its horizontal edges (percentages
-    // count as zero here).
+    // in px, else its contents', held to its own minimum and maximum — the
+    // box as it would be sized (css-sizing-3 §5.2) — plus its horizontal
+    // edges (percentages count as zero here, and a percentage bound as none).
     Intrinsic block_intrinsic(dom::Element const& element, ComputedStyle const& style) const
     {
         float const margins = resolve(style.margin_left, 0) + resolve(style.margin_right, 0);
         float const inner_edges = resolve(style.padding_left, 0) + resolve(style.padding_right, 0)
             + style.border_left.width + style.border_right.width;
         float const edges = margins + inner_edges;
+        auto const held = [&](float content) { return clamp_width(style, content, 0, inner_edges); };
         if (!style.width.is_auto() && style.width.kind == LengthPercent::Kind::Px) {
             // Under border-box the written width already holds the padding and
             // the borders; only the margins go outside it.
-            float const border_box = sizes_border_box(style)
-                ? std::max(style.width.value, inner_edges)
-                : style.width.value + inner_edges;
-            return { border_box + margins, border_box + margins };
+            float const content = sizes_border_box(style) ? std::max(0.0f, style.width.value - inner_edges)
+                                                          : style.width.value;
+            float const outer = held(content) + edges;
+            return { outer, outer };
         }
         Intrinsic const inner = intrinsic_widths(element, style);
         // A box told to be its own narrowest or widest contributes that one
         // size both ways: it will not be any other width whatever room its
         // parent has. fit-content contributes the pair unchanged.
         if (style.width.kind == LengthPercent::Kind::MinContent)
-            return { inner.min + edges, inner.min + edges };
+            return { held(inner.min) + edges, held(inner.min) + edges };
         if (style.width.kind == LengthPercent::Kind::MaxContent)
-            return { inner.max + edges, inner.max + edges };
-        return { inner.min + edges, inner.max + edges };
+            return { held(inner.max) + edges, held(inner.max) + edges };
+        return { held(inner.min) + edges, held(inner.max) + edges };
     }
 
     // A float's horizontal measure in a containing block this wide: its
@@ -8180,6 +8182,8 @@ struct Layouter {
             bool const auto_right = !anonymous && s.margin_right.is_auto();
             bool const auto_top = !anonymous && s.margin_top.is_auto();
             bool const auto_bottom = !anonymous && s.margin_bottom.is_auto();
+            bool const scroll_container = !anonymous && s.overflow_applies
+                && (css::scrolls(s.overflow_x) || css::scrolls(s.overflow_y));
             if (horizontal) {
                 item.margin_start = margin_left;
                 item.margin_end = margin_right;
@@ -8237,14 +8241,15 @@ struct Layouter {
                     item.base = content_size_of(basis, intrinsic.min, intrinsic.max, available_main);
                 // The minimum: min-width as written, else the automatic one —
                 // the content's narrowest, no more than a written width or a
-                // maximum.
+                // maximum. A scroll container has no automatic minimum (css-flexbox-1
+                // §4.5): what it holds may be cut off.
                 if (!anonymous && s.min_width.is_content_size()) {
                     item.minimum
                         = content_size_of(s.min_width, intrinsic.min, intrinsic.max, available_main);
                 } else if (!anonymous && !s.min_width.is_auto()) {
                     item.minimum = content(resolve(s.min_width, content_width), item.edges_main);
                 } else {
-                    item.minimum = intrinsic.min;
+                    item.minimum = scroll_container ? 0.0f : intrinsic.min;
                     if (!anonymous && s.width.is_content_size())
                         item.minimum = std::min(item.minimum,
                             content_size_of(s.width, intrinsic.min, intrinsic.max, available_main));
@@ -8410,6 +8415,11 @@ struct Layouter {
         // items happened to fit one line keeps that line its items' size.
         if (!wrap && cross_size)
             line_cross[0] = *cross_size;
+        // One of no definite height holds its line within its own minimum
+        // and maximum (css-flexbox-1 §9.4 step 8), and what stretches across
+        // the line stops where the container does.
+        else if (!wrap && horizontal)
+            line_cross[0] = clamp_height(style, line_cross[0]);
 
         // 6. The lines across the container: align-content shares the free
         // cross space among them.

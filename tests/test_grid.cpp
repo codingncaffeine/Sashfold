@@ -756,5 +756,25 @@ int main()
         CHECK_EQ(count(page.result.root), 4);
     }
 
+    // What a block contributes to its parent's intrinsic width is its box
+    // as sized — held to its own maximum (css-sizing-3 §5.2): a 1fr track
+    // holding a 500 px wide item that may be no wider than 200 px is the
+    // 300 px left over, and the item's auto margins center it there. A
+    // float shrinks to the same 200.
+    {
+        Page const page = lay_out(R"(<!doctype html><html><body style="margin:0; font: 16px/20px 'Sashfold Mono'">
+            <div style="display: grid; width: 400px; grid-template-columns: 100px 1fr">
+              <div id="m" style="grid-column-start: 2; width: 500px; max-width: 200px; margin: 0 auto; height: 10px"></div></div>
+            <div id="f" style="float: left"><div style="width: 500px; max-width: 200px; height: 10px"></div></div>
+          </body></html>)");
+        layout::Fragment const* m = find_box(page.result.root, "m");
+        layout::Fragment const* f = find_box(page.result.root, "f");
+        if (CHECK(m && f)) {
+            CHECK_EQ(m->x, 150.0f);
+            CHECK_EQ(m->width, 200.0f);
+            CHECK_EQ(f->width, 200.0f);
+        }
+    }
+
     return sashfold::test::report("grid");
 }
