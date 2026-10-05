@@ -68,7 +68,7 @@ namespace {
 int usage(char const* program)
 {
     std::cerr << "usage: " << program << " [url] [--theme <file.json>] [--blocklists <dir>] [--downloads <dir>] [--profile <dir>]\n"
-              << "                 [--exit-after ms] [--timings out.json]   (a headless run under a compositor with no screen)\n"
+              << "                 [--exit-after ms] [--timings out.json] [--width N] [--height N]   (a headless run under a compositor with no screen; the window's size)\n"
               << "                 [--js-heap-limit MB] [--memory-ceiling MB]   (a page's script heap; the whole process; 0: none)\n"
               << "                 [--trace-frames]   (every turn of the window's loop that did anything, on stderr: what it cost, and where)\n"
               << "                 [--drive <file>]   (the window driven on the real clock: a line a step, `<ms> click <x> <y>`, `<ms> click-text <text>`, ...)\n"
@@ -1980,11 +1980,12 @@ int run_script_mode(std::string const& script, bool update_goldens, int width, i
 // and the loader's account, in --bench's terms so the two compare.
 int run_window(std::string const& start_url, std::string const& theme_path,
     std::string const& blocklists_path, std::string const& downloads, std::string const& profile,
-    char const* program, int exit_after_ms, std::string const& timings_path, std::string const& frames_dir, double frame_every_ms)
+    char const* program, int exit_after_ms, std::string const& timings_path, std::string const& frames_dir, double frame_every_ms,
+    int width, int height)
 {
     std::optional<Bitmap> const icon = load_window_icon(program);
     std::unique_ptr<platform::Window> window
-        = platform::Window::create("Sashfold", 1100, 760, icon ? &*icon : nullptr);
+        = platform::Window::create("Sashfold", width > 0 ? width : 1100, height > 0 ? height : 760, icon ? &*icon : nullptr);
     if (!window) {
         std::cerr << "error: could not open a window (the AppKit shell is not written; on Linux the\n"
                      "       Wayland display must be reachable); --render, --fetch, and --script work everywhere\n";
@@ -2877,7 +2878,7 @@ int main(int argc, char** argv)
             : platform::memory_ceiling_for(platform::physical_memory_bytes()));
     int const result = run_window(start_url, theme_path, blocklists_path,
         downloads.value_or(default_downloads_directory()), profile.value_or(default_profile_directory()), argv[0],
-        exit_after_ms, timings_path, frames_dir, frame_every_ms);
+        exit_after_ms, timings_path, frames_dir, frame_every_ms, width, height);
     platform::MemoryWatch::stop();
     return result;
 }
