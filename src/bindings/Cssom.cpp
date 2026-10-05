@@ -1759,15 +1759,7 @@ void install_cssom(Realm::Internals& in)
                 wrapper->keep_same_object("adoptedStyleSheets", array);
                 dom::Node& root = wrapper->node();
                 dom::Document& document = root.type() == dom::NodeType::Document ? static_cast<dom::Document&>(root) : root.document();
-                bool found = false;
-                for (auto& [owner, held] : document.adopted_sheets) {
-                    if (owner == &root) {
-                        held = states;
-                        found = true;
-                    }
-                }
-                if (!found)
-                    document.adopted_sheets.emplace_back(&root, std::move(states));
+                document.adopted_sheets[&root] = std::move(states);
                 // A shadow tree's sheets are read by the styles themselves.
                 if (root.is_shadow_root())
                     root.mark_style_subtree();

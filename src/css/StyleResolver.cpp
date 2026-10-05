@@ -2523,6 +2523,14 @@ std::shared_ptr<KeyframesRule const> keyframes_rule(AtRule const& at)
     return rule;
 }
 
+// One of a shadow tree's sheets as last read: which sheet, which version of
+// it (each_shadow_sheet).
+struct ShadowSheetMark {
+    std::uint64_t sheet = 0;
+    std::uint64_t version = 0;
+    bool operator==(ShadowSheetMark const&) const = default;
+};
+
 struct RuleSet {
     std::vector<CompiledRule> rules;
 
@@ -2616,10 +2624,13 @@ struct RuleSet {
     // and nowhere else, so each tree has a rule set of its own, compiled
     // when a resolution first meets the tree and kept by what the sheets
     // say: every instance of one component shares one set. `pass` moves
-    // with each resolution, and a tree's sheets are read again once in each.
+    // with each resolution, and once in each a tree's sheets are looked at
+    // again — read only when one of them is another sheet or has changed.
     // These are the one part of a set that grows after it is made.
     struct ShadowScope {
         std::uint64_t checked = 0;
+        bool read = false;
+        std::vector<ShadowSheetMark> marks;
         RuleSet const* rules = nullptr; // nothing for a tree with no sheets
     };
     mutable std::unordered_map<dom::Node const*, ShadowScope> shadow_scopes;
@@ -3290,14 +3301,26 @@ struct RuleSet {
     }
 };
 
-// The texts of a shadow tree's sheets in cascade order: its style elements
-// as they come, then the sheets its root adopted. A sheet the object model
-// disabled is out, and one it changed is what it made. (A stylesheet link
-// inside a shadow tree is not read here: nothing is fetched while styles
-// are resolved.)
-std::vector<std::string> shadow_sheet_texts(dom::ShadowRoot const& root, MediaContext const& media)
+std::uint64_t fnv_hash(std::uint64_t key, std::string_view text)
 {
-    std::vector<std::string> sheets;
+    for (char const c : text) {
+        key ^= static_cast<unsigned char>(c);
+        key *= 1099511628211ull;
+    }
+    return key;
+}
+
+// A shadow tree's sheets in cascade order: its style elements as they come,
+// then the sheets its root adopted. A sheet the object model disabled is
+// out, and one it changed is what it made. (A stylesheet link inside a
+// shadow tree is not read here: nothing is fetched while styles are
+// resolved.) `use(mark, text)` is told each: the mark says which sheet and
+// which version of it — an object model sheet by its id and version, a
+// style element's own text by a hash of it — and `text()` reads it, which
+// for a changed object model sheet writes it out.
+template<typename Use>
+void each_shadow_sheet(dom::ShadowRoot const& root, MediaContext const& media, Use&& use)
+{
     std::vector<dom::Node const*> pending(root.children().rbegin(), root.children().rend());
     while (!pending.empty()) {
         dom::Node const* const node = pending.back();
@@ -3317,11 +3340,11 @@ std::vector<std::string> shadow_sheet_texts(dom::ShadowRoot const& root, MediaCo
                     if (scripted->disabled)
                         continue;
                     if (scripted->changed && scripted->source == text) {
-                        sheets.push_back(scripted->text());
+                        use(ShadowSheetMark { scripted->id, scripted->version }, [&scripted]() -> std::string const& { return scripted->text(); });
                         continue;
                     }
                 }
-                sheets.push_back(std::move(text));
+                use(ShadowSheetMark { 0, fnv_hash(1469598103934665603ull, text) }, [&text]() -> std::string const& { return text; });
                 continue;
             }
         }
@@ -3331,10 +3354,9 @@ std::vector<std::string> shadow_sheet_texts(dom::ShadowRoot const& root, MediaCo
     if (std::vector<std::shared_ptr<dom::ScriptedSheet>> const* const adopted = root.document().adopted(root)) {
         for (std::shared_ptr<dom::ScriptedSheet> const& sheet : *adopted) {
             if (!sheet->disabled)
-                sheets.push_back(sheet->text());
+                use(ShadowSheetMark { sheet->id, sheet->version }, [&sheet]() -> std::string const& { return sheet->text(); });
         }
     }
-    return sheets;
 }
 
 // What a tree's selectors read is what the invalidation of the whole
@@ -3368,16 +3390,22 @@ RuleSet const* RuleSet::scope_rules(dom::ShadowRoot const& root) const
     if (scope.checked == pass && pass != 0)
         return scope.rules;
     scope.checked = pass;
+    // The same sheets in the same versions as when last read: the same
+    // rules, and their texts are neither written out nor read again.
+    std::vector<ShadowSheetMark> marks;
+    each_shadow_sheet(root, media, [&marks](ShadowSheetMark mark, auto const&) { marks.push_back(mark); });
+    if (scope.read && marks == scope.marks)
+        return scope.rules;
+    scope.read = true;
+    scope.marks = std::move(marks);
     scope.rules = nullptr;
-    std::vector<std::string> const sheets = shadow_sheet_texts(root, media);
+    std::vector<std::string> sheets;
+    each_shadow_sheet(root, media, [&sheets](ShadowSheetMark, auto const& text) { sheets.push_back(text()); });
     if (sheets.empty())
         return nullptr;
     std::uint64_t key = 1469598103934665603ull;
     for (std::string const& sheet : sheets) {
-        for (char const c : sheet) {
-            key ^= static_cast<unsigned char>(c);
-            key *= 1099511628211ull;
-        }
+        key = fnv_hash(key, sheet);
         key ^= 0xFFu; // between two sheets
         key *= 1099511628211ull;
     }

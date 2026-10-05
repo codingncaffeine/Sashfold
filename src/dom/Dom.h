@@ -7,6 +7,7 @@
 // never an ownership move. The JS-facing lifetime model is a separate, later
 // decision (see the plan's DOM-lifetime ADR note).
 
+#include <atomic>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -14,6 +15,7 @@
 #include <string>
 #include <string_view>
 #include <type_traits>
+#include <unordered_map>
 #include <vector>
 
 namespace sashfold::js {
@@ -386,6 +388,9 @@ struct ScriptedSheet {
     bool changed = false;
     bool disabled = false;
     std::uint64_t version = 0;
+    // Which sheet this is for as long as the process runs: a freed sheet's
+    // address can be another sheet's, its id never is.
+    std::uint64_t const id = next_id.fetch_add(1, std::memory_order_relaxed);
     std::string source;
     std::function<std::string()> write;
 
@@ -408,6 +413,7 @@ struct ScriptedSheet {
 private:
     std::string m_text;
     bool m_stale = false;
+    static inline std::atomic<std::uint64_t> next_id { 1 };
 };
 
 // What a document's animations hang on (css::DocumentAnimations): held by
@@ -427,9 +433,9 @@ public:
     // The sheets the object model has a say in: those of <style> and
     // <link> elements, by element (a document's nodes live as long as it
     // does), and those adopted onto the document or onto a shadow root,
-    // by the root, in the order adopted.
+    // by the root, each root's in the order adopted.
     std::vector<std::pair<Element const*, std::shared_ptr<ScriptedSheet>>> scripted_sheets;
-    std::vector<std::pair<Node const*, std::vector<std::shared_ptr<ScriptedSheet>>>> adopted_sheets;
+    std::unordered_map<Node const*, std::vector<std::shared_ptr<ScriptedSheet>>> adopted_sheets;
     // The document's animations, made when something first animates here.
     std::unique_ptr<DocumentAnimationsBase> animations;
     // Told when they are made, by a style or a script: what a realm hears to
@@ -445,11 +451,8 @@ public:
     }
     std::vector<std::shared_ptr<ScriptedSheet>> const* adopted(Node const& root) const
     {
-        for (auto const& [owner, sheets] : adopted_sheets) {
-            if (owner == &root)
-                return &sheets;
-        }
-        return nullptr;
+        auto const found = adopted_sheets.find(&root);
+        return found == adopted_sheets.end() ? nullptr : &found->second;
     }
 
     // The states selectors ask after that the tree does not hold
