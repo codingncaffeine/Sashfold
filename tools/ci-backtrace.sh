@@ -19,6 +19,9 @@ while IFS=: read -r _ name; do
         echo "ci-backtrace: $name: no command found"
         continue
     fi
+    # A Windows path's backslashes would be read as escapes here; Windows
+    # takes forward slashes as well.
+    line=${line//\\//}
     eval "set -- $line"
     echo "=== $name under gdb"
     timeout 900 gdb -batch -ex "set pagination off" -ex "set debuginfod enabled off" -ex run -ex "bt 40" -ex "info registers rip" -ex "x/8i \$pc" --args "$@" 2>&1 | tail -n 80
