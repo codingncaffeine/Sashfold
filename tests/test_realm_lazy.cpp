@@ -210,11 +210,11 @@ int main()
         CHECK(census.natives_made_at_once <= 320);
         // The parse of this page asked for a handful.
         CHECK(census.natives_made_later <= 120);
-        // Fourteen groups of interfaces are not installed, and parsing this
+        // Fifteen groups of interfaces are not installed, and parsing this
         // page installed none; the Streams script has not run. What stands
         // for them is names: the Streams interfaces' fifteen, and one for
         // each name a waiting group provides.
-        CHECK_EQ(census.groups_described, std::uint64_t { 14 });
+        CHECK_EQ(census.groups_described, std::uint64_t { 15 });
         CHECK_EQ(census.groups_run, std::uint64_t { 0 });
         CHECK(census.values_described >= 150);
         CHECK_EQ(census.values_made, std::uint64_t { 0 });
@@ -418,7 +418,7 @@ int main()
         // realm's, whichever realm's script asked.
         Page page("<!DOCTYPE html><body><iframe id=f></iframe></body>");
         js::Heap::LazyCensus const& census = page.census();
-        CHECK_EQ(census.groups_described, std::uint64_t { 28 }); // the page's and the frame's
+        CHECK_EQ(census.groups_described, std::uint64_t { 30 }); // the page's and the frame's
         std::uint64_t const run = census.groups_run;
         CHECK(page.boolean("window.XMLHttpRequest = 5; XMLHttpRequest === 5 && delete window.Worker && typeof Worker === 'undefined'"));
         CHECK(page.boolean("Object.defineProperty(window, 'IntersectionObserver', { value: 7, configurable: true }); IntersectionObserver === 7"));
@@ -437,13 +437,13 @@ int main()
         CHECK(page.boolean("var element = document.getElementById('f'), gone = element.contentWindow; element.remove(); true"));
         while (page.realm->run_pending()) {
         }
-        CHECK_EQ(census.groups_run - run, std::uint64_t { 14 });
+        CHECK_EQ(census.groups_run - run, std::uint64_t { 15 });
         CHECK(page.boolean("typeof gone.XMLHttpRequest === 'function' && typeof gone.fetch === 'function' && typeof gone.Range === 'function'"
                            " && typeof gone.HTMLMediaElement.prototype.play === 'function'"));
-        CHECK_EQ(census.groups_run - run, std::uint64_t { 14 });
+        CHECK_EQ(census.groups_run - run, std::uint64_t { 15 });
         // (The page's own Range is another realm's, and its own group's.)
         CHECK(page.boolean("gone.Range !== Range"));
-        CHECK_EQ(census.groups_run - run, std::uint64_t { 15 });
+        CHECK_EQ(census.groups_run - run, std::uint64_t { 16 });
         // The Streams script, which the frame never ran, runs for its
         // window now: the interfaces are that window's, and work.
         CHECK(page.boolean("typeof gone.ReadableStream === 'function' && typeof gone.TextDecoderStream === 'function'"

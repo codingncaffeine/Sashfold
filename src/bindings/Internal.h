@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -225,6 +226,15 @@ public:
     // IDBVersionChangeEvent: the versions, the new one null for a deletion.
     double old_version = 0;
     std::optional<double> new_version;
+    // AnimationPlaybackEvent: the animation's time and its timeline's, null
+    // when unresolved. AnimationEvent and TransitionEvent: the animation's
+    // name or the transitioned property, the seconds elapsed, and the
+    // generated box (::before) or the empty string for the element.
+    std::optional<double> animation_current_time;
+    std::optional<double> animation_timeline_time;
+    std::string animation_name;
+    double elapsed_time = 0;
+    std::string pseudo_element;
     std::string message;
     std::string filename;
     std::uint32_t lineno = 0;
@@ -832,6 +842,20 @@ struct Agent {
     // observers are next notified.
     std::vector<std::pair<std::weak_ptr<bool>, Realm::Internals*>> slot_signal_realms;
     std::vector<Timer> timers;
+    // The rendering update (HTML §8.1.7.3) the agent's documents share:
+    // requestAnimationFrame's callbacks in the order asked, each run at the
+    // next update with that update's time; the realms whose documents have
+    // animations, each with its flag that says it is still here; and when
+    // the last update ran, on the hooks' clock. Updates fall on a 60 Hz grid
+    // while anything wants one (Animations.cpp).
+    struct AnimationFrameCallback {
+        int id = 0;
+        Realm::Internals* owner = nullptr;
+        std::unique_ptr<js::Persistent> callback;
+    };
+    std::vector<AnimationFrameCallback> animation_frame_callbacks;
+    std::vector<std::pair<std::weak_ptr<bool>, Realm::Internals*>> animated_realms;
+    double last_rendering_update = -std::numeric_limits<double>::infinity();
     // Run before the timers at the next pump, oldest first, each holding what
     // it needs through Persistents.
     std::deque<Task> tasks;
@@ -1571,6 +1595,21 @@ void drop_mutation_observers_of(Realm::Internals&);
 void install_intersection_observer(Realm::Internals&);
 void trace_intersection_observers(Realm::Internals const&, js::Tracer&);
 bool update_intersection_observations(Realm::Internals&, bool force = false);
+// Animations.cpp: Web Animations (Animation, KeyframeEffect, the timelines,
+// element.animate) over the model in css/Animation.h, and the rendering
+// update the agent runs at each frame — the animations updated and their
+// events sent, then requestAnimationFrame's callbacks with one timestamp.
+void install_animations(Realm::Internals&);
+// The realm's document has animations now: they take its clock and frames.
+void animations_made(Realm::Internals&);
+void trace_animations(Realm::Internals const&, js::Tracer&);
+int request_animation_frame(Realm::Internals&, js::Value const& callback);
+void cancel_animation_frame(Realm::Internals&, int id);
+// When the agent's next rendering update is due (on the hooks' clock), if
+// anything wants one; and the update itself, run from the page's realm
+// when it is due — true when it ran.
+std::optional<double> next_rendering_update(Agent const&);
+bool run_rendering_update(Realm::Internals& page, double now);
 // What the tree tells the observers: children added or taken away, an
 // attribute written, a text node changed.
 void mutation_children_changed(Realm::Internals&, dom::Node& parent, std::vector<dom::Node*> const& added,
@@ -1688,6 +1727,10 @@ js::Value make_rule_style_declaration(Realm::Internals&, std::shared_ptr<Declara
 // run of component values as (Style.cpp).
 std::string css_declarations_text(std::vector<css::Declaration> const&);
 std::string css_values_text(std::vector<css::ComponentValue> const&);
+// commitStyles(): a property's computed value as getComputedStyle writes it,
+// and one declaration set in an element's style attribute (Style.cpp).
+std::string computed_value_text(Realm::Internals&, dom::Element&, css::ComputedStyle const&, std::string const& name);
+void write_inline_declaration(Realm::Internals&, dom::Element&, std::string const& name, std::string const& value);
 // The CSSStyleSheet of a <style> or stylesheet <link> element, made the
 // first time it is asked for and the same object after; null for an
 // element that carries none (Cssom.cpp).

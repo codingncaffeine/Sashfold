@@ -64,6 +64,7 @@ add_library(sashfold_core STATIC
   src/bindings/HtmlElements.cpp
   src/bindings/ImportMaps.cpp
   src/bindings/IndexedDb.cpp
+  src/bindings/Animations.cpp
   src/bindings/Intersection.cpp
   src/bindings/LayoutOracle.cpp
   src/bindings/Media.cpp
@@ -110,8 +111,11 @@ add_library(sashfold_core STATIC
   src/crypto/Rsa.cpp
   src/crypto/Sha2.cpp
   src/crypto/X25519.cpp
+  src/css/Animation.cpp
   src/css/CounterStyles.cpp
+  src/css/Easing.cpp
   src/css/Grid.cpp
+  src/css/Interpolation.cpp
   src/css/Parser.cpp
   src/css/Selector.cpp
   src/css/StyleDifference.cpp

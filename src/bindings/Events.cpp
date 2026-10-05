@@ -491,6 +491,33 @@ js::NativeFunction::ConstructCallback event_constructor(std::string interface)
             event->colno = to_unsigned_long(*colno);
             event->detail_value = *error;
         }
+        if (interface == "AnimationEvent" || interface == "TransitionEvent") {
+            // The dictionary's members in their order: the name (or the
+            // property), the seconds elapsed, the pseudo-element.
+            std::optional<js::Value> const animation = init_value(interpreter, init, "animation");
+            if (!animation)
+                return std::nullopt;
+            event->detail_value = *animation;
+            std::optional<std::string> name;
+            std::optional<double> elapsed;
+            if (interface == "AnimationEvent") {
+                if (!(name = init_string(interpreter, init, "animationName")))
+                    return std::nullopt;
+                if (!(elapsed = init_number(interpreter, init, "elapsedTime", 0)))
+                    return std::nullopt;
+            } else {
+                if (!(elapsed = init_number(interpreter, init, "elapsedTime", 0)))
+                    return std::nullopt;
+                if (!(name = init_string(interpreter, init, "propertyName")))
+                    return std::nullopt;
+            }
+            std::optional<std::string> pseudo = init_string(interpreter, init, "pseudoElement");
+            if (!pseudo)
+                return std::nullopt;
+            event->animation_name = std::move(*name);
+            event->elapsed_time = *elapsed;
+            event->pseudo_element = std::move(*pseudo);
+        }
         if (interface == "ToggleEvent") {
             std::optional<std::string> old_state = init_string(interpreter, init, "oldState");
             std::optional<std::string> new_state = init_string(interpreter, init, "newState");
@@ -1356,8 +1383,18 @@ void install_events(Realm::Internals& in)
     event_getter(in, *toggle_event, "oldState", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.old_state); });
     event_getter(in, *toggle_event, "newState", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.new_state); });
 
-    define_interface(in, "TransitionEvent", event, event_constructor("TransitionEvent"), 1);
-    define_interface(in, "AnimationEvent", event, event_constructor("AnimationEvent"), 1);
+    // css-transitions-1 §6.1 and css-animations-1 §4.1: what a transition or a
+    // CSS animation says of itself; the name is the property or the animation.
+    js::Object* transition_event = define_interface(in, "TransitionEvent", event, event_constructor("TransitionEvent"), 1);
+    event_getter(in, *transition_event, "animation", [](Realm::Internals&, EventObject& e) { return e.detail_value.is_undefined() ? js::Value::null() : e.detail_value; });
+    event_getter(in, *transition_event, "propertyName", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.animation_name); });
+    event_getter(in, *transition_event, "elapsedTime", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.elapsed_time); });
+    event_getter(in, *transition_event, "pseudoElement", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.pseudo_element); });
+    js::Object* animation_event = define_interface(in, "AnimationEvent", event, event_constructor("AnimationEvent"), 1);
+    event_getter(in, *animation_event, "animation", [](Realm::Internals&, EventObject& e) { return e.detail_value.is_undefined() ? js::Value::null() : e.detail_value; });
+    event_getter(in, *animation_event, "animationName", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.animation_name); });
+    event_getter(in, *animation_event, "elapsedTime", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.elapsed_time); });
+    event_getter(in, *animation_event, "pseudoElement", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.pseudo_element); });
     js::Object* progress_event = define_interface(in, "ProgressEvent", event, event_constructor("ProgressEvent"), 1);
     event_getter(in, *progress_event, "lengthComputable", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.length_computable); });
     event_getter(in, *progress_event, "loaded", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.loaded); });

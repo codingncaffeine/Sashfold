@@ -7,6 +7,8 @@
 // so what a script sets is what the cascade reads.
 
 #include "core/Unicode.h"
+#include "core/Ascii.h"
+#include "css/Animation.h"
 #include "css/Parser.h"
 #include "css/StyleResolver.h"
 #include "css/Stylesheets.h"
@@ -297,12 +299,211 @@ std::string border_style_text(css::BorderStyle style)
 
 // The computed value of one property as getComputedStyle spells it; empty
 // for a property the engine does not compute.
-std::string computed_property(Realm::Internals& in, dom::Element& element, css::ComputedStyle const& style, std::string const& name)
+// --- The animation-* and transition-* properties as getComputedStyle writes them ---
+
+std::string seconds_text(double ms) { return css::serialize_css_number(ms / 1000) + "s"; }
+
+// CSSOM §2.1 "serialize an identifier".
+std::string identifier_text(std::string_view text)
+{
+    std::string out;
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        unsigned char const c = static_cast<unsigned char>(text[i]);
+        bool const digit = c >= '0' && c <= '9';
+        if (c < 0x20 || c == 0x7f || (digit && (i == 0 || (i == 1 && text[0] == '-')))) {
+            char buffer[8];
+            std::snprintf(buffer, sizeof buffer, "\\%x ", static_cast<unsigned>(c));
+            out += buffer;
+        } else if (i == 0 && c == '-' && text.size() == 1) {
+            out += "\\-";
+        } else if (c >= 0x80 || c == '-' || c == '_' || digit || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+            out += static_cast<char>(c);
+        } else {
+            out += '\\';
+            out += static_cast<char>(c);
+        }
+    }
+    return out;
+}
+
+// An animation name: an identifier, but a string for a name that would
+// read back as a keyword.
+std::string animation_name_text(std::optional<std::string> const& name)
+{
+    if (!name)
+        return "none";
+    for (std::string_view const reserved : { "none", "initial", "inherit", "unset", "revert", "revert-layer", "default" }) {
+        if (ascii_ci_equals(*name, reserved)) {
+            std::string out = "\"";
+            for (char const c : *name) {
+                if (c == '"' || c == '\\')
+                    out += '\\';
+                out += c;
+            }
+            return out + "\"";
+        }
+    }
+    return identifier_text(*name);
+}
+
+std::string_view direction_text(css::PlaybackDirection direction)
+{
+    switch (direction) {
+    case css::PlaybackDirection::Normal: return "normal";
+    case css::PlaybackDirection::Reverse: return "reverse";
+    case css::PlaybackDirection::Alternate: return "alternate";
+    case css::PlaybackDirection::AlternateReverse: return "alternate-reverse";
+    }
+    return "normal";
+}
+
+std::string_view fill_text(css::FillMode fill)
+{
+    switch (fill) {
+    case css::FillMode::Forwards: return "forwards";
+    case css::FillMode::Backwards: return "backwards";
+    case css::FillMode::Both: return "both";
+    default: return "none";
+    }
+}
+
+std::string_view composition_text(css::CompositeOperation operation)
+{
+    switch (operation) {
+    case css::CompositeOperation::Add: return "add";
+    case css::CompositeOperation::Accumulate: return "accumulate";
+    default: return "replace";
+    }
+}
+
+template<typename T, typename Text>
+std::string list_text(std::vector<T> const& list, Text&& text)
+{
+    std::string out;
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        if (i)
+            out += ", ";
+        out += text(list[i]);
+    }
+    return out;
+}
+
+std::string count_text(double count) { return std::isinf(count) ? "infinite" : css::serialize_css_number(count); }
+
+std::string animation_property_text(css::ComputedStyle const& style, std::string const& name)
+{
+    css::AnimationLists const animation = style.animation ? *style.animation : css::AnimationLists {};
+    css::TransitionLists const transition = style.transition ? *style.transition : css::TransitionLists {};
+    auto const duration = [](std::optional<double> const& ms) { return seconds_text(ms.value_or(0)); };
+    auto const easing = [](css::Easing const& e) { return e.serialize(); };
+    if (name == "animation-name")
+        return list_text(animation.names, animation_name_text);
+    if (name == "animation-duration")
+        return list_text(animation.durations, duration);
+    if (name == "animation-timing-function")
+        return list_text(animation.timing_functions, easing);
+    if (name == "animation-delay")
+        return list_text(animation.delays, seconds_text);
+    if (name == "animation-iteration-count")
+        return list_text(animation.iteration_counts, count_text);
+    if (name == "animation-direction")
+        return list_text(animation.directions, [](css::PlaybackDirection d) { return std::string(direction_text(d)); });
+    if (name == "animation-fill-mode")
+        return list_text(animation.fill_modes, [](css::FillMode f) { return std::string(fill_text(f)); });
+    if (name == "animation-play-state")
+        return list_text(animation.paused, [](bool paused) { return std::string(paused ? "paused" : "running"); });
+    if (name == "animation-composition")
+        return list_text(animation.compositions, [](css::CompositeOperation c) { return std::string(composition_text(c)); });
+    if (name == "animation-timeline")
+        return list_text(animation.names, [](auto const&) { return std::string("auto"); });
+    if (name == "animation") {
+        // Each animation's parts in the shorthand's order, the initial ones
+        // left out; nothing when a longhand's list does not match the
+        // names' or holds what the shorthand cannot say.
+        std::size_t const n = animation.names.size();
+        if (animation.durations.size() != n || animation.timing_functions.size() != n || animation.delays.size() != n
+            || animation.iteration_counts.size() != n || animation.directions.size() != n || animation.fill_modes.size() != n
+            || animation.paused.size() != n || animation.compositions.size() != n)
+            return "";
+        std::string out;
+        for (std::size_t i = 0; i < n; ++i) {
+            if (animation.compositions[i] != css::CompositeOperation::Replace)
+                return "";
+            std::vector<std::string> parts;
+            double const delay = animation.delays[i];
+            if (animation.durations[i].value_or(0) != 0 || delay != 0)
+                parts.push_back(duration(animation.durations[i]));
+            if (!(animation.timing_functions[i] == css::Easing::ease()))
+                parts.push_back(animation.timing_functions[i].serialize());
+            if (delay != 0)
+                parts.push_back(seconds_text(delay));
+            if (animation.iteration_counts[i] != 1)
+                parts.push_back(count_text(animation.iteration_counts[i]));
+            if (animation.directions[i] != css::PlaybackDirection::Normal)
+                parts.push_back(std::string(direction_text(animation.directions[i])));
+            if (animation.fill_modes[i] != css::FillMode::None)
+                parts.push_back(std::string(fill_text(animation.fill_modes[i])));
+            if (animation.paused[i])
+                parts.push_back("paused");
+            if (animation.names[i] || parts.empty())
+                parts.push_back(animation_name_text(animation.names[i]));
+            if (i)
+                out += ", ";
+            for (std::size_t p = 0; p < parts.size(); ++p)
+                out += (p ? " " : "") + parts[p];
+        }
+        return out;
+    }
+    if (name == "transition-property")
+        return transition.properties.empty() ? "none" : list_text(transition.properties, identifier_text);
+    if (name == "transition-duration")
+        return list_text(transition.durations, seconds_text);
+    if (name == "transition-timing-function")
+        return list_text(transition.timing_functions, easing);
+    if (name == "transition-delay")
+        return list_text(transition.delays, seconds_text);
+    if (name == "transition-behavior")
+        return list_text(transition.allow_discrete, [](bool allow) { return std::string(allow ? "allow-discrete" : "normal"); });
+    if (name == "transition") {
+        std::size_t const n = std::max<std::size_t>(transition.properties.size(), 1);
+        if (transition.durations.size() != n || transition.timing_functions.size() != n || transition.delays.size() != n
+            || transition.allow_discrete.size() != n)
+            return "";
+        std::string out;
+        for (std::size_t i = 0; i < n; ++i) {
+            std::vector<std::string> parts;
+            std::string const property = transition.properties.empty() ? "none" : identifier_text(transition.properties[i]);
+            if (property != "all")
+                parts.push_back(property);
+            double const delay = transition.delays[i];
+            if (transition.durations[i] != 0 || delay != 0)
+                parts.push_back(seconds_text(transition.durations[i]));
+            if (!(transition.timing_functions[i] == css::Easing::ease()))
+                parts.push_back(transition.timing_functions[i].serialize());
+            if (delay != 0)
+                parts.push_back(seconds_text(delay));
+            if (transition.allow_discrete[i])
+                parts.push_back("allow-discrete");
+            if (parts.empty())
+                parts.push_back("all");
+            if (i)
+                out += ", ";
+            for (std::size_t p = 0; p < parts.size(); ++p)
+                out += (p ? " " : "") + parts[p];
+        }
+        return out;
+    }
+    return "";
+}
+
+// `resolved` false: the computed value alone, never what layout made of it.
+std::string computed_property(Realm::Internals& in, dom::Element& element, css::ComputedStyle const& style, std::string const& name,
+    bool resolved = true)
 {
     using namespace css;
     std::optional<LayoutBox> box;
     auto const box_of = [&]() -> std::optional<LayoutBox> {
-        if (!box && in.hooks.layout_box)
+        if (!box && resolved && in.hooks.layout_box)
             box = in.hooks.layout_box(element);
         return box;
     };
@@ -590,8 +791,8 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         return "auto";
     if (name == "content")
         return "normal";
-    if (name == "transition" || name == "animation")
-        return "none";
+    if (name.starts_with("animation") || name.starts_with("transition"))
+        return animation_property_text(style, name);
     if (name == "background-image")
         return style.background_images && !style.background_images->empty() ? "url()" : "none";
     return "";
@@ -1295,6 +1496,21 @@ std::string css_values_text(std::vector<css::ComponentValue> const& values)
     std::string out;
     serialize_values(values, out);
     return out;
+}
+
+std::string computed_value_text(Realm::Internals& in, dom::Element& element, css::ComputedStyle const& style, std::string const& name)
+{
+    return computed_property(in, element, style, name, false);
+}
+
+void write_inline_declaration(Realm::Internals& in, dom::Element& element, std::string const& name, std::string const& value)
+{
+    std::vector<css::Declaration> declarations = declarations_of(element);
+    std::string const before = serialize_declarations(declarations);
+    // A write that changes nothing is not made: no attribute change, no
+    // mutation record.
+    if (edit_declaration(declarations, name, value, false) && serialize_declarations(declarations) != before)
+        write_declarations(in, element, declarations);
 }
 
 }

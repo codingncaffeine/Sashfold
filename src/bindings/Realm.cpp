@@ -898,6 +898,15 @@ void Realm::Internals::give_document_states()
         if (!here.expired())
             slot_change_signalled(*self);
     };
+    // The document's animations, whoever makes them first (a style's
+    // animation-name, a script): the realm gives them its clock and runs
+    // their frames.
+    document->on_animations_made = [here, self] {
+        if (!here.expired())
+            animations_made(*self);
+    };
+    if (document->animations)
+        animations_made(*this);
 }
 
 js::Object* Realm::Internals::prototype(std::string_view name) const
@@ -1685,6 +1694,7 @@ constexpr InterfaceGroup interface_groups[] = {
     { "intersection", install_intersection_observer, true },
     { "indexeddb", install_indexeddb, true },
     { "cssom", install_cssom, true },
+    { "animations", install_animations, true },
     { "streams", install_streams, false },
 };
 constexpr std::size_t group_count = std::size(interface_groups);
@@ -2262,6 +2272,7 @@ void end_closing(Agent& agent)
 void erase_loop_work(Realm::Internals& in)
 {
     std::erase_if(in.agent.timers, [&in](Timer const& timer) { return timer.owner == &in; });
+    std::erase_if(in.agent.animation_frame_callbacks, [&in](Agent::AnimationFrameCallback const& callback) { return callback.owner == &in; });
     std::erase_if(in.agent.tasks, [&in](Task const& task) { return task.owner == &in; });
     drop_mutation_observers_of(in);
     for (ChildFrame const& listed : in.child_frames)
@@ -2303,6 +2314,7 @@ Realm::~Realm()
     if (in.own_agent)
         in.agent.ending = true;
     std::erase_if(in.agent.timers, [&in](Timer const& timer) { return timer.owner == &in; });
+    std::erase_if(in.agent.animation_frame_callbacks, [&in](Agent::AnimationFrameCallback const& callback) { return callback.owner == &in; });
     std::erase_if(in.agent.tasks, [&in](Task const& task) { return task.owner == &in; });
     drop_mutation_observers_of(in);
     // Its document unloads: the workers it started end, and the blob: URLs
@@ -2922,6 +2934,7 @@ void Realm::Internals::reuse_frame_window(ChildFrame& frame, FrameDocument answe
     // it removes the tasks whose document it is. The navigation running now is
     // the parent's task, not the window's.
     std::erase_if(agent.timers, [&window](Timer const& timer) { return timer.owner == &window; });
+    std::erase_if(agent.animation_frame_callbacks, [&window](Agent::AnimationFrameCallback const& callback) { return callback.owner == &window; });
     std::erase_if(agent.tasks, [&window](Task const& task) { return task.owner == &window; });
     terminate_workers(window);
     std::erase_if(agent.blob_urls, [&window](auto const& entry) { return entry.second.document == window.document; });
@@ -4063,6 +4076,10 @@ bool Realm::run_pending()
         if (in.interpreter.terminated())
             break;
     }
+    // The rendering update, when a frame is due (HTML §8.1.7.3): the
+    // animations and their events, then the animation frame callbacks.
+    if (!in.interpreter.terminated() && run_rendering_update(in, now))
+        ran = true;
     // The page's share of the rendering update, once the turn's work is
     // done: what its intersection observers see now. Measuring costs
     // nothing when nothing has moved since the last time.
@@ -4091,13 +4108,17 @@ std::optional<double> Realm::next_timer_due() const
         if (workers && (!due || *workers < *due))
             due = workers;
     }
+    // And the next rendering update, while anything wants one.
+    if (std::optional<double> const frame = next_rendering_update(m_internals->agent); frame && (!due || *frame < *due))
+        due = frame;
     return due;
 }
 
 bool Realm::has_pending_timers() const
 {
     return !m_internals->agent.timers.empty() || !m_internals->agent.tasks.empty() || workers_pending(m_internals->agent)
-        || channel_ports_due(m_internals->agent) || remote_tasks_due(m_internals->agent);
+        || channel_ports_due(m_internals->agent) || remote_tasks_due(m_internals->agent)
+        || next_rendering_update(m_internals->agent).has_value();
 }
 
 void Realm::perform_microtask_checkpoint()
@@ -4171,6 +4192,7 @@ void Realm::trace_roots(js::Tracer& tracer)
     trace_custom_elements(in, tracer);
     trace_mutation_observers(in, tracer);
     trace_intersection_observers(in, tracer);
+    trace_animations(in, tracer);
     trace_presenting_media(in, tracer);
     trace_canvases(in, tracer);
     trace_fullscreen(in, tracer);

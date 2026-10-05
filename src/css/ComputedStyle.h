@@ -20,6 +20,8 @@
 namespace sashfold::css {
 
 struct ComponentValue;
+struct AnimationLists;
+struct TransitionLists;
 
 // One custom property (--name) as an element settled it: the component
 // values it was written as, with any var() inside them already substituted.
@@ -1097,6 +1099,9 @@ struct ComputedStyle {
     // Text and inheritance-carried properties.
     Color color = Color::rgb(0, 0, 0);
     Color background_color = Color::rgba(0, 0, 0, 0);
+    // Whether background-color is currentcolor: its computed value follows
+    // color (css-color-4 §4.4), which a transition compares as such.
+    bool background_color_current = false;
     // The background images (css-backgrounds-3), the first nearest the
     // viewer, and the lists the other background properties give them —
     // each repeated along the images when shorter. A null list is the
@@ -1177,6 +1182,13 @@ struct ComputedStyle {
     // written, var() references already substituted): inherited, shared
     // with the parent until an element declares one of its own.
     std::shared_ptr<CustomProperties const> custom;
+    // The animation-* and transition-* properties (css/Animation.h), null
+    // while every one of them is at its initial value. Not inherited.
+    std::shared_ptr<AnimationLists const> animation;
+    std::shared_ptr<TransitionLists const> transition;
+    // Whether this box, or one it is in, is display: none: which ends its
+    // CSS animations and transitions (css-animations-1 §3).
+    bool undisplayed = false;
     // Whether a property that does not inherit took its parent's value all
     // the same (`inherit`, or `all: inherit`): such a style reads more of
     // its parent than inheritance carries, so a restyle that recomputes the

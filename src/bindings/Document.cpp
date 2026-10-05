@@ -747,23 +747,6 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         js::Object* implementation = internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("DOMImplementation"), internals.realm_record);
         return js::Value::object(implementation);
     });
-    // AnimationTimeline and DocumentTimeline (Web Animations §4): the
-    // document's time, in milliseconds since its origin; the document's own
-    // is the same object every time, and a page may make more.
-    js::Object* animation_timeline = define_interface(in, "AnimationTimeline", nullptr);
-    define_getter(in, *animation_timeline, "currentTime", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-        Realm::Internals& internals = internals_of(interp);
-        return js::Value::number(internals.now() - internals.time_origin);
-    });
-    define_interface(in, "DocumentTimeline", animation_timeline, [](js::Interpreter& interp, Args, js::Object*) -> Native {
-        Realm::Internals& internals = internals_of(interp);
-        return js::Value::object(interp.heap().allocate<PlainPlatformObject>(internals.prototype("DocumentTimeline"), internals.realm_record));
-    });
-    document_getter(in, *document, "timeline", [](Realm::Internals& internals, dom::Document&) -> Native {
-        return js::Value::object(same_object(internals, "document.timeline", [&] {
-            return internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("DocumentTimeline"), internals.realm_record);
-        }));
-    });
 
     // The element collections.
     document_getter(in, *document, "forms", [](Realm::Internals& internals, dom::Document& d) -> Native {
@@ -1016,9 +999,6 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_method(in, *document, "getSelection", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
         return internals.interpreter.get(js::Value::object(internals.interpreter.global()), "getSelection").and_then(
             [&](js::Value const& getter) -> Native { return internals.interpreter.call(getter, js::Value::object(internals.interpreter.global()), {}); });
-    });
-    document_method(in, *document, "getAnimations", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
-        return js::Value::object(internals.interpreter.new_array());
     });
 
     // document.write while the parser runs: the text goes at the insertion

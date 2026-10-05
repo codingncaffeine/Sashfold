@@ -114,3 +114,12 @@ css/css-cascade
 # TextEncoderStream/TextDecoderStream.
 streams
 encoding/streams
+
+# Added 2026-10-04 with Web Animations and CSS animations and transitions:
+# the timing model and the API (web-animations), the declarative two
+# (css-animations, css-transitions) and the timing functions they share
+# (css-easing).
+web-animations
+css/css-animations
+css/css-transitions
+css/css-easing

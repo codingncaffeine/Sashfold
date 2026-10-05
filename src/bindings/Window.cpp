@@ -1034,9 +1034,16 @@ void install_window(Realm::Internals& in)
         js::Value const callback = js::argument(args, 0);
         if (!js::Interpreter::is_callable(callback))
             return interp.throw_type_error("Failed to execute 'requestAnimationFrame' on 'Window': parameter 1 is not of type 'Function'.");
-        return js::Value::number(schedule_timer(internals_of(interp), callback, 16, {}, -1, true));
+        return js::Value::number(request_animation_frame(internals_of(interp), callback));
     });
-    define_operation(interpreter, *global, "cancelAnimationFrame", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native { return clear_timer(interp, args); });
+    define_operation(interpreter, *global, "cancelAnimationFrame", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+        std::optional<double> const id = interp.to_number(js::argument(args, 0));
+        if (!id)
+            return std::nullopt;
+        if (std::isfinite(*id))
+            cancel_animation_frame(internals_of(interp), static_cast<int>(*id));
+        return js::Value::undefined();
+    });
     define_operation(interpreter, *global, "requestIdleCallback", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         js::Value const callback = js::argument(args, 0);
         if (!js::Interpreter::is_callable(callback))

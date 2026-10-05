@@ -923,6 +923,8 @@ Node* clone_subtree(Node const& node, Document& document)
 
 Document::~Document()
 {
+    // The animations first, while the elements they target are whole.
+    animations.reset();
     // A node lives as long as its document, so a range still holding one of
     // this document's nodes lets go of both its boundaries.
     std::vector<Range*> const ranges = m_ranges;

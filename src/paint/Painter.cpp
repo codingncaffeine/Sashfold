@@ -768,8 +768,9 @@ void paint_control(Context& context, Fragment const& fragment)
     // sheet gives it a background and a border, which the face stands for.
     bool const author_look = control.contents
         ? !control.themed
-        : style.background_color.a != 0 || pictured || solid(style.border_top) || solid(style.border_bottom)
-            || solid(style.border_left) || solid(style.border_right);
+        : style.author_decorated
+            && (style.background_color.a != 0 || pictured || solid(style.border_top) || solid(style.border_bottom)
+                || solid(style.border_left) || solid(style.border_right));
     Color const border = control.disabled ? Color::rgb(0xc0, 0xc0, 0xc0) : Color::rgb(0x76, 0x76, 0x76);
     Color const white = Color::rgb(0xff, 0xff, 0xff);
     Color const gray = Color::rgb(0xef, 0xef, 0xef);

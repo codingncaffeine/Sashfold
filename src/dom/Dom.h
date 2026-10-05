@@ -410,6 +410,12 @@ private:
     bool m_stale = false;
 };
 
+// What a document's animations hang on (css::DocumentAnimations): held by
+// the document, so that every resolver over it and its scripts see one set.
+struct DocumentAnimationsBase {
+    virtual ~DocumentAnimationsBase() = default;
+};
+
 class Document : public Node {
 public:
     Document()
@@ -424,6 +430,11 @@ public:
     // by the root, in the order adopted.
     std::vector<std::pair<Element const*, std::shared_ptr<ScriptedSheet>>> scripted_sheets;
     std::vector<std::pair<Node const*, std::vector<std::shared_ptr<ScriptedSheet>>>> adopted_sheets;
+    // The document's animations, made when something first animates here.
+    std::unique_ptr<DocumentAnimationsBase> animations;
+    // Told when they are made, by a style or a script: what a realm hears to
+    // give them its clock and run their frames.
+    std::function<void()> on_animations_made;
     std::shared_ptr<ScriptedSheet> scripted_sheet(Element const& element) const
     {
         for (auto const& [owner, sheet] : scripted_sheets) {

@@ -286,9 +286,6 @@ void install_shadow_dom(Realm::Internals& in)
     // that answer from states only a document has here.
     for (std::string_view const name : { "fullscreenElement", "pictureInPictureElement", "pointerLockElement" })
         node_getter(in, shadow_root, name, [](Realm::Internals&, dom::Node&) -> Native { return js::Value::null(); });
-    node_method(in, shadow_root, "getAnimations", 0, [](Realm::Internals& internals, dom::Node&, Args) -> Native {
-        return js::Value::object(internals.interpreter.new_array());
-    });
     // activeElement: the focused element as this tree sees it — itself
     // when it is in the tree, the host that holds it when it is deeper.
     shadow_getter(in, shadow_root, "activeElement", [](Realm::Internals& internals, dom::ShadowRoot& shadow) -> Native {

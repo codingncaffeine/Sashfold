@@ -1662,9 +1662,6 @@ void install_element(Realm::Internals& in, js::Object& element)
     for (std::string_view const name : { "releasePointerCapture", "setPointerCapture" })
         element_method(in, element, name, 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
     element_method(in, element, "hasPointerCapture", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(false); });
-    element_method(in, element, "getAnimations", 0, [](Realm::Internals& internals, dom::Element&, Args) -> Native {
-        return js::Value::object(internals.interpreter.new_array());
-    });
     // requestFullscreen(): shown over the whole screen when the shell agrees
     // (Fullscreen.cpp).
     element_promise_method(in, element, "requestFullscreen", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {

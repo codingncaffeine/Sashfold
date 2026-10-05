@@ -3,6 +3,7 @@
 #include "core/Ascii.h"
 #include "core/Bidi.h"
 #include "core/Unicode.h"
+#include "css/Animation.h"
 #include "css/Grid.h"
 #include "css/Parser.h"
 #include "css/Selector.h"
@@ -14,6 +15,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cmath>
 #include <atomic>
 #include <cstddef>
 #include <cstdint>
@@ -225,6 +227,11 @@ enum class CascadeRank : int {
     AuthorImportant = 4,
     StyleAttributeImportant = 5,
     UserAgentImportant = 6,
+    // css-cascade-5 §6.1: what animations set, above every normal
+    // declaration and below the important ones; and what transitions set,
+    // above everything.
+    Animation = 7,
+    Transition = 8,
 };
 
 // A sheet read once: its rules as parsed, and each qualified rule's
@@ -323,6 +330,9 @@ struct MatchedDeclaration {
     int layer = 0;
     Specificity specificity;
     int order = 0;
+    // An animation's or a transition's value for the property `declaration`
+    // names, which the cascade writes or copies rather than parses.
+    AnimatedProperty const* animated = nullptr;
 };
 
 // The ranks whose declarations are important: for those the cascade
@@ -393,8 +403,9 @@ private:
 };
 
 // Origin and importance, the cascade's first criterion: the built-in
-// sheet's normal declarations, the author's, the author's important ones,
-// the built-in sheet's important ones. A style attribute is the author's.
+// sheet's normal declarations, the author's, the animations', the author's
+// important ones, the built-in sheet's important ones, the transitions'. A
+// style attribute is the author's.
 int origin_class(int rank)
 {
     switch (static_cast<CascadeRank>(rank)) {
@@ -403,11 +414,15 @@ int origin_class(int rank)
     case CascadeRank::AuthorNormal:
     case CascadeRank::StyleAttributeNormal:
         return 1;
+    case CascadeRank::Animation:
+        return 2;
     case CascadeRank::AuthorImportant:
     case CascadeRank::StyleAttributeImportant:
-        return 2;
-    case CascadeRank::UserAgentImportant:
         return 3;
+    case CascadeRank::UserAgentImportant:
+        return 4;
+    case CascadeRank::Transition:
+        return 5;
     }
     return 0;
 }
@@ -1504,6 +1519,9 @@ public:
         , m_allow_percent(allow_percent)
     {
     }
+    // The context is kept by reference: a temporary would be gone before
+    // whole() reads it.
+    CalcEvaluator(std::vector<ComponentValue const*>, LengthContext&&, bool) = delete;
 
     std::optional<CalcValue> whole()
     {
@@ -2296,8 +2314,163 @@ std::optional<BackgroundImage> parse_background_image(ComponentValue const& valu
     return std::nullopt;
 }
 
+// A hash of text, and of component values token by token, for a rule's
+// signature.
+void hash_text(std::string_view text, std::uint64_t& hash)
+{
+    for (char const c : text) {
+        hash ^= static_cast<unsigned char>(c);
+        hash *= 1099511628211ull;
+    }
+    hash ^= 0xff;
+    hash *= 1099511628211ull;
+}
+
+void hash_values(std::vector<ComponentValue> const& values, std::uint64_t& hash)
+{
+    auto const mix = [&hash](std::string_view text) { hash_text(text, hash); };
+    for (ComponentValue const& value : values) {
+        if (value.is_token()) {
+            Token const& token = value.token();
+            mix(std::to_string(static_cast<int>(token.type)));
+            mix(token.value);
+            mix(token.unit);
+            mix(std::to_string(token.numeric_value));
+            if (token.type == Token::Type::Delim)
+                mix(std::to_string(static_cast<std::uint32_t>(token.delim)));
+        } else if (value.is_function()) {
+            mix(value.function().name);
+            hash_values(value.function().values, hash);
+            mix(")");
+        } else {
+            mix(std::to_string(static_cast<int>(value.block().open)));
+            hash_values(value.block().values, hash);
+            mix("]");
+        }
+    }
+}
+
+// An @keyframes rule read (css-animations-1 §4, §5): its name an identifier
+// or a string; each keyframe's selector `from`, `to` or percentages, a
+// keyframe with a selector that is none of these left out; in a keyframe,
+// an important declaration and the animation properties are ignored, but
+// animation-timing-function and animation-composition, which are the
+// keyframe's own easing and composite operation.
+std::shared_ptr<KeyframesRule const> keyframes_rule(AtRule const& at)
+{
+    std::vector<ComponentValue const*> const prelude = significant(at.prelude);
+    if (prelude.size() != 1 || !at.has_block)
+        return nullptr;
+    auto rule = std::make_shared<KeyframesRule>();
+    if (prelude[0]->is_token(Token::Type::String)) {
+        rule->name = prelude[0]->token().value;
+    } else if (prelude[0]->is_token(Token::Type::Ident)) {
+        std::string_view const name = prelude[0]->token().value;
+        for (std::string_view const reserved : { "none", "initial", "inherit", "unset", "revert", "revert-layer", "default" }) {
+            if (ascii_ci_equals(name, reserved))
+                return nullptr;
+        }
+        rule->name = std::string(name);
+    } else {
+        return nullptr;
+    }
+    std::uint64_t hash = 14695981039346656037ull;
+    hash_values(at.prelude, hash);
+    for (Rule const& child : at.child_rules) {
+        if (!child.is_qualified())
+            continue;
+        QualifiedRule const& keyframe = child.qualified();
+        KeyframesRule::Frame frame;
+        bool valid = true;
+        bool expecting = true;
+        for (ComponentValue const& part : keyframe.prelude) {
+            if (part.is_token(Token::Type::Whitespace))
+                continue;
+            if (part.is_token(Token::Type::Comma)) {
+                valid = valid && !expecting;
+                expecting = true;
+                continue;
+            }
+            if (!expecting) {
+                valid = false;
+                break;
+            }
+            expecting = false;
+            if (part.is_token(Token::Type::Ident) && ascii_ci_equals(part.token().value, "from"))
+                frame.offsets.push_back(0);
+            else if (part.is_token(Token::Type::Ident) && ascii_ci_equals(part.token().value, "to"))
+                frame.offsets.push_back(1);
+            else if (part.is_token(Token::Type::Percentage) && part.token().numeric_value >= 0 && part.token().numeric_value <= 100)
+                frame.offsets.push_back(part.token().numeric_value / 100);
+            else
+                valid = false;
+        }
+        if (!valid || expecting || frame.offsets.empty())
+            continue;
+        hash_values(keyframe.prelude, hash);
+        for (Declaration const& declaration : keyframe.declarations) {
+            if (declaration.important)
+                continue;
+            std::string const name = lowercase_name(declaration.name);
+            if (name == "animation-timing-function") {
+                if (std::optional<Easing> const easing = parse_easing(declaration.value))
+                    frame.easing = easing;
+                continue;
+            }
+            if (name == "animation-composition") {
+                std::vector<ComponentValue const*> const words = significant(declaration.value);
+                if (words.size() == 1 && words[0]->is_token(Token::Type::Ident)) {
+                    std::string_view const word = words[0]->token().value;
+                    if (ascii_ci_equals(word, "replace"))
+                        frame.composite = CompositeOperation::Replace;
+                    else if (ascii_ci_equals(word, "add"))
+                        frame.composite = CompositeOperation::Add;
+                    else if (ascii_ci_equals(word, "accumulate"))
+                        frame.composite = CompositeOperation::Accumulate;
+                }
+                continue;
+            }
+            if (is_not_animatable(name))
+                continue;
+            hash_text(declaration.name, hash);
+            hash_values(declaration.value, hash);
+            frame.values.push_back({ declaration.name.starts_with("--") ? declaration.name : name, declaration.value, {}, std::nullopt });
+        }
+        if (frame.easing)
+            hash_text(frame.easing->serialize(), hash);
+        if (frame.composite)
+            hash_text(std::to_string(static_cast<int>(*frame.composite)), hash);
+        rule->frames.push_back(std::move(frame));
+    }
+    rule->signature = hash;
+    return rule;
+}
+
 struct RuleSet {
     std::vector<CompiledRule> rules;
+
+    // The @keyframes rules by name, each with its layer (a node while the
+    // sheets are compiled, a place after) and its order: the one a name
+    // finds is the last in the strongest layer (css-animations-1 §4,
+    // css-cascade-5 §6.4.3).
+    struct KeyframesEntry {
+        std::shared_ptr<KeyframesRule const> rule;
+        int layer = 0;
+        int order = 0;
+    };
+    std::unordered_map<std::string, std::vector<KeyframesEntry>> keyframes;
+    std::shared_ptr<KeyframesRule const> find_keyframes(std::string const& name) const
+    {
+        auto const found = keyframes.find(name);
+        if (found == keyframes.end())
+            return nullptr;
+        KeyframesEntry const* best = nullptr;
+        for (KeyframesEntry const& entry : found->second) {
+            if (!best || entry.layer > best->layer || (entry.layer == best->layer && entry.order > best->order))
+                best = &entry;
+        }
+        return best ? best->rule : nullptr;
+    }
 
     // The rule index: every complex selector filed under the id, else the
     // first class, else the type of its rightmost compound (lowercased,
@@ -2928,6 +3101,10 @@ struct RuleSet {
         visit(visit, 0);
         for (CompiledRule& rule : rules)
             rule.layer = place[static_cast<std::size_t>(rule.layer)];
+        for (auto& [name, entries] : keyframes) {
+            for (KeyframesEntry& entry : entries)
+                entry.layer = place[static_cast<std::size_t>(entry.layer)];
+        }
     }
 
     // What the rules being compiled sit inside.
@@ -2987,6 +3164,9 @@ struct RuleSet {
                     Context inner = context;
                     inner.layer = names->empty() ? anonymous_layer(context.layer) : layer_path(context.layer, names->front());
                     compile_rules(prepared, at.child_rules, inner, order);
+                } else if (ascii_ci_equals(at.name, "keyframes") || ascii_ci_equals(at.name, "-webkit-keyframes")) {
+                    if (std::shared_ptr<KeyframesRule const> made = keyframes_rule(at))
+                        keyframes[made->name].push_back({ std::move(made), context.layer, order++ });
                 } else if (gap_sink() && !ascii_ci_equals(at.name, "font-face") && !ascii_ci_equals(at.name, "import")
                     && !ascii_ci_equals(at.name, "charset")) {
                     // @font-face and @import are read where the sheets and fonts are collected.
@@ -3167,6 +3347,11 @@ struct StyleFields {
 struct Resolver {
     RuleSet const& set;
     StyleMap map;
+    // The styles before this resolution, where there were any: a box's
+    // before-change style, which its transitions start from
+    // (css-transitions-1 §3). The map being brought up to date, for an
+    // update; the one being replaced, for a whole resolution.
+    StyleMap const* previous_styles = nullptr;
     float root_font_size = 16;
     float initial_font_size = 16; // `medium`, in device px
     // Rules are matched for four targets at once — the element itself, its
@@ -3771,7 +3956,7 @@ struct Resolver {
         &ComputedStyle::fill, &ComputedStyle::stroke, &ComputedStyle::fill_opacity, &ComputedStyle::stroke_opacity,
         &ComputedStyle::stroke_width, &ComputedStyle::fill_rule, &ComputedStyle::stroke_linecap,
         &ComputedStyle::stroke_linejoin, &ComputedStyle::stroke_miterlimit, &ComputedStyle::stroke_dasharray,
-        &ComputedStyle::stroke_dashoffset>;
+        &ComputedStyle::stroke_dashoffset, &ComputedStyle::undisplayed>;
 
     // Inherited properties flow in from the parent; the rest start at
     // their initial values.
@@ -3819,6 +4004,22 @@ struct Resolver {
         // an initial one is currentColor).
         unsigned border_colors; // bits: 1 top, 2 right, 4 bottom, 8 left
     };
+
+    // One animation-* or transition-* list copied, the others kept.
+    template<auto Member>
+    static void copy_animation_list(ComputedStyle& to, ComputedStyle const& from)
+    {
+        AnimationLists lists = to.animation ? *to.animation : AnimationLists {};
+        lists.*Member = (from.animation ? *from.animation : AnimationLists {}).*Member;
+        to.animation = std::make_shared<AnimationLists const>(std::move(lists));
+    }
+    template<auto Member>
+    static void copy_transition_list(ComputedStyle& to, ComputedStyle const& from)
+    {
+        TransitionLists lists = to.transition ? *to.transition : TransitionLists {};
+        lists.*Member = (from.transition ? *from.transition : TransitionLists {}).*Member;
+        to.transition = std::make_shared<TransitionLists const>(std::move(lists));
+    }
 
     static std::vector<PropertyCopy> const& property_copies()
     {
@@ -3982,6 +4183,22 @@ struct Resolver {
                 [](S& to, S const& from) { to.stroke_dashoffset = from.stroke_dashoffset; }, 0 },
             { "stop-color", false, [](S& to, S const& from) { to.stop_color = from.stop_color; }, 0 },
             { "stop-opacity", false, [](S& to, S const& from) { to.stop_opacity = from.stop_opacity; }, 0 },
+            { "animation", false, [](S& to, S const& from) { to.animation = from.animation; }, 0 },
+            { "animation-name", false, &copy_animation_list<&AnimationLists::names>, 0 },
+            { "animation-duration", false, &copy_animation_list<&AnimationLists::durations>, 0 },
+            { "animation-timing-function", false, &copy_animation_list<&AnimationLists::timing_functions>, 0 },
+            { "animation-delay", false, &copy_animation_list<&AnimationLists::delays>, 0 },
+            { "animation-iteration-count", false, &copy_animation_list<&AnimationLists::iteration_counts>, 0 },
+            { "animation-direction", false, &copy_animation_list<&AnimationLists::directions>, 0 },
+            { "animation-fill-mode", false, &copy_animation_list<&AnimationLists::fill_modes>, 0 },
+            { "animation-play-state", false, &copy_animation_list<&AnimationLists::paused>, 0 },
+            { "animation-composition", false, &copy_animation_list<&AnimationLists::compositions>, 0 },
+            { "transition", false, [](S& to, S const& from) { to.transition = from.transition; }, 0 },
+            { "transition-property", false, &copy_transition_list<&TransitionLists::properties>, 0 },
+            { "transition-duration", false, &copy_transition_list<&TransitionLists::durations>, 0 },
+            { "transition-timing-function", false, &copy_transition_list<&TransitionLists::timing_functions>, 0 },
+            { "transition-delay", false, &copy_transition_list<&TransitionLists::delays>, 0 },
+            { "transition-behavior", false, &copy_transition_list<&TransitionLists::allow_discrete>, 0 },
             { "transform", false,
                 [](S& to, S const& from) {
                     to.translate_x = from.translate_x;
@@ -4118,7 +4335,12 @@ struct Resolver {
                 },
                 0 },
             { "color", true, [](S& to, S const& from) { to.color = from.color; }, 0 },
-            { "background-color", false, [](S& to, S const& from) { to.background_color = from.background_color; }, 0 },
+            { "background-color", false,
+                [](S& to, S const& from) {
+                    to.background_color = from.background_color;
+                    to.background_color_current = from.background_color_current;
+                },
+                0 },
             { "background-image", false, [](S& to, S const& from) { to.background_images = from.background_images; }, 0 },
             { "background-repeat", false, [](S& to, S const& from) { to.background_repeats = from.background_repeats; }, 0 },
             { "background-position", false,
@@ -4267,6 +4489,7 @@ struct Resolver {
                     || property.name == "grid-area"
                     || property.name == "background" || property.name == "font"
                     || property.name == "list-style" || property.name == "translate"
+                    || property.name == "animation" || property.name == "transition"
                     || property.name == "overflow-x" || property.name == "overflow-y"
                     || property.name == "text-decoration-line")
                     continue;
@@ -4633,10 +4856,188 @@ struct Resolver {
         return std::make_shared<std::vector<std::string> const>(std::move(found));
     }
 
+    // The style a box had before this resolution: the element's, or one of
+    // its generated boxes'; null when it had none.
+    ComputedStyle const* previous_style(dom::Element const& element, std::size_t target) const
+    {
+        if (!previous_styles)
+            return nullptr;
+        auto const found = previous_styles->find(&element);
+        if (found == previous_styles->end())
+            return nullptr;
+        if (target == 0)
+            return &found->second;
+        GeneratedContent const* const generated = found->second.generated.get();
+        if (!generated)
+            return nullptr;
+        std::optional<GeneratedBox> const& box = target == 1 ? generated->before : generated->after;
+        return box ? &box->style : nullptr;
+    }
+
+    // The @keyframes rule a name finds for an element: its own shadow tree's
+    // first, then the document's (css-scoping-1 §3.5, tree-scoped names).
+    std::shared_ptr<KeyframesRule const> keyframes_named(dom::Element const& element, std::string const& name) const
+    {
+        if (element.document().has_shadow_trees()) {
+            if (dom::Node const& root = element.root(); root.is_shadow_root()) {
+                if (RuleSet const* const own = set.scope_rules(static_cast<dom::ShadowRoot const&>(root))) {
+                    if (std::shared_ptr<KeyframesRule const> found = own->find_keyframes(name))
+                        return found;
+                }
+            }
+        }
+        return set.find_keyframes(name);
+    }
+
+    // A keyframe's value as its element computes it: the declaration over
+    // the element's base style, its var() read from that style and its
+    // font-relative lengths against that style's font (web-animations-1
+    // §5.3.2, "computed keyframes").
+    class KeyframeContext final : public KeyframeComputer {
+    public:
+        KeyframeContext(Resolver& resolver, ComputedStyle const& base, ComputedStyle const& parent)
+            : m_resolver(resolver)
+            , m_base(base)
+            , m_parent(parent)
+        {
+        }
+        ComputedStyle computed_with(Declaration const& declaration) override
+        {
+            return m_resolver.compute_declaration(m_base, m_parent, declaration);
+        }
+        std::vector<std::string> physical_names(std::string const& name) override
+        {
+            if (std::optional<LogicalMap> const logical
+                = logical_mapping(name, m_base.direction == Direction::Rtl, m_base.writing_mode))
+                return logical->names;
+            return { name };
+        }
+
+    private:
+        Resolver& m_resolver;
+        ComputedStyle const& m_base;
+        ComputedStyle const& m_parent;
+    };
+
+    ComputedStyle compute_declaration(ComputedStyle const& base, ComputedStyle const& parent, Declaration const& given)
+    {
+        ComputedStyle style = base;
+        Declaration declaration;
+        declaration.name = given.name;
+        if (contains_var(given.value)) {
+            std::size_t budget = 65536;
+            auto const lookup = [&](std::string_view name) -> std::vector<ComponentValue> const* {
+                return base.custom ? base.custom->find(name) : nullptr;
+            };
+            if (!substitute_vars(given.value, lookup, declaration.value, 0, budget))
+                return style;
+        } else {
+            declaration.value = given.value;
+        }
+        bool top = false, right = false, bottom = false, left = false;
+        std::string const name = lowercase_name(declaration.name);
+        // revert-layer in a keyframe rolls back to the layers under the
+        // animation's: the base style itself (css-cascade-5, revert-layer).
+        if (std::vector<ComponentValue const*> const words = significant(declaration.value);
+            words.size() == 1 && is_ident(words[0], "revert-layer"))
+            return style;
+        if (std::optional<Wide> const wide = wide_keyword(significant(declaration.value))) {
+            apply_wide(style, parent, name, *wide, top, right, bottom, left);
+            if (name == "font-size" || name == "font")
+                style.font_size = *wide == Wide::Initial ? initial_font_size : parent.font_size;
+            return style;
+        }
+        if (name == "font-size") {
+            apply_font_size(style, parent, declaration);
+            return style;
+        }
+        apply(style, declaration, nullptr, top, right, bottom, left);
+        return style;
+    }
+
+    // Writes an animation's value for one property into a style being
+    // cascaded: the typed value, or the computed value copied whole.
+    void write_animated_property(ComputedStyle& style, AnimatedProperty const& animated, bool& top, bool& right,
+        bool& bottom, bool& left)
+    {
+        if (animated.value && animated.property) {
+            unsigned sides = 0;
+            write_animated(*animated.property, *animated.value, style, sides);
+            top = top || (sides & 1);
+            right = right || (sides & 2);
+            bottom = bottom || (sides & 4);
+            left = left || (sides & 8);
+            return;
+        }
+        if (!animated.discrete)
+            return;
+        ComputedStyle const& from = *animated.discrete;
+        for (PropertyCopy const& property : property_copies()) {
+            if (property.name != animated.name)
+                continue;
+            property.copy(style, from);
+            if (property.border_colors & 1)
+                top = !from.border_top.current_color;
+            if (property.border_colors & 2)
+                right = !from.border_right.current_color;
+            if (property.border_colors & 4)
+                bottom = !from.border_bottom.current_color;
+            if (property.border_colors & 8)
+                left = !from.border_left.current_color;
+            return;
+        }
+    }
+
     // The cascade over the rules matched for one target — the element's
-    // own (with its style attribute) or one of its generated boxes.
+    // own (with its style attribute) or one of its generated boxes — and,
+    // when the box animates, again with what its animations and its
+    // transitions come to over that first result.
     ComputedStyle cascade(std::size_t target, dom::Element const& element, ComputedStyle const& parent,
         bool with_style_attribute)
+    {
+        ComputedStyle base = cascade_with(target, element, parent, with_style_attribute, nullptr);
+        if (target > 2)
+            return base;
+        DocumentAnimations* animations = DocumentAnimations::find(element.document());
+        PseudoElement const pseudo = target == 1 ? PseudoElement::Before
+            : target == 2                       ? PseudoElement::After
+                                                : PseudoElement::None;
+        // The style change event for the box's CSS animations, before what
+        // they come to is sampled (css-animations-1 §3).
+        if (base.animation || (animations && animations->has_css_animations(element, pseudo))) {
+            animations = &DocumentAnimations::of(element.document());
+            animations->update_css_animations(const_cast<dom::Element&>(element), pseudo, base,
+                [&](std::string const& name) { return keyframes_named(element, name); });
+        }
+        // And for its transitions, from the style it had before this one
+        // (css-transitions-1 §3).
+        if (base.transition || (animations && animations->has_transitions(element, pseudo))) {
+            animations = &DocumentAnimations::of(element.document());
+            KeyframeContext names(*this, base, parent);
+            animations->update_transitions(const_cast<dom::Element&>(element), pseudo, previous_style(element, target), base, names);
+        }
+        if (!animations || !animations->animates(element, pseudo))
+            return base;
+        KeyframeContext context(*this, base, parent);
+        std::vector<AnimatedProperty> animated = animations->sample(element, pseudo, base, context, false);
+        std::vector<AnimatedProperty> const transitioned = animations->sample(element, pseudo, base, context, true);
+        if (animated.empty() && transitioned.empty())
+            return base;
+        AnimatedLayers const layers { &animated, &transitioned };
+        ComputedStyle style = cascade_with(target, element, parent, with_style_attribute, &layers);
+        // A keyframe may read the parent (inherit, em, currentColor): a box
+        // that animates is computed again whenever its parent is.
+        style.inherits_explicitly = true;
+        return style;
+    }
+
+    struct AnimatedLayers {
+        std::vector<AnimatedProperty> const* animations;
+        std::vector<AnimatedProperty> const* transitions;
+    };
+
+    ComputedStyle cascade_with(std::size_t target, dom::Element const& element, ComputedStyle const& parent,
+        bool with_style_attribute, AnimatedLayers const* layers)
     {
         ComputedStyle style = inherited_from(parent);
 
@@ -4708,16 +5109,46 @@ struct Resolver {
             }
         }
 
+        // What the box's animations and transitions come to, each in its
+        // own origin; a custom property's is a declaration like any other.
+        std::vector<Declaration> animated_names;
+        if (layers) {
+            animated_names.reserve(layers->animations->size() + layers->transitions->size());
+            auto const add = [&](std::vector<AnimatedProperty> const& properties, CascadeRank rank) {
+                for (AnimatedProperty const& property : properties) {
+                    MatchedDeclaration entry;
+                    entry.rank = static_cast<int>(rank);
+                    if (property.custom) {
+                        entry.declaration = &*property.custom;
+                    } else {
+                        Declaration name;
+                        name.name = property.name;
+                        animated_names.push_back(std::move(name));
+                        entry.declaration = &animated_names.back();
+                        entry.animated = &property;
+                    }
+                    matched.push_back(entry);
+                }
+            };
+            add(*layers->animations, CascadeRank::Animation);
+            add(*layers->transitions, CascadeRank::Transition);
+        }
+
         std::stable_sort(matched.begin(), matched.end(), cascades_before);
 
         // A button the page gives a background or a border of its own is
         // drawn from its CSS alone, without the built-in face: what the
         // page said, not the built-in sheet (Chromium's hasAuthorBackground
         // and hasAuthorBorder, WebKit's the same).
-        if (target == 0 && element.is_html("button")) {
+        // The same for the other controls; an animation's or a transition's
+        // values are not the page's own look (HTML's widgets: the author level).
+        if (target == 0 && (element.is_html("button") || element.is_html("input") || element.is_html("select")
+                || element.is_html("textarea"))) {
             for (MatchedDeclaration const& entry : matched) {
                 if (entry.rank == static_cast<int>(CascadeRank::UserAgentNormal)
-                    || entry.rank == static_cast<int>(CascadeRank::UserAgentImportant))
+                    || entry.rank == static_cast<int>(CascadeRank::UserAgentImportant)
+                    || entry.rank == static_cast<int>(CascadeRank::Animation)
+                    || entry.rank == static_cast<int>(CascadeRank::Transition))
                     continue;
                 std::string const name = lowercase_name(entry.declaration->name);
                 bool const border = name.starts_with("border") && name != "border-collapse"
@@ -4797,6 +5228,14 @@ struct Resolver {
         bool font_pass_bottom = false;
         bool font_pass_left = false;
         for (MatchedDeclaration const& entry : matched) {
+            if (entry.animated) {
+                std::string_view const name = entry.animated->name;
+                if (name == "font-size" || name == "font-family" || name == "font-weight" || name == "font-style"
+                    || name == "font-stretch")
+                    write_animated_property(style, *entry.animated, font_pass_top, font_pass_right, font_pass_bottom,
+                        font_pass_left);
+                continue;
+            }
             with_vars(*entry.declaration, [&](Declaration const& declaration) {
                 bool const is_font_size = ascii_ci_equals(declaration.name, "font-size");
                 bool const is_font = ascii_ci_equals(declaration.name, "font");
@@ -4848,6 +5287,8 @@ struct Resolver {
         // whatever order the declarations were written in. It is applied
         // again with the rest below, to the same value.
         for (MatchedDeclaration const& entry : matched) {
+            if (entry.animated)
+                continue;
             with_vars(*entry.declaration, [&](Declaration const& declaration) {
                 bool const is_direction = ascii_ci_equals(declaration.name, "direction");
                 // `writing-mode` settles with it, and for the same reason:
@@ -4873,6 +5314,11 @@ struct Resolver {
         bool border_bottom_color_set = false;
         bool border_left_color_set = false;
         for (MatchedDeclaration const& entry : matched) {
+            if (entry.animated) {
+                write_animated_property(style, *entry.animated, border_top_color_set, border_right_color_set,
+                    border_bottom_color_set, border_left_color_set);
+                continue;
+            }
             with_vars(*entry.declaration, [&](Declaration const& declaration) {
                 if (std::optional<Wide> const wide = wide_keyword(significant(declaration.value))) {
                     // A flow-relative property inherits and resets the
@@ -5008,6 +5454,9 @@ struct Resolver {
                 break;
             }
         }
+        // What ends a box's CSS animations and transitions: display: none on
+        // it or on anything it is in.
+        style.undisplayed = parent.undisplayed || style.display == Display::None;
         return style;
     }
 
@@ -6420,7 +6869,8 @@ struct Resolver {
             return;
         }
         if (name == "background-color") {
-            (void)one_color(style.background_color);
+            if (one_color(style.background_color))
+                style.background_color_current = values.size() == 1 && is_ident(values[0], "currentcolor");
             return;
         }
         // --- Backgrounds: one value per layer, comma-separated ------------------
@@ -7519,8 +7969,481 @@ struct Resolver {
                 return;
             }
         }
+        if (name.starts_with("animation") || name.starts_with("transition")) {
+            if (apply_animation_property(style, name, values))
+                return;
+        }
         // Unknown properties fall on the floor, by design.
         note_gap("css property", name);
+    }
+
+    // css-values-4 §6.2: a <time> in ms — a dimension in s or ms, or a
+    // calculation of them (worked by the length evaluator with each second
+    // a thousand px, which is the arithmetic of times as well).
+    static std::optional<double> parse_time(ComponentValue const& value)
+    {
+        if (value.is_token(Token::Type::Dimension)) {
+            Token const& token = value.token();
+            if (ascii_ci_equals(token.unit, "s"))
+                return token.numeric_value * 1000;
+            if (ascii_ci_equals(token.unit, "ms"))
+                return token.numeric_value;
+            return std::nullopt;
+        }
+        if (!value.is_function())
+            return std::nullopt;
+        std::string const function = lowercase_name(value.function().name);
+        if (function != "calc" && function != "min" && function != "max" && function != "clamp")
+            return std::nullopt;
+        // The same tree with every time a length: refused if it holds a
+        // length of its own.
+        bool foreign = false;
+        auto const convert = [&foreign](auto const& self, ComponentValue const& item) -> ComponentValue {
+            if (item.is_token(Token::Type::Dimension)) {
+                Token token = item.token();
+                if (ascii_ci_equals(token.unit, "s") || ascii_ci_equals(token.unit, "ms")) {
+                    token.numeric_value *= ascii_ci_equals(token.unit, "s") ? 1000 : 1;
+                    token.unit = "px";
+                } else {
+                    foreign = true;
+                }
+                return ComponentValue { token };
+            }
+            if (item.is_token(Token::Type::Percentage))
+                foreign = true;
+            if (item.is_function()) {
+                FunctionValue function_value { item.function().name, {} };
+                for (ComponentValue const& inner : item.function().values)
+                    function_value.values.push_back(self(self, inner));
+                return ComponentValue { std::move(function_value) };
+            }
+            if (item.is_block()) {
+                SimpleBlock block { item.block().open, {} };
+                for (ComponentValue const& inner : item.block().values)
+                    block.values.push_back(self(self, inner));
+                return ComponentValue { std::move(block) };
+            }
+            return item;
+        };
+        ComponentValue const converted = convert(convert, value);
+        if (foreign)
+            return std::nullopt;
+        std::optional<LengthPercent> const length = parse_length_percent(converted, LengthContext {}, false, false);
+        if (!length || length->kind != LengthPercent::Kind::Px)
+            return std::nullopt;
+        return static_cast<double>(length->value);
+    }
+
+    // A <custom-ident>: an identifier that is none of the CSS-wide keywords
+    // (and not `default`, which is reserved).
+    static bool is_custom_ident(std::string_view text)
+    {
+        for (std::string_view const keyword : { "initial", "inherit", "unset", "revert", "revert-layer", "default" }) {
+            if (ascii_ci_equals(text, keyword))
+                return false;
+        }
+        return true;
+    }
+
+    // The animation-* and transition-* longhands and their shorthands
+    // (css-animations-1 §3, -2 §3; css-transitions-1 §2, -2 §3): each a
+    // comma-separated list. Whether `name` was one of them.
+    bool apply_animation_property(ComputedStyle& style, std::string const& name, Values const& values)
+    {
+        std::vector<Values> const items = split_commas(values);
+        for (Values const& item : items) {
+            if (item.empty())
+                return true; // an empty item: the declaration is invalid
+        }
+        auto const one_ident = [](Values const& item) -> std::optional<std::string_view> {
+            if (item.size() != 1 || !item[0]->is_token(Token::Type::Ident))
+                return std::nullopt;
+            return std::string_view(item[0]->token().value);
+        };
+        auto const easing_of = [](Values const& item) -> std::optional<Easing> {
+            if (item.size() != 1)
+                return std::nullopt;
+            return parse_easing({ *item[0] });
+        };
+        auto const non_negative_time = [](ComponentValue const& value) -> std::optional<double> {
+            std::optional<double> const time = parse_time(value);
+            if (!time)
+                return std::nullopt;
+            if (*time < 0)
+                return value.is_function() ? std::optional<double>(0) : std::nullopt;
+            return time;
+        };
+        auto const iteration_count = [](ComponentValue const& value) -> std::optional<double> {
+            if (value.is_token(Token::Type::Ident) && ascii_ci_equals(value.token().value, "infinite"))
+                return std::numeric_limits<double>::infinity();
+            std::optional<double> const number = parse_number_value(value);
+            if (!number)
+                return std::nullopt;
+            if (*number < 0)
+                return value.is_function() ? std::optional<double>(0) : std::nullopt;
+            return number;
+        };
+        auto const direction = [](std::string_view word) -> std::optional<PlaybackDirection> {
+            if (ascii_ci_equals(word, "normal"))
+                return PlaybackDirection::Normal;
+            if (ascii_ci_equals(word, "reverse"))
+                return PlaybackDirection::Reverse;
+            if (ascii_ci_equals(word, "alternate"))
+                return PlaybackDirection::Alternate;
+            if (ascii_ci_equals(word, "alternate-reverse"))
+                return PlaybackDirection::AlternateReverse;
+            return std::nullopt;
+        };
+        auto const fill_mode = [](std::string_view word) -> std::optional<FillMode> {
+            if (ascii_ci_equals(word, "none"))
+                return FillMode::None;
+            if (ascii_ci_equals(word, "forwards"))
+                return FillMode::Forwards;
+            if (ascii_ci_equals(word, "backwards"))
+                return FillMode::Backwards;
+            if (ascii_ci_equals(word, "both"))
+                return FillMode::Both;
+            return std::nullopt;
+        };
+        auto const play_state = [](std::string_view word) -> std::optional<bool> {
+            if (ascii_ci_equals(word, "running"))
+                return false;
+            if (ascii_ci_equals(word, "paused"))
+                return true;
+            return std::nullopt;
+        };
+        auto const composition = [](std::string_view word) -> std::optional<CompositeOperation> {
+            if (ascii_ci_equals(word, "replace"))
+                return CompositeOperation::Replace;
+            if (ascii_ci_equals(word, "add"))
+                return CompositeOperation::Add;
+            if (ascii_ci_equals(word, "accumulate"))
+                return CompositeOperation::Accumulate;
+            return std::nullopt;
+        };
+        auto const animation_name = [](Values const& item) -> std::optional<std::optional<std::string>> {
+            if (item.size() != 1)
+                return std::nullopt;
+            Token const* const token = item[0]->is_token() ? &item[0]->token() : nullptr;
+            if (token && token->type == Token::Type::String)
+                return std::optional<std::string>(token->value);
+            if (!token || token->type != Token::Type::Ident || !is_custom_ident(token->value))
+                return std::nullopt;
+            if (ascii_ci_equals(token->value, "none"))
+                return std::optional<std::string> {};
+            return std::optional<std::string>(token->value);
+        };
+        // One list into a copy of the style's lists, all or nothing.
+        auto const animation_list = [&](auto member, auto&& parse) {
+            using Item = typename std::remove_reference_t<decltype(std::declval<AnimationLists&>().*member)>::value_type;
+            std::vector<Item> list;
+            for (Values const& item : items) {
+                std::optional<Item> parsed = parse(item);
+                if (!parsed)
+                    return;
+                list.push_back(std::move(*parsed));
+            }
+            AnimationLists lists = style.animation ? *style.animation : AnimationLists {};
+            lists.*member = std::move(list);
+            style.animation = std::make_shared<AnimationLists const>(std::move(lists));
+        };
+        auto const transition_list = [&](auto member, auto&& parse) {
+            using Item = typename std::remove_reference_t<decltype(std::declval<TransitionLists&>().*member)>::value_type;
+            std::vector<Item> list;
+            for (Values const& item : items) {
+                std::optional<Item> parsed = parse(item);
+                if (!parsed)
+                    return;
+                list.push_back(std::move(*parsed));
+            }
+            TransitionLists lists = style.transition ? *style.transition : TransitionLists {};
+            lists.*member = std::move(list);
+            style.transition = std::make_shared<TransitionLists const>(std::move(lists));
+        };
+        auto const single = [](Values const& item, auto&& parse) -> decltype(parse(*item[0])) {
+            if (item.size() != 1)
+                return std::nullopt;
+            return parse(*item[0]);
+        };
+        auto const keyword = [&](auto&& words) {
+            return [&one_ident, words](Values const& item) -> decltype(words(std::string_view())) {
+                std::optional<std::string_view> const word = one_ident(item);
+                if (!word)
+                    return std::nullopt;
+                return words(*word);
+            };
+        };
+
+        if (name == "animation-name") {
+            animation_list(&AnimationLists::names, animation_name);
+            return true;
+        }
+        if (name == "animation-duration") {
+            animation_list(&AnimationLists::durations, [&](Values const& item) -> std::optional<std::optional<double>> {
+                if (std::optional<std::string_view> const word = one_ident(item); word && ascii_ci_equals(*word, "auto"))
+                    return std::optional<double> {};
+                std::optional<double> const time = single(item, non_negative_time);
+                if (!time)
+                    return std::nullopt;
+                return std::optional<double>(*time);
+            });
+            return true;
+        }
+        if (name == "animation-timing-function") {
+            animation_list(&AnimationLists::timing_functions, easing_of);
+            return true;
+        }
+        if (name == "animation-delay") {
+            animation_list(&AnimationLists::delays, [&](Values const& item) { return single(item, parse_time); });
+            return true;
+        }
+        if (name == "animation-iteration-count") {
+            animation_list(&AnimationLists::iteration_counts, [&](Values const& item) { return single(item, iteration_count); });
+            return true;
+        }
+        if (name == "animation-direction") {
+            animation_list(&AnimationLists::directions, keyword(direction));
+            return true;
+        }
+        if (name == "animation-fill-mode") {
+            animation_list(&AnimationLists::fill_modes, keyword(fill_mode));
+            return true;
+        }
+        if (name == "animation-play-state") {
+            animation_list(&AnimationLists::paused, keyword(play_state));
+            return true;
+        }
+        if (name == "animation-composition") {
+            animation_list(&AnimationLists::compositions, keyword(composition));
+            return true;
+        }
+        if (name == "animation-timeline") {
+            // Only the document's timeline is here: `auto` takes it, a
+            // scroll or view timeline is not one this engine can give.
+            return true;
+        }
+        if (name == "animation") {
+            // <single-animation>#: each part once, in any order; the first
+            // time is the duration and the second the delay; a keyword
+            // another longhand takes goes to it before it can be a name.
+            AnimationLists lists;
+            lists.names.clear();
+            lists.durations.clear();
+            lists.timing_functions.clear();
+            lists.delays.clear();
+            lists.iteration_counts.clear();
+            lists.directions.clear();
+            lists.fill_modes.clear();
+            lists.paused.clear();
+            lists.compositions.clear();
+            for (Values const& item : items) {
+                std::optional<std::optional<std::string>> name_part;
+                std::optional<std::optional<double>> duration;
+                std::optional<Easing> easing;
+                std::optional<double> delay;
+                std::optional<double> count;
+                std::optional<PlaybackDirection> dir;
+                std::optional<FillMode> fill;
+                std::optional<bool> paused;
+                for (ComponentValue const* part : item) {
+                    if (std::optional<double> const time = parse_time(*part)) {
+                        if (!duration) {
+                            if (*time < 0 && !part->is_function())
+                                return true;
+                            duration = std::optional<double>(std::max(0.0, *time));
+                            continue;
+                        }
+                        if (!delay) {
+                            delay = time;
+                            continue;
+                        }
+                        return true;
+                    }
+                    if (part->is_token(Token::Type::Ident)) {
+                        std::string_view const word = part->token().value;
+                        if (!easing) {
+                            if (std::optional<Easing> const parsed = parse_easing({ *part })) {
+                                easing = parsed;
+                                continue;
+                            }
+                        }
+                        if (!count && ascii_ci_equals(word, "infinite")) {
+                            count = std::numeric_limits<double>::infinity();
+                            continue;
+                        }
+                        if (!dir) {
+                            if (std::optional<PlaybackDirection> const parsed = direction(word)) {
+                                dir = parsed;
+                                continue;
+                            }
+                        }
+                        if (!fill) {
+                            if (std::optional<FillMode> const parsed = fill_mode(word)) {
+                                fill = parsed;
+                                continue;
+                            }
+                        }
+                        if (!paused) {
+                            if (std::optional<bool> const parsed = play_state(word)) {
+                                paused = parsed;
+                                continue;
+                            }
+                        }
+                        // A keyword no other part took is the name; `none`
+                        // is the fill mode when that was not given yet, and
+                        // else no animation.
+                        if (!name_part) {
+                            if (std::optional<std::optional<std::string>> const parsed = animation_name({ part })) {
+                                name_part = parsed;
+                                continue;
+                            }
+                        }
+                        return true;
+                    }
+                    if (!easing && part->is_function()) {
+                        if (std::optional<Easing> const parsed = parse_easing({ *part })) {
+                            easing = parsed;
+                            continue;
+                        }
+                    }
+                    if (!count) {
+                        if (std::optional<double> const parsed = iteration_count(*part)) {
+                            count = parsed;
+                            continue;
+                        }
+                    }
+                    if (!name_part && part->is_token(Token::Type::String)) {
+                        name_part = std::optional<std::string>(part->token().value);
+                        continue;
+                    }
+                    return true;
+                }
+                lists.names.push_back(name_part.value_or(std::nullopt));
+                lists.durations.push_back(duration.value_or(std::nullopt));
+                lists.timing_functions.push_back(easing.value_or(Easing::ease()));
+                lists.delays.push_back(delay.value_or(0));
+                lists.iteration_counts.push_back(count.value_or(1));
+                lists.directions.push_back(dir.value_or(PlaybackDirection::Normal));
+                lists.fill_modes.push_back(fill.value_or(FillMode::None));
+                lists.paused.push_back(paused.value_or(false));
+                lists.compositions.push_back(CompositeOperation::Replace);
+            }
+            style.animation = std::make_shared<AnimationLists const>(std::move(lists));
+            return true;
+        }
+        auto const property_name = [&](Values const& item) -> std::optional<std::string> {
+            std::optional<std::string_view> const word = one_ident(item);
+            if (!word || !is_custom_ident(*word) || ascii_ci_equals(*word, "none"))
+                return std::nullopt;
+            return word->starts_with("--") ? std::string(*word) : lowercase_name(*word);
+        };
+        if (name == "transition-property") {
+            if (items.size() == 1) {
+                if (std::optional<std::string_view> const word = one_ident(items[0]); word && ascii_ci_equals(*word, "none")) {
+                    TransitionLists lists = style.transition ? *style.transition : TransitionLists {};
+                    lists.properties.clear();
+                    style.transition = std::make_shared<TransitionLists const>(std::move(lists));
+                    return true;
+                }
+            }
+            transition_list(&TransitionLists::properties, property_name);
+            return true;
+        }
+        if (name == "transition-duration") {
+            transition_list(&TransitionLists::durations, [&](Values const& item) { return single(item, non_negative_time); });
+            return true;
+        }
+        if (name == "transition-timing-function") {
+            transition_list(&TransitionLists::timing_functions, easing_of);
+            return true;
+        }
+        if (name == "transition-delay") {
+            transition_list(&TransitionLists::delays, [&](Values const& item) { return single(item, parse_time); });
+            return true;
+        }
+        if (name == "transition-behavior") {
+            transition_list(&TransitionLists::allow_discrete, keyword([](std::string_view word) -> std::optional<bool> {
+                if (ascii_ci_equals(word, "normal"))
+                    return false;
+                if (ascii_ci_equals(word, "allow-discrete"))
+                    return true;
+                return std::nullopt;
+            }));
+            return true;
+        }
+        if (name == "transition") {
+            // <single-transition>#: a property (or none, alone, in the last
+            // item only), two times, an easing and a behavior, any order.
+            TransitionLists lists;
+            lists.properties.clear();
+            lists.durations.clear();
+            lists.timing_functions.clear();
+            lists.delays.clear();
+            lists.allow_discrete.clear();
+            bool none = false;
+            for (std::size_t i = 0; i < items.size(); ++i) {
+                std::optional<std::string> property;
+                bool named_none = false;
+                std::optional<double> duration;
+                std::optional<double> delay;
+                std::optional<Easing> easing;
+                std::optional<bool> behavior;
+                for (ComponentValue const* part : items[i]) {
+                    if (std::optional<double> const time = parse_time(*part)) {
+                        if (!duration) {
+                            if (*time < 0 && !part->is_function())
+                                return true;
+                            duration = std::max(0.0, *time);
+                        } else if (!delay) {
+                            delay = time;
+                        } else {
+                            return true;
+                        }
+                        continue;
+                    }
+                    if (!easing) {
+                        if (std::optional<Easing> const parsed = parse_easing({ *part })) {
+                            easing = parsed;
+                            continue;
+                        }
+                    }
+                    if (part->is_token(Token::Type::Ident)) {
+                        std::string_view const word = part->token().value;
+                        if (!behavior && (ascii_ci_equals(word, "normal") || ascii_ci_equals(word, "allow-discrete"))) {
+                            behavior = ascii_ci_equals(word, "allow-discrete");
+                            continue;
+                        }
+                        if (!property && !named_none) {
+                            if (ascii_ci_equals(word, "none")) {
+                                named_none = true;
+                                continue;
+                            }
+                            if (is_custom_ident(word)) {
+                                property = lowercase_name(word);
+                                continue;
+                            }
+                        }
+                    }
+                    return true;
+                }
+                if (named_none) {
+                    if (items.size() > 1)
+                        return true; // none only on its own
+                    none = true;
+                } else {
+                    lists.properties.push_back(property.value_or("all"));
+                }
+                lists.durations.push_back(duration.value_or(0));
+                lists.timing_functions.push_back(easing.value_or(Easing::ease()));
+                lists.delays.push_back(delay.value_or(0));
+                lists.allow_discrete.push_back(behavior.value_or(false));
+            }
+            if (none)
+                lists.properties.clear();
+            style.transition = std::make_shared<TransitionLists const>(std::move(lists));
+            return true;
+        }
+        return false;
     }
 };
 
@@ -8065,10 +8988,11 @@ std::string describe(dom::Element const& element)
 // The whole resolution, and the incremental one over it; a friend of
 // StyleSet, which keeps its compiled rules to itself.
 struct Restyler {
-    static StyleMap resolve_whole(dom::Document const& document, StyleSet const& set, StyleRecord* record)
+    static StyleMap resolve_whole(dom::Document const& document, StyleSet const& set, StyleRecord* record, StyleMap const* previous = nullptr)
     {
         set.m_rules->viewport_lengths = 0; // said again by this resolution
         Resolver resolver(*set.m_rules);
+        resolver.previous_styles = previous;
         ComputedStyle initial;
         initial.font_size = resolver.initial_font_size;
         resolver.resolve_tree(document, initial);
@@ -8116,15 +9040,18 @@ struct Restyler {
         if (reason.empty()) {
             Resolver resolver(rules);
             resolver.map = std::move(styles);
+            resolver.previous_styles = &resolver.map;
             Updater updater { resolver, rules.uses, record, since, {}, {}, 0, {}, false };
             updater.run(document);
             if (updater.bail.empty()) {
                 styles = std::move(resolver.map);
                 return RestyleOutcome { updater.computed, false, {} };
             }
+            styles = std::move(resolver.map);
             reason = updater.bail;
         }
-        styles = resolve_whole(document, set, &record);
+        StyleMap const before = std::move(styles);
+        styles = resolve_whole(document, set, &record, &before);
         return RestyleOutcome { styles.size(), true, reason };
     }
 
@@ -8172,6 +9099,49 @@ std::optional<std::string> check_incremental(dom::Document const& document, Styl
 void set_gap_sink(GapSink sink)
 {
     gap_sink() = std::move(sink);
+}
+
+std::vector<std::string> physical_property_names(std::string_view name, ComputedStyle const& style)
+{
+    if (std::optional<LogicalMap> const logical = logical_mapping(name, style.direction == Direction::Rtl, style.writing_mode))
+        return logical->names;
+    return { std::string(name) };
+}
+
+std::optional<double> parse_number_value(ComponentValue const& value)
+{
+    if (value.is_token(Token::Type::Number))
+        return value.token().numeric_value;
+    if (!value.is_function())
+        return std::nullopt;
+    std::string const name = lowercase_name(value.function().name);
+    if (name != "calc" && name != "min" && name != "max" && name != "clamp")
+        return std::nullopt;
+    LengthContext const context {};
+    CalcEvaluator evaluator({ &value }, context, false);
+    std::optional<CalcValue> const result = evaluator.whole();
+    if (!result || !result->number)
+        return std::nullopt;
+    // A calculation that comes to NaN at the top level is zero
+    // (css-values-4 §10.9).
+    return std::isnan(result->scalar) ? 0.0 : static_cast<double>(result->scalar);
+}
+
+std::optional<double> parse_percentage_value(ComponentValue const& value)
+{
+    if (value.is_token(Token::Type::Percentage))
+        return value.token().numeric_value;
+    if (!value.is_function())
+        return std::nullopt;
+    std::string const name = lowercase_name(value.function().name);
+    if (name != "calc" && name != "min" && name != "max" && name != "clamp")
+        return std::nullopt;
+    LengthContext const context {};
+    CalcEvaluator evaluator({ &value }, context, true);
+    std::optional<CalcValue> const result = evaluator.whole();
+    if (!result || result->number || result->px != 0)
+        return std::nullopt;
+    return std::isnan(result->percent) ? 0.0 : static_cast<double>(result->percent);
 }
 
 std::optional<Color> parse_color_text(std::string_view text)
@@ -8268,7 +9238,26 @@ ComputedStyle const& perturbed_style_baseline()
                  "font-synthesis: none; text-transform: uppercase; text-decoration: underline; "
                  "box-sizing: border-box; pointer-events: none; word-break: break-all; "
                  "overflow-wrap: anywhere; flex-direction: column; justify-content: center; "
-                 "align-items: center; appearance: auto;"))
+                 "align-items: center; appearance: auto; "
+                 // Every keyword property off its initial value too, so that
+                 // a value naming the initial one (object-fit: fill) is seen
+                 // to be taken.
+                 "object-fit: cover; object-position: 10% 20%; hyphens: auto; text-align-last: center; "
+                 "text-justify: inter-word; table-layout: fixed; border-collapse: collapse; caption-side: bottom; "
+                 "empty-cells: hide; list-style-position: inside; flex-wrap: wrap; align-self: center; "
+                 "align-content: center; justify-items: center; justify-self: center; order: 3; flex-grow: 2; "
+                 "flex-shrink: 3; flex-basis: 10px; row-gap: 3px; column-gap: 4px; min-width: 5px; "
+                 "min-height: 6px; max-width: 7px; max-height: 8px; outline: 2px dotted rgb(1, 2, 3); "
+                 "outline-offset: 2px; border-radius: 3px; text-orientation: upright; unicode-bidi: isolate; "
+                 "line-break: strict; fill: rgb(4, 5, 6); stroke: rgb(7, 8, 9); stroke-width: 3px; "
+                 "fill-opacity: 0.5; stroke-opacity: 0.5; stroke-linecap: round; stroke-linejoin: round; "
+                 "stroke-miterlimit: 7; stroke-dasharray: 1 2; stroke-dashoffset: 3; fill-rule: evenodd; "
+                 "stop-color: rgb(10, 11, 12); stop-opacity: 0.5; border-spacing: 2px; translate: 1px; "
+                 "aspect-ratio: 2; grid-auto-flow: column; border-color: rgb(13, 14, 15); "
+                 "font-variant: small-caps; font-family: monospace; quotes: none; counter-reset: x; "
+                 "counter-increment: x; background-repeat: no-repeat; background-clip: content-box; "
+                 "background-origin: content-box; background-size: cover; background-position: 1px 2px; "
+                 "background-image: linear-gradient(red, blue);"))
             resolver.apply(style, declaration, nullptr, a, b, c, d);
         return style;
     }();

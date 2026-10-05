@@ -1,5 +1,7 @@
 #include "css/StyleResolver.h"
 
+#include "css/Animation.h"
+
 #include "css/Parser.h"
 
 #include <cstddef>
@@ -51,6 +53,8 @@ bool same(GridAreas const& a, GridAreas const& b);
 bool same(Gradient const& a, Gradient const& b);
 bool same(Content const& a, Content const& b);
 bool same(CustomProperties const& a, CustomProperties const& b);
+bool same(AnimationLists const& a, AnimationLists const& b) { return a == b; }
+bool same(TransitionLists const& a, TransitionLists const& b) { return a == b; }
 bool same(GeneratedContent const& a, GeneratedContent const& b);
 bool same(ComputedStyle const& a, ComputedStyle const& b);
 template<typename A, typename B>
@@ -355,6 +359,7 @@ std::optional<std::string_view> first_style_difference(ComputedStyle const& a, C
     field("grid_column_end", a.grid_column_end, b.grid_column_end);
     field("color", a.color, b.color);
     field("background_color", a.background_color, b.background_color);
+    field("background_color_current", a.background_color_current, b.background_color_current);
     field("background_images", a.background_images, b.background_images);
     field("background_repeats", a.background_repeats, b.background_repeats);
     field("background_positions", a.background_positions, b.background_positions);
@@ -402,6 +407,9 @@ std::optional<std::string_view> first_style_difference(ComputedStyle const& a, C
     field("counter_set", a.counter_set, b.counter_set);
     field("first_letter", a.first_letter, b.first_letter);
     field("custom", a.custom, b.custom);
+    field("animation", a.animation, b.animation);
+    field("transition", a.transition, b.transition);
+    field("undisplayed", a.undisplayed, b.undisplayed);
     field("inherits_explicitly", a.inherits_explicitly, b.inherits_explicitly);
     field("selector_features", a.selector_features, b.selector_features);
     field("fill", a.fill, b.fill);

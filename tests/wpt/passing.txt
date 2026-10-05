@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (10091 of 15375) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (10130 of 15375) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -5214,17 +5214,46 @@ css/CSS2/zindex/z-index-abspos-004.xht
 css/CSS2/zindex/z-index-abspos-005.xht
 css/CSS2/zindex/z-index-abspos-007.xht
 css/CSS2/zorder/z-index-020.xht
+css/css-backgrounds/animations/background-color-animation-custom-property.html
+css/css-backgrounds/animations/background-color-animation-custom-timing-function-reverse.html
+css/css-backgrounds/animations/background-color-animation-custom-timing-function.html
 css/css-backgrounds/animations/background-color-animation-element-not-visible-at-current-viewport.html
+css/css-backgrounds/animations/background-color-animation-fallback-additive-keyframe.html
+css/css-backgrounds/animations/background-color-animation-fallback-missing-0-percent.html
+css/css-backgrounds/animations/background-color-animation-fallback-missing-100-percent.html
+css/css-backgrounds/animations/background-color-animation-fallback-replace.html
+css/css-backgrounds/animations/background-color-animation-fragmented.html
+css/css-backgrounds/animations/background-color-animation-half-opaque.html
+css/css-backgrounds/animations/background-color-animation-in-body.html
 css/css-backgrounds/animations/background-color-animation-non-zero-size-element-change-to-zero.html
+css/css-backgrounds/animations/background-color-animation-offset-position-not-stuck.html
 css/css-backgrounds/animations/background-color-animation-single-keyframe.html
+css/css-backgrounds/animations/background-color-animation-three-keyframes1.html
+css/css-backgrounds/animations/background-color-animation-three-keyframes2.html
+css/css-backgrounds/animations/background-color-animation-three-keyframes3.html
+css/css-backgrounds/animations/background-color-animation-will-change-contents.html
+css/css-backgrounds/animations/background-color-animation-with-blur.html
+css/css-backgrounds/animations/background-color-animation-with-images.html
+css/css-backgrounds/animations/background-color-animation-with-mask.html
 css/css-backgrounds/animations/background-color-animation-with-table1.html
 css/css-backgrounds/animations/background-color-animation-with-table2.html
 css/css-backgrounds/animations/background-color-animation-with-table3.html
 css/css-backgrounds/animations/background-color-animation-with-table4.html
+css/css-backgrounds/animations/background-color-animation-with-zero-playbackRate.html
+css/css-backgrounds/animations/background-color-animation-zero-size-element-change-to-non-zero.html
 css/css-backgrounds/animations/background-color-animation-zero-size-element.html
+css/css-backgrounds/animations/background-color-animation.html
 css/css-backgrounds/animations/background-color-scroll-into-viewport.html
+css/css-backgrounds/animations/background-color-transition-currentcolor.html
+css/css-backgrounds/animations/background-color-transition.html
 css/css-backgrounds/animations/background-color-transparent-animation-in-body.html
 css/css-backgrounds/animations/invalidation/background-color-animation-with-zero-alpha.html
+css/css-backgrounds/animations/invalidation/background-color-transition-obscured.html
+css/css-backgrounds/animations/invalidation/background-color-transition-with-delay.html
+css/css-backgrounds/animations/invalidation/background-color-transition-with-initially-transparent.html
+css/css-backgrounds/animations/two-background-color-animation-diff-length1.html
+css/css-backgrounds/animations/two-background-color-animation-diff-length2.html
+css/css-backgrounds/animations/two-background-color-animation-diff-length3.html
 css/css-backgrounds/background-334.html
 css/css-backgrounds/background-attachment-fixed-block-002.html
 css/css-backgrounds/background-attachment-fixed-inline-002.html
@@ -5619,10 +5648,12 @@ css/css-cascade/all-prop-unset-color.html
 css/css-cascade/all-prop-unset-visited.html
 css/css-cascade/import-conditional-002.html
 css/css-cascade/import-removal.html
+css/css-cascade/important-prop.html
 css/css-cascade/initial-background-color.html
 css/css-cascade/initial-color-background-001.html
 css/css-cascade/layer-media-toggle.html
 css/css-cascade/layer-slotted-rule.html
+css/css-cascade/revert-layer-010.html
 css/css-cascade/revert-layer-015.html
 css/css-cascade/revert-val-002.html
 css/css-cascade/scope-featureless.html
@@ -5764,6 +5795,7 @@ css/css-conditional/at-media-001.html
 css/css-conditional/at-media-002.html
 css/css-conditional/at-media-content-001.html
 css/css-conditional/at-media-content-002.html
+css/css-conditional/at-media-content-003.html
 css/css-conditional/at-media-whitespace-optional-001.html
 css/css-conditional/at-media-whitespace-optional-002.html
 css/css-conditional/at-supports-001.html
@@ -5815,6 +5847,7 @@ css/css-conditional/at-supports-at-rule-004.html
 css/css-conditional/at-supports-at-rule-005.html
 css/css-conditional/at-supports-at-rule-006.html
 css/css-conditional/at-supports-content-001.html
+css/css-conditional/at-supports-content-003.html
 css/css-conditional/at-supports-selector-001.html
 css/css-conditional/at-supports-selector-002.html
 css/css-conditional/at-supports-selector-003.html
@@ -7928,6 +7961,7 @@ css/css-text/i18n/css3-text-line-break-opclns-223.html
 css/css-text/i18n/css3-text-line-break-opclns-225.html
 css/css-text/i18n/css3-text-line-break-opclns-226.html
 css/css-text/letter-spacing/letter-spacing-211.html
+css/css-text/letter-spacing/letter-spacing-animating-letter-spacing.html
 css/css-text/letter-spacing/letter-spacing-control-chars-001.html
 css/css-text/letter-spacing/letter-spacing-end-of-line-002.html
 css/css-text/letter-spacing/letter-spacing-ligatures-001.html
@@ -8707,6 +8741,7 @@ css/css-text/word-space-transform/word-space-transform-027.html
 css/css-text/word-space-transform/word-space-transform-028.html
 css/css-text/word-space-transform/word-space-transform-029.html
 css/css-text/word-spacing/word-spacing-003.html
+css/css-text/word-spacing/word-spacing-animating-word-spacing.html
 css/css-text/word-spacing/word-spacing-negative-value-001.html
 css/css-text/writing-system/writing-system-font-001.html
 css/css-text/writing-system/writing-system-text-transform-001.html
@@ -8793,6 +8828,9 @@ css/css-values/vh-calc-support-pct.html
 css/css-values/vh-calc-support.html
 css/css-values/vh-em-inherit.html
 css/css-values/vh-inherit.html
+css/css-values/vh-interpolate-pct.html
+css/css-values/vh-interpolate-px.html
+css/css-values/vh-interpolate-vh.html
 css/css-values/vh-support-margin.html
 css/css-values/vh-support-transform-origin.html
 css/css-values/vh-support-transform-translate.html
@@ -10055,6 +10093,7 @@ html/rendering/the-details-element/summary-display-inline-flex.html
 html/rendering/the-details-element/summary-display-inline-grid.html
 html/rendering/the-details-element/summary-display-list-item-002.html
 html/rendering/the-details-element/summary-in-ol.html
+html/rendering/widgets/appearance/appearance-animation-001.html
 html/rendering/widgets/appearance/appearance-animation-002.html
 html/rendering/widgets/appearance/appearance-transition-003.html
 html/rendering/widgets/button-layout/block-in-inline.html

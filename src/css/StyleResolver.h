@@ -170,13 +170,20 @@ StyleMap resolve_styles(dom::Document const& document);
 // boxes the specification generates around misplaced content this way.
 ComputedStyle inherited_style(ComputedStyle const& parent);
 
-// A color as CSS writes one — a hex color, a name, rgb(), hsl() and the
-// rest of what a declaration's value may hold — from text that is nothing
+// A color as CSS writes one â a hex color, a name, rgb(), hsl() and the
+// rest of what a declaration's value may hold â from text that is nothing
 // else; nullopt for anything more or less. For what reads colors outside a
 // stylesheet: a browser theme's manifest writes its colors this way.
 std::optional<Color> parse_color_text(std::string_view text);
 
-// The font shorthand as text alone — what a canvas context's font attribute
+// A number, or a percentage (0 to 100 for 0% to 100%), as a value may write
+// one: the token, or calc(), min(), max() or clamp() coming to one. For the
+// values read outside a declaration's own property, such as an easing
+// function's arguments.
+std::optional<double> parse_number_value(ComponentValue const& value);
+std::optional<double> parse_percentage_value(ComponentValue const& value);
+
+// The font shorthand as text alone â what a canvas context's font attribute
 // takes: the size (relative sizes against `parent_font_size`), the weight,
 // the slant, small-caps and the family list, by the cascade's own rules;
 // nullopt for a value the cascade would drop, and for the CSS-wide keywords.
@@ -191,21 +198,30 @@ struct FontShorthandValue {
 };
 std::optional<FontShorthandValue> parse_font_shorthand_text(std::string_view text, float parent_font_size);
 
-// css-conditional-3 §6: whether a @supports prelude's <supports-condition>
-// holds, over its already-parsed component values — `not`/`and`/`or` of
+// css-conditional-3 Â§6: whether a @supports prelude's <supports-condition>
+// holds, over its already-parsed component values â `not`/`and`/`or` of
 // `( <supports-condition> )`, `( <declaration> )`, `selector( <complex-
 // selector> )` and `at-rule( <at-keyword> )`, with anything else
 // (<general-enclosed>) false. A declaration is supported when this engine's
 // own cascade actually accepts it: not a separate list, but the resolver's
 // real dispatch, tried on a scratch style (a value with var() in it, once
 // the property is known).
-// Used by compile_rules for the @supports at-rule, and — doubled with the
-// implicit-parentheses retry §8 asks for — by CSS.supports() in
+// Used by compile_rules for the @supports at-rule, and â doubled with the
+// implicit-parentheses retry Â§8 asks for â by CSS.supports() in
 // bindings/Style.cpp.
 bool supports_condition_matches(std::vector<ComponentValue> const& prelude);
 
+// The physical properties a flow-relative one stands for on a box of this
+// style (margin-inline-start is margin-left left to right); any other name
+// as itself.
+std::vector<std::string> physical_property_names(std::string_view name, ComputedStyle const& style);
+
+// Whether the cascade understands `property` and takes `value` for it, as
+// CSS.supports(property, value) answers.
+bool declaration_is_supported(std::string_view property, std::vector<ComponentValue> const& value);
+
 // CSS.supports(conditionText): `text` as a <supports-condition>, or else
-// (§8) the same wrapped in parentheses — which is what makes a bare
+// (Â§8) the same wrapped in parentheses â which is what makes a bare
 // declaration like "display: grid" work, and what the two-argument form of
 // CSS.supports reduces to once its caller has joined "property: value".
 bool supports_condition_text_matches(std::string_view text);
