@@ -42,8 +42,8 @@
 <p><a href="./">← sashfold.com</a></p>
 <h1>Web Platform Tests, scripted</h1>
 <p>Sashfold's pass rate on the <em>testharness.js</em> tests of the <a href="https://github.com/web-platform-tests/wpt">Web Platform Tests</a> — the tests written as scripts, each file holding many subtests that assert what the DOM, the window and the event loop do. Every test is loaded by Sashfold itself, headless, from the suite's own files, its scripts run and its event loop pumped until the harness reports; the verdicts are the harness's own. The unit counted is the subtest, as the suite's dashboards count them.</p>
-<div class="stat"><span class="big">154730 / 184772</span><span class="what">subtests passing — 83.7%</span></div>
-<div class="stat"><span class="big">6154 / 6174</span><span class="what">test files the harness reported on</span></div>
+<div class="stat"><span class="big">157845 / 192269</span><span class="what">subtests passing — 82.1%</span></div>
+<div class="stat"><span class="big">6323 / 6343</span><span class="what">test files the harness reported on</span></div>
 <table>
 <thead><tr><th>Directory</th><th></th><th>Subtests</th><th>Rate</th><th>Files</th></tr></thead>
 <tbody>
@@ -103,10 +103,12 @@
 <tr><td><code>css/css-cascade</code></td><td><div class="bar"><span style="width: 39%"></span></div></td><td class="num">227 / 577</td><td class="num">39.3%</td><td class="num">97 / 97</td></tr>
 <tr><td><code>streams</code></td><td><div class="bar"><span style="width: 92%"></span></div></td><td class="num">1393 / 1501</td><td class="num">92.8%</td><td class="num">85 / 85</td></tr>
 <tr><td><code>encoding/streams</code></td><td><div class="bar"><span style="width: 85%"></span></div></td><td class="num">105 / 123</td><td class="num">85.4%</td><td class="num">13 / 13</td></tr>
-<tr><td><code>web-animations</code></td><td><div class="bar"><span style="width: 72%"></span></div></td><td class="num">2153 / 2974</td><td class="num">72.4%</td><td class="num">140 / 142</td></tr>
+<tr><td><code>web-animations</code></td><td><div class="bar"><span style="width: 72%"></span></div></td><td class="num">2172 / 2998</td><td class="num">72.4%</td><td class="num">140 / 142</td></tr>
 <tr><td><code>css/css-animations</code></td><td><div class="bar"><span style="width: 60%"></span></div></td><td class="num">849 / 1402</td><td class="num">60.6%</td><td class="num">126 / 126</td></tr>
-<tr><td><code>css/css-transitions</code></td><td><div class="bar"><span style="width: 72%"></span></div></td><td class="num">2383 / 3307</td><td class="num">72.1%</td><td class="num">122 / 122</td></tr>
+<tr><td><code>css/css-transitions</code></td><td><div class="bar"><span style="width: 79%"></span></div></td><td class="num">2619 / 3307</td><td class="num">79.2%</td><td class="num">122 / 122</td></tr>
 <tr><td><code>css/css-easing</code></td><td><div class="bar"><span style="width: 73%"></span></div></td><td class="num">115 / 156</td><td class="num">73.7%</td><td class="num">12 / 12</td></tr>
+<tr><td><code>css/css-backgrounds</code></td><td><div class="bar"><span style="width: 43%"></span></div></td><td class="num">2710 / 6181</td><td class="num">43.8%</td><td class="num">121 / 121</td></tr>
+<tr><td><code>css/css-text-decor</code></td><td><div class="bar"><span style="width: 11%"></span></div></td><td class="num">150 / 1292</td><td class="num">11.6%</td><td class="num">48 / 48</td></tr>
 </tbody>
 </table>
 <p class="muted">Scored 2026-10-05 against WPT revision <code>b1a7025f8bc1</code>. The subtests counted are those the harness reported: a test file whose harness never reports — a script the engine cannot run, a wait on a server the runner does not have — contributes none, and the files column says how many did. Every host of the suite is served from the same checkout, nothing touches the network, and no server-side handler runs. The number is enforced in CI: a baseline names every passing subtest, and one that stops passing fails the build.</p>

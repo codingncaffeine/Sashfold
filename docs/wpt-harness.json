@@ -1,10 +1,10 @@
 {
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
   "date": "2026-10-05",
-  "passed": 154730,
-  "total": 184772,
-  "files": 6174,
-  "completed": 6154,
+  "passed": 157845,
+  "total": 192269,
+  "files": 6343,
+  "completed": 6323,
   "directories": [
     { "path": "dom/nodes", "passed": 10662, "total": 13066, "files": 316, "completed": 316 },
     { "path": "dom/events", "passed": 379, "total": 834, "files": 192, "completed": 191 },
@@ -62,9 +62,11 @@
     { "path": "css/css-cascade", "passed": 227, "total": 577, "files": 97, "completed": 97 },
     { "path": "streams", "passed": 1393, "total": 1501, "files": 85, "completed": 85 },
     { "path": "encoding/streams", "passed": 105, "total": 123, "files": 13, "completed": 13 },
-    { "path": "web-animations", "passed": 2153, "total": 2974, "files": 142, "completed": 140 },
+    { "path": "web-animations", "passed": 2172, "total": 2998, "files": 142, "completed": 140 },
     { "path": "css/css-animations", "passed": 849, "total": 1402, "files": 126, "completed": 126 },
-    { "path": "css/css-transitions", "passed": 2383, "total": 3307, "files": 122, "completed": 122 },
-    { "path": "css/css-easing", "passed": 115, "total": 156, "files": 12, "completed": 12 }
+    { "path": "css/css-transitions", "passed": 2619, "total": 3307, "files": 122, "completed": 122 },
+    { "path": "css/css-easing", "passed": 115, "total": 156, "files": 12, "completed": 12 },
+    { "path": "css/css-backgrounds", "passed": 2710, "total": 6181, "files": 121, "completed": 121 },
+    { "path": "css/css-text-decor", "passed": 150, "total": 1292, "files": 48, "completed": 48 }
   ]
 }
