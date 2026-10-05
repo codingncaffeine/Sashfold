@@ -33,8 +33,8 @@ What Sashfold cannot do, it does not do: [Not written yet](https://github.com/co
 | WPT URL parsing | **893 / 893** (100%) |
 | Unicode bidi | **91,707 / 91,707** and **770,241 / 770,241** (100%) |
 | Unicode line breaking | **16,672 / 16,672** (100%) |
-| WPT CSS reference tests | **10091 / 15375 (65.6%)** — [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
-| WPT testharness tests | **149190 / 176933 (84.3%)** — [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
+| WPT CSS reference tests | **10130 / 15375 (65.9%)** — [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
+| WPT testharness tests | **154730 / 184772 (83.7%)** — [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
 | test262 | **41845 / 45367 (92.2%)** — [sashfold.com/test262.html](https://sashfold.com/test262.html) |
 | The Sashfold 100 | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) · [the Linux render](https://sashfold.com/sashfold100/linux/) |
 
