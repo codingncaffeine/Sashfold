@@ -2047,10 +2047,29 @@ bool element_in_state(SimpleSelector::PseudoKind kind, dom::Element const& eleme
     return matches_simple(simple, element);
 }
 
+bool contains_has(SimpleSelector const& simple)
+{
+    if (simple.pseudo == SimpleSelector::PseudoKind::Has)
+        return true;
+    if (!simple.argument)
+        return false;
+    for (ComplexSelector const& inner : simple.argument->selectors) {
+        for (CompoundSelector const& compound : inner.compounds) {
+            for (SimpleSelector const& nested : compound.simples) {
+                if (contains_has(nested))
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool matches_compound_but_has(CompoundSelector const& compound, dom::Element const& element)
 {
+    // A :not(:has(...)) is as open as the :has() inside it: its answer now
+    // is the one a change may have turned.
     for (SimpleSelector const& simple : compound.simples) {
-        if (simple.pseudo != SimpleSelector::PseudoKind::Has && !matches_simple(simple, element))
+        if (!contains_has(simple) && !matches_simple(simple, element))
             return false;
     }
     return true;

@@ -231,8 +231,12 @@ bool matches(SelectorList const& list, dom::Element const& element, Specificity*
 bool matches(ComplexSelector const& selector, dom::Element const& element);
 
 // True when the element matches every simple selector of the compound but
-// its :has() ones: an element a :has() in the compound is tested on.
+// its :has() ones, and those holding one in their arguments (:not(:has())):
+// an element a :has() in the compound is tested on.
 bool matches_compound_but_has(CompoundSelector const& compound, dom::Element const& element);
+
+// Whether a simple selector is a :has() or holds one in its arguments.
+bool contains_has(SimpleSelector const& simple);
 
 // Whether the element is in the state a pseudo-class with no argument
 // names (:hover, :checked, :disabled...): what an invalidation asks of an

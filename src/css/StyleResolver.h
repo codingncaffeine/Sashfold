@@ -121,6 +121,11 @@ struct StyleRecord {
     dom::Element const* body = nullptr;
     std::optional<ComputedStyle> root_cascaded;
     std::optional<ComputedStyle> body_cascaded;
+    // The ::first-letter styles handed down to elements that did not ask
+    // for one, each with the style it was given: one an update did not
+    // compute again still holds it, and gives it up before they are handed
+    // down anew.
+    std::vector<std::pair<dom::Element const*, std::shared_ptr<ComputedStyle const>>> handed_first_letters;
 };
 
 // How an update went: how many elements it computed, whether it computed

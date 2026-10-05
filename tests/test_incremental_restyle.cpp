@@ -99,6 +99,22 @@ body:has(.frame .inner) { word-spacing: 3px }
 .row:has(> .tail.pick) > .leaf { word-spacing: 1px }
 .row:has(.leaf + .tail.pick) { padding-right: 2px }
 .group:has(.leaf.on ~ .tail) .tail { margin-left: 1px }
+.group:not(:has(.leaf.on)) .tail { text-indent: 2px }
+.box:is(:has(> .row.pick), .frame) > .row { padding-bottom: 1px }
+)";
+
+// ::first-letter on blocks, handed down the chain of first block children,
+// with classes that make a box a flex container, take it out of the flow or
+// out of the tree: what an update must hand down again.
+constexpr std::string_view first_letter_sheet = R"(
+body { color: rgb(10, 20, 30); font-size: 15px }
+.group::first-letter { color: rgb(200, 0, 0) }
+.box.on::first-letter { font-size: 20px }
+.row::first-letter { text-transform: uppercase }
+.leaf.pick { float: left }
+.row.pick { display: flex }
+.tail.on { display: none }
+.group.pick { position: absolute }
 )";
 
 // The states a pointer and the focus set, tested on the element itself, on
@@ -673,11 +689,29 @@ void reaches()
     Step const anchored_back = update_and_check(*document, anchored, anchored_kept);
     CHECK(!anchored_back.outcome.whole);
     CHECK_EQ(anchored_back.difference.value_or(""), std::string());
+    // The same through :not() or :is(): a :has() on the subject of their
+    // argument is tested on the anchor too.
+    for (std::string_view const sheet : { "div:not(:has(.on)) span { color: red }", "div:is(.x, :has(> .on)) span { color: red }" }) {
+        css::StyleSet through(std::vector<css::SheetSource> { { std::string(sheet), std::nullopt } });
+        Kept through_kept;
+        update_and_check(*document, through, through_kept);
+        toggle_class(*by_id("s2"), "on");
+        Step const through_step = update_and_check(*document, through, through_kept);
+        CHECK(!through_step.outcome.whole);
+        CHECK_EQ(through_step.difference.value_or(""), std::string());
+        toggle_class(*by_id("s2"), "on");
+        Step const through_back = update_and_check(*document, through, through_kept);
+        CHECK(!through_back.outcome.whole);
+        CHECK_EQ(through_back.difference.value_or(""), std::string());
+    }
     // Siblings in the argument or after the anchor, an anchor that is any
-    // element, or a :has() inside another selector's argument: a change
-    // reaches further, and the update is whole.
+    // element, or a :has() inside another selector's argument other than on
+    // an anchor's own element: a change reaches further, and the update is
+    // whole.
     for (std::string_view const sheet : { "div:has(+ .on) { color: red }", ":has(.on) p { color: red }",
-             "div:has(~ p .on) { color: red }", ":not(div:has(.on)) > p { color: red }", "div:has(.on) + p { color: red }" }) {
+             "div:has(~ p .on) { color: red }", ":not(div:has(.on)) > p { color: red }", "div:has(.on) + p { color: red }",
+             ":not(:has(.on)) span { color: red }", "div:not(:has(.on) b) span { color: red }",
+             "div:not(:has(.on)) + p { color: red }" }) {
         css::StyleSet wide(std::vector<css::SheetSource> { { std::string(sheet), std::nullopt } });
         Kept wide_kept;
         update_and_check(*document, wide, wide_kept);
@@ -685,6 +719,55 @@ void reaches()
         Step const reached = update_and_check(*document, wide, wide_kept);
         CHECK(reached.outcome.whole);
         CHECK_EQ(reached.difference.value_or(""), std::string());
+    }
+}
+
+// A ::first-letter style handed down a chain of first block children,
+// moved by changes the chain's own elements are not computed again for:
+// the block stops asking, a box in the chain leaves the flow, one becomes
+// a flex container. Each update is local and leaves what a whole one does.
+void first_letters_handed_down()
+{
+    auto document = html::parse_document(std::string_view(R"(<!doctype html><html><head></head><body>
+<div id=asker class=ask><div id=mid><div id=deep>first</div></div><div id=next>then</div></div>
+</body></html>)"));
+    auto by_id = [&](std::string_view id) -> dom::Element* {
+        std::vector<dom::Node*> pending { document.get() };
+        while (!pending.empty()) {
+            dom::Node* node = pending.back();
+            pending.pop_back();
+            if (node->is_element()) {
+                dom::Attr const* attribute = static_cast<dom::Element*>(node)->find_attribute("id");
+                if (attribute && attribute->value == id)
+                    return static_cast<dom::Element*>(node);
+            }
+            for (dom::Node* child : node->children())
+                pending.push_back(child);
+        }
+        return nullptr;
+    };
+    css::StyleSet const set(std::vector<css::SheetSource> { { std::string(R"(
+.ask::first-letter { color: rgb(200, 0, 0) }
+.gone { display: none }
+.out { float: left }
+.flex { display: flex }
+)"), std::nullopt } });
+    Kept kept;
+    Step const first = update_and_check(*document, set, kept);
+    CHECK(first.outcome.whole);
+    std::pair<std::string_view, std::string_view> const steps[] = {
+        { "asker", "ask" }, { "asker", "ask" }, { "mid", "gone" }, { "mid", "gone" },
+        { "mid", "out" }, { "mid", "out" }, { "mid", "flex" }, { "mid", "flex" },
+    };
+    for (auto const& [id, name] : steps) {
+        dom::Element* const element = by_id(id);
+        CHECK(element);
+        if (!element)
+            return;
+        toggle_class(*element, name);
+        Step const step = update_and_check(*document, set, kept);
+        CHECK(!step.outcome.whole);
+        CHECK_EQ(step.difference.value_or(""), std::string());
     }
 }
 
@@ -1071,6 +1154,8 @@ int main()
     random_mutations(argument_sheet, 0x9e3779b9u);
     random_mutations(has_sheet, 0x51ed27f3u);
     random_mutations(state_sheet, 0x2545f491u);
+    random_mutations(first_letter_sheet, 0x6a09e667u);
+    first_letters_handed_down();
     focus_moves_up();
     shadow_trees(0x7f4a7c15u);
     shadow_trees(0x2c1b3c6du);

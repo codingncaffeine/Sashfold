@@ -2819,7 +2819,10 @@ struct RuleSet {
 
     // Whether a :has() in compound `c` of a rule's own selector, above the
     // subject and joined to it by descendant and child combinators alone, is
-    // bounded by its anchor; noted when it is.
+    // bounded by its anchor; noted when it is. The :has() may stand in the
+    // compound itself or on the subject of an :is(), :not() or :where()
+    // there (`.box:not(:has(.on)) p`): either way it is tested on the
+    // anchor.
     bool note_has_anchor(ComplexSelector const& selector, std::size_t c)
     {
         for (std::size_t i = c; i < selector.combinators.size(); ++i) {
@@ -2828,7 +2831,7 @@ struct RuleSet {
         }
         CompoundSelector const& compound = selector.compounds[c];
         bool const names_something = std::any_of(compound.simples.begin(), compound.simples.end(),
-            [](SimpleSelector const& simple) { return simple.pseudo != SimpleSelector::PseudoKind::Has; });
+            [](SimpleSelector const& simple) { return !contains_has(simple); });
         // An anchor that is any element is every ancestor of every change.
         if (!names_something || has_anchors.size() >= max_has_anchors)
             return false;
@@ -2837,7 +2840,11 @@ struct RuleSet {
         return true;
     }
 
-    void note_uses(ComplexSelector const& selector, bool subject = true, bool in_has = false, bool top = true, bool relative = false)
+    // `anchored`: the selector is the argument of an :is(), :not() or
+    // :where() in a compound noted as an anchor, so a :has() on its subject
+    // is tested on the anchor.
+    void note_uses(ComplexSelector const& selector, bool subject = true, bool in_has = false, bool top = true, bool relative = false,
+        bool anchored = false)
     {
         if (selector.pseudo_element == ComplexSelector::PseudoElement::FirstLetter)
             uses.first_letter = true;
@@ -2884,7 +2891,9 @@ struct RuleSet {
                     // its own selectors name, the anchor's subtree is computed
                     // again as well. Anywhere else it reaches further.
                     uses.has = true;
-                    if (in_has || (!subject_compound && !(top && note_has_anchor(selector, c))))
+                    if (in_has
+                        || (!subject_compound && !(anchored && c + 1 == selector.compounds.size())
+                            && !(top && note_has_anchor(selector, c))))
                         uses.has_beyond_ancestors = true;
                     break;
                 case SimpleSelector::PseudoKind::Disabled:
@@ -2940,8 +2949,11 @@ struct RuleSet {
                 }
                 if (simple.argument) {
                     bool const into_has = simple.pseudo == SimpleSelector::PseudoKind::Has;
+                    bool const matches_any = simple.pseudo == SimpleSelector::PseudoKind::Is
+                        || simple.pseudo == SimpleSelector::PseudoKind::Not || simple.pseudo == SimpleSelector::PseudoKind::Where;
+                    bool const anchors = matches_any && top && !subject_compound && contains_has(simple) && note_has_anchor(selector, c);
                     for (ComplexSelector const& inner : simple.argument->selectors)
-                        note_uses(inner, subject_compound && !into_has, in_has || into_has, false, into_has);
+                        note_uses(inner, subject_compound && !into_has, in_has || into_has, false, into_has, anchors);
                 }
             }
         }
@@ -3913,8 +3925,10 @@ struct Resolver {
     // block's first formatted line, and when the block holds boxes rather
     // than text that line lives inside the first of them. The style is
     // handed down that chain until it reaches the box whose own content
-    // starts the line; layout then takes it from there.
-    void hand_down_first_letters(dom::Node const& node)
+    // starts the line; layout then takes it from there. `handed` (when
+    // given) is told each element given a style it did not ask for.
+    void hand_down_first_letters(dom::Node const& node,
+        std::vector<std::pair<dom::Element const*, std::shared_ptr<ComputedStyle const>>>* handed = nullptr)
     {
         if (node.is_element()) {
             auto const& element = static_cast<dom::Element const&>(node);
@@ -3926,12 +3940,30 @@ struct Resolver {
                     if (child == map.end() || child->second.first_letter)
                         break;
                     child->second.first_letter = letter;
+                    if (handed)
+                        handed->emplace_back(target, letter);
                     target = first_block_child(*target);
                 }
             }
         }
         for (dom::Node const* child : dom::flat_children(node))
-            hand_down_first_letters(*child);
+            hand_down_first_letters(*child, handed);
+    }
+
+    // After an update: the handed-down styles of the elements it did not
+    // compute again are taken back (one it computed holds its own, which
+    // is never another element's), and the styles handed down anew, as a
+    // whole resolution hands them.
+    void hand_down_first_letters_again(dom::Document const& document,
+        std::vector<std::pair<dom::Element const*, std::shared_ptr<ComputedStyle const>>>& handed)
+    {
+        for (auto const& [target, letter] : handed) {
+            auto const it = map.find(target);
+            if (it != map.end() && it->second.first_letter == letter)
+                it->second.first_letter.reset();
+        }
+        handed.clear();
+        hand_down_first_letters(document, &handed);
     }
 
     // The inherited properties, named once for the two things done with
@@ -8996,7 +9028,12 @@ struct Restyler {
         ComputedStyle initial;
         initial.font_size = resolver.initial_font_size;
         resolver.resolve_tree(document, initial);
-        resolver.hand_down_first_letters(document);
+        if (record) {
+            record->handed_first_letters.clear();
+            resolver.hand_down_first_letters(document, &record->handed_first_letters);
+        } else {
+            resolver.hand_down_first_letters(document);
+        }
         RootAndBody const pair = root_and_body(document);
         if (record) {
             record->document = &document;
@@ -9031,8 +9068,6 @@ struct Restyler {
             reason = "too many removals to follow";
         else if (rules.uses.has_beyond_ancestors)
             reason = "a :has() reaches past the ancestors of a change";
-        else if (rules.uses.first_letter)
-            reason = "::first-letter styles are handed down";
         else if (!(root_and_body(document) == RootAndBody { record.root, record.body }))
             reason = "the root or body is another element";
         std::uint32_t const since = record.read_at;
@@ -9044,6 +9079,8 @@ struct Restyler {
             Updater updater { resolver, rules.uses, record, since, {}, {}, 0, {}, false };
             updater.run(document);
             if (updater.bail.empty()) {
+                if (rules.uses.first_letter)
+                    resolver.hand_down_first_letters_again(document, record.handed_first_letters);
                 styles = std::move(resolver.map);
                 return RestyleOutcome { updater.computed, false, {} };
             }
