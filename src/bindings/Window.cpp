@@ -1396,11 +1396,19 @@ void install_window(Realm::Internals& in)
         define_getter(in, target, name, [value](js::Interpreter& interp, js::Value const&, Args) -> Native { return internals_of(interp).string(value); });
     };
     constant_string(*navigator_proto, "userAgent", user_agent);
-    constant_string(*navigator_proto, "appVersion", user_agent.starts_with("Mozilla/") ? user_agent.substr(8) : user_agent);
+    // HTML's Gecko compatibility mode, which the user agent string claims:
+    // "5.0 (" and the windowing system, and Gecko's productSub.
+#if defined(_WIN32)
+    constant_string(*navigator_proto, "appVersion", "5.0 (Windows)");
+#elif defined(__APPLE__)
+    constant_string(*navigator_proto, "appVersion", "5.0 (Macintosh)");
+#else
+    constant_string(*navigator_proto, "appVersion", "5.0 (X11)");
+#endif
     constant_string(*navigator_proto, "appName", "Netscape");
     constant_string(*navigator_proto, "appCodeName", "Mozilla");
     constant_string(*navigator_proto, "product", "Gecko");
-    constant_string(*navigator_proto, "productSub", "20030107");
+    constant_string(*navigator_proto, "productSub", "20100101");
     constant_string(*navigator_proto, "vendor", "");
     constant_string(*navigator_proto, "vendorSub", "");
     constant_string(*navigator_proto, "platform", platform_name());

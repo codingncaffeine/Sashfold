@@ -1181,6 +1181,9 @@ void test_window_location_url_storage_navigator()
     CHECK_EQ(page->number("localStorage.length"), 0);
     CHECK(page->boolean("localStorage instanceof Storage && Object.keys(sessionStorage).join() === 's'"));
     // Navigator, screen, sizes, media.
+    // HTML's Gecko compatibility mode, as the user agent string claims.
+    CHECK_EQ(page->string("[navigator.appCodeName, navigator.appName, navigator.product, navigator.productSub, navigator.vendor, navigator.appVersion.slice(0, 5)].join()"),
+        "Mozilla,Netscape,Gecko,20100101,,5.0 (");
     CHECK(page->boolean("navigator.userAgent === 'Mozilla/5.0 TestAgent Sashfold/0.0' && navigator.language === 'en-US' && navigator.languages.length === 2 && navigator.onLine && navigator.cookieEnabled && !('serviceWorker' in navigator)"));
     CHECK(page->boolean("innerWidth === 1024 && innerHeight === 768 && screen.width === 1024 && devicePixelRatio === 1"));
     CHECK(page->boolean("matchMedia('(min-width: 500px)').matches && !matchMedia('(max-width: 500px)').matches && matchMedia('screen').media === 'screen'"));

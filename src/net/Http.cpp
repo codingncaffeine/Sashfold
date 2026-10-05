@@ -179,13 +179,18 @@ std::string_view user_agent()
         return set && *set ? std::string(set) : std::string();
     }();
     if (!chosen.empty()) return chosen;
-    // The compat-shaped token every engine ships (documented in the README).
+    // The compatibility token an engine of its own ships, as Servo does:
+    // Gecko's, at a Firefox release the web still serves (an ESR), with our
+    // own name after it. A site that knows no Sashfold serves it what it
+    // serves Firefox — the standards' paths, and fonts as WOFF2 — where a
+    // bare token was refused (Google's sign-in answered 403) or sent the
+    // oldest fallbacks. navigator follows (HTML's Gecko compatibility mode).
 #ifdef _WIN32
-    return "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Sashfold/" SASHFOLD_VERSION;
+    return "Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:140.0) Gecko/20100101 Firefox/140.0 Sashfold/" SASHFOLD_VERSION;
 #elif defined(__APPLE__)
-    return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) Sashfold/" SASHFOLD_VERSION;
+    return "Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:140.0) Gecko/20100101 Firefox/140.0 Sashfold/" SASHFOLD_VERSION;
 #else
-    return "Mozilla/5.0 (X11; Linux x86_64) Sashfold/" SASHFOLD_VERSION;
+    return "Mozilla/5.0 (X11; Linux x86_64; rv:140.0) Gecko/20100101 Firefox/140.0 Sashfold/" SASHFOLD_VERSION;
 #endif
 }
 
