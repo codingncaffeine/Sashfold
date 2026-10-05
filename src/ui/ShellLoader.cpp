@@ -3,6 +3,7 @@
 #include "core/Ascii.h"
 #include "core/TraceClock.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cstdlib>
@@ -16,6 +17,26 @@
 namespace sashfold::ui {
 
 namespace {
+
+// The Accept a request carries when its caller set none, by what it is for
+// (Fetch §4.1 "fetch", step 12): a server that answers one address with a
+// picture or with a page to show it in decides by this. Only the image
+// formats decoded here are named.
+char const* default_accept(net::ResourceKind kind)
+{
+    switch (kind) {
+    case net::ResourceKind::Document:
+    case net::ResourceKind::Subdocument:
+    case net::ResourceKind::Object:
+        return "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8";
+    case net::ResourceKind::Image:
+        return "image/png,image/svg+xml,image/*;q=0.8,*/*;q=0.5";
+    case net::ResourceKind::Stylesheet:
+        return "text/css,*/*;q=0.1";
+    default:
+        return "*/*";
+    }
+}
 
 // A page's requests on stderr under SASHFOLD_NET_TRACE=1: the method, the
 // status or the error, the address and the size — what a stream that
@@ -396,6 +417,7 @@ net::FetchResult ShellLoader::fetch_subresource(net::Url const& url, net::Url co
     options.referrer = referrer;
     options.cache = &m_cache;
     options.pool = &m_pool;
+    options.headers.push_back({ "Accept", default_accept(kind) });
     options.hop_refusal = hop_refusal(&first_party, kind, guard);
     net::FetchResult result = noted(kind, net::fetch(url, options));
     if (net_tracing())
@@ -516,6 +538,8 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
     options.pool = &m_pool;
     options.method = request.method;
     options.headers = request.headers;
+    if (std::none_of(options.headers.begin(), options.headers.end(), [](net::Header const& header) { return ascii_ci_equals(header.name, "accept"); }))
+        options.headers.push_back({ "Accept", default_accept(kind) });
     options.body = request.body;
     options.follow_redirects = request.follow_redirects;
     options.hop_refusal = hop_refusal(&first_party, kind, guard);
