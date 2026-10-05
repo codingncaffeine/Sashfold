@@ -171,6 +171,18 @@ int main()
         }
     }
 
+    // An <svg> with only a viewBox, given a height, is as wide as its ratio
+    // makes it as a flex item too: measured for its content size, it keeps
+    // its ratio (the 514:149 of the shape a site's wordmark has).
+    {
+        Page const page = lay_out(page_with(R"(<div class="c"><svg id="w" viewBox="0 0 514 149" style="height:22px"></svg></div>)"));
+        layout::Fragment const* w = find_box(page.result.root, "w");
+        if (CHECK(w)) {
+            CHECK(near(w->width, 22.0f * 514.0f / 149.0f));
+            CHECK_EQ(w->height, 22.0f);
+        }
+    }
+
     // A single line in a container of no definite height is held to the
     // container's maximum (css-flexbox-1 §9.4 step 8), and what stretches
     // stretches to that: the 80 px item too, which then overflows.

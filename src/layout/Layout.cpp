@@ -778,8 +778,15 @@ std::optional<ReplacedSize> replaced_size(dom::Element const& element, ComputedS
                 intrinsic = ReplacedSize { *own.width * scale, *own.width * scale / *own.ratio };
             else if (own.height)
                 intrinsic = ReplacedSize { *own.height * scale * *own.ratio, *own.height * scale };
-            else
+            else if (containing_width > 0)
                 intrinsic = ReplacedSize { containing_width, containing_width / *own.ratio };
+            // Measured for its content size, with no width to take: a
+            // height the style writes gives the width through the ratio,
+            // and with neither it has no size of its own to offer.
+            else if (style.height.kind == LengthPercent::Kind::Px && style.height.value > 0)
+                intrinsic = ReplacedSize { style.height.value * *own.ratio, style.height.value };
+            else
+                intrinsic = ReplacedSize { 0, 0 };
         } else {
             intrinsic = ReplacedSize { own.width.value_or(300) * scale, own.height.value_or(150) * scale };
         }
