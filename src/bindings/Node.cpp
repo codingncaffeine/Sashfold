@@ -232,6 +232,7 @@ void insert_one(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::N
     // steps), before it is adopted and inserted.
     dom::Node* const left_behind = node.parent();
     std::vector<dom::Node*> const moved { &node };
+    bool const was_connected = left_behind != nullptr && node.is_connected();
     if (left_behind != nullptr) {
         in.frames_removed(node);
         mutation_children_changed(in, *left_behind, {}, moved, node.previous_sibling(), next_sibling_of(node));
@@ -239,6 +240,10 @@ void insert_one(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::N
     in.adopt_into(parent.document(), node);
     parent.insert_before(node, reference);
     in.realm.note_mutation();
+    // Taken out of the document on its way here: its custom elements are
+    // told so before they are told where they are now.
+    if (was_connected)
+        custom_elements_removed(in, node);
     mutation_children_changed(in, parent, moved, {}, node.previous_sibling(), next_sibling_of(node));
     // SASHFOLD_INSERT_TRACE=<local name>: every insertion of an element of
     // that name, where it went and the functions that were running — the

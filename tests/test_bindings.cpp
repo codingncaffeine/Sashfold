@@ -4222,6 +4222,35 @@ void test_events_through_shadow_trees()
     CHECK_EQ(page.console, "");
 }
 
+// Moving a connected custom element is removing it and inserting it again
+// (DOM §4.2.3 "insert": a node with a parent is removed first): its
+// disconnectedCallback, then its connectedCallback, for it and for a custom
+// element inside what is moved. A component that renders on connect and
+// clears on disconnect does not render twice.
+void test_moving_a_custom_element_disconnects_it()
+{
+    Page page("<!DOCTYPE html><body><div id=a></div><div id=b></div></body>");
+    page.load();
+    page.eval(R"JS(
+        var log = [];
+        customElements.define('x-moved', class extends HTMLElement {
+            connectedCallback() { log.push('c:' + this.id + ':' + this.parentNode.id); }
+            disconnectedCallback() { log.push('d:' + this.id); }
+        });
+        var m = document.createElement('x-moved'); m.id = 'm';
+        var inner = document.createElement('x-moved'); inner.id = 'i';
+        var holder = document.createElement('span'); holder.id = 'h'; holder.appendChild(inner);
+        document.getElementById('a').appendChild(m);
+        document.getElementById('a').appendChild(holder);
+        document.getElementById('b').appendChild(m);
+        document.getElementById('b').insertBefore(holder, m);
+        var detached = document.createElement('div');
+        detached.appendChild(m);
+    )JS");
+    CHECK_EQ(page.string("log.join(' ')"), "c:m:a c:i:h d:m c:m:b d:i c:i:h d:m");
+    CHECK_EQ(page.console, "");
+}
+
 // ::slotted() takes the elements a slot holds once nested slots are
 // flattened (css-scoping-1 §3.2.2): a slot given to a slot further in is
 // replaced by what it holds, so the rules reach those and never the slot
@@ -6055,6 +6084,7 @@ int main()
     test_shadow_trees();
     test_events_through_shadow_trees();
     test_slotted_rules_skip_a_nested_slot();
+    test_moving_a_custom_element_disconnects_it();
     test_declarative_shadow_roots();
     test_the_parser_makes_custom_elements();
     test_the_xml_serializer();
