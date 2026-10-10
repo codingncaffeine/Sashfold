@@ -4369,10 +4369,32 @@ struct Resolver {
                     to.flex_wrap = from.flex_wrap;
                 },
                 0 },
-            { "justify-content", false, [](S& to, S const& from) { to.justify_content = from.justify_content; }, 0 },
-            { "align-items", false, [](S& to, S const& from) { to.align_items = from.align_items; }, 0 },
-            { "align-self", false, [](S& to, S const& from) { to.align_self = from.align_self; }, 0 },
-            { "align-content", false, [](S& to, S const& from) { to.align_content = from.align_content; }, 0 },
+            { "justify-content", false,
+                [](S& to, S const& from) {
+                    to.justify_content = from.justify_content;
+                    to.justify_content_keyword = from.justify_content_keyword;
+                },
+                0 },
+            { "align-items", false,
+                [](S& to, S const& from) {
+                    to.align_items = from.align_items;
+                    to.align_items_keyword = from.align_items_keyword;
+                },
+                0 },
+            { "align-self", false,
+                [](S& to, S const& from) {
+                    to.align_self = from.align_self;
+                    to.align_self_keyword = from.align_self_keyword;
+                    to.align_self_safe = from.align_self_safe;
+                    to.align_self_last = from.align_self_last;
+                },
+                0 },
+            { "align-content", false,
+                [](S& to, S const& from) {
+                    to.align_content = from.align_content;
+                    to.align_content_keyword = from.align_content_keyword;
+                },
+                0 },
             { "flex-grow", false, [](S& to, S const& from) { to.flex_grow = from.flex_grow; }, 0 },
             { "flex-shrink", false, [](S& to, S const& from) { to.flex_shrink = from.flex_shrink; }, 0 },
             { "flex-basis", false, [](S& to, S const& from) { to.flex_basis = from.flex_basis; }, 0 },
@@ -4383,20 +4405,44 @@ struct Resolver {
                     to.flex_basis = from.flex_basis;
                 },
                 0 },
-            { "row-gap", false, [](S& to, S const& from) { to.row_gap = from.row_gap; }, 0 },
-            { "column-gap", false, [](S& to, S const& from) { to.column_gap = from.column_gap; }, 0 },
+            { "row-gap", false,
+                [](S& to, S const& from) {
+                    to.row_gap = from.row_gap;
+                    to.row_gap_normal = from.row_gap_normal;
+                },
+                0 },
+            { "column-gap", false,
+                [](S& to, S const& from) {
+                    to.column_gap = from.column_gap;
+                    to.column_gap_normal = from.column_gap_normal;
+                },
+                0 },
             { "gap", false,
                 [](S& to, S const& from) {
                     to.row_gap = from.row_gap;
+                    to.row_gap_normal = from.row_gap_normal;
                     to.column_gap = from.column_gap;
+                    to.column_gap_normal = from.column_gap_normal;
                 },
                 0 },
-            { "grid-row-gap", false, [](S& to, S const& from) { to.row_gap = from.row_gap; }, 0 },
-            { "grid-column-gap", false, [](S& to, S const& from) { to.column_gap = from.column_gap; }, 0 },
+            { "grid-row-gap", false,
+                [](S& to, S const& from) {
+                    to.row_gap = from.row_gap;
+                    to.row_gap_normal = from.row_gap_normal;
+                },
+                0 },
+            { "grid-column-gap", false,
+                [](S& to, S const& from) {
+                    to.column_gap = from.column_gap;
+                    to.column_gap_normal = from.column_gap_normal;
+                },
+                0 },
             { "grid-gap", false,
                 [](S& to, S const& from) {
                     to.row_gap = from.row_gap;
+                    to.row_gap_normal = from.row_gap_normal;
                     to.column_gap = from.column_gap;
+                    to.column_gap_normal = from.column_gap_normal;
                 },
                 0 },
             { "order", false, [](S& to, S const& from) { to.order = from.order; }, 0 },
@@ -4410,24 +4456,46 @@ struct Resolver {
             { "caption-side", true, [](S& to, S const& from) { to.caption_side = from.caption_side; }, 0 },
             { "empty-cells", true, [](S& to, S const& from) { to.empty_cells = from.empty_cells; }, 0 },
             { "table-layout", false, [](S& to, S const& from) { to.table_layout = from.table_layout; }, 0 },
-            { "justify-items", false, [](S& to, S const& from) { to.justify_items = from.justify_items; }, 0 },
-            { "justify-self", false, [](S& to, S const& from) { to.justify_self = from.justify_self; }, 0 },
+            { "justify-items", false,
+                [](S& to, S const& from) {
+                    to.justify_items = from.justify_items;
+                    to.justify_items_keyword = from.justify_items_keyword;
+                },
+                0 },
+            { "justify-self", false,
+                [](S& to, S const& from) {
+                    to.justify_self = from.justify_self;
+                    to.justify_self_keyword = from.justify_self_keyword;
+                    to.justify_self_safe = from.justify_self_safe;
+                    to.justify_self_last = from.justify_self_last;
+                },
+                0 },
             { "place-items", false,
                 [](S& to, S const& from) {
                     to.align_items = from.align_items;
+                    to.align_items_keyword = from.align_items_keyword;
                     to.justify_items = from.justify_items;
+                    to.justify_items_keyword = from.justify_items_keyword;
                 },
                 0 },
             { "place-self", false,
                 [](S& to, S const& from) {
                     to.align_self = from.align_self;
+                    to.align_self_keyword = from.align_self_keyword;
+                    to.align_self_safe = from.align_self_safe;
+                    to.align_self_last = from.align_self_last;
                     to.justify_self = from.justify_self;
+                    to.justify_self_keyword = from.justify_self_keyword;
+                    to.justify_self_safe = from.justify_self_safe;
+                    to.justify_self_last = from.justify_self_last;
                 },
                 0 },
             { "place-content", false,
                 [](S& to, S const& from) {
                     to.align_content = from.align_content;
+                    to.align_content_keyword = from.align_content_keyword;
                     to.justify_content = from.justify_content;
+                    to.justify_content_keyword = from.justify_content_keyword;
                 },
                 0 },
             { "grid-template-columns", false,
@@ -6559,6 +6627,13 @@ struct Resolver {
             }
             return AlignmentWords { values[first]->token().value, false, false };
         };
+        auto const keyword_of = [](std::string_view keyword) {
+            for (std::size_t i = 0; i < std::size(alignment_keywords); ++i) {
+                if (ascii_ci_equals(keyword, alignment_keywords[i]))
+                    return static_cast<AlignmentKeyword>(i);
+            }
+            return AlignmentKeyword::Normal; // unreachable: every keyword parsed is in the table
+        };
         auto const justify_content_of = [](std::string_view keyword) -> std::optional<JustifyContent> {
             if (ascii_ci_equals(keyword, "normal"))
                 return JustifyContent::Normal;
@@ -6601,8 +6676,10 @@ struct Resolver {
             auto const keyword = alignment_words(0, values.size());
             if (!keyword)
                 return;
-            if (std::optional<JustifyContent> const justify = justify_content_of(keyword->keyword))
+            if (std::optional<JustifyContent> const justify = justify_content_of(keyword->keyword)) {
                 style.justify_content = *justify;
+                style.justify_content_keyword = keyword_of(keyword->keyword);
+            }
             return;
         }
         auto const alignment_of = [](std::string_view keyword) -> std::optional<AlignItems> {
@@ -6642,16 +6719,21 @@ struct Resolver {
             std::optional<AlignItems> const alignment = self ? self_of(keyword->keyword) : items_of(keyword->keyword);
             if (!alignment)
                 return;
-            if (name == "align-items")
+            AlignmentKeyword const written = keyword_of(keyword->keyword);
+            if (name == "align-items") {
                 style.align_items = *alignment;
-            else if (name == "justify-items")
+                style.align_items_keyword = written;
+            } else if (name == "justify-items") {
                 style.justify_items = *alignment;
-            else if (name == "align-self") {
+                style.justify_items_keyword = written;
+            } else if (name == "align-self") {
                 style.align_self = *alignment;
+                style.align_self_keyword = written;
                 style.align_self_safe = keyword->safe;
                 style.align_self_last = keyword->last;
             } else {
                 style.justify_self = *alignment;
+                style.justify_self_keyword = written;
                 style.justify_self_safe = keyword->safe;
                 style.justify_self_last = keyword->last;
             }
@@ -6683,14 +6765,18 @@ struct Resolver {
                 return;
             if (self) {
                 style.align_self = *block;
+                style.align_self_keyword = keyword_of(first->keyword);
                 style.align_self_safe = first->safe;
                 style.align_self_last = first->last;
                 style.justify_self = *inline_axis;
+                style.justify_self_keyword = keyword_of(second->keyword);
                 style.justify_self_safe = second->safe;
                 style.justify_self_last = second->last;
             } else {
                 style.align_items = *block;
+                style.align_items_keyword = keyword_of(first->keyword);
                 style.justify_items = *inline_axis;
+                style.justify_items_keyword = keyword_of(second->keyword);
             }
             return;
         }
@@ -6716,27 +6802,19 @@ struct Resolver {
             if (!align || !justify)
                 return;
             style.align_content = *align;
+            style.align_content_keyword = keyword_of(first->keyword);
             style.justify_content = *justify;
+            style.justify_content_keyword = keyword_of(second->keyword);
             return;
         }
         if (name == "align-content") {
             if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
                 return;
             std::string_view const keyword = values[0]->token().value;
-            if (ascii_ci_equals(keyword, "stretch") || ascii_ci_equals(keyword, "normal"))
-                style.align_content = AlignContent::Stretch;
-            else if (ascii_ci_equals(keyword, "flex-start") || ascii_ci_equals(keyword, "start"))
-                style.align_content = AlignContent::FlexStart;
-            else if (ascii_ci_equals(keyword, "flex-end") || ascii_ci_equals(keyword, "end"))
-                style.align_content = AlignContent::FlexEnd;
-            else if (ascii_ci_equals(keyword, "center"))
-                style.align_content = AlignContent::Center;
-            else if (ascii_ci_equals(keyword, "space-between"))
-                style.align_content = AlignContent::SpaceBetween;
-            else if (ascii_ci_equals(keyword, "space-around"))
-                style.align_content = AlignContent::SpaceAround;
-            else if (ascii_ci_equals(keyword, "space-evenly"))
-                style.align_content = AlignContent::SpaceEvenly;
+            if (std::optional<AlignContent> const align = align_content_of(keyword)) {
+                style.align_content = *align;
+                style.align_content_keyword = keyword_of(keyword);
+            }
             return;
         }
         auto const non_negative_number = [](ComponentValue const& value) -> std::optional<float> {
@@ -6851,18 +6929,24 @@ struct Resolver {
             if (name == "gap" || name == "grid-gap") {
                 if (values.size() > 2)
                     return;
+                ComponentValue const& column_value = *values[values.size() == 2 ? 1 : 0];
                 std::optional<LengthPercent> const row = gap_of(*values[0]);
-                std::optional<LengthPercent> const column = values.size() == 2 ? gap_of(*values[1]) : row;
+                std::optional<LengthPercent> const column = gap_of(column_value);
                 if (!row || !column)
                     return;
                 style.row_gap = *row;
+                style.row_gap_normal = is_ident(values[0], "normal");
                 style.column_gap = *column;
+                style.column_gap_normal = is_ident(&column_value, "normal");
                 return;
             }
             if (values.size() != 1)
                 return;
-            if (std::optional<LengthPercent> const gap = gap_of(*values[0]))
-                (name == "row-gap" || name == "grid-row-gap" ? style.row_gap : style.column_gap) = *gap;
+            if (std::optional<LengthPercent> const gap = gap_of(*values[0])) {
+                bool const row = name == "row-gap" || name == "grid-row-gap";
+                (row ? style.row_gap : style.column_gap) = *gap;
+                (row ? style.row_gap_normal : style.column_gap_normal) = is_ident(values[0], "normal");
+            }
             return;
         }
         // --- Grid containers and items --------------------------------------

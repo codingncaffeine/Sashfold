@@ -368,6 +368,35 @@ enum class AlignContent : std::uint8_t {
     SpaceEvenly,
 };
 
+// The alignment keyword as written. Each alignment property computes to the
+// keyword specified (css-align-3), while the enums above fold the synonyms
+// layout treats alike — start, left and self-start into flex-start, normal
+// into stretch for align-content — so the keyword itself is kept beside them
+// for a script that reads the value back. The enumerators run in the order
+// of alignment_keywords, which spells them.
+enum class AlignmentKeyword : std::uint8_t {
+    Normal,
+    Auto,
+    Stretch,
+    Start,
+    End,
+    FlexStart,
+    FlexEnd,
+    SelfStart,
+    SelfEnd,
+    Left,
+    Right,
+    Center,
+    Baseline,
+    SpaceBetween,
+    SpaceAround,
+    SpaceEvenly,
+};
+inline constexpr char const* alignment_keywords[] = { "normal", "auto", "stretch", "start", "end", "flex-start",
+    "flex-end", "self-start", "self-end", "left", "right", "center", "baseline", "space-between", "space-around",
+    "space-evenly" };
+static_assert(std::size(alignment_keywords) == static_cast<std::size_t>(AlignmentKeyword::SpaceEvenly) + 1);
+
 enum class Float : std::uint8_t {
     None,
     Left,
@@ -1098,6 +1127,13 @@ struct ComputedStyle {
     bool align_self_last = false;
     bool justify_self_safe = false;
     bool justify_self_last = false;
+    // The six as written, for their computed values.
+    AlignmentKeyword justify_content_keyword = AlignmentKeyword::Normal;
+    AlignmentKeyword align_content_keyword = AlignmentKeyword::Normal;
+    AlignmentKeyword align_items_keyword = AlignmentKeyword::Normal;
+    AlignmentKeyword justify_items_keyword = AlignmentKeyword::Normal;
+    AlignmentKeyword align_self_keyword = AlignmentKeyword::Auto;
+    AlignmentKeyword justify_self_keyword = AlignmentKeyword::Auto;
     float flex_grow = 0;
     float flex_shrink = 1;
     LengthPercent flex_basis = LengthPercent::auto_value();
@@ -1105,6 +1141,10 @@ struct ComputedStyle {
     // axis, zero while that is indefinite.
     LengthPercent row_gap = LengthPercent::px(0);
     LengthPercent column_gap = LengthPercent::px(0);
+    // Whether each is `normal`, the initial value: zero here, as it is
+    // everywhere but in multi-column layout, and still `normal` to a script.
+    bool row_gap_normal = true;
+    bool column_gap_normal = true;
     int order = 0;
 
     // Grid containers: the explicit tracks in each axis (null: none), the

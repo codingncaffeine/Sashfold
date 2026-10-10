@@ -297,6 +297,212 @@ std::string border_style_text(css::BorderStyle style)
     }
 }
 
+// --- Flex, grid and alignment as getComputedStyle writes them ---
+
+std::string number_text(float value) { return js::number_to_utf8(static_cast<double>(value)); }
+
+std::string breadth_text(css::TrackBreadth const& breadth)
+{
+    using K = css::TrackBreadth::Kind;
+    switch (breadth.kind) {
+    case K::Length: return length_text(breadth.length);
+    case K::Flex: return number_text(breadth.fr) + "fr";
+    case K::Auto: return "auto";
+    case K::MinContent: return "min-content";
+    case K::MaxContent: return "max-content";
+    }
+    return "auto";
+}
+
+// A track size as written (css-grid-1 §7.2): one breadth when the minimum
+// and maximum are the same one, a flex factor alone over its auto minimum,
+// fit-content() by its cap, minmax() otherwise.
+std::string track_size_text(css::TrackSize const& size)
+{
+    if (size.fit_content)
+        return "fit-content(" + length_text(*size.fit_content) + ")";
+    std::string const min = breadth_text(size.min);
+    std::string const max = breadth_text(size.max);
+    if (min == max || (size.max.is_flexible() && size.min.kind == css::TrackBreadth::Kind::Auto))
+        return max;
+    return "minmax(" + min + ", " + max + ")";
+}
+
+std::string line_names_text(std::vector<std::string> const& names)
+{
+    if (names.empty())
+        return {};
+    std::string out = "[";
+    for (std::size_t i = 0; i < names.size(); ++i)
+        out += (i ? " " : "") + names[i];
+    return out + "]";
+}
+
+std::string track_list_text(std::shared_ptr<css::GridTrackList const> const& list)
+{
+    if (!list || list->empty())
+        return "none";
+    std::string out;
+    auto const add = [&](std::string const& part) {
+        if (part.empty())
+            return;
+        if (!out.empty())
+            out += ' ';
+        out += part;
+    };
+    auto const add_repeat = [&] {
+        std::string inner;
+        auto const inner_add = [&](std::string const& part) {
+            if (part.empty())
+                return;
+            if (!inner.empty())
+                inner += ' ';
+            inner += part;
+        };
+        inner_add(line_names_text(list->auto_repeat_leading_names));
+        for (css::GridTrackList::Track const& track : list->auto_repeat_tracks) {
+            inner_add(line_names_text(track.names));
+            inner_add(track_size_text(track.size));
+        }
+        inner_add(line_names_text(list->auto_repeat_trailing_names));
+        add(std::string("repeat(") + (list->auto_repeat == css::GridTrackList::AutoRepeat::Fit ? "auto-fit" : "auto-fill") + ", " + inner + ")");
+    };
+    for (std::size_t i = 0; i < list->tracks.size(); ++i) {
+        if (list->auto_repeat != css::GridTrackList::AutoRepeat::None && list->auto_repeat_at == i)
+            add_repeat();
+        add(line_names_text(list->tracks[i].names));
+        add(track_size_text(list->tracks[i].size));
+    }
+    if (list->auto_repeat != css::GridTrackList::AutoRepeat::None && list->auto_repeat_at >= list->tracks.size())
+        add_repeat();
+    add(line_names_text(list->trailing_names));
+    return out;
+}
+
+std::string grid_line_text(css::GridLine const& line)
+{
+    using K = css::GridLine::Kind;
+    switch (line.kind) {
+    case K::Auto: return "auto";
+    case K::Line: return std::to_string(line.number) + (line.name.empty() ? "" : " " + line.name);
+    case K::Name: return line.name;
+    case K::Span: return "span " + (line.number == 1 && !line.name.empty() ? line.name : std::to_string(line.number) + (line.name.empty() ? "" : " " + line.name));
+    }
+    return "auto";
+}
+
+// The grid-row, grid-column and grid-area shorthands (css-grid-1 §8.4): a
+// later line is left out where the shorthand would have given it anyway —
+// the earlier line's name when that is a name alone, else auto.
+std::string grid_lines_text(std::vector<css::GridLine const*> lines)
+{
+    auto const implied = [](css::GridLine const& by, css::GridLine const& line) {
+        if (by.kind == css::GridLine::Kind::Name)
+            return line.kind == css::GridLine::Kind::Name && line.name == by.name;
+        return line.is_auto();
+    };
+    // grid-area: column-end by column-start, row-end by row-start, then
+    // column-start by row-start, each only once the ones after it are gone.
+    std::size_t kept = lines.size();
+    if (lines.size() == 4) {
+        if (implied(*lines[1], *lines[3])) {
+            kept = 3;
+            if (implied(*lines[0], *lines[2])) {
+                kept = 2;
+                if (implied(*lines[0], *lines[1]))
+                    kept = 1;
+            }
+        }
+    } else if (lines.size() == 2 && implied(*lines[0], *lines[1])) {
+        kept = 1;
+    }
+    std::string out;
+    for (std::size_t i = 0; i < kept; ++i)
+        out += (i ? " / " : "") + grid_line_text(*lines[i]);
+    return out;
+}
+
+// grid-template-areas: one string per row, a cell no area covers a dot.
+std::string grid_areas_text(std::shared_ptr<css::GridAreas const> const& areas)
+{
+    if (!areas || areas->rows <= 0 || areas->columns <= 0)
+        return "none";
+    std::vector<std::vector<std::string>> cells(static_cast<std::size_t>(areas->rows),
+        std::vector<std::string>(static_cast<std::size_t>(areas->columns), "."));
+    for (css::GridAreas::Area const& area : areas->areas) {
+        for (int row = area.row_start; row < area.row_end && row <= areas->rows; ++row) {
+            for (int column = area.column_start; column < area.column_end && column <= areas->columns; ++column)
+                cells[static_cast<std::size_t>(row - 1)][static_cast<std::size_t>(column - 1)] = area.name;
+        }
+    }
+    std::string out;
+    for (std::vector<std::string> const& row : cells) {
+        if (!out.empty())
+            out += ' ';
+        out += '"';
+        for (std::size_t i = 0; i < row.size(); ++i)
+            out += (i ? " " : "") + row[i];
+        out += '"';
+    }
+    return out;
+}
+
+std::string alignment_text(css::AlignmentKeyword keyword, bool safe = false, bool last = false)
+{
+    std::string const word = css::alignment_keywords[static_cast<std::size_t>(keyword)];
+    if (last && keyword == css::AlignmentKeyword::Baseline)
+        return "last baseline";
+    return safe ? "safe " + word : word;
+}
+
+std::string gap_text(css::LengthPercent const& gap, bool normal) { return normal ? "normal" : length_text(gap); }
+
+// One value for a pair that says the same twice, as the shorthands serialize.
+std::string pair_text(std::string const& first, std::string const& second)
+{
+    return first == second ? first : first + " " + second;
+}
+
+// The four sides' values as a box shorthand writes them: as few as say them all.
+std::string sides_text(std::string const& top, std::string const& right, std::string const& bottom, std::string const& left)
+{
+    if (left != right)
+        return top + " " + right + " " + bottom + " " + left;
+    if (top != bottom)
+        return top + " " + right + " " + bottom;
+    if (top != right)
+        return top + " " + right;
+    return top;
+}
+
+// The custom properties an element sees, by name: its own over its base,
+// an invalid one hiding the inherited one of the same name.
+void custom_property_names(css::CustomProperties const& set, std::vector<std::string>& names)
+{
+    for (css::CustomProperties::Entry const& entry : set.entries) {
+        if (entry->valid && std::find(names.begin(), names.end(), entry->name) == names.end())
+            names.push_back(entry->name);
+    }
+    if (set.base)
+        custom_property_names(*set.base, names);
+}
+
+std::string custom_property_text(css::ComputedStyle const& style, std::string const& name)
+{
+    if (!style.custom)
+        return {};
+    std::vector<css::ComponentValue> const* const value = style.custom->find(name);
+    if (!value)
+        return {};
+    std::string out;
+    serialize_values(*value, out);
+    // The value without the whitespace around it (css-variables-1 §2.1).
+    std::size_t const begin = out.find_first_not_of(" \t\n\r\f");
+    if (begin == std::string::npos)
+        return {};
+    return out.substr(begin, out.find_last_not_of(" \t\n\r\f") - begin + 1);
+}
+
 // The computed value of one property as getComputedStyle spells it; empty
 // for a property the engine does not compute.
 // --- The animation-* and transition-* properties as getComputedStyle writes them ---
@@ -780,9 +986,130 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
     };
     for (auto const& [prefix, side] : { std::pair { "border-top-", &style.border_top }, std::pair { "border-right-", &style.border_right },
              std::pair { "border-bottom-", &style.border_bottom }, std::pair { "border-left-", &style.border_left } }) {
-        if (name.starts_with(prefix))
-            return border(*side, name.substr(std::string_view(prefix).size()));
+        if (std::string_view const part = std::string_view(name).substr(std::min(name.size(), std::string_view(prefix).size()));
+            name.starts_with(prefix) && (part == "width" || part == "style" || part == "color"))
+            return border(*side, part);
     }
+    if (name.starts_with("--"))
+        return custom_property_text(style, name);
+    // The shorthands of the box: each side's value, as few as say them all.
+    if (name == "margin" || name == "padding") {
+        auto const side = [&](std::string const& which) { return computed_property(in, element, style, name + "-" + which, resolved); };
+        return sides_text(side("top"), side("right"), side("bottom"), side("left"));
+    }
+    if (name == "border-width" || name == "border-style" || name == "border-color") {
+        std::string const part = name.substr(7);
+        return sides_text(border(style.border_top, part), border(style.border_right, part), border(style.border_bottom, part),
+            border(style.border_left, part));
+    }
+    if (name == "border" || name == "border-top" || name == "border-right" || name == "border-bottom" || name == "border-left") {
+        auto const whole = [&](BorderSide const& side) { return border(side, "width") + " " + border(side, "style") + " " + border(side, "color"); };
+        if (name == "border-top") return whole(style.border_top);
+        if (name == "border-right") return whole(style.border_right);
+        if (name == "border-bottom") return whole(style.border_bottom);
+        if (name == "border-left") return whole(style.border_left);
+        std::string const top = whole(style.border_top);
+        // The shorthand stands for all four sides only when they agree.
+        return top == whole(style.border_right) && top == whole(style.border_bottom) && top == whole(style.border_left) ? top : "";
+    }
+    auto const corner = [](CornerRadius const& radius) { return pair_text(length_text(radius.x), length_text(radius.y)); };
+    if (name == "border-top-left-radius") return corner(style.border_top_left_radius);
+    if (name == "border-top-right-radius") return corner(style.border_top_right_radius);
+    if (name == "border-bottom-right-radius") return corner(style.border_bottom_right_radius);
+    if (name == "border-bottom-left-radius") return corner(style.border_bottom_left_radius);
+    if (name == "border-radius") {
+        CornerRadius const* const corners[] = { &style.border_top_left_radius, &style.border_top_right_radius,
+            &style.border_bottom_right_radius, &style.border_bottom_left_radius };
+        std::string const horizontal = sides_text(length_text(corners[0]->x), length_text(corners[1]->x), length_text(corners[2]->x), length_text(corners[3]->x));
+        std::string const vertical = sides_text(length_text(corners[0]->y), length_text(corners[1]->y), length_text(corners[2]->y), length_text(corners[3]->y));
+        return horizontal == vertical ? horizontal : horizontal + " / " + vertical;
+    }
+    if (name == "border-collapse")
+        return style.border_collapse == BorderCollapse::Collapse ? "collapse" : "separate";
+    if (name == "border-spacing")
+        return length_text(style.border_spacing_horizontal) + " " + length_text(style.border_spacing_vertical);
+    // The outline: a width of zero while it has no style (css-ui-4 §3.2).
+    bool const outlined = style.outline.automatic || style.outline.style != BorderStyle::None;
+    std::string const outline_style = style.outline.automatic ? "auto" : border_style_text(style.outline.style);
+    std::string const outline_color = color_text(style.outline.current_color ? style.color : style.outline.color);
+    std::string const outline_width = px(outlined ? style.outline.width : 0);
+    if (name == "outline-style") return outline_style;
+    if (name == "outline-color") return outline_color;
+    if (name == "outline-width") return outline_width;
+    if (name == "outline-offset") return px(style.outline.offset);
+    if (name == "outline") return outline_color + " " + outline_style + " " + outline_width;
+    // Flex containers and items.
+    auto const direction_text = [&] {
+        switch (style.flex_direction) {
+        case FlexDirection::Row: return "row";
+        case FlexDirection::RowReverse: return "row-reverse";
+        case FlexDirection::Column: return "column";
+        case FlexDirection::ColumnReverse: return "column-reverse";
+        }
+        return "row";
+    };
+    auto const wrap_text = [&] {
+        switch (style.flex_wrap) {
+        case FlexWrap::NoWrap: return "nowrap";
+        case FlexWrap::Wrap: return "wrap";
+        case FlexWrap::WrapReverse: return "wrap-reverse";
+        }
+        return "nowrap";
+    };
+    if (name == "flex-direction") return direction_text();
+    if (name == "flex-wrap") return wrap_text();
+    if (name == "flex-flow") return std::string(direction_text()) + " " + wrap_text();
+    if (name == "flex-grow") return number_text(style.flex_grow);
+    if (name == "flex-shrink") return number_text(style.flex_shrink);
+    if (name == "flex-basis") return length_text(style.flex_basis);
+    if (name == "flex") return number_text(style.flex_grow) + " " + number_text(style.flex_shrink) + " " + length_text(style.flex_basis);
+    if (name == "order") return std::to_string(style.order);
+    // Alignment, as written.
+    if (name == "justify-content") return alignment_text(style.justify_content_keyword);
+    if (name == "align-content") return alignment_text(style.align_content_keyword);
+    if (name == "align-items") return alignment_text(style.align_items_keyword);
+    if (name == "justify-items") return alignment_text(style.justify_items_keyword);
+    if (name == "align-self") return alignment_text(style.align_self_keyword, style.align_self_safe, style.align_self_last);
+    if (name == "justify-self") return alignment_text(style.justify_self_keyword, style.justify_self_safe, style.justify_self_last);
+    if (name == "place-content") return pair_text(alignment_text(style.align_content_keyword), alignment_text(style.justify_content_keyword));
+    if (name == "place-items") return pair_text(alignment_text(style.align_items_keyword), alignment_text(style.justify_items_keyword));
+    if (name == "place-self")
+        return pair_text(alignment_text(style.align_self_keyword, style.align_self_safe, style.align_self_last),
+            alignment_text(style.justify_self_keyword, style.justify_self_safe, style.justify_self_last));
+    // The gutters.
+    if (name == "row-gap" || name == "grid-row-gap") return gap_text(style.row_gap, style.row_gap_normal);
+    if (name == "column-gap" || name == "grid-column-gap") return gap_text(style.column_gap, style.column_gap_normal);
+    if (name == "gap" || name == "grid-gap")
+        return pair_text(gap_text(style.row_gap, style.row_gap_normal), gap_text(style.column_gap, style.column_gap_normal));
+    // Grid containers and items.
+    if (name == "grid-template-columns") return track_list_text(style.grid_template_columns);
+    if (name == "grid-template-rows") return track_list_text(style.grid_template_rows);
+    if (name == "grid-template-areas") return grid_areas_text(style.grid_template_areas);
+    if (name == "grid-auto-columns" || name == "grid-auto-rows") {
+        std::shared_ptr<std::vector<TrackSize> const> const& sizes = name == "grid-auto-columns" ? style.grid_auto_columns : style.grid_auto_rows;
+        if (!sizes || sizes->empty())
+            return "auto";
+        std::string out;
+        for (TrackSize const& size : *sizes)
+            out += (out.empty() ? "" : " ") + track_size_text(size);
+        return out;
+    }
+    if (name == "grid-auto-flow") {
+        switch (style.grid_auto_flow) {
+        case GridAutoFlow::Row: return "row";
+        case GridAutoFlow::Column: return "column";
+        case GridAutoFlow::RowDense: return "row dense";
+        case GridAutoFlow::ColumnDense: return "column dense";
+        }
+    }
+    if (name == "grid-row-start") return grid_line_text(style.grid_row_start);
+    if (name == "grid-row-end") return grid_line_text(style.grid_row_end);
+    if (name == "grid-column-start") return grid_line_text(style.grid_column_start);
+    if (name == "grid-column-end") return grid_line_text(style.grid_column_end);
+    if (name == "grid-row") return grid_lines_text({ &style.grid_row_start, &style.grid_row_end });
+    if (name == "grid-column") return grid_lines_text({ &style.grid_column_start, &style.grid_column_end });
+    if (name == "grid-area")
+        return grid_lines_text({ &style.grid_row_start, &style.grid_column_start, &style.grid_row_end, &style.grid_column_end });
     if (name == "transform")
         return style.transformed ? "matrix(1, 0, 0, 1, " + js::number_to_utf8(static_cast<double>(style.translate_x.value)) + ", " + js::number_to_utf8(static_cast<double>(style.translate_y.value)) + ")" : "none";
     if (name == "pointer-events")
@@ -815,6 +1142,44 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         return out;
     }
     return "";
+}
+
+// The longhands a computed style lists, in the alphabetical order the
+// shipping engines list theirs in: what its length counts and item() names,
+// before the custom properties in force.
+constexpr std::string_view computed_longhands[] = { "align-content", "align-items", "align-self", "animation-composition", "animation-delay",
+    "animation-direction", "animation-duration", "animation-fill-mode", "animation-iteration-count", "animation-name",
+    "animation-play-state", "animation-timeline", "animation-timing-function", "appearance", "aspect-ratio", "background-color", "background-image",
+    "border-bottom-color", "border-bottom-left-radius", "border-bottom-right-radius", "border-bottom-style", "border-bottom-width",
+    "border-collapse", "border-left-color", "border-left-style", "border-left-width", "border-right-color", "border-right-style",
+    "border-right-width", "border-spacing", "border-top-color", "border-top-left-radius", "border-top-right-radius",
+    "border-top-style", "border-top-width", "bottom", "box-shadow", "box-sizing", "clear", "color", "column-gap", "content",
+    "cursor", "direction", "display", "flex-basis", "flex-direction", "flex-grow", "flex-shrink", "flex-wrap", "float",
+    "font-family", "font-kerning", "font-size", "font-stretch", "font-style", "font-synthesis-position",
+    "font-synthesis-small-caps", "font-synthesis-style", "font-synthesis-weight", "font-weight", "grid-auto-columns",
+    "grid-auto-flow", "grid-auto-rows", "grid-column-end", "grid-column-start", "grid-row-end", "grid-row-start",
+    "grid-template-areas", "grid-template-columns", "grid-template-rows", "height", "hyphenate-character", "hyphens",
+    "justify-content", "justify-items", "justify-self", "left", "letter-spacing", "line-break", "line-height", "margin-bottom",
+    "margin-left", "margin-right", "margin-top", "max-height", "max-width", "min-height", "min-width", "object-fit",
+    "object-position", "opacity", "order", "outline-color", "outline-offset", "outline-style", "outline-width", "overflow-wrap",
+    "overflow-x", "overflow-y", "padding-bottom", "padding-left", "padding-right", "padding-top", "pointer-events", "position",
+    "right", "row-gap", "text-align", "text-decoration-line", "text-shadow", "text-transform", "top", "transform",
+    "transition-behavior", "transition-delay", "transition-duration", "transition-property", "transition-timing-function",
+    "visibility", "white-space", "width", "word-break", "word-spacing", "z-index" };
+
+// What a computed style's length counts and item() names: the longhands,
+// then the custom properties the element sees.
+std::vector<std::string> computed_names(Realm::Internals& in, StyleDeclarationObject const& style)
+{
+    std::vector<std::string> names(std::begin(computed_longhands), std::end(computed_longhands));
+    css::ComputedStyle const* const computed = in.hooks.computed_style && style.element() ? in.hooks.computed_style(*style.element()) : nullptr;
+    if (computed && computed->custom) {
+        std::vector<std::string> custom;
+        custom_property_names(*computed->custom, custom);
+        std::sort(custom.begin(), custom.end());
+        names.insert(names.end(), custom.begin(), custom.end());
+    }
+    return names;
 }
 
 // --- Token lists ----------------------------------------------------------------------
@@ -1339,6 +1704,8 @@ void install_style(Realm::Internals& in)
         std::optional<StyleDeclarationObject*> const s = this_style(interp, this_value);
         if (!s)
             return std::nullopt;
+        if ((*s)->computed && (*s)->element())
+            return js::Value::number(static_cast<double>(computed_names(internals_of(interp), **s).size()));
         if (!(*s)->writable())
             return js::Value::number(0);
         return js::Value::number(static_cast<double>(declarations_of(**s).size()));
@@ -1356,6 +1723,12 @@ void install_style(Realm::Internals& in)
         std::optional<double> const index = interp.to_number(js::argument(args, 0));
         if (!index)
             return std::nullopt;
+        if ((*s)->computed && (*s)->element()) {
+            std::vector<std::string> const names = computed_names(internals_of(interp), **s);
+            if (*index < 0 || *index >= static_cast<double>(names.size()))
+                return internals_of(interp).string("");
+            return internals_of(interp).string(names[static_cast<std::size_t>(*index)]);
+        }
         if (!(*s)->writable())
             return internals_of(interp).string("");
         std::vector<css::Declaration> const declarations = declarations_of(**s);
@@ -1375,7 +1748,9 @@ void install_style(Realm::Internals& in)
             return internals.string("");
         if ((*s)->computed) {
             css::ComputedStyle const* computed = internals.hooks.computed_style ? internals.hooks.computed_style(*(*s)->element()) : nullptr;
-            return internals.string(computed ? computed_property(internals, *(*s)->element(), *computed, ascii_lower(*name)) : "");
+            // A custom property's name is case-sensitive; every other one is not.
+            std::string const asked = name->starts_with("--") ? *name : ascii_lower(*name);
+            return internals.string(computed ? computed_property(internals, *(*s)->element(), *computed, asked) : "");
         }
         return internals.string(declaration_value(**s, *name));
     });

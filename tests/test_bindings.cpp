@@ -3836,6 +3836,59 @@ window.facts = [innerWidth, innerHeight, root.clientWidth, root.clientHeight, w.
         std::string("152"));
 }
 
+// getComputedStyle reads back the flex, grid, gap, alignment, radius and
+// outline properties, the box shorthands and the custom properties, each as
+// the shipping engines spell it; an alignment keyword as written, never the
+// synonym layout treats it as; and a computed style lists its properties.
+void test_the_computed_layout_properties()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy*,
+                               std::vector<bindings::FrameAncestor> const&, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt;
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        answer.url = *net::parse_url("about:srcdoc");
+        answer.origin = base;
+        answer.srcdoc = true;
+        return answer;
+    };
+    Page page(R"HTML(<!DOCTYPE html>
+<iframe id=f srcdoc="<!DOCTYPE html><style>
+#x { display: flex; flex-flow: column wrap; justify-content: start; align-items: center; align-content: space-between; gap: 10px 20px; --Accent:  red ; margin: 1px 2px; }
+#i { flex: 2 3 40px; order: -1; align-self: safe end; }
+#g { display: grid; grid-template-columns: [a] 100px 1fr minmax(50px, auto) [b]; grid-template-areas: 'h h' 'n .'; grid-auto-flow: column dense; row-gap: 5%; place-items: start end; }
+#c { grid-column: 2 / span 3; grid-row-start: -1; justify-self: last baseline; }
+#b { border: 2px solid rgb(0, 0, 255); border-top-left-radius: 4px 8px; outline: 3px solid rgb(255, 0, 0); outline-offset: 2px; }
+</style><div id=x><span id=i>i</span></div><div id=g><span id=c>c</span></div><div id=b>b</div><p id=p>p</p>
+<script>function cs(id) { return getComputedStyle(document.getElementById(id)); }
+var x = cs('x'), i = cs('i'), g = cs('g'), c = cs('c'), b = cs('b'), p = cs('p');
+window.flex = [x.flexDirection, x.flexWrap, x.flexFlow, x.justifyContent, x.alignItems, x.alignContent, x.gap, x.rowGap, x.columnGap,
+  i.flex, i.flexGrow, i.flexShrink, i.flexBasis, i.order, i.alignSelf].join('|');
+window.initial = [p.justifyContent, p.alignItems, p.alignContent, p.alignSelf, p.gap, p.flex, p.order, p.gridTemplateColumns, p.gridArea,
+  p.borderRadius, p.outlineStyle, p.outlineWidth].join('|');
+window.grid = [g.gridTemplateColumns, g.gridTemplateAreas, g.gridAutoFlow, g.rowGap, g.placeItems, g.justifyItems,
+  c.gridColumn, c.gridRowStart, c.justifySelf].join('|');
+window.box = [b.borderTopLeftRadius, b.borderRadius, b.borderWidth, b.border, b.outline, b.outlineOffset, x.margin, x.padding].join('|');
+window.custom = [x.getPropertyValue('--Accent'), x.getPropertyValue('--accent') === '', cs('i').getPropertyValue('--Accent')].join('|');
+var names = []; for (var k = 0; k < x.length; ++k) names.push(x.item(k));
+window.listed = [x.length > 100, names.indexOf('flex-direction') >= 0, names.indexOf('row-gap') >= 0, names[names.length - 1], x[0] === undefined || x[0] === names[0]].join('|');
+</script>"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page.load();
+    auto const inner = [&](std::string const& name) { return page.string("document.getElementById('f').contentWindow." + name); };
+    CHECK_EQ(inner("flex"), std::string("column|wrap|column wrap|start|center|space-between|10px 20px|10px|20px|2 3 40px|2|3|40px|-1|safe end"));
+    CHECK_EQ(inner("initial"), std::string("normal|normal|normal|auto|normal|0 1 auto|0|none|auto|0px|none|0px"));
+    CHECK_EQ(inner("grid"), std::string("[a] 100px 1fr minmax(50px, auto) [b]|\"h h\" \"n .\"|column dense|5%|start end|end|2 / span 3|-1|last baseline"));
+    CHECK_EQ(inner("box"), std::string("4px 8px|4px 0px 0px / 8px 0px 0px|2px|2px solid rgb(0, 0, 255)|rgb(255, 0, 0) solid 3px|2px|1px 2px|0px"));
+    CHECK_EQ(inner("custom"), std::string("red|true|red"));
+    CHECK_EQ(inner("listed"), std::string("true|true|true|--Accent|true"));
+    CHECK_EQ(page.console, "");
+}
+
 // appearance computes to the keyword as written, the built-in sheet's `auto`
 // on a button and the initial `none` elsewhere, under both spellings; and a
 // style object finds the attribute of every property it supports on its
@@ -6080,6 +6133,7 @@ int main()
     test_platform_objects_and_message_arrivals();
     test_a_frame_measures_itself();
     test_the_computed_appearance();
+    test_the_computed_layout_properties();
     test_interface_constructors_make_what_new_target_names();
     test_blob_urls_are_fetched_from_the_store();
     test_import_maps();
