@@ -13,8 +13,11 @@
 #endif
 #include <windows.h>
 
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <deque>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -64,6 +67,25 @@ int high_signed(LPARAM value)
     return static_cast<int>(static_cast<short>((static_cast<unsigned>(value) >> 16) & 0xFFFFu));
 }
 
+// The frame's edges around a client area at `dpi`, as the rectangle that
+// holds an empty client at the origin: AdjustWindowRectExForDpi from Windows
+// 10 1607 on (looked up by name, as the other DPI entry points are), the
+// system DPI's edges before it.
+RECT frame_edges(DWORD style, UINT dpi)
+{
+    using AdjustForDpi = BOOL(WINAPI*)(LPRECT, DWORD, BOOL, DWORD, UINT);
+    HMODULE const user32 = GetModuleHandleW(L"user32.dll");
+    auto const adjust = user32 ? reinterpret_cast<AdjustForDpi>(reinterpret_cast<void*>(GetProcAddress(user32, "AdjustWindowRectExForDpi"))) : nullptr;
+    RECT edges { 0, 0, 0, 0 };
+    if (adjust)
+        adjust(&edges, style, FALSE, 0, dpi);
+    else
+        AdjustWindowRect(&edges, style, FALSE);
+    return edges;
+}
+
+constexpr DWORD window_style = WS_OVERLAPPEDWINDOW;
+
 KeyEvent key_event_from(WPARAM virtual_key)
 {
     KeyEvent event;
@@ -103,7 +125,7 @@ KeyEvent key_event_from(WPARAM virtual_key)
 
 class WindowWin32 final : public Window {
 public:
-    static std::unique_ptr<Window> open(std::string const& title, int width, int height);
+    static std::unique_ptr<Window> open(std::string const& title, WindowPlacement const& placement);
 
     ~WindowWin32() override
     {
@@ -175,6 +197,33 @@ public:
     int width() const override { return m_width; }
     int height() const override { return m_height; }
     float scale() const override { return m_scale; }
+
+    // The system keeps where the window stands when neither maximized nor
+    // minimized, whichever it is now: its frame in workspace coordinates,
+    // the client being that less the frame's edges at the window's DPI.
+    std::optional<WindowPlacement> placement() const override
+    {
+        WINDOWPLACEMENT held {};
+        held.length = sizeof held;
+        if (!m_hwnd || !GetWindowPlacement(m_hwnd, &held))
+            return std::nullopt;
+        UINT const dpi = static_cast<UINT>(std::lround(m_scale * 96.0f));
+        RECT const edges = frame_edges(window_style, dpi);
+        RECT const& frame = held.rcNormalPosition;
+        int const client_width = (frame.right - frame.left) - (edges.right - edges.left);
+        int const client_height = (frame.bottom - frame.top) - (edges.bottom - edges.top);
+        if (client_width <= 0 || client_height <= 0)
+            return std::nullopt;
+        WindowPlacement placement;
+        placement.width = MulDiv(client_width, 96, static_cast<int>(dpi));
+        placement.height = MulDiv(client_height, 96, static_cast<int>(dpi));
+        placement.maximized = held.showCmd == SW_SHOWMAXIMIZED
+            || (held.showCmd == SW_SHOWMINIMIZED && (held.flags & WPF_RESTORETOMAXIMIZED) != 0);
+        placement.has_position = true;
+        placement.x = frame.left;
+        placement.y = frame.top;
+        return placement;
+    }
 
 private:
     WindowWin32() = default;
@@ -403,7 +452,7 @@ private:
     wchar_t m_high_surrogate = 0;
 };
 
-std::unique_ptr<Window> WindowWin32::open(std::string const& title, int width, int height)
+std::unique_ptr<Window> WindowWin32::open(std::string const& title, WindowPlacement const& placement)
 {
     static bool registered = false;
     HINSTANCE const instance = GetModuleHandleW(nullptr);
@@ -435,23 +484,29 @@ std::unique_ptr<Window> WindowWin32::open(std::string const& title, int width, i
     if (set_awareness)
         set_awareness(reinterpret_cast<HANDLE>(static_cast<std::intptr_t>(-4))); // DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2
     UINT const system_dpi = dpi_for_system ? dpi_for_system() : 96;
-    // The size asked for is in CSS px; the window opens at it on this display.
-    width = MulDiv(width, static_cast<int>(system_dpi), 96);
-    height = MulDiv(height, static_cast<int>(system_dpi), 96);
+    // The size asked for is in CSS px; the window opens at it on this display,
+    // made to fit the desktop's work area where it does not.
+    int const width = MulDiv(placement.width, static_cast<int>(system_dpi), 96);
+    int const height = MulDiv(placement.height, static_cast<int>(system_dpi), 96);
 
     RECT frame { 0, 0, width, height };
-    DWORD const style = WS_OVERLAPPEDWINDOW;
+    DWORD const style = window_style;
     AdjustWindowRect(&frame, style, FALSE);
-    int const outer_width = frame.right - frame.left;
-    int const outer_height = frame.bottom - frame.top;
+    int outer_width = frame.right - frame.left;
+    int outer_height = frame.bottom - frame.top;
+    RECT work {};
+    if (SystemParametersInfoW(SPI_GETWORKAREA, 0, &work, 0)) {
+        outer_width = std::min(outer_width, static_cast<int>(work.right - work.left));
+        outer_height = std::min(outer_height, static_cast<int>(work.bottom - work.top));
+    }
     int const screen_width = GetSystemMetrics(SM_CXSCREEN);
     int const screen_height = GetSystemMetrics(SM_CYSCREEN);
     int const x = std::max(0, (screen_width - outer_width) / 2);
     int const y = std::max(0, (screen_height - outer_height) / 2);
 
     std::unique_ptr<WindowWin32> window(new WindowWin32());
-    window->m_width = width;
-    window->m_height = height;
+    window->m_width = outer_width - (frame.right - frame.left - width);
+    window->m_height = outer_height - (frame.bottom - frame.top - height);
     HWND const hwnd = CreateWindowExW(0, window_class_name, to_wide(title).c_str(), style, x, y,
         outer_width, outer_height, nullptr, nullptr, instance, nullptr);
     if (!hwnd)
@@ -463,17 +518,31 @@ std::unique_ptr<Window> WindowWin32::open(std::string const& title, int width, i
             window->m_scale = static_cast<float>(dpi) / 96.0f;
     }
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window.get()));
-    ShowWindow(hwnd, SW_SHOW);
+    // Shown where the last run left it and as it was — maximized or not —
+    // as Chrome does, through the placement the system keeps: the place
+    // only while some display still shows it (one unplugged since leaves
+    // the window centred on this one), never minimized.
+    WINDOWPLACEMENT shown {};
+    shown.length = sizeof shown;
+    GetWindowPlacement(hwnd, &shown);
+    if (placement.has_position) {
+        RECT const at { placement.x, placement.y, placement.x + outer_width, placement.y + outer_height };
+        if (MonitorFromRect(&at, MONITOR_DEFAULTTONULL))
+            shown.rcNormalPosition = at;
+    }
+    shown.flags = 0;
+    shown.showCmd = placement.maximized ? SW_SHOWMAXIMIZED : SW_SHOWNORMAL;
+    SetWindowPlacement(hwnd, &shown);
     UpdateWindow(hwnd);
     // The WM_SIZE of creation went to DefWindowProc (our procedure attaches
     // after CreateWindow); the shell paints its first frame unprompted.
     return window;
 }
 
-std::unique_ptr<Window> Window::create(std::string const& title, int width, int height, Bitmap const*)
+std::unique_ptr<Window> Window::create(std::string const& title, WindowPlacement const& placement, Bitmap const*)
 {
     // The icon comes from the executable's resources on Windows.
-    return WindowWin32::open(title, width, height);
+    return WindowWin32::open(title, placement);
 }
 
 }

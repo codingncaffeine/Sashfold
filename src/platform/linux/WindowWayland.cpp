@@ -206,7 +206,10 @@ namespace xdg_toplevel {
     constexpr std::uint16_t event_close = 1;
     constexpr std::uint16_t event_configure_bounds = 2; // since 4
     constexpr std::uint32_t state_maximized = 1;
+    constexpr std::uint32_t state_fullscreen = 2;
     constexpr std::uint32_t state_activated = 4;
+    constexpr std::uint32_t state_tiled_left = 5; // since version 2, as are the three after it
+    constexpr std::uint32_t state_tiled_bottom = 8;
     constexpr std::uint32_t state_suspended = 9; // since version 6: nothing of the window is shown
     constexpr std::uint32_t edge_top = 1;
     constexpr std::uint32_t edge_bottom = 2;
@@ -407,7 +410,7 @@ std::vector<std::uint8_t> scaled_icon(Bitmap const& icon, int size)
 
 class WaylandWindow final : public Window {
 public:
-    static std::unique_ptr<Window> open(std::string const& title, int width, int height, Bitmap const* icon);
+    static std::unique_ptr<Window> open(std::string const& title, WindowPlacement const& placement, Bitmap const* icon);
     ~WaylandWindow() override;
 
     bool poll(WindowEvent& event) override;
@@ -428,6 +431,7 @@ public:
     int width() const override { return m_buffer_width; }
     int height() const override { return m_buffer_height; }
     float scale() const override { return static_cast<float>(m_scale); }
+    std::optional<WindowPlacement> placement() const override;
 
     bool write_clipboard(std::string const& utf8);
     std::optional<std::string> read_clipboard();
@@ -446,7 +450,7 @@ private:
         bool busy = false; // attached, and the compositor has not released it
     };
 
-    WaylandWindow(std::unique_ptr<Connection> connection, int width, int height);
+    WaylandWindow(std::unique_ptr<Connection> connection, WindowPlacement const& placement);
     bool setup(std::string const& title, Bitmap const* icon, std::string& error);
     std::uint32_t bind(std::string const& interface, std::uint32_t version);
     void send(Request& request) { m_connection->send(request); }
@@ -527,6 +531,12 @@ private:
     // times the logical size.
     int m_width;
     int m_height;
+    // The size the window last had while neither maximized, fullscreen nor
+    // tiled, in surface units: what it goes back to when the compositor
+    // leaves the size to it (a configure of 0 x 0), and what the next start
+    // opens it at.
+    int m_normal_width;
+    int m_normal_height;
     double m_scale = 1;
     int m_buffer_width;
     int m_buffer_height;
@@ -539,10 +549,15 @@ private:
     // one and agrees to draw it, else the shell's.
     bool m_client_decorations = false;
     bool m_maximized = false; // from the toplevel's configure states
+    bool m_fullscreen = false; // likewise
+    bool m_tiled = false; // likewise: against an edge of the screen, or snapped to a half of it
     bool m_suspended = false; // likewise: nothing of the window is shown
     // Likewise; begun as the shell begins, in front, so that the first
     // configure that says otherwise is a change and is told.
     bool m_activated = true;
+    // Whether the window was maximized when last not fullscreen: what the
+    // next start opens it as. Begun as the start asked.
+    bool m_placed_maximized = false;
     std::deque<WindowEvent> m_events;
 
     FrameBuffer m_frames[2];
@@ -604,12 +619,15 @@ std::optional<std::string> wayland_read_clipboard_text(WaylandWindow& window)
 
 // --- Setup ------------------------------------------------------------------
 
-WaylandWindow::WaylandWindow(std::unique_ptr<Connection> connection, int width, int height)
+WaylandWindow::WaylandWindow(std::unique_ptr<Connection> connection, WindowPlacement const& placement)
     : m_connection(std::move(connection))
-    , m_width(width)
-    , m_height(height)
-    , m_buffer_width(width)
-    , m_buffer_height(height)
+    , m_width(placement.width)
+    , m_height(placement.height)
+    , m_normal_width(placement.width)
+    , m_normal_height(placement.height)
+    , m_buffer_width(placement.width)
+    , m_buffer_height(placement.height)
+    , m_placed_maximized(placement.maximized)
 {
 }
 
@@ -649,7 +667,7 @@ WaylandWindow::~WaylandWindow()
     }
 }
 
-std::unique_ptr<Window> WaylandWindow::open(std::string const& title, int width, int height, Bitmap const* icon)
+std::unique_ptr<Window> WaylandWindow::open(std::string const& title, WindowPlacement const& placement, Bitmap const* icon)
 {
     std::string error;
     std::unique_ptr<Connection> connection = Connection::connect(error);
@@ -657,7 +675,7 @@ std::unique_ptr<Window> WaylandWindow::open(std::string const& title, int width,
         std::fprintf(stderr, "sashfold: no Wayland display: %s\n", error.c_str());
         return nullptr;
     }
-    std::unique_ptr<WaylandWindow> window(new WaylandWindow(std::move(connection), width, height));
+    std::unique_ptr<WaylandWindow> window(new WaylandWindow(std::move(connection), placement));
     if (!window->setup(title, icon, error)) {
         std::fprintf(stderr, "sashfold: cannot open a Wayland window: %s\n", error.c_str());
         return nullptr;
@@ -792,12 +810,26 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
         Request ack(m_xdg_surface, xdg_surface::ack_configure);
         ack.uint(serial);
         send(ack);
+        bool const free = !m_maximized && !m_fullscreen && !m_tiled;
+        // A size of 0 x 0 leaves it to the window: one that comes back from
+        // maximized, fullscreen or tiled takes the size it had before — or,
+        // opened maximized, the one it was given to open at.
+        if (m_pending_width <= 0 && m_pending_height <= 0 && free) {
+            m_pending_width = m_normal_width;
+            m_pending_height = m_normal_height;
+        }
         if (m_pending_width > 0 && m_pending_height > 0
             && (m_pending_width != m_width || m_pending_height != m_height)) {
             m_width = m_pending_width;
             m_height = m_pending_height;
             size_changed();
         }
+        if (free) {
+            m_normal_width = m_width;
+            m_normal_height = m_height;
+        }
+        if (!m_fullscreen)
+            m_placed_maximized = m_maximized;
         m_pending_width = 0;
         m_pending_height = 0;
         debug("configure serial %u: %d x %d at scale %.3f (buffer %d x %d)", serial, m_width, m_height, m_scale,
@@ -819,6 +851,8 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
             // is the one in front is what the shell draws its frame by.
             std::span<std::uint8_t const> const states = message.array();
             bool maximized = false;
+            bool fullscreen = false;
+            bool tiled = false;
             bool activated = false;
             bool suspended = false;
             for (std::size_t i = 0; i + 4 <= states.size(); i += 4) {
@@ -826,12 +860,18 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
                     | (static_cast<std::uint32_t>(states[i + 2]) << 16) | (static_cast<std::uint32_t>(states[i + 3]) << 24);
                 if (state == xdg_toplevel::state_maximized)
                     maximized = true;
+                if (state == xdg_toplevel::state_fullscreen)
+                    fullscreen = true;
+                if (state >= xdg_toplevel::state_tiled_left && state <= xdg_toplevel::state_tiled_bottom)
+                    tiled = true;
                 if (state == xdg_toplevel::state_activated)
                     activated = true;
                 if (state == xdg_toplevel::state_suspended)
                     suspended = true;
             }
             m_maximized = maximized;
+            m_fullscreen = fullscreen;
+            m_tiled = tiled;
             if (activated != m_activated) {
                 m_activated = activated;
                 debug("window %s", activated ? "activated" : "deactivated");
@@ -866,6 +906,8 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
                 && (bound_width < m_width || bound_height < m_height)) {
                 m_width = std::min(m_width, bound_width);
                 m_height = std::min(m_height, bound_height);
+                m_normal_width = m_width; // a size remembered from a larger display, made to fit this one
+                m_normal_height = m_height;
                 size_changed(); // the buffer and the viewport follow the smaller window
             }
             break;
@@ -910,6 +952,14 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
     }
     if (m_icon_manager && icon)
         upload_icon(*icon);
+
+    // Opened maximized, as the window was when the last run ended: asked
+    // before the first commit, so that the first configure is the
+    // maximized size and no frame is ever shown at the other.
+    if (m_placed_maximized) {
+        Request maximize(m_toplevel, xdg_toplevel::set_maximized);
+        send(maximize);
+    }
 
     // The initial commit carries no buffer; the compositor answers with the
     // first configure, and only then may a frame be attached.
@@ -1278,6 +1328,15 @@ void WaylandWindow::minimize()
     Request request(m_toplevel, xdg_toplevel::set_minimized);
     send(request);
     m_connection->flush();
+}
+
+std::optional<WindowPlacement> WaylandWindow::placement() const
+{
+    WindowPlacement placement;
+    placement.width = m_normal_width;
+    placement.height = m_normal_height;
+    placement.maximized = m_placed_maximized;
+    return placement;
 }
 
 void WaylandWindow::toggle_maximize()
@@ -1985,9 +2044,9 @@ void WaylandWindow::apply_cursor()
     send(set_shape);
 }
 
-std::unique_ptr<Window> Window::create(std::string const& title, int width, int height, Bitmap const* icon)
+std::unique_ptr<Window> Window::create(std::string const& title, WindowPlacement const& placement, Bitmap const* icon)
 {
-    return WaylandWindow::open(title, width, height, icon);
+    return WaylandWindow::open(title, placement, icon);
 }
 
 }

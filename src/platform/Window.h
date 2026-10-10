@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace sashfold::platform {
@@ -84,12 +85,37 @@ enum class WindowEdge {
     BottomRight,
 };
 
+// Where and how the window stood, to open it the same way at the next start,
+// as Firefox and Chrome both do. The size is the client's, in CSS px, as it
+// last was while neither maximized, fullscreen nor tiled: what unmaximizing
+// gives back. The position is the frame's top-left corner in the system's
+// own coordinates, kept only where the system lets a window place itself —
+// Windows; a Wayland compositor places every window itself.
+struct WindowPlacement {
+    int width = 1100;
+    int height = 760;
+    bool maximized = false;
+    bool has_position = false;
+    int x = 0;
+    int y = 0;
+};
+
+// The placement as the profile's window.json holds it, and read back: null
+// for text that is not one, or one no screen could show (a size under the
+// window's least or past any display's, a position past any desktop's).
+std::string placement_json(WindowPlacement const& placement);
+std::optional<WindowPlacement> placement_from_json(std::string_view text);
+
 class Window {
 public:
     // Null when this OS has no window backend yet, or the display cannot
-    // be reached (the reason goes to stderr). `icon` is the window's own
-    // icon where the OS takes one from the client; null leaves it to the OS.
-    static std::unique_ptr<Window> create(std::string const& title, int width, int height,
+    // be reached (the reason goes to stderr). The window opens at the
+    // placement's size, maximized if it says so and where it says where the
+    // system allows; a display too small for it gets it smaller, and a
+    // position no display shows any more is left to the system. `icon` is
+    // the window's own icon where the OS takes one from the client; null
+    // leaves it to the OS.
+    static std::unique_ptr<Window> create(std::string const& title, WindowPlacement const& placement,
         Bitmap const* icon = nullptr);
     virtual ~Window() = default;
 
@@ -112,6 +138,9 @@ public:
     // Device pixels per CSS px on the display the window is on; a change
     // arrives as a Scale event followed by the Resize it implies.
     virtual float scale() const { return 1.0f; }
+    // Where and how the window stands now, for the next start to open it
+    // so; null where the backend cannot say.
+    virtual std::optional<WindowPlacement> placement() const { return std::nullopt; }
     // Where text is being typed, in client pixels — the caret's box in the
     // focused field — or nothing when no field has focus: what an input
     // method is told, so it can compose beside the caret. The shell says so

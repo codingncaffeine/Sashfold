@@ -1984,8 +1984,24 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     int width, int height)
 {
     std::optional<Bitmap> const icon = load_window_icon(program);
-    std::unique_ptr<platform::Window> window
-        = platform::Window::create("Sashfold", width > 0 ? width : 1100, height > 0 ? height : 760, icon ? &*icon : nullptr);
+    // The window opens as the last run left it — its size, whether it was
+    // maximized, and its place where the system lets it choose one — as
+    // the profile's window.json says; a size on the command line is the
+    // size asked for.
+    std::filesystem::path const profile_path = profile.empty() ? std::filesystem::path() : std::filesystem::path(profile);
+    platform::WindowPlacement placement;
+    if (!profile_path.empty()) {
+        if (std::optional<std::string> const text = read_text_file(profile_path / "window.json")) {
+            if (std::optional<platform::WindowPlacement> const kept = platform::placement_from_json(*text))
+                placement = *kept;
+        }
+    }
+    if (width > 0 || height > 0) {
+        placement = {};
+        placement.width = width > 0 ? width : placement.width;
+        placement.height = height > 0 ? height : placement.height;
+    }
+    std::unique_ptr<platform::Window> window = platform::Window::create("Sashfold", placement, icon ? &*icon : nullptr);
     if (!window) {
         std::cerr << "error: could not open a window (the AppKit shell is not written; on Linux the\n"
                      "       Wayland display must be reachable); --render, --fetch, and --script work everywhere\n";
@@ -1996,7 +2012,6 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // The theme: the file the reader last chose from the palette, kept in
     // the profile's settings.json, else the shipped one; the palette's
     // presets are the files beside the shipped one either way.
-    std::filesystem::path const profile_path = profile.empty() ? std::filesystem::path() : std::filesystem::path(profile);
     std::error_code error;
     std::string theme_file = theme_path;
     if (!profile_path.empty()) {
@@ -2068,6 +2083,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // a second, and once more at the end — whole or not at all, so a
     // crash loses a second of it at most.
     std::string saved_session;
+    std::string saved_placement = platform::placement_json(placement);
     std::uint64_t saved_storage = 0;
     std::uint64_t saved_bookmarks = 0;
     std::map<std::string, std::uint64_t> saved_cookies; // by container name; "" the default
@@ -2183,6 +2199,19 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 writer.write(profile_path / "session.json", session);
                 saved_session = std::move(session);
                 last_profile_write = now;
+            }
+        }
+        // Where the window stands: written as a drag of its edge goes on, a
+        // second apart, so that a crash keeps the size it was given.
+        if (std::optional<platform::WindowPlacement> const now_placed = window->placement()) {
+            if (std::string placed = platform::placement_json(*now_placed); placed != saved_placement) {
+                if (throttled) {
+                    owed = true;
+                } else {
+                    writer.write(profile_path / "window.json", placed);
+                    saved_placement = std::move(placed);
+                    last_profile_write = now;
+                }
             }
         }
         if (browser.bookmarks_changes() != saved_bookmarks) {
