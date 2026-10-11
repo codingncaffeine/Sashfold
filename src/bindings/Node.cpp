@@ -1664,6 +1664,69 @@ void install_element(Realm::Internals& in, js::Object& element)
         }
         return js::Value::null();
     });
+    // setAttributeNode, setAttributeNodeNS, removeAttributeNode (DOM §4.9):
+    // an Attr given sets or removes the attribute it names; the one it
+    // replaces (or removes) is answered, as the Attr object it was.
+    auto const attr_parts = [](Realm::Internals& internals, js::Value const& value)
+        -> std::optional<std::tuple<std::string, std::string, std::string, std::string>> {
+        if (!value.is_object() || value.as_object()->prototype() != internals.prototype("Attr")) {
+            internals.interpreter.throw_type_error("parameter 1 is not of type 'Attr'.");
+            return std::nullopt;
+        }
+        auto const text = [&](std::string_view key) -> std::optional<std::string> {
+            std::optional<js::Value> const got = internals.interpreter.get(value, key);
+            if (!got)
+                return std::nullopt;
+            if (got->is_nullish())
+                return std::string();
+            return internals.to_utf8(*got);
+        };
+        std::optional<std::string> name = text("name");
+        std::optional<std::string> local = name ? text("localName") : std::nullopt;
+        std::optional<std::string> space = local ? text("namespaceURI") : std::nullopt;
+        std::optional<std::string> attribute_value = space ? text("value") : std::nullopt;
+        if (!attribute_value)
+            return std::nullopt;
+        return std::tuple { std::move(*name), local->empty() ? *name : std::move(*local), std::move(*space), std::move(*attribute_value) };
+    };
+    auto const old_attr = [](Realm::Internals& internals, dom::Element& e, std::string const& space, std::string const& local) -> js::Value {
+        js::Interpreter::Roots const roots(internals.interpreter);
+        js::Value const map = internals.interpreter.root(attribute_map(internals, e));
+        auto* array = static_cast<js::ArrayObject*>(map.as_object());
+        std::vector<dom::Attr> const& attributes = std::as_const(e).attributes();
+        for (std::size_t i = 0; i < attributes.size(); ++i) {
+            if (attributes[i].local_name == local && attributes[i].namespace_uri == space)
+                return array->element(static_cast<std::uint32_t>(i));
+        }
+        return js::Value::null();
+    };
+    for (std::string_view const method : { "setAttributeNode", "setAttributeNodeNS" }) {
+        element_method(in, element, method, 1, [attr_parts, old_attr](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+            auto const parts = attr_parts(internals, js::argument(args, 0));
+            if (!parts)
+                return std::nullopt;
+            auto const& [name, local, space, value] = *parts;
+            js::Interpreter::Roots const roots(internals.interpreter);
+            js::Value const previous = internals.interpreter.root(old_attr(internals, e, space, local));
+            if (space.empty() && name == local)
+                set_attribute(internals, e, local, value);
+            else
+                set_attribute_ns(internals, e, space, name.find(':') != std::string::npos ? name.substr(0, name.find(':')) : std::string(), local, value);
+            return previous;
+        });
+    }
+    element_method(in, element, "removeAttributeNode", 1, [attr_parts](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        js::Value const given = js::argument(args, 0);
+        auto const parts = attr_parts(internals, given);
+        if (!parts)
+            return std::nullopt;
+        auto const& [name, local, space, value] = *parts;
+        static_cast<void>(value);
+        bool const removed = space.empty() && name == local ? remove_attribute(internals, e, local) : remove_attribute_ns(internals, e, space, local);
+        if (!removed)
+            return internals.throw_dom_exception("NotFoundError", "The node provided is not an attribute of this element.");
+        return given;
+    });
     element_accessor(
         in, element, "innerHTML",
         [](Realm::Internals& internals, dom::Element& e) -> Native { return internals.string(html::serialize_children(content_container(e))); },

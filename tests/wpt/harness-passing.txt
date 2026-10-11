@@ -42306,6 +42306,7 @@ custom-elements/attribute-changed-callback.html	attributedChangedCallback must b
 custom-elements/attribute-changed-callback.html	attributedChangedCallback must not be enqueued when mutating inline style declaration if the style attribute is not observed
 custom-elements/attribute-changed-callback.html	attributedChangedCallback must not be invoked when the observed attributes does not contain the attribute
 custom-elements/attribute-changed-callback.html	setAttribute and removeAttribute must enqueue and invoke attributeChangedCallback
+custom-elements/attribute-changed-callback.html	setAttributeNode and removeAttributeNode must enqueue and invoke attributeChangedCallback for an HTML attribute
 custom-elements/attribute-changed-callback.html	toggleAttribute must enqueue and invoke attributeChangedCallback
 custom-elements/builtin-coverage.html	a: Define a customized built-in element
 custom-elements/builtin-coverage.html	abbr: Define a customized built-in element
@@ -42719,6 +42720,9 @@ custom-elements/reactions/Element.html	removeAttribute on Element must not enque
 custom-elements/reactions/Element.html	removeAttributeNS on Element must enqueue an attributeChanged reaction when removing an existing attribute
 custom-elements/reactions/Element.html	removeAttributeNS on Element must not enqueue an attributeChanged reaction when removing an existing unobserved attribute
 custom-elements/reactions/Element.html	removeAttributeNS on Element must not enqueue an attributeChanged reaction when removing an unobserved attribute
+custom-elements/reactions/Element.html	removeAttributeNode on Element must enqueue an attributeChanged reaction when removing an existing attribute
+custom-elements/reactions/Element.html	removeAttributeNode on Element must not enqueue an attributeChanged reaction when removing an existing unobserved attribute
+custom-elements/reactions/Element.html	removeAttributeNode on Element must not enqueue an attributeChanged reaction when removing an unobserved attribute
 custom-elements/reactions/Element.html	setAttribute on Element must enqueue an attributeChanged reaction when adding an attribute
 custom-elements/reactions/Element.html	setAttribute on Element must enqueue an attributeChanged reaction when replacing an existing attribute
 custom-elements/reactions/Element.html	setAttribute on Element must enqueue an attributeChanged reaction when replacing an existing unobserved attribute
@@ -42727,6 +42731,14 @@ custom-elements/reactions/Element.html	setAttributeNS on Element must enqueue an
 custom-elements/reactions/Element.html	setAttributeNS on Element must enqueue an attributeChanged reaction when replacing an existing attribute
 custom-elements/reactions/Element.html	setAttributeNS on Element must enqueue an attributeChanged reaction when replacing an existing unobserved attribute
 custom-elements/reactions/Element.html	setAttributeNS on Element must not enqueue an attributeChanged reaction when adding an unobserved attribute
+custom-elements/reactions/Element.html	setAttributeNode on Element must enqueue an attributeChanged reaction when adding an attribute
+custom-elements/reactions/Element.html	setAttributeNode on Element must enqueue an attributeChanged reaction when replacing an existing attribute
+custom-elements/reactions/Element.html	setAttributeNode on Element must enqueue an attributeChanged reaction when replacing an existing unobserved attribute
+custom-elements/reactions/Element.html	setAttributeNode on Element must not enqueue an attributeChanged reaction when adding an unobserved attribute
+custom-elements/reactions/Element.html	setAttributeNodeNS on Element must enqueue an attributeChanged reaction when adding an attribute
+custom-elements/reactions/Element.html	setAttributeNodeNS on Element must enqueue an attributeChanged reaction when replacing an existing attribute
+custom-elements/reactions/Element.html	setAttributeNodeNS on Element must enqueue an attributeChanged reaction when replacing an existing unobserved attribute
+custom-elements/reactions/Element.html	setAttributeNodeNS on Element must not enqueue an attributeChanged reaction when adding an unobserved attribute
 custom-elements/reactions/Element.html	slot on Element must enqueue an attributeChanged reaction when adding slot content attribute
 custom-elements/reactions/Element.html	slot on Element must enqueue an attributeChanged reaction when replacing an existing attribute
 custom-elements/reactions/Element.html	toggleAttribute (force false) on Element must enqueue an attributeChanged reaction when removing an existing attribute
@@ -52829,6 +52841,7 @@ dom/nodes/Node-isSameNode.html	elements should be compared on reference (namespa
 dom/nodes/Node-isSameNode.html	elements should be compared on reference (namespaced element)
 dom/nodes/Node-isSameNode.html	processing instructions should be compared on reference
 dom/nodes/Node-isSameNode.html	text nodes should be compared on reference
+dom/nodes/Node-lookupNamespaceURI.html	Comment does not have bar namespace
 dom/nodes/Node-lookupNamespaceURI.html	Document has no namespace URI matching prefix
 dom/nodes/Node-lookupNamespaceURI.html	Document without documentElement has no namespace URI matching "xml"
 dom/nodes/Node-lookupNamespaceURI.html	Document without documentElement has no namespace URI matching "xmlns"
@@ -55918,6 +55931,7 @@ dom/nodes/attributes.html	setAttribute should not throw even if a load is not al
 dom/nodes/attributes.html	setAttribute should not throw even when qualifiedName starts with 'xmlns'
 dom/nodes/attributes.html	setAttribute should set the attribute with the given qualified name
 dom/nodes/attributes.html	setAttribute should set the first attribute with the given name
+dom/nodes/attributes.html	setAttributeNode called with an Attr that has the same name as an existing one should not change attribute order
 dom/nodes/attributes.html	setAttributeNode, if it fires mutation events, should fire one with the new node when resetting an existing attribute
 dom/nodes/attributes.html	toggleAttribute should lowercase its name argument (mixed case attribute)
 dom/nodes/attributes.html	toggleAttribute should lowercase its name argument (upper case attribute)
@@ -181852,6 +181866,15 @@ trusted-types/Node-multiple-arguments.html	replaceWith([object Text],[object Tex
 trusted-types/Node-multiple-arguments.html	replaceWith([object Text],[object Text]) on <script> should pass
 trusted-types/Range-createContextualFragment.html	range.createContextualFragment assigned via policy (successful HTML transformation).
 trusted-types/ServiceWorkerContainer-register.https.html	Block ServiceWorker creation via String
+trusted-types/TrustedType-AttributeNodes.html	Set attribute via attribute node on div.bla.
+trusted-types/TrustedType-AttributeNodes.html	Set attribute via attribute node on div.src.
+trusted-types/TrustedType-AttributeNodes.html	Set attribute via attribute node on div.srcdoc.
+trusted-types/TrustedType-AttributeNodes.html	Set attribute via attribute node on iframe.bla.
+trusted-types/TrustedType-AttributeNodes.html	Set attribute via attribute node on iframe.src.
+trusted-types/TrustedType-AttributeNodes.html	Set attribute via attribute node on iframe.srcdoc.
+trusted-types/TrustedType-AttributeNodes.html	Set attribute via attribute node on script.bla.
+trusted-types/TrustedType-AttributeNodes.html	Set attribute via attribute node on script.src.
+trusted-types/TrustedType-AttributeNodes.html	Set attribute via attribute node on script.srcdoc.
 trusted-types/TrustedTypePolicy-CSP-wildcard.html	CSP supports wildcards.
 trusted-types/TrustedTypePolicy-createXXX.html	Attributes without type constraints will work as before.
 trusted-types/TrustedTypePolicy-createXXX.html	TestPolicyTrustedHTML0 (TrustedHTML: s => s)
@@ -182488,10 +182511,6 @@ trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.s
 trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=https://example.com/namespace, element=foo, attrName=onmouseup
 trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=https://example.com/namespace, element=iframe, attrName=srcdoc
 trusted-types/set-attributes-require-trusted-types-default-policy.html	Element.setAttributeNS does not apply default policy for elementNS=https://example.com/namespace, element=script, attrName=src
-trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setAttributeNode runs Trusted Types check before inuse checks
-trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setAttributeNode runs Trusted Types check before same attribute early return
-trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setAttributeNodeNS runs Trusted Types check before inuse checks
-trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setAttributeNodeNS runs Trusted Types check before same attribute early return
 trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setNamedItem runs Trusted Types check before inuse checks
 trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setNamedItem runs Trusted Types check before same attribute early return
 trusted-types/set-attributes-require-trusted-types-no-default-policy-error-cases.html	setNamedItemNS runs Trusted Types check before inuse checks
