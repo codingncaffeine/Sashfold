@@ -1694,6 +1694,13 @@ void install_form_data(Realm::Internals& in)
                 if (element == nullptr || !element->is_html("form"))
                     return interp.throw_type_error("Failed to construct 'FormData': parameter 1 is not of type 'HTMLFormElement'.");
                 collect_form_entries(internals, *element, *data);
+                // The form tells its listeners, which may add to it (HTML
+                // §4.10.21.4, "constructing the entry list").
+                EventObject* const event = internals.new_event("FormDataEvent", "formdata", true, false);
+                interp.root(js::Value::object(event));
+                event->is_trusted = true;
+                event->members.push_back(js::Value::object(data));
+                internals.dispatch(*event, internals.wrap(*element));
             }
             return js::Value::object(data);
         },

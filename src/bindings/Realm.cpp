@@ -121,6 +121,14 @@ js::Object* NodeWrapper::same_object(std::string_view attribute) const
 
 void NodeWrapper::keep_same_object(std::string_view attribute, js::Object* object)
 {
+    // A second keep of the same name replaces the first (a file input given
+    // another FileList).
+    for (auto& kept : m_same_objects) {
+        if (kept.first == attribute) {
+            kept.second = object;
+            return;
+        }
+    }
     m_same_objects.emplace_back(std::string(attribute), object);
 }
 
@@ -168,6 +176,8 @@ void EventObject::trace(js::Tracer& tracer)
     tracer.visit(source_value);
     tracer.visit(ports);
     tracer.visit(promise_value);
+    for (js::Value const& member : members)
+        tracer.visit(member);
 }
 
 void ElementBackedObject::trace(js::Tracer& tracer)
@@ -1776,6 +1786,7 @@ constexpr InterfaceGroup interface_groups[] = {
     { "custom_elements", install_custom_elements, false },
     { "shadow_dom", install_shadow_dom, false },
     { "element_internals", install_element_internals, true },
+    { "event_interfaces", install_event_interfaces, true },
     { "mutation_observer", install_mutation_observer, true },
     { "intersection", install_intersection_observer, true },
     { "indexeddb", install_indexeddb, true },
@@ -3825,7 +3836,9 @@ bool Realm::dispatch_event(dom::Node* target, std::string_view type, EventInit i
     Internals::HostEntry const host(in.agent);
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     js::Interpreter::Roots const roots(in.interpreter);
-    EventObject* event = in.new_event("Event", type, init.bubbles, init.cancelable);
+    // pageshow and pagehide are PageTransitionEvents (persisted: false here).
+    std::string_view const interface = type == "pageshow" || type == "pagehide" ? "PageTransitionEvent" : "Event";
+    EventObject* event = in.new_event(interface, type, init.bubbles, init.cancelable);
     in.interpreter.root(js::Value::object(event));
     event->composed = init.composed;
     event->is_trusted = true;

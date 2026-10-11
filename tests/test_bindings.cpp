@@ -5150,6 +5150,40 @@ void test_intersection_observer()
 // checked here is the whole of what one needs — the element already in the
 // markup becoming an instance, the callbacks as it arrives, changes and
 // leaves, and the ways a page can get it wrong.
+// The event interfaces declared by their members, Touch and DataTransfer:
+// each constructs from its dictionary, and the ones the engine fires carry
+// their members.
+void test_event_interfaces()
+{
+    auto page = loaded("<!DOCTYPE html><body><script>var shown = ''; addEventListener('pageshow', function (e) {"
+                       " shown = (e instanceof PageTransitionEvent) + ' ' + e.persisted; });</script>"
+                       "<form id=f><input name=a value=1></form><input id=file type=file></body>");
+    CHECK_EQ(page->string("shown"), "true false");
+    CHECK_EQ(page->string("var s = new StorageEvent('storage', { key: 'k', newValue: 'v' }); [s.key, s.oldValue, s.newValue, s.url, s.storageArea].join('|')"),
+        "k||v||");
+    CHECK(page->boolean("new StorageEvent('storage').key === null && new PageTransitionEvent('pageshow', { persisted: true }).persisted"));
+    page->eval(R"JS(
+        var dt = new DataTransfer();
+        dt.setData('text', 'hello');
+        dt.items.add('<b>x</b>', 'text/html');
+        var drag = new DragEvent('drop', { dataTransfer: dt, clientX: 5, bubbles: true });
+    )JS");
+    CHECK_EQ(page->string("[dt.getData('text/plain'), dt.types.join(','), dt.items.length, dt.files.length, dt.files instanceof FileList].join('|')"),
+        "hello|text/plain,text/html|2|0|true");
+    CHECK(page->boolean("drag instanceof MouseEvent && drag.dataTransfer === dt && drag.clientX === 5 && drag.bubbles"));
+    CHECK(page->boolean("new ClipboardEvent('paste', { clipboardData: dt }).clipboardData === dt && new ClipboardEvent('copy').clipboardData === null"));
+    CHECK(page->boolean("var m = new MediaQueryListEvent('change', { matches: true, media: '(x)' }); m.matches && m.media === '(x)'"));
+    CHECK(page->boolean("new CompositionEvent('compositionend', { data: 'ü' }).data === 'ü' && new CompositionEvent('x') instanceof UIEvent"));
+    CHECK(page->boolean("var t = new Touch({ identifier: 1, target: document.body, clientX: 3 }); var te = new TouchEvent('touchstart', { touches: [t], ctrlKey: true });"
+                        " te.touches.length === 1 && te.touches[0].clientX === 3 && te.touches.item(0) === t && te.changedTouches.length === 0 && te.ctrlKey"));
+    CHECK_EQ(page->string("var r = ''; try { new FormDataEvent('formdata'); } catch (e) { r = e.name; } r"), "TypeError");
+    CHECK_EQ(page->string("var r = ''; try { new BeforeUnloadEvent('beforeunload'); } catch (e) { r = e.name; } r"), "TypeError");
+    page->eval("f.addEventListener('formdata', function (e) { e.formData.append('added', String(e instanceof FormDataEvent)); });");
+    CHECK_EQ(page->string("var d = new FormData(f); d.get('a') + ' ' + d.get('added')"), "1 true");
+    CHECK(page->boolean("file.files instanceof FileList && file.files.length === 0 && file.files === file.files && f.a.files === null"));
+    CHECK(page->boolean("file.files = dt.files; file.files === dt.files"));
+}
+
 // Live collections: what a script keeps of the tree follows it — the
 // scripts the parser has added since, a class changed, a child removed —
 // and a form answers for its controls by name.
@@ -6291,6 +6325,7 @@ int main()
     test_intersection_observer();
     test_custom_elements();
     test_live_collections();
+    test_event_interfaces();
     test_reflected_attributes();
     test_media_source_and_the_media_element();
     test_media_element_extras();

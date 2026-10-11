@@ -275,6 +275,9 @@ public:
     // the code; the reason is `message`.
     bool was_clean = false;
     std::uint16_t close_code = 0;
+    // The members of the interfaces Events.cpp declares in a table (StorageEvent,
+    // PageTransitionEvent, DragEvent...), in the table's order.
+    std::vector<js::Value> members;
 
     void trace(js::Tracer& tracer) override;
 };
@@ -1581,6 +1584,9 @@ void install_reflected_attributes(Realm::Internals&);
 
 // Installers, one per file.
 void install_events(Realm::Internals&); // Events.cpp
+// StorageEvent, PageTransitionEvent, DragEvent and the other events declared
+// by their members, Touch, TouchList, FileList, DataTransfer (Events.cpp).
+void install_event_interfaces(Realm::Internals&);
 void install_nodes(Realm::Internals&); // Node.cpp
 // The mixins an interface includes get members of their own on each
 // prototype (WebIDL §2.11): a member answers for its own interface's

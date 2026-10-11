@@ -436,6 +436,167 @@ std::optional<js::Value> init_value(js::Interpreter& interpreter, js::Value cons
     return value->is_undefined() ? js::Value::null() : *value;
 }
 
+// --- The events declared by their members -----------------------------------------------
+
+// Event interfaces whose members are values of their own, read from the
+// init dictionary into EventObject::members in this order — each list is
+// the dictionary's, sorted as WebIDL reads a dictionary's members — and
+// answered by one getter that knows its slot. An event the engine makes
+// itself without setting them answers each member's default.
+enum class TableKind : std::uint8_t {
+    String,
+    NullableString, // DOMString?, null by default
+    Boolean,
+    Number,
+    NullableObject, // an object or null
+    RequiredObject, // a required member: a TypeError when absent
+    TouchList, // sequence<Touch>, answered as a TouchList
+};
+struct TableMember {
+    std::string_view name;
+    TableKind kind;
+};
+struct TableEvent {
+    std::string_view name;
+    std::string_view parent;
+    std::span<TableMember const> members;
+    bool constructible = true;
+    // Installed with the realm rather than with the rest: pageshow, fired
+    // at every load, is one.
+    bool eager = false;
+};
+
+constexpr TableMember page_transition_members[] = { { "persisted", TableKind::Boolean } };
+constexpr TableMember storage_members[] = { { "key", TableKind::NullableString }, { "newValue", TableKind::NullableString },
+    { "oldValue", TableKind::NullableString }, { "storageArea", TableKind::NullableObject }, { "url", TableKind::String } };
+constexpr TableMember before_unload_members[] = { { "returnValue", TableKind::String } };
+constexpr TableMember composition_members[] = { { "data", TableKind::String } };
+constexpr TableMember drag_members[] = { { "dataTransfer", TableKind::NullableObject } };
+constexpr TableMember clipboard_members[] = { { "clipboardData", TableKind::NullableObject } };
+constexpr TableMember media_query_members[] = { { "matches", TableKind::Boolean }, { "media", TableKind::String } };
+constexpr TableMember form_data_members[] = { { "formData", TableKind::RequiredObject } };
+constexpr TableMember command_members[] = { { "command", TableKind::String }, { "source", TableKind::NullableObject } };
+constexpr TableMember touch_event_members[] = { { "changedTouches", TableKind::TouchList }, { "targetTouches", TableKind::TouchList },
+    { "touches", TableKind::TouchList } };
+
+constexpr TableEvent table_events[] = {
+    { "PageTransitionEvent", "Event", page_transition_members, true, true },
+    { "StorageEvent", "Event", storage_members },
+    { "BeforeUnloadEvent", "Event", before_unload_members, false },
+    { "CompositionEvent", "UIEvent", composition_members },
+    { "DragEvent", "MouseEvent", drag_members },
+    { "ClipboardEvent", "Event", clipboard_members },
+    { "MediaQueryListEvent", "Event", media_query_members },
+    { "FormDataEvent", "Event", form_data_members },
+    { "CommandEvent", "Event", command_members },
+    { "TouchEvent", "UIEvent", touch_event_members },
+};
+
+TableEvent const* table_event(std::string_view name)
+{
+    for (TableEvent const& entry : table_events) {
+        if (entry.name == name)
+            return &entry;
+    }
+    return nullptr;
+}
+
+js::Value member_default(Realm::Internals& in, TableKind kind)
+{
+    switch (kind) {
+    case TableKind::String:
+        return in.string("");
+    case TableKind::Boolean:
+        return js::Value::boolean(false);
+    case TableKind::Number:
+        return js::Value::number(0);
+    case TableKind::TouchList: {
+        js::Value const list = js::Value::object(in.interpreter.new_array());
+        list.as_object()->set_prototype(in.prototype("TouchList"));
+        return list;
+    }
+    case TableKind::NullableString:
+    case TableKind::NullableObject:
+    case TableKind::RequiredObject:
+        break;
+    }
+    return js::Value::null();
+}
+
+// Reads the table's members of `interface` out of the init dictionary.
+bool read_table_members(js::Interpreter& interpreter, std::string_view interface, js::Value const& init, EventObject& event)
+{
+    TableEvent const* const entry = table_event(interface);
+    if (entry == nullptr)
+        return true;
+    Realm::Internals& in = internals_of(interpreter);
+    for (TableMember const& member : entry->members) {
+        std::optional<js::Value> given = init.is_object() ? interpreter.get(init, member.name) : js::Value::undefined();
+        if (!given)
+            return false;
+        js::Value value;
+        switch (member.kind) {
+        case TableKind::String:
+        case TableKind::NullableString: {
+            if (given->is_undefined() || (member.kind == TableKind::NullableString && given->is_null())) {
+                value = member_default(in, member.kind);
+                break;
+            }
+            std::optional<std::string> const text = in.to_utf8(*given);
+            if (!text)
+                return false;
+            value = in.string(*text);
+            break;
+        }
+        case TableKind::Boolean:
+            value = js::Value::boolean(!given->is_undefined() && js::Interpreter::to_boolean(*given));
+            break;
+        case TableKind::Number: {
+            std::optional<double> const number = given->is_undefined() ? 0.0 : interpreter.to_number(*given);
+            if (!number)
+                return false;
+            value = js::Value::number(*number);
+            break;
+        }
+        case TableKind::NullableObject:
+            value = given->is_nullish() ? js::Value::null() : *given;
+            break;
+        case TableKind::RequiredObject:
+            if (given->is_undefined()) {
+                interpreter.throw_type_error("Failed to construct '" + std::string(interface) + "': required member " + std::string(member.name)
+                    + " is undefined.");
+                return false;
+            }
+            value = *given;
+            break;
+        case TableKind::TouchList: {
+            js::ArrayObject* const list = interpreter.new_array();
+            list->set_prototype(in.prototype("TouchList"));
+            value = js::Value::object(list);
+            if (!given->is_undefined()) {
+                if (!given->is_object()) {
+                    interpreter.throw_type_error("Failed to construct '" + std::string(interface) + "': The provided value cannot be converted to a sequence.");
+                    return false;
+                }
+                std::optional<js::Value> const length = interpreter.get(*given, "length");
+                std::optional<double> const count = length ? interpreter.to_number(*length) : std::nullopt;
+                if (!count)
+                    return false;
+                for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(std::max(0.0, *count)); ++i) {
+                    std::optional<js::Value> const touch = interpreter.get(*given, js::PropertyKey::index(i));
+                    if (!touch)
+                        return false;
+                    list->push(*touch);
+                }
+            }
+            break;
+        }
+        }
+        event.members.push_back(value);
+    }
+    return true;
+}
+
 // `new Event(type, init)` for every interface: the fields the dictionary
 // names are read by the interface's constructor.
 js::NativeFunction::ConstructCallback event_constructor(std::string interface)
@@ -555,13 +716,15 @@ js::NativeFunction::ConstructCallback event_constructor(std::string interface)
             event->ports = ports->is_nullish() ? js::Value::undefined() : *ports;
         }
         if (interface == "UIEvent" || interface == "MouseEvent" || interface == "KeyboardEvent" || interface == "InputEvent"
-            || interface == "FocusEvent" || interface == "PointerEvent" || interface == "WheelEvent") {
+            || interface == "FocusEvent" || interface == "PointerEvent" || interface == "WheelEvent" || interface == "CompositionEvent"
+            || interface == "DragEvent" || interface == "TouchEvent") {
             std::optional<double> const detail = init_number(interpreter, init, "detail", 0);
             if (!detail)
                 return std::nullopt;
             event->detail = static_cast<int>(*detail);
         }
-        if (interface == "MouseEvent" || interface == "PointerEvent" || interface == "WheelEvent" || interface == "KeyboardEvent") {
+        if (interface == "MouseEvent" || interface == "PointerEvent" || interface == "WheelEvent" || interface == "KeyboardEvent"
+            || interface == "DragEvent" || interface == "TouchEvent") {
             for (auto const& [name, flag] : { std::pair { "ctrlKey", &event->ctrl_key }, std::pair { "shiftKey", &event->shift_key },
                      std::pair { "altKey", &event->alt_key }, std::pair { "metaKey", &event->meta_key } }) {
                 std::optional<bool> const value = init_flag(interpreter, init, name, false);
@@ -570,7 +733,7 @@ js::NativeFunction::ConstructCallback event_constructor(std::string interface)
                 *flag = *value;
             }
         }
-        if (interface == "MouseEvent" || interface == "PointerEvent" || interface == "WheelEvent") {
+        if (interface == "MouseEvent" || interface == "PointerEvent" || interface == "WheelEvent" || interface == "DragEvent") {
             for (auto const& [name, field] : { std::pair { "clientX", &event->client_x }, std::pair { "clientY", &event->client_y },
                      std::pair { "screenX", &event->screen_x }, std::pair { "screenY", &event->screen_y },
                      std::pair { "button", &event->button }, std::pair { "buttons", &event->buttons } }) {
@@ -624,6 +787,8 @@ js::NativeFunction::ConstructCallback event_constructor(std::string interface)
                 return std::nullopt;
             event->detail_value = *state;
         }
+        if (!read_table_members(interpreter, interface, init, *event))
+            return std::nullopt;
         return js::Value::object(event);
     };
 }
@@ -1012,6 +1177,404 @@ void define_event_handlers(Realm::Internals& in, js::Object& target, std::span<s
         name.append(type);
         define_plain_attribute(in.interpreter, target, name, event_handler_getter, event_handler_setter, kind);
     }
+}
+
+// --- The table's interfaces, Touch and DataTransfer ---------------------------------------
+
+namespace {
+
+// A table member's getter: the datum says which interface (high bits) and
+// which slot.
+Native table_member_get(js::Interpreter& interp, js::Value const& this_value, Args)
+{
+    std::optional<EventObject*> const event = this_event(interp, this_value);
+    if (!event)
+        return std::nullopt;
+    js::NativeFunction const* const accessor = interp.active_native();
+    std::uint32_t const datum = accessor != nullptr && accessor->spec() != nullptr ? accessor->spec()->datum : 0;
+    TableEvent const& entry = table_events[datum >> 8];
+    std::size_t const slot = datum & 0xFF;
+    if (slot < (*event)->members.size())
+        return (*event)->members[slot];
+    return member_default(internals_of(interp), entry.members[slot].kind);
+}
+
+// BeforeUnloadEvent.returnValue, the one member a listener writes.
+Native return_value_set(js::Interpreter& interp, js::Value const& this_value, Args args)
+{
+    std::optional<EventObject*> const event = this_event(interp, this_value);
+    if (!event)
+        return std::nullopt;
+    std::optional<std::string> const text = internals_of(interp).to_utf8(js::argument(args, 0));
+    if (!text)
+        return std::nullopt;
+    if ((*event)->members.empty())
+        (*event)->members.push_back(js::Value::undefined());
+    (*event)->members[0] = internals_of(interp).string(*text);
+    return js::Value::undefined();
+}
+
+// The table's constructors share one function, which knows its interface
+// by its own name.
+Native table_event_construct(js::Interpreter& interp, Args args, js::Object* new_target)
+{
+    js::NativeFunction const* const constructor = interp.active_native();
+    std::string const name = constructor != nullptr ? member_name(*constructor) : std::string();
+    return event_constructor(name)(interp, args, new_target);
+}
+
+// A Touch (Touch Events §4.1): one point of contact, as its TouchInit gave it.
+class TouchObject final : public js::Object {
+public:
+    explicit TouchObject(js::Object* prototype)
+        : Object(prototype, Class::Host)
+    {
+    }
+    js::Value target;
+    std::array<double, 12> numbers {}; // touch_number_names, in order
+    std::string touch_type = "direct";
+    void trace(js::Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(target);
+    }
+};
+
+constexpr std::string_view touch_number_names[] = { "identifier", "clientX", "clientY", "screenX", "screenY", "pageX", "pageY", "radiusX",
+    "radiusY", "rotationAngle", "force", "altitudeAngle" };
+
+Native touch_number_get(js::Interpreter& interp, js::Value const& this_value, Args)
+{
+    auto* const touch = this_value.is_object() ? dynamic_cast<TouchObject*>(this_value.as_object()) : nullptr;
+    if (touch == nullptr)
+        return interp.throw_type_error("Illegal invocation");
+    js::NativeFunction const* const accessor = interp.active_native();
+    std::uint32_t const datum = accessor != nullptr && accessor->spec() != nullptr ? accessor->spec()->datum : 0;
+    return js::Value::number(touch->numbers[datum]);
+}
+
+Native construct_touch(js::Interpreter& interp, Args args, js::Object*)
+{
+    Realm::Internals& in = internals_of(interp);
+    js::Value const init = js::argument(args, 0);
+    if (!init.is_object())
+        return interp.throw_type_error("Failed to construct 'Touch': 1 argument required, but only 0 present.");
+    js::Interpreter::Roots const roots(interp);
+    auto* const touch = interp.heap().allocate<TouchObject>(in.prototype("Touch"));
+    interp.root(js::Value::object(touch));
+    std::optional<js::Value> const identifier = interp.get(init, "identifier");
+    std::optional<js::Value> const target = identifier ? interp.get(init, "target") : std::nullopt;
+    if (!target)
+        return std::nullopt;
+    if (identifier->is_undefined() || target->is_undefined())
+        return interp.throw_type_error("Failed to construct 'Touch': required member " + std::string(identifier->is_undefined() ? "identifier" : "target")
+            + " is undefined.");
+    touch->target = *target;
+    for (std::size_t i = 0; i < std::size(touch_number_names); ++i) {
+        std::optional<double> const number = init_number(interp, init, touch_number_names[i], 0);
+        if (!number)
+            return std::nullopt;
+        touch->numbers[i] = *number;
+    }
+    std::optional<std::string> type = init_string(interp, init, "touchType");
+    if (!type)
+        return std::nullopt;
+    if (!type->empty())
+        touch->touch_type = std::move(*type);
+    return js::Value::object(touch);
+}
+
+// A DataTransfer (HTML §6.11.3): what a drag or a clipboard event carries,
+// and what a page builds itself to hand a file input its files. Its data
+// is a list of formats and strings; no file is ever in it here.
+class DataTransferObject final : public js::Object {
+public:
+    explicit DataTransferObject(js::Object* prototype)
+        : Object(prototype, Class::Host)
+    {
+    }
+    std::vector<std::pair<std::string, std::string>> data;
+    std::string drop_effect = "none";
+    std::string effect_allowed = "none";
+    js::Object* files = nullptr;
+    js::Object* items = nullptr;
+    void trace(js::Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(files);
+        tracer.visit(items);
+    }
+};
+
+// Its item list: a view of the same data.
+class DataTransferItemListObject final : public js::Object {
+public:
+    DataTransferItemListObject(js::Object* prototype, DataTransferObject& the_owner)
+        : Object(prototype, Class::Host)
+        , owner(&the_owner)
+    {
+    }
+    DataTransferObject* owner;
+    void trace(js::Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(owner);
+    }
+};
+
+DataTransferObject* data_transfer_this(js::Interpreter& interp, js::Value const& this_value)
+{
+    auto* const transfer = this_value.is_object() ? dynamic_cast<DataTransferObject*>(this_value.as_object()) : nullptr;
+    if (transfer == nullptr)
+        interp.throw_type_error("Illegal invocation");
+    return transfer;
+}
+
+// A format as the data store keys it: lowercased, "text" as text/plain and
+// "url" as text/uri-list.
+std::string data_format(std::string format)
+{
+    for (char& c : format)
+        c = static_cast<char>(c >= 'A' && c <= 'Z' ? c - 'A' + 'a' : c);
+    if (format == "text")
+        return "text/plain";
+    if (format == "url")
+        return "text/uri-list";
+    return format;
+}
+
+void set_data(DataTransferObject& transfer, std::string const& format, std::string data)
+{
+    for (auto& [kept, value] : transfer.data) {
+        if (kept == format) {
+            value = std::move(data);
+            return;
+        }
+    }
+    transfer.data.emplace_back(format, std::move(data));
+}
+
+js::Value empty_file_list(Realm::Internals& in)
+{
+    js::Value const list = js::Value::object(in.interpreter.new_array());
+    list.as_object()->set_prototype(in.prototype("FileList"));
+    return list;
+}
+
+void define_table_events(Realm::Internals& in, bool eager)
+{
+    js::Interpreter& interpreter = in.interpreter;
+    for (std::size_t i = 0; i < std::size(table_events); ++i) {
+        TableEvent const& entry = table_events[i];
+        if (entry.eager != eager)
+            continue;
+        js::Object* const prototype = entry.constructible
+            ? define_interface(in, entry.name, in.prototype(entry.parent), table_event_construct, 1)
+            : define_interface(in, entry.name, in.prototype(entry.parent));
+        for (std::size_t slot = 0; slot < entry.members.size(); ++slot) {
+            bool const writable = entry.name == "BeforeUnloadEvent";
+            define_plain_attribute(interpreter, *prototype, entry.members[slot].name, table_member_get, writable ? return_value_set : nullptr,
+                MemberKind::Plain, static_cast<std::uint32_t>(i << 8 | slot));
+        }
+    }
+}
+
+void install_table_events(Realm::Internals& in, js::Object& array_prototype)
+{
+    js::Interpreter& interpreter = in.interpreter;
+    define_table_events(in, false);
+
+    // TouchEvent's modifier keys, and Touch with the TouchList of them.
+    js::Object& touch_event = *in.prototype("TouchEvent");
+    event_getter(in, touch_event, "ctrlKey", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.ctrl_key); });
+    event_getter(in, touch_event, "shiftKey", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.shift_key); });
+    event_getter(in, touch_event, "altKey", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.alt_key); });
+    event_getter(in, touch_event, "metaKey", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.meta_key); });
+    js::Object* const touch = define_interface(in, "Touch", nullptr, construct_touch, 1);
+    for (std::size_t i = 0; i < std::size(touch_number_names); ++i)
+        define_plain_attribute(interpreter, *touch, touch_number_names[i], touch_number_get, nullptr, MemberKind::Plain, static_cast<std::uint32_t>(i));
+    define_getter(in, *touch, "target", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        auto* const self = this_value.is_object() ? dynamic_cast<TouchObject*>(this_value.as_object()) : nullptr;
+        if (self == nullptr)
+            return interp.throw_type_error("Illegal invocation");
+        return self->target;
+    });
+    define_getter(in, *touch, "touchType", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        auto* const self = this_value.is_object() ? dynamic_cast<TouchObject*>(this_value.as_object()) : nullptr;
+        if (self == nullptr)
+            return interp.throw_type_error("Illegal invocation");
+        return internals_of(interp).string(self->touch_type);
+    });
+    // TouchList and FileList: lists over arrays, as NodeList is.
+    auto const item = [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+        if (!collection_length(this_value))
+            return interp.throw_type_error("Illegal invocation");
+        std::optional<double> const index = interp.to_number(js::argument(args, 0));
+        if (!index)
+            return std::nullopt;
+        return collection_item(this_value, to_unsigned_long(*index));
+    };
+    for (std::string_view const name : { "TouchList", "FileList" })
+        define_operation(interpreter, *define_interface(in, name, &array_prototype), "item", 1, item);
+
+    // DataTransfer, constructible, and its item list.
+    js::Object* const transfer = define_interface(in, "DataTransfer", nullptr, [](js::Interpreter& interp, Args, js::Object*) -> Native {
+        return js::Value::object(interp.heap().allocate<DataTransferObject>(internals_of(interp).prototype("DataTransfer")));
+    });
+    define_operation(interpreter, *transfer, "setData", 2, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+        DataTransferObject* const self = data_transfer_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        std::optional<std::string> format = internals_of(interp).to_utf8(js::argument(args, 0));
+        std::optional<std::string> data = format ? internals_of(interp).to_utf8(js::argument(args, 1)) : std::nullopt;
+        if (!data)
+            return std::nullopt;
+        set_data(*self, data_format(std::move(*format)), std::move(*data));
+        return js::Value::undefined();
+    });
+    define_operation(interpreter, *transfer, "getData", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+        DataTransferObject* const self = data_transfer_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        std::optional<std::string> format = internals_of(interp).to_utf8(js::argument(args, 0));
+        if (!format)
+            return std::nullopt;
+        std::string const wanted = data_format(std::move(*format));
+        for (auto const& [kept, value] : self->data) {
+            if (kept == wanted)
+                return internals_of(interp).string(value);
+        }
+        return internals_of(interp).string("");
+    });
+    define_operation(interpreter, *transfer, "clearData", 0, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+        DataTransferObject* const self = data_transfer_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        if (js::argument(args, 0).is_undefined()) {
+            self->data.clear();
+            return js::Value::undefined();
+        }
+        std::optional<std::string> format = internals_of(interp).to_utf8(js::argument(args, 0));
+        if (!format)
+            return std::nullopt;
+        std::string const wanted = data_format(std::move(*format));
+        std::erase_if(self->data, [&](auto const& entry) { return entry.first == wanted; });
+        return js::Value::undefined();
+    });
+    define_operation(interpreter, *transfer, "setDragImage", 3, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        return data_transfer_this(interp, this_value) == nullptr ? Native(std::nullopt) : Native(js::Value::undefined());
+    });
+    define_getter(in, *transfer, "types", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        DataTransferObject* const self = data_transfer_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        js::Interpreter::Roots const roots(interp);
+        js::ArrayObject* const types = interp.new_array();
+        interp.root(js::Value::object(types));
+        for (auto const& [format, value] : self->data)
+            types->push(interp.root(internals_of(interp).string(format)));
+        types->prevent_extensions();
+        return js::Value::object(types);
+    });
+    define_getter(in, *transfer, "files", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        DataTransferObject* const self = data_transfer_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        if (self->files == nullptr)
+            self->files = empty_file_list(internals_of(interp)).as_object();
+        return js::Value::object(self->files);
+    });
+    define_getter(in, *transfer, "items", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        DataTransferObject* const self = data_transfer_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        if (self->items == nullptr)
+            self->items = interp.heap().allocate<DataTransferItemListObject>(internals_of(interp).prototype("DataTransferItemList"), *self);
+        return js::Value::object(self->items);
+    });
+    for (bool const allowed : { false, true }) {
+        define_getter(
+            in, *transfer, allowed ? "effectAllowed" : "dropEffect",
+            allowed ? +[](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+                DataTransferObject* const self = data_transfer_this(interp, this_value);
+                return self == nullptr ? Native(std::nullopt) : Native(internals_of(interp).string(self->effect_allowed));
+            }
+                    : +[](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+                          DataTransferObject* const self = data_transfer_this(interp, this_value);
+                          return self == nullptr ? Native(std::nullopt) : Native(internals_of(interp).string(self->drop_effect));
+                      },
+            allowed ? +[](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+                DataTransferObject* const self = data_transfer_this(interp, this_value);
+                std::optional<std::string> value = self != nullptr ? internals_of(interp).to_utf8(js::argument(args, 0)) : std::nullopt;
+                if (!value)
+                    return std::nullopt;
+                static constexpr std::string_view known[] = { "none", "copy", "copyLink", "copyMove", "link", "linkMove", "move", "all", "uninitialized" };
+                if (std::find(std::begin(known), std::end(known), *value) != std::end(known))
+                    self->effect_allowed = std::move(*value);
+                return js::Value::undefined();
+            }
+                    : +[](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+                          DataTransferObject* const self = data_transfer_this(interp, this_value);
+                          std::optional<std::string> value = self != nullptr ? internals_of(interp).to_utf8(js::argument(args, 0)) : std::nullopt;
+                          if (!value)
+                              return std::nullopt;
+                          if (*value == "none" || *value == "copy" || *value == "link" || *value == "move")
+                              self->drop_effect = std::move(*value);
+                          return js::Value::undefined();
+                      });
+    }
+    js::Object* const items = define_interface(in, "DataTransferItemList", nullptr);
+    define_getter(in, *items, "length", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        auto* const self = this_value.is_object() ? dynamic_cast<DataTransferItemListObject*>(this_value.as_object()) : nullptr;
+        if (self == nullptr)
+            return interp.throw_type_error("Illegal invocation");
+        return js::Value::number(static_cast<double>(self->owner->data.size()));
+    });
+    define_operation(interpreter, *items, "add", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+        auto* const self = this_value.is_object() ? dynamic_cast<DataTransferItemListObject*>(this_value.as_object()) : nullptr;
+        if (self == nullptr)
+            return interp.throw_type_error("Illegal invocation");
+        std::optional<std::string> data = internals_of(interp).to_utf8(js::argument(args, 0));
+        std::optional<std::string> type = data ? internals_of(interp).to_utf8(js::argument(args, 1)) : std::nullopt;
+        if (!type)
+            return std::nullopt;
+        std::string const format = data_format(std::move(*type));
+        for (auto const& entry : self->owner->data) {
+            if (entry.first == format)
+                return internals_of(interp).throw_dom_exception("NotSupportedError", "An item already exists for type '" + format + "'.");
+        }
+        self->owner->data.emplace_back(format, std::move(*data));
+        return js::Value::null();
+    });
+    define_operation(interpreter, *items, "remove", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+        auto* const self = this_value.is_object() ? dynamic_cast<DataTransferItemListObject*>(this_value.as_object()) : nullptr;
+        if (self == nullptr)
+            return interp.throw_type_error("Illegal invocation");
+        std::optional<double> const index = interp.to_number(js::argument(args, 0));
+        if (!index)
+            return std::nullopt;
+        std::size_t const at = to_unsigned_long(*index);
+        if (at < self->owner->data.size())
+            self->owner->data.erase(self->owner->data.begin() + static_cast<std::ptrdiff_t>(at));
+        return js::Value::undefined();
+    });
+    define_operation(interpreter, *items, "clear", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        auto* const self = this_value.is_object() ? dynamic_cast<DataTransferItemListObject*>(this_value.as_object()) : nullptr;
+        if (self == nullptr)
+            return interp.throw_type_error("Illegal invocation");
+        self->owner->data.clear();
+        return js::Value::undefined();
+    });
+}
+
+}
+
+// The interfaces the table declares, Touch and its list, DataTransfer: a
+// group of their own, which a realm does without until one is asked for.
+void install_event_interfaces(Realm::Internals& in)
+{
+    js::Heap::NoCollect const guard(in.interpreter.heap());
+    install_table_events(in, *in.interpreter.intrinsics().array_prototype);
 }
 
 // --- The interfaces -------------------------------------------------------------------------
@@ -1425,6 +1988,9 @@ void install_events(Realm::Internals& in)
     event_getter(in, *close_event, "wasClean", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.was_clean); });
     event_getter(in, *close_event, "code", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.close_code); });
     event_getter(in, *close_event, "reason", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.message); });
+    // PageTransitionEvent, which every load fires; the table's others wait in
+    // their group (install_event_interfaces).
+    define_table_events(in, true);
 
     // ErrorEvent (HTML §8.1.4.3): an uncaught exception as its global is told
     // of it, and as a Worker is told of its worker's.

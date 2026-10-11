@@ -863,11 +863,28 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 set_control_checked_of(internals, e, js::Interpreter::to_boolean(value));
                 return js::Value::undefined();
             });
-        // No file is ever chosen here, so the list is null; a FileList
-        // assigned (or null) is taken without effect.
+        // A file input's FileList: empty, as no file is ever chosen here, or the
+        // one a script assigned (a DataTransfer's files); null for any other
+        // type.
         element_accessor(
-            in, proto, "files", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::null(); },
-            [](Realm::Internals&, dom::Element&, js::Value const&) -> Native { return js::Value::undefined(); });
+            in, proto, "files",
+            [](Realm::Internals& internals, dom::Element& e) -> Native {
+                if (dom::forms::input_type(e) != "file")
+                    return js::Value::null();
+                NodeWrapper& wrapper = wrapper_for(internals, e);
+                if (js::Object* const kept = wrapper.same_object("files"))
+                    return js::Value::object(kept);
+                js::ArrayObject* const list = internals.interpreter.new_array();
+                list->set_prototype(internals.prototype("FileList"));
+                wrapper.keep_same_object("files", list);
+                return js::Value::object(list);
+            },
+            [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
+                if (dom::forms::input_type(e) != "file" || !value.is_object() || value.as_object()->prototype() != internals.prototype("FileList"))
+                    return js::Value::undefined();
+                wrapper_for(internals, e).keep_same_object("files", value.as_object());
+                return js::Value::undefined();
+            });
         element_getter(in, proto, "list", [](Realm::Internals& internals, dom::Element& e) -> Native {
             dom::Attr const* list = e.find_attribute("list");
             return internals.realm.wrap_or_null(list ? element_by_id(*internals.document, list->value) : nullptr);
