@@ -200,7 +200,7 @@ a:link { color: rgb(0, 0, 238); text-decoration: underline }
 s, strike, del { text-decoration: line-through }
 u, ins { text-decoration: underline }
 center, caption, th { text-align: center }
-hr { margin-block-start: 0.5em; margin-block-end: 0.5em; border-block-start: 1px solid; color: gray }
+hr { color: gray; border-style: inset; border-width: 1px; margin-block: 0.5em; margin-inline: auto; overflow: hidden }
 mark { background-color: yellow }
 input, textarea, select, button { font-size: 13.333px; line-height: normal; font-family: sans-serif }
 input[type=hidden] { display: none }
@@ -4664,7 +4664,13 @@ struct Resolver {
         Wide wide, bool& border_top_color_set, bool& border_right_color_set,
         bool& border_bottom_color_set, bool& border_left_color_set)
     {
-        static ComputedStyle const initial {};
+        // The initial values; a border's width is medium, as the cascade starts it.
+        static ComputedStyle const initial = [] {
+            ComputedStyle values;
+            for (BorderSide* side : { &values.border_top, &values.border_right, &values.border_bottom, &values.border_left })
+                side->width = 3;
+            return values;
+        }();
         // The size was settled in the font-size pass, in cascade order with
         // every other font-size declaration; a copy here would undo a later
         // one.
@@ -5256,6 +5262,12 @@ struct Resolver {
         bool with_style_attribute, AnimatedLayers const* layers)
     {
         ComputedStyle style = inherited_from(parent);
+        // A border's initial width is medium (css-backgrounds-3 §3.3), and it
+        // is kept as declared through the cascade whatever the style is then:
+        // a width written while the style is none survives a style set later,
+        // and a side that draws nothing is zeroed once the cascade is done.
+        for (BorderSide* side : { &style.border_top, &style.border_right, &style.border_bottom, &style.border_left })
+            side->width = 3;
 
         std::vector<MatchedDeclaration> matched;
         for (MatchedRule const& matched_rule : matched_rules[target]) {
@@ -7996,12 +8008,6 @@ struct Resolver {
             style.border_right.style = styles.size() > 1 ? styles[1] : styles[0];
             style.border_bottom.style = styles.size() > 2 ? styles[2] : styles[0];
             style.border_left.style = styles.size() > 3 ? styles[3] : style.border_right.style;
-            // A bare border-style implies medium width where none was given.
-            for (BorderSide* side : { &style.border_top, &style.border_right, &style.border_bottom,
-                     &style.border_left }) {
-                if (side->style == BorderStyle::Solid && side->width == 0)
-                    side->width = 3;
-            }
             return;
         }
         // css-ui-4 §3: the outline. Its style takes `auto` (the platform's
@@ -8215,9 +8221,6 @@ struct Resolver {
                 } else if (property == "style") {
                     if (auto border_style = parse_border_style(*values[0])) {
                         side->style = *border_style;
-                        // A style with no width written yet is medium wide.
-                        if (side->style == BorderStyle::Solid && side->width == 0)
-                            side->width = 3;
                     }
                 } else if (property == "color") {
                     if (auto color = parse_color_component(*values[0], style.color)) {

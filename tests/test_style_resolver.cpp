@@ -779,6 +779,37 @@ int main()
         CHECK(style_of("c").border_left.color == Color::rgb(128, 0, 128));
     }
 
+    // --- A border width is kept as declared, whatever the style is then --------
+    // The initial width is medium; a width written while the style is none
+    // stands when a later rule sets the style (a `border-0` utility before a
+    // `border-solid` one), and a side that draws nothing is zero wide.
+    g_document = html::parse_document(std::string_view(R"(<!doctype html>
+<html><head><style>
+  .zero { border-width: 0 }
+  .solid { border-style: solid }
+  #g { border-style: dashed }
+  #h { border-top-width: 2px }
+  #h { border-top-style: dotted }
+  #i { border-top-width: 7px; border-top-width: initial; border-top-style: solid }
+  hr.sep { border-width: 0; border-bottom-width: 1px; border-style: solid }
+</style></head>
+<body><p id="f" class="zero solid">f</p><p id="g">g</p><p id="h">h</p><p id="i">i</p><hr id="j" class="sep"></body></html>)"));
+    g_styles = css::resolve_styles(*g_document);
+    {
+        css::ComputedStyle const& f = style_of("f");
+        CHECK(f.border_top.style == css::BorderStyle::Solid);
+        CHECK(close(f.border_top.width, 0));
+        CHECK(close(f.border_left.width, 0));
+        CHECK(close(style_of("g").border_top.width, 3)); // any style alone is medium wide
+        CHECK(close(style_of("g").border_left.width, 3));
+        CHECK(close(style_of("h").border_top.width, 2));
+        CHECK(close(style_of("h").border_bottom.width, 0)); // no style: nothing drawn
+        CHECK(close(style_of("i").border_top.width, 3)); // initial is medium
+        css::ComputedStyle const& j = style_of("j");
+        CHECK(close(j.border_top.width, 0));
+        CHECK(close(j.border_bottom.width, 1));
+    }
+
     // --- The border side longhands ---------------------------------------------
     g_document = html::parse_document(std::string_view(R"(<!doctype html>
 <html><head><style>
