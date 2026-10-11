@@ -6,8 +6,10 @@
 #include "text/FontManager.h"
 #include "text/SashfoldMono.h"
 #include "text/TrueTypeWriter.h"
+#include "platform/Fonts.h"
 
 #include <cstdint>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -478,6 +480,54 @@ int main()
     // Fallback answers are remembered and stable.
     CHECK(&serif.face_for(0x4E00) == &serif.face_for(0x4E00));
     CHECK(manager.fallback_for(0x10FFFD) == nullptr);
+
+#if !defined(_WIN32) && !defined(__APPLE__)
+    // Where the system's fonts are looked for, as fontconfig looks: the XDG
+    // data directories' fonts folders first (a system that keeps its data
+    // elsewhere names them), then the fixed folders; each once; a relative
+    // entry is no folder.
+    {
+        auto const restore = [](char const* name, char const* was) {
+            if (was)
+                setenv(name, was, 1);
+            else
+                unsetenv(name);
+        };
+        std::string const saved_dirs = std::getenv("XDG_DATA_DIRS") ? std::getenv("XDG_DATA_DIRS") : "";
+        std::string const saved_home = std::getenv("XDG_DATA_HOME") ? std::getenv("XDG_DATA_HOME") : "";
+        bool const had_dirs = std::getenv("XDG_DATA_DIRS") != nullptr;
+        bool const had_home = std::getenv("XDG_DATA_HOME") != nullptr;
+        setenv("XDG_DATA_HOME", "/data/home", 1);
+        setenv("XDG_DATA_DIRS", "/run/current-system/sw/share:relative/share:/usr/share/:/usr/share", 1);
+        std::vector<std::string> const dirs = platform::system_font_directories();
+        auto const at = [&dirs](std::string const& dir) -> int {
+            for (std::size_t i = 0; i < dirs.size(); ++i)
+                if (dirs[i] == dir)
+                    return static_cast<int>(i);
+            return -1;
+        };
+        CHECK_EQ(at("/data/home/fonts"), 0);
+        CHECK_EQ(at("/run/current-system/sw/share/fonts"), 1);
+        CHECK_EQ(at("/usr/share/fonts"), 2);
+        CHECK(at("/usr/local/share/fonts") > 2);
+        CHECK(at("relative/share/fonts") == -1);
+        std::size_t usr_share = 0;
+        for (std::string const& dir : dirs)
+            usr_share += dir == "/usr/share/fonts" ? 1 : 0;
+        CHECK_EQ(usr_share, std::size_t { 1 });
+        unsetenv("XDG_DATA_DIRS");
+        unsetenv("XDG_DATA_HOME");
+        std::vector<std::string> const defaults = platform::system_font_directories();
+        bool has_usr = false, has_local = false;
+        for (std::string const& dir : defaults) {
+            has_usr = has_usr || dir == "/usr/share/fonts";
+            has_local = has_local || dir == "/usr/local/share/fonts";
+        }
+        CHECK(has_usr && has_local);
+        restore("XDG_DATA_DIRS", had_dirs ? saved_dirs.c_str() : nullptr);
+        restore("XDG_DATA_HOME", had_home ? saved_home.c_str() : nullptr);
+    }
+#endif
 
     return test::report("font-manager");
 }
