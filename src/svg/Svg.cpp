@@ -1767,4 +1767,356 @@ std::optional<Bitmap> decode_svg(std::vector<std::uint8_t> const& bytes, std::si
     return render(*root, styles, width * factor, height * factor);
 }
 
+// --- Geometry for script --------------------------------------------------------
+
+namespace {
+
+// The elements the walk never draws (render_element's list): they have no
+// box of their own and add nothing to a container's.
+bool never_rendered(std::string const& name)
+{
+    return name == "defs" || name == "symbol" || name == "clipPath" || name == "mask" || name == "marker" || name == "pattern"
+        || name == "linearGradient" || name == "radialGradient" || name == "title" || name == "desc" || name == "metadata"
+        || name == "style" || name == "script" || name == "filter" || name == "stop";
+}
+
+bool displayed(dom::Element const& element, StyleOf const& style_of)
+{
+    css::ComputedStyle const* const style = style_of ? style_of(element) : nullptr;
+    return !style || style->display != css::Display::None;
+}
+
+float em_for(dom::Element const& element, StyleOf const& style_of)
+{
+    return em_of(style_of ? style_of(element) : nullptr);
+}
+
+// A nested <svg>'s viewport within its parent: its rectangle and the
+// matrix that fits its viewBox into it; `viewport` becomes the one inside.
+Matrix nested_viewport(dom::Element const& element, float em, float& viewport_width, float& viewport_height)
+{
+    float const x = length_attribute(element, "x", viewport_width, em);
+    float const y = length_attribute(element, "y", viewport_height, em);
+    float const width = length_attribute(element, "width", viewport_width, em, viewport_width);
+    float const height = length_attribute(element, "height", viewport_height, em, viewport_height);
+    std::optional<ViewBox> const box = parse_view_box(attribute(element, "viewBox"));
+    viewport_width = box ? box->width : width;
+    viewport_height = box ? box->height : height;
+    return view_box_transform(box, parse_aspect_ratio(attribute(element, "preserveAspectRatio")), x, y, width, height);
+}
+
+// From a child's user space to its parent's: its transform, and for a
+// nested <svg> its viewport inside that; the viewport sizes move with it.
+Matrix local_transform(dom::Element const& child, float em, float& viewport_width, float& viewport_height)
+{
+    Matrix const own = parse_transform(attribute(child, "transform"));
+    if (child.is_svg("svg"))
+        return nested_viewport(child, em, viewport_width, viewport_height).then(own);
+    return own;
+}
+
+Box union_of(std::optional<Box> const& a, Box const& b)
+{
+    if (!a)
+        return b;
+    return Box { std::min(a->left, b.left), std::min(a->top, b.top), std::max(a->right, b.right), std::max(a->bottom, b.bottom) };
+}
+
+Box mapped(Box const& box, Matrix const& matrix)
+{
+    Point const corners[4] = { matrix.apply(Point { box.left, box.top }), matrix.apply(Point { box.right, box.top }),
+        matrix.apply(Point { box.left, box.bottom }), matrix.apply(Point { box.right, box.bottom }) };
+    Box out { corners[0].x, corners[0].y, corners[0].x, corners[0].y };
+    for (Point const& p : corners)
+        out = union_of(out, Box { p.x, p.y, p.x, p.y });
+    return out;
+}
+
+// The font a text element is drawn in, and its advance over everything it
+// holds, tspans included.
+text::FontStack const& text_fonts(css::ComputedStyle const& style)
+{
+    text::FontRequest request;
+    if (style.font_family)
+        request.families = *style.font_family;
+    request.weight = style.font_weight;
+    request.italic = style.font_style != css::FontStyle::Normal;
+    return text::FontManager::instance().resolve(request);
+}
+
+float advance_of(dom::Element const& element, StyleOf const& style_of)
+{
+    css::ComputedStyle const* const style = style_of ? style_of(element) : nullptr;
+    if (!style || style->display == css::Display::None)
+        return 0;
+    float width = 0;
+    for (dom::Node const* child : element.children()) {
+        if (child->is_element()) {
+            auto const& span = static_cast<dom::Element const&>(*child);
+            if (span.is_svg("tspan") || span.is_svg("textPath") || span.is_svg("a"))
+                width += advance_of(span, style_of);
+        } else if (child->is_text()) {
+            std::u32string const text = collapsed_text(static_cast<dom::Text const&>(*child).data);
+            if (!text.empty() && style->font_size > 0 && std::isfinite(style->font_size))
+                width += text_fonts(*style).measure(text, style->font_size);
+        }
+    }
+    return width;
+}
+
+// A text element's box: from its anchor along its advance, from the
+// ascent above its baseline to the descent below.
+Box text_box(dom::Element const& element, StyleOf const& style_of)
+{
+    css::ComputedStyle const* const style = style_of ? style_of(element) : nullptr;
+    std::vector<float> const xs = parse_numbers(attribute(element, "x"));
+    std::vector<float> const ys = parse_numbers(attribute(element, "y"));
+    std::vector<float> const dxs = parse_numbers(attribute(element, "dx"));
+    std::vector<float> const dys = parse_numbers(attribute(element, "dy"));
+    float const x = (xs.empty() ? 0 : xs.front()) + (dxs.empty() ? 0 : dxs.front());
+    float const y = (ys.empty() ? 0 : ys.front()) + (dys.empty() ? 0 : dys.front());
+    float const width = advance_of(element, style_of);
+    if (!style || width <= 0)
+        return Box { x, y, x, y };
+    std::string_view anchor = "start";
+    for (dom::Node const* node = &element; node && node->is_element(); node = node->parent()) {
+        std::string_view const written = trimmed(attribute(static_cast<dom::Element const&>(*node), "text-anchor"));
+        if (!written.empty()) {
+            anchor = written;
+            break;
+        }
+    }
+    float const left = anchor == "middle" ? x - width / 2 : anchor == "end" ? x - width : x;
+    text::FaceMetrics const metrics = text_fonts(*style).primary().metrics(style->font_size);
+    return Box { left, y - metrics.ascent, left + width, y + metrics.descent };
+}
+
+Box local_bbox(dom::Element const& element, float viewport_width, float viewport_height, StyleOf const& style_of, int depth);
+
+// A container's box: the union of what its rendered children draw, each
+// through its own transform; nothing for none.
+Box children_bbox(dom::Element const& element, float viewport_width, float viewport_height, StyleOf const& style_of, int depth)
+{
+    std::optional<Box> total;
+    for (dom::Node const* child : element.children()) {
+        if (!child->is_element())
+            continue;
+        auto const& child_element = static_cast<dom::Element const&>(*child);
+        if (child_element.namespace_uri() != dom::ns::svg || never_rendered(child_element.local_name()) || !displayed(child_element, style_of))
+            continue;
+        float inner_width = viewport_width;
+        float inner_height = viewport_height;
+        Matrix const local = local_transform(child_element, em_for(child_element, style_of), inner_width, inner_height);
+        Box const box = local_bbox(child_element, inner_width, inner_height, style_of, depth + 1);
+        // An empty container adds nothing; an empty shape still adds its
+        // point, as the browsers count a zero-size rect.
+        bool const container = child_element.is_svg("g") || child_element.is_svg("a") || child_element.is_svg("switch")
+            || child_element.is_svg("svg");
+        if (container && box.left == box.right && box.top == box.bottom && child_element.children().empty())
+            continue;
+        total = union_of(total, mapped(box, local));
+    }
+    return total.value_or(Box {});
+}
+
+Box local_bbox(dom::Element const& element, float viewport_width, float viewport_height, StyleOf const& style_of, int depth)
+{
+    if (depth > 32)
+        return Box {};
+    std::string const& name = element.local_name();
+    float const em = em_for(element, style_of);
+    State state;
+    state.viewport_width = viewport_width;
+    state.viewport_height = viewport_height;
+    if (std::optional<Path> const path = shape_path(state, element, style_of ? style_of(element) : nullptr)) {
+        if (path->empty())
+            return Box {};
+        std::optional<Box> box;
+        for (Polyline const& line : flatten(*path, 0.01f)) {
+            for (Point const& p : line.points)
+                box = union_of(box, Box { p.x, p.y, p.x, p.y });
+        }
+        return box.value_or(Box {});
+    }
+    if (name == "text")
+        return text_box(element, style_of);
+    if (name == "image" || name == "foreignObject") {
+        float const x = length_attribute(element, "x", viewport_width, em);
+        float const y = length_attribute(element, "y", viewport_height, em);
+        return Box { x, y, x + length_attribute(element, "width", viewport_width, em), y + length_attribute(element, "height", viewport_height, em) };
+    }
+    if (name == "use") {
+        std::string const id = reference_of(href_of(element));
+        dom::Node const* top = &element;
+        while (top->parent())
+            top = top->parent();
+        // The referenced element, looked up from the root of the tree.
+        std::vector<dom::Node const*> pending { top };
+        dom::Element const* target = nullptr;
+        while (!pending.empty() && !id.empty() && !target) {
+            dom::Node const* const node = pending.back();
+            pending.pop_back();
+            if (node->is_element() && attribute(static_cast<dom::Element const&>(*node), "id") == id)
+                target = static_cast<dom::Element const*>(node);
+            for (dom::Node const* child : node->children())
+                pending.push_back(child);
+        }
+        if (!target || target == &element)
+            return Box {};
+        float const x = length_attribute(element, "x", viewport_width, em);
+        float const y = length_attribute(element, "y", viewport_height, em);
+        Box const inner = target->is_svg("symbol") ? children_bbox(*target, viewport_width, viewport_height, style_of, depth + 1)
+                                                   : mapped(local_bbox(*target, viewport_width, viewport_height, style_of, depth + 1),
+                                                         parse_transform(attribute(*target, "transform")));
+        return mapped(inner, Matrix::translate(x, y));
+    }
+    return children_bbox(element, viewport_width, viewport_height, style_of, depth);
+}
+
+}
+
+dom::Element const* outermost_svg(dom::Element const& element)
+{
+    dom::Element const* found = element.is_svg("svg") ? &element : nullptr;
+    for (dom::Node const* node = element.parent(); node && node->is_element(); node = node->parent()) {
+        auto const& ancestor = static_cast<dom::Element const&>(*node);
+        if (ancestor.namespace_uri() != dom::ns::svg)
+            break;
+        if (ancestor.is_svg("svg"))
+            found = &ancestor;
+    }
+    return found;
+}
+
+std::optional<UserSpace> user_space(dom::Element const& root, dom::Element const& element, float width, float height, StyleOf const& style_of)
+{
+    std::vector<dom::Element const*> chain;
+    for (dom::Node const* node = &element; node; node = node->parent()) {
+        if (!node->is_element())
+            return std::nullopt;
+        auto const& at = static_cast<dom::Element const&>(*node);
+        if (!displayed(at, style_of))
+            return std::nullopt;
+        chain.push_back(&at);
+        if (&at == &root)
+            break;
+    }
+    if (chain.empty() || chain.back() != &root)
+        return std::nullopt;
+    UserSpace space;
+    std::optional<ViewBox> const box = parse_view_box(attribute(root, "viewBox"));
+    space.ctm = view_box_transform(box, parse_aspect_ratio(attribute(root, "preserveAspectRatio")), 0, 0, width, height);
+    space.viewport_width = box ? box->width : width;
+    space.viewport_height = box ? box->height : height;
+    for (std::size_t i = chain.size() - 1; i-- > 0;) {
+        dom::Element const& at = *chain[i];
+        space.ctm = local_transform(at, em_for(at, style_of), space.viewport_width, space.viewport_height).then(space.ctm);
+    }
+    return space;
+}
+
+std::optional<Path> geometry_of(dom::Element const& element, UserSpace const& space, StyleOf const& style_of)
+{
+    State state;
+    state.viewport_width = space.viewport_width;
+    state.viewport_height = space.viewport_height;
+    return shape_path(state, element, style_of ? style_of(element) : nullptr);
+}
+
+Box bounding_box(dom::Element const& element, UserSpace const& space, StyleOf const& style_of)
+{
+    return local_bbox(element, space.viewport_width, space.viewport_height, style_of, 0);
+}
+
+float path_length(Path const& path)
+{
+    float total = 0;
+    for (Polyline const& line : flatten(path, 0.001f)) {
+        for (std::size_t i = 1; i < line.points.size(); ++i)
+            total += std::hypot(line.points[i].x - line.points[i - 1].x, line.points[i].y - line.points[i - 1].y);
+        if (line.closed && line.points.size() > 1)
+            total += std::hypot(line.points.front().x - line.points.back().x, line.points.front().y - line.points.back().y);
+    }
+    return total;
+}
+
+Point point_at_length(Path const& path, float distance)
+{
+    std::vector<Polyline> const lines = flatten(path, 0.001f);
+    Point last;
+    bool any = false;
+    float remaining = std::max(0.0f, distance);
+    for (Polyline const& line : lines) {
+        std::vector<Point> points = line.points;
+        if (line.closed && points.size() > 1)
+            points.push_back(points.front());
+        if (points.empty())
+            continue;
+        if (!any) {
+            last = points.front();
+            any = true;
+        }
+        for (std::size_t i = 1; i < points.size(); ++i) {
+            float const step = std::hypot(points[i].x - points[i - 1].x, points[i].y - points[i - 1].y);
+            if (step > 0 && remaining <= step) {
+                float const t = remaining / step;
+                return Point { points[i - 1].x + t * (points[i].x - points[i - 1].x), points[i - 1].y + t * (points[i].y - points[i - 1].y) };
+            }
+            remaining -= step;
+            last = points[i];
+        }
+    }
+    return last;
+}
+
+bool point_in_fill(Path const& path, Point point, bool even_odd)
+{
+    int winding = 0;
+    int crossings = 0;
+    for (Polyline const& line : flatten(path, 0.01f)) {
+        std::size_t const count = line.points.size();
+        for (std::size_t i = 0; i < count; ++i) {
+            Point const a = line.points[i];
+            Point const b = line.points[(i + 1) % count];
+            if ((a.y <= point.y) != (b.y <= point.y)) {
+                float const x = a.x + (point.y - a.y) / (b.y - a.y) * (b.x - a.x);
+                if (x > point.x) {
+                    winding += b.y > a.y ? 1 : -1;
+                    ++crossings;
+                }
+            }
+        }
+    }
+    return even_odd ? (crossings % 2) == 1 : winding != 0;
+}
+
+bool point_in_stroke(Path const& path, Point point, float stroke_width)
+{
+    float const reach = stroke_width / 2;
+    for (Polyline const& line : flatten(path, 0.01f)) {
+        std::vector<Point> points = line.points;
+        if (line.closed && points.size() > 1)
+            points.push_back(points.front());
+        for (std::size_t i = 0; i + 1 < points.size() || (points.size() == 1 && i == 0); ++i) {
+            Point const a = points[i];
+            Point const b = points.size() == 1 ? a : points[i + 1];
+            float const dx = b.x - a.x;
+            float const dy = b.y - a.y;
+            float const length_squared = dx * dx + dy * dy;
+            float t = length_squared > 0 ? ((point.x - a.x) * dx + (point.y - a.y) * dy) / length_squared : 0;
+            t = std::clamp(t, 0.0f, 1.0f);
+            if (std::hypot(point.x - (a.x + t * dx), point.y - (a.y + t * dy)) <= reach)
+                return true;
+            if (points.size() == 1)
+                break;
+        }
+    }
+    return false;
+}
+
+float text_length(dom::Element const& element, StyleOf const& style_of)
+{
+    return advance_of(element, style_of);
+}
+
 }

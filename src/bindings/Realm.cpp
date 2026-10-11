@@ -1233,7 +1233,7 @@ js::Object* Realm::Internals::prototype_for(dom::Node const& node) const
             return prototype("HTMLElement");
         }
         if (element.namespace_uri() == dom::ns::svg)
-            return prototype(element.local_name() == "a" ? "SVGAElement" : "SVGElement");
+            return prototype(svg_interface_for(element.local_name()));
         if (element.namespace_uri() == dom::ns::mathml)
             return prototype("MathMLElement");
         return prototype("Element");

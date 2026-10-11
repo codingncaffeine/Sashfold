@@ -11,6 +11,7 @@
 #include "js/Runtime.h"
 #include "js/Strings.h"
 
+#include <array>
 #include <cstdint>
 #include <deque>
 #include <functional>
@@ -1528,6 +1529,13 @@ void install_tasks(Realm::Internals&); // Tasks.cpp: AbortController, AbortSigna
 void install_origin(Realm::Internals&); // Origin.cpp: Origin
 void install_web_crypto(Realm::Internals&, js::Object& subtle); // WebCrypto.cpp: CryptoKey and SubtleCrypto's operations
 void install_file_reader(Realm::Internals&); // FileReader.cpp: FileReader, installed with Blob
+// The SVG DOM (SvgElements.cpp): the interfaces under SVGElement, the interface
+// of an SVG element by its local name (SVGElement for one not known), and an
+// SVG element's client rectangle from its geometry (nullopt for an outermost
+// <svg>, which has a layout box, and for anything not in an <svg>).
+void install_svg_elements(Realm::Internals&, js::Object& svg_element);
+std::string_view svg_interface_for(std::string_view local_name);
+std::optional<LayoutBox> svg_client_box(Realm::Internals&, dom::Element const&);
 void install_ranges(Realm::Internals&); // Range.cpp: AbstractRange, Range, StaticRange
 void install_traversal(Realm::Internals&); // Traversal.cpp: NodeFilter, TreeWalker, NodeIterator
 void install_workers(Realm::Internals&); // Workers.cpp: Worker, for a window's realm
@@ -1589,6 +1597,10 @@ struct Matrix2D {
 };
 std::optional<Matrix2D> matrix_2d_from_init(Realm::Internals&, js::Value const& init);
 js::Value new_dom_matrix_2d(Realm::Internals&, Matrix2D const&);
+// A new DOMPoint (x, y, 0, 1), and the four numbers of a DOMPointInit or a
+// point (a TypeError pending on nullopt) (Geometry.cpp).
+js::Value new_dom_point(Realm::Internals&, double x, double y);
+std::optional<std::array<double, 4>> dom_point_from_init(Realm::Internals&, js::Value const&);
 // Custom elements (CustomElements.cpp, HTML §4.13): the registry, the
 // HTMLElement constructor a page's class calls through, and the callbacks
 // the tree owes a definition.

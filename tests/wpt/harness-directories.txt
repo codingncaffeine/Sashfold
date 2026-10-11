@@ -133,3 +133,6 @@ WebCryptoAPI
 # Added 2026-10-11 with FileReader: the File API (Blob, File, FileReader,
 # blob: URLs).
 FileAPI
+# Added 2026-10-11 with the SVG DOM: the element interfaces, their animated
+# attributes and the geometry methods (getBBox, getCTM, getTotalLength).
+svg

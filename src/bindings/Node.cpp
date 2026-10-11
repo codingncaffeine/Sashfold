@@ -593,6 +593,10 @@ std::vector<dom::Node*> query_all(dom::Node& root, css::SelectorList const& list
 
 std::optional<LayoutBox> client_box(Realm::Internals& in, dom::Element const& element)
 {
+    // An element inside an <svg> has no box of its own: its rectangle is its
+    // geometry's, through its transforms.
+    if (std::optional<LayoutBox> const drawn = svg_client_box(in, element))
+        return drawn;
     if (!in.hooks.layout_box)
         return std::nullopt;
     std::optional<LayoutBox> box = in.hooks.layout_box(element);
@@ -1831,8 +1835,8 @@ std::optional<AnimatedStringObject*> this_animated_string(js::Interpreter& inter
 }
 
 // The SVG <a> element's interface, SVGAElement, as far as its href: what a
-// hyperlink's origin is read from.
-void install_svg_links(Realm::Internals& in, js::Object& svg_element)
+// hyperlink's origin is read from. Its parent is SVGGraphicsElement.
+void install_svg_links(Realm::Internals& in, js::Object& graphics_element)
 {
     js::Object* animated_string = define_interface(in, "SVGAnimatedString", nullptr);
     js::NativeFunction::Callback const read = [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
@@ -1865,7 +1869,7 @@ void install_svg_links(Realm::Internals& in, js::Object& svg_element)
 
     // href is [SameObject]: the one SVGAnimatedString is made the first time,
     // with the intrinsics of the element's realm, and its wrapper keeps it.
-    js::Object* anchor = define_interface(in, "SVGAElement", &svg_element);
+    js::Object* anchor = define_interface(in, "SVGAElement", &graphics_element);
     element_getter(in, *anchor, "href", [](Realm::Internals& internals, dom::Element& e) -> Native {
         js::Interpreter::Roots const roots(internals.interpreter);
         NodeWrapper& wrapper = wrapper_for(internals, e);
@@ -1913,7 +1917,10 @@ void install_nodes(Realm::Internals& in)
     element_forwarding_getter(
         in, *svg_element, "style",
         [](Realm::Internals& internals, dom::Element& e) -> Native { return make_style_declaration(internals, &e, false); }, "cssText");
-    install_svg_links(in, *svg_element);
+    // The SVG element interfaces, then SVGAElement among them (an SVG <a> is
+    // an SVGGraphicsElement).
+    install_svg_elements(in, *svg_element);
+    install_svg_links(in, *in.prototype("SVGGraphicsElement"));
     // The nearest svg element above an SVG element, or null for the
     // outermost one (SVG §5.9); the viewport one is the same here, as no
     // symbol, pattern or marker establishes a viewport of its own yet.
@@ -2087,6 +2094,9 @@ void install_nodes(Realm::Internals& in)
     };
     js::Object* read_only = define_interface(in, "DOMRectReadOnly", nullptr, rect_constructor("DOMRectReadOnly"), 0);
     js::Object* rect = define_interface(in, "DOMRect", read_only, rect_constructor("DOMRect"), 0);
+    // SVGRect is DOMRect under its old name (Geometry Interfaces §5).
+    in.interpreter.global()->put(in.interpreter.key("SVGRect"), *in.interpreter.get(*in.interpreter.global(), in.interpreter.key("DOMRect")),
+        js::builtin_attributes);
     auto const slot = [this_rect](double RectObject::* member) {
         return [this_rect, member](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
             std::optional<RectObject*> const r = this_rect(interp, this_value);

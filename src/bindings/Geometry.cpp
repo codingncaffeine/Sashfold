@@ -1119,9 +1119,26 @@ void install_geometry(Realm::Internals& in)
                 });
         }
     }
-    // WebKitCSSMatrix is DOMMatrix under its old name.
-    interpreter.global()->put(interpreter.key("WebKitCSSMatrix"),
-        *interpreter.get(*interpreter.global(), interpreter.key("DOMMatrix")), js::builtin_attributes);
+    // The legacy window aliases (Geometry Interfaces §6, §7): WebKitCSSMatrix
+    // and SVGMatrix are DOMMatrix under their old names, SVGPoint is DOMPoint.
+    for (auto const& [alias, name] : { std::pair { "WebKitCSSMatrix", "DOMMatrix" }, std::pair { "SVGMatrix", "DOMMatrix" }, std::pair { "SVGPoint", "DOMPoint" } }) {
+        interpreter.global()->put(interpreter.key(alias), *interpreter.get(*interpreter.global(), interpreter.key(name)), js::builtin_attributes);
+    }
+}
+
+js::Value new_dom_point(Realm::Internals& in, double x, double y)
+{
+    double const p[4] = { x, y, 0, 1 };
+    return new_point(in, p, true);
+}
+
+std::optional<std::array<double, 4>> dom_point_from_init(Realm::Internals& in, js::Value const& value)
+{
+    if (value.is_object()) {
+        if (auto const* given = dynamic_cast<DomPointObject const*>(value.as_object()))
+            return std::array<double, 4> { given->x, given->y, given->z, given->w };
+    }
+    return point_from_init(in, value);
 }
 
 }
