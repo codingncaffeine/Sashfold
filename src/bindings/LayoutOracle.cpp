@@ -92,6 +92,39 @@ float length_px(css::LengthPercent const& length, float base)
     }
 }
 
+// find_fragment, keeping the width of the containing block of the box found
+// (CSS 2 §10.1): the content box of the box around it, or, for one taken out
+// of flow, the padding box of its nearest positioned ancestor (the root's
+// box standing in for the viewport). Anonymous boxes pass their own on.
+layout::Fragment const* find_fragment_within(layout::Fragment const& fragment, dom::Element const& element, float viewport, float in_flow,
+    float positioned, float& containing_width)
+{
+    for (layout::Fragment const& child : fragment.children) {
+        css::ComputedStyle const* const style = child.style;
+        float cb = in_flow;
+        if (style != nullptr && style->position == css::Position::Absolute)
+            cb = positioned;
+        else if (style != nullptr && style->position == css::Position::Fixed)
+            cb = viewport;
+        if (child.element == &element) {
+            containing_width = cb;
+            return &child;
+        }
+        float inner_flow = in_flow;
+        float inner_positioned = positioned;
+        if (style != nullptr) {
+            float const borders = style->border_left.width + style->border_right.width;
+            float const padding = length_px(style->padding_left, cb) + length_px(style->padding_right, cb);
+            inner_flow = std::max(0.0f, child.width - borders - padding);
+            if (style->position != css::Position::Static)
+                inner_positioned = std::max(0.0f, child.width - borders);
+        }
+        if (layout::Fragment const* found = find_fragment_within(child, element, viewport, inner_flow, inner_positioned, containing_width))
+            return found;
+    }
+    return nullptr;
+}
+
 // The furthest right and bottom page edges a box's descendants reach, those
 // inside a box that clips them left out.
 void reach_of(layout::Fragment const& box, float& right, float& bottom)
@@ -171,8 +204,21 @@ std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Ele
     // as their element: they are not its box.
     if (auto const it = styles.find(&element); it != styles.end() && it->second.display == css::Display::Contents)
         return std::nullopt;
-    if (layout::Fragment const* fragment = find_fragment(root, element))
-        return LayoutBox { fragment->x, fragment->y, fragment->width, fragment->height };
+    float containing_width = root.width;
+    layout::Fragment const* const fragment = root.element == &element
+        ? &root
+        : find_fragment_within(root, element, root.width, root.width, root.width, containing_width);
+    if (fragment != nullptr) {
+        LayoutBox box { fragment->x, fragment->y, fragment->width, fragment->height };
+        if (css::ComputedStyle const* const style = fragment->style) {
+            // Padding percentages are all of the containing block's width.
+            box.padding_top = std::max(0.0f, length_px(style->padding_top, containing_width));
+            box.padding_right = std::max(0.0f, length_px(style->padding_right, containing_width));
+            box.padding_bottom = std::max(0.0f, length_px(style->padding_bottom, containing_width));
+            box.padding_left = std::max(0.0f, length_px(style->padding_left, containing_width));
+        }
+        return box;
+    }
     LayoutBox box;
     bool found = false;
     union_runs(root, element, box, found);

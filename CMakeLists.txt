@@ -84,6 +84,7 @@ add_library(sashfold_core STATIC
   src/bindings/WebSockets.cpp
   src/bindings/ElementInternals.cpp
   src/bindings/Collections.cpp
+  src/bindings/ResizeObserver.cpp
   src/bindings/Performance.cpp
   src/bindings/Range.cpp
   src/bindings/Reflect.cpp

@@ -1153,6 +1153,19 @@ struct Realm::Internals {
         float viewport_height = 0;
         double updated_at = -1e300;
     } intersection;
+    // The ResizeObservers with something to watch, and what the last update
+    // saw (ResizeObserver.cpp).
+    struct ResizeObservationState {
+        std::vector<js::Object*> observers;
+        bool dirty = false; // a target was added, or one was left undelivered
+        // One was left undelivered at the rendering update of `frame_at`.
+        bool waiting_for_frame = false;
+        double frame_at = 0;
+        std::uint64_t mutations = 0;
+        float viewport_width = 0;
+        float viewport_height = 0;
+        double updated_at = -1e300;
+    } resize_observation;
     // The document's load as Navigation Timing reports it (Performance.cpp):
     // when each milestone came, in ms from the time origin, 0 until it has.
     struct NavigationTiming {
@@ -1742,6 +1755,11 @@ void drop_mutation_observers_of(Realm::Internals&);
 void install_intersection_observer(Realm::Internals&);
 void trace_intersection_observers(Realm::Internals const&, js::Tracer&);
 bool update_intersection_observations(Realm::Internals&, bool force = false);
+// ResizeObserver.cpp: the observers, and their update after layout — true when
+// a callback was called.
+void install_resize_observer(Realm::Internals&);
+void trace_resize_observers(Realm::Internals const&, js::Tracer&);
+bool update_resize_observations(Realm::Internals&);
 // Performance.cpp: the timeline on `performance` and PerformanceObserver; the
 // document's load finished (its navigation entry reaches the observers).
 void install_performance_timeline(Realm::Internals&);

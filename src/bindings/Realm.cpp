@@ -1790,6 +1790,7 @@ constexpr InterfaceGroup interface_groups[] = {
     { "event_interfaces", install_event_interfaces, true },
     { "mutation_observer", install_mutation_observer, true },
     { "intersection", install_intersection_observer, true },
+    { "resize_observer", install_resize_observer, true },
     { "indexeddb", install_indexeddb, true },
     { "cssom", install_cssom, true },
     { "animations", install_animations, true },
@@ -4207,6 +4208,9 @@ bool Realm::run_pending()
     // nothing when nothing has moved since the last time.
     if (!in.interpreter.terminated() && update_intersection_observations(in))
         ran = true;
+    // And its resize observers, after the layout that measured them.
+    if (!in.interpreter.terminated() && update_resize_observations(in))
+        ran = true;
     // An element shown full screen that has left the document takes full
     // screen with it (Fullscreen §4, the removing steps).
     check_fullscreen_element(in);
@@ -4316,6 +4320,7 @@ void Realm::trace_roots(js::Tracer& tracer)
         tracer.visit(list);
     trace_mutation_observers(in, tracer);
     trace_intersection_observers(in, tracer);
+    trace_resize_observers(in, tracer);
     trace_performance(in, tracer);
     trace_animations(in, tracer);
     trace_presenting_media(in, tracer);

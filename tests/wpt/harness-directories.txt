@@ -148,3 +148,6 @@ html/semantics/forms
 # (Navigation Timing's for the document).
 html/semantics/embedded-content/the-img-element
 navigation-timing
+# Added 2026-10-11 with ResizeObserver: sizes measured after layout,
+# delivered shallowest first in the rendering update.
+resize-observer

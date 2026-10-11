@@ -59,6 +59,12 @@ struct LayoutBox {
     float y = 0;
     float width = 0;
     float height = 0;
+    // The used padding of an element's own box (percentages resolved against
+    // its containing block); 0 for a box of runs.
+    float padding_top = 0;
+    float padding_right = 0;
+    float padding_bottom = 0;
+    float padding_left = 0;
 };
 
 // A box that scrolls (CSSOM View §6): how far its content is moved now and
