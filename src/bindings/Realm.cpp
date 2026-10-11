@@ -2801,6 +2801,10 @@ std::shared_ptr<FrameGeometry> frame_geometry(Realm::Internals& parent, dom::Ele
         refresh_frame_viewport(*geometry);
         return geometry->oracle->style(element);
     };
+    frame_hooks.element_from_point = [geometry](float x, float y) {
+        refresh_frame_viewport(*geometry);
+        return geometry->oracle->element_at(x, y);
+    };
     // A frame's canvas text is shaped in the frame's fonts, inside whatever
     // turn-taking the page's own text keeps.
     frame_hooks.with_fonts = [geometry, outer = parent.hooks.with_fonts](std::function<void()> const& use) {

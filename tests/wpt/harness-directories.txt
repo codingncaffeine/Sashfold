@@ -136,3 +136,6 @@ FileAPI
 # Added 2026-10-11 with the SVG DOM: the element interfaces, their animated
 # attributes and the geometry methods (getBBox, getCTM, getTotalLength).
 svg
+# Added 2026-10-11 with elementFromPoint: CSSOM View (the point and box
+# queries, scrolling, the screen).
+css/cssom-view

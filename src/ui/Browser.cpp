@@ -4339,6 +4339,20 @@ struct Browser::Impl {
             auto const it = styles.find(&element);
             return it == styles.end() ? nullptr : &it->second;
         };
+        // elementFromPoint: the point on the document's own viewport — the page's,
+        // or a frame's inside its cell — scrolled, in device px, through the
+        // same lookup a click takes.
+        hooks.element_from_point = [this, document](float x, float y) -> dom::Element const* {
+            Tab* const owner = tab_of(document);
+            if (!owner)
+                return nullptr;
+            ensure_fresh(*owner);
+            float const px = static_cast<float>(x) * scale;
+            FrameView const* const view = view_of(*owner, frame_holding_in(owner->frames, *document));
+            if (view)
+                return target_at(view->layout.root, px, static_cast<float>(y) * scale + static_cast<float>(view->scroll_y), view->styles);
+            return target_at(owner->layout.root, px, static_cast<float>(y) * scale + static_cast<float>(owner->scroll_y), owner->styles);
+        };
         hooks.navigate = [this, document](net::Url const& target) {
             if (Tab* const owner = tab_of(document))
                 queue(index_of(*owner), target, Mode::Push);
@@ -4888,7 +4902,7 @@ struct Browser::Impl {
         std::optional<std::pair<float, float>> const point = page_point(x, y);
         if (!point)
             return nullptr;
-        return target_at(tab.layout.root, point->first, point->second);
+        return target_at(tab.layout.root, point->first, point->second, tab.styles);
     }
 
     // A window key as a page sees it.
@@ -6376,9 +6390,13 @@ struct Browser::Impl {
     // answers through it. One lookup serves the page's events, its links,
     // its controls and the inspector: they cannot disagree about what is
     // under the pointer.
-    static dom::Element const* target_at(layout::Fragment const& root, float px, float py)
+    static dom::Element const* target_at(layout::Fragment const& root, float px, float py, css::StyleMap const& styles)
     {
-        std::optional<paint::PointHit> const hit = paint::hit_test(root, px, py);
+        // A point on an inline <svg> lands on the shape under it.
+        std::optional<paint::PointHit> const hit = paint::hit_test(root, px, py, [&styles](dom::Element const& element) -> css::ComputedStyle const* {
+            auto const it = styles.find(&element);
+            return it == styles.end() ? nullptr : &it->second;
+        });
         return hit ? hit->element : nullptr;
     }
 
@@ -6435,7 +6453,7 @@ struct Browser::Impl {
         layout::Fragment const& root = view ? view->layout.root : tab->layout.root;
         float const px = view ? chain.back().x : point->first;
         float const py = view ? chain.back().y : point->second;
-        dom::Element const* const target = target_at(root, px, py);
+        dom::Element const* const target = target_at(root, px, py, view ? view->styles : tab->styles);
         if (!target)
             return std::nullopt;
         ChromeLayout const chrome = layout_chrome();
@@ -6520,7 +6538,7 @@ struct Browser::Impl {
         float const py = chain.empty() ? point->second : chain.back().y;
         // Whatever is uppermost there, the control it belongs to answers: a
         // button hit on the words of a span inside it is still the button.
-        dom::Element const* const hit = target_at(root, px, py);
+        dom::Element const* const hit = target_at(root, px, py, chain.empty() ? tab->styles : chain.back().view->styles);
         for (dom::Node const* node = hit; node; node = node->parent()) {
             if (!node->is_element())
                 continue;
@@ -6559,16 +6577,18 @@ struct Browser::Impl {
         std::vector<FrameStep> const chain = frames_at(*tab, px, py);
         layout::Fragment const* root = &tab->layout.root;
         net::Url base = base_of(*tab, *entry);
+        css::StyleMap const* styles = &tab->styles;
         dom::Element const* link_frame = nullptr;
         if (!chain.empty()) {
             FrameStep const& step = chain.back();
             root = &step.view->layout.root;
+            styles = &step.view->styles;
             base = step.view->realm->base_url();
             link_frame = step.container;
             px = step.x;
             py = step.y;
         }
-        dom::Element const* const hit = target_at(*root, px, py);
+        dom::Element const* const hit = target_at(*root, px, py, *styles);
         for (dom::Node const* node = hit; node; node = node->parent()) {
             if (!node->is_element())
                 continue;
@@ -7739,7 +7759,7 @@ struct Browser::Impl {
         layout::Fragment const& root = view ? view->layout.root : tab.layout.root;
         float const px = view ? chain.back().x : point->first;
         float const py = view ? chain.back().y : point->second;
-        dom::Element const* const target = target_at(root, px, py);
+        dom::Element const* const target = target_at(root, px, py, view ? view->styles : tab.styles);
         if (!target)
             return true;
         ChromeLayout const chrome = layout_chrome();
@@ -8722,7 +8742,7 @@ struct Browser::Impl {
 
     void inspect_page_point(Tab& tab, float px, float py)
     {
-        if (dom::Element const* const element = target_at(tab.layout.root, px, py))
+        if (dom::Element const* const element = target_at(tab.layout.root, px, py, tab.styles))
             inspect(tab, element);
     }
 
@@ -9761,7 +9781,7 @@ struct Browser::Impl {
                         layout::Fragment const& root = view ? view->layout.root : tab->layout.root;
                         float const px = view ? chain.back().x : point->first;
                         float const py = view ? chain.back().y : point->second;
-                        if (dom::Element const* const target = target_at(root, px, py)) {
+                        if (dom::Element const* const target = target_at(root, px, py, view ? view->styles : tab->styles)) {
                             ChromeLayout const chrome = layout_chrome();
                             bindings::MouseInit init;
                             init.client_x = static_cast<int>(std::lround(

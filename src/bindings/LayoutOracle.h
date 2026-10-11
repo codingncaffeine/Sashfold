@@ -57,6 +57,8 @@ public:
 
     std::optional<LayoutBox> box(dom::Element const& element);
     css::ComputedStyle const* style(dom::Element const& element);
+    // The element uppermost at a page point (elementFromPoint).
+    dom::Element const* element_at(float x, float y);
     // Brings styles and layout up to date with the tree.
     void ensure();
     // Runs `use` with the document's own fonts in the process's font

@@ -542,6 +542,13 @@ public:
             return std::nullopt;
         if (*rel == "resources/testharnessreport.js")
             return Served { std::string(report_script), "text/javascript", {} };
+        // The vendor's half of testdriver: an automated run, so a driver command
+        // this runner does not carry out is refused at once (testdriver.js
+        // rejects it) instead of waiting for a person to click until the test
+        // times out — which a page whose elementsFromPoint finds the element
+        // otherwise does.
+        if (*rel == "resources/testdriver-vendor.js")
+            return Served { "window.test_driver_internal.in_automation = true;\n", "text/javascript", {} };
         // The IDL parser every idlharness test loads is served by the
         // suite's server under a name of its own: the file is elsewhere.
         if (*rel == "resources/WebIDLParser.js")

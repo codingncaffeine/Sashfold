@@ -2,6 +2,7 @@
 
 #include "bindings/Internal.h"
 #include "html/DocumentBase.h"
+#include "paint/Painter.h"
 #include "text/FontManager.h"
 
 #include <algorithm>
@@ -131,6 +132,7 @@ void LayoutOracle::install(HostHooks& hooks)
 {
     hooks.layout_box = [this](dom::Element const& element) { return box(element); };
     hooks.computed_style = [this](dom::Element const& element) { return style(element); };
+    hooks.element_from_point = [this](float x, float y) { return element_at(x, y); };
     hooks.with_fonts = [this](std::function<void()> const& use) { with_fonts(use); };
 }
 
@@ -262,6 +264,16 @@ css::ComputedStyle const* LayoutOracle::style(dom::Element const& element)
     ensure();
     auto const it = m_styles.find(&element);
     return it == m_styles.end() ? nullptr : &it->second;
+}
+
+dom::Element const* LayoutOracle::element_at(float x, float y)
+{
+    ensure();
+    std::optional<paint::PointHit> const hit = paint::hit_test(m_layout.root, x, y, [this](dom::Element const& element) -> css::ComputedStyle const* {
+        auto const it = m_styles.find(&element);
+        return it == m_styles.end() ? nullptr : &it->second;
+    });
+    return hit ? hit->element : nullptr;
 }
 
 }

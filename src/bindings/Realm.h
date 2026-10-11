@@ -187,6 +187,10 @@ struct HostHooks {
     std::function<std::optional<LayoutBox>(dom::Element const&)> layout_box;
     // The element's computed style, for getComputedStyle; null when unknown.
     std::function<css::ComputedStyle const*(dom::Element const&)> computed_style;
+    // The element uppermost at a point of the viewport, in CSS px from its
+    // top left (elementFromPoint): what the pointer there would land on, an
+    // inline <svg>'s shape included; null for none.
+    std::function<dom::Element const*(float client_x, float client_y)> element_from_point;
     // Runs the callback with the page's own fonts (its @font-face rules) in
     // the process's font manager, and nothing else laying out meanwhile: what
     // a canvas measures and draws text through. Without it the text is

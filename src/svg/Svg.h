@@ -97,6 +97,13 @@ bool point_in_stroke(Path const& path, Point point, float stroke_width);
 // A text content element's advance in user units (getComputedTextLength).
 float text_length(dom::Element const& element, StyleOf const& style_of);
 
+// The element a point hits inside an <svg> drawn at width × height (SVG 2
+// §15.6): the last in paint order whose fill or stroke the point falls in —
+// a shape, a text's box, an image's rectangle; a <use> answers for what it
+// draws. Hidden elements and pointer-events: none pass the point through.
+// Null when nothing inside is hit (the <svg> itself answers then).
+dom::Element const* element_at(dom::Element const& root, float width, float height, Point point, StyleOf const& style_of);
+
 // The microsyntaxes, for the tests: path data (§9.3) and a transform
 // list (§8.5). An error in path data keeps what came before it, as the
 // specification asks.

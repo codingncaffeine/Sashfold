@@ -12,6 +12,7 @@
 #include "net/Filters.h"
 #include "text/FontManager.h"
 
+#include <cmath>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -197,6 +198,32 @@ Native start_view_transition(Realm::Internals& internals, Args args)
             dom_exception_value(internals, "InvalidStateError", "Transition was skipped because this engine does not show one yet."));
     });
     return js::Value::object(transition);
+}
+
+// The element at a viewport point for elementFromPoint (CSSOM View §5.1):
+// x and y are doubles (a TypeError for one not finite); a point outside the
+// viewport is no element, and so is one where the host has nothing to say.
+// Nullopt with an exception pending.
+std::optional<dom::Element const*> element_at_point(Realm::Internals& in, Args args)
+{
+    double point[2] = {};
+    for (std::size_t i = 0; i < 2; ++i) {
+        std::optional<double> const number = in.interpreter.to_number(js::argument(args, i));
+        if (!number)
+            return std::nullopt;
+        if (!std::isfinite(*number)) {
+            in.interpreter.throw_type_error("The provided double value is non-finite.");
+            return std::nullopt;
+        }
+        point[i] = *number;
+    }
+    if (in.hooks.refresh_viewport)
+        in.hooks.refresh_viewport();
+    if (point[0] < 0 || point[1] < 0 || point[0] > static_cast<double>(in.hooks.viewport_width) || point[1] > static_cast<double>(in.hooks.viewport_height))
+        return static_cast<dom::Element const*>(nullptr);
+    if (!in.hooks.element_from_point)
+        return static_cast<dom::Element const*>(nullptr);
+    return in.hooks.element_from_point(static_cast<float>(point[0]), static_cast<float>(point[1]));
 }
 
 void install_view_transition(Realm::Internals& in)
@@ -951,9 +978,26 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         }
         return node_list(internals, found);
     });
-    document_method(in, *document, "elementFromPoint", 2, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::null(); });
-    document_method(in, *document, "elementsFromPoint", 2, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
-        return js::Value::object(internals.interpreter.new_array());
+    // elementFromPoint and elementsFromPoint (CSSOM View §5): the element
+    // the host finds uppermost at a viewport point, null outside the
+    // viewport; the list is that element and the ones it is drawn inside,
+    // the topmost first, the root last.
+    document_method(in, *document, "elementFromPoint", 2, [](Realm::Internals& internals, dom::Document&, Args args) -> Native {
+        std::optional<dom::Element const*> const hit = element_at_point(internals, args);
+        if (!hit)
+            return std::nullopt;
+        return *hit ? js::Value::object(internals.wrap(const_cast<dom::Element&>(**hit))) : js::Value::null();
+    });
+    document_method(in, *document, "elementsFromPoint", 2, [](Realm::Internals& internals, dom::Document&, Args args) -> Native {
+        std::optional<dom::Element const*> const hit = element_at_point(internals, args);
+        if (!hit)
+            return std::nullopt;
+        js::Interpreter::Roots const roots(internals.interpreter);
+        js::ArrayObject* const list = internals.interpreter.new_array();
+        internals.interpreter.root(js::Value::object(list));
+        for (dom::Node const* node = *hit; node && node->is_element(); node = node->parent())
+            list->push(js::Value::object(internals.wrap(const_cast<dom::Node&>(*node))));
+        return js::Value::object(list);
     });
     document_method(in, *document, "caretRangeFromPoint", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::null(); });
     document_method(in, *document, "hasFocus", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(true); });

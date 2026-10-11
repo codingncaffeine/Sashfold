@@ -2,6 +2,7 @@
 
 #include "dom/Dom.h"
 #include "paint/Blur.h"
+#include "svg/Svg.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
 
@@ -2067,6 +2068,19 @@ std::optional<PointHit> hit_test(layout::Fragment const& root, float px, float p
     if (root.element && hears_pointer(root.style))
         return PointHit { root.element, &root, PointHit::Part::Box };
     return std::nullopt;
+}
+
+std::optional<PointHit> hit_test(layout::Fragment const& root, float px, float py,
+    std::function<css::ComputedStyle const*(dom::Element const&)> const& styles)
+{
+    std::optional<PointHit> hit = hit_test(root, px, py);
+    if (!hit || !hit->element || !hit->box || !hit->element->is_svg("svg") || !hit->box->image || !styles)
+        return hit;
+    layout::Fragment::ImageBox const& picture = *hit->box->image;
+    if (dom::Element const* const inside = svg::element_at(*hit->element, picture.width, picture.height,
+            svg::Point { px - picture.x, py - picture.y }, styles))
+        hit->element = inside;
+    return hit;
 }
 
 // The box whose background became the canvas's: the root, or the body it

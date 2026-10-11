@@ -2119,4 +2119,130 @@ float text_length(dom::Element const& element, StyleOf const& style_of)
     return advance_of(element, style_of);
 }
 
+namespace {
+
+// One element's own hit (not its children's), the point in its user space.
+bool hits_itself(dom::Element const& element, css::ComputedStyle const& style, float viewport_width, float viewport_height, Point point,
+    StyleOf const& style_of)
+{
+    std::string const& name = element.local_name();
+    if (name == "text") {
+        Box const box = text_box(element, style_of);
+        return point.x >= box.left && point.x <= box.right && point.y >= box.top && point.y <= box.bottom;
+    }
+    if (name == "image" || name == "foreignObject") {
+        Box const box = local_bbox(element, viewport_width, viewport_height, style_of, 0);
+        return point.x >= box.left && point.x <= box.right && point.y >= box.top && point.y <= box.bottom;
+    }
+    State state;
+    state.viewport_width = viewport_width;
+    state.viewport_height = viewport_height;
+    std::optional<Path> const path = shape_path(state, element, &style);
+    if (!path || path->empty())
+        return false;
+    if (style.fill.kind != css::SvgPaint::Kind::None && point_in_fill(*path, point, style.fill_rule == css::FillRule::EvenOdd))
+        return true;
+    if (style.stroke.kind != css::SvgPaint::Kind::None) {
+        float width = 1;
+        if (style.stroke_width.kind == css::LengthPercent::Kind::Px)
+            width = style.stroke_width.value;
+        else if (style.stroke_width.kind == css::LengthPercent::Kind::Percent)
+            width = style.stroke_width.value / 100 * std::sqrt((viewport_width * viewport_width + viewport_height * viewport_height) / 2);
+        if (point_in_stroke(*path, point, std::max(width, 1.0f)))
+            return true;
+    }
+    return false;
+}
+
+// The children of a container, last first (the last drawn is on top); the
+// point in the container's user space.
+dom::Element const* hit_children(dom::Element const& container, float viewport_width, float viewport_height, Point point,
+    StyleOf const& style_of, int depth);
+
+dom::Element const* hit_element(dom::Element const& element, float viewport_width, float viewport_height, Point point, StyleOf const& style_of,
+    int depth)
+{
+    if (depth > 32 || element.namespace_uri() != dom::ns::svg || never_rendered(element.local_name()))
+        return nullptr;
+    css::ComputedStyle const* const style = style_of ? style_of(element) : nullptr;
+    if (!style || style->display == css::Display::None)
+        return nullptr;
+    // Into the element's own user space: its transform, and for a nested
+    // <svg> its viewport.
+    float inner_width = viewport_width;
+    float inner_height = viewport_height;
+    Matrix const local = local_transform(element, style->font_size, inner_width, inner_height);
+    std::optional<Matrix> const inverse = local.inverse();
+    if (!inverse)
+        return nullptr;
+    Point const inside = inverse->apply(point);
+    std::string const& name = element.local_name();
+    if (name == "svg" || name == "g" || name == "a" || name == "switch")
+        return hit_children(element, inner_width, inner_height, inside, style_of, depth + 1);
+    if (name == "use") {
+        // What the use draws is hit as the use.
+        std::string const id = reference_of(href_of(element));
+        dom::Node const* top = &element;
+        while (top->parent())
+            top = top->parent();
+        std::vector<dom::Node const*> pending { top };
+        dom::Element const* target = nullptr;
+        while (!pending.empty() && !id.empty() && !target) {
+            dom::Node const* const node = pending.back();
+            pending.pop_back();
+            if (node->is_element() && attribute(static_cast<dom::Element const&>(*node), "id") == id)
+                target = static_cast<dom::Element const*>(node);
+            for (dom::Node const* child : node->children())
+                pending.push_back(child);
+        }
+        if (!target || target == &element)
+            return nullptr;
+        float const em = style->font_size;
+        Point const shifted { inside.x - length_attribute(element, "x", viewport_width, em), inside.y - length_attribute(element, "y", viewport_height, em) };
+        bool const hit = target->is_svg("symbol") ? hit_children(*target, viewport_width, viewport_height, shifted, style_of, depth + 1) != nullptr
+                                                  : hit_element(*target, viewport_width, viewport_height, shifted, style_of, depth + 1) != nullptr;
+        return hit ? &element : nullptr;
+    }
+    if (!style->pointer_events || style->visibility == css::Visibility::Hidden)
+        return name == "text" ? nullptr : hit_children(element, inner_width, inner_height, inside, style_of, depth + 1);
+    if (hits_itself(element, *style, viewport_width, viewport_height, inside, style_of)) {
+        // Inside a text, the tspan the point is over answers when it can be
+        // told apart: here, the text itself.
+        return &element;
+    }
+    // An element this subset does not know may hold shapes.
+    if (name != "text" && name != "image" && name != "foreignObject" && !shape_path(State {}, element, style))
+        return hit_children(element, inner_width, inner_height, inside, style_of, depth + 1);
+    return nullptr;
+}
+
+dom::Element const* hit_children(dom::Element const& container, float viewport_width, float viewport_height, Point point,
+    StyleOf const& style_of, int depth)
+{
+    std::vector<dom::Element const*> children;
+    for (dom::Node const* child : container.children()) {
+        if (child->is_element())
+            children.push_back(static_cast<dom::Element const*>(child));
+    }
+    for (auto it = children.rbegin(); it != children.rend(); ++it) {
+        if (dom::Element const* const hit = hit_element(**it, viewport_width, viewport_height, point, style_of, depth))
+            return hit;
+    }
+    return nullptr;
+}
+
+}
+
+dom::Element const* element_at(dom::Element const& root, float width, float height, Point point, StyleOf const& style_of)
+{
+    if (!root.is_svg("svg"))
+        return nullptr;
+    std::optional<ViewBox> const box = parse_view_box(attribute(root, "viewBox"));
+    Matrix const fit = view_box_transform(box, parse_aspect_ratio(attribute(root, "preserveAspectRatio")), 0, 0, width, height);
+    std::optional<Matrix> const inverse = fit.inverse();
+    if (!inverse)
+        return nullptr;
+    return hit_children(root, box ? box->width : width, box ? box->height : height, inverse->apply(point), style_of, 0);
+}
+
 }

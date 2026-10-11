@@ -6,6 +6,8 @@
 #include "core/Bitmap.h"
 #include "layout/Layout.h"
 
+#include <functional>
+
 namespace sashfold::paint {
 
 // Renders the laid-out page, translated by the offset — a scrolled viewport
@@ -77,6 +79,10 @@ struct PointHit {
     Part part = Part::Box;
 };
 std::optional<PointHit> hit_test(layout::Fragment const& root, float px, float py);
+// The same, and a point on an inline <svg> taken on to the element inside it
+// that it hits (svg::element_at), read with these computed styles.
+std::optional<PointHit> hit_test(layout::Fragment const& root, float px, float py,
+    std::function<css::ComputedStyle const*(dom::Element const&)> const& styles);
 
 // Whether a box that clips leaves a page point in reach of what it holds:
 // its padding box, on the axes it clips. The rule the painter clips by.
