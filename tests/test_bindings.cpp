@@ -1348,6 +1348,13 @@ void test_cssom_sheets()
     CHECK_EQ(color("v"), "rgb(10, 11, 12)");
     CHECK(page.throws("document.styleSheets[0].replaceSync('p {}')").starts_with("NotAllowedError"));
     CHECK(page.throws("document.adoptedStyleSheets = [document.styleSheets[0]]").starts_with("NotAllowedError"));
+    // The array is observable: push() and splice() adopt as assignment does,
+    // and it is the same array each time.
+    CHECK(page.boolean("(function () { var s = new CSSStyleSheet(); s.replaceSync('#v { color: rgb(30, 31, 32) }'); window.pushed = s; document.adoptedStyleSheets.push(s); return Array.isArray(document.adoptedStyleSheets) && document.adoptedStyleSheets === document.adoptedStyleSheets && document.adoptedStyleSheets.length === 2; })()"));
+    CHECK_EQ(color("v"), "rgb(30, 31, 32)");
+    CHECK(page.throws("document.adoptedStyleSheets.push({})").starts_with("TypeError"));
+    page.string("String(document.adoptedStyleSheets.splice(1, 1))");
+    CHECK_EQ(color("v"), "rgb(10, 11, 12)");
     // A name with escapes reads back with them (CSSOM "serialize an
     // identifier"), and a constructed sheet written again from its rules
     // still matches what it matched: `.e-\[1px\]` written as `.e-[1px]`

@@ -975,6 +975,158 @@ void replace_rules(SheetObject& sheet, std::string const& text)
     changed(sheet);
 }
 
+// --- adoptedStyleSheets ---------------------------------------------------------------------
+
+// An observable array (WebIDL §3.10.24) of a document's or a shadow root's
+// adopted sheets: a proxy over a plain array, whose handler — this — checks
+// each sheet put in it and hands the document the list as it now is, so
+// that push(), splice() and an index written count as assigning the whole.
+class AdoptedSheetsHandler final : public js::Object {
+public:
+    AdoptedSheetsHandler(js::Object* prototype, NodeWrapper& the_root, js::ArrayObject& the_backing)
+        : Object(prototype, Class::Host)
+        , root(&the_root)
+        , backing(&the_backing)
+    {
+    }
+    NodeWrapper* root;
+    js::ArrayObject* backing;
+    void trace(js::Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(root);
+        tracer.visit(backing);
+    }
+};
+
+// A value that may be one of the sheets: a CSSStyleSheet a script made.
+Native check_adoptable(Realm::Internals& in, js::Value const& value)
+{
+    auto* const sheet = value.is_object() ? dynamic_cast<SheetObject*>(value.as_object()) : nullptr;
+    if (sheet == nullptr)
+        return in.interpreter.throw_type_error("Failed to set an indexed property on 'adoptedStyleSheets': Failed to convert value to 'CSSStyleSheet'.");
+    if (!sheet->constructed)
+        return in.throw_dom_exception("NotAllowedError", "Failed to set an indexed property on 'adoptedStyleSheets': Can't adopt non-constructed stylesheets.");
+    return js::Value::undefined();
+}
+
+// The document takes the sheets the array holds now, in order.
+void adopted_sheets_changed(Realm::Internals& in, AdoptedSheetsHandler& handler)
+{
+    if (handler.root->detached())
+        return;
+    std::vector<std::shared_ptr<dom::ScriptedSheet>> states;
+    for (std::uint32_t i = 0; i < handler.backing->length(); ++i) {
+        js::Value const item = handler.backing->element(i);
+        auto* const sheet = item.is_object() ? dynamic_cast<SheetObject*>(item.as_object()) : nullptr;
+        if (sheet == nullptr)
+            continue;
+        // Written once: a sheet a hundred roots adopt is the same text for
+        // each, until a rule of it changes.
+        if (!sheet->state->write) {
+            sheet->state->write = [model = sheet->model] { return sheet_text(*model); };
+            sheet->state->touch();
+        }
+        states.push_back(sheet->state);
+    }
+    dom::Node& root = handler.root->node();
+    dom::Document& document = root.type() == dom::NodeType::Document ? static_cast<dom::Document&>(root) : root.document();
+    document.adopted_sheets[&root] = std::move(states);
+    // A shadow tree's sheets are read by the styles themselves.
+    if (root.is_shadow_root())
+        root.mark_style_subtree();
+    ++in.mutations;
+}
+
+AdoptedSheetsHandler* adopted_handler_of(js::Interpreter& interp, js::Value const& this_value)
+{
+    auto* const handler = this_value.is_object() ? dynamic_cast<AdoptedSheetsHandler*>(this_value.as_object()) : nullptr;
+    if (handler == nullptr)
+        interp.throw_type_error("Illegal invocation");
+    return handler;
+}
+
+// The handler's traps: set and defineProperty check a sheet put at an
+// index, and every change that can move the list hands it on.
+Native adopted_set(js::Interpreter& interp, js::Value const& this_value, Args args)
+{
+    AdoptedSheetsHandler* const handler = adopted_handler_of(interp, this_value);
+    if (handler == nullptr)
+        return std::nullopt;
+    Realm::Internals& in = internals_of(interp);
+    std::optional<js::PropertyKey> const key = interp.to_property_key(js::argument(args, 1));
+    if (!key)
+        return std::nullopt;
+    js::Value const value = js::argument(args, 2);
+    if (key->is_index() && !check_adoptable(in, value))
+        return std::nullopt;
+    std::optional<bool> const done = handler->backing->set(interp, *key, value, js::Value::object(handler->backing));
+    if (!done)
+        return std::nullopt;
+    adopted_sheets_changed(in, *handler);
+    return js::Value::boolean(*done);
+}
+
+Native adopted_define(js::Interpreter& interp, js::Value const& this_value, Args args)
+{
+    AdoptedSheetsHandler* const handler = adopted_handler_of(interp, this_value);
+    if (handler == nullptr)
+        return std::nullopt;
+    Realm::Internals& in = internals_of(interp);
+    std::optional<js::PropertyKey> const key = interp.to_property_key(js::argument(args, 1));
+    if (!key)
+        return std::nullopt;
+    std::optional<js::PropertyDescriptor> const descriptor = js::to_property_descriptor(interp, js::argument(args, 2));
+    if (!descriptor)
+        return std::nullopt;
+    if (key->is_index()) {
+        if (descriptor->is_accessor())
+            return js::Value::boolean(false);
+        if (!check_adoptable(in, descriptor->value.value_or(js::Value::undefined())))
+            return std::nullopt;
+    }
+    bool const done = handler->backing->define_own_property(*key, *descriptor);
+    adopted_sheets_changed(in, *handler);
+    return js::Value::boolean(done);
+}
+
+Native adopted_delete(js::Interpreter& interp, js::Value const& this_value, Args args)
+{
+    AdoptedSheetsHandler* const handler = adopted_handler_of(interp, this_value);
+    if (handler == nullptr)
+        return std::nullopt;
+    std::optional<js::PropertyKey> const key = interp.to_property_key(js::argument(args, 1));
+    if (!key)
+        return std::nullopt;
+    bool const done = handler->backing->delete_property(*key);
+    adopted_sheets_changed(internals_of(interp), *handler);
+    return js::Value::boolean(done);
+}
+
+// The node's array, made the first time it is asked for.
+js::ProxyObject& adopted_array(Realm::Internals& in, NodeWrapper& wrapper)
+{
+    if (js::Object* const kept = wrapper.same_object("adoptedStyleSheets"))
+        return static_cast<js::ProxyObject&>(*kept);
+    js::Interpreter& interpreter = in.interpreter;
+    js::Interpreter::Roots const roots(interpreter);
+    js::Object* const traps = same_object(in, "AdoptedSheetsHandler", [&] {
+        js::Object* const made = interpreter.heap().allocate<js::Object>(interpreter.intrinsics().object_prototype);
+        interpreter.root(js::Value::object(made));
+        define_operation(interpreter, *made, "set", 4, adopted_set);
+        define_operation(interpreter, *made, "defineProperty", 3, adopted_define);
+        define_operation(interpreter, *made, "deleteProperty", 2, adopted_delete);
+        return made;
+    });
+    js::ArrayObject* const backing = interpreter.new_array();
+    interpreter.root(js::Value::object(backing));
+    auto* const handler = interpreter.heap().allocate<AdoptedSheetsHandler>(traps, wrapper, *backing);
+    interpreter.root(js::Value::object(handler));
+    auto* const proxy = interpreter.heap().allocate<js::ProxyObject>(backing, handler);
+    wrapper.keep_same_object("adoptedStyleSheets", proxy);
+    return *proxy;
+}
+
 } // namespace
 
 // --- Entry points -------------------------------------------------------------------------------
@@ -1697,7 +1849,8 @@ void install_cssom(Realm::Internals& in)
     define_interface(in, "CSSFontPaletteValuesRule", css_rule);
 
     // adoptedStyleSheets (CSSOM §6.1.4): constructed sheets of this
-    // document, on the document and on its shadow roots.
+    // document, on the document and on its shadow roots — the same
+    // observable array each time; assigning one replaces what it holds.
     auto const adopted = [&](js::Object& prototype) {
         define_getter(
             in, prototype, "adoptedStyleSheets",
@@ -1705,12 +1858,7 @@ void install_cssom(Realm::Internals& in)
                 auto* wrapper = this_value.is_object() ? dynamic_cast<NodeWrapper*>(this_value.as_object()) : nullptr;
                 if (!wrapper || wrapper->detached())
                     return interp.throw_type_error("Illegal invocation");
-                js::Object* kept = wrapper->same_object("adoptedStyleSheets");
-                if (kept)
-                    return js::Value::object(kept);
-                js::Object* array = interp.new_array();
-                wrapper->keep_same_object("adoptedStyleSheets", array);
-                return js::Value::object(array);
+                return js::Value::object(&adopted_array(internals_of(interp), *wrapper));
             },
             [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
                 Realm::Internals& internals = internals_of(interp);
@@ -1728,42 +1876,24 @@ void install_cssom(Realm::Internals& in)
                 std::optional<double> const length = interp.to_number(*length_value);
                 if (!length)
                     return std::nullopt;
-                std::vector<SheetObject*> sheets;
+                std::vector<js::Value> sheets;
                 for (std::uint32_t i = 0; i < static_cast<std::uint32_t>(std::max(0.0, *length)); ++i) {
                     std::optional<js::Value> const item = interp.get(given, js::PropertyKey::index(i));
                     if (!item)
                         return std::nullopt;
-                    auto* sheet = item->is_object() ? dynamic_cast<SheetObject*>(item->as_object()) : nullptr;
-                    if (!sheet)
-                        return interp.throw_type_error("Failed to set the 'adoptedStyleSheets' property: Failed to convert value to 'CSSStyleSheet'.");
-                    if (!sheet->constructed)
-                        return internals.throw_dom_exception("NotAllowedError", "Failed to set the 'adoptedStyleSheets' property: Can't adopt non-constructed stylesheets.");
-                    sheets.push_back(sheet);
+                    if (!check_adoptable(internals, *item))
+                        return std::nullopt;
+                    sheets.push_back(interp.root(*item));
                 }
-                // The array the getter answers, rewritten in place, and the
-                // document's record of the states, in the same order.
-                js::Object* array = interp.new_array();
-                interp.root(js::Value::object(array));
-                std::vector<std::shared_ptr<dom::ScriptedSheet>> states;
-                std::uint32_t index = 0;
-                for (SheetObject* sheet : sheets) {
-                    array->put(js::PropertyKey::index(index++), js::Value::object(sheet));
-                    // Written once: a sheet a hundred roots adopt is the
-                    // same text for each, until a rule of it changes.
-                    if (!sheet->state->write) {
-                        sheet->state->write = [model = sheet->model] { return sheet_text(*model); };
-                        sheet->state->touch();
-                    }
-                    states.push_back(sheet->state);
-                }
-                wrapper->keep_same_object("adoptedStyleSheets", array);
-                dom::Node& root = wrapper->node();
-                dom::Document& document = root.type() == dom::NodeType::Document ? static_cast<dom::Document&>(root) : root.document();
-                document.adopted_sheets[&root] = std::move(states);
-                // A shadow tree's sheets are read by the styles themselves.
-                if (root.is_shadow_root())
-                    root.mark_style_subtree();
-                ++internals.mutations;
+                // What the array holds is replaced; the array is the same.
+                js::ProxyObject& array = adopted_array(internals, *wrapper);
+                auto& handler = static_cast<AdoptedSheetsHandler&>(*array.handler());
+                js::ArrayObject& backing = *handler.backing;
+                if (!backing.set(interp, interp.key("length"), js::Value::number(0), js::Value::object(&backing)))
+                    return std::nullopt;
+                for (std::uint32_t i = 0; i < sheets.size(); ++i)
+                    backing.put(js::PropertyKey::index(i), sheets[i]);
+                adopted_sheets_changed(internals, handler);
                 return js::Value::undefined();
             });
     };
