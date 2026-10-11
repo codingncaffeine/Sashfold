@@ -240,6 +240,10 @@ public:
     std::string filename;
     std::uint32_t lineno = 0;
     std::uint32_t colno = 0;
+    // CloseEvent (HTML §9.3.4): whether the closing handshake completed and
+    // the code; the reason is `message`.
+    bool was_clean = false;
+    std::uint16_t close_code = 0;
 
     void trace(js::Tracer& tracer) override;
 };
@@ -987,6 +991,10 @@ struct Realm::Internals {
     // The workers this document started, until each has ended and its last
     // word has been delivered.
     std::vector<WorkerHandlePtr> workers;
+    // The WebSockets this document opened (WebSockets.cpp): for each, what
+    // ends it when the document unloads — the connection aborted and the
+    // object it kept alive let go, on this thread while the heap is whole.
+    std::vector<std::function<void()>> websockets;
     // A frame's window whose frame has closed, or has gone on to another
     // document: closed, and with no parent or top (HTML §7.2.2).
     bool discarded = false;
@@ -1716,6 +1724,9 @@ std::optional<double> workers_next_due(Agent const&, double now);
 bool workers_pending(Agent const&);
 // A document unloading: its workers are told to end, and end at the next turn.
 void terminate_workers(Realm::Internals&);
+// Ends every WebSocket the realm's document opened, telling nobody: it unloads.
+void abort_websockets(Realm::Internals&);
+void install_websockets(Realm::Internals&); // WebSockets.cpp: WebSocket
 // An exception nothing in a worker's scope dealt with, on its way to the
 // document that started the worker: called in the worker's realm.
 void worker_report_error(Realm::Internals&, std::string const& message, std::string_view where);

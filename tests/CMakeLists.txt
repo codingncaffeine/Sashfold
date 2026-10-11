@@ -8,6 +8,7 @@ function(sashfold_test name)
 endfunction()
 
 sashfold_test(test_bitmap)
+sashfold_test(test_websocket)
 sashfold_test(test_memory_watch)
 sashfold_test(test_icons)
 sashfold_test(test_font)

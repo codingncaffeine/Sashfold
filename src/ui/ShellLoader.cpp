@@ -684,6 +684,27 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
     return result;
 }
 
+std::shared_ptr<net::WebSocket> ShellLoader::open_websocket(net::WebSocket::Request request, net::WebSocket::Events events,
+    net::Url const& first_party, net::RequestGuard const& guard, std::string& refused, std::string_view container)
+{
+    // The lists know a WebSocket as one of the "other" requests (uBlock
+    // Origin's $websocket rules are read as $other).
+    if (std::optional<std::string> why = refusal(request.url, &first_party, net::ResourceKind::Other, guard, false)) {
+        refused = std::move(*why);
+        return nullptr;
+    }
+    // Its cookies are those of the same URL over http(s) (RFC 6455 §4.1).
+    net::Url twin = request.url;
+    twin.scheme = request.url.scheme == "wss" ? "https" : "http";
+    request.cookie = cookies_for(twin, container);
+    request.user_agent = std::string(net::user_agent());
+    std::string const jar(container);
+    events.set_cookie = [this, twin, jar](std::string const& line) { set_cookie(twin, line, jar); };
+    if (net_tracing())
+        std::cerr << "net: " << trace_stamp() << "websocket " << request.url.serialize().substr(0, 200) << "\n";
+    return net::WebSocket::start(std::move(request), std::move(events));
+}
+
 std::string ShellLoader::cookies_for(net::Url const& url, std::string_view container)
 {
     using namespace std::chrono;

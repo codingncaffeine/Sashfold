@@ -1692,6 +1692,7 @@ constexpr InterfaceGroup interface_groups[] = {
     { "binary", install_binary, false },
     { "fetch", install_fetch, true },
     { "xhr", install_xhr, true },
+    { "websockets", install_websockets, true },
     { "tasks", install_tasks, false },
     { "origin", install_origin, true },
     { "trusted_types", install_trusted_types, true },
@@ -2334,6 +2335,7 @@ Realm::~Realm()
     // Its document unloads: the workers it started end, and the blob: URLs
     // it made go with it.
     in.workers.clear();
+    abort_websockets(in);
     std::erase_if(in.agent.blob_urls, [&in](auto const& entry) { return entry.second.document == in.document; });
     in.media_source_urls.clear();
     // Its frames end first, while this realm and the agent are whole.
@@ -2955,6 +2957,7 @@ void Realm::Internals::reuse_frame_window(ChildFrame& frame, FrameDocument answe
     std::erase_if(agent.animation_frame_callbacks, [&window](Agent::AnimationFrameCallback const& callback) { return callback.owner == &window; });
     std::erase_if(agent.tasks, [&window](Task const& task) { return task.owner == &window; });
     terminate_workers(window);
+    abort_websockets(window);
     std::erase_if(agent.blob_urls, [&window](auto const& entry) { return entry.second.document == window.document; });
     window.media_source_urls.clear();
     // The old document stays alive with the realm, so no wrapper into it, and

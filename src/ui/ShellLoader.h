@@ -45,6 +45,8 @@ public:
         std::string_view container = {}) override;
     std::shared_ptr<net::FetchTicket> submit_ahead(net::Url const& url, std::string const& referrer,
         PostedForm const& form, std::string_view container = {}) override;
+    std::shared_ptr<net::WebSocket> open_websocket(net::WebSocket::Request request, net::WebSocket::Events events,
+        net::Url const& first_party, net::RequestGuard const& guard, std::string& refused, std::string_view container = {}) override;
     std::string cookies_for(net::Url const& url, std::string_view container = {}) override;
     void set_cookie(net::Url const& url, std::string_view set_cookie_line, std::string_view container = {}) override;
     std::size_t blocked_requests() const override { return m_blocked.load(); }

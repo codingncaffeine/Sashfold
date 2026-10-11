@@ -22,6 +22,7 @@
 #include "net/Csp.h"
 #include "net/Http.h"
 #include "net/Url.h"
+#include "net/WebSocket.h"
 #include "platform/Audio.h"
 
 #include <cstdint>
@@ -151,6 +152,11 @@ struct HostHooks {
     // as above; the response with its status, headers, body and final
     // URL, or the error. Without it every such request is a network error.
     std::function<net::FetchResult(net::Url const&, net::ResourceRequest const&, net::RequestGuard const&)> fetch_resource;
+    // A WebSocket the page opens, through the host's loader (its lists, its
+    // cookies, its user agent) and under the guard given; null with
+    // `refused` saying why when it may not go. Without it none opens.
+    std::function<std::shared_ptr<net::WebSocket>(net::WebSocket::Request, net::WebSocket::Events, net::RequestGuard const&, std::string& refused)>
+        open_websocket;
     // The document's Content Security Policy, which the realm asks about
     // every inline script, handler attribute and string it would compile,
     // and whose guards it hands the fetches above; null for a page with

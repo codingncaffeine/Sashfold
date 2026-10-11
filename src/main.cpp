@@ -992,6 +992,14 @@ int render_page(std::string const& path, std::string const& output, int viewport
         hooks.fetch_resource = [&loaded](net::Url const& url, net::ResourceRequest const& request, net::RequestGuard const& guard) {
             return loaded.loader->load_resource(url, loaded.url, "", request, guard);
         };
+        hooks.open_websocket = [&loaded](net::WebSocket::Request request, net::WebSocket::Events events, net::RequestGuard const& guard,
+                                   std::string& refused) -> std::shared_ptr<net::WebSocket> {
+            if (!loaded.loader) {
+                refused = "no loader";
+                return nullptr;
+            }
+            return loaded.loader->open_websocket(std::move(request), std::move(events), loaded.url, guard, refused);
+        };
         hooks.now = [&script_clock] { return script_clock; };
         // document.cookie reads and writes the session's jar, as the window's
         // does: a challenge sets a cookie and reads it back before it passes.

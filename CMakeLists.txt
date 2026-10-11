@@ -75,6 +75,7 @@ add_library(sashfold_core STATIC
   src/bindings/WebCrypto.cpp
   src/bindings/FileReader.cpp
   src/bindings/SvgElements.cpp
+  src/bindings/WebSockets.cpp
   src/bindings/Range.cpp
   src/bindings/Reflect.cpp
   src/bindings/ShadowDom.cpp
@@ -158,6 +159,7 @@ add_library(sashfold_core STATIC
   src/net/Http2Session.cpp
   src/net/Idna.cpp
   src/net/Url.cpp
+  src/net/WebSocket.cpp
   src/net/tls/Der.cpp
   src/net/tls/Tls13.cpp
   src/net/tls/TrustStore.cpp

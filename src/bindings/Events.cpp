@@ -466,6 +466,16 @@ js::NativeFunction::ConstructCallback event_constructor(std::string interface)
                 return std::nullopt;
             event->detail_value = *detail;
         }
+        if (interface == "CloseEvent") {
+            std::optional<bool> const clean = init_flag(interpreter, init, "wasClean", false);
+            std::optional<double> const code = clean ? init_number(interpreter, init, "code", 0) : std::nullopt;
+            std::optional<std::string> reason = code ? init_string(interpreter, init, "reason") : std::nullopt;
+            if (!reason)
+                return std::nullopt;
+            event->was_clean = *clean;
+            event->close_code = static_cast<std::uint16_t>(js::Interpreter::double_to_uint32(*code));
+            event->message = std::move(*reason);
+        }
         if (interface == "ProgressEvent") {
             std::optional<bool> const computable = init_flag(interpreter, init, "lengthComputable", false);
             std::optional<double> const loaded = init_number(interpreter, init, "loaded", 0);
@@ -1400,6 +1410,11 @@ void install_events(Realm::Internals& in)
     event_getter(in, *progress_event, "loaded", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.loaded); });
     event_getter(in, *progress_event, "total", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.total); });
     define_interface(in, "HashChangeEvent", event, event_constructor("HashChangeEvent"), 1);
+    // CloseEvent (HTML §9.3.4): how a WebSocket ended.
+    js::Object* close_event = define_interface(in, "CloseEvent", event, event_constructor("CloseEvent"), 1);
+    event_getter(in, *close_event, "wasClean", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.was_clean); });
+    event_getter(in, *close_event, "code", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.close_code); });
+    event_getter(in, *close_event, "reason", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.message); });
 
     // ErrorEvent (HTML §8.1.4.3): an uncaught exception as its global is told
     // of it, and as a Worker is told of its worker's.

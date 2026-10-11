@@ -17,6 +17,7 @@
 #include "net/Filters.h"
 #include "net/Http.h"
 #include "net/Url.h"
+#include "net/WebSocket.h"
 #include "platform/Input.h"
 #include "ui/Theme.h"
 
@@ -177,6 +178,22 @@ public:
         (void)guard;
         (void)container;
         return { std::nullopt, "this loader serves documents only" };
+    }
+    // A WebSocket a page opens (HTML §9.3): judged by the content-blocking
+    // lists as one of the page's requests and by its policy (`guard`), sent
+    // with the cookies of its http(s) twin URL and the session's user agent,
+    // the cookies its handshake sets kept. Null, with `refused` saying why,
+    // when it may not go; a loader that fetches nothing refuses them all.
+    virtual std::shared_ptr<net::WebSocket> open_websocket(net::WebSocket::Request request, net::WebSocket::Events events,
+        net::Url const& first_party, net::RequestGuard const& guard, std::string& refused, std::string_view container = {})
+    {
+        (void)request;
+        (void)events;
+        (void)first_party;
+        (void)guard;
+        (void)container;
+        refused = "this loader opens no WebSockets";
+        return nullptr;
     }
     // document.cookie: the Cookie header the page would send, and a
     // Set-Cookie line a script wrote. A loader without a jar keeps none.

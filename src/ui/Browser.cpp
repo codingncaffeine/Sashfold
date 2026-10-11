@@ -4252,6 +4252,10 @@ struct Browser::Impl {
                                    net::RequestGuard const& guard) {
             return loader.load_resource(target, page_url, referrer_for(&page_url, target), request, guard, container);
         };
+        hooks.open_websocket = [this, page_url, container](net::WebSocket::Request request, net::WebSocket::Events events,
+                                   net::RequestGuard const& guard, std::string& refused) {
+            return loader.open_websocket(std::move(request), std::move(events), page_url, guard, refused, container);
+        };
         // A worker of the page's, on a thread of its own: the loader alone,
         // which is safe there and outlives the threads — nothing of the tab.
         hooks.worker_threads = worker_threads;
