@@ -507,6 +507,21 @@ void install_custom_elements(Realm::Internals& in)
                 return interp.throw_type_error("Failed to construct 'HTMLElement': Please use the 'new' operator");
             },
             construct_html_element);
+        // The new interface object takes the old one's place in the chain of
+        // interface objects (WebIDL §3.7.1): its parent is Element, and every
+        // element interface that inherited from the old one inherits from it.
+        js::PropertyRef const old_constructor = html_element_prototype->find_own(interpreter.key("constructor"));
+        js::Object* const old = old_constructor && !old_constructor->getter && old_constructor->value.is_object() ? old_constructor->value.as_object() : nullptr;
+        if (old != nullptr) {
+            constructor->set_prototype(old->prototype());
+            for (auto const& [name, child_prototype] : in.prototypes) {
+                if (child_prototype == nullptr || child_prototype->prototype() != html_element_prototype)
+                    continue;
+                js::PropertyRef const child = child_prototype->find_own(interpreter.key("constructor"));
+                if (child && !child->getter && child->value.is_object() && child->value.as_object()->prototype() == old)
+                    child->value.as_object()->set_prototype(constructor);
+            }
+        }
         constructor->put(interpreter.key("prototype"), js::Value::object(html_element_prototype), js::frozen_attributes);
         html_element_prototype->put(interpreter.key("constructor"), js::Value::object(constructor), js::builtin_attributes);
         interpreter.global()->put(interpreter.key("HTMLElement"), js::Value::object(constructor), js::builtin_attributes);

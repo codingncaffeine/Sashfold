@@ -504,6 +504,20 @@ js::Object* finish_interface(Realm::Internals& in, std::string_view name, js::Ob
 {
     js::Interpreter& interpreter = in.interpreter;
     constructor.take_prototype_from_new_target();
+    // The interface object inherits from its parent interface's (WebIDL
+    // §3.7.1): Object.getPrototypeOf(HTMLDivElement) is HTMLElement. An
+    // interface with none keeps %Function.prototype%, and so does one whose
+    // prototype inherits from a built-in rather than an interface — NodeList's
+    // from Array.prototype, where Array as its parent would hand NodeList
+    // Array's @@species. An interface prototype is known by the
+    // @@toStringTag put on it below.
+    js::Object* const parent = prototype.prototype();
+    if (parent && parent != interpreter.intrinsics().object_prototype
+        && parent->find_own(js::PropertyKey::symbol(interpreter.atoms().symbol_to_string_tag))) {
+        js::PropertyRef const inherited = parent->find_own(interpreter.key("constructor"));
+        if (inherited && !inherited->getter && inherited->value.is_object() && inherited->value.as_object()->is_callable())
+            constructor.set_prototype(inherited->value.as_object());
+    }
     constructor.put(interpreter.key("prototype"), js::Value::object(&prototype), js::frozen_attributes);
     prototype.put(interpreter.key("constructor"), js::Value::object(&constructor), js::builtin_attributes);
     prototype.put(js::PropertyKey::symbol(interpreter.atoms().symbol_to_string_tag), in.string(name), js::Configurable);
