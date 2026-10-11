@@ -357,6 +357,21 @@ add_test(NAME cli_windowless_option_needs_its_run
     --profile ${CMAKE_BINARY_DIR}/test-cli-profile --exit-after 1)
 set_tests_properties(cli_windowless_option_needs_its_run PROPERTIES
   PASS_REGULAR_EXPRESSION "--dump-layout goes with --render, --bench or --script")
+# A render follows a navigation the page's script asks for, as the window
+# does (a challenge handing over to the page it guarded): the page drawn is
+# the one navigated to. A move to a fragment of the same page is no new page.
+add_test(NAME cli_render_follows_script_navigation
+  COMMAND sashfold --render ${CMAKE_CURRENT_SOURCE_DIR}/shell/render-navigate-a.html
+    -o ${CMAKE_BINARY_DIR}/test-render-navigate.png --dump-layout)
+set_tests_properties(cli_render_follows_script_navigation PROPERTIES
+  PASS_REGULAR_EXPRESSION "navigated to [^\n]*render-navigate-b\\.html[^$]*landed"
+  FAIL_REGULAR_EXPRESSION "leaving")
+add_test(NAME cli_render_stays_on_a_fragment_move
+  COMMAND sashfold --render ${CMAKE_CURRENT_SOURCE_DIR}/shell/render-navigate-fragment.html
+    -o ${CMAKE_BINARY_DIR}/test-render-fragment.png --dump-layout)
+set_tests_properties(cli_render_stays_on_a_fragment_move PROPERTIES
+  PASS_REGULAR_EXPRESSION "here"
+  FAIL_REGULAR_EXPRESSION "navigated to")
 # A page's script heap under a ceiling of 40 MB, which the script's page runs into.
 add_test(NAME shell_memory
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/memory.script

@@ -244,7 +244,7 @@ int fetch_url(std::string const& input, std::optional<std::string> const& profil
 struct LoadedPage {
     std::string bytes;
     net::Url url; // where it landed: the base for the page's references
-    std::unique_ptr<ui::ShellLoader> loader; // fetches the page's stylesheets with the same session
+    std::shared_ptr<ui::ShellLoader> loader; // fetches the page's stylesheets with the same session
     // The page's Content Security Policy, from its headers and then its
     // <meta> elements; every fetch and inline block is judged by it.
     std::unique_ptr<net::ContentSecurityPolicy> policy;
@@ -524,7 +524,7 @@ struct RenderLoad {
     double fetch_ms = 0;
 };
 
-std::optional<RenderLoad> load_for_render(std::string const& source)
+std::optional<RenderLoad> load_for_render(std::string const& source, std::shared_ptr<ui::ShellLoader> session = nullptr)
 {
     using clock = std::chrono::steady_clock;
     std::optional<net::Url> const url = input_url(source);
@@ -532,7 +532,9 @@ std::optional<RenderLoad> load_for_render(std::string const& source)
         return std::nullopt;
     RenderLoad load;
     load.page.url = *url;
-    load.page.loader = make_render_loader();
+    // A page a script navigated to keeps the session (its cookies, its
+    // connections) of the page it came from.
+    load.page.loader = session ? std::move(session) : std::shared_ptr<ui::ShellLoader>(make_render_loader());
     load.page.policy = page_policy(*url, nullptr);
     auto const started = clock::now();
     net::FetchResult result = load.page.loader->load(*url, "", false);
@@ -620,6 +622,13 @@ struct RenderExtras {
     double script_time_ms = 3000; // how much virtual time the page's timers get
     std::string gaps; // a census of what the page wrote that the engine dropped
     std::string live_dom; // where the documents go as the scripts left them: <this>.html, <this>-frame-N.html
+    // A navigation the page's script asks for while it loads (a challenge
+    // handing over to the page it guarded, a location.replace) is followed
+    // as the window follows it, with the same session, up to three times;
+    // the report's times run from the first page's start.
+    int navigations = 0;
+    std::optional<std::chrono::steady_clock::time_point> started;
+    std::shared_ptr<ui::ShellLoader> session;
 };
 
 // --gaps: what a page wrote that the engine dropped, counted while it loads
@@ -933,14 +942,16 @@ int render_page(std::string const& path, std::string const& output, int viewport
     int viewport_height, RenderExtras const& extras)
 {
     using clock = std::chrono::steady_clock;
-    auto const started = clock::now();
+    auto const started = extras.started.value_or(clock::now());
     // When the current turn of the page's event loop began: a script is
     // stopped after ten seconds of one turn, the window's own rule, so that
     // a render shows what the window would and not a budget of its own.
     auto turn_started = started;
-    std::optional<RenderLoad> const load = load_for_render(path);
+    std::optional<RenderLoad> const load = load_for_render(path, extras.session);
     if (!load)
         return 1;
+    // Where the page's script asked to go, if it did: the first such ask.
+    std::optional<net::Url> navigated;
     LoadedPage const& loaded = load->page;
     css::MediaContext const media { static_cast<float>(viewport_width),
         static_cast<float>(viewport_height), g_device_scale };
@@ -995,6 +1006,10 @@ int render_page(std::string const& path, std::string const& output, int viewport
         hooks.viewport_height = media.height / g_device_scale;
         hooks.device_scale = g_device_scale;
         hooks.user_agent = std::string(net::user_agent());
+        hooks.navigate = [&navigated](net::Url const& target) {
+            if (!navigated)
+                navigated = target;
+        };
         hooks.image_decodes = [](std::vector<std::uint8_t> const& bytes) { return ui::decode_image_bytes(bytes).has_value(); };
         // A frame's document gets a realm of its own, by the framing rules the
         // frames are drawn by, unless the page's sandbox keeps scripts off.
@@ -1019,13 +1034,30 @@ int render_page(std::string const& path, std::string const& output, int viewport
         // only stops a runaway: an application that schedules its work in
         // small pieces takes a thousand turns for twenty seconds, and the
         // old cap of two hundred ended it long before its time was up.
-        for (int turns = 0; turns < 20000 && realm->has_pending_timers(); ++turns) {
+        for (int turns = 0; turns < 20000 && realm->has_pending_timers() && !navigated; ++turns) {
             double const due = *realm->next_timer_due();
             if (due > extras.script_time_ms)
                 break;
             script_clock = std::max(script_clock, due);
             turn_started = clock::now();
             realm->run_pending();
+        }
+        // The page asked to go elsewhere, as a challenge does once it has
+        // passed: the window would follow, so the render follows, with the
+        // session (the cookie the challenge set) carried over.
+        // A move within the page (its fragment alone) is no new page.
+        bool const elsewhere = navigated && navigated->serialize(true) != loaded.url.serialize(true);
+        bool const followable = navigated && (navigated->scheme == "http" || navigated->scheme == "https" || (navigated->scheme == "file" && loaded.url.scheme == "file"));
+        if (elsewhere && followable && extras.navigations < 3) {
+            std::cerr << "navigated to " << navigated->serialize() << "\n";
+            RenderExtras next = extras;
+            next.navigations = extras.navigations + 1;
+            next.started = started;
+            next.session = loaded.loader;
+            std::string const target = navigated->serialize();
+            oracle.set_realm(nullptr);
+            realm.reset();
+            return render_page(target, output, viewport_width, viewport_height, next);
         }
         // The virtual clock outruns the video decoder: the pictures due at
         // the moment drawn are waited for.
