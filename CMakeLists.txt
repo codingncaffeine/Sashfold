@@ -72,6 +72,7 @@ add_library(sashfold_core STATIC
   src/bindings/Navigator.cpp
   src/bindings/Node.cpp
   src/bindings/Origin.cpp
+  src/bindings/WebCrypto.cpp
   src/bindings/Range.cpp
   src/bindings/Reflect.cpp
   src/bindings/ShadowDom.cpp
@@ -106,10 +107,13 @@ add_library(sashfold_core STATIC
   src/core/Zip.cpp
   src/crypto/Aes.cpp
   src/crypto/AesGcm.cpp
+  src/crypto/AesModes.cpp
   src/crypto/BigInt.cpp
   src/crypto/ChaCha20Poly1305.cpp
   src/crypto/Ec.cpp
+  src/crypto/Ed25519.cpp
   src/crypto/Rsa.cpp
+  src/crypto/Sha1.cpp
   src/crypto/Sha2.cpp
   src/crypto/X25519.cpp
   src/css/Animation.cpp

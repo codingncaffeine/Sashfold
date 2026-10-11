@@ -52,6 +52,7 @@ struct SerializedMessage {
         Object,
         Blob,
         ImageData, // its size in `byte_offset` and `buffer`, its pixels in `bytes`
+        CryptoKey, // its slots and material in `bytes` (WebCrypto.cpp)
         Transferred, // an entry of the transfer list: made from its data holder
     };
     struct Record {
@@ -381,9 +382,15 @@ std::optional<std::size_t> Serializer::serialize_object(js::Object& object, js::
     }
     case Class::Host: {
         // The serializable platform objects: Blob and File, their bytes
-        // copied, and ImageData, its pixels copied. Every other one — a
+        // copied, ImageData, its pixels copied, and CryptoKey. Every other one — a
         // Response, a node, a port outside the transfer list — cannot be
         // cloned.
+        if (std::optional<std::vector<std::uint8_t>> key = crypto_key_copy(object)) {
+            std::size_t const index = add(Kind::CryptoKey);
+            at(index).bytes = std::move(*key);
+            memory[&object] = index;
+            return index;
+        }
         if (std::optional<ImageDataCopy> image = image_data_copy(object)) {
             std::size_t const index = add(Kind::ImageData);
             Record& record = at(index);
@@ -809,6 +816,15 @@ std::optional<Deserialized> structured_deserialize(Realm::Internals& target, Ser
                 blob->name = record.file_name;
                 blob->last_modified = record.number;
                 made = js::Value::object(blob);
+                break;
+            }
+            case Kind::CryptoKey: {
+                std::optional<js::Value> const key = crypto_key_from_copy(target, record.bytes);
+                if (!key) {
+                    target.throw_dom_exception("DataCloneError", "The key could not be read.");
+                    return std::nullopt;
+                }
+                made = *key;
                 break;
             }
             case Kind::ImageData: {

@@ -1,19 +1,23 @@
 // The primitives under src/crypto against the vectors their standards
 // publish: FIPS 180-4 (SHA-2), RFC 4231 (HMAC), RFC 5869 (HKDF), RFC 8439
-// (ChaCha20-Poly1305), FIPS 197 and SP 800-38A/38D (AES-128 and AES-128-GCM),
-// RFC 7748 (X25519), RFC 6979 (ECDSA), RFC 8017 (RSA, with a key and
-// signatures made by OpenSSL). A vector that fails is a wrong
+// (ChaCha20-Poly1305), FIPS 197 and SP 800-38A/38D (AES at its three key
+// sizes, GCM, CBC, CTR), RFC 3394 (AES-KW), FIPS 180-4 §6.1 (SHA-1), RFC 7748
+// (X25519), RFC 8032 (Ed25519), RFC 6979 (ECDSA), RFC 8017 (RSA, with keys,
+// signatures and a ciphertext made by OpenSSL). A vector that fails is a wrong
 // implementation, never a wrong vector.
 #include "Test.h"
 
 #include "crypto/Aes.h"
 #include "crypto/AesGcm.h"
+#include "crypto/AesModes.h"
 #include "crypto/BigInt.h"
 #include "crypto/ChaCha20Poly1305.h"
 #include "crypto/Ec.h"
+#include "crypto/Ed25519.h"
 #include "crypto/Hkdf.h"
 #include "crypto/Hmac.h"
 #include "crypto/Rsa.h"
+#include "crypto/Sha1.h"
 #include "crypto/Sha2.h"
 #include "crypto/X25519.h"
 
@@ -757,11 +761,11 @@ void test_ec_differential()
     using crypto::BigInt;
     using crypto::CurveId;
     using crypto::ec_test::Method;
-    for (CurveId const id : { CurveId::P256, CurveId::P384 }) {
+    for (CurveId const id : { CurveId::P256, CurveId::P384, CurveId::P521 }) {
         crypto::Curve const& c = crypto::curve(id);
         crypto::EcPoint const g { c.gx, c.gy };
-        std::string const name = id == CurveId::P256 ? "P-256" : "P-384";
-        SplitMix64 rng { id == CurveId::P256 ? 0x0256u : 0x0384u };
+        std::string const name = id == CurveId::P256 ? "P-256" : id == CurveId::P384 ? "P-384" : "P-521";
+        SplitMix64 rng { id == CurveId::P256 ? 0x0256u : id == CurveId::P384 ? 0x0384u : 0x0521u };
         std::vector<crypto::EcPoint> points;
         for (int j = 0; j < 20; ++j)
             points.push_back(*crypto::ec_test::multiply(id, Method::Reference, g, random_scalar(rng, c)));
@@ -813,10 +817,10 @@ void test_ec_consistency()
     using crypto::BigInt;
     using crypto::CurveId;
     using crypto::ec_test::Method;
-    for (CurveId const id : { CurveId::P256, CurveId::P384 }) {
+    for (CurveId const id : { CurveId::P256, CurveId::P384, CurveId::P521 }) {
         crypto::Curve const& c = crypto::curve(id);
         crypto::EcPoint const g { c.gx, c.gy };
-        std::string const name = id == CurveId::P256 ? "P-256" : "P-384";
+        std::string const name = id == CurveId::P256 ? "P-256" : id == CurveId::P384 ? "P-384" : "P-521";
         SplitMix64 rng { 0xC0DE0000u + static_cast<std::uint64_t>(id) };
         int window_mismatches = 0;
         int sum_mismatches = 0;
@@ -978,6 +982,220 @@ void test_aes_gcm()
     }
 }
 
+// AES at all three key sizes in both directions (FIPS 197 §C.1–C.3), and the
+// modes Web Crypto names over it: CBC and CTR (SP 800-38A §F.2.1, §F.5.1),
+// the key wrap (RFC 3394 §4.1), GCM with an IV that is not 96 bits.
+void test_aes_modes()
+{
+    std::vector<std::uint8_t> const plain = from_hex("00112233445566778899aabbccddeeff");
+    crypto::AesBlock block {};
+    std::copy(plain.begin(), plain.end(), block.begin());
+    struct Known {
+        char const* key;
+        char const* cipher;
+    };
+    for (Known const known : { Known { "000102030405060708090a0b0c0d0e0f", "69c4e0d86a7b0430d8cdb78070b4c55a" },
+             Known { "000102030405060708090a0b0c0d0e0f1011121314151617", "dda97ca4864cdfe06eaf70a0ec0d7191" },
+             Known { "000102030405060708090a0b0c0d0e0f101112131415161718191a1b1c1d1e1f", "8ea2b7ca516745bfeafc49904b496089" } }) {
+        std::optional<crypto::Aes> const aes = crypto::Aes::with_key(from_hex(known.key));
+        CHECK(aes.has_value());
+        crypto::AesBlock const sealed = aes->encrypt(block);
+        CHECK_EQ(hex(sealed), known.cipher);
+        CHECK_EQ(hex(aes->decrypt(sealed)), hex(plain));
+    }
+    CHECK(!crypto::Aes::with_key(from_hex("0001020304")).has_value());
+
+    std::optional<crypto::Aes> const aes = crypto::Aes::with_key(from_hex("2b7e151628aed2a6abf7158809cf4f3c"));
+    std::vector<std::uint8_t> const message = from_hex("6bc1bee22e409f96e93d7e117393172aae2d8a571e03ac9c9eb76fac45af8e51");
+    crypto::AesBlock iv {};
+    for (std::size_t i = 0; i < iv.size(); ++i)
+        iv[i] = static_cast<std::uint8_t>(i);
+    std::vector<std::uint8_t> const cbc = crypto::aes_cbc_encrypt(*aes, iv, message);
+    CHECK_EQ(cbc.size(), 48u); // two blocks and a block of padding
+    CHECK_EQ(hex(std::span<std::uint8_t const>(cbc).subspan(0, 32)), "7649abac8119b246cee98e9b12e9197d5086cb9b507219ee95db113a917678b2");
+    std::optional<std::vector<std::uint8_t>> const opened = crypto::aes_cbc_decrypt(*aes, iv, cbc);
+    CHECK(opened && hex(*opened) == hex(message));
+    std::vector<std::uint8_t> broken = cbc;
+    broken[47] ^= 0x01; // the padding is no longer sixteen 0x10s
+    CHECK(!crypto::aes_cbc_decrypt(*aes, iv, broken).has_value());
+    CHECK(!crypto::aes_cbc_decrypt(*aes, iv, std::span<std::uint8_t const>(cbc).subspan(1)).has_value());
+
+    crypto::AesBlock counter {};
+    for (std::size_t i = 0; i < counter.size(); ++i)
+        counter[i] = static_cast<std::uint8_t>(0xf0 + i);
+    std::optional<std::vector<std::uint8_t>> const ctr = crypto::aes_ctr(*aes, counter, 128, message);
+    CHECK(ctr && hex(*ctr) == "874d6191b620e3261bef6864990db6ce9806f66b7970fdff8617187bb9fffdff");
+    // A one-bit counter has two values: two blocks fit, a third would reuse one.
+    CHECK(crypto::aes_ctr(*aes, counter, 1, std::vector<std::uint8_t>(32, 0)).has_value());
+    CHECK(!crypto::aes_ctr(*aes, counter, 1, std::vector<std::uint8_t>(33, 0)).has_value());
+    // The low bits wrap and the rest stay: 0xff with an 8-bit counter goes
+    // to 0x00 with byte 14 untouched, so block two is block one's 0x00 form.
+    crypto::AesBlock wrap {};
+    wrap[15] = 0xff;
+    crypto::AesBlock zero {};
+    std::optional<std::vector<std::uint8_t>> const wrapped = crypto::aes_ctr(*aes, wrap, 8, std::vector<std::uint8_t>(32, 0));
+    std::optional<std::vector<std::uint8_t>> const from_zero = crypto::aes_ctr(*aes, zero, 8, std::vector<std::uint8_t>(16, 0));
+    CHECK(wrapped && from_zero && hex(std::span<std::uint8_t const>(*wrapped).subspan(16)) == hex(*from_zero));
+
+    std::optional<crypto::Aes> const kek = crypto::Aes::with_key(from_hex("000102030405060708090a0b0c0d0e0f"));
+    std::optional<std::vector<std::uint8_t>> const kw = crypto::aes_kw_wrap(*kek, plain);
+    CHECK(kw && hex(*kw) == "1fa68b0a8112b447aef34bd8fb5a7b829d3e862371d2cfe5");
+    std::optional<std::vector<std::uint8_t>> const unwrapped = crypto::aes_kw_unwrap(*kek, *kw);
+    CHECK(unwrapped && hex(*unwrapped) == hex(plain));
+    std::vector<std::uint8_t> tampered = *kw;
+    tampered[3] ^= 0x80;
+    CHECK(!crypto::aes_kw_unwrap(*kek, tampered).has_value());
+    CHECK(!crypto::aes_kw_wrap(*kek, from_hex("0011223344556677")).has_value()); // shorter than two halves
+
+    // The 96-bit IV through the general pair is the TLS pair's answer, tag
+    // and all; an IV of another length opens what it sealed and nothing else.
+    crypto::AesKey key {};
+    crypto::GcmNonce nonce {};
+    for (std::size_t i = 0; i < key.size(); ++i)
+        key[i] = static_cast<std::uint8_t>(3 * i);
+    for (std::size_t i = 0; i < nonce.size(); ++i)
+        nonce[i] = static_cast<std::uint8_t>(5 * i);
+    std::vector<std::uint8_t> sealed_tls = message;
+    crypto::GcmTag const tag = crypto::aes128_gcm_seal(key, nonce, plain, sealed_tls, sealed_tls);
+    sealed_tls.insert(sealed_tls.end(), tag.begin(), tag.end());
+    crypto::Aes const general(*crypto::Aes::with_key(key));
+    CHECK_EQ(hex(crypto::aes_gcm_seal(general, nonce, plain, message, 16)), hex(sealed_tls));
+    std::vector<std::uint8_t> const long_iv(60, 0x5a);
+    std::vector<std::uint8_t> const sealed = crypto::aes_gcm_seal(general, long_iv, plain, message, 12);
+    CHECK_EQ(sealed.size(), message.size() + 12);
+    std::optional<std::vector<std::uint8_t>> const opened_gcm = crypto::aes_gcm_open(general, long_iv, plain, sealed, 12);
+    CHECK(opened_gcm && hex(*opened_gcm) == hex(message));
+    CHECK(!crypto::aes_gcm_open(general, std::vector<std::uint8_t>(59, 0x5a), plain, sealed, 12).has_value());
+}
+
+// SHA-1 (FIPS 180-4 §6.1) on the standard's own messages.
+void test_sha1()
+{
+    CHECK_EQ(hex(crypto::Sha1::hash(ascii(""))), "da39a3ee5e6b4b0d3255bfef95601890afd80709");
+    CHECK_EQ(hex(crypto::Sha1::hash(ascii("abc"))), "a9993e364706816aba3e25717850c26c9cd0d89d");
+    CHECK_EQ(hex(crypto::Sha1::hash(ascii("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq"))), "84983e441c3bd26ebaae4aa1f95129e5e54670f1");
+    CHECK_EQ(hex(crypto::hash_with(crypto::HashId::Sha1, ascii("abc"))), "a9993e364706816aba3e25717850c26c9cd0d89d");
+    // Fed in pieces across a block boundary, the same digest.
+    crypto::Sha1 pieces;
+    std::string_view const text = "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
+    pieces.update(ascii(text.substr(0, 7)));
+    pieces.update(ascii(text.substr(7)));
+    CHECK_EQ(hex(pieces.finish()), "84983e441c3bd26ebaae4aa1f95129e5e54670f1");
+}
+
+// Ed25519 (RFC 8032 §7.1 test 1): the key and signature from the seed, the
+// signature verified, and any change to message, signature or key refused.
+void test_ed25519()
+{
+    crypto::Ed25519Seed seed {};
+    std::vector<std::uint8_t> const seed_bytes = from_hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+    std::copy(seed_bytes.begin(), seed_bytes.end(), seed.begin());
+    crypto::Ed25519PublicKey const key = crypto::ed25519_public_key(seed);
+    CHECK_EQ(hex(key), "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a");
+    crypto::Ed25519Signature const signature = crypto::ed25519_sign(seed, {});
+    CHECK_EQ(hex(signature), "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b");
+    CHECK(crypto::ed25519_verify(key, {}, signature));
+    CHECK(!crypto::ed25519_verify(key, ascii("x"), signature));
+    crypto::Ed25519Signature flipped = signature;
+    flipped[40] ^= 1;
+    CHECK(!crypto::ed25519_verify(key, {}, flipped));
+    crypto::Ed25519PublicKey other = key;
+    other[0] ^= 1;
+    CHECK(!crypto::ed25519_verify(other, {}, signature));
+    // A message of its own, signed and verified both ways round.
+    crypto::Ed25519Signature const long_signature = crypto::ed25519_sign(seed, ascii("The quick brown fox jumps over the lazy dog"));
+    CHECK(crypto::ed25519_verify(key, ascii("The quick brown fox jumps over the lazy dog"), long_signature));
+    CHECK(crypto::ed25519_point_valid(key));
+}
+
+// RSA's private side against OpenSSL 3.6: a 1024-bit key made by genpkey,
+// its PKCS #1 v1.5 signature of "sample" under SHA-256 (deterministic, so
+// ours must be the same bytes) and an OAEP-SHA-256 ciphertext of it; then a
+// key generated here, from a fixed stream, through every scheme.
+std::uint64_t rsa_stream_state = 0x5a5a0001;
+
+void rsa_stream(std::span<std::uint8_t> out)
+{
+    SplitMix64 rng { rsa_stream_state };
+    for (std::uint8_t& b : out)
+        b = static_cast<std::uint8_t>(rng.next() >> 56);
+    rsa_stream_state = rng.state;
+}
+
+void test_rsa_private()
+{
+    using crypto::BigInt;
+    BigInt const n = *BigInt::from_hex("00e145a6a20f4e532dcd665b9513e40202a736ccf7dbf4ad09bf5e2c796165b738d8c76782bfc802aa6443bb0d867b892e79a4d1e2ba249c5d136306ba3f5d87e1d556ecd675f9cc7ecf0fd8cca8d4383cb646ffb477c83e5aff7632fd1a8fae70ae0844e7e4e5275bcc321ef48ba83bcb7d54a9148f060e262746744a3ae9c90f");
+    BigInt const e = BigInt::from_u64(65537);
+    BigInt const d = *BigInt::from_hex("71436ad7baa85febfc850570fc123cec869468140b1487580a4ed83fa337d81a8dec1c6041fad754429b47563292b45398b7c50ba119bd4092f9cc2d22a4ed272e5cf3d256cae039201cacaa174a70fdb1e8e65513429c9b50921f8abd7492be5375088ffe86ac9d6f4e8d08d8857bc990936223352fdbc18fab8e54eadec549");
+    BigInt const p = *BigInt::from_hex("00f74303a32d6780641808d7fc3c9f518f0b32b865c815684854e4a959162c9f25bc3f45f71943d80c9a8230636808ac834cc2e3c9d082c5a8bcdef7a2ee06a24b");
+    BigInt const q = *BigInt::from_hex("00e93bb1f3b0439e8ed4597b57b6df16cc990eda942f273dea59da0fba962012aa530542bdce5a14dc89c409245a0b18eb50a00b753f19501baf46c966a0f199cd");
+    BigInt const dp = *BigInt::from_hex("00ee779d3c74ffcb5dbda859d615097a7940cd8bf5edc067b0cadf354c8c0c40f8fdd2f0415e068689b1423a34c513087e213c1cc078ee867f3498bdb04f6bea7d");
+    BigInt const dq = *BigInt::from_hex("6c4fe7a536af405c2e2b5c07710a8b48faaf963c88e55d708ec7a0d452d194397b128f5b1c10636dc3a0c16a1b52da00b5d18d60a6abf7b2d3a438f5ab3a67e5");
+    BigInt const qi = *BigInt::from_hex("7f6b1756bb9ec2790552c0cbaaf6ba5f86fc11b82807fa35901c7bd2fc9ca0242d91c87dce340ea22250fec125f653a7d31a0c726cf47a42fbe2756f563b7d7a");
+    std::optional<crypto::RsaPrivateKey> const key = crypto::rsa_private_key(n, e, d, p, q, dp, dq, qi);
+    CHECK(key.has_value());
+    CHECK(!crypto::rsa_private_key(n, e, d, p, q, dp, dq, qi.add(BigInt::from_u64(1))).has_value());
+    CHECK(!crypto::rsa_private_key(n, e, d, q, p, dp, dq, qi).has_value());
+    crypto::Sha256::Digest const digest = crypto::Sha256::hash(ascii("sample"));
+    std::optional<std::vector<std::uint8_t>> const signature = crypto::rsa_sign_pkcs1_v15(*key, crypto::HashId::Sha256, digest);
+    CHECK(signature && hex(*signature) == "c2d6a6b10340149d86350762df3d1def97adb3b4d32c8c8a798041ca0e5db2b5bdd546ac979ab8fad460b9b102fc3c9ebd643541930260ae287fb067e1de84c2f1bc14aa09e9e4a6da354e4b7fb8a3f6ceb98233bc4b1e75957c5a1da44067a44429a0e9c92df787957432639a381aa71072bc003b7dd93487fd02e7df470cd6");
+    crypto::RsaPublicKey const public_key { n, e };
+    CHECK(!crypto::rsa_verify_pkcs1_v15(public_key, crypto::HashId::Sha256, digest, *signature)); // TLS refuses a 1024-bit key
+    CHECK(crypto::rsa_verify_pkcs1_v15_any(public_key, crypto::HashId::Sha256, digest, *signature));
+    std::optional<std::vector<std::uint8_t>> const message = crypto::rsa_oaep_decrypt(*key, crypto::HashId::Sha256, {},
+        from_hex("7c55c65efb3f06785b82c354a64e68c39563c713f5b945dab70032f178f97ca3336b7766950fe53d381304ca998eb6da487be13e7415c0555788611a58b5dd25eed446dec216b9d21c8a452665211a7b3f997d5e08721aaf2c68bd2f1bbe08a77409861222cc4d234f339f55e21e863455864fab0c74b641d13a5b80b9e55dbc"));
+    CHECK(message && hex(*message) == hex(ascii("sample")));
+    CHECK(!crypto::rsa_oaep_decrypt(*key, crypto::HashId::Sha256, ascii("label"),
+        from_hex("7c55c65efb3f06785b82c354a64e68c39563c713f5b945dab70032f178f97ca3336b7766950fe53d381304ca998eb6da487be13e7415c0555788611a58b5dd25eed446dec216b9d21c8a452665211a7b3f997d5e08721aaf2c68bd2f1bbe08a77409861222cc4d234f339f55e21e863455864fab0c74b641d13a5b80b9e55dbc")).has_value());
+
+    std::optional<crypto::RsaPrivateKey> const made = crypto::rsa_generate(1024, e, rsa_stream);
+    CHECK(made.has_value());
+    CHECK_EQ(made->n.bit_length(), 1024u);
+    CHECK(made->p.mul(made->q) == made->n);
+    CHECK(crypto::rsa_private_key(made->n, made->e, made->d, made->p, made->q, made->dp, made->dq, made->qi).has_value());
+    crypto::RsaPublicKey const made_public { made->n, made->e };
+    std::optional<std::vector<std::uint8_t>> const pss = crypto::rsa_sign_pss(*made, crypto::HashId::Sha256, digest, 32, rsa_stream);
+    CHECK(pss && crypto::rsa_verify_pss_any(made_public, crypto::HashId::Sha256, digest, *pss, 32));
+    CHECK(pss && !crypto::rsa_verify_pss_any(made_public, crypto::HashId::Sha256, digest, *pss, 20));
+    std::optional<std::vector<std::uint8_t>> const sealed = crypto::rsa_oaep_encrypt(made_public, crypto::HashId::Sha1, ascii("label"), ascii("secret"), rsa_stream);
+    CHECK(sealed.has_value());
+    std::optional<std::vector<std::uint8_t>> const unsealed = crypto::rsa_oaep_decrypt(*made, crypto::HashId::Sha1, ascii("label"), *sealed);
+    CHECK(unsealed && hex(*unsealed) == hex(ascii("secret")));
+    // Too long for the key: k − 2·hLen − 2 = 128 − 40 − 2 = 86 bytes at most.
+    CHECK(crypto::rsa_oaep_encrypt(made_public, crypto::HashId::Sha1, {}, std::vector<std::uint8_t>(86, 1), rsa_stream).has_value());
+    CHECK(!crypto::rsa_oaep_encrypt(made_public, crypto::HashId::Sha1, {}, std::vector<std::uint8_t>(87, 1), rsa_stream).has_value());
+    CHECK(!crypto::rsa_generate(1020, e, rsa_stream).has_value()); // not a multiple of 8
+    CHECK(!crypto::rsa_generate(1024, BigInt::from_u64(65536), rsa_stream).has_value()); // even exponent
+}
+
+// ECDSA signing on every curve: our signatures verify, and a changed digest
+// does not; P-521 also by its compressed points.
+void test_ecdsa_sign()
+{
+    using crypto::CurveId;
+    for (CurveId const id : { CurveId::P256, CurveId::P384, CurveId::P521 }) {
+        crypto::Curve const& c = crypto::curve(id);
+        SplitMix64 rng { 0xEC00u + static_cast<std::uint64_t>(id) };
+        crypto::BigInt const d = random_scalar(rng, c);
+        std::vector<std::uint8_t> const scalar = *d.to_bytes(c.field_bytes);
+        CHECK(crypto::ec_private_scalar_valid(id, scalar));
+        std::optional<crypto::EcPoint> const key = crypto::ec_public_point(id, scalar);
+        CHECK(key.has_value());
+        crypto::Sha256::Digest const digest = crypto::Sha256::hash(ascii("sample"));
+        std::optional<std::pair<crypto::BigInt, crypto::BigInt>> const rs = crypto::ecdsa_sign(id, scalar, digest, rsa_stream);
+        CHECK(rs && crypto::ecdsa_verify(id, *key, digest, rs->first, rs->second));
+        crypto::Sha256::Digest const other = crypto::Sha256::hash(ascii("sampler"));
+        CHECK(rs && !crypto::ecdsa_verify(id, *key, other, rs->first, rs->second));
+        std::vector<std::uint8_t> compressed { static_cast<std::uint8_t>(key->y.is_odd() ? 0x03 : 0x02) };
+        std::vector<std::uint8_t> const x = *key->x.to_bytes(c.field_bytes);
+        compressed.insert(compressed.end(), x.begin(), x.end());
+        CHECK(same_point(crypto::ec_decode_point_any(id, compressed), key));
+        CHECK(!crypto::ec_decode_point(id, compressed).has_value()); // never in TLS
+        CHECK(!crypto::ec_private_scalar_valid(id, *c.n.to_bytes(c.field_bytes)));
+    }
+}
+
 int main()
 {
     test_sha2();
@@ -995,5 +1213,10 @@ int main()
     test_ecdh_rfc5903();
     test_ec_differential();
     test_ec_consistency();
+    test_aes_modes();
+    test_sha1();
+    test_ed25519();
+    test_rsa_private();
+    test_ecdsa_sign();
     return sashfold::test::report("crypto");
 }

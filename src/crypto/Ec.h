@@ -1,29 +1,32 @@
 #pragma once
-// The NIST curves P-256 and P-384 (FIPS 186-4 §D.1.2): point decoding with
-// the on-curve check, ECDSA signature verification (§6.4.2), and the ECDH
-// of a TLS 1.2 key exchange (RFC 8422), for the servers that will not take
-// x25519. The boundary speaks BigInt; underneath, the arithmetic is on
-// fixed-width field elements (four 64-bit limbs for P-256, six for P-384)
-// in Montgomery form, points in Jacobian coordinates. A signature's values
-// are public, so verification takes the faster variable-time path. An ECDH
-// scalar is secret: its multiplication runs the same operations and
-// touches the same memory whatever the scalar is, over field arithmetic
-// that has no branch or index on its data.
+// The NIST curves P-256, P-384 and P-521 (FIPS 186-4 §D.1.2): point decoding with
+// the on-curve check, ECDSA signature verification (§6.4.2) and signing,
+// and the ECDH of a TLS 1.2 key exchange (RFC 8422), for the servers that
+// will not take x25519, and of Web Crypto. The boundary speaks BigInt;
+// underneath, the arithmetic is on fixed-width field elements (four 64-bit
+// limbs for P-256, six for P-384, nine for P-521) in Montgomery form, points in Jacobian
+// coordinates. A signature's values are public, so verification takes the
+// faster variable-time path. An ECDH scalar, a signing key and its nonce are
+// secret: their multiplication runs the same operations and touches the same
+// memory whatever the scalar is, over field arithmetic that has no branch or
+// index on its data.
 #include "crypto/BigInt.h"
+#include "crypto/Random.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <span>
+#include <utility>
 #include <vector>
 
 namespace sashfold::crypto {
 
-enum class CurveId : std::uint8_t { P256, P384 };
+enum class CurveId : std::uint8_t { P256, P384, P521 };
 
 struct Curve {
     CurveId id;
-    std::size_t field_bytes; // 32 or 48
+    std::size_t field_bytes; // 32, 48 or 66
     BigInt p; // the prime field
     BigInt a; // −3
     BigInt b;
@@ -39,12 +42,23 @@ struct EcPoint {
     BigInt y;
 };
 
-// An uncompressed SEC 1 point, 0x04 || X || Y, each coordinate
-// field_bytes long, checked to lie on the curve.
+// An uncompressed SEC 1 point, 0x04 || X || Y, each coordinate field_bytes
+// long, checked to lie on the curve: the only form TLS 1.3 accepts
+// (RFC 8446 §4.2.8.2).
 std::optional<EcPoint> ec_decode_point(CurveId id, std::span<std::uint8_t const> encoded);
+// The same, or compressed (SEC 1 §2.3.4): 0x02 or 0x03, the parity of y, then
+// X — which Web Crypto's raw and SPKI imports take.
+std::optional<EcPoint> ec_decode_point_any(CurveId id, std::span<std::uint8_t const> encoded);
 
 // The digest is truncated to the order's bit length as §6.4.2 says.
 bool ecdsa_verify(CurveId id, EcPoint const& public_key, std::span<std::uint8_t const> digest, BigInt const& r, BigInt const& s);
+
+// A private scalar of field_bytes in [1, n − 1].
+bool ec_private_scalar_valid(CurveId id, std::span<std::uint8_t const> scalar);
+
+// ECDSA signing (SEC 1 §4.1.3) with a nonce drawn from `random`; (r, s), or
+// nullopt for a scalar outside [1, n − 1].
+std::optional<std::pair<BigInt, BigInt>> ecdsa_sign(CurveId id, std::span<std::uint8_t const> scalar, std::span<std::uint8_t const> digest, RandomFill random);
 
 // 0x04 || X || Y, each coordinate field_bytes long: the uncompressed form
 // a key exchange sends.

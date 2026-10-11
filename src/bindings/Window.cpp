@@ -1688,10 +1688,8 @@ void install_window(Realm::Internals& in)
     // Crypto (Web Crypto §10): randomUUID and getRandomValues over an
     // array-like, and subtle, the same SubtleCrypto object every time.
     js::Object* crypto = define_interface(in, "Crypto", nullptr);
-    // crypto.subtle (Web Crypto §14): digest() over the SHA-2 family, which
-    // is what a page hashes with — a checksum, a proof of work — and would
-    // otherwise do in script, a thousand times slower. Every other operation
-    // is a promise refused, NotSupportedError, until keys are written.
+    // crypto.subtle (Web Crypto §14): its operations and CryptoKey are
+    // WebCrypto.cpp's.
     js::Object* subtle = define_interface(in, "SubtleCrypto", nullptr);
     define_getter(in, *crypto, "subtle", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
@@ -1700,48 +1698,7 @@ void install_window(Realm::Internals& in)
         }));
     });
     global->put(interpreter.key("crypto"), js::Value::object(interpreter.heap().allocate<PlainPlatformObject>(crypto, in.realm_record)), js::builtin_attributes);
-    define_operation(interpreter, *subtle, "digest", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
-        Realm::Internals& internals = internals_of(interp);
-        // The algorithm: its name, or an object with one; matched without case.
-        js::Value algorithm = js::argument(args, 0);
-        if (algorithm.is_object()) {
-            std::optional<js::Value> const name = interp.get(algorithm, "name");
-            if (!name)
-                return std::nullopt;
-            algorithm = *name;
-        }
-        std::optional<std::string> const name = internals.to_utf8(algorithm);
-        if (!name)
-            return std::nullopt;
-        std::optional<std::span<std::uint8_t const>> const bytes = buffer_source_bytes(js::argument(args, 1));
-        if (!bytes) {
-            interp.throw_type_error("Failed to execute 'digest' on 'SubtleCrypto': parameter 2 is not a BufferSource");
-            return rejected_promise(interp, interp.take_exception());
-        }
-        std::optional<crypto::HashId> id;
-        if (ascii_ci_equals(*name, "SHA-256"))
-            id = crypto::HashId::Sha256;
-        else if (ascii_ci_equals(*name, "SHA-384"))
-            id = crypto::HashId::Sha384;
-        else if (ascii_ci_equals(*name, "SHA-512"))
-            id = crypto::HashId::Sha512;
-        if (!id)
-            return rejected_promise(interp, dom_exception_value(internals, "NotSupportedError", "Unrecognized or unwritten algorithm: " + *name));
-        std::vector<std::uint8_t> const digest = crypto::hash_with(*id, *bytes);
-        std::optional<js::ArrayBufferObject*> const buffer = js::allocate_array_buffer(interp, nullptr, static_cast<double>(digest.size()), std::nullopt);
-        if (!buffer)
-            return std::nullopt;
-        std::copy(digest.begin(), digest.end(), (*buffer)->data());
-        return resolved_promise(interp, js::Value::object(*buffer));
-    });
-    for (std::string_view const unwritten : { "encrypt", "decrypt", "sign", "verify", "generateKey", "deriveKey", "deriveBits",
-             "importKey", "exportKey", "wrapKey", "unwrapKey" }) {
-        std::string const operation(unwritten);
-        define_operation(interpreter, *subtle, unwritten, 0, [operation](js::Interpreter& interp, js::Value const&, Args) -> Native {
-            Realm::Internals& internals = internals_of(interp);
-            return rejected_promise(interp, dom_exception_value(internals, "NotSupportedError", "crypto.subtle." + operation + " is not written yet"));
-        });
-    }
+    install_web_crypto(in, *subtle);
     define_operation(interpreter, *crypto, "randomUUID", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         return internals_of(interp).string(random_uuid());
     });

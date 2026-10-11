@@ -1526,6 +1526,7 @@ void install_fetch(Realm::Internals&); // Fetch.cpp: Headers, Request, Response,
 void install_xhr(Realm::Internals&); // Xhr.cpp: XMLHttpRequest
 void install_tasks(Realm::Internals&); // Tasks.cpp: AbortController, AbortSignal, MessageChannel, MessagePort, postMessage
 void install_origin(Realm::Internals&); // Origin.cpp: Origin
+void install_web_crypto(Realm::Internals&, js::Object& subtle); // WebCrypto.cpp: CryptoKey and SubtleCrypto's operations
 void install_ranges(Realm::Internals&); // Range.cpp: AbstractRange, Range, StaticRange
 void install_traversal(Realm::Internals&); // Traversal.cpp: NodeFilter, TreeWalker, NodeIterator
 void install_workers(Realm::Internals&); // Workers.cpp: Worker, for a window's realm
@@ -1567,6 +1568,12 @@ struct ImageDataCopy {
 };
 std::optional<ImageDataCopy> image_data_copy(js::Object const&);
 std::optional<js::Value> image_data_from_copy(Realm::Internals&, ImageDataCopy const&);
+// A CryptoKey as the structured clone carries it (WebCrypto.cpp; it is
+// serializable, and IndexedDB keeps keys this way): its slots and material
+// as bytes, nullopt for an object that is not one; and a new CryptoKey in a
+// realm from them, nullopt for bytes that are not one.
+std::optional<std::vector<std::uint8_t>> crypto_key_copy(js::Object const&);
+std::optional<js::Value> crypto_key_from_copy(Realm::Internals&, std::span<std::uint8_t const>);
 // A video element's picture now, and whether it shows one (Media.cpp).
 std::shared_ptr<Bitmap const> media_current_picture(Realm::Internals&, dom::Element&);
 // A 2D matrix as DOMMatrix2DInit gives it, validated and fixed up (a

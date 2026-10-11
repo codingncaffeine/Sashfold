@@ -3,6 +3,7 @@
 #include "crypto/Hmac.h"
 
 #include <cstring>
+#include <utility>
 
 namespace sashfold::crypto {
 
@@ -79,40 +80,56 @@ private:
     AesBlock m_accumulator {};
 };
 
-// §7.1 step 2: with a 96-bit nonce the pre-counter block is the nonce and a
-// one; the blocks of the keystream follow it, the tag's mask is the block
-// itself.
-AesBlock counter_block(GcmNonce const& nonce, std::uint32_t counter)
+// §7.1 step 2: with a 96-bit IV the pre-counter block J0 is the IV and a
+// one; any other IV is hashed, zero-padded, with its length in bits.
+AesBlock pre_counter_block(AesBlock const& subkey, std::span<std::uint8_t const> iv)
 {
     AesBlock block {};
-    std::memcpy(block.data(), nonce.data(), nonce.size());
+    if (iv.size() == 12) {
+        std::memcpy(block.data(), iv.data(), iv.size());
+        block[15] = 1;
+        return block;
+    }
+    Ghash ghash(subkey);
+    ghash.update(iv);
+    return ghash.finish(0, iv.size());
+}
+
+// inc32 (§6.2): the last four bytes count, the first twelve stay.
+AesBlock increment32(AesBlock block, std::uint32_t by)
+{
+    std::uint32_t counter = 0;
+    for (std::size_t i = 12; i < 16; ++i)
+        counter = (counter << 8) | block[i];
+    counter += by;
     for (std::size_t i = 0; i < 4; ++i)
         block[12 + i] = static_cast<std::uint8_t>(counter >> (8 * (3 - i)));
     return block;
 }
 
-void counter_xor(Aes128 const& aes, GcmNonce const& nonce, std::span<std::uint8_t> data)
+// GCTR from inc32(J0): the keystream of the data.
+void counter_xor(Aes const& aes, AesBlock const& j0, std::span<std::uint8_t> data)
 {
-    std::uint32_t counter = 2; // the data starts at inc32 of the pre-counter block
+    AesBlock counter = increment32(j0, 1);
     std::size_t offset = 0;
     while (offset < data.size()) {
-        AesBlock const keystream = aes.encrypt(counter_block(nonce, counter));
+        AesBlock const keystream = aes.encrypt(counter);
         std::size_t const take = data.size() - offset < 16 ? data.size() - offset : 16;
         for (std::size_t i = 0; i < take; ++i)
             data[offset + i] = static_cast<std::uint8_t>(data[offset + i] ^ keystream[i]);
         offset += take;
-        counter += 1;
+        counter = increment32(counter, 1);
     }
 }
 
-GcmTag authenticate(Aes128 const& aes, AesBlock const& subkey, GcmNonce const& nonce,
+GcmTag authenticate(Aes const& aes, AesBlock const& subkey, AesBlock const& j0,
     std::span<std::uint8_t const> aad, std::span<std::uint8_t const> ciphertext)
 {
     Ghash ghash(subkey);
     ghash.update(aad);
     ghash.update(ciphertext);
     AesBlock const hash = ghash.finish(aad.size(), ciphertext.size());
-    AesBlock const mask = aes.encrypt(counter_block(nonce, 1));
+    AesBlock const mask = aes.encrypt(j0);
     GcmTag tag {};
     for (std::size_t i = 0; i < tag.size(); ++i)
         tag[i] = static_cast<std::uint8_t>(hash[i] ^ mask[i]);
@@ -126,11 +143,12 @@ GcmTag aes128_gcm_seal(AesKey const& key, GcmNonce const& nonce, std::span<std::
 {
     Aes128 const aes(key);
     AesBlock const subkey = aes.encrypt(AesBlock {});
+    AesBlock const j0 = pre_counter_block(subkey, nonce);
     if (ciphertext.data() != plaintext.data() && !plaintext.empty())
         std::memcpy(ciphertext.data(), plaintext.data(), plaintext.size());
     std::span<std::uint8_t> const body = ciphertext.subspan(0, plaintext.size());
-    counter_xor(aes, nonce, body);
-    return authenticate(aes, subkey, nonce, aad, body);
+    counter_xor(aes, j0, body);
+    return authenticate(aes, subkey, j0, aad, body);
 }
 
 bool aes128_gcm_open(AesKey const& key, GcmNonce const& nonce, std::span<std::uint8_t const> aad,
@@ -138,13 +156,42 @@ bool aes128_gcm_open(AesKey const& key, GcmNonce const& nonce, std::span<std::ui
 {
     Aes128 const aes(key);
     AesBlock const subkey = aes.encrypt(AesBlock {});
-    GcmTag const expected = authenticate(aes, subkey, nonce, aad, ciphertext);
+    AesBlock const j0 = pre_counter_block(subkey, nonce);
+    GcmTag const expected = authenticate(aes, subkey, j0, aad, ciphertext);
     if (!constant_time_equal(expected, tag))
         return false;
     if (plaintext.data() != ciphertext.data() && !ciphertext.empty())
         std::memcpy(plaintext.data(), ciphertext.data(), ciphertext.size());
-    counter_xor(aes, nonce, plaintext.subspan(0, ciphertext.size()));
+    counter_xor(aes, j0, plaintext.subspan(0, ciphertext.size()));
     return true;
+}
+
+std::vector<std::uint8_t> aes_gcm_seal(Aes const& aes, std::span<std::uint8_t const> iv, std::span<std::uint8_t const> aad,
+    std::span<std::uint8_t const> plaintext, std::size_t tag_size)
+{
+    AesBlock const subkey = aes.encrypt(AesBlock {});
+    AesBlock const j0 = pre_counter_block(subkey, iv);
+    std::vector<std::uint8_t> out(plaintext.begin(), plaintext.end());
+    counter_xor(aes, j0, out);
+    GcmTag const tag = authenticate(aes, subkey, j0, aad, out);
+    out.insert(out.end(), tag.begin(), tag.begin() + static_cast<std::ptrdiff_t>(tag_size));
+    return out;
+}
+
+std::optional<std::vector<std::uint8_t>> aes_gcm_open(Aes const& aes, std::span<std::uint8_t const> iv,
+    std::span<std::uint8_t const> aad, std::span<std::uint8_t const> sealed, std::size_t tag_size)
+{
+    if (sealed.size() < tag_size)
+        return std::nullopt;
+    std::span<std::uint8_t const> const ciphertext = sealed.subspan(0, sealed.size() - tag_size);
+    AesBlock const subkey = aes.encrypt(AesBlock {});
+    AesBlock const j0 = pre_counter_block(subkey, iv);
+    GcmTag const expected = authenticate(aes, subkey, j0, aad, ciphertext);
+    if (!constant_time_equal(std::span<std::uint8_t const>(expected.data(), tag_size), sealed.subspan(ciphertext.size())))
+        return std::nullopt;
+    std::vector<std::uint8_t> out(ciphertext.begin(), ciphertext.end());
+    counter_xor(aes, j0, out);
+    return out;
 }
 
 }

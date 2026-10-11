@@ -1,5 +1,7 @@
 #include "crypto/Sha2.h"
 
+#include "crypto/Sha1.h"
+
 #include <bit>
 #include <cstring>
 
@@ -327,6 +329,8 @@ std::size_t digest_size(HashId id)
         return Sha384::digest_size;
     case HashId::Sha512:
         return Sha512::digest_size;
+    case HashId::Sha1:
+        return Sha1::digest_size;
     }
     return 0;
 }
@@ -344,6 +348,10 @@ std::vector<std::uint8_t> hash_with(HashId id, std::span<std::uint8_t const> dat
     }
     case HashId::Sha512: {
         Sha512::Digest const d = Sha512::hash(data);
+        return std::vector<std::uint8_t>(d.begin(), d.end());
+    }
+    case HashId::Sha1: {
+        Sha1::Digest const d = Sha1::hash(data);
         return std::vector<std::uint8_t>(d.begin(), d.end());
     }
     }

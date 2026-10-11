@@ -127,3 +127,6 @@ css/css-easing
 # and interpolation live with the backgrounds and the text decorations.
 css/css-backgrounds
 css/css-text-decor
+# Added 2026-10-11 with Web Crypto's keys: import, export, generate,
+# the ciphers, signatures and derivations over src/crypto.
+WebCryptoAPI

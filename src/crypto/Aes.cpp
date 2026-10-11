@@ -183,45 +183,117 @@ void sub_word(std::uint8_t* bytes)
     from_planes(planes, bytes, 4);
 }
 
+
+// ---- the inverse round functions (§5.3)
+
+// InvSubBytes: undo the affine map (add c, then b_i = a_(i+2) ⊕ a_(i+5) ⊕
+// a_(i+7)), then the same field inverse, which is its own inverse.
+AesPlanes inv_sub_bytes(AesPlanes const& state)
+{
+    AesPlanes a {};
+    for (std::size_t i = 0; i < 8; ++i)
+        a[i] = ((0x63u >> i) & 1u) != 0u ? static_cast<std::uint16_t>(~state[i]) : state[i];
+    AesPlanes out {};
+    for (std::size_t i = 0; i < 8; ++i)
+        out[i] = static_cast<std::uint16_t>(a[(i + 2) % 8] ^ a[(i + 5) % 8] ^ a[(i + 7) % 8]);
+    return gf_inverse(out);
+}
+
+// InvShiftRows: row r rotates back by 4r places.
+AesPlanes inv_shift_rows(AesPlanes const& state)
+{
+    AesPlanes out {};
+    for (std::size_t j = 0; j < 8; ++j) {
+        std::uint16_t const w = state[j];
+        std::uint16_t result = static_cast<std::uint16_t>(w & 0x1111u);
+        for (unsigned row = 1; row < 4; ++row) {
+            std::uint16_t const mask = static_cast<std::uint16_t>(0x1111u << row);
+            result = static_cast<std::uint16_t>(result | rotate_right(static_cast<std::uint16_t>(w & mask), 16 - 4 * row));
+        }
+        out[j] = result;
+    }
+    return out;
+}
+
+// InvMixColumns as MixColumns after s_r ⊕= 4·(s_r ⊕ s_(r+2)): the inverse
+// matrix factors into the forward one times circ(5, 0, 4, 0) (Daemen and
+// Rijmen, "The Design of Rijndael", §4.1.3).
+AesPlanes inv_mix_columns(AesPlanes const& state)
+{
+    AesPlanes pair {};
+    for (std::size_t j = 0; j < 8; ++j)
+        pair[j] = static_cast<std::uint16_t>(state[j] ^ rotate_rows(rotate_rows(state[j])));
+    AesPlanes const quadrupled = xtime(xtime(pair));
+    AesPlanes pre {};
+    for (std::size_t j = 0; j < 8; ++j)
+        pre[j] = static_cast<std::uint16_t>(state[j] ^ quadrupled[j]);
+    return mix_columns(pre);
+}
+
+}
+
+std::optional<Aes> Aes::with_key(std::span<std::uint8_t const> key)
+{
+    if (key.size() != 16 && key.size() != 24 && key.size() != 32)
+        return std::nullopt;
+    return Aes(key);
 }
 
 // §5.2: the key schedule, expanded once per key. The round constants are
-// the powers of x in GF(2^8).
-Aes128::Aes128(AesKey const& key)
+// the powers of x in GF(2^8); a 256-bit key also substitutes the word half
+// way through each group of eight.
+Aes::Aes(std::span<std::uint8_t const> key)
 {
     constexpr std::uint8_t rcon[10] = { 0x01, 0x02, 0x04, 0x08, 0x10, 0x20, 0x40, 0x80, 0x1b, 0x36 };
-    std::uint8_t words[176] = {};
+    std::size_t const nk = key.size() / 4;
+    m_rounds = nk + 6;
+    std::size_t const total = 4 * (m_rounds + 1);
+    std::uint8_t words[240] = {};
     for (std::size_t i = 0; i < key.size(); ++i)
         words[i] = key[i];
-    for (std::size_t word = 4; word < 44; ++word) {
+    for (std::size_t word = nk; word < total; ++word) {
         std::uint8_t temp[4] = {
             words[4 * (word - 1) + 0],
             words[4 * (word - 1) + 1],
             words[4 * (word - 1) + 2],
             words[4 * (word - 1) + 3],
         };
-        if (word % 4 == 0) {
+        if (word % nk == 0) {
             std::uint8_t const first = temp[0];
             temp[0] = temp[1];
             temp[1] = temp[2];
             temp[2] = temp[3];
             temp[3] = first;
             sub_word(temp);
-            temp[0] = static_cast<std::uint8_t>(temp[0] ^ rcon[word / 4 - 1]);
+            temp[0] = static_cast<std::uint8_t>(temp[0] ^ rcon[word / nk - 1]);
+        } else if (nk > 6 && word % nk == 4) {
+            sub_word(temp);
         }
         for (std::size_t j = 0; j < 4; ++j)
-            words[4 * word + j] = static_cast<std::uint8_t>(words[4 * (word - 4) + j] ^ temp[j]);
+            words[4 * word + j] = static_cast<std::uint8_t>(words[4 * (word - nk) + j] ^ temp[j]);
     }
-    for (std::size_t round = 0; round < 11; ++round)
+    for (std::size_t round = 0; round <= m_rounds; ++round)
         m_round_keys[round] = to_planes(words + 16 * round, 16);
 }
 
-AesBlock Aes128::encrypt(AesBlock const& block) const
+AesBlock Aes::encrypt(AesBlock const& block) const
 {
     AesPlanes state = add_round_key(to_planes(block.data(), block.size()), m_round_keys[0]);
-    for (std::size_t round = 1; round < 10; ++round)
+    for (std::size_t round = 1; round < m_rounds; ++round)
         state = add_round_key(mix_columns(shift_rows(sub_bytes(state))), m_round_keys[round]);
-    state = add_round_key(shift_rows(sub_bytes(state)), m_round_keys[10]);
+    state = add_round_key(shift_rows(sub_bytes(state)), m_round_keys[m_rounds]);
+    AesBlock out {};
+    from_planes(state, out.data(), out.size());
+    return out;
+}
+
+// §5.3: the inverse cipher, the round keys taken in reverse.
+AesBlock Aes::decrypt(AesBlock const& block) const
+{
+    AesPlanes state = add_round_key(to_planes(block.data(), block.size()), m_round_keys[m_rounds]);
+    for (std::size_t round = m_rounds - 1; round >= 1; --round)
+        state = inv_mix_columns(add_round_key(inv_sub_bytes(inv_shift_rows(state)), m_round_keys[round]));
+    state = add_round_key(inv_sub_bytes(inv_shift_rows(state)), m_round_keys[0]);
     AesBlock out {};
     from_planes(state, out.data(), out.size());
     return out;

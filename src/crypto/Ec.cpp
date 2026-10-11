@@ -1,6 +1,8 @@
 #include "crypto/Ec.h"
 
+#include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -26,6 +28,12 @@ constexpr std::string_view p384_b = "b3312fa7e23ee7e4988e056be3f82d19181d9c6efe8
 constexpr std::string_view p384_n = "ffffffffffffffffffffffffffffffffffffffffffffffffc7634d81f4372ddf581a0db248b0a77aecec196accc52973";
 constexpr std::string_view p384_gx = "aa87ca22be8b05378eb1c71ef320ad746e1d3b628ba79b9859f741e082542a385502f25dbf55296c3a545e3872760ab7";
 constexpr std::string_view p384_gy = "3617de4a96262c6f5d9e98bf9292dc29f8f41dbd289a147ce9da3113b5f0b8c00a60b1ce1d7e819d7a431d7c90ea0e5f";
+
+constexpr std::string_view p521_p = "1ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff";
+constexpr std::string_view p521_b = "051953eb9618e1c9a1f929a21a0b68540eea2da725b99b315f3b8b489918ef109e156193951ec7e937b1652c0bd3bb1bf073573df883d2c34f1ef451fd46b503f00";
+constexpr std::string_view p521_n = "1fffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffa51868783bf2f966b7fcc0148f709a5d03bb5c9b8899c47aebb6fb71e91386409";
+constexpr std::string_view p521_gx = "0c6858e06b70404e9cd9e3ecb662395b4429c648139053fb521f828af606b4d3dbaa14b5e77efe75928fe1dc127a2ffa8de3348b3c1856a429bf97e7e31c2e5bd66";
+constexpr std::string_view p521_gy = "11839296a789a3bc0045c8a5fb42c7d1bd998f54449579b446817afbd17273e662c97ee72995ef42640c550b9013fad0761353c7086a272c24088be94769fd16650";
 
 Curve make_curve(CurveId id, std::size_t field_bytes, std::string_view p, std::string_view b, std::string_view n,
     std::string_view gx, std::string_view gy)
@@ -299,6 +307,7 @@ constexpr Modulus<N> make_modulus(std::string_view hex)
 // moduli, b and the generator in Montgomery form.
 struct P256 {
     static constexpr std::size_t N = 4;
+    static constexpr std::size_t field_bytes = 32;
     static constexpr Modulus<N> p = make_modulus<N>(p256_p);
     static constexpr Modulus<N> n = make_modulus<N>(p256_n);
     static constexpr Limbs<N> b = to_montgomery(limbs_from_hex<N>(p256_b), p);
@@ -308,11 +317,25 @@ struct P256 {
 
 struct P384 {
     static constexpr std::size_t N = 6;
+    static constexpr std::size_t field_bytes = 48;
     static constexpr Modulus<N> p = make_modulus<N>(p384_p);
     static constexpr Modulus<N> n = make_modulus<N>(p384_n);
     static constexpr Limbs<N> b = to_montgomery(limbs_from_hex<N>(p384_b), p);
     static constexpr Limbs<N> gx = to_montgomery(limbs_from_hex<N>(p384_gx), p);
     static constexpr Limbs<N> gy = to_montgomery(limbs_from_hex<N>(p384_gy), p);
+};
+
+// P-521: nine limbs, of which the order fills 521 bits, so a scalar of
+// 64·N bits does not reduce with one subtraction (secret_scalar masks and
+// refuses instead).
+struct P521 {
+    static constexpr std::size_t N = 9;
+    static constexpr std::size_t field_bytes = 66;
+    static constexpr Modulus<N> p = make_modulus<N>(p521_p);
+    static constexpr Modulus<N> n = make_modulus<N>(p521_n);
+    static constexpr Limbs<N> b = to_montgomery(limbs_from_hex<N>(p521_b), p);
+    static constexpr Limbs<N> gx = to_montgomery(limbs_from_hex<N>(p521_gx), p);
+    static constexpr Limbs<N> gy = to_montgomery(limbs_from_hex<N>(p521_gy), p);
 };
 
 // The Montgomery constants checked against what they must be, so a wrong
@@ -330,13 +353,20 @@ constexpr bool constants_hold()
             || to_montgomery(one, *mod) != mod->one)
             return false;
     }
-    // A scalar of 64·N bits reduces below the order with one subtraction
-    // only when the order's top bit is set.
-    return (C::n.m[N - 1] >> 63) == 1;
+    return true;
 }
 
-static_assert(constants_hold<P256>());
-static_assert(constants_hold<P384>());
+// A scalar of 64·N bits reduces below the order with one subtraction only
+// when the order's top bit is set: so for P-256 and P-384, not for P-521.
+template<typename C>
+constexpr bool order_fills_limbs()
+{
+    return (C::n.m[C::N - 1] >> 63) == 1;
+}
+
+static_assert(constants_hold<P256>() && order_fills_limbs<P256>());
+static_assert(constants_hold<P384>() && order_fills_limbs<P384>());
+static_assert(constants_hold<P521>() && !order_fills_limbs<P521>());
 
 // ---------------------------------------------------------------------------
 // The group, in Jacobian coordinates over the Montgomery field: (X, Y, Z)
@@ -691,7 +721,13 @@ struct Group {
         return EcPoint { bigint_from_limbs(from_montgomery(a.x, C::p)), bigint_from_limbs(from_montgomery(a.y, C::p)) };
     }
 
-    static std::vector<std::uint8_t> x_bytes(Entry const& a) { return bytes_from_limbs(from_montgomery(a.x, C::p)); }
+    // The x coordinate in the field's own width (66 bytes for P-521).
+    static std::vector<std::uint8_t> x_bytes(Entry const& a)
+    {
+        std::vector<std::uint8_t> bytes = bytes_from_limbs(from_montgomery(a.x, C::p));
+        bytes.erase(bytes.begin(), bytes.begin() + static_cast<std::ptrdiff_t>(8 * N - C::field_bytes));
+        return bytes;
+    }
 
     static std::optional<EcPoint> to_point(Point const& q)
     {
@@ -745,15 +781,70 @@ struct Group {
         return mul(to_montgomery(r_plus_n, C::p), z2) == sum.x;
     }
 
+    // SEC 1 §4.1.3 steps 1 to 6: r = (k·G).x mod n and s = k⁻¹(e + r·d) mod n
+    // for a secret d and a fresh secret k, both in [1, n − 1]; nullopt when r
+    // or s comes out zero, and the caller draws another k. Scalar
+    // arithmetic is in the order's Montgomery form, inverse by Fermat.
+    static std::optional<std::pair<Fe, Fe>> sign(Fe const& d, Fe const& k, BigInt const& e)
+    {
+        std::optional<Entry> const point = to_affine(base_multiply_ct(k));
+        if (!point)
+            return std::nullopt;
+        // x < p < 2n, so one subtraction reduces it.
+        Fe const r = reduce_once(from_montgomery(point->x, C::p), 0, C::n.m);
+        if (zero_mask(r))
+            return std::nullopt;
+        Fe const e_reduced = reduce_once(limbs_from_bigint<N>(e), 0, C::n.m);
+        Fe const k_inverse = fe_invert(to_montgomery(k, C::n), C::n);
+        Fe const rd = fe_mul(to_montgomery(r, C::n), to_montgomery(d, C::n), C::n);
+        Fe const sum = fe_add(to_montgomery(e_reduced, C::n), rd, C::n.m);
+        Fe const s = from_montgomery(fe_mul(k_inverse, sum, C::n), C::n);
+        if (zero_mask(s))
+            return std::nullopt;
+        return std::pair { r, s };
+    }
+
+    // The y of a compressed point (SEC 1 §2.3.4): both fields have p ≡ 3
+    // (mod 4), so a square root is the power (p + 1)/4; nullopt when x³ − 3x
+    // + b has none, which means x is no point's.
+    static std::optional<BigInt> y_for(BigInt const& x, bool odd)
+    {
+        Fe const xm = to_field(x);
+        Fe const rhs = add(sub(mul(sqr(xm), xm), add(add(xm, xm), xm)), C::b);
+        BigInt const exponent = bigint_from_limbs(C::p.m).add(BigInt::from_u64(1)).shift_right(2);
+        Fe const root = fe_pow(rhs, limbs_from_bigint<N>(exponent), C::p);
+        if (sqr(root) != rhs)
+            return std::nullopt;
+        BigInt y = from_field(root);
+        if (y.is_odd() != odd)
+            y = bigint_from_limbs(C::p.m).sub(y).mod(bigint_from_limbs(C::p.m));
+        return y;
+    }
+
     // A secret scalar in [1, n − 1] from the 8·N bytes a key exchange drew:
     // a value below 2^(64N) < 2n reduces with one masked subtraction, and
     // the only branch is on the zero it leaves with negligible probability,
     // which abandons the exchange anyway.
+    // P-521's field is 66 bytes, not 8·N: its scalar is masked to the order's
+    // 521 bits and refused at or above the order (the caller draws again,
+    // which a uniform 521-bit draw needs about once in 2^260).
     static std::optional<Fe> secret_scalar(std::span<std::uint8_t const> bytes)
     {
-        if (bytes.size() != 8 * N)
+        if (bytes.size() != 8 * N && bytes.size() != C::field_bytes)
             return std::nullopt;
-        Fe const k = reduce_once(limbs_from_bytes<N>(bytes), 0, C::n.m);
+        std::array<std::uint8_t, 8 * N> padded {};
+        std::copy(bytes.begin(), bytes.end(), padded.begin() + static_cast<std::ptrdiff_t>(8 * N - bytes.size()));
+        Fe k = limbs_from_bytes<N>(padded);
+        if constexpr (order_fills_limbs<C>()) {
+            k = reduce_once(k, 0, C::n.m);
+        } else {
+            std::size_t const order_bits = 64 * (N - 1) + static_cast<std::size_t>(std::bit_width(C::n.m[N - 1]));
+            k[N - 1] &= (u64 { 1 } << (order_bits - 64 * (N - 1))) - 1;
+            for (std::size_t i = order_bits / 64 + 1; i < N; ++i)
+                k[i] = 0;
+            if (reduce_once(k, 0, C::n.m) != k)
+                return std::nullopt;
+        }
         if (zero_mask(k))
             return std::nullopt;
         return k;
@@ -765,7 +856,9 @@ auto with_group(CurveId id, F&& f)
 {
     if (id == CurveId::P256)
         return f(Group<P256> {});
-    return f(Group<P384> {});
+    if (id == CurveId::P384)
+        return f(Group<P384> {});
+    return f(Group<P521> {});
 }
 
 // ---------------------------------------------------------------------------
@@ -856,7 +949,23 @@ Curve const& curve(CurveId id)
 {
     static Curve const p256 = make_curve(CurveId::P256, 32, p256_p, p256_b, p256_n, p256_gx, p256_gy);
     static Curve const p384 = make_curve(CurveId::P384, 48, p384_p, p384_b, p384_n, p384_gx, p384_gy);
-    return id == CurveId::P256 ? p256 : p384;
+    static Curve const p521 = make_curve(CurveId::P521, 66, p521_p, p521_b, p521_n, p521_gx, p521_gy);
+    return id == CurveId::P256 ? p256 : id == CurveId::P384 ? p384 : p521;
+}
+
+std::optional<EcPoint> ec_decode_point_any(CurveId id, std::span<std::uint8_t const> encoded)
+{
+    Curve const& c = curve(id);
+    if (encoded.size() == 1 + c.field_bytes && (encoded[0] == 0x02 || encoded[0] == 0x03)) {
+        std::optional<BigInt> const x = BigInt::from_bytes(encoded.subspan(1));
+        if (!x || x->compare(c.p) >= 0)
+            return std::nullopt;
+        std::optional<BigInt> const y = with_group(id, [&](auto group) { return decltype(group)::y_for(*x, encoded[0] == 0x03); });
+        if (!y)
+            return std::nullopt;
+        return EcPoint { *x, *y };
+    }
+    return ec_decode_point(id, encoded);
 }
 
 std::optional<EcPoint> ec_decode_point(CurveId id, std::span<std::uint8_t const> encoded)
@@ -892,6 +1001,46 @@ bool ecdsa_verify(CurveId id, EcPoint const& public_key, std::span<std::uint8_t 
     if (digest_bits > order_bits)
         e = e->shift_right(digest_bits - order_bits);
     return with_group(id, [&](auto group) { return decltype(group)::verify(public_key, *e, r, s); });
+}
+
+bool ec_private_scalar_valid(CurveId id, std::span<std::uint8_t const> scalar)
+{
+    Curve const& c = curve(id);
+    if (scalar.size() != c.field_bytes)
+        return false;
+    std::optional<BigInt> const d = BigInt::from_bytes(scalar);
+    return d && !d->is_zero() && d->compare(c.n) < 0;
+}
+
+std::optional<std::pair<BigInt, BigInt>> ecdsa_sign(CurveId id, std::span<std::uint8_t const> scalar, std::span<std::uint8_t const> digest, RandomFill random)
+{
+    if (!ec_private_scalar_valid(id, scalar))
+        return std::nullopt;
+    Curve const& c = curve(id);
+    std::optional<BigInt> e = BigInt::from_bytes(digest);
+    if (!e)
+        return std::nullopt;
+    std::size_t const order_bits = c.n.bit_length();
+    std::size_t const digest_bits = digest.size() * 8;
+    if (digest_bits > order_bits)
+        e = e->shift_right(digest_bits - order_bits);
+    return with_group(id, [&](auto group) -> std::optional<std::pair<BigInt, BigInt>> {
+        using G = decltype(group);
+        std::optional<typename G::Fe> const d = G::secret_scalar(scalar);
+        if (!d)
+            return std::nullopt;
+        for (int attempt = 0; attempt < 64; ++attempt) {
+            std::vector<std::uint8_t> nonce(c.field_bytes);
+            random(nonce);
+            std::optional<typename G::Fe> const k = G::secret_scalar(nonce);
+            if (!k)
+                continue;
+            std::optional<std::pair<typename G::Fe, typename G::Fe>> const rs = G::sign(*d, *k, *e);
+            if (rs)
+                return std::pair { bigint_from_limbs(rs->first), bigint_from_limbs(rs->second) };
+        }
+        return std::nullopt;
+    });
 }
 
 std::vector<std::uint8_t> ec_encode_point(CurveId id, EcPoint const& point)

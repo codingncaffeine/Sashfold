@@ -72,7 +72,7 @@ public:
 };
 
 // The hash named at runtime, for signature algorithms that carry one.
-enum class HashId : std::uint8_t { Sha256, Sha384, Sha512 };
+enum class HashId : std::uint8_t { Sha256, Sha384, Sha512, Sha1 };
 std::size_t digest_size(HashId id);
 std::vector<std::uint8_t> hash_with(HashId id, std::span<std::uint8_t const> data);
 
