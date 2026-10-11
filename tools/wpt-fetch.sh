@@ -29,7 +29,10 @@ mapfile -t dirs < <(cat "$root/tests/wpt/directories.txt" "$root/tests/wpt/harne
 # idlharness tests read to check that an engine exposes each interface, its
 # attributes and its methods with the shape the spec gives them: the
 # cheapest census there is of what an engine has not got.
-dirs+=(css/support css/reference fonts images common resources interfaces html/semantics/embedded-content/resources html/canvas/resources)
+# service-workers/service-worker/resources holds with_iframe(), which tests
+# outside service workers (BroadcastChannel's among them) borrow.
+dirs+=(css/support css/reference fonts images common resources interfaces html/semantics/embedded-content/resources html/canvas/resources
+  service-workers/service-worker/resources)
 
 if [ ! -d "$dest/.git" ]; then
   git clone --no-checkout --depth 1 --filter=blob:none "$remote" "$dest"

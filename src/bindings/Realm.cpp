@@ -1773,6 +1773,7 @@ constexpr InterfaceGroup interface_groups[] = {
     { "fetch", install_fetch, true },
     { "xhr", install_xhr, true },
     { "websockets", install_websockets, true },
+    { "broadcast_channel", install_broadcast_channel, true },
     { "tasks", install_tasks, false },
     { "origin", install_origin, true },
     { "trusted_types", install_trusted_types, true },
@@ -1797,7 +1798,7 @@ constexpr InterfaceGroup interface_groups[] = {
     { "streams", install_streams, false },
 };
 constexpr std::size_t group_count = std::size(interface_groups);
-constexpr std::size_t groups_of_a_worker = 13;
+constexpr std::size_t groups_of_a_worker = 14;
 
 // A group in a realm: installed (or never put off), waiting to be asked
 // for, or being installed now.
@@ -4322,6 +4323,7 @@ void Realm::trace_roots(js::Tracer& tracer)
     trace_intersection_observers(in, tracer);
     trace_resize_observers(in, tracer);
     trace_performance(in, tracer);
+    trace_broadcast_channels(in, tracer);
     trace_animations(in, tracer);
     trace_presenting_media(in, tracer);
     trace_canvases(in, tracer);

@@ -151,3 +151,5 @@ navigation-timing
 # Added 2026-10-11 with ResizeObserver: sizes measured after layout,
 # delivered shallowest first in the rendering update.
 resize-observer
+# Added 2026-10-11 with BroadcastChannel.
+webmessaging/broadcastchannel

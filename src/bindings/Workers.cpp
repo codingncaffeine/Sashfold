@@ -441,6 +441,11 @@ void WorkerRuntime::live()
     finish();
 }
 
+bool worker_closing(Realm::Internals const& in)
+{
+    return in.worker != nullptr && in.worker->over();
+}
+
 void worker_report_error(Realm::Internals& in, std::string const& message, std::string_view where)
 {
     if (in.worker != nullptr)
@@ -839,8 +844,9 @@ namespace {
 
 // The names the window's installers give a global object that a worker's
 // scope has too, as they are: the events, the timers, the encoders, fetch
-// and XMLHttpRequest, messaging between ports, URLs. Every other one is
-// taken out, and the scope's own members put in.
+// and XMLHttpRequest, messaging between ports and channels, URLs, sockets,
+// the performance timeline, Web Crypto. Every other one is taken out, and
+// the scope's own members put in.
 constexpr std::string_view shared_names[] = {
     "EventTarget", "Event", "CustomEvent", "ProgressEvent", "MessageEvent", "ErrorEvent",
     "origin", "isSecureContext",
@@ -855,6 +861,9 @@ constexpr std::string_view shared_names[] = {
     "ReadableByteStreamController", "ReadableStreamBYOBRequest", "WritableStream", "WritableStreamDefaultWriter",
     "WritableStreamDefaultController", "TransformStream", "TransformStreamDefaultController",
     "ByteLengthQueuingStrategy", "CountQueuingStrategy", "TextEncoderStream", "TextDecoderStream",
+    "WebSocket", "CloseEvent", "BroadcastChannel", "FileReader", "Crypto", "SubtleCrypto", "CryptoKey",
+    "PerformanceEntry", "PerformanceMark", "PerformanceMeasure", "PerformanceObserver", "PerformanceObserverEntryList",
+    "PerformanceResourceTiming",
 };
 
 // An accessor of one prototype given to another with its getter alone: what

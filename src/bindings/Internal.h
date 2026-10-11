@@ -1178,6 +1178,8 @@ struct Realm::Internals {
     } navigation_timing;
     // The performance timeline (Performance.cpp): the marks and measures a
     // page made, and the observers watching for entries.
+    // The BroadcastChannels this realm has open (BroadcastChannel.cpp).
+    std::vector<js::Object*> broadcast_channels;
     std::vector<js::Object*> performance_entries;
     std::vector<js::Object*> performance_observers;
     bool performance_delivery_pending = false;
@@ -1903,9 +1905,14 @@ void terminate_workers(Realm::Internals&);
 // Ends every WebSocket the realm's document opened, telling nobody: it unloads.
 void abort_websockets(Realm::Internals&);
 void install_websockets(Realm::Internals&); // WebSockets.cpp: WebSocket
+// BroadcastChannel.cpp: BroadcastChannel, and the open channels a collection keeps.
+void install_broadcast_channel(Realm::Internals&);
+void trace_broadcast_channels(Realm::Internals const&, js::Tracer&);
 // An exception nothing in a worker's scope dealt with, on its way to the
 // document that started the worker: called in the worker's realm.
 void worker_report_error(Realm::Internals&, std::string const& message, std::string_view where);
+// Whether a worker's realm has been closed (self.close(), or its end).
+bool worker_closing(Realm::Internals const&);
 
 // Messages (Tasks.cpp). Fires a MessageEvent carrying `data` at `target` — a
 // port, a window, a Worker, a worker's scope — with the ports the message
