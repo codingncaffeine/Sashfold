@@ -133,6 +133,12 @@ public:
     js::Object* same_object(std::string_view attribute) const;
     void keep_same_object(std::string_view attribute, js::Object*);
     void trace(js::Tracer&) override;
+    // A form element's named properties (HTML §4.10.3): its controls by id
+    // and name, over its prototype's members ([LegacyOverrideBuiltIns]) and
+    // not enumerated. Every other node's properties are its own.
+    std::optional<js::PropertyDescriptor> get_own_property(js::PropertyKey const&) const override;
+    std::optional<js::Value> get(js::Interpreter&, js::PropertyKey const&, js::Value const& receiver) override;
+    bool has_property(js::PropertyKey const&) const override;
 
     // What a custom element is (HTML §4.13): the definition whose
     // constructor has run over this element, null while it is an ordinary
@@ -1547,6 +1553,24 @@ std::optional<dom::Document*> this_document(js::Interpreter&, js::Value const& t
 
 // A NodeList (an Array with NodeList.prototype) of these nodes' wrappers.
 js::Value node_list(Realm::Internals&, std::vector<dom::Node*> const& nodes);
+// Live collections (Collections.cpp, DOM §4.2.10): a NodeList or HTMLCollection
+// (`interface` names its prototype) whose members `collect` finds under its
+// root, found again when the tree — or, with `attributes`, any attribute —
+// changed since. `naming` is what its names answer: nothing (a NodeList),
+// the first element of an id or name, a form's controls' RadioNodeList of
+// the several that share one, or document.all's collection of them (by name
+// only the elements HTML §2.7.2.1 lists). The same_ form is a [SameObject] attribute's,
+// kept on the root's wrapper under `key`.
+enum class Naming : std::uint8_t { None, Elements, Controls, All };
+using CollectMembers = std::function<void(Realm::Internals&, dom::Node& root, std::vector<dom::Node*>& out)>;
+js::Value live_collection(Realm::Internals&, dom::Node& root, std::string_view interface, CollectMembers, bool attributes, Naming);
+js::Value same_live_collection(Realm::Internals&, dom::Node& root, std::string_view key, std::string_view interface, CollectMembers,
+    bool attributes, Naming);
+// A NodeList's or HTMLCollection's length and item(i) (null past the end),
+// live or not; nothing for any other value. namedItem() of a live one.
+std::optional<std::size_t> collection_length(js::Value const&);
+js::Value collection_item(js::Value const&, std::size_t index);
+std::optional<js::Value> collection_named_item(js::Value const&, std::string_view name);
 
 // Generated from idl/ by tools/gen-bindings.cpp (generated/*.gen.cpp): the
 // interfaces with their tags, and their reflected attributes.
@@ -1765,7 +1789,11 @@ dom::Element* form_owner_of(Realm::Internals&, dom::Element&);
 // new ValidityState reading its flags.
 bool will_validate_element(dom::Element const&);
 bool check_validity_of(Realm::Internals&, dom::Element&);
-std::vector<dom::Node*> labels_of(Realm::Internals&, dom::Element&);
+js::Value labels_of(Realm::Internals&, dom::Element&);
+// What a form's named property `name` is (HTML §4.10.3): the one control of
+// that id or name, a RadioNodeList of several, else such an img; undefined
+// for none.
+js::Value form_named_item(Realm::Internals&, dom::Element& form, std::string_view name);
 js::Object* new_validity_state(Realm::Internals&, NodeWrapper&);
 // A media element's src attribute was set, changed or removed: it loads again.
 void media_src_changed(Realm::Internals&, dom::Element&);

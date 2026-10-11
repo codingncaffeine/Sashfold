@@ -562,7 +562,7 @@ void install_internals_interface(Realm::Internals& in)
         if (!element)
             return std::nullopt;
         Realm::Internals& internals = internals_of(interp);
-        return node_list(internals, labels_of(internals, **element));
+        return labels_of(internals, **element);
     });
     define_getter(in, *proto, "states", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         ElementInternalsObject* const self = internals_this(this_value);
@@ -664,6 +664,8 @@ void install_element_internals(Realm::Internals& in)
 void form_associated_became(Realm::Internals& in, dom::Element& element)
 {
     element.document().form_associated_custom.insert(&element);
+    // The live collections of listed elements take it in.
+    element.document().note_tree_change();
     in.form_associated.try_emplace(&element);
     element.mark_style_self(); // :disabled and :enabled now apply
     check_one_element(in, element);

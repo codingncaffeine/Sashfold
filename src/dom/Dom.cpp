@@ -119,6 +119,13 @@ void slots_after_removal(Node& parent, Node& node, Element* slot)
 
 }
 
+std::vector<Attr>& Element::attributes()
+{
+    mark_style_self();
+    document().note_attribute_change();
+    return m_attributes;
+}
+
 void Node::append_child(Node& child)
 {
     insert_before(child, nullptr);
@@ -298,6 +305,7 @@ bool Document::holds(Element const* held, Element const& element)
 void Node::insert_before(Node& child, Node* reference)
 {
     child.remove();
+    m_document->note_tree_change();
     child.m_parent = this;
     child.mark_style_subtree();
     mark_style_children();
@@ -326,6 +334,7 @@ void Node::remove()
 {
     if (!m_parent)
         return;
+    m_document->note_tree_change();
     auto& siblings = m_parent->m_children;
     // The removing steps for live ranges (DOM §4.2.3 "remove"): a boundary
     // inside this node moves to where the node stood, one past it moves back.

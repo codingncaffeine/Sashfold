@@ -5143,6 +5143,39 @@ void test_intersection_observer()
 // checked here is the whole of what one needs — the element already in the
 // markup becoming an instance, the callbacks as it arrives, changes and
 // leaves, and the ways a page can get it wrong.
+// Live collections: what a script keeps of the tree follows it — the
+// scripts the parser has added since, a class changed, a child removed —
+// and a form answers for its controls by name.
+void test_live_collections()
+{
+    auto page = loaded("<!DOCTYPE html><body><script>var scripts = document.getElementsByTagName('script'); var first = scripts.length;</script>"
+                       "<script>var second = scripts.length;</script>"
+                       "<div id=box><p class=a>1</p><p class=b>2</p></div>"
+                       "<form id=f><input name=q value=typed><input type=radio name=r value=x><input type=radio name=r value=y checked>"
+                       "<label>Q <input id=inner></label></form></body>");
+    CHECK_EQ(page->string("first + ' ' + second + ' ' + scripts.length"), "1 2 2");
+    CHECK(page->boolean("box.childNodes === box.childNodes && box.children === box.children && document.forms === document.forms"));
+    page->eval(R"JS(
+        var kids = box.childNodes, items = box.getElementsByClassName('a'), forms = document.forms;
+        var before = kids.length + ' ' + items.length + ' ' + forms.length;
+        box.lastChild.className = 'a';
+        box.appendChild(document.createElement('p'));
+        document.body.appendChild(document.createElement('form'));
+    )JS");
+    CHECK_EQ(page->string("before + ' / ' + kids.length + ' ' + items.length + ' ' + forms.length"), "2 1 1 / 3 2 2");
+    page->eval("while (box.firstChild) box.removeChild(box.firstChild);");
+    CHECK_EQ(page->string("kids.length + ' ' + items.length + ' ' + box.children.length + ' ' + kids.item(0)"), "0 0 0 null");
+    CHECK(page->boolean("f.q === f.elements.q && f.q.value === 'typed' && f.elements.namedItem('q') === f.q"));
+    CHECK(page->boolean("f.r instanceof RadioNodeList && f.r.length === 2 && f.r.value === 'y'"));
+    CHECK(page->boolean("typeof f.submit === 'function' && f.elements.length === 4 && f.length === 4"));
+    page->eval("var named = document.createElement('input'); named.name = 'submit'; f.appendChild(named);");
+    CHECK(page->boolean("f.submit === named && f.elements.length === 5"));
+    CHECK(page->boolean("inner.labels.length === 1 && inner.labels === inner.labels"));
+    page->eval("var labels = inner.labels; inner.parentNode.insertBefore(document.createElement('input'), inner);");
+    CHECK_EQ(page->number("labels.length"), 0);
+    CHECK(page->boolean("Array.prototype.map.call(document.getElementsByTagName('input'), function (e) { return e.name; }).length === 6"));
+}
+
 void test_custom_elements()
 {
     auto page = loaded(R"HTML(<!DOCTYPE html><body><my-card title=first>light</my-card><div id=host></div></body>)HTML");
@@ -6250,6 +6283,7 @@ int main()
     test_mutation_observer();
     test_intersection_observer();
     test_custom_elements();
+    test_live_collections();
     test_reflected_attributes();
     test_media_source_and_the_media_element();
     test_media_element_extras();

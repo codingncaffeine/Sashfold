@@ -328,21 +328,23 @@ std::string document_title_text(dom::Document& document)
     return "";
 }
 
-// A collection of the elements a predicate picks, in tree order.
+// The document's live collection of the elements a predicate picks, in tree
+// order: the same object each time, kept under `key`. `attributes` when the
+// predicate reads them.
 template<typename Predicate>
-Native collection_of(Realm::Internals& in, dom::Node& root, Predicate predicate)
+Native collection_of(Realm::Internals& in, dom::Node& root, std::string_view key, bool attributes, Predicate predicate)
 {
-    std::vector<dom::Node*> descendants;
-    collect_descendants(root, descendants);
-    std::vector<dom::Node*> found;
-    for (dom::Node* node : descendants) {
-        if (node->is_element() && predicate(static_cast<dom::Element&>(*node)))
-            found.push_back(node);
-    }
-    js::Interpreter::Roots const roots(in.interpreter);
-    js::Value const list = in.interpreter.root(node_list(in, found));
-    list.as_object()->set_prototype(in.prototype("HTMLCollection"));
-    return list;
+    return same_live_collection(
+        in, root, key, "HTMLCollection",
+        [predicate](Realm::Internals&, dom::Node& from, std::vector<dom::Node*>& out) {
+            std::vector<dom::Node*> descendants;
+            collect_descendants(from, descendants);
+            for (dom::Node* node : descendants) {
+                if (node->is_element() && predicate(static_cast<dom::Element&>(*node)))
+                    out.push_back(node);
+            }
+        },
+        attributes, Naming::Elements);
 }
 
 // A document a script asked for, owned by the realm.
@@ -777,32 +779,42 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
 
     // The element collections.
     document_getter(in, *document, "forms", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        return collection_of(internals, d, [](dom::Element& e) { return e.is_html("form"); });
+        return collection_of(internals, d, "forms", false, [](dom::Element& e) { return e.is_html("form"); });
     });
     document_getter(in, *document, "images", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        return collection_of(internals, d, [](dom::Element& e) { return e.is_html("img"); });
+        return collection_of(internals, d, "images", false, [](dom::Element& e) { return e.is_html("img"); });
     });
     document_getter(in, *document, "links", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        return collection_of(internals, d, [](dom::Element& e) { return (e.is_html("a") || e.is_html("area")) && e.has_attribute("href"); });
+        return collection_of(internals, d, "links", true, [](dom::Element& e) { return (e.is_html("a") || e.is_html("area")) && e.has_attribute("href"); });
     });
     document_getter(in, *document, "anchors", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        return collection_of(internals, d, [](dom::Element& e) { return e.is_html("a") && e.has_attribute("name"); });
+        return collection_of(internals, d, "anchors", true, [](dom::Element& e) { return e.is_html("a") && e.has_attribute("name"); });
     });
     document_getter(in, *document, "scripts", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        return collection_of(internals, d, [](dom::Element& e) { return e.is_html("script"); });
+        return collection_of(internals, d, "scripts", false, [](dom::Element& e) { return e.is_html("script"); });
     });
     document_getter(in, *document, "embeds", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        return collection_of(internals, d, [](dom::Element& e) { return e.is_html("embed"); });
+        return collection_of(internals, d, "embeds", false, [](dom::Element& e) { return e.is_html("embed"); });
     });
     document_getter(in, *document, "plugins", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        return collection_of(internals, d, [](dom::Element& e) { return e.is_html("embed"); });
+        return collection_of(internals, d, "embeds", false, [](dom::Element& e) { return e.is_html("embed"); });
     });
     document_getter(in, *document, "all", [](Realm::Internals& internals, dom::Document& d) -> Native {
         // The all exotic object (HTML §3.1.2): every element, rooted at the
         // document, wearing [[IsHTMLDDA]] so a script's `x !== document.all`
         // — a common "is this really absent" guard — still lets a genuine
         // undefined through instead of falling into whatever `x` was not.
-        Native collection = collection_of(internals, d, [](dom::Element&) { return true; });
+        Native collection = same_live_collection(
+            internals, d, "all", "HTMLCollection",
+            [](Realm::Internals&, dom::Node& root, std::vector<dom::Node*>& out) {
+                std::vector<dom::Node*> descendants;
+                collect_descendants(root, descendants);
+                for (dom::Node* node : descendants) {
+                    if (node->is_element())
+                        out.push_back(node);
+                }
+            },
+            true, Naming::All);
         if (collection)
             collection->as_object()->set_html_dda();
         return collection;
@@ -968,15 +980,20 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)
             return std::nullopt;
-        std::vector<dom::Node*> descendants;
-        collect_descendants(d, descendants);
-        std::vector<dom::Node*> found;
-        for (dom::Node* node : descendants) {
-            if (node->is_element() && attribute_or_empty(static_cast<dom::Element&>(*node), "name") == *name
-                && static_cast<dom::Element&>(*node).has_attribute("name"))
-                found.push_back(node);
-        }
-        return node_list(internals, found);
+        return live_collection(
+            internals, d, "NodeList",
+            [name = *name](Realm::Internals&, dom::Node& root, std::vector<dom::Node*>& out) {
+                std::vector<dom::Node*> descendants;
+                collect_descendants(root, descendants);
+                for (dom::Node* node : descendants) {
+                    if (!node->is_element() || !static_cast<dom::Element&>(*node).is_html())
+                        continue;
+                    dom::Attr const* const attribute = static_cast<dom::Element&>(*node).find_attribute("name");
+                    if (attribute != nullptr && attribute->value == name)
+                        out.push_back(node);
+                }
+            },
+            true, Naming::None);
     });
     // elementFromPoint and elementsFromPoint (CSSOM View §5): the element
     // the host finds uppermost at a viewport point, null outside the

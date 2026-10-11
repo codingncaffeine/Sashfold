@@ -233,32 +233,31 @@ dom::Element* labeled_control(Realm::Internals&, dom::Element& label)
     return nullptr;
 }
 
-// The label elements whose labeled control an element is, in tree order.
-std::vector<dom::Node*> labels_for(Realm::Internals& internals, dom::Element& e)
+// The label elements whose labeled control an element is, in its tree, in
+// tree order.
+void collect_labels(Realm::Internals& internals, dom::Node& control, std::vector<dom::Node*>& out)
 {
-    std::vector<dom::Node*> labels;
-    if (!is_labelable(e))
-        return labels;
     std::vector<dom::Node*> descendants;
-    collect_descendants(*internals.document, descendants);
-    std::string const id = attribute_or_empty(e, "id");
+    collect_descendants(control.root(), descendants);
     for (dom::Node* node : descendants) {
-        if (!node->is_element() || !static_cast<dom::Element*>(node)->is_html("label"))
-            continue;
-        auto& label = static_cast<dom::Element&>(*node);
-        if (!id.empty() && attribute_or_empty(label, "for") == id)
-            labels.push_back(node);
-        else if (!label.has_attribute("for") && is_inclusive_ancestor(label, e) && &label != &e)
-            labels.push_back(node);
+        if (node->is_element() && static_cast<dom::Element*>(node)->is_html("label")
+            && labeled_control(internals, static_cast<dom::Element&>(*node)) == &control)
+            out.push_back(node);
     }
-    return labels;
+}
+
+// labels: live, the same NodeList each time; null for an element no label
+// can be for (a hidden input).
+js::Value labels_for(Realm::Internals& internals, dom::Element& e)
+{
+    if (!is_labelable(e))
+        return js::Value::null();
+    return same_live_collection(internals, e, "labels", "NodeList", collect_labels, true, Naming::None);
 }
 
 void install_labels(Realm::Internals& in, js::Object& proto)
 {
-    element_getter(in, proto, "labels", [](Realm::Internals& internals, dom::Element& e) -> Native {
-        return node_list(internals, labels_for(internals, e));
-    });
+    element_getter(in, proto, "labels", [](Realm::Internals& internals, dom::Element& e) -> Native { return labels_for(internals, e); });
 }
 
 // form, validity and the validation methods every control carries.
@@ -390,24 +389,26 @@ bool is_listed(dom::Element const& element)
 std::vector<dom::Node*> form_controls(Realm::Internals& in, dom::Element& form)
 {
     std::vector<dom::Node*> descendants;
-    collect_descendants(*in.document, descendants);
+    collect_descendants(form.root(), descendants);
     std::vector<dom::Node*> controls;
-    std::string const form_id = attribute_or_empty(form, "id");
     for (dom::Node* node : descendants) {
         if (!node->is_element())
             continue;
         auto& element = static_cast<dom::Element&>(*node);
-        if (!is_listed(element))
-            continue;
-        bool owned = false;
-        if (dom::Attr const* owner = element.find_attribute("form"))
-            owned = !form_id.empty() && owner->value == form_id;
-        else
-            owned = is_inclusive_ancestor(form, element) && &element != &form;
-        if (owned)
+        if (is_listed(element) && form_owner_of(in, element) == &form)
             controls.push_back(node);
     }
     return controls;
+}
+
+// A form's elements (§4.10.3): its controls without the image buttons.
+void form_elements(Realm::Internals& in, dom::Node& form, std::vector<dom::Node*>& out)
+{
+    for (dom::Node* node : form_controls(in, static_cast<dom::Element&>(form))) {
+        auto const& element = static_cast<dom::Element const&>(*node);
+        if (!(element.is_html("input") && dom::forms::input_type(element) == "image"))
+            out.push_back(node);
+    }
 }
 
 // --- Constraint validation (§4.10.20) ----------------------------------------------------
@@ -493,9 +494,43 @@ bool check_validity_of(Realm::Internals& in, dom::Element& element)
     return check_one(in, element);
 }
 
-std::vector<dom::Node*> labels_of(Realm::Internals& in, dom::Element& element)
+js::Value labels_of(Realm::Internals& in, dom::Element& element)
 {
     return labels_for(in, element);
+}
+
+js::Value form_named_item(Realm::Internals& in, dom::Element& form, std::string_view name)
+{
+    if (name.empty())
+        return js::Value::undefined();
+    auto const named = [&](dom::Element const& element) {
+        dom::Attr const* const id = element.find_attribute("id");
+        dom::Attr const* const own = element.find_attribute("name");
+        return (id != nullptr && id->value == name) || (own != nullptr && own->value == name);
+    };
+    std::vector<dom::Node*> found;
+    std::vector<dom::Node*> controls;
+    form_elements(in, form, controls);
+    for (dom::Node* node : controls) {
+        if (named(static_cast<dom::Element const&>(*node)))
+            found.push_back(node);
+    }
+    if (found.empty()) {
+        std::vector<dom::Node*> descendants;
+        collect_descendants(form, descendants);
+        for (dom::Node* node : descendants) {
+            if (node->is_element() && static_cast<dom::Element*>(node)->is_html("img") && named(static_cast<dom::Element const&>(*node)))
+                found.push_back(node);
+        }
+    }
+    if (found.empty())
+        return js::Value::undefined();
+    if (found.size() == 1)
+        return js::Value::object(in.wrap(*found.front()));
+    js::Interpreter::Roots const roots(in.interpreter);
+    js::Value const list = in.interpreter.root(node_list(in, found));
+    list.as_object()->set_prototype(in.prototype("RadioNodeList"));
+    return list;
 }
 
 js::Object* new_validity_state(Realm::Internals& in, NodeWrapper& wrapper)
@@ -1140,13 +1175,12 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 return js::Value::undefined();
             });
         element_getter(in, proto, "elements", [](Realm::Internals& internals, dom::Element& e) -> Native {
-            js::Interpreter::Roots const roots(internals.interpreter);
-            js::Value const list = internals.interpreter.root(node_list(internals, form_controls(internals, e)));
-            list.as_object()->set_prototype(internals.prototype("HTMLCollection"));
-            return list;
+            return same_live_collection(internals, e, "elements", "HTMLFormControlsCollection", form_elements, true, Naming::Controls);
         });
         element_getter(in, proto, "length", [](Realm::Internals& internals, dom::Element& e) -> Native {
-            return js::Value::number(static_cast<double>(form_controls(internals, e).size()));
+            std::vector<dom::Node*> elements;
+            form_elements(internals, e, elements);
+            return js::Value::number(static_cast<double>(elements.size()));
         });
         element_method(in, proto, "submit", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
             if (internals.hooks.submit_form)
@@ -1214,17 +1248,17 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         install_form_control_common(in, proto_of("HTMLFieldSetElement"), false);
         element_getter(in, proto_of("HTMLFieldSetElement"), "type", [](Realm::Internals& internals, dom::Element&) -> Native { return internals.string("fieldset"); });
         element_getter(in, proto_of("HTMLFieldSetElement"), "elements", [](Realm::Internals& internals, dom::Element& e) -> Native {
-            std::vector<dom::Node*> descendants;
-            collect_descendants(e, descendants);
-            std::vector<dom::Node*> controls;
-            for (dom::Node* node : descendants) {
-                if (!node->is_element())
-                    continue;
-                auto& element = static_cast<dom::Element&>(*node);
-                if (is_listed(element))
-                    controls.push_back(node);
-            }
-            return node_list(internals, controls);
+            return same_live_collection(
+                internals, e, "elements", "HTMLCollection",
+                [](Realm::Internals&, dom::Node& root, std::vector<dom::Node*>& out) {
+                    std::vector<dom::Node*> descendants;
+                    collect_descendants(root, descendants);
+                    for (dom::Node* node : descendants) {
+                        if (node->is_element() && is_listed(static_cast<dom::Element&>(*node)))
+                            out.push_back(node);
+                    }
+                },
+                false, Naming::Elements);
         });
         install_form_control_common(in, proto_of("HTMLOutputElement"));
         install_value_accessor(in, proto_of("HTMLOutputElement"));

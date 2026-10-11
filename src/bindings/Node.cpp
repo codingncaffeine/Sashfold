@@ -7,6 +7,7 @@
 
 #include "core/Unicode.h"
 #include "css/Parser.h"
+#include "dom/Forms.h"
 #include "html/Serializer.h"
 #include "html/TreeBuilder.h"
 
@@ -1020,9 +1021,15 @@ void install_node(Realm::Internals& in, js::Object& node)
         dom::Node* parent = n.parent();
         return internals.realm.wrap_or_null(parent && parent->is_element() ? parent : nullptr);
     });
+    // childNodes and children are live, and the same object each time.
     node_getter(in, node, "childNodes", [](Realm::Internals& internals, dom::Node& n) -> Native {
-        dom::Node& container = n.is_element() ? content_container(static_cast<dom::Element&>(n)) : n;
-        return node_list(internals, container.children());
+        return same_live_collection(
+            internals, n, "childNodes", "NodeList",
+            [](Realm::Internals&, dom::Node& root, std::vector<dom::Node*>& out) {
+                dom::Node& container = root.is_element() ? content_container(static_cast<dom::Element&>(root)) : root;
+                out = container.children();
+            },
+            false, Naming::None);
     });
     node_getter(in, node, "firstChild", [](Realm::Internals& internals, dom::Node& n) -> Native {
         return internals.realm.wrap_or_null(n.children().empty() ? nullptr : n.children().front());
@@ -1185,11 +1192,13 @@ void install_node(Realm::Internals& in, js::Object& node)
 void install_parent_node(Realm::Internals& in, js::Object& proto, bool with_collections_by_name)
 {
     node_getter(in, proto, "children", [](Realm::Internals& internals, dom::Node& n) -> Native {
-        dom::Node& container = n.is_element() ? content_container(static_cast<dom::Element&>(n)) : n;
-        js::Interpreter::Roots const roots(internals.interpreter);
-        js::Value const list = internals.interpreter.root(node_list(internals, element_children(container)));
-        list.as_object()->set_prototype(internals.prototype("HTMLCollection"));
-        return list;
+        return same_live_collection(
+            internals, n, "children", "HTMLCollection",
+            [](Realm::Internals&, dom::Node& root, std::vector<dom::Node*>& out) {
+                dom::Node& container = root.is_element() ? content_container(static_cast<dom::Element&>(root)) : root;
+                out = element_children(container);
+            },
+            false, Naming::Elements);
     });
     node_getter(in, proto, "childElementCount", [](Realm::Internals&, dom::Node& n) -> Native {
         return js::Value::number(static_cast<double>(element_children(n).size()));
@@ -1246,67 +1255,77 @@ void install_parent_node(Realm::Internals& in, js::Object& proto, bool with_coll
     });
     if (!with_collections_by_name)
         return;
+    // The live element collections (DOM §4.2.6): the descendants an element
+    // or a document holds of a qualified name, of a namespace and local
+    // name, or with every one of a set of classes.
     node_method(in, proto, "getElementsByTagName", 1, [](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
         std::optional<std::string> const name = string_argument(internals, args, 0);
         if (!name)
             return std::nullopt;
-        std::string const lower = ascii_lower(*name);
-        std::vector<dom::Node*> descendants;
-        collect_descendants(n, descendants);
-        std::vector<dom::Node*> found;
-        for (dom::Node* d : descendants) {
-            if (!d->is_element())
-                continue;
-            auto& element = static_cast<dom::Element&>(*d);
-            if (*name == "*" || (element.is_html() ? element.local_name() == lower : element.local_name() == *name))
-                found.push_back(d);
-        }
-        js::Interpreter::Roots const roots(internals.interpreter);
-        js::Value const list = internals.interpreter.root(node_list(internals, found));
-        list.as_object()->set_prototype(internals.prototype("HTMLCollection"));
-        return list;
+        return live_collection(
+            internals, n, "HTMLCollection",
+            [name = *name, lower = ascii_lower(*name)](Realm::Internals&, dom::Node& root, std::vector<dom::Node*>& out) {
+                std::vector<dom::Node*> descendants;
+                collect_descendants(root, descendants);
+                for (dom::Node* d : descendants) {
+                    if (!d->is_element())
+                        continue;
+                    auto const& element = static_cast<dom::Element const&>(*d);
+                    if (name == "*" || (element.is_html() ? element.local_name() == lower : element.local_name() == name))
+                        out.push_back(d);
+                }
+            },
+            false, Naming::Elements);
     });
     node_method(in, proto, "getElementsByTagNameNS", 2, [](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
+        js::Value const given = js::argument(args, 0);
+        std::optional<std::string> const space = given.is_nullish() ? std::optional<std::string>("") : internals.to_utf8(given);
+        if (!space)
+            return std::nullopt;
         std::optional<std::string> const name = string_argument(internals, args, 1);
         if (!name)
             return std::nullopt;
-        std::vector<dom::Node*> descendants;
-        collect_descendants(n, descendants);
-        std::vector<dom::Node*> found;
-        for (dom::Node* d : descendants) {
-            if (d->is_element() && (*name == "*" || static_cast<dom::Element&>(*d).local_name() == *name))
-                found.push_back(d);
-        }
-        return node_list(internals, found);
+        return live_collection(
+            internals, n, "HTMLCollection",
+            [space = *space, name = *name](Realm::Internals&, dom::Node& root, std::vector<dom::Node*>& out) {
+                std::vector<dom::Node*> descendants;
+                collect_descendants(root, descendants);
+                for (dom::Node* d : descendants) {
+                    if (!d->is_element())
+                        continue;
+                    auto const& element = static_cast<dom::Element const&>(*d);
+                    if ((space == "*" || element.namespace_uri() == space) && (name == "*" || element.local_name() == name))
+                        out.push_back(d);
+                }
+            },
+            false, Naming::Elements);
     });
     node_method(in, proto, "getElementsByClassName", 1, [](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
         std::optional<std::string> const names = string_argument(internals, args, 0);
         if (!names)
             return std::nullopt;
-        std::vector<std::string> const wanted = split_tokens(*names);
-        std::vector<dom::Node*> descendants;
-        collect_descendants(n, descendants);
-        std::vector<dom::Node*> found;
-        if (!wanted.empty()) {
-            for (dom::Node* d : descendants) {
-                if (!d->is_element())
-                    continue;
-                std::vector<std::string> const classes = split_tokens(attribute_or_empty(static_cast<dom::Element&>(*d), "class"));
-                bool all = true;
-                for (std::string const& w : wanted) {
-                    if (std::find(classes.begin(), classes.end(), w) == classes.end()) {
-                        all = false;
-                        break;
-                    }
+        return live_collection(
+            internals, n, "HTMLCollection",
+            [wanted = split_tokens(*names)](Realm::Internals&, dom::Node& root, std::vector<dom::Node*>& out) {
+                if (wanted.empty())
+                    return;
+                std::vector<dom::Node*> descendants;
+                collect_descendants(root, descendants);
+                for (dom::Node* d : descendants) {
+                    if (!d->is_element())
+                        continue;
+                    dom::Attr const* const attribute = static_cast<dom::Element&>(*d).find_attribute("class");
+                    if (attribute == nullptr)
+                        continue;
+                    std::vector<std::string> const classes = split_tokens(attribute->value);
+                    bool const all = std::all_of(wanted.begin(), wanted.end(), [&](std::string const& w) {
+                        return std::find(classes.begin(), classes.end(), w) != classes.end();
+                    });
+                    if (all)
+                        out.push_back(d);
                 }
-                if (all)
-                    found.push_back(d);
-            }
-        }
-        js::Interpreter::Roots const roots(internals.interpreter);
-        js::Value const list = internals.interpreter.root(node_list(internals, found));
-        list.as_object()->set_prototype(internals.prototype("HTMLCollection"));
-        return list;
+            },
+            true, Naming::Elements);
     });
 }
 
@@ -2034,30 +2053,77 @@ void install_nodes(Realm::Internals& in)
     js::Object* node_list_proto = define_interface(in, "NodeList", interpreter.intrinsics().array_prototype);
     js::Object* collection_proto = define_interface(in, "HTMLCollection", interpreter.intrinsics().array_prototype);
     js::Object* named_node_map = define_interface(in, "NamedNodeMap", interpreter.intrinsics().array_prototype);
+    // A form's elements, whose namedItem answers a name several controls
+    // share with a RadioNodeList of them; its value is the checked radio's.
+    define_interface(in, "HTMLFormControlsCollection", collection_proto);
+    js::Object* radio_node_list = define_interface(in, "RadioNodeList", node_list_proto);
+    define_getter(
+        in, *radio_node_list, "value",
+        [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+            std::optional<std::size_t> const count = collection_length(this_value);
+            if (!count)
+                return interp.throw_type_error("Illegal invocation");
+            Realm::Internals& internals = internals_of(interp);
+            for (std::size_t i = 0; i < *count; ++i) {
+                dom::Node* const member = internals.realm.node_of(collection_item(this_value, i));
+                auto* const radio = member != nullptr && member->is_element() ? static_cast<dom::Element*>(member) : nullptr;
+                if (radio != nullptr && radio->is_html("input") && dom::forms::input_type(*radio) == "radio" && control_checked_of(internals, *radio))
+                    return internals.string(radio->has_attribute("value") ? attribute_or_empty(*radio, "value") : std::string("on"));
+            }
+            return internals.string("");
+        },
+        [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+            std::optional<std::size_t> const count = collection_length(this_value);
+            if (!count)
+                return interp.throw_type_error("Illegal invocation");
+            Realm::Internals& internals = internals_of(interp);
+            std::optional<std::string> const wanted = internals.to_utf8(js::argument(args, 0));
+            if (!wanted)
+                return std::nullopt;
+            for (std::size_t i = 0; i < *count; ++i) {
+                dom::Node* const member = internals.realm.node_of(collection_item(this_value, i));
+                auto* const radio = member != nullptr && member->is_element() ? static_cast<dom::Element*>(member) : nullptr;
+                if (radio == nullptr || !radio->is_html("input") || dom::forms::input_type(*radio) != "radio")
+                    continue;
+                std::string const value = radio->has_attribute("value") ? attribute_or_empty(*radio, "value") : std::string("on");
+                if (value == *wanted) {
+                    set_control_checked_of(internals, *radio, true);
+                    break;
+                }
+            }
+            return js::Value::undefined();
+        });
     define_interface(in, "Attr", nullptr);
     auto const item = [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
-        if (!js::Interpreter::is_array(this_value))
+        if (!collection_length(this_value))
             return interp.throw_type_error("Illegal invocation");
         std::optional<double> const index = interp.to_number(js::argument(args, 0));
         if (!index)
             return std::nullopt;
-        auto* array = static_cast<js::ArrayObject*>(this_value.as_object());
-        std::uint32_t const position = to_unsigned_long(*index);
-        if (position >= array->length())
-            return js::Value::null();
-        js::Value const element_value = array->element(position);
-        return element_value.is_empty() ? js::Value::null() : element_value;
+        return collection_item(this_value, to_unsigned_long(*index));
     };
+    // length: a live collection's count now; the Array's own length answers
+    // for a list that is not live before this is reached.
+    auto const length = [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        std::optional<std::size_t> const count = collection_length(this_value);
+        if (!count)
+            return interp.throw_type_error("Illegal invocation");
+        return js::Value::number(static_cast<double>(*count));
+    };
+    define_getter(in, *node_list_proto, "length", length);
+    define_getter(in, *collection_proto, "length", length);
     define_operation(interpreter, *node_list_proto, "item", 1, item);
     define_operation(interpreter, *collection_proto, "item", 1, item);
     define_operation(interpreter, *named_node_map, "item", 1, item);
     define_operation(interpreter, *collection_proto, "namedItem", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
-        if (!js::Interpreter::is_array(this_value))
+        if (!collection_length(this_value))
             return interp.throw_type_error("Illegal invocation");
         Realm::Internals& internals = internals_of(interp);
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)
             return std::nullopt;
+        if (std::optional<js::Value> const live = collection_named_item(this_value, *name))
+            return *live;
         auto* array = static_cast<js::ArrayObject*>(this_value.as_object());
         for (std::uint32_t i = 0; i < array->length(); ++i) {
             dom::Node* node_ptr = internals.realm.node_of(array->element(i));

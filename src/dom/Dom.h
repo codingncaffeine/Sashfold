@@ -235,11 +235,8 @@ public:
     // Whoever takes the attributes to change them has changed this element's
     // style inputs, so the mutable view marks the element as it is handed
     // out; a reader takes the const one.
-    std::vector<Attr>& attributes()
-    {
-        mark_style_self();
-        return m_attributes;
-    }
+    // (It moves the document's attribute version too.)
+    std::vector<Attr>& attributes();
     std::vector<Attr> const& attributes() const { return m_attributes; }
     Attr const* find_attribute(std::string_view name) const;
     bool has_attribute(std::string_view name) const { return find_attribute(name) != nullptr; }
@@ -483,6 +480,13 @@ public:
     // after a script watches this as well.
     std::uint64_t state_version() const { return m_state_version; }
     void note_state_change() { ++m_state_version; }
+    // Move with every change of the tree (a child inserted or removed, by
+    // the parser or a script) and of any element's attributes: what the live
+    // collections (DOM §4.2.10) compare to know their members are current.
+    std::uint64_t tree_version() const { return m_tree_version; }
+    std::uint64_t attribute_version() const { return m_attribute_version; }
+    void note_tree_change() { ++m_tree_version; }
+    void note_attribute_change() { ++m_attribute_version; }
     // A form control's live checkedness, which the host keeps (what the
     // reader toggled, what a script set); nothing for one the host has no
     // say over, whose checked attribute then answers. Whoever changes it
@@ -632,6 +636,8 @@ private:
     Element const* m_target = nullptr;
     Element const* m_fullscreen = nullptr;
     std::uint64_t m_state_version = 0;
+    std::uint64_t m_tree_version = 0;
+    std::uint64_t m_attribute_version = 0;
     std::vector<std::unique_ptr<Node>> m_nodes;
     std::vector<Range*> m_ranges;
     std::vector<IteratorPlace*> m_places;

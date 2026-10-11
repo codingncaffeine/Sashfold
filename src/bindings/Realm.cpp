@@ -65,6 +65,51 @@ NodeWrapper::~NodeWrapper()
         m_node->wrapper = nullptr;
 }
 
+namespace {
+
+// The name a form's named property would answer for, when the key is one: a
+// string that is no index and no property of the wrapper's own.
+std::optional<std::string> form_property_name(NodeWrapper const& wrapper, dom::Node const* node, js::PropertyKey const& key)
+{
+    if (node == nullptr || !node->is_element() || !static_cast<dom::Element const*>(node)->is_html("form") || !key.is_atom())
+        return std::nullopt;
+    if (wrapper.js::Object::get_own_property(key))
+        return std::nullopt;
+    return key.as_atom()->to_utf8();
+}
+
+}
+
+std::optional<js::PropertyDescriptor> NodeWrapper::get_own_property(js::PropertyKey const& key) const
+{
+    if (std::optional<std::string> const name = form_property_name(*this, m_node, key)) {
+        js::Heap::NoCollect const guard(*heap()); // what it makes, the caller has not rooted
+        js::Value const found = form_named_item(realm().internals(), *static_cast<dom::Element*>(m_node), *name);
+        if (!found.is_undefined())
+            return js::PropertyDescriptor::data(found, js::Configurable);
+    }
+    return EventTargetObject::get_own_property(key);
+}
+
+std::optional<js::Value> NodeWrapper::get(js::Interpreter& interpreter, js::PropertyKey const& key, js::Value const& receiver)
+{
+    if (std::optional<std::string> const name = form_property_name(*this, m_node, key)) {
+        js::Value const found = form_named_item(realm().internals(), *static_cast<dom::Element*>(m_node), *name);
+        if (!found.is_undefined())
+            return found;
+    }
+    return EventTargetObject::get(interpreter, key, receiver);
+}
+
+bool NodeWrapper::has_property(js::PropertyKey const& key) const
+{
+    if (std::optional<std::string> const name = form_property_name(*this, m_node, key)) {
+        if (!form_named_item(realm().internals(), *static_cast<dom::Element*>(m_node), *name).is_undefined())
+            return true;
+    }
+    return EventTargetObject::has_property(key);
+}
+
 js::Object* NodeWrapper::same_object(std::string_view attribute) const
 {
     for (auto const& [name, object] : m_same_objects) {
@@ -1268,6 +1313,10 @@ js::Object* Realm::Internals::wrap(dom::Node& node)
         return node.wrapper;
     js::Object* proto = prototype_for(node);
     NodeWrapper* wrapper = interpreter.heap().allocate<NodeWrapper>(proto, *realm_record, node);
+    // A form answers for its controls' names (form.q), which no cache may
+    // answer for from its shape.
+    if (node.is_element() && static_cast<dom::Element&>(node).is_html("form"))
+        wrapper->mark_uncacheable();
     node.wrapper = wrapper;
     return wrapper;
 }

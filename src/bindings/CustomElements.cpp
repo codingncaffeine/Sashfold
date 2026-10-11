@@ -352,8 +352,10 @@ void upgrade_custom_element(Realm::Internals& in, dom::Element& element, bool fr
     }
     // A form-associated class's element is one from the start of its
     // constructor, which may already give its form a value.
-    if (definition->form_associated)
+    if (definition->form_associated) {
         element.document().form_associated_custom.insert(&element);
+        element.document().note_tree_change();
+    }
     definition->construction_stack.push_back(&element);
     wrapper.custom_constructing = true;
     std::optional<js::Value> const result = interpreter.construct(definition->constructor, {}, definition->constructor.as_object());
