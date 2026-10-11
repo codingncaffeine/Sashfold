@@ -481,6 +481,25 @@ int main()
     CHECK(&serif.face_for(0x4E00) == &serif.face_for(0x4E00));
     CHECK(manager.fallback_for(0x10FFFD) == nullptr);
 
+    // Metric twins, as fontconfig gives them: Arial on a machine without it
+    // is laid out in Liberation Sans, Arial's widths, and so is sans-serif,
+    // which asks for Arial first; Times New Roman likewise in Liberation
+    // Serif. Checked where the machine has the twins and not the originals.
+    {
+        auto const family_of = [&manager](char const* name) {
+            return manager.resolve(FontRequest { { name }, 400, false }).primary().family();
+        };
+        bool const twins_here = family_of("Liberation Sans") == "Liberation Sans" && family_of("Arial") != "Arial";
+        if (twins_here) {
+            CHECK_EQ(family_of("Arial"), std::string("Liberation Sans"));
+            CHECK_EQ(family_of("sans-serif"), std::string("Liberation Sans"));
+            if (family_of("Liberation Serif") == "Liberation Serif" && family_of("Times New Roman") != "Times New Roman")
+                CHECK_EQ(family_of("Times New Roman"), std::string("Liberation Serif"));
+        } else {
+            std::cout << "  metric twins not checked: Liberation Sans missing, or Arial installed\n";
+        }
+    }
+
 #if !defined(_WIN32) && !defined(__APPLE__)
     // Where the system's fonts are looked for, as fontconfig looks: the XDG
     // data directories' fonts folders first (a system that keeps its data

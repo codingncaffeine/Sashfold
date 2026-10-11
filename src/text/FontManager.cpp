@@ -28,6 +28,51 @@ std::string lowercased(std::string_view text)
     return out;
 }
 
+// The metric-compatible twins of the families pages name most, as
+// fontconfig's 30-metric-aliases.conf gives them to every Linux browser: a
+// page that asks for Arial on a machine without it is laid out in a face of
+// Arial's widths, so its lines break where they were designed to. Helvetica
+// tries Arial's twins first, as Chrome on Linux lays it out.
+std::vector<std::string_view> metric_twins(std::string_view family)
+{
+    struct Twins {
+        std::string_view family;
+        std::array<std::string_view, 5> twins;
+    };
+    static constexpr Twins table[] = {
+        { "arial", { "Liberation Sans", "Arimo", "Albany AMT", "Albany", "Helvetica" } },
+        { "helvetica", { "Liberation Sans", "Arimo", "Nimbus Sans", "Nimbus Sans L", "TeX Gyre Heros" } },
+        { "arial narrow", { "Liberation Sans Narrow", "Nimbus Sans Narrow", "TeX Gyre Heros Cn", "", "" } },
+        { "helvetica narrow", { "Nimbus Sans Narrow", "TeX Gyre Heros Cn", "Liberation Sans Narrow", "", "" } },
+        { "times new roman", { "Liberation Serif", "Tinos", "Thorndale AMT", "Thorndale", "Times" } },
+        { "times", { "Nimbus Roman", "Nimbus Roman No9 L", "TeX Gyre Termes", "Liberation Serif", "Tinos" } },
+        { "courier new", { "Liberation Mono", "Cousine", "Cumberland AMT", "Cumberland", "Courier" } },
+        { "courier", { "Nimbus Mono PS", "Nimbus Mono L", "TeX Gyre Cursor", "Liberation Mono", "Cousine" } },
+        { "georgia", { "Gelasio", "", "", "", "" } },
+        { "calibri", { "Carlito", "", "", "", "" } },
+        { "cambria", { "Caladea", "", "", "", "" } },
+        { "palatino", { "TeX Gyre Pagella", "P052", "URW Palladio L", "", "" } },
+        { "palatino linotype", { "TeX Gyre Pagella", "P052", "URW Palladio L", "", "" } },
+        { "book antiqua", { "TeX Gyre Pagella", "P052", "URW Palladio L", "", "" } },
+        { "bookman", { "TeX Gyre Bonum", "URW Bookman", "URW Bookman L", "", "" } },
+        { "avant garde", { "TeX Gyre Adventor", "URW Gothic", "URW Gothic L", "", "" } },
+        { "new century schoolbook", { "TeX Gyre Schola", "C059", "Century Schoolbook L", "", "" } },
+        { "zapf chancery", { "Z003", "URW Chancery L", "", "", "" } },
+        { "symbol", { "Standard Symbols PS", "Standard Symbols L", "", "", "" } },
+        { "zapf dingbats", { "D050000L", "Dingbats", "", "", "" } },
+    };
+    std::vector<std::string_view> out;
+    for (Twins const& entry : table) {
+        if (entry.family != family)
+            continue;
+        for (std::string_view const twin : entry.twins) {
+            if (!twin.empty())
+                out.push_back(twin);
+        }
+    }
+    return out;
+}
+
 // What each generic family means on a machine: the first name found wins.
 // One list serves every OS; the names that are not installed cost nothing.
 std::vector<std::string_view> generic_candidates(std::string_view generic)
@@ -727,13 +772,24 @@ void FontManager::fill(FontStack& filled, ThreadFonts& fonts)
         if (!m_system_fonts)
             return;
         scan();
+        // A family by its name, or by its metric twin where it is not
+        // installed.
+        auto const installed_or_twin = [&](std::string const& family) -> Face const* {
+            if (Face const* face = best_face(family, request.weight, request.stretch, request.italic))
+                return face;
+            for (std::string_view const twin : metric_twins(family)) {
+                if (Face const* face = best_face(lowercased(twin), request.weight, request.stretch, request.italic))
+                    return face;
+            }
+            return nullptr;
+        };
         std::vector<std::string_view> const generics = generic_candidates(lower);
         if (generics.empty()) {
-            add(best_face(lower, request.weight, request.stretch, request.italic));
+            add(installed_or_twin(lower));
             return;
         }
         for (std::string_view const candidate : generics) {
-            if (Face const* face = best_face(lowercased(candidate), request.weight, request.stretch, request.italic)) {
+            if (Face const* face = installed_or_twin(lowercased(candidate))) {
                 add(face);
                 return;
             }
