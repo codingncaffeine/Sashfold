@@ -3,7 +3,9 @@
 #include "js/Interpreter.h"
 #include "js/Runtime.h"
 
+#include <chrono>
 #include <string>
+#include <thread>
 
 using namespace sashfold;
 
@@ -104,10 +106,59 @@ void test_formatting()
     js::set_time_source(fixed_now, fixed_offset);
 }
 
+// A host whose timers run on a virtual clock gives Date the same clock: Date
+// moves as far as the host's clock moves, runs in real time while the host's
+// clock stands, never goes back, and is the plain clock again once the
+// host's scope ends. Real time is banded: a short sleep, a generous ceiling.
+void test_date_follows_the_host_clock()
+{
+    fresh(); // the pinned clock
+    double const wall = js::current_time_ms();
+    double host = 0;
+    double before = 0;
+    {
+        js::DateFollows const follows([&host] { return host; });
+        double const start = js::current_time_ms();
+        CHECK(start >= wall && start < wall + 1000);
+        host = 5000; // a timer five seconds on, reached at once
+        double const moved = js::current_time_ms();
+        CHECK(moved - start >= 5000 && moved - start < 5000 + 1000);
+        // The host's clock stands while a script runs: Date still passes.
+        std::this_thread::sleep_for(std::chrono::milliseconds(30));
+        double const waited = js::current_time_ms();
+        CHECK(waited - moved >= 25 && waited - moved < 1000);
+        before = waited;
+        {
+            // A second page's host starts its clock at 0 again (a render
+            // that follows a navigation): Date does not go back.
+            double inner_host = 0;
+            js::DateFollows const inner([&inner_host] { return inner_host; });
+            CHECK(js::current_time_ms() >= before);
+            inner_host = 100;
+            double const inner_moved = js::current_time_ms();
+            CHECK(inner_moved >= before + 100 && inner_moved < before + 100 + 1000);
+            before = inner_moved;
+        }
+        // The outer clock again, where it was.
+        host = 6000;
+        CHECK(js::current_time_ms() >= before);
+    }
+    // No host: the fixed clock the tests pin.
+    CHECK(js::current_time_ms() == fixed_now());
+    // And the page sees it through Date.
+    js::Interpreter& in = fresh();
+    double page_host = 0;
+    js::DateFollows const follows([&page_host] { return page_host; });
+    CHECK_JS_TRUE(in, "globalThis.t0 = Date.now(); true");
+    page_host = 3000;
+    CHECK_JS_TRUE(in, "Date.now() - t0 >= 3000 && Date.now() - t0 < 4000 && new Date().getTime() - t0 >= 3000");
+}
+
 } // namespace
 
 int main()
 {
+    test_date_follows_the_host_clock();
     test_construction_and_parsing();
     test_fields();
     test_formatting();

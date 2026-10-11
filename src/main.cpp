@@ -15,6 +15,7 @@
 #include "html/Serializer.h"
 #include "html/TreeBuilder.h"
 #include "html/TreeDump.h"
+#include "js/Runtime.h"
 #include "layout/Layout.h"
 #include "net/Http.h"
 #include "paint/Painter.h"
@@ -975,6 +976,8 @@ int render_page(std::string const& path, std::string const& output, int viewport
     oracle.set_policy(loaded.policy.get());
     std::unique_ptr<bindings::Realm> realm;
     double script_clock = 0;
+    // The page's Date moves with the timers' clock, as in a browser.
+    js::DateFollows const date_follows([&script_clock] { return script_clock; });
     if (extras.scripts) {
         bindings::HostHooks hooks;
         hooks.policy = loaded.policy.get();
@@ -990,6 +993,12 @@ int render_page(std::string const& path, std::string const& output, int viewport
             return loaded.loader->load_resource(url, loaded.url, "", request, guard);
         };
         hooks.now = [&script_clock] { return script_clock; };
+        // document.cookie reads and writes the session's jar, as the window's
+        // does: a challenge sets a cookie and reads it back before it passes.
+        if (loaded.loader) {
+            hooks.cookie_get = [&loaded] { return loaded.loader->cookies_for(loaded.url); };
+            hooks.cookie_set = [&loaded](std::string_view line) { loaded.loader->set_cookie(loaded.url, line); };
+        }
         hooks.should_stop = [&turn_started] { return clock::now() - turn_started > std::chrono::seconds(10); };
         // A render makes no sound: a page's media plays into a device that
         // hears on the page's own clock, so the whole path runs silently.
@@ -1467,6 +1476,7 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
         browser.set_js_heap_limit(js_heap_limit);
         double clock_ms = 0; // the pages' clock, virtual: the timers run when it says
         browser.set_clock([&clock_ms] { return clock_ms; });
+        js::DateFollows const date_follows([&clock_ms] { return clock_ms; });
         browser.frame(); // the new-tab page, before the clock starts
         ui::Profile const base = browser.profile();
         auto const settle = [&browser] {

@@ -372,6 +372,14 @@ add_test(NAME cli_render_stays_on_a_fragment_move
 set_tests_properties(cli_render_stays_on_a_fragment_move PROPERTIES
   PASS_REGULAR_EXPRESSION "here"
   FAIL_REGULAR_EXPRESSION "navigated to")
+# A render's timers run on a virtual clock and the page's Date moves with it:
+# a page that waits two seconds by Date sees them pass inside the budget.
+add_test(NAME cli_render_date_moves_with_the_timers
+  COMMAND sashfold --render ${CMAKE_CURRENT_SOURCE_DIR}/shell/render-date-moves.html
+    -o ${CMAKE_BINARY_DIR}/test-render-date.png --dump-layout)
+set_tests_properties(cli_render_date_moves_with_the_timers PROPERTIES
+  PASS_REGULAR_EXPRESSION "elapsed"
+  FAIL_REGULAR_EXPRESSION "waiting")
 # A page's script heap under a ceiling of 40 MB, which the script's page runs into.
 add_test(NAME shell_memory
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/memory.script

@@ -1,0 +1,11 @@
+<!DOCTYPE html><title>d</title><p id=out>waiting</p><script>
+// Polls until two seconds have passed by Date: the render's timers run on a
+// virtual clock, and Date moves with it as a browser's two clocks do.
+const start = Date.now();
+(function poll() {
+  if (Date.now() - start >= 2000 && performance.now() >= 2000)
+    document.getElementById("out").textContent = "elapsed";
+  else
+    setTimeout(poll, 100);
+})();
+</script>

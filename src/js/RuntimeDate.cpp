@@ -14,7 +14,9 @@
 #include <cstddef>
 #include <cstdint>
 #include <ctime>
+#include <functional>
 #include <limits>
+#include <mutex>
 #include <optional>
 #include <span>
 #include <string>
@@ -659,12 +661,87 @@ std::optional<Value> construct_date(Interpreter& in, Args args, Object* new_targ
 
 // ------------------------------------------------------------- the clock
 
-double current_time_ms()
+namespace {
+
+double system_time_ms()
 {
     if (g_now)
         return g_now();
     auto const since_epoch = std::chrono::system_clock::now().time_since_epoch();
     return std::floor(static_cast<double>(std::chrono::duration_cast<std::chrono::milliseconds>(since_epoch).count()));
+}
+
+// The host's clock Date follows while a DateFollows lives. Workers read it
+// from their own threads, so it is read under a lock.
+struct FollowedClock {
+    std::mutex mutex;
+    std::function<double()> host_ms;
+    double epoch = 0;     // Date when the host's clock read 0
+    double host_last = 0; // the host's clock when it last moved
+    std::chrono::steady_clock::time_point moved;
+    double given = 0;     // the latest time Date was given
+};
+
+FollowedClock& followed()
+{
+    static FollowedClock clock;
+    return clock;
+}
+
+double steady_ms_since(std::chrono::steady_clock::time_point since)
+{
+    return std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - since).count();
+}
+
+} // namespace
+
+double current_time_ms()
+{
+    FollowedClock& clock = followed();
+    {
+        std::lock_guard<std::mutex> const lock(clock.mutex);
+        if (clock.host_ms) {
+            double const host = clock.host_ms();
+            if (host != clock.host_last) {
+                clock.host_last = host;
+                clock.moved = std::chrono::steady_clock::now();
+            }
+            double const now = std::floor(clock.epoch + host + steady_ms_since(clock.moved));
+            clock.given = std::max(clock.given, now);
+            return clock.given;
+        }
+    }
+    return system_time_ms();
+}
+
+DateFollows::DateFollows(std::function<double()> host_ms)
+{
+    FollowedClock& clock = followed();
+    std::lock_guard<std::mutex> const lock(clock.mutex);
+    m_outer = std::move(clock.host_ms);
+    m_outer_epoch = clock.epoch;
+    double const host = host_ms();
+    // From where Date stands now: the wall, or further on when an outer
+    // host's clock had already run ahead of it.
+    double const start = std::max(system_time_ms(), clock.given);
+    clock.epoch = start - host;
+    clock.host_last = host;
+    clock.moved = std::chrono::steady_clock::now();
+    clock.host_ms = std::move(host_ms);
+}
+
+DateFollows::~DateFollows()
+{
+    FollowedClock& clock = followed();
+    std::lock_guard<std::mutex> const lock(clock.mutex);
+    clock.host_ms = std::move(m_outer);
+    clock.epoch = m_outer_epoch;
+    if (clock.host_ms) {
+        clock.host_last = clock.host_ms();
+        clock.moved = std::chrono::steady_clock::now();
+    } else {
+        clock.given = 0; // the wall again, as before any host
+    }
 }
 
 double local_time_zone_offset_minutes(double utc_ms)

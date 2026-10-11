@@ -3,6 +3,7 @@
 #include "core/Ascii.h"
 #include "core/Png.h"
 #include "core/Unicode.h"
+#include "js/Runtime.h"
 #include "media/Vp9Accelerator.h"
 #include "platform/Clipboard.h"
 #include "ui/Theme.h"
@@ -927,6 +928,8 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
         return runner.result;
     }
     browser.set_clock([&runner] { return runner.clock_ms; });
+    // The pages' Date moves with that clock, as in a browser.
+    js::DateFollows const date_follows([&runner] { return runner.clock_ms; });
     // The new-tab page's time: a Monday morning, the same on every machine.
     browser.set_wall_clock([] { return WallTime { 2026, 1, 5, 1, 9, 41, 20 }; });
     std::string line;

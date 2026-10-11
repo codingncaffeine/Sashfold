@@ -9,6 +9,7 @@
 #include "js/Interpreter.h"
 
 #include <concepts>
+#include <functional>
 #include <span>
 #include <string>
 #include <string_view>
@@ -211,5 +212,24 @@ std::optional<bool> set_integrity_level(Interpreter&, Object&, bool frozen);
 double current_time_ms();
 double local_time_zone_offset_minutes(double utc_ms);
 void set_time_source(double (*now)(), double (*offset)(double));
+
+// While one lives, Date reads a host's clock: a host whose timers run on a
+// virtual clock (a render, a replay) gives the page's Date the same time,
+// as a browser's two clocks move together. Date is the wall time when the
+// scope began, plus how far the host's clock has moved since, plus the real
+// time since the host's clock last moved (so a script that waits on Date
+// inside one turn sees it pass), and it never goes back. A scope made
+// inside another hands the outer clock back when it ends.
+class DateFollows {
+public:
+    explicit DateFollows(std::function<double()> host_ms);
+    ~DateFollows();
+    DateFollows(DateFollows const&) = delete;
+    DateFollows& operator=(DateFollows const&) = delete;
+
+private:
+    std::function<double()> m_outer;
+    double m_outer_epoch = 0;
+};
 
 }
