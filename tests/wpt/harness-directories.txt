@@ -144,5 +144,7 @@ css/cssom-view
 html/semantics/forms
 # Added 2026-10-11 with img.decode() that waits for the picture, and the
 # picture of an image out of the document chosen from its srcset and
-# <picture> sources.
+# <picture> sources; and with the performance timeline's entries
+# (Navigation Timing's for the document).
 html/semantics/embedded-content/the-img-element
+navigation-timing

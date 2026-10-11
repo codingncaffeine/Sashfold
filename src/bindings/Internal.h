@@ -1153,6 +1153,21 @@ struct Realm::Internals {
         float viewport_height = 0;
         double updated_at = -1e300;
     } intersection;
+    // The document's load as Navigation Timing reports it (Performance.cpp):
+    // when each milestone came, in ms from the time origin, 0 until it has.
+    struct NavigationTiming {
+        double dom_interactive = 0;
+        double dom_content_loaded_start = 0;
+        double dom_content_loaded_end = 0;
+        double dom_complete = 0;
+        double load_start = 0;
+        double load_end = 0;
+    } navigation_timing;
+    // The performance timeline (Performance.cpp): the marks and measures a
+    // page made, and the observers watching for entries.
+    std::vector<js::Object*> performance_entries;
+    std::vector<js::Object*> performance_observers;
+    bool performance_delivery_pending = false;
     // The MediaSources URL.createObjectURL has named, by the URL, until it is
     // revoked: what a media element's src is looked up in (Media.cpp).
     std::unordered_map<std::string, js::Object*> media_source_urls;
@@ -1727,6 +1742,11 @@ void drop_mutation_observers_of(Realm::Internals&);
 void install_intersection_observer(Realm::Internals&);
 void trace_intersection_observers(Realm::Internals const&, js::Tracer&);
 bool update_intersection_observations(Realm::Internals&, bool force = false);
+// Performance.cpp: the timeline on `performance` and PerformanceObserver; the
+// document's load finished (its navigation entry reaches the observers).
+void install_performance_timeline(Realm::Internals&);
+void performance_navigation_done(Realm::Internals&);
+void trace_performance(Realm::Internals const&, js::Tracer&);
 // Animations.cpp: Web Animations (Animation, KeyframeEffect, the timelines,
 // element.animate) over the model in css/Animation.h, and the rendering
 // update the agent runs at each frame — the animations updated and their

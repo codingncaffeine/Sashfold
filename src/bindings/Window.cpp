@@ -516,6 +516,22 @@ void update_owner(SearchParamsObject& params)
     params.owner->url.query = query.empty() ? std::nullopt : std::optional<std::string>(query);
 }
 
+// PerformanceTiming's document milestones (Navigation Timing 1), by the datum
+// each getter carries: epoch ms, 0 for one not reached.
+constexpr std::string_view document_milestones[] = { "domInteractive", "domContentLoadedEventStart", "domContentLoadedEventEnd", "domComplete",
+    "loadEventStart", "loadEventEnd" };
+
+Native legacy_milestone(js::Interpreter& interp, js::Value const&, Args)
+{
+    Realm::Internals& in = internals_of(interp);
+    js::NativeFunction const* const accessor = interp.active_native();
+    std::uint32_t const index = accessor != nullptr && accessor->spec() != nullptr ? accessor->spec()->datum : 0;
+    auto const& t = in.navigation_timing;
+    double const at[] = { t.dom_interactive, t.dom_content_loaded_start, t.dom_content_loaded_end, t.dom_complete, t.load_start, t.load_end };
+    double const since = index < std::size(at) ? at[index] : 0;
+    return js::Value::number(since > 0 ? std::round(in.time_origin + since) : 0);
+}
+
 // --- Media queries -------------------------------------------------------------------------
 
 }
@@ -1704,10 +1720,10 @@ void install_window(Realm::Internals& in)
         return js::Value::number(internals.now() - internals.time_origin);
     });
     define_getter(in, *performance_proto, "timeOrigin", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(internals_of(interp).time_origin); });
-    for (std::string_view const name : { "mark", "measure", "clearMarks", "clearMeasures", "clearResourceTimings", "setResourceTimingBufferSize" })
+    for (std::string_view const name : { "clearResourceTimings", "setResourceTimingBufferSize" })
         define_operation(interpreter, *performance_proto, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-    for (std::string_view const name : { "getEntries", "getEntriesByType", "getEntriesByName" })
-        define_operation(interpreter, *performance_proto, name, 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_array()); });
+    // The timeline (marks, measures, the navigation entry, the observers) is
+    // a group of its own (Performance.cpp).
     define_operation(interpreter, *performance_proto, "toJSON", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_object()); });
     static constexpr std::string_view performance_event_types[] = { "resourcetimingbufferfull" };
     define_event_handlers(in, *performance_proto, performance_event_types);
@@ -1715,9 +1731,11 @@ void install_window(Realm::Internals& in)
     for (std::string_view const name : { "navigationStart", "fetchStart", "domainLookupStart", "domainLookupEnd", "connectStart", "connectEnd",
              "requestStart", "responseStart", "responseEnd", "domLoading" })
         define_getter(in, *timing_proto, name, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::number(internals_of(interp).time_origin); });
-    for (std::string_view const name : { "unloadEventStart", "unloadEventEnd", "redirectStart", "redirectEnd", "secureConnectionStart", "domInteractive",
-             "domContentLoadedEventStart", "domContentLoadedEventEnd", "domComplete", "loadEventStart", "loadEventEnd" })
+    for (std::string_view const name : { "unloadEventStart", "unloadEventEnd", "redirectStart", "redirectEnd", "secureConnectionStart" })
         define_getter(in, *timing_proto, name, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
+    // The document's milestones as times since the epoch, 0 until reached.
+    for (std::size_t i = 0; i < std::size(document_milestones); ++i)
+        define_plain_attribute(interpreter, *timing_proto, document_milestones[i], legacy_milestone, nullptr, MemberKind::Plain, static_cast<std::uint32_t>(i));
     define_operation(interpreter, *timing_proto, "toJSON", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_object()); });
     js::Object* navigation_proto = define_interface(in, "PerformanceNavigation", nullptr);
     define_getter(in, *navigation_proto, "type", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
@@ -1758,26 +1776,6 @@ void install_window(Realm::Internals& in)
     install_observer(in, "ResizeObserver", false, true);
     // MutationObserver is its own machinery (Mutations.cpp): it watches the
     // tree for real, so it is not one of the stand-ins above.
-    js::Object* performance_observer = define_interface(in, "PerformanceObserver", nullptr,
-        [](js::Interpreter& interp, Args args, js::Object*) -> Native {
-            js::Value const callback = js::argument(args, 0);
-            if (!js::Interpreter::is_callable(callback))
-                return interp.throw_type_error("Failed to construct 'PerformanceObserver': parameter 1 is not of type 'Function'.");
-            return js::Value::object(interp.heap().allocate<ObserverObject>(internals_of(interp).prototype("PerformanceObserver"), callback));
-        },
-        1);
-    for (std::string_view const name : { "observe", "disconnect" })
-        define_operation(interpreter, *performance_observer, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-    define_operation(interpreter, *performance_observer, "takeRecords", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_array()); });
-    {
-        std::optional<js::Value> const constructor = performance_observer->get(interpreter, interpreter.key("constructor"), js::Value::object(performance_observer));
-        // A static attribute: an accessor on the interface object, as WebIDL
-        // puts it. Nothing records entries yet, so the list is empty.
-        if (constructor && constructor->is_object())
-            define_getter(in, *constructor->as_object(), "supportedEntryTypes",
-                [](js::Interpreter& interp, js::Value const&, Args) -> Native { return js::Value::object(interp.new_array()); });
-    }
-
     // customElements is installed with the rest of its machinery
     // (CustomElements.cpp), after the element interfaces it builds on.
 

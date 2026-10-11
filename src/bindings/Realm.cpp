@@ -1768,6 +1768,7 @@ constexpr InterfaceGroup interface_groups[] = {
     { "traversal", install_traversal, true },
     { "style", install_style, false },
     { "window", install_window, false },
+    { "performance_timeline", install_performance_timeline, true },
     { "binary", install_binary, false },
     { "fetch", install_fetch, true },
     { "xhr", install_xhr, true },
@@ -1795,7 +1796,7 @@ constexpr InterfaceGroup interface_groups[] = {
     { "streams", install_streams, false },
 };
 constexpr std::size_t group_count = std::size(interface_groups);
-constexpr std::size_t groups_of_a_worker = 12;
+constexpr std::size_t groups_of_a_worker = 13;
 
 // A group in a realm: installed (or never put off), waiting to be asked
 // for, or being installed now.
@@ -2658,6 +2659,7 @@ void Realm::document_parsed()
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     in.active_parser = nullptr;
     in.ready_state = "interactive";
+    in.navigation_timing.dom_interactive = in.now() - in.time_origin;
     dispatch_event(in.document, "readystatechange");
     // The deferred scripts, in order; each was fetched when the parser met
     // it, a module's graph with it.
@@ -2669,7 +2671,9 @@ void Realm::document_parsed()
         else
             in.execute_script(*pending.element, pending.source, pending.name);
     }
+    in.navigation_timing.dom_content_loaded_start = in.now() - in.time_origin;
     dispatch_event(in.document, "DOMContentLoaded", EventInit { true, false, false });
+    in.navigation_timing.dom_content_loaded_end = in.now() - in.time_origin;
     // A page's load waits on its frames' documents, so every iframe the
     // parse left in the tree has fired its load event, in tree order, by the
     // time the window fires its own. A frame's document the host answers for
@@ -2730,7 +2734,11 @@ void Realm::document_parsed()
     in.run_inserted_scripts();
     in.ready_state = "complete";
     dispatch_event(in.document, "readystatechange");
+    in.navigation_timing.dom_complete = in.now() - in.time_origin;
+    in.navigation_timing.load_start = in.navigation_timing.dom_complete;
     dispatch_event(nullptr, "load");
+    in.navigation_timing.load_end = in.now() - in.time_origin;
+    performance_navigation_done(in);
     dispatch_event(nullptr, "pageshow");
 }
 
@@ -4308,6 +4316,7 @@ void Realm::trace_roots(js::Tracer& tracer)
         tracer.visit(list);
     trace_mutation_observers(in, tracer);
     trace_intersection_observers(in, tracer);
+    trace_performance(in, tracer);
     trace_animations(in, tracer);
     trace_presenting_media(in, tracer);
     trace_canvases(in, tracer);
