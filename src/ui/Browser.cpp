@@ -4452,7 +4452,7 @@ struct Browser::Impl {
                 return;
             ensure_fresh(*owner);
             if (layout::Fragment const* const box = bindings::find_element_fragment(owner->layout.root, element))
-                scroll_box_to(*owner, *box, layout::ScrollOffset { static_cast<float>(to_device_px(x)), static_cast<float>(to_device_px(y)) });
+                scroll_box_to(*owner, *box, layout::ScrollOffset { static_cast<float>(to_device_px(static_cast<double>(x))), static_cast<float>(to_device_px(static_cast<double>(y))) });
         };
         hooks.scroll_position = [this, document](dom::Document const& from) -> std::pair<int, int> {
             Tab* const owner = tab_of(document);

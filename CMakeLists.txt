@@ -51,6 +51,12 @@ if(SASHFOLD_FUZZ)
   add_link_options(-fsanitize=fuzzer-no-link,address,undefined)
 endif()
 
+# The curves' constants are worked out at compile time (src/crypto/Ec.cpp);
+# P-521's nine limbs take clang past its default constexpr step limit.
+if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  set_source_files_properties(src/crypto/Ec.cpp PROPERTIES COMPILE_OPTIONS "-fconstexpr-steps=100000000")
+endif()
+
 add_library(sashfold_core STATIC
   src/bindings/Binary.cpp
   src/bindings/Canvas.cpp

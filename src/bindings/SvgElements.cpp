@@ -117,7 +117,7 @@ constexpr TagInterface svg_tags[] = {
 // ---- lengths (§4.6.2)
 
 namespace unit {
-constexpr int unknown = 0;
+[[maybe_unused]] constexpr int unknown = 0; // SVG_LENGTHTYPE_UNKNOWN, which no length here is
 constexpr int number = 1;
 constexpr int percentage = 2;
 constexpr int ems = 3;
@@ -275,15 +275,15 @@ LengthContext length_context(Realm::Internals& in, dom::Element const& element)
 {
     LengthContext context;
     if (css::ComputedStyle const* const style = in.hooks.computed_style ? in.hooks.computed_style(element) : nullptr)
-        context.em = style->font_size;
+        context.em = static_cast<double>(style->font_size);
     // A percentage is of the viewport the element's own lengths are drawn
     // in: its parent's for an <svg>, which establishes the next one.
     dom::Element const* reference = &element;
     if (element.is_svg("svg") && element.parent() && element.parent()->is_element())
         reference = static_cast<dom::Element const*>(element.parent());
     if (std::optional<Placement> const placement = place(in, *reference)) {
-        context.viewport_width = placement->space.viewport_width;
-        context.viewport_height = placement->space.viewport_height;
+        context.viewport_width = static_cast<double>(placement->space.viewport_width);
+        context.viewport_height = static_cast<double>(placement->space.viewport_height);
     }
     return context;
 }
@@ -457,8 +457,6 @@ struct TransformItem {
     std::vector<double> values; // as written
 };
 
-constexpr double pi = 3.14159265358979323846;
-
 svg::Matrix item_matrix(TransformItem const& item)
 {
     auto const at = [&](std::size_t i, double fallback) { return i < item.values.size() ? item.values[i] : fallback; };
@@ -562,7 +560,7 @@ std::string serialize_items(std::vector<TransformItem> const& items)
 
 TransformItem matrix_item(svg::Matrix const& m)
 {
-    return TransformItem { transform_matrix, { m.a, m.b, m.c, m.d, m.e, m.f } };
+    return TransformItem { transform_matrix, { static_cast<double>(m.a), static_cast<double>(m.b), static_cast<double>(m.c), static_cast<double>(m.d), static_cast<double>(m.e), static_cast<double>(m.f) } };
 }
 
 // A transform's own data: its type, matrix and angle.
@@ -615,7 +613,7 @@ Native write_transform(Realm::Internals& in, SvgValueObject& object, TransformIt
 
 Matrix2D to_2d(svg::Matrix const& m)
 {
-    return Matrix2D { m.a, m.b, m.c, m.d, m.e, m.f };
+    return Matrix2D { static_cast<double>(m.a), static_cast<double>(m.b), static_cast<double>(m.c), static_cast<double>(m.d), static_cast<double>(m.e), static_cast<double>(m.f) };
 }
 
 svg::Matrix from_2d(Matrix2D const& m)
@@ -705,7 +703,7 @@ Native bbox_of(Realm::Internals& in, dom::Element& element)
     if (!placement)
         return make_rect(in, 0, 0, 0, 0);
     svg::Box const box = svg::bounding_box(element, placement->space, style_lookup(in));
-    return make_rect(in, box.left, box.top, box.right - box.left, box.bottom - box.top);
+    return make_rect(in, static_cast<double>(box.left), static_cast<double>(box.top), static_cast<double>(box.right - box.left), static_cast<double>(box.bottom - box.top));
 }
 
 std::optional<svg::Path> path_of(Realm::Internals& in, dom::Element const& element)
@@ -1481,7 +1479,7 @@ void install_svg_elements(Realm::Internals& in, js::Object& svg_element)
         if (!path || path->empty())
             return internals.throw_dom_exception("InvalidStateError", "The element's path is empty.");
         svg::Point const point = svg::point_at_length(*path, static_cast<float>(*distance));
-        return new_dom_point(internals, point.x, point.y);
+        return new_dom_point(internals, static_cast<double>(point.x), static_cast<double>(point.y));
     });
     for (bool const stroke : { false, true }) {
         element_method(in, *geometry, stroke ? "isPointInStroke" : "isPointInFill", 0, [stroke](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
@@ -1605,7 +1603,7 @@ void install_svg_elements(Realm::Internals& in, js::Object& svg_element)
     animated_attribute<Kind::AnimatedLength>(in, *text_content, "textLength", "textLength", "SVGAnimatedLength");
     animated_attribute<Kind::AnimatedEnumeration>(in, *text_content, "lengthAdjust", "lengthAdjust", "SVGAnimatedEnumeration", 0, {}, &length_adjust);
     element_method(in, *text_content, "getComputedTextLength", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
-        return js::Value::number(svg::text_length(e, style_lookup(internals)));
+        return js::Value::number(static_cast<double>(svg::text_length(e, style_lookup(internals))));
     });
     element_method(in, *text_content, "getNumberOfChars", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         (void)internals;
@@ -1620,7 +1618,7 @@ void install_svg_elements(Realm::Internals& in, js::Object& svg_element)
         std::string text;
         gather_text(e, text);
         double const characters = static_cast<double>(utf16_length(text));
-        double const total = svg::text_length(e, style_lookup(internals));
+        double const total = static_cast<double>(svg::text_length(e, style_lookup(internals)));
         return js::Value::number(characters == 0 ? 0 : total * std::clamp(*count, 0.0, characters) / characters);
     });
     js::Object* positioning = interface(in, "SVGTextPositioningElement", "SVGTextContentElement");

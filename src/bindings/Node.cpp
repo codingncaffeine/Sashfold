@@ -722,20 +722,20 @@ std::optional<std::pair<std::optional<double>, std::optional<double>>> scroll_ar
 // sight, centred for "center", its end edges at theirs for "end".
 void scroll_into_view(Realm::Internals& in, dom::Element& element, std::string const& block, std::string const& inline_side)
 {
-    auto const place = [](double box_start, double box_size, double port_start, double port_size, std::string const& how) -> double {
+    auto const place = [](float box_start, float box_size, float port_start, float port_size, std::string const& how) -> double {
         // How far the port must move for the box to stand where `how` says.
-        if (how == "center")
-            return (box_start + box_size / 2) - (port_start + port_size / 2);
-        if (how == "end")
-            return (box_start + box_size) - (port_start + port_size);
-        if (how == "nearest") {
-            if (box_start < port_start)
-                return box_start - port_start;
-            if (box_start + box_size > port_start + port_size)
-                return box_size > port_size ? box_start - port_start : (box_start + box_size) - (port_start + port_size);
-            return 0;
+        float moved = box_start - port_start;
+        if (how == "center") {
+            moved = (box_start + box_size / 2) - (port_start + port_size / 2);
+        } else if (how == "end") {
+            moved = (box_start + box_size) - (port_start + port_size);
+        } else if (how == "nearest") {
+            if (box_start >= port_start && box_start + box_size <= port_start + port_size)
+                moved = 0;
+            else if (box_start + box_size > port_start + port_size && box_size <= port_size)
+                moved = (box_start + box_size) - (port_start + port_size);
         }
-        return box_start - port_start;
+        return static_cast<double>(moved);
     };
     for (dom::Node* node = element.parent(); node != nullptr && node->is_element(); node = node->parent()) {
         auto& ancestor = static_cast<dom::Element&>(*node);
