@@ -4,6 +4,10 @@
 
 #include <algorithm>
 #include <cctype>
+#include <charconv>
+#include <filesystem>
+#include <fstream>
+#include <string_view>
 
 namespace sashfold::tls {
 
@@ -248,26 +252,152 @@ Verdict validate_chain(std::vector<Certificate> const& chain, std::string const&
     return { true, {} };
 }
 
-std::vector<std::uint8_t> CrlCache::get(std::string const& url, std::int64_t now)
+namespace {
+
+// A kept list's file: this line, the URL, the expiry (seconds since the
+// epoch), the length, then the list's bytes. Anything else is no list.
+constexpr std::string_view kept_magic = "sashfold-crl 1";
+
+}
+
+void CrlCache::set_directory(std::string directory)
+{
+    std::lock_guard<std::mutex> const lock(m_mutex);
+    m_directory = std::move(directory);
+}
+
+std::size_t CrlCache::fetches() const
+{
+    std::lock_guard<std::mutex> const lock(m_mutex);
+    return m_fetches;
+}
+
+CrlCache::Entry const* CrlCache::find(std::string const& url, std::int64_t now) const
 {
     for (auto const& [key, entry] : m_entries) {
         if (key == url && now < entry.expires)
-            return entry.bytes;
+            return &entry;
     }
-    std::vector<std::uint8_t> bytes;
-    if (m_fetch) {
-        ++m_fetches;
-        bytes = m_fetch(url);
+    return nullptr;
+}
+
+std::string CrlCache::path_for(std::string const& url) const
+{
+    // The file is named by the URL's hash: a URL is no file name.
+    crypto::Sha256::Digest const digest = crypto::Sha256::hash(
+        std::span<std::uint8_t const>(reinterpret_cast<std::uint8_t const*>(url.data()), url.size()));
+    std::string name;
+    for (std::size_t i = 0; i < 16; ++i) {
+        name += "0123456789abcdef"[digest[i] >> 4];
+        name += "0123456789abcdef"[digest[i] & 15];
     }
-    std::int64_t expires = now + failure_hold_seconds;
-    if (!bytes.empty()) {
-        expires = now + unnamed_hold_seconds;
-        if (std::optional<Crl> const crl = parse_crl(bytes); crl && crl->next_update)
-            expires = std::min(*crl->next_update, now + longest_hold_seconds);
+    return (std::filesystem::path(m_directory) / (name + ".crl")).string();
+}
+
+std::optional<CrlCache::Entry> CrlCache::read_kept(std::string const& url, std::int64_t now) const
+{
+    std::ifstream file(path_for(url), std::ios::binary);
+    if (!file)
+        return std::nullopt;
+    std::string magic;
+    std::string kept_url;
+    std::string expires_text;
+    std::string length_text;
+    if (!std::getline(file, magic) || magic != kept_magic || !std::getline(file, kept_url) || kept_url != url
+        || !std::getline(file, expires_text) || !std::getline(file, length_text))
+        return std::nullopt;
+    Entry entry;
+    std::size_t length = 0;
+    auto const expires_end = expires_text.data() + expires_text.size();
+    auto const length_end = length_text.data() + length_text.size();
+    if (std::from_chars(expires_text.data(), expires_end, entry.expires).ptr != expires_end
+        || std::from_chars(length_text.data(), length_end, length).ptr != length_end)
+        return std::nullopt;
+    if (now >= entry.expires || length == 0 || length > 64u * 1024u * 1024u)
+        return std::nullopt;
+    entry.bytes.resize(length);
+    if (!file.read(reinterpret_cast<char*>(entry.bytes.data()), static_cast<std::streamsize>(length)) || file.peek() != EOF)
+        return std::nullopt;
+    return entry;
+}
+
+void CrlCache::keep(std::string const& url, Entry const& entry) const
+{
+    // Written beside its place and renamed into it, so a reader never
+    // sees half a list.
+    std::error_code error;
+    std::filesystem::create_directories(m_directory, error);
+    std::string const path = path_for(url);
+    std::string const partial = path + ".part";
+    {
+        std::ofstream file(partial, std::ios::binary | std::ios::trunc);
+        if (!file)
+            return;
+        file << kept_magic << '\n' << url << '\n' << entry.expires << '\n' << entry.bytes.size() << '\n';
+        file.write(reinterpret_cast<char const*>(entry.bytes.data()), static_cast<std::streamsize>(entry.bytes.size()));
+        if (!file)
+            return;
     }
+    std::filesystem::rename(partial, path, error);
+    if (error)
+        std::filesystem::remove(partial, error);
+}
+
+std::vector<std::uint8_t> CrlCache::get(std::string const& url, std::int64_t now)
+{
+    std::string directory;
+    {
+        std::unique_lock<std::mutex> lock(m_mutex);
+        while (true) {
+            if (Entry const* const entry = find(url, now))
+                return entry->bytes;
+            if (std::find(m_in_flight.begin(), m_in_flight.end(), url) == m_in_flight.end())
+                break;
+            m_arrived.wait(lock);
+        }
+        m_in_flight.push_back(url);
+        directory = m_directory;
+    }
+    // The mark comes off on every way out, a throw included, or the
+    // handshakes waiting on this list would wait for ever.
+    struct InFlight {
+        CrlCache& cache;
+        std::string const& url;
+        ~InFlight()
+        {
+            std::lock_guard<std::mutex> const lock(cache.m_mutex);
+            std::erase(cache.m_in_flight, url);
+            cache.m_arrived.notify_all();
+        }
+    } in_flight { *this, url };
+    // Outside the lock: a download holds up only the handshakes that want
+    // the same list.
+    std::optional<Entry> found = directory.empty() ? std::nullopt : read_kept(url, now);
+    if (!found) {
+        Entry fetched;
+        if (m_fetch) {
+            {
+                std::lock_guard<std::mutex> const lock(m_mutex);
+                ++m_fetches;
+            }
+            fetched.bytes = m_fetch(url);
+        }
+        fetched.expires = now + failure_hold_seconds;
+        if (!fetched.bytes.empty()) {
+            fetched.expires = now + unnamed_hold_seconds;
+            if (std::optional<Crl> const crl = parse_crl(fetched.bytes); crl && crl->next_update)
+                fetched.expires = std::min(*crl->next_update, now + longest_hold_seconds);
+            if (!directory.empty() && fetched.expires > now)
+                keep(url, fetched);
+        }
+        found = std::move(fetched);
+    }
+    // The entry goes in before the mark comes off (InFlight's destructor
+    // runs after this), so a waiter that wakes finds it.
+    std::lock_guard<std::mutex> const lock(m_mutex);
     std::erase_if(m_entries, [&](auto const& entry) { return entry.first == url || now >= entry.second.expires; });
-    m_entries.emplace_back(url, Entry { bytes, expires });
-    return bytes;
+    m_entries.emplace_back(url, *found);
+    return found->bytes;
 }
 
 HttpFetch CrlCache::fetcher(std::int64_t now)

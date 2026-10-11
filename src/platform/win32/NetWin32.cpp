@@ -58,6 +58,10 @@ std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16
         timing->connect_ms = ms(clock::now() - resolved).count();
     if (handle == INVALID_SOCKET)
         return std::nullopt;
+    // Every write goes out at once (see NetPosix.cpp): Nagle's algorithm
+    // would hold each small write for the last one's acknowledgement.
+    BOOL const no_delay = TRUE;
+    ::setsockopt(handle, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<char const*>(&no_delay), sizeof no_delay);
     return TcpSocket(static_cast<std::uintptr_t>(handle));
 }
 

@@ -132,18 +132,17 @@ private:
     std::unordered_map<std::string, KeptSession> m_sessions;
 };
 
-// The process's revocation lists, behind one lock: the fetch pipeline is
-// synchronous, but a second thread validating a chain must not race the
-// first through the cache.
+// The process's revocation lists, kept in the folder the net layer names
+// between runs. The cache is safe across threads on its own: handshakes
+// wanting the same list share one download, and the others go on.
 tls::HttpFetch revocation_fetcher(std::int64_t now)
 {
     RevocationFetch const& fetch = revocation_fetch();
     if (!fetch)
         return nullptr;
     return [now](std::string const& url) {
-        static std::mutex mutex;
         static tls::CrlCache cache([](std::string const& at) { return revocation_fetch()(at); });
-        std::lock_guard<std::mutex> const lock(mutex);
+        cache.set_directory(revocation_directory());
         return cache.get(url, now);
     };
 }

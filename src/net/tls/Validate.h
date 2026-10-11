@@ -7,7 +7,10 @@
 #include "net/tls/X509.h"
 
 #include <cstdint>
+#include <condition_variable>
 #include <functional>
+#include <mutex>
+#include <optional>
 #include <span>
 #include <string>
 #include <vector>
@@ -39,6 +42,13 @@ bool host_matches(std::string const& presented, std::string const& host);
 // asked once per list and not once per connection; a fetch that came back
 // empty is remembered for ten minutes, so a point that is down does not
 // slow every handshake to its timeout. The fetch given does the HTTP.
+//
+// With a folder set, each list fetched is also written there and read back
+// by the next run until the same expiry, as the operating systems' own
+// validators keep theirs (Windows' CryptnetUrlCache), so a browser start
+// does not download every CA's list again; failures stay in memory only.
+// Safe from several threads: handshakes wanting the same list share its
+// one download, and a download blocks only the handshakes waiting on it.
 class CrlCache {
 public:
     explicit CrlCache(HttpFetch fetch)
@@ -46,13 +56,16 @@ public:
     {
     }
 
+    // Where the lists are kept between runs; empty keeps them in memory.
+    void set_directory(std::string directory);
+
     // The bytes of the list at `url` as of `now` (seconds since the epoch),
-    // from the cache or the network; empty when neither has it.
+    // from the cache, the folder or the network; empty when none has it.
     std::vector<std::uint8_t> get(std::string const& url, std::int64_t now);
     // A fetcher over this cache, for validate_chain.
     HttpFetch fetcher(std::int64_t now);
 
-    std::size_t fetches() const { return m_fetches; }
+    std::size_t fetches() const;
 
     static constexpr std::int64_t longest_hold_seconds = 24 * 60 * 60;
     static constexpr std::int64_t unnamed_hold_seconds = 60 * 60;
@@ -63,8 +76,17 @@ private:
         std::vector<std::uint8_t> bytes;
         std::int64_t expires = 0;
     };
+    Entry const* find(std::string const& url, std::int64_t now) const; // under m_mutex
+    std::optional<Entry> read_kept(std::string const& url, std::int64_t now) const;
+    void keep(std::string const& url, Entry const& entry) const;
+    std::string path_for(std::string const& url) const;
+
     HttpFetch m_fetch;
+    mutable std::mutex m_mutex;
+    std::condition_variable m_arrived;
     std::vector<std::pair<std::string, Entry>> m_entries;
+    std::vector<std::string> m_in_flight; // URLs being fetched now
+    std::string m_directory;
     std::size_t m_fetches = 0;
 };
 

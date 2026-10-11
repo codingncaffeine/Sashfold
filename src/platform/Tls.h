@@ -70,4 +70,10 @@ using RevocationFetch = std::function<std::vector<std::uint8_t>(std::string cons
 void set_revocation_fetch(RevocationFetch fetch);
 RevocationFetch const& revocation_fetch();
 
+// Where a backend that keeps revocation lists itself (Linux) writes them so
+// the next run reads them instead of downloading them again; empty keeps
+// them in memory. Windows' validator keeps its own (CryptnetUrlCache).
+void set_revocation_directory(std::string directory);
+std::string revocation_directory();
+
 }

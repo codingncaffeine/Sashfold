@@ -21,6 +21,7 @@
 #include "platform/Clipboard.h"
 #include "platform/Memory.h"
 #include "platform/MemoryWatch.h"
+#include "platform/Tls.h"
 #include "platform/Window.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
@@ -199,14 +200,28 @@ int font_list()
     return 0;
 }
 
-int fetch_url(std::string const& input)
+int fetch_url(std::string const& input, std::optional<std::string> const& profile)
 {
     auto const url = net::parse_url(input);
     if (!url) {
         std::cerr << "error: unparseable URL " << input << "\n";
         return 1;
     }
+    // With a profile, the revocation lists it keeps are read and kept, as
+    // the window does; without one, every list is fetched afresh.
+    if (profile)
+        platform::set_revocation_directory((std::filesystem::path(*profile) / "cache" / "revocation").string());
+    auto const started = std::chrono::steady_clock::now();
     net::FetchResult result = net::fetch(*url);
+    double const wall_ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+    // What the fetch cost, step by step, on stderr in one line a script can
+    // read beside curl's --write-out (the request path's instrument).
+    net::FetchTiming const& t = result.timing;
+    std::cerr << "timing: resolve " << t.resolve_ms << " connect " << t.connect_ms << " tls " << t.tls_ms
+              << " first_byte " << t.first_byte_ms << " body " << t.body_ms << " wall " << wall_ms
+              << " requests " << t.requests << " http2 " << t.http2 << " bytes " << t.bytes;
+    net::RevocationStats const crl = net::revocation_stats();
+    std::cerr << " crl_fetches " << crl.fetches << " crl_ms " << crl.ms << " crl_bytes " << crl.bytes << "\n";
     if (!result.response) {
         std::cerr << "error: " << result.error << "\n";
         return 1;
@@ -2071,6 +2086,10 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // there, and a page that has not changed costs a conditional request.
     if (!profile_path.empty())
         loader.cache().set_directory((profile_path / "cache").string());
+    // The certificate revocation lists beside it, so a start does not fetch
+    // every CA's list again inside its first handshakes.
+    if (!profile_path.empty())
+        platform::set_revocation_directory((profile_path / "cache" / "revocation").string());
     // And the pages' IndexedDB databases, each written as it commits.
     if (!profile_path.empty())
         browser.set_storage_directory((profile_path / "storage").string());
@@ -2623,7 +2642,9 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             << ", \"max\": " << (sorted.empty() ? 0.0 : sorted.back()) << " },\n"
             << "  \"shell\": " << profile_json(profile_since(browser.profile(), base_profile)) << ",\n"
             << "  \"engine\": " << engine_json(browser.engine_account()) << ",\n"
-            << "  \"network\": " << census_json(loader.census()) << "\n}\n";
+            << "  \"network\": " << census_json(loader.census()) << ",\n"
+            << "  \"revocation\": { \"fetches\": " << net::revocation_stats().fetches << ", \"ms\": "
+            << net::revocation_stats().ms << ", \"bytes\": " << net::revocation_stats().bytes << " }\n}\n";
         if (!out) {
             std::cerr << "error: could not write " << timings_path << "\n";
             return 1;
@@ -2888,7 +2909,7 @@ int main(int argc, char** argv)
         return import_theme(input,
             output_given ? output : user_themes_directory(profile.value_or(default_profile_directory())));
     if (mode == "--fetch")
-        return fetch_url(input);
+        return fetch_url(input, profile);
     if (mode == "--dump-dom")
         return dump_dom(input);
     if (mode == "--font-sampler")

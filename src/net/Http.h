@@ -227,6 +227,15 @@ struct FetchResult {
 // The choke point.
 FetchResult fetch(Url const& url, FetchOptions const& options = {});
 
+// What the process's revocation-list downloads have cost so far: each is
+// made from inside a handshake, so its time is part of that handshake's.
+struct RevocationStats {
+    int fetches = 0;
+    double ms = 0;
+    std::size_t bytes = 0;
+};
+RevocationStats revocation_stats();
+
 std::string const* find_header(std::vector<Header> const& headers, std::string_view name);
 // Every value of a field the response may carry more than once.
 std::vector<std::string> header_values(std::vector<Header> const& headers, std::string_view name);

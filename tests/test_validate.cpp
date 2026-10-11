@@ -11,11 +11,16 @@
 #include "net/tls/X509.h"
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
 #include <cstdint>
+#include <filesystem>
 #include <fstream>
 #include <iterator>
 #include <optional>
+#include <stdexcept>
 #include <string>
+#include <thread>
 #include <vector>
 
 using namespace sashfold;
@@ -186,6 +191,146 @@ void test_crl_cache()
     }
 }
 
+// The lists kept on disk, as the operating systems' validators keep theirs:
+// a second run over the same folder fetches nothing until the list's own
+// nextUpdate; a failure and a damaged file are never taken for a list.
+void test_crl_cache_on_disk()
+{
+    std::string const crl = read_file("inter.crl");
+    std::vector<std::uint8_t> const crl_bytes(crl.begin(), crl.end());
+    std::optional<tls::Crl> const parsed = tls::parse_crl(crl_bytes);
+    std::int64_t const next_update = parsed && parsed->next_update ? *parsed->next_update : now + 1;
+    std::int64_t const held_until = std::min(next_update, now + tls::CrlCache::longest_hold_seconds);
+    std::string const url = "http://crl.sashfold.test/inter.crl";
+    std::error_code ignored;
+    // A folder of this run's own, emptied first.
+    std::filesystem::path const folder = std::filesystem::temp_directory_path(ignored)
+        / ("sashfold-test-crl-cache-" + std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
+    std::filesystem::remove_all(folder, ignored);
+    std::size_t asked = 0;
+    auto const fetch = [&](std::string const& at) {
+        ++asked;
+        return at == url ? crl_bytes : std::vector<std::uint8_t> {};
+    };
+    {
+        tls::CrlCache first(fetch);
+        first.set_directory(folder.string());
+        CHECK(first.get(url, now) == crl_bytes);
+        CHECK_EQ(asked, std::size_t(1));
+    }
+    {
+        tls::CrlCache second(fetch);
+        second.set_directory(folder.string());
+        CHECK(second.get(url, now + 60) == crl_bytes);
+        CHECK_EQ(second.fetches(), std::size_t(0));
+        CHECK(second.get(url, held_until - 1) == crl_bytes);
+        CHECK_EQ(second.fetches(), std::size_t(0));
+    }
+    {
+        // At the list's nextUpdate the kept copy is spent.
+        tls::CrlCache third(fetch);
+        third.set_directory(folder.string());
+        CHECK(third.get(url, held_until) == crl_bytes);
+        CHECK_EQ(third.fetches(), std::size_t(1));
+    }
+    // A point that answered nothing leaves nothing on disk.
+    std::string const down = "http://crl.sashfold.test/down.crl";
+    {
+        tls::CrlCache cache(fetch);
+        cache.set_directory(folder.string());
+        CHECK(cache.get(down, now).empty());
+    }
+    {
+        tls::CrlCache cache(fetch);
+        cache.set_directory(folder.string());
+        CHECK(cache.get(down, now).empty());
+        CHECK_EQ(cache.fetches(), std::size_t(1));
+    }
+    // A damaged file is fetched over, never served.
+    std::size_t damaged = 0;
+    for (auto const& entry : std::filesystem::directory_iterator(folder, ignored)) {
+        std::ofstream(entry.path(), std::ios::binary | std::ios::trunc) << "not a list";
+        ++damaged;
+    }
+    CHECK_EQ(damaged, std::size_t(1));
+    {
+        tls::CrlCache cache(fetch);
+        cache.set_directory(folder.string());
+        CHECK(cache.get(url, now) == crl_bytes);
+        CHECK_EQ(cache.fetches(), std::size_t(1));
+    }
+    std::filesystem::remove_all(folder, ignored);
+}
+
+// Handshakes on several threads: those wanting one list share its one
+// download, and those wanting different lists do not queue behind each
+// other. Each download takes `slow`; the band is one download's time at
+// least and less than two.
+void test_crl_cache_concurrency()
+{
+    using clock = std::chrono::steady_clock;
+    auto const slow = std::chrono::milliseconds(200);
+    std::atomic<int> downloads { 0 };
+    tls::CrlCache cache([&](std::string const& at) {
+        ++downloads;
+        std::this_thread::sleep_for(slow);
+        return std::vector<std::uint8_t>(at.begin(), at.end());
+    });
+    {
+        auto const started = clock::now();
+        std::vector<std::thread> threads;
+        std::atomic<int> right { 0 };
+        for (int i = 0; i < 4; ++i) {
+            threads.emplace_back([&] {
+                std::vector<std::uint8_t> const got = cache.get("http://crl.sashfold.test/same.crl", now);
+                if (std::string(got.begin(), got.end()) == "http://crl.sashfold.test/same.crl")
+                    ++right;
+            });
+        }
+        for (std::thread& thread : threads)
+            thread.join();
+        auto const took = clock::now() - started;
+        CHECK_EQ(downloads.load(), 1);
+        CHECK_EQ(right.load(), 4);
+        CHECK(took >= slow);
+        CHECK(took < 2 * slow);
+    }
+    {
+        downloads = 0;
+        auto const started = clock::now();
+        std::thread a([&] { cache.get("http://crl.sashfold.test/a.crl", now); });
+        std::thread b([&] { cache.get("http://crl.sashfold.test/b.crl", now); });
+        a.join();
+        b.join();
+        auto const took = clock::now() - started;
+        CHECK_EQ(downloads.load(), 2);
+        CHECK(took >= slow);
+        CHECK(took < 2 * slow);
+    }
+    // A download that throws leaves no list marked as on its way: the next
+    // handshake that wants it asks again instead of waiting for ever.
+    {
+        int calls = 0;
+        tls::CrlCache throwing([&](std::string const&) -> std::vector<std::uint8_t> {
+            if (++calls == 1)
+                throw std::runtime_error("the point broke");
+            return { 1, 2, 3 };
+        });
+        bool threw = false;
+        try {
+            throwing.get("http://crl.sashfold.test/broken.crl", now);
+        } catch (std::runtime_error const&) {
+            threw = true;
+        }
+        CHECK(threw);
+        std::vector<std::uint8_t> got;
+        std::thread again([&] { got = throwing.get("http://crl.sashfold.test/broken.crl", now); });
+        again.join();
+        CHECK(got == std::vector<std::uint8_t>({ 1, 2, 3 }));
+        CHECK_EQ(calls, 2);
+    }
+}
+
 }
 
 int main(int argc, char** argv)
@@ -201,5 +346,7 @@ int main(int argc, char** argv)
     test_name_constraints();
     test_revocation();
     test_crl_cache();
+    test_crl_cache_on_disk();
+    test_crl_cache_concurrency();
     return sashfold::test::report("validate");
 }

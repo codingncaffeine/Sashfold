@@ -8,6 +8,7 @@
 #include <fcntl.h>
 #include <netdb.h>
 #include <netinet/in.h>
+#include <netinet/tcp.h>
 #include <poll.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -84,6 +85,12 @@ std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16
         timing->connect_ms = ms(clock::now() - resolved).count();
     if (handle < 0)
         return std::nullopt;
+    // Every write goes out at once, as curl's and every browser's do: with
+    // Nagle's algorithm a small write waits for the peer to acknowledge the
+    // last one, so the HTTP/2 preface, the request after it and each TLS
+    // record that follows a handshake flight cost a round trip apiece.
+    int const no_delay = 1;
+    ::setsockopt(handle, IPPROTO_TCP, TCP_NODELAY, &no_delay, sizeof no_delay);
     return TcpSocket(static_cast<std::uintptr_t>(handle));
 }
 

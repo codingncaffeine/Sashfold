@@ -14,6 +14,7 @@
 #include <chrono>
 #include <cstdlib>
 #include <memory>
+#include <mutex>
 #include <utility>
 #include <variant>
 
@@ -399,6 +400,9 @@ std::optional<std::vector<std::uint8_t>> decode_content_prefix(std::string_view 
 
 namespace {
 
+std::mutex revocation_stats_mutex;
+RevocationStats revocation_totals;
+
 // The revocation lists a chain's validation asks for come over plain HTTP
 // through this same client: installed on the platform seam once, by the
 // first fetch of the process. Such a fetch carries no cookies, no cache and
@@ -417,7 +421,14 @@ void install_revocation_fetch()
             options.follow_redirects = false;
             options.receive_timeout_ms = 5000;
             options.headers.push_back({ "Accept", "application/pkix-crl, */*;q=0.1" });
+            auto const started = std::chrono::steady_clock::now();
             FetchResult result = fetch(*url, options);
+            {
+                std::lock_guard<std::mutex> const lock(revocation_stats_mutex);
+                ++revocation_totals.fetches;
+                revocation_totals.ms += std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - started).count();
+                revocation_totals.bytes += result.timing.bytes;
+            }
             if (!result.response || result.response->status != 200)
                 return {};
             return std::move(result.response->body);
@@ -427,6 +438,12 @@ void install_revocation_fetch()
     static_cast<void>(installed);
 }
 
+}
+
+RevocationStats revocation_stats()
+{
+    std::lock_guard<std::mutex> const lock(revocation_stats_mutex);
+    return revocation_totals;
 }
 
 void FetchTiming::add(FetchTiming const& other)
