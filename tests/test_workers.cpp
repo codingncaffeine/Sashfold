@@ -511,7 +511,8 @@ void test_a_windows_error_event()
     page.settle();
     CHECK_EQ(page.string("seen.join()"), std::string("ErrorEvent:Uncaught SyntaxError: from a timer:true:true"));
     CHECK(page.console.find("error:Uncaught SyntaxError: from a timer") != std::string::npos);
-    // onerror's five parts; true from it keeps the console quiet, and the listeners still hear.
+    // onerror's five parts; true from it keeps the console quiet, and the listeners still hear,
+    // the one added before onerror was set first.
     page.console.clear();
     page.eval(R"js(
         seen = [];
@@ -519,7 +520,7 @@ void test_a_windows_error_event()
         setTimeout(function () { throw new Error('second'); }, 0);
     )js");
     page.settle();
-    CHECK_EQ(page.string("seen.join(' | ')"), std::string("handler 5 second | ErrorEvent:Uncaught Error: second:false:true"));
+    CHECK_EQ(page.string("seen.join(' | ')"), std::string("ErrorEvent:Uncaught Error: second:false:true | handler 5 second"));
     CHECK_EQ(page.console, std::string(""));
     // One thrown while an error is being reported is said, not reported again.
     page.eval("window.onerror = function () { throw new Error('inside onerror'); }; setTimeout(function () { throw new Error('third'); }, 0);");

@@ -901,7 +901,7 @@ void test_document_ready_states_and_load_events()
         window.onload = function () { log.push('onload'); };
         document.addEventListener('load', function () { log.push('doc-load-should-not-fire'); });
     </script></head><body onunload="" onload="log.push('body-onload:' + (this === window))"><p>hi</p><script>log.push('inline:' + document.readyState);</script></body></html>)HTML");
-    CHECK_EQ(page->string("log.join(' ')"), "loading inline:loading rs:interactive dcl:true:true rs:complete onload load:true:complete");
+    CHECK_EQ(page->string("log.join(' ')"), "loading inline:loading rs:interactive dcl:true:true rs:complete load:true:complete onload");
     CHECK_EQ(page->realm->ready_state(), "complete");
     CHECK_EQ(page->console, "");
 }
@@ -1187,6 +1187,26 @@ void test_window_location_url_storage_navigator()
     CHECK(page->boolean("navigator.userAgent === 'Mozilla/5.0 TestAgent Sashfold/0.0' && navigator.language === 'en-US' && navigator.languages.length === 2 && navigator.onLine && navigator.cookieEnabled && !('serviceWorker' in navigator)"));
     CHECK(page->boolean("innerWidth === 1024 && innerHeight === 768 && screen.width === 1024 && devicePixelRatio === 1"));
     CHECK(page->boolean("matchMedia('(min-width: 500px)').matches && !matchMedia('(max-width: 500px)').matches && matchMedia('screen').media === 'screen'"));
+    // A MediaQueryList answers for the viewport as it is, and when the host
+    // says the window changed size the window hears resize and each list
+    // whose answer moved hears change, by either way of listening.
+    page->eval(R"JS(
+        var heard = [];
+        var narrow = matchMedia('(max-width: 600px)'), wide = matchMedia('(min-width: 900px)');
+        narrow.addEventListener('change', function (e) { heard.push('narrow ' + e.matches + ' ' + (e instanceof MediaQueryListEvent) + ' ' + e.media); });
+        wide.addListener(function (e) { heard.push('wide ' + e.matches); });
+        wide.onchange = function () { heard.push('handler'); };
+        addEventListener('resize', function () { heard.push('resize ' + innerWidth); });
+    )JS");
+    page->realm->viewport_changed(500, 400);
+    CHECK_EQ(page->string("heard.join(', ')"), "");
+    while (page->realm->run_pending()) {
+    }
+    CHECK_EQ(page->string("heard.join(', ')"), "resize 500, narrow true true (max-width: 600px), wide false, handler");
+    CHECK(page->boolean("narrow.matches && !wide.matches && innerHeight === 400"));
+    page->realm->viewport_changed(1024, 768);
+    while (page->realm->run_pending()) {
+    }
     CHECK(page->boolean("typeof fetch === 'function' && typeof XMLHttpRequest === 'function' && typeof Promise === 'function'"));
     // Promise reactions and queueMicrotask share the checkpoint's queue.
     page->eval("var order = []; Promise.resolve().then(function () { order.push('reaction'); }); queueMicrotask(function () { order.push('microtask'); }); order.push('sync');");

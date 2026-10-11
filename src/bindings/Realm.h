@@ -488,6 +488,12 @@ public:
     // called preventDefault on a cancelable event: the host then skips
     // the default action.
     bool dispatch_event(dom::Node* target, std::string_view type, EventInit init = {});
+    // The host's window (or what it shows the page in) has another size, in
+    // CSS px: innerWidth and the media queries read it from now, and a task
+    // fires resize at the window and change at each MediaQueryList whose
+    // answer moved (HTML §8.1.7.3 "run the resize steps", "evaluate media
+    // queries and report changes").
+    void viewport_changed(float width, float height);
     // A form the reader submits (a submit button pressed, Enter in a field):
     // its constraints checked interactively unless it or the submitter says
     // novalidate, then a SubmitEvent the page may cancel. False when the

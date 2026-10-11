@@ -3645,6 +3645,11 @@ struct Browser::Impl {
             || tab.laid_out_scale != scale) {
             restyle(tab, true);
             relayout(tab);
+            // The page hears of it: innerWidth, resize, its media queries.
+            if (tab.realm) {
+                css::MediaContext const media = media_context();
+                tab.realm->viewport_changed(static_cast<float>(to_css_px(media.width)), static_cast<float>(to_css_px(media.height)));
+            }
             if (&tab == active_tab())
                 refresh_hover();
             dirty = true;

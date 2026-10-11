@@ -224,12 +224,20 @@ void invoke(Realm::Internals& in, js::Object* target, EventObject& event, EventO
                 ids.push_back(entry.listener.id);
         }
     }
-    if (!capture)
-        call_handler(in, target, event);
-    if (event.stop_immediate || list == nullptr)
-        return;
+    // The handler runs where its listener stands: after the listeners added
+    // before a script first set it (listener ids grow as they are added).
+    std::uint64_t handler_at = 0;
+    if (HandlerMap* const handlers = capture ? nullptr : in.handlers_of(target)) {
+        if (auto const found = handlers->find(event.type); found != handlers->end())
+            handler_at = found->second.position;
+    }
+    bool handler_done = capture;
     js::Interpreter& interpreter = in.interpreter;
     for (std::uint64_t const id : ids) {
+        if (!handler_done && id > handler_at) {
+            handler_done = true;
+            call_handler(in, target, event);
+        }
         if (event.stop_immediate)
             break;
         list = in.listeners_of(target);
@@ -265,6 +273,8 @@ void invoke(Realm::Internals& in, js::Object* target, EventObject& event, EventO
         if (interpreter.terminated())
             break;
     }
+    if (!handler_done && !event.stop_immediate && !interpreter.terminated())
+        call_handler(in, target, event);
 }
 
 // The listener options: a boolean is `capture`; an object carries the
@@ -1159,6 +1169,13 @@ Native event_handler_setter(js::Interpreter& interpreter, js::Value const& this_
     handler.from_attribute = false;
     if (value.is_object())
         handler.function = value; // a callable, or an object the spec keeps and never calls
+    // A handler set where none was takes its place after the listeners
+    // already there; one replaced keeps the place it had.
+    if (handler.function.is_object()) {
+        auto const was = map->find(type);
+        bool const placed = was != map->end() && was->second.function.is_object() && !was->second.from_attribute;
+        handler.position = placed ? was->second.position : internals.next_listener_id++;
+    }
     (*map)[type] = handler;
     return js::Value::undefined();
 }

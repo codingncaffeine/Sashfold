@@ -527,6 +527,76 @@ css::MediaContext media_context(Realm::Internals& in)
     return css::MediaContext { in.hooks.viewport_width * scale, in.hooks.viewport_height * scale, scale };
 }
 
+// A MediaQueryList: its query, and the answer its last change event (or its
+// making) gave, which the next evaluation compares with.
+class MediaQueryListObject final : public EventTargetObject {
+public:
+    MediaQueryListObject(js::Object* prototype, std::string the_media, bool matches)
+        : EventTargetObject(prototype)
+        , media(std::move(the_media))
+        , last_matches(matches)
+    {
+    }
+    std::string media;
+    bool last_matches;
+};
+
+MediaQueryListObject* media_query_list_this(js::Interpreter& interp, js::Value const& this_value)
+{
+    auto* const self = this_value.is_object() ? dynamic_cast<MediaQueryListObject*>(this_value.as_object()) : nullptr;
+    if (self == nullptr)
+        interp.throw_type_error("Illegal invocation");
+    return self;
+}
+
+// addListener(callback) is addEventListener("change", callback), and
+// removeListener the same for its removal.
+Native forward_listener(js::Interpreter& interp, js::Value const& this_value, Args args, std::string_view method)
+{
+    if (media_query_list_this(interp, this_value) == nullptr)
+        return std::nullopt;
+    js::Value const callback = js::argument(args, 0);
+    if (callback.is_null())
+        return js::Value::undefined();
+    std::optional<js::Value> const function = interp.get(js::Value::object(internals_of(interp).prototype("EventTarget")), method);
+    if (!function)
+        return std::nullopt;
+    js::Interpreter::Roots const roots(interp);
+    js::Value const arguments[] = { interp.root(internals_of(interp).string("change")), callback };
+    if (!interp.call(*function, this_value, arguments))
+        return std::nullopt;
+    return js::Value::undefined();
+}
+
+// "Evaluate media queries and report changes" (CSSOM View §4.2): each list
+// whose answer is not the one it last gave hears change, in the order the
+// lists were made.
+void evaluate_media_queries(Realm::Internals& in)
+{
+    if (in.media_query_lists.empty() || in.ended)
+        return;
+    Realm::Internals::HostEntry const host(in.agent);
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
+    css::MediaContext const context = media_context(in);
+    std::vector<EventTargetObject*> const lists = in.media_query_lists;
+    js::Interpreter::Roots const roots(in.interpreter);
+    for (EventTargetObject* const kept : lists) {
+        in.interpreter.root(js::Value::object(kept));
+        auto& list = static_cast<MediaQueryListObject&>(*kept);
+        bool const matches = css::media_query_matches(list.media, context);
+        if (matches == list.last_matches)
+            continue;
+        list.last_matches = matches;
+        if (list.listeners.empty() && list.handlers.empty())
+            continue;
+        EventObject* const event = in.new_event("MediaQueryListEvent", "change", false, false);
+        in.interpreter.root(js::Value::object(event));
+        event->is_trusted = true;
+        event->members = { js::Value::boolean(matches), in.string(list.media) };
+        in.dispatch(*event, &list);
+    }
+}
+
 // --- Observers ---------------------------------------------------------------------------------
 
 // An observer object: the callback it was made with, delivered once per
@@ -1254,21 +1324,43 @@ void install_window(Realm::Internals& in)
         return internals.string(out);
     });
     define_operation(interpreter, *global, "structuredClone", 1, structured_clone);
+    // matchMedia (CSSOM View §4.2): a MediaQueryList whose matches is the
+    // query's answer now, and which hears change when that answer moves.
     define_operation(interpreter, *global, "matchMedia", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
-        std::optional<std::string> const query = internals.to_utf8(js::argument(args, 0));
+        std::optional<std::string> query = internals.to_utf8(js::argument(args, 0));
         if (!query)
             return std::nullopt;
-        js::Heap::NoCollect const no_collect(interp.heap());
-        auto* list = interp.heap().allocate<EventTargetObject>(internals.prototype("MediaQueryList"));
-        list->put(interp.key("media"), internals.string(*query), js::Enumerable);
-        list->put(interp.key("matches"), js::Value::boolean(css::media_query_matches(*query, media_context(internals))), js::Enumerable);
-        list->put(interp.key("onchange"), js::Value::null(), js::default_attributes);
+        bool const matches = css::media_query_matches(*query, media_context(internals));
+        auto* list = interp.heap().allocate<MediaQueryListObject>(internals.prototype("MediaQueryList"), std::move(*query), matches);
+        // The long list lets go of those nothing listens to: they can hear
+        // no change, and their matches is answered when it is read.
+        if (internals.media_query_lists.size() >= 64) {
+            std::erase_if(internals.media_query_lists, [](EventTargetObject* kept) { return kept->listeners.empty() && kept->handlers.empty(); });
+        }
+        internals.media_query_lists.push_back(list);
         return js::Value::object(list);
     });
     js::Object* media_query_list = define_interface(in, "MediaQueryList", in.prototype("EventTarget"));
-    for (std::string_view const name : { "addListener", "removeListener" })
-        define_operation(interpreter, *media_query_list, name, 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
+    define_getter(in, *media_query_list, "media", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        MediaQueryListObject* const self = media_query_list_this(interp, this_value);
+        return self == nullptr ? Native(std::nullopt) : Native(internals_of(interp).string(self->media));
+    });
+    define_getter(in, *media_query_list, "matches", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        MediaQueryListObject* const self = media_query_list_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        return js::Value::boolean(css::media_query_matches(self->media, media_context(internals_of(interp))));
+    });
+    // addListener and removeListener: addEventListener("change") and its
+    // removal under the old names.
+    for (bool const adding : { true, false }) {
+        define_operation(interpreter, *media_query_list, adding ? "addListener" : "removeListener", 1,
+            adding ? +[](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native { return forward_listener(interp, this_value, args, "addEventListener"); }
+                   : +[](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native { return forward_listener(interp, this_value, args, "removeEventListener"); });
+    }
+    static constexpr std::string_view media_query_list_event_types[] = { "change" };
+    define_event_handlers(in, *media_query_list, media_query_list_event_types);
     define_operation(interpreter, *global, "getSelection", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Heap::NoCollect const no_collect(interp.heap());
@@ -2136,6 +2228,19 @@ void install_window(Realm::Internals& in)
     for (std::string_view const method : { "AddSearchProvider", "IsSearchProviderInstalled" })
         define_operation(interpreter, *external_proto, method, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
     global->put(interpreter.key("external"), js::Value::object(interpreter.new_object(external_proto)), js::builtin_attributes);
+}
+
+void Realm::viewport_changed(float width, float height)
+{
+    Internals& in = *m_internals;
+    if (in.ended || (in.hooks.viewport_width == width && in.hooks.viewport_height == height))
+        return;
+    in.hooks.viewport_width = width;
+    in.hooks.viewport_height = height;
+    in.post_task([&in] {
+        in.realm.dispatch_event(nullptr, "resize");
+        evaluate_media_queries(in);
+    });
 }
 
 }

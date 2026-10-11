@@ -4303,6 +4303,8 @@ void Realm::trace_roots(js::Tracer& tracer)
     for (auto const& [url, source] : in.media_source_urls)
         tracer.visit(source);
     trace_custom_elements(in, tracer);
+    for (EventTargetObject* const list : in.media_query_lists)
+        tracer.visit(list);
     trace_mutation_observers(in, tracer);
     trace_intersection_observers(in, tracer);
     trace_animations(in, tracer);

@@ -59,6 +59,10 @@ struct EventHandler {
     // one in the active document): the check of the body's own attribute
     // leaves it alone; the attribute's removal clears it.
     bool from_another_body = false;
+    // Where its listener stands among the target's listeners (HTML §8.1.8.1,
+    // "activate an event handler"): the listener id it took when a script
+    // first set it; 0, first of all, for one compiled from an attribute.
+    std::uint64_t position = 0;
 };
 
 using HandlerMap = std::unordered_map<std::string, EventHandler>;
@@ -1119,6 +1123,10 @@ struct Realm::Internals {
     // order it defined them. Held by pointer so that a definition's address
     // stands still while an element it upgraded points at it.
     std::vector<std::shared_ptr<CustomElementDefinition>> custom_element_definitions;
+    // The MediaQueryLists a page made (Window.cpp), whose answers are
+    // compared after a change of the media: those with no listener left go
+    // when the list is long.
+    std::vector<EventTargetObject*> media_query_lists;
     // What each form-associated custom element was last told (ElementInternals
     // .cpp): its form owner and whether it was disabled, so that a change
     // reaches its formAssociatedCallback and formDisabledCallback once.
