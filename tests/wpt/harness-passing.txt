@@ -5314,8 +5314,6 @@ css/css-cascade/layer-basic.html	E2 Statement syntax
 css/css-cascade/layer-basic.html	E3 Statement syntax
 css/css-cascade/layer-basic.html	E4 Statement syntax
 css/css-cascade/layer-basic.html	E5 Statement syntax
-css/css-cascade/layer-cssom-order-reverse-at-property.html	Delete layer invalidates @property
-css/css-cascade/layer-cssom-order-reverse-at-property.html	Insert layer invalidates @property
 css/css-cascade/layer-cssom-order-reverse.html	Delete layer invalidates style
 css/css-cascade/layer-cssom-order-reverse.html	Insert layer invalidates style
 css/css-cascade/layer-font-face-override.html	@font-face unlayered overrides layered

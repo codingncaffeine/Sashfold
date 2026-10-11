@@ -15,6 +15,7 @@
 #include "css/Token.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <string>
 #include <string_view>
@@ -1167,13 +1168,98 @@ constexpr std::string_view computed_longhands[] = { "align-content", "align-item
     "transition-behavior", "transition-delay", "transition-duration", "transition-property", "transition-timing-function",
     "visibility", "white-space", "width", "word-break", "word-spacing", "z-index" };
 
+// Whether getComputedStyle's second argument leaves a style to answer
+// (CSSOM §9.1): one that does not start with a colon is ignored, so the
+// element's own style is the answer; one that does must be a pseudo-element
+// selector naming a pseudo-element the engine knows — the legacy four with
+// one colon, the rest with two, and the functional ones with one identifier
+// inside, written as CSS tokenizes it (spaces inside, escapes, a closing
+// parenthesis the end of the text may stand in for). Prefixed names, an
+// argument a name does not take and anything after the selector fail.
+bool computed_style_pseudo_ok(std::string_view text)
+{
+    if (text.empty() || text.front() != ':')
+        return true;
+    std::size_t at = 0;
+    auto const ident = [&](std::string& out) {
+        out.clear();
+        while (at < text.size()) {
+            unsigned char const c = static_cast<unsigned char>(text[at]);
+            if (c == '\\' && at + 1 < text.size() && text[at + 1] != '\n') {
+                ++at;
+                std::size_t digits = 0;
+                unsigned code = 0;
+                while (at < text.size() && digits < 6 && std::isxdigit(static_cast<unsigned char>(text[at]))) {
+                    char const h = text[at];
+                    code = code * 16 + static_cast<unsigned>(h <= '9' ? h - '0' : (h | 0x20) - 'a' + 10);
+                    ++at;
+                    ++digits;
+                }
+                if (digits == 0) {
+                    out += text[at++];
+                } else {
+                    if (at < text.size() && (text[at] == ' ' || text[at] == '\t' || text[at] == '\n'))
+                        ++at;
+                    out += code < 0x80 ? static_cast<char>(code) : '?';
+                }
+            } else if (std::isalnum(c) || c == '-' || c == '_' || c >= 0x80) {
+                out += static_cast<char>(c >= 'A' && c <= 'Z' ? c + 32 : c);
+                ++at;
+            } else {
+                break;
+            }
+        }
+        // A digit, or a hyphen and a digit, cannot start an identifier.
+        return !out.empty() && !std::isdigit(static_cast<unsigned char>(out[0]))
+            && !(out[0] == '-' && out.size() > 1 && std::isdigit(static_cast<unsigned char>(out[1]))) && out != "-";
+    };
+    auto const spaces = [&] {
+        while (at < text.size() && (text[at] == ' ' || text[at] == '\t' || text[at] == '\n' || text[at] == '\r' || text[at] == '\f'))
+            ++at;
+    };
+    bool const two = text.size() > 1 && text[1] == ':';
+    at = two ? 2 : 1;
+    std::string name;
+    if (!ident(name))
+        return false;
+    if (!two)
+        return at == text.size() && (name == "before" || name == "after" || name == "first-line" || name == "first-letter");
+    static constexpr std::string_view plain[] = { "before", "after", "marker", "placeholder", "first-line", "first-letter",
+        "selection", "backdrop", "file-selector-button", "target-text", "spelling-error", "grammar-error" };
+    static constexpr std::string_view functional[] = { "highlight", "picker", "view-transition-group",
+        "view-transition-image-pair", "view-transition-old", "view-transition-new" };
+    if (at == text.size())
+        return std::find(std::begin(plain), std::end(plain), name) != std::end(plain);
+    if (text[at] != '(' || std::find(std::begin(functional), std::end(functional), name) == std::end(functional))
+        return false;
+    ++at;
+    spaces();
+    std::string argument;
+    if (!ident(argument))
+        return false;
+    spaces();
+    if (at < text.size()) {
+        if (text[at] != ')')
+            return false;
+        ++at;
+    }
+    if (at != text.size())
+        return false;
+    return name != "picker" || argument == "select";
+}
+
 // What a computed style's length counts and item() names: the longhands,
 // then the custom properties the element sees.
 std::vector<std::string> computed_names(Realm::Internals& in, StyleDeclarationObject const& style)
 {
-    std::vector<std::string> names(std::begin(computed_longhands), std::end(computed_longhands));
+    // No style at all — an element outside the document or the flat tree,
+    // a pseudo-element that is not one — lists nothing, as its every
+    // property reads "" (CSSOM §9: the declarations are empty).
     css::ComputedStyle const* const computed = in.hooks.computed_style && style.element() ? in.hooks.computed_style(*style.element()) : nullptr;
-    if (computed && computed->custom) {
+    if (!computed)
+        return {};
+    std::vector<std::string> names(std::begin(computed_longhands), std::end(computed_longhands));
+    if (computed->custom) {
         std::vector<std::string> custom;
         custom_property_names(*computed->custom, custom);
         std::sort(custom.begin(), custom.end());
@@ -1809,6 +1895,15 @@ void install_style(Realm::Internals& in)
         dom::Node* node = internals.realm.node_of(js::argument(args, 0));
         if (!node || !node->is_element())
             return interp.throw_type_error("Failed to execute 'getComputedStyle' on 'Window': parameter 1 is not of type 'Element'.");
+        // A pseudo-element named that is not one gives a style with nothing
+        // in it (CSSOM §9.1). One that is gives, for now, the element's own.
+        if (args.size() > 1 && !args[1].is_nullish()) {
+            std::optional<std::string> const pseudo = internals.to_utf8(args[1]);
+            if (!pseudo)
+                return std::nullopt;
+            if (!computed_style_pseudo_ok(*pseudo))
+                return make_style_declaration(internals, nullptr, true);
+        }
         return make_style_declaration(internals, static_cast<dom::Element*>(node), true);
     });
 

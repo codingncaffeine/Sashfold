@@ -3889,6 +3889,47 @@ window.listed = [x.length > 100, names.indexOf('flex-direction') >= 0, names.ind
     CHECK_EQ(page.console, "");
 }
 
+// A computed style with no style behind it lists nothing and reads "": an
+// element out of the document, and a second argument that starts with a
+// colon and names no pseudo-element the engine knows (CSSOM §9.1). One that
+// does, or one with no colon, still answers.
+void test_the_computed_style_with_none_behind_it()
+{
+    bindings::HostHooks hooks;
+    hooks.frame_document = [](dom::Element const& iframe, net::Url const& base, net::ContentSecurityPolicy*,
+                               std::vector<bindings::FrameAncestor> const&, std::optional<net::Url> const&) -> std::optional<bindings::FrameDocument> {
+        dom::Attr const* const srcdoc = iframe.find_attribute("srcdoc");
+        if (!srcdoc)
+            return std::nullopt;
+        bindings::FrameDocument answer;
+        answer.bytes.assign(srcdoc->value.begin(), srcdoc->value.end());
+        answer.content_type = "text/html";
+        answer.url = *net::parse_url("about:srcdoc");
+        answer.origin = base;
+        answer.srcdoc = true;
+        return answer;
+    };
+    Page page(R"HTML(<!DOCTYPE html>
+<iframe id=f srcdoc="<!DOCTYPE html><p id=p style='color: rgb(0, 128, 0)'>p</p>
+<script>var p = document.getElementById('p');
+function n(arg) { return getComputedStyle(p, arg).length; }
+var loose = document.createElement('div');
+window.detached = [getComputedStyle(loose).length, getComputedStyle(loose).color].join('|');
+window.empty = ['::bogus', '::-webkit-file-upload-button', '::highlight(1)', ':highlight(name)', '::picker(div)', '::highlight(name)a',
+  '::before(x)', ':marker', '::view-transition-new(*)'].map(n).join('|');
+window.answers = ['::before', ':after', '::highlight( n\\61me )', '::highlight(name', '::picker(select)', 'notapseudo', '', null].map(function (a) { return n(a) > 0; }).join('|');
+window.color = [getComputedStyle(p, 'notapseudo').color, getComputedStyle(p, '::nope').color].join('|');
+</script>"></iframe>)HTML",
+        "https://example.test/dir/page.html", std::move(hooks));
+    page.load();
+    auto const inner = [&](std::string const& name) { return page.string("document.getElementById('f').contentWindow." + name); };
+    CHECK_EQ(inner("detached"), std::string("0|"));
+    CHECK_EQ(inner("empty"), std::string("0|0|0|0|0|0|0|0|0"));
+    CHECK_EQ(inner("answers"), std::string("true|true|true|true|true|true|true|true"));
+    CHECK_EQ(inner("color"), std::string("rgb(0, 128, 0)|"));
+    CHECK_EQ(page.console, "");
+}
+
 // appearance computes to the keyword as written, the built-in sheet's `auto`
 // on a button and the initial `none` elsewhere, under both spellings; and a
 // style object finds the attribute of every property it supports on its
@@ -6134,6 +6175,7 @@ int main()
     test_a_frame_measures_itself();
     test_the_computed_appearance();
     test_the_computed_layout_properties();
+    test_the_computed_style_with_none_behind_it();
     test_interface_constructors_make_what_new_target_names();
     test_blob_urls_are_fetched_from_the_store();
     test_import_maps();
