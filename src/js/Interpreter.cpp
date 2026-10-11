@@ -21,6 +21,7 @@
 #include "js/Module.h"
 #include "js/Object.h"
 #include "js/Parser.h"
+#include "js/ScriptPreparer.h"
 #include "js/Runtime.h"
 #include "js/Strings.h"
 #include "js/Vm.h"
@@ -2484,6 +2485,9 @@ void RealmRecord::trace(Tracer& tracer)
 
 Interpreter::~Interpreter()
 {
+    // No parse may intern into the heap past this point.
+    if (m_script_preparer)
+        m_script_preparer->detach();
     // The profile is said when the realm's interpreter ends, by every host.
     if (m_vm_profile && (m_account.vm_ms > 0 || m_account.natives_ms > 0))
         std::fputs(profile_text(25).c_str(), stderr);
@@ -2690,8 +2694,43 @@ Outcome Interpreter::evaluate_script(Program const& tree, FunctionNode const& bo
     return outcome;
 }
 
+bool Interpreter::set_script_preparer(std::shared_ptr<ScriptPreparer> preparer)
+{
+    if (m_script_preparer)
+        m_script_preparer->detach();
+    m_script_preparer = std::move(preparer);
+    if (m_script_preparer) {
+        // The options run_script parses with, so a program parsed ahead is
+        // the program the page would have parsed.
+        ParseOptions options;
+        options.lazy_functions = lazy_natives();
+        if (!m_script_preparer->attach(*m_heap, options)) {
+            m_script_preparer = nullptr;
+            return false;
+        }
+    }
+    return true;
+}
+
 Outcome Interpreter::run_script(std::string_view utf8_source, std::string name, bool internal)
 {
+    // A script parsed off this thread as it arrived, from these bytes:
+    // no parse here, and no UTF-16 copy of the text either.
+    if (!internal && m_script_preparer) {
+        if (std::optional<ScriptPreparer::Taken> taken = m_script_preparer->take(*m_heap, name, utf8_source)) {
+            if (m_call_depth == 0)
+                m_stack_base = stack_position();
+            ++m_account.programs_parsed;
+            m_account.source_code_units += taken->code_units;
+            ++m_account.programs_parsed_ahead;
+            m_account.parse_ahead_ms += taken->parse_ms;
+            m_account.parse_ahead_wait_ms += taken->waited_ms;
+            Program const* tree = taken->program.get();
+            FunctionNode const* body = m_impl->program_body(*taken->program, tree->is_strict);
+            keep(std::move(taken->program));
+            return evaluate_script(*tree, *body);
+        }
+    }
     // An internal script already parsed needs no UTF-16 copy of its text.
     if (internal) {
         if (auto const found = m_internal_programs.find(name); found != m_internal_programs.end() && found->second.utf8_bytes == utf8_source.size()) {

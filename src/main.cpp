@@ -1374,6 +1374,9 @@ ui::Browser::EngineAccount engine_since(ui::Browser::EngineAccount const& now, u
     d.parse_ms -= base.parse_ms;
     d.bodies_parsed_late -= base.bodies_parsed_late;
     d.late_parse_ms -= base.late_parse_ms;
+    d.programs_parsed_ahead -= base.programs_parsed_ahead;
+    d.parse_ahead_ms -= base.parse_ahead_ms;
+    d.parse_ahead_wait_ms -= base.parse_ahead_wait_ms;
     d.compile_ms -= base.compile_ms;
     d.gc_ms -= base.gc_ms;
     d.collections -= base.collections;
@@ -1393,6 +1396,7 @@ std::string engine_json(ui::Browser::EngineAccount const& e)
     std::ostringstream out;
     out << std::fixed << std::setprecision(1) << "{ \"ms\": " << e.engine_ms << ", \"parse\": " << e.parse_ms
         << ", \"bodies_parsed_late\": " << e.bodies_parsed_late << ", \"late_parse\": " << e.late_parse_ms
+        << ", \"parsed_ahead\": " << e.programs_parsed_ahead << ", \"parse_ahead\": " << e.parse_ahead_ms << ", \"parse_ahead_wait\": " << e.parse_ahead_wait_ms
         << ", \"compile\": " << e.compile_ms << ", \"functions_compiled\": " << e.functions_compiled
         << ", \"machine_blocks\": " << e.blocks_compiled_to_machine << ", \"machine_compile\": " << e.machine_compile_ms << ", \"gc\": " << e.gc_ms
         << ", \"collections\": " << e.collections << ", \"gc_longest\": " << e.gc_longest_ms << ", \"run\": " << e.run_ms()

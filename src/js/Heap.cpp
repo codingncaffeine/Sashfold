@@ -232,8 +232,11 @@ void Heap::collect()
     // from nothing each time it cost a dozen copies of itself.
     Tracer tracer(m_mark);
     tracer.m_worklist.swap(m_mark_stack);
-    for (auto const& entry : m_atoms)
-        tracer.visit(entry.second);
+    {
+        std::lock_guard<std::mutex> const lock(m_atoms_mutex);
+        for (auto const& entry : m_atoms)
+            tracer.visit(entry.second);
+    }
     tracer.visit(m_well_known.symbol_to_primitive);
     tracer.visit(m_well_known.symbol_to_string_tag);
     tracer.visit(m_well_known.symbol_iterator);
@@ -395,18 +398,42 @@ JsString* Heap::concat(JsString* left, JsString* right)
 
 JsString* Heap::atom(std::u16string_view contents)
 {
+    {
+        std::lock_guard<std::mutex> const lock(m_atoms_mutex);
+        auto const found = m_atoms.find(contents);
+        if (found != m_atoms.end())
+            return found->second;
+    }
+    // The copy is taken before allocate() can collect: `contents` may view
+    // an unrooted string that the collection would sweep. The lock is not
+    // held across allocate(): a collection takes it to mark the atoms.
+    std::u16string copy(contents);
+    JsString* cell = allocate<JsString>(std::move(copy));
+    std::lock_guard<std::mutex> const lock(m_atoms_mutex);
+    // The key views the atom's own data; the cell never moves and the
+    // data is immutable, so the view stays valid for the heap's life. A
+    // parse on another thread may have made the atom meanwhile: its cell
+    // stands, and this one is an ordinary string left to the collector.
+    auto const [entry, made] = m_atoms.emplace(cell->view(), cell);
+    if (!made)
+        return entry->second;
+    cell->m_atom = true;
+    return cell;
+}
+
+JsString* Heap::atom_from_any_thread(std::u16string_view contents)
+{
+    std::lock_guard<std::mutex> const lock(m_atoms_mutex);
     auto const found = m_atoms.find(contents);
     if (found != m_atoms.end())
         return found->second;
-    // The copy is taken before allocate() can collect: `contents` may view
-    // an unrooted string that the collection would sweep.
-    std::u16string copy(contents);
-    JsString* cell = allocate<JsString>(std::move(copy));
+    auto cell = std::make_unique<JsString>(std::u16string(contents));
     cell->m_atom = true;
-    // The key views the atom's own data; the cell never moves and the
-    // data is immutable, so the view stays valid for the heap's life.
-    m_atoms.emplace(cell->view(), cell);
-    return cell;
+    cell->m_heap = this;
+    JsString* const made = cell.get();
+    m_atoms.emplace(made->view(), made);
+    m_foreign_atoms.push_back(std::move(cell));
+    return made;
 }
 
 JsString* Heap::atom(std::string_view utf8)

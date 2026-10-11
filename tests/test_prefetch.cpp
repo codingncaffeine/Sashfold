@@ -265,5 +265,31 @@ int main()
         CHECK(server.asked().size() <= 12);
     }
 
+    // A script asked for ahead is told to whoever wants it parsed the moment
+    // it has come, on the fetching thread, once: a second asking for the same
+    // fetch on its way says nothing, and the page still claims the result.
+    {
+        SlowServer server(10);
+        ui::ShellLoader loader;
+        net::Url const page = server.url("/page");
+        std::mutex told_mutex;
+        std::vector<std::string> told;
+        auto tell = [&told_mutex, &told](net::FetchResult const& result) {
+            std::lock_guard<std::mutex> const lock(told_mutex);
+            told.push_back(result.response ? std::string(result.response->body.begin(), result.response->body.end()) : std::string("no response"));
+        };
+        std::shared_ptr<net::FetchTicket> const ticket = loader.prefetch(server.url("/arrives.js"), page, "", net::ResourceKind::Script, {}, tell);
+        loader.prefetch(server.url("/arrives.js"), page, "", net::ResourceKind::Script, {}, tell);
+        CHECK(ticket != nullptr && ticket->wait_for(5000));
+        {
+            std::lock_guard<std::mutex> const lock(told_mutex);
+            CHECK_EQ(told.size(), std::size_t { 1 });
+            CHECK(!told.empty() && told.front() == "body of /arrives.js");
+        }
+        CHECK_EQ(body_of(loader.load_subresource(server.url("/arrives.js"), page, "", net::ResourceKind::Script)),
+            std::string("body of /arrives.js"));
+        CHECK_EQ(count_of(server.asked(), "/arrives.js"), std::size_t { 1 });
+    }
+
     return test::report("prefetch");
 }

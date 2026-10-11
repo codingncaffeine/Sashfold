@@ -523,7 +523,8 @@ std::string ShellLoader::ahead_key(net::Url const& url, net::ResourceKind kind, 
 }
 
 std::shared_ptr<net::FetchTicket> ShellLoader::prefetch(net::Url const& url, net::Url const& first_party,
-    std::string const& referrer, net::ResourceKind kind, std::string_view container)
+    std::string const& referrer, net::ResourceKind kind, std::string_view container,
+    std::function<void(net::FetchResult const&)> arrived)
 {
     // Only what goes over the network is worth a thread, and only what the
     // lists let through is asked for at all.
@@ -554,8 +555,11 @@ std::shared_ptr<net::FetchTicket> ShellLoader::prefetch(net::Url const& url, net
     }
     // The work owns copies: the page that asked may be gone before it runs.
     std::shared_ptr<net::FetchTicket> ticket = m_fetches.submit(
-        [this, url, first_party, referrer, kind, held = std::string(container)] {
-            return fetch_subresource(url, first_party, referrer, kind, net::RequestGuard {}, held);
+        [this, url, first_party, referrer, kind, held = std::string(container), arrived = std::move(arrived)] {
+            net::FetchResult result = fetch_subresource(url, first_party, referrer, kind, net::RequestGuard {}, held);
+            if (arrived)
+                arrived(result);
+            return result;
         });
     std::lock_guard<std::mutex> const lock(m_mutex);
     m_ahead[key] = Ahead { ticket, now };

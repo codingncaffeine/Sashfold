@@ -22,6 +22,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -318,6 +319,13 @@ public:
     JsString* atom(std::u16string_view);
     JsString* atom(std::string_view utf8);
     JsString* atom(JsString*); // the atom for an existing string's contents
+    // The same from a thread that is not the heap's own: a script parsed
+    // off the page's thread (js/ScriptPreparer.h) interns its names here.
+    // Nothing is allocated through the collector and nothing is collected;
+    // an atom made this way is kept beside the heap's cells, never swept,
+    // and ends with the heap. The table is shared under a lock, so an
+    // atom has one cell whichever thread made it first.
+    JsString* atom_from_any_thread(std::u16string_view);
 
     // Property keys: an index when the name is a canonical array index,
     // otherwise the atom.
@@ -525,6 +533,10 @@ private:
     bool m_exact_next = false; // the last estimate could not be trusted: the next collection measures every live cell
     // Keys view the atom's own data; cells never move, so the views hold.
     std::unordered_map<std::u16string_view, JsString*> m_atoms;
+    // Held by every reader and writer of the table above: a parse on
+    // another thread interns while the page runs and collects.
+    mutable std::mutex m_atoms_mutex;
+    std::vector<std::unique_ptr<JsString>> m_foreign_atoms; // made by atom_from_any_thread
     std::vector<RootProvider*> m_root_providers;
     std::unordered_set<Persistent*> m_persistents;
     WellKnownAtoms m_well_known;

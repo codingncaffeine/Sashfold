@@ -16,6 +16,8 @@
 #include "dom/Dom.h"
 #include "html/DocumentBase.h"
 #include "html/TreeBuilder.h"
+#include "js/Interpreter.h"
+#include "js/ScriptPreparer.h"
 #include "layout/Layout.h"
 #include "paint/Painter.h"
 #include "platform/Clipboard.h"
@@ -572,6 +574,11 @@ struct Browser::Impl {
         // fetches, runs and applies. Shared with the closures that fetch
         // for the page, so a tab may move in the vector under them.
         std::shared_ptr<net::ContentSecurityPolicy> policy;
+        // The scripts of the document on its way, parsed off the page.s
+        // thread as they arrive (js/ScriptPreparer.h): made by the first scan
+        // that asks for a script, handed to the page's interpreter when its
+        // realm is made.
+        std::shared_ptr<js::ScriptPreparer> scripts_ahead;
         // The container the tab is in: its cookie jar and its storage are
         // that container's, kept apart from every other's. Empty for the
         // default container.
@@ -3663,7 +3670,22 @@ struct Browser::Impl {
             if (!policy->empty() && !policy->allows_quietly(kind, url, nonce))
                 return nullptr;
         }
-        return loader.prefetch(url, page_url, referrer_for(&page_url, url), kind, tab.container);
+        // A script is parsed the moment it has come, on another thread, for
+        // the page that will run it (every engine parses off the main thread
+        // what it can): its bytes are offered under the address the page's
+        // parse will run it by.
+        std::function<void(net::FetchResult const&)> arrived;
+        if (kind == net::ResourceKind::Script) {
+            if (!tab.scripts_ahead)
+                tab.scripts_ahead = std::make_shared<js::ScriptPreparer>();
+            arrived = [preparer = std::weak_ptr<js::ScriptPreparer>(tab.scripts_ahead), name = url.serialize()](net::FetchResult const& result) {
+                if (!result.response || result.response->status != 200)
+                    return;
+                if (std::shared_ptr<js::ScriptPreparer> const held = preparer.lock())
+                    held->offer(name, std::string(result.response->body.begin(), result.response->body.end()));
+            };
+        }
+        return loader.prefetch(url, page_url, referrer_for(&page_url, url), kind, tab.container, std::move(arrived));
     }
 
     // The stylesheets and the scripts a document's markup names, asked for
@@ -4518,6 +4540,13 @@ struct Browser::Impl {
         };
         auto realm = std::make_unique<bindings::Realm>(*document, url, std::move(hooks));
         realm->trace_if_asked();
+        // The scripts asked for ahead of this document are parsed for this
+        // page's heap; one an earlier page holds already (a load that began
+        // no navigation of the network's) gives way to a fresh one.
+        if (!tab.scripts_ahead || !realm->interpreter().set_script_preparer(tab.scripts_ahead)) {
+            tab.scripts_ahead = std::make_shared<js::ScriptPreparer>();
+            realm->interpreter().set_script_preparer(tab.scripts_ahead);
+        }
         // SASHFOLD_PRELUDE=<file.js>: a script run in each page's realm before
         // the page's own, as a DevTools client adds one to every new document:
         // the instrument that puts the same marks on the same clock here and
@@ -5284,6 +5313,8 @@ struct Browser::Impl {
                     navigating.tap = std::move(tap);
                     navigating.started = entry.navigation_started;
                     tab.navigating = std::move(navigating);
+                    // A new document: its scripts are parsed for its own page.
+                    tab.scripts_ahead.reset();
                     dirty = true;
                     return true;
                 }
@@ -11908,6 +11939,9 @@ Browser::EngineAccount Browser::engine_account() const
     account.parse_ms = code.parse_ms;
     account.bodies_parsed_late = code.bodies_parsed_late;
     account.late_parse_ms = code.late_parse_ms;
+    account.programs_parsed_ahead = code.programs_parsed_ahead;
+    account.parse_ahead_ms = code.parse_ahead_ms;
+    account.parse_ahead_wait_ms = code.parse_ahead_wait_ms;
     account.compile_ms = code.compile_ms;
     account.functions_compiled = code.functions_compiled;
     account.blocks_compiled_to_machine = code.blocks_compiled_to_machine;

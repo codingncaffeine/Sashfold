@@ -218,6 +218,7 @@ add_library(sashfold_core STATIC
   src/js/Feedback.cpp
   src/js/Parser.cpp
   src/js/Regex.cpp
+  src/js/ScriptPreparer.cpp
   src/js/RuntimeArray.cpp
   src/js/RuntimeArrayBuffer.cpp
   src/js/RuntimeBigInt.cpp

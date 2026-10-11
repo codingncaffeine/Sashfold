@@ -751,7 +751,19 @@ struct Parser::Impl {
         node->end_offset = m_previous_end;
         return node;
     }
-    JsString* atom(std::u16string_view text) { return m_heap.atom(text); }
+    JsString* atom(std::u16string_view text)
+    {
+        if (!m_options.any_thread)
+            return m_heap.atom(text);
+        // Off the heap's thread each name crosses the heap's lock once per
+        // parse: a bundle names the same few thousand identifiers a million
+        // times. The keys view the atoms' own data, which never moves.
+        if (auto const found = m_local_atoms.find(text); found != m_local_atoms.end())
+            return found->second;
+        JsString* const made = m_heap.atom_from_any_thread(text);
+        m_local_atoms.emplace(made->view(), made);
+        return made;
+    }
 
     // Expressions. `cover` means the caller may still turn the result
     // into an assignment pattern, so the cover grammar's deferred errors
@@ -864,6 +876,7 @@ struct Parser::Impl {
     bool m_parenthesized_function = false;
     Lexer m_lexer;
     ParseOptions m_options;
+    std::unordered_map<std::u16string_view, JsString*> m_local_atoms; // any_thread: what this parse interned
     Token m_current;
     Lexer::State m_current_start; // where m_current was lexed from, for relex()
     bool m_current_regex_allowed = false;

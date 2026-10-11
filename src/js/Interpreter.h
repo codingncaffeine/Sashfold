@@ -18,6 +18,8 @@
 #include "js/Object.h"
 #include "js/Value.h"
 
+#include <memory>
+
 #include <algorithm>
 #include <chrono>
 #include <cstddef>
@@ -36,6 +38,7 @@
 namespace sashfold::js {
 
 class Parser;
+class ScriptPreparer;
 class ModuleRecord;
 
 enum class ErrorType : std::uint8_t {
@@ -309,6 +312,12 @@ public:
     // interpreter, which keeps each program it parses for its life.
     Outcome run_script(std::u16string_view source, std::string name = "", bool internal = false);
     Outcome run_script(std::string_view utf8_source, std::string name = "", bool internal = false);
+    // Scripts parsed off this thread as they arrive (js/ScriptPreparer.h):
+    // attached to this interpreter's heap now and detached before the heap
+    // goes; a script run by its address takes the program parsed from the
+    // same bytes instead of parsing.
+    // False when the preparer is another heap's already: it is not kept.
+    bool set_script_preparer(std::shared_ptr<ScriptPreparer>);
 
     // Modules (§16.2). The host names a module by a key — a URL, a path —
     // and supplies two hooks: one resolves a specifier against the
@@ -713,6 +722,13 @@ public:
         // parse_ms.
         std::size_t bodies_parsed_late = 0;
         double late_parse_ms = 0;
+        // Scripts parsed off the page's thread as they arrived
+        // (js/ScriptPreparer.h), taken when the page ran them: how many,
+        // what parsing them took on the pool's thread (not in parse_ms),
+        // and what the page's thread waited for one still parsing.
+        std::size_t programs_parsed_ahead = 0;
+        double parse_ahead_ms = 0;
+        double parse_ahead_wait_ms = 0;
         std::size_t functions_compiled = 0;
         double compile_ms = 0;
         // Code blocks given machine code (js/jit), the memory it takes and
@@ -884,6 +900,7 @@ private:
         std::size_t utf8_bytes = 0;
     };
     std::unordered_map<std::string, InternalProgram> m_internal_programs;
+    std::shared_ptr<ScriptPreparer> m_script_preparer;
     // ScriptEvaluation's steps after the parse: the global declarations, then
     // the statement list, in the current realm.
     Outcome evaluate_script(Program const& tree, FunctionNode const& body);

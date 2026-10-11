@@ -54,6 +54,10 @@ struct ParseOptions {
     // called where it is written — and so is one with a direct eval or a
     // with in it, an arrow, and a class constructor.
     bool lazy_functions = false;
+    // The parse runs on a thread that is not the heap's own (a script
+    // parsed as it arrives, js/ScriptPreparer.h): names are interned
+    // through Heap::atom_from_any_thread, which never collects.
+    bool any_thread = false;
 };
 
 class Parser {

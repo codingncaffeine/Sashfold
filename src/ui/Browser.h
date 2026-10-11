@@ -89,9 +89,14 @@ public:
     // request by its guard.
     // The ticket says when it has come, for whoever holds a page back until
     // what its parse will wait for is here; null when nothing was asked for.
+    // `arrived`, when given, is told the result on the thread that fetched
+    // it as soon as it has come (a script parsed as it arrives) — not when
+    // it was already on its way for another asker.
     virtual std::shared_ptr<net::FetchTicket> prefetch(net::Url const& url, net::Url const& first_party,
-        std::string const& referrer, net::ResourceKind kind, std::string_view container = {})
+        std::string const& referrer, net::ResourceKind kind, std::string_view container = {},
+        std::function<void(net::FetchResult const&)> arrived = {})
     {
+        (void)arrived;
         (void)url;
         (void)first_party;
         (void)referrer;
@@ -650,6 +655,11 @@ public:
         // parsed at their first call (lazy parsing), and their time.
         std::size_t bodies_parsed_late = 0;
         double late_parse_ms = 0;
+        // Not in parse_ms: the scripts parsed off the page's thread as they
+        // arrived, that parsing's time there, and what the page waited.
+        std::size_t programs_parsed_ahead = 0;
+        double parse_ahead_ms = 0;
+        double parse_ahead_wait_ms = 0;
         double compile_ms = 0;
         double gc_ms = 0;
         double gc_longest_ms = 0;

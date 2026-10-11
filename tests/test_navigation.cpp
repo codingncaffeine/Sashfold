@@ -496,5 +496,29 @@ int main()
         CHECK_EQ(server.asked("/c.js"), std::size_t { 0 });
     }
 
+    // A script the markup names is parsed off the page's thread as it
+    // arrives, and the page runs that program: the script's work is done,
+    // and the page's account says one program was parsed ahead.
+    {
+        std::map<std::string, Served> pages = site();
+        std::string script = "function later(n) { return n * 2; }\n";
+        for (int i = 0; i < 2000; ++i)
+            script += "var v" + std::to_string(i) + " = later(" + std::to_string(i) + ");\n";
+        script += "document.title = 'ran ' + v1999;\n";
+        pages["/ahead.js"] = { "text/javascript", script, 0 };
+        // The page is busy before it reaches the script (as a page runs its
+        // earlier scripts): the script, asked for when the markup was
+        // scanned, is parsed meanwhile, from the moment the page's heap is.
+        pages["/scripted"] = { "text/html", "<!doctype html><title>Before</title><script>for (const t = Date.now(); Date.now() - t < 300;) {}</script><script src=/ahead.js></script><p>after", 0 };
+        SiteServer server(pages);
+        ui::ShellLoader loader;
+        ui::Browser browser(loader, ui::Theme {}, 800, 600);
+        browser.open(server.url("/scripted"));
+        load_fully(browser);
+        CHECK_EQ(browser.page_title(), std::string("ran 3998"));
+        CHECK_EQ(browser.engine_account().programs_parsed_ahead, std::size_t { 1 });
+        CHECK_EQ(server.asked("/ahead.js"), std::size_t { 1 });
+    }
+
     return test::report("navigation");
 }
