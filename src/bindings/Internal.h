@@ -1542,6 +1542,10 @@ void install_file_reader(Realm::Internals&); // FileReader.cpp: FileReader, inst
 // SVG element's client rectangle from its geometry (nullopt for an outermost
 // <svg>, which has a layout box, and for anything not in an <svg>).
 void install_svg_elements(Realm::Internals&, js::Object& svg_element);
+// The group that installs them, SVGAElement among them (an SVG <a> is an
+// SVGGraphicsElement; Node.cpp keeps its href).
+void install_svg(Realm::Internals&);
+void install_svg_anchor(Realm::Internals&, js::Object& graphics_element);
 std::string_view svg_interface_for(std::string_view local_name);
 std::optional<LayoutBox> svg_client_box(Realm::Internals&, dom::Element const&);
 void install_ranges(Realm::Internals&); // Range.cpp: AbstractRange, Range, StaticRange

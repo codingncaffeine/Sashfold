@@ -193,7 +193,9 @@ int main()
         CHECK_EQ(census.groups_described, std::uint64_t { 0 });
         CHECK_EQ(census.values_described, std::uint64_t { 15 });
         CHECK(census.natives_described >= 4000);
-        CHECK(census.natives_made_at_once <= 420);
+        // 477 on 2026-10-11, after the SVG DOM's 85 interfaces, WebSocket,
+        // CryptoKey, ValidityState and FileReader joined (420 before).
+        CHECK(census.natives_made_at_once <= 500);
     }
 
     // --- What a realm is born with.
@@ -210,11 +212,12 @@ int main()
         CHECK(census.natives_made_at_once <= 320);
         // The parse of this page asked for a handful.
         CHECK(census.natives_made_later <= 120);
-        // Fifteen groups of interfaces are not installed, and parsing this
-        // page installed none; the Streams script has not run. What stands
-        // for them is names: the Streams interfaces' fifteen, and one for
-        // each name a waiting group provides.
-        CHECK_EQ(census.groups_described, std::uint64_t { 15 });
+        // Seventeen groups of interfaces are not installed (WebSocket and the
+        // SVG element interfaces joined on 2026-10-11), and parsing this page
+        // installed none; the Streams script has not run. What stands for
+        // them is names: the Streams interfaces' fifteen, and one for each
+        // name a waiting group provides.
+        CHECK_EQ(census.groups_described, std::uint64_t { 17 });
         CHECK_EQ(census.groups_run, std::uint64_t { 0 });
         CHECK(census.values_described >= 150);
         CHECK_EQ(census.values_made, std::uint64_t { 0 });
@@ -418,7 +421,7 @@ int main()
         // realm's, whichever realm's script asked.
         Page page("<!DOCTYPE html><body><iframe id=f></iframe></body>");
         js::Heap::LazyCensus const& census = page.census();
-        CHECK_EQ(census.groups_described, std::uint64_t { 30 }); // the page's and the frame's
+        CHECK_EQ(census.groups_described, std::uint64_t { 34 }); // the page's and the frame's
         std::uint64_t const run = census.groups_run;
         CHECK(page.boolean("window.XMLHttpRequest = 5; XMLHttpRequest === 5 && delete window.Worker && typeof Worker === 'undefined'"));
         CHECK(page.boolean("Object.defineProperty(window, 'IntersectionObserver', { value: 7, configurable: true }); IntersectionObserver === 7"));
@@ -437,13 +440,13 @@ int main()
         CHECK(page.boolean("var element = document.getElementById('f'), gone = element.contentWindow; element.remove(); true"));
         while (page.realm->run_pending()) {
         }
-        CHECK_EQ(census.groups_run - run, std::uint64_t { 15 });
+        CHECK_EQ(census.groups_run - run, std::uint64_t { 17 });
         CHECK(page.boolean("typeof gone.XMLHttpRequest === 'function' && typeof gone.fetch === 'function' && typeof gone.Range === 'function'"
                            " && typeof gone.HTMLMediaElement.prototype.play === 'function'"));
-        CHECK_EQ(census.groups_run - run, std::uint64_t { 15 });
+        CHECK_EQ(census.groups_run - run, std::uint64_t { 17 });
         // (The page's own Range is another realm's, and its own group's.)
         CHECK(page.boolean("gone.Range !== Range"));
-        CHECK_EQ(census.groups_run - run, std::uint64_t { 16 });
+        CHECK_EQ(census.groups_run - run, std::uint64_t { 18 });
         // The Streams script, which the frame never ran, runs for its
         // window now: the interfaces are that window's, and work.
         CHECK(page.boolean("typeof gone.ReadableStream === 'function' && typeof gone.TextDecoderStream === 'function'"
@@ -517,8 +520,9 @@ int main()
         }
         CHECK_EQ(differing, std::size_t { 0 });
         // (The names a waiting group provides, and the interfaces it adds
-        // members to: some ninety of the window's names install a group.)
-        CHECK(installing >= 80 && installing <= 130);
+        // members to: some two hundred of the window's names install a group
+        // — 196 on 2026-10-11, the SVG element interfaces most of the rise.)
+        CHECK(installing >= 160 && installing <= 240);
     }
     std::string lazy_shape;
     {

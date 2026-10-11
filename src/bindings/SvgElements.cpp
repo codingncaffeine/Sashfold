@@ -1397,6 +1397,12 @@ std::optional<LayoutBox> svg_client_box(Realm::Internals& in, dom::Element const
     return LayoutBox { left, top, right - left, bottom - top };
 }
 
+void install_svg(Realm::Internals& in)
+{
+    install_svg_elements(in, *in.prototype("SVGElement"));
+    install_svg_anchor(in, *in.prototype("SVGGraphicsElement"));
+}
+
 void install_svg_elements(Realm::Internals& in, js::Object& svg_element)
 {
     js::Interpreter& interpreter = in.interpreter;

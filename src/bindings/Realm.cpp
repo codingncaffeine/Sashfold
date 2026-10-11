@@ -1700,6 +1700,7 @@ constexpr InterfaceGroup interface_groups[] = {
     { "workers", install_workers, true },
     { "media", install_media, true },
     { "geometry", install_geometry, true },
+    { "svg", install_svg, true },
     { "canvas", install_canvas, true },
     // Last of the element machinery: it makes HTMLElement constructible,
     // which every element interface must already exist for.

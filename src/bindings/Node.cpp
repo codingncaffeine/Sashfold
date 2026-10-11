@@ -1836,7 +1836,7 @@ std::optional<AnimatedStringObject*> this_animated_string(js::Interpreter& inter
 
 // The SVG <a> element's interface, SVGAElement, as far as its href: what a
 // hyperlink's origin is read from. Its parent is SVGGraphicsElement.
-void install_svg_links(Realm::Internals& in, js::Object& graphics_element)
+void install_svg_anchor_element(Realm::Internals& in, js::Object& graphics_element)
 {
     js::Object* animated_string = define_interface(in, "SVGAnimatedString", nullptr);
     js::NativeFunction::Callback const read = [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
@@ -1885,6 +1885,11 @@ void install_svg_links(Realm::Internals& in, js::Object& graphics_element)
 
 } // namespace
 
+void install_svg_anchor(Realm::Internals& in, js::Object& graphics_element)
+{
+    install_svg_anchor_element(in, graphics_element);
+}
+
 // --- install_nodes ---------------------------------------------------------------------------------
 
 void install_nodes(Realm::Internals& in)
@@ -1917,10 +1922,8 @@ void install_nodes(Realm::Internals& in)
     element_forwarding_getter(
         in, *svg_element, "style",
         [](Realm::Internals& internals, dom::Element& e) -> Native { return make_style_declaration(internals, &e, false); }, "cssText");
-    // The SVG element interfaces, then SVGAElement among them (an SVG <a> is
-    // an SVGGraphicsElement).
-    install_svg_elements(in, *svg_element);
-    install_svg_links(in, *in.prototype("SVGGraphicsElement"));
+    // The SVG element interfaces under SVGElement are a group of their own,
+    // installed when a page first meets one (SvgElements.cpp, install_svg).
     // The nearest svg element above an SVG element, or null for the
     // outermost one (SVG §5.9); the viewport one is the same here, as no
     // symbol, pattern or marker establishes a viewport of its own yet.
