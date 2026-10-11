@@ -767,6 +767,39 @@ std::string random_uuid()
 
 } // namespace
 
+void follow_hyperlink(Realm::Internals& in, net::Url const& url, std::string const& target, bool noreferrer)
+{
+    // HTML §7.4.2 "follow the hyperlink": the navigable the target names —
+    // this one, its parent, its top, one by name — or a new one, which a
+    // popup's rules govern as window.open's do.
+    Realm::Internals* chosen = nullptr;
+    if (target.empty() || ascii_ci_equals(target, "_self")) {
+        chosen = &in;
+    } else if (ascii_ci_equals(target, "_parent")) {
+        chosen = in.parent_realm ? in.parent_realm : &in;
+    } else if (ascii_ci_equals(target, "_top")) {
+        chosen = &in;
+        while (chosen->parent_realm)
+            chosen = chosen->parent_realm;
+    } else if (!ascii_ci_equals(target, "_blank")) {
+        chosen = find_navigable_by_name(in, target);
+    }
+    if (chosen) {
+        if (!chosen->navigate_from_location(url, in, false))
+            in.console("info", "A sandboxed document may not navigate that window: " + url.serialize());
+        return;
+    }
+    if ((in.sandbox_flags & sandboxing::auxiliary_navigation) != 0 || !in.hooks.open_window) {
+        in.console("info", "Link to a new window blocked: " + url.serialize());
+        return;
+    }
+    if (in.hooks.user_activation && !in.hooks.user_activation()) {
+        in.console("info", "Link to a new window blocked: not from a gesture of the reader's (" + url.serialize() + ")");
+        return;
+    }
+    in.hooks.open_window(url, noreferrer);
+}
+
 // --- install_window ---------------------------------------------------------------------------------
 
 Native empty_iterator(js::Interpreter& interp, js::Value const&, Args)

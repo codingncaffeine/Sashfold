@@ -1853,6 +1853,16 @@ void internals_form_entries(Realm::Internals&, dom::Element const&, std::vector<
 // attribute, the form that names in its tree; otherwise its nearest form
 // ancestor; null for none.
 dom::Element* form_owner_of(Realm::Internals&, dom::Element&);
+// Activation (HTML §6.4, DOM §2.9): a click dispatched with what it sets off
+// — a checkbox or radio button checked before and put back if the click is
+// canceled, a form submitted or reset, a hyperlink followed, a label's
+// control clicked, a summary's details toggled — on the click's target or
+// its nearest ancestor that has such a behaviour. `dispatch` sends the
+// click and answers whether it went uncanceled (HtmlElements.cpp).
+bool dispatch_with_activation(Realm::Internals&, dom::Element& target, bool bubbles, std::function<bool()> const& dispatch);
+// A hyperlink followed to `url` in the navigable its target names, or a
+// new one (Window.cpp).
+void follow_hyperlink(Realm::Internals&, net::Url const& url, std::string const& target, bool noreferrer);
 // The constraint validation pieces the controls have (HtmlElements.cpp):
 // willValidate, checkValidity's steps for one element, its labels, and a
 // new ValidityState reading its flags.

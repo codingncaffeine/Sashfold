@@ -478,6 +478,17 @@ bool check_form(Realm::Internals& in, dom::Element& form)
 // cancel. True when the host should go on and submit.
 bool request_submission(Realm::Internals& in, dom::Element& form, dom::Element* submitter)
 {
+    // The form's "firing submission events" flag (§4.10.21.3 step 6.1): a
+    // submission asked for while its invalid or submit events are being
+    // fired does nothing.
+    static thread_local std::vector<dom::Element const*> firing;
+    if (std::find(firing.begin(), firing.end(), &form) != firing.end())
+        return false;
+    firing.push_back(&form);
+    struct Lowered {
+        dom::Element const* form;
+        ~Lowered() { std::erase(firing, form); }
+    } const lowered { &form };
     bool const no_validate = form.has_attribute("novalidate") || (submitter && submitter->has_attribute("formnovalidate"));
     if (!no_validate && !check_form(in, form)) {
         for (dom::Node* node : form_controls(in, form)) {
@@ -582,6 +593,235 @@ js::Value form_named_item(Realm::Internals& in, dom::Element& form, std::string_
 js::Object* new_validity_state(Realm::Internals& in, NodeWrapper& wrapper)
 {
     return in.interpreter.heap().allocate<ValidityStateObject>(in.prototype("ValidityState"), &wrapper);
+}
+
+namespace {
+
+// A control's checkedness set: a radio button checked unchecks the rest of
+// its group (§4.10.5.1.15).
+void set_checkedness(Realm::Internals& in, dom::Element& element, bool checked)
+{
+    if (checked && element.is_html("input") && dom::forms::input_type(element) == "radio") {
+        dom::forms::each_in_radio_group(element, [&](dom::Element const& other) {
+            if (&other != &element && control_checked_of(in, other))
+                set_control_checked_of(in, other, false);
+        });
+    }
+    set_control_checked_of(in, element, checked);
+}
+
+// A form reset (§4.10.21.5): the reset event, which a listener may cancel,
+// then every control put back as its markup has it.
+void reset_form(Realm::Internals& in, dom::Element& form)
+{
+    if (!in.realm.dispatch_event(&form, "reset", Realm::EventInit { true, true, false }))
+        return;
+    for (dom::Node* control : form_controls(in, form)) {
+        auto& element = static_cast<dom::Element&>(*control);
+        if (element.document().form_associated_custom.contains(&element)) {
+            form_associated_reset(in, element);
+            continue;
+        }
+        set_control_value_of(in, element, default_value_of(element));
+        if (element.is_html("input"))
+            set_control_checked_of(in, element, element.has_attribute("checked"));
+    }
+}
+
+enum class Activation : std::uint8_t { None, Checkbox, Radio, Submit, Reset, Hyperlink, Label, Summary };
+
+// What a click sets off at an element (the activation behaviours of HTML's
+// elements): a disabled control's nothing.
+Activation activation_of(dom::Element const& element)
+{
+    if ((element.is_html("a") || element.is_html("area")) && element.has_attribute("href"))
+        return Activation::Hyperlink;
+    if (element.is_html("input")) {
+        if (dom::forms::actually_disabled(element))
+            return Activation::None;
+        std::string const type = dom::forms::input_type(element);
+        if (type == "checkbox")
+            return Activation::Checkbox;
+        if (type == "radio")
+            return Activation::Radio;
+        if (type == "submit" || type == "image")
+            return Activation::Submit;
+        if (type == "reset")
+            return Activation::Reset;
+        return Activation::None;
+    }
+    if (element.is_html("button")) {
+        if (dom::forms::actually_disabled(element))
+            return Activation::None;
+        // An unknown type is a submit button's (§4.10.6); in that auto state
+        // one that names a command submits nothing.
+        std::string const type = dom::forms::attribute_lower(element, "type");
+        if (type == "reset")
+            return Activation::Reset;
+        if (type == "button")
+            return Activation::None;
+        if (type != "submit" && (element.has_attribute("commandfor") || element.has_attribute("command")))
+            return Activation::None;
+        return Activation::Submit;
+    }
+    if (element.is_html("label"))
+        return Activation::Label;
+    if (element.is_html("summary")) {
+        // The details' summary: its first summary child (§4.11.1).
+        dom::Node const* const parent = element.parent();
+        if (parent != nullptr && parent->is_element() && static_cast<dom::Element const&>(*parent).is_html("details")) {
+            for (dom::Node const* child : parent->children()) {
+                if (child->is_element() && static_cast<dom::Element const&>(*child).is_html("summary"))
+                    return child == &element ? Activation::Summary : Activation::None;
+            }
+        }
+    }
+    return Activation::None;
+}
+
+// Interactive content (§3.2.5.2.7), at which a click inside a label is the
+// content's own and not the label's.
+bool interactive_content(dom::Element const& element)
+{
+    if (!element.is_html())
+        return false;
+    if (element.is_html("a"))
+        return element.has_attribute("href");
+    if (element.is_html("audio") || element.is_html("video"))
+        return element.has_attribute("controls");
+    if (element.is_html("img"))
+        return element.has_attribute("usemap");
+    if (element.is_html("input"))
+        return dom::forms::input_type(element) != "hidden";
+    return element.is_html("button") || element.is_html("details") || element.is_html("embed") || element.is_html("iframe")
+        || element.is_html("label") || element.is_html("select") || element.is_html("textarea");
+}
+
+// The elements whose click is being dispatched with its activation now:
+// a label's click on its control must not come back to the label.
+std::vector<dom::Element const*>& clicks_in_progress()
+{
+    static thread_local std::vector<dom::Element const*> elements;
+    return elements;
+}
+
+} // namespace
+
+bool dispatch_with_activation(Realm::Internals& in, dom::Element& target, bool bubbles, std::function<bool()> const& dispatch)
+{
+    // DOM §2.9 steps 5 and 11: the activation target is the target when it
+    // has a behaviour, else, for a click that bubbles, its nearest ancestor
+    // that has one.
+    dom::Element* subject = nullptr;
+    Activation kind = Activation::None;
+    for (dom::Node* node = &target; node != nullptr; node = bubbles ? node->parent_or_host() : nullptr) {
+        if (!node->is_element())
+            continue;
+        auto& element = static_cast<dom::Element&>(*node);
+        if (Activation const found = activation_of(element); found != Activation::None) {
+            subject = &element;
+            kind = found;
+            break;
+        }
+    }
+    if (subject == nullptr)
+        return dispatch();
+    // The legacy-pre-activation behaviour: a checkbox or radio button shows
+    // its new state to the click's listeners.
+    bool const was_checked = (kind == Activation::Checkbox || kind == Activation::Radio) && control_checked_of(in, *subject);
+    dom::Element* previous_radio = nullptr;
+    if (kind == Activation::Checkbox) {
+        set_checkedness(in, *subject, !was_checked);
+    } else if (kind == Activation::Radio) {
+        dom::forms::each_in_radio_group(*subject, [&](dom::Element const& other) {
+            if (previous_radio == nullptr && control_checked_of(in, other))
+                previous_radio = const_cast<dom::Element*>(&other);
+        });
+        set_checkedness(in, *subject, true);
+    }
+    js::Interpreter::Roots const roots(in.interpreter);
+    in.interpreter.root(js::Value::object(in.wrap(*subject)));
+    bool const proceed = dispatch();
+    if (!proceed) {
+        // The legacy-canceled-activation behaviour: put back — the element
+        // as it was, whatever type a listener gave it since, and the radio
+        // button that was checked before it.
+        if (kind == Activation::Checkbox) {
+            set_control_checked_of(in, *subject, was_checked);
+        } else if (kind == Activation::Radio) {
+            set_control_checked_of(in, *subject, was_checked);
+            if (previous_radio != nullptr && previous_radio != subject)
+                set_checkedness(in, *previous_radio, true);
+        }
+        return false;
+    }
+    // A listener may have disabled the control meanwhile: then it does nothing.
+    if ((kind == Activation::Submit || kind == Activation::Reset) && dom::forms::actually_disabled(*subject))
+        return true;
+    switch (kind) {
+    case Activation::Checkbox:
+    case Activation::Radio:
+        // §4.10.5.1.15/16: input, then change, when the state moved.
+        if (subject->is_connected() && (kind == Activation::Checkbox || !was_checked)) {
+            in.realm.dispatch_event(subject, "input", Realm::EventInit { true, false, true });
+            in.realm.dispatch_event(subject, "change", Realm::EventInit { true, false, false });
+        }
+        break;
+    case Activation::Submit:
+        if (dom::Element* const form = form_owner_of(in, *subject); form != nullptr && subject->is_connected()) {
+            if (request_submission(in, *form, subject) && in.hooks.submit_form)
+                in.hooks.submit_form(*form, subject);
+        }
+        break;
+    case Activation::Reset:
+        if (dom::Element* const form = form_owner_of(in, *subject); form != nullptr && subject->is_connected())
+            reset_form(in, *form);
+        break;
+    case Activation::Hyperlink: {
+        dom::Attr const* const href = subject->find_attribute("href");
+        std::optional<net::Url> const url = href ? net::parse_url(href->value, &in.base_url()) : std::nullopt;
+        if (!url || !subject->is_connected())
+            break;
+        std::string target_name;
+        if (dom::Attr const* const target_attribute = subject->find_attribute("target"))
+            target_name = target_attribute->value;
+        std::string const rel = dom::forms::attribute_lower(*subject, "rel");
+        follow_hyperlink(in, *url, target_name, rel.find("noreferrer") != std::string::npos);
+        break;
+    }
+    case Activation::Label: {
+        // §4.10.4: the control clicked, unless the click was at it, or at
+        // interactive content inside the label — a nearer activation
+        // target, which would have been chosen instead.
+        dom::Element* const control = labeled_control(in, *subject);
+        auto& in_progress = clicks_in_progress();
+        if (control == nullptr || control == &target || std::find(in_progress.begin(), in_progress.end(), control) != in_progress.end())
+            break;
+        bool at_content = false;
+        for (dom::Node* node = &target; node != nullptr && node != subject && !at_content; node = node->parent_or_host())
+            at_content = node->is_element() && interactive_content(static_cast<dom::Element&>(*node));
+        if (at_content)
+            break;
+        if (control->has_attribute("disabled"))
+            break;
+        in_progress.push_back(control);
+        Realm::MouseInit init;
+        dispatch_with_activation(in, *control, true, [&] { return in.realm.dispatch_mouse_event(*control, "click", init); });
+        in_progress.pop_back();
+        break;
+    }
+    case Activation::Summary: {
+        auto& details = static_cast<dom::Element&>(*subject->parent());
+        if (details.has_attribute("open"))
+            remove_attribute(in, details, "open");
+        else
+            set_attribute(in, details, "open", "");
+        break;
+    }
+    case Activation::None:
+        break;
+    }
+    return true;
 }
 
 bool Realm::submit_requested(dom::Element& form, dom::Element* submitter)
@@ -733,8 +973,15 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     element_method(in, html_element, "click", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         if (e.has_attribute("disabled") && (e.is_html("button") || e.is_html("input") || e.is_html("select") || e.is_html("textarea")))
             return js::Value::undefined();
+        // HTML §6.4.3 click(): a synthetic click, with what it sets off; one
+        // already being clicked this way is not clicked again.
+        auto& in_progress = clicks_in_progress();
+        if (std::find(in_progress.begin(), in_progress.end(), &e) != in_progress.end())
+            return js::Value::undefined();
+        in_progress.push_back(&e);
         Realm::MouseInit init;
-        internals.realm.dispatch_mouse_event(e, "click", init);
+        dispatch_with_activation(internals, e, true, [&] { return internals.realm.dispatch_mouse_event(e, "click", init); });
+        in_progress.pop_back();
         return js::Value::undefined();
     });
     for (std::string_view const name : { "showPopover", "hidePopover", "togglePopover" })
@@ -937,7 +1184,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         element_accessor(
             in, proto, "checked", [](Realm::Internals& internals, dom::Element& e) -> Native { return js::Value::boolean(control_checked_of(internals, e)); },
             [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
-                set_control_checked_of(internals, e, js::Interpreter::to_boolean(value));
+                set_checkedness(internals, e, js::Interpreter::to_boolean(value));
                 return js::Value::undefined();
             });
         // A file input's FileList: empty, as no file is ever chosen here, or the
@@ -1305,18 +1552,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             return js::Value::undefined();
         });
         element_method(in, proto, "reset", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
-            if (!internals.realm.dispatch_event(&e, "reset", Realm::EventInit { true, true, false }))
-                return js::Value::undefined();
-            for (dom::Node* control : form_controls(internals, e)) {
-                auto& element = static_cast<dom::Element&>(*control);
-                if (element.document().form_associated_custom.contains(&element)) {
-                    form_associated_reset(internals, element);
-                    continue;
-                }
-                set_control_value_of(internals, element, default_value_of(element));
-                if (element.is_html("input"))
-                    set_control_checked_of(internals, element, element.has_attribute("checked"));
-            }
+            reset_form(internals, e);
             return js::Value::undefined();
         });
         for (std::string_view const name : { "checkValidity", "reportValidity" }) {

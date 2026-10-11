@@ -398,7 +398,23 @@ Native dispatch_event_native(js::Interpreter& interpreter, js::Value const& this
     if (event->dispatching || !event->initialized)
         return internals_of(interpreter).throw_dom_exception("InvalidStateError", "The event is already being dispatched");
     event->is_trusted = false;
-    return js::Value::boolean(target->internals->dispatch(*event, target->object));
+    Realm::Internals& in = *target->internals;
+    // A click a script dispatches at an element sets off what a click does
+    // (DOM §2.9: a MouseEvent named click is an activation event).
+    if (event->type == "click") {
+        dom::Node* const node = in.realm.node_of(js::Value::object(target->object));
+        js::Object const* const mouse = in.prototype("MouseEvent");
+        bool is_mouse = false;
+        for (js::Object const* proto = event->prototype(); proto != nullptr && !is_mouse; proto = proto->prototype())
+            is_mouse = proto == mouse;
+        if (node != nullptr && node->is_element() && is_mouse) {
+            js::Interpreter::Roots const roots(interpreter);
+            interpreter.root(event_value);
+            return js::Value::boolean(
+                dispatch_with_activation(in, static_cast<dom::Element&>(*node), event->bubbles, [&] { return in.dispatch(*event, target->object); }));
+        }
+    }
+    return js::Value::boolean(in.dispatch(*event, target->object));
 }
 
 // Reads the common members of an EventInit dictionary.
