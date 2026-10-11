@@ -1348,6 +1348,21 @@ void test_cssom_sheets()
     CHECK_EQ(color("v"), "rgb(10, 11, 12)");
     CHECK(page.throws("document.styleSheets[0].replaceSync('p {}')").starts_with("NotAllowedError"));
     CHECK(page.throws("document.adoptedStyleSheets = [document.styleSheets[0]]").starts_with("NotAllowedError"));
+    // A name with escapes reads back with them (CSSOM "serialize an
+    // identifier"), and a constructed sheet written again from its rules
+    // still matches what it matched: `.e-\[1px\]` written as `.e-[1px]`
+    // would read back as an attribute selector.
+    CHECK_EQ(page.string(R"JS((function () {
+        var s = new CSSStyleSheet();
+        s.replaceSync('.e-\\[1px\\] { color: rgb(20, 21, 22) } #\\31 x { color: red } .a\\:b { color: red }');
+        document.adoptedStyleSheets = [s];
+        s.insertRule('.z { color: blue }', 0);
+        var e = document.createElement('i');
+        e.className = 'e-[1px]';
+        document.body.appendChild(e);
+        return [s.cssRules[1].selectorText, s.cssRules[2].selectorText, s.cssRules[3].selectorText, getComputedStyle(e).color].join('|');
+    })())JS"),
+        R"(.e-\[1px\]|#\31 x|.a\:b|rgb(20, 21, 22))");
     // Rewriting a <style>'s text replaces what the object model made of it.
     page.string("String(document.getElementById('st').sheet.insertRule('#q { color: rgb(13, 14, 15) }', 2))");
     CHECK_EQ(color("q"), "rgb(13, 14, 15)");

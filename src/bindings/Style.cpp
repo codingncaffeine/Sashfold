@@ -30,15 +30,43 @@ namespace {
 // --- Serialization ------------------------------------------------------------------
 
 void serialize_values(std::vector<css::ComponentValue> const& values, std::string& out);
+std::string identifier_text(std::string_view text);
 
+// A hash's name with what no name may hold escaped (CSSOM §2.1, "serialize
+// a name"): unlike an identifier it may start with a digit — #123 is a
+// colour.
+std::string name_text(std::string_view text)
+{
+    std::string out;
+    for (char const ch : text) {
+        unsigned char const c = static_cast<unsigned char>(ch);
+        if (c >= 0x80 || c == '-' || c == '_' || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z')) {
+            out += ch;
+        } else if (c < 0x20 || c == 0x7f) {
+            char buffer[8];
+            std::snprintf(buffer, sizeof buffer, "\\%x ", static_cast<unsigned>(c));
+            out += buffer;
+        } else {
+            out += '\\';
+            out += ch;
+        }
+    }
+    return out;
+}
+
+// A token as text that reads back as the same token: an identifier, a
+// function's or an at-rule's name, a hash and a unit with their escapes
+// (`.h-\[40px\]` must not come back as `.h-[40px]`, an attribute selector).
 void serialize_token(css::Token const& token, std::string& out)
 {
     using Type = css::Token::Type;
     switch (token.type) {
-    case Type::Ident: out += token.value; break;
-    case Type::Function: out += token.value + "("; break;
-    case Type::AtKeyword: out += "@" + token.value; break;
-    case Type::Hash: out += "#" + token.value; break;
+    case Type::Ident: out += identifier_text(token.value); break;
+    case Type::Function: out += identifier_text(token.value) + "("; break;
+    case Type::AtKeyword: out += "@" + identifier_text(token.value); break;
+    case Type::Hash:
+        out += "#" + (token.hash_type == css::Token::HashType::Id ? identifier_text(token.value) : name_text(token.value));
+        break;
     case Type::String: {
         out += '"';
         for (char const c : token.value) {
@@ -56,7 +84,7 @@ void serialize_token(css::Token const& token, std::string& out)
     case Type::Delim: append_utf8(out, token.delim); break;
     case Type::Number: out += js::number_to_utf8(token.numeric_value); break;
     case Type::Percentage: out += js::number_to_utf8(token.numeric_value) + "%"; break;
-    case Type::Dimension: out += js::number_to_utf8(token.numeric_value) + token.unit; break;
+    case Type::Dimension: out += js::number_to_utf8(token.numeric_value) + identifier_text(token.unit); break;
     case Type::UnicodeRange: break;
     case Type::Whitespace: out += ' '; break;
     case Type::CDO: out += "<!--"; break;
@@ -80,7 +108,7 @@ void serialize_values(std::vector<css::ComponentValue> const& values, std::strin
         if (value.is_token()) {
             serialize_token(value.token(), out);
         } else if (value.is_function()) {
-            out += value.function().name + "(";
+            out += identifier_text(value.function().name) + "(";
             serialize_values(value.function().values, out);
             out += ")";
         } else {

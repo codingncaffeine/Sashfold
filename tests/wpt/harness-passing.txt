@@ -2191,6 +2191,7 @@ css/css-animations/parsing/animation-iteration-count-valid.html	e.style['animati
 css/css-animations/parsing/animation-iteration-count-valid.html	e.style['animation-iteration-count'] = "3" should set the property value
 css/css-animations/parsing/animation-iteration-count-valid.html	e.style['animation-iteration-count'] = "4.5" should set the property value
 css/css-animations/parsing/animation-iteration-count-valid.html	e.style['animation-iteration-count'] = "infinite" should set the property value
+css/css-animations/parsing/animation-name-computed.html	Property animation-name value '"---\\22---"'
 css/css-animations/parsing/animation-name-computed.html	Property animation-name value '"DEFAULT"'
 css/css-animations/parsing/animation-name-computed.html	Property animation-name value '"INHERIT"'
 css/css-animations/parsing/animation-name-computed.html	Property animation-name value '"INITIAL"'
@@ -2201,6 +2202,7 @@ css/css-animations/parsing/animation-name-computed.html	Property animation-name 
 css/css-animations/parsing/animation-name-computed.html	Property animation-name value '"default"'
 css/css-animations/parsing/animation-name-computed.html	Property animation-name value '"inherit"'
 css/css-animations/parsing/animation-name-computed.html	Property animation-name value '"initial"'
+css/css-animations/parsing/animation-name-computed.html	Property animation-name value '"multi word string"'
 css/css-animations/parsing/animation-name-computed.html	Property animation-name value '"none"'
 css/css-animations/parsing/animation-name-computed.html	Property animation-name value '"none", "INITIAL", "inherit"'
 css/css-animations/parsing/animation-name-computed.html	Property animation-name value '"none", both, ease-in'
@@ -3743,6 +3745,12 @@ css/css-backgrounds/animations/border-bottom-width-composition.html	Compositing 
 css/css-backgrounds/animations/border-bottom-width-composition.html	Compositing Web Animations: property <border-bottom-width> underlying [50px] from add [100px] to replace [200px] at (0.5) should be [175px]
 css/css-backgrounds/animations/border-bottom-width-composition.html	Compositing Web Animations: property <border-bottom-width> underlying [50px] from add [100px] to replace [200px] at (1) should be [200px]
 css/css-backgrounds/animations/border-bottom-width-composition.html	Compositing Web Animations: property <border-bottom-width> underlying [50px] from add [100px] to replace [200px] at (1.5) should be [225px]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (-0.3) should be [rgb(23, 33, 43) rgb(40, 50, 60) rgb(17, 27, 37) rgb(37, 47, 57)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (0) should be [rgb(20, 30, 40) rgb(40, 50, 60)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (0.3) should be [rgb(17, 27, 37) rgb(40, 50, 60) rgb(23, 33, 43) rgb(43, 53, 63)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (0.6) should be [rgb(14, 24, 34) rgb(40, 50, 60) rgb(26, 36, 46) rgb(46, 56, 66)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (1) should be [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (1.5) should be [rgb(5, 15, 25) rgb(40, 50, 60) rgb(35, 45, 55) rgb(55, 65, 75)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: property <border-top-color> from [inherit] to [orange] at (-0.3) should be [rgb(255, 255, 255)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: property <border-top-color> from [inherit] to [orange] at (0) should be [rgb(255, 255, 255)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: property <border-top-color> from [inherit] to [orange] at (0.3) should be [rgb(255, 228, 179)]
@@ -3773,6 +3781,12 @@ css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: p
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: property <border-top-color> from neutral to [orange] at (0.6) should be [rgb(153, 99, 56)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: property <border-top-color> from neutral to [orange] at (1) should be [rgb(255, 165, 0)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Animations: property <border-top-color> from neutral to [orange] at (1.5) should be [rgb(255, 248, 0)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions with transition: all: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (-0.3) should be [rgb(23, 33, 43) rgb(40, 50, 60) rgb(17, 27, 37) rgb(37, 47, 57)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions with transition: all: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (0) should be [rgb(20, 30, 40) rgb(40, 50, 60)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions with transition: all: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (0.3) should be [rgb(17, 27, 37) rgb(40, 50, 60) rgb(23, 33, 43) rgb(43, 53, 63)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions with transition: all: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (0.6) should be [rgb(14, 24, 34) rgb(40, 50, 60) rgb(26, 36, 46) rgb(46, 56, 66)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions with transition: all: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (1) should be [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions with transition: all: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (1.5) should be [rgb(5, 15, 25) rgb(40, 50, 60) rgb(35, 45, 55) rgb(55, 65, 75)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions with transition: all: property <border-top-color> from [inherit] to [orange] at (-0.3) should be [rgb(255, 255, 255)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions with transition: all: property <border-top-color> from [inherit] to [orange] at (0) should be [rgb(255, 255, 255)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions with transition: all: property <border-top-color> from [inherit] to [orange] at (0.3) should be [rgb(255, 228, 179)]
@@ -3803,6 +3817,12 @@ css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions w
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions with transition: all: property <border-top-color> from neutral to [orange] at (0.6) should be [rgb(153, 99, 56)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions with transition: all: property <border-top-color> from neutral to [orange] at (1) should be [rgb(255, 165, 0)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions with transition: all: property <border-top-color> from neutral to [orange] at (1.5) should be [rgb(255, 248, 0)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (-0.3) should be [rgb(23, 33, 43) rgb(40, 50, 60) rgb(17, 27, 37) rgb(37, 47, 57)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (0) should be [rgb(20, 30, 40) rgb(40, 50, 60)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (0.3) should be [rgb(17, 27, 37) rgb(40, 50, 60) rgb(23, 33, 43) rgb(43, 53, 63)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (0.6) should be [rgb(14, 24, 34) rgb(40, 50, 60) rgb(26, 36, 46) rgb(46, 56, 66)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (1) should be [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)]
+css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (1.5) should be [rgb(5, 15, 25) rgb(40, 50, 60) rgb(35, 45, 55) rgb(55, 65, 75)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: property <border-top-color> from [inherit] to [orange] at (-0.3) should be [rgb(255, 255, 255)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: property <border-top-color> from [inherit] to [orange] at (0) should be [rgb(255, 255, 255)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: property <border-top-color> from [inherit] to [orange] at (0.3) should be [rgb(255, 228, 179)]
@@ -3833,6 +3853,12 @@ css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: 
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: property <border-top-color> from neutral to [orange] at (0.6) should be [rgb(153, 99, 56)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: property <border-top-color> from neutral to [orange] at (1) should be [rgb(255, 165, 0)]
 css/css-backgrounds/animations/border-color-interpolation.html	CSS Transitions: property <border-top-color> from neutral to [orange] at (1.5) should be [rgb(255, 248, 0)]
+css/css-backgrounds/animations/border-color-interpolation.html	Web Animations: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (-0.3) should be [rgb(23, 33, 43) rgb(40, 50, 60) rgb(17, 27, 37) rgb(37, 47, 57)]
+css/css-backgrounds/animations/border-color-interpolation.html	Web Animations: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (0) should be [rgb(20, 30, 40) rgb(40, 50, 60)]
+css/css-backgrounds/animations/border-color-interpolation.html	Web Animations: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (0.3) should be [rgb(17, 27, 37) rgb(40, 50, 60) rgb(23, 33, 43) rgb(43, 53, 63)]
+css/css-backgrounds/animations/border-color-interpolation.html	Web Animations: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (0.6) should be [rgb(14, 24, 34) rgb(40, 50, 60) rgb(26, 36, 46) rgb(46, 56, 66)]
+css/css-backgrounds/animations/border-color-interpolation.html	Web Animations: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (1) should be [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)]
+css/css-backgrounds/animations/border-color-interpolation.html	Web Animations: property <border-color> from [rgb(20, 30, 40) rgb(40, 50, 60)] to [rgb(10, 20, 30) rgb(40, 50, 60) rgb(30, 40, 50) rgb(50, 60, 70)] at (1.5) should be [rgb(5, 15, 25) rgb(40, 50, 60) rgb(35, 45, 55) rgb(55, 65, 75)]
 css/css-backgrounds/animations/border-color-interpolation.html	Web Animations: property <border-top-color> from [inherit] to [orange] at (-0.3) should be [rgb(255, 255, 255)]
 css/css-backgrounds/animations/border-color-interpolation.html	Web Animations: property <border-top-color> from [inherit] to [orange] at (0) should be [rgb(255, 255, 255)]
 css/css-backgrounds/animations/border-color-interpolation.html	Web Animations: property <border-top-color> from [inherit] to [orange] at (0.3) should be [rgb(255, 228, 179)]
@@ -3903,6 +3929,12 @@ css/css-backgrounds/animations/border-left-width-composition.html	Compositing We
 css/css-backgrounds/animations/border-left-width-composition.html	Compositing Web Animations: property <border-left-width> underlying [50px] from add [100px] to replace [200px] at (0.5) should be [175px]
 css/css-backgrounds/animations/border-left-width-composition.html	Compositing Web Animations: property <border-left-width> underlying [50px] from add [100px] to replace [200px] at (1) should be [200px]
 css/css-backgrounds/animations/border-left-width-composition.html	Compositing Web Animations: property <border-left-width> underlying [50px] from add [100px] to replace [200px] at (1.5) should be [225px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (-0.3) should be [17px 37px 57px 77px / 117px 137px 157px 177px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (0) should be [20px 40px 60px 80px / 120px 140px 160px 180px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (0.3) should be [23px 43px 63px 83px / 123px 143px 163px 183px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (0.6) should be [26px 46px 66px 86px / 126px 146px 166px 186px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (1) should be [30px 50px 70px 90px / 130px 150px 170px 190px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (1.5) should be [35px 55px 75px 95px / 135px 155px 175px 195px]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: property <border-top-left-radius> from [10px] to [100%] at (-0.3) should be [calc(13px + -30%)]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: property <border-top-left-radius> from [10px] to [100%] at (0) should be [calc(10px + 0%)]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: property <border-top-left-radius> from [10px] to [100%] at (0.3) should be [calc(7px + 30%)]
@@ -3946,6 +3978,12 @@ css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: 
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: property <border-top-left-radius> from neutral to [20px] at (0.6) should be [16px]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: property <border-top-left-radius> from neutral to [20px] at (1) should be [20px]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Animations: property <border-top-left-radius> from neutral to [20px] at (1.5) should be [25px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions with transition: all: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (-0.3) should be [17px 37px 57px 77px / 117px 137px 157px 177px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions with transition: all: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (0) should be [20px 40px 60px 80px / 120px 140px 160px 180px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions with transition: all: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (0.3) should be [23px 43px 63px 83px / 123px 143px 163px 183px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions with transition: all: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (0.6) should be [26px 46px 66px 86px / 126px 146px 166px 186px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions with transition: all: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (1) should be [30px 50px 70px 90px / 130px 150px 170px 190px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions with transition: all: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (1.5) should be [35px 55px 75px 95px / 135px 155px 175px 195px]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions with transition: all: property <border-top-left-radius> from [10px] to [100%] at (-0.3) should be [calc(13px + -30%)]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions with transition: all: property <border-top-left-radius> from [10px] to [100%] at (0) should be [calc(10px + 0%)]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions with transition: all: property <border-top-left-radius> from [10px] to [100%] at (0.3) should be [calc(7px + 30%)]
@@ -3989,6 +4027,12 @@ css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions 
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions with transition: all: property <border-top-left-radius> from neutral to [20px] at (0.6) should be [16px]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions with transition: all: property <border-top-left-radius> from neutral to [20px] at (1) should be [20px]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions with transition: all: property <border-top-left-radius> from neutral to [20px] at (1.5) should be [25px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (-0.3) should be [17px 37px 57px 77px / 117px 137px 157px 177px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (0) should be [20px 40px 60px 80px / 120px 140px 160px 180px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (0.3) should be [23px 43px 63px 83px / 123px 143px 163px 183px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (0.6) should be [26px 46px 66px 86px / 126px 146px 166px 186px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (1) should be [30px 50px 70px 90px / 130px 150px 170px 190px]
+css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (1.5) should be [35px 55px 75px 95px / 135px 155px 175px 195px]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions: property <border-top-left-radius> from [10px] to [100%] at (-0.3) should be [calc(13px + -30%)]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions: property <border-top-left-radius> from [10px] to [100%] at (0) should be [calc(10px + 0%)]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions: property <border-top-left-radius> from [10px] to [100%] at (0.3) should be [calc(7px + 30%)]
@@ -4032,6 +4076,12 @@ css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions:
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions: property <border-top-left-radius> from neutral to [20px] at (0.6) should be [16px]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions: property <border-top-left-radius> from neutral to [20px] at (1) should be [20px]
 css/css-backgrounds/animations/border-radius-interpolation.html	CSS Transitions: property <border-top-left-radius> from neutral to [20px] at (1.5) should be [25px]
+css/css-backgrounds/animations/border-radius-interpolation.html	Web Animations: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (-0.3) should be [17px 37px 57px 77px / 117px 137px 157px 177px]
+css/css-backgrounds/animations/border-radius-interpolation.html	Web Animations: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (0) should be [20px 40px 60px 80px / 120px 140px 160px 180px]
+css/css-backgrounds/animations/border-radius-interpolation.html	Web Animations: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (0.3) should be [23px 43px 63px 83px / 123px 143px 163px 183px]
+css/css-backgrounds/animations/border-radius-interpolation.html	Web Animations: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (0.6) should be [26px 46px 66px 86px / 126px 146px 166px 186px]
+css/css-backgrounds/animations/border-radius-interpolation.html	Web Animations: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (1) should be [30px 50px 70px 90px / 130px 150px 170px 190px]
+css/css-backgrounds/animations/border-radius-interpolation.html	Web Animations: property <border-radius> from [20px 40px 60px 80px / 120px 140px 160px 180px] to [30px 50px 70px 90px / 130px 150px 170px 190px] at (1.5) should be [35px 55px 75px 95px / 135px 155px 175px 195px]
 css/css-backgrounds/animations/border-radius-interpolation.html	Web Animations: property <border-top-left-radius> from [10px] to [100%] at (-0.3) should be [calc(13px + -30%)]
 css/css-backgrounds/animations/border-radius-interpolation.html	Web Animations: property <border-top-left-radius> from [10px] to [100%] at (0) should be [calc(10px + 0%)]
 css/css-backgrounds/animations/border-radius-interpolation.html	Web Animations: property <border-top-left-radius> from [10px] to [100%] at (0.3) should be [calc(7px + 30%)]
@@ -4254,7 +4304,11 @@ css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: p
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [0px] to [10px] at (1.5) should be [15px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [inherit] to [20px] at (1) should be [20px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [initial] to [23px] at (-0.3) should be [0px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [initial] to [23px] at (0) should be [3px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [initial] to [23px] at (0.3) should be [9px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [initial] to [23px] at (0.6) should be [15px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [initial] to [23px] at (1) should be [23px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [initial] to [23px] at (1.5) should be [33px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [medium] to [13px] at (-0.25) should be [0.5px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [medium] to [13px] at (-2) should be [0px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [medium] to [13px] at (0) should be [3px]
@@ -4263,7 +4317,11 @@ css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: p
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [medium] to [13px] at (1) should be [13px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [medium] to [13px] at (1.5) should be [18px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [unset] to [23px] at (-0.3) should be [0px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [unset] to [23px] at (0) should be [3px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [unset] to [23px] at (0.3) should be [9px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [unset] to [23px] at (0.6) should be [15px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [unset] to [23px] at (1) should be [23px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from [unset] to [23px] at (1.5) should be [33px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from neutral to [20px] at (-0.3) should be [7px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from neutral to [20px] at (0) should be [10px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-left-width> from neutral to [20px] at (0.3) should be [13px]
@@ -4284,6 +4342,12 @@ css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: p
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-top-width> from [15px] to [thick] at (0.6) should be [9px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-top-width> from [15px] to [thick] at (1) should be [5px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-top-width> from [15px] to [thick] at (1.5) should be [0px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (-0.3) should be [17px 37px 57px 77px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (0) should be [20px 40px 60px 80px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (0.3) should be [23px 43px 63px 83px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (0.6) should be [26px 46px 66px 86px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (1) should be [30px 50px 70px 90px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Animations: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (1.5) should be [35px 55px 75px 95px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-bottom-width> from [thick] to [15px] at (-0.3) should be [2px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-bottom-width> from [thick] to [15px] at (-2) should be [0px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-bottom-width> from [thick] to [15px] at (0) should be [5px]
@@ -4299,7 +4363,11 @@ css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions w
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [0px] to [10px] at (1.5) should be [15px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [inherit] to [20px] at (1) should be [20px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [initial] to [23px] at (-0.3) should be [0px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [initial] to [23px] at (0) should be [3px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [initial] to [23px] at (0.3) should be [9px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [initial] to [23px] at (0.6) should be [15px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [initial] to [23px] at (1) should be [23px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [initial] to [23px] at (1.5) should be [33px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [medium] to [13px] at (-0.25) should be [0.5px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [medium] to [13px] at (-2) should be [0px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [medium] to [13px] at (0) should be [3px]
@@ -4308,7 +4376,11 @@ css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions w
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [medium] to [13px] at (1) should be [13px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [medium] to [13px] at (1.5) should be [18px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [unset] to [23px] at (-0.3) should be [0px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [unset] to [23px] at (0) should be [3px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [unset] to [23px] at (0.3) should be [9px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [unset] to [23px] at (0.6) should be [15px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [unset] to [23px] at (1) should be [23px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from [unset] to [23px] at (1.5) should be [33px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from neutral to [20px] at (-0.3) should be [7px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from neutral to [20px] at (0) should be [10px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-left-width> from neutral to [20px] at (0.3) should be [13px]
@@ -4329,6 +4401,12 @@ css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions w
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-top-width> from [15px] to [thick] at (0.6) should be [9px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-top-width> from [15px] to [thick] at (1) should be [5px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-top-width> from [15px] to [thick] at (1.5) should be [0px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (-0.3) should be [17px 37px 57px 77px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (0) should be [20px 40px 60px 80px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (0.3) should be [23px 43px 63px 83px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (0.6) should be [26px 46px 66px 86px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (1) should be [30px 50px 70px 90px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions with transition: all: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (1.5) should be [35px 55px 75px 95px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-bottom-width> from [thick] to [15px] at (-0.3) should be [2px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-bottom-width> from [thick] to [15px] at (-2) should be [0px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-bottom-width> from [thick] to [15px] at (0) should be [5px]
@@ -4344,7 +4422,11 @@ css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: 
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [0px] to [10px] at (1.5) should be [15px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [inherit] to [20px] at (1) should be [20px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [initial] to [23px] at (-0.3) should be [0px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [initial] to [23px] at (0) should be [3px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [initial] to [23px] at (0.3) should be [9px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [initial] to [23px] at (0.6) should be [15px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [initial] to [23px] at (1) should be [23px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [initial] to [23px] at (1.5) should be [33px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [medium] to [13px] at (-0.25) should be [0.5px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [medium] to [13px] at (-2) should be [0px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [medium] to [13px] at (0) should be [3px]
@@ -4353,7 +4435,11 @@ css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: 
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [medium] to [13px] at (1) should be [13px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [medium] to [13px] at (1.5) should be [18px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [unset] to [23px] at (-0.3) should be [0px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [unset] to [23px] at (0) should be [3px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [unset] to [23px] at (0.3) should be [9px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [unset] to [23px] at (0.6) should be [15px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [unset] to [23px] at (1) should be [23px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from [unset] to [23px] at (1.5) should be [33px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from neutral to [20px] at (-0.3) should be [7px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from neutral to [20px] at (0) should be [10px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-left-width> from neutral to [20px] at (0.3) should be [13px]
@@ -4374,6 +4460,12 @@ css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: 
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-top-width> from [15px] to [thick] at (0.6) should be [9px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-top-width> from [15px] to [thick] at (1) should be [5px]
 css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-top-width> from [15px] to [thick] at (1.5) should be [0px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (-0.3) should be [17px 37px 57px 77px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (0) should be [20px 40px 60px 80px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (0.3) should be [23px 43px 63px 83px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (0.6) should be [26px 46px 66px 86px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (1) should be [30px 50px 70px 90px]
+css/css-backgrounds/animations/border-width-interpolation.html	CSS Transitions: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (1.5) should be [35px 55px 75px 95px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-bottom-width> from [thick] to [15px] at (-0.3) should be [2px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-bottom-width> from [thick] to [15px] at (-2) should be [0px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-bottom-width> from [thick] to [15px] at (0) should be [5px]
@@ -4389,7 +4481,11 @@ css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: p
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [0px] to [10px] at (1.5) should be [15px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [inherit] to [20px] at (1) should be [20px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [initial] to [23px] at (-0.3) should be [0px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [initial] to [23px] at (0) should be [3px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [initial] to [23px] at (0.3) should be [9px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [initial] to [23px] at (0.6) should be [15px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [initial] to [23px] at (1) should be [23px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [initial] to [23px] at (1.5) should be [33px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [medium] to [13px] at (-0.25) should be [0.5px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [medium] to [13px] at (-2) should be [0px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [medium] to [13px] at (0) should be [3px]
@@ -4398,7 +4494,11 @@ css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: p
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [medium] to [13px] at (1) should be [13px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [medium] to [13px] at (1.5) should be [18px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [unset] to [23px] at (-0.3) should be [0px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [unset] to [23px] at (0) should be [3px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [unset] to [23px] at (0.3) should be [9px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [unset] to [23px] at (0.6) should be [15px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [unset] to [23px] at (1) should be [23px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from [unset] to [23px] at (1.5) should be [33px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from neutral to [20px] at (-0.3) should be [7px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from neutral to [20px] at (0) should be [10px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-left-width> from neutral to [20px] at (0.3) should be [13px]
@@ -4419,6 +4519,12 @@ css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: p
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-top-width> from [15px] to [thick] at (0.6) should be [9px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-top-width> from [15px] to [thick] at (1) should be [5px]
 css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-top-width> from [15px] to [thick] at (1.5) should be [0px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (-0.3) should be [17px 37px 57px 77px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (0) should be [20px 40px 60px 80px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (0.3) should be [23px 43px 63px 83px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (0.6) should be [26px 46px 66px 86px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (1) should be [30px 50px 70px 90px]
+css/css-backgrounds/animations/border-width-interpolation.html	Web Animations: property <border-width> from [20px 40px 60px 80px] to [30px 50px 70px 90px] at (1.5) should be [35px 55px 75px 95px]
 css/css-backgrounds/animations/box-shadow-composition.html	Compositing CSS Animations: property <box-shadow> underlying [rgb(10, 20, 30) 1px 2px 3px 4px, rgb(20, 40, 60) 2px 4px 6px 8px, rgb(40, 80, 120) 4px 8px 12px 16px] from add [rgb(100, 100, 100) 10px 20px 30px 40px, rgb(200, 200, 200) 20px 40px 60px 80px] to replace [rgb(200, 200, 200) 20px 40px 60px 80px] at (-0.3) should be [rgb(0, 0, 0) -4.7px -9.4px 0px -18.8px, rgb(26, 52, 78) 2.6px 5.2px 7.8px 10.4px, rgb(52, 104, 156) 5.2px 10.4px 15.6px 20.8px, rgb(130, 130, 130) 13px 26px 39px 52px, rgb(255, 255, 255) 26px 52px 78px 104px]
 css/css-backgrounds/animations/box-shadow-composition.html	Compositing CSS Animations: property <box-shadow> underlying [rgb(10, 20, 30) 1px 2px 3px 4px, rgb(20, 40, 60) 2px 4px 6px 8px, rgb(40, 80, 120) 4px 8px 12px 16px] from add [rgb(100, 100, 100) 10px 20px 30px 40px, rgb(200, 200, 200) 20px 40px 60px 80px] to replace [rgb(200, 200, 200) 20px 40px 60px 80px] at (0) should be [rgb(10, 20, 30) 1px 2px 3px 4px, rgb(20, 40, 60) 2px 4px 6px 8px, rgb(40, 80, 120) 4px 8px 12px 16px, rgb(100, 100, 100) 10px 20px 30px 40px, rgb(200, 200, 200) 20px 40px 60px 80px]
 css/css-backgrounds/animations/box-shadow-composition.html	Compositing CSS Animations: property <box-shadow> underlying [rgb(10, 20, 30) 1px 2px 3px 4px, rgb(20, 40, 60) 2px 4px 6px 8px, rgb(40, 80, 120) 4px 8px 12px 16px] from add [rgb(100, 100, 100) 10px 20px 30px 40px, rgb(200, 200, 200) 20px 40px 60px 80px] to replace [rgb(200, 200, 200) 20px 40px 60px 80px] at (0.5) should be [rgb(105, 110, 115) 10.5px 21px 31.5px 42px, rgba(20, 40, 60, 0.5) 1px 2px 3px 4px, rgba(40, 80, 120, 0.5) 2px 4px 6px 8px, rgba(100, 100, 100, 0.5) 5px 10px 15px 20px, rgba(200, 200, 200, 0.5) 10px 20px 30px 40px]
@@ -4971,6 +5077,10 @@ css/css-backgrounds/inheritance.sub.html	Property background-color has initial v
 css/css-backgrounds/inheritance.sub.html	Property background-image has initial value none
 css/css-backgrounds/inheritance.sub.html	Property border-bottom-color does not inherit
 css/css-backgrounds/inheritance.sub.html	Property border-bottom-color has initial value rgb(2, 3, 4)
+css/css-backgrounds/inheritance.sub.html	Property border-bottom-left-radius does not inherit
+css/css-backgrounds/inheritance.sub.html	Property border-bottom-left-radius has initial value 0px
+css/css-backgrounds/inheritance.sub.html	Property border-bottom-right-radius does not inherit
+css/css-backgrounds/inheritance.sub.html	Property border-bottom-right-radius has initial value 0px
 css/css-backgrounds/inheritance.sub.html	Property border-bottom-style has initial value none
 css/css-backgrounds/inheritance.sub.html	Property border-left-color does not inherit
 css/css-backgrounds/inheritance.sub.html	Property border-left-color has initial value rgb(2, 3, 4)
@@ -4980,6 +5090,10 @@ css/css-backgrounds/inheritance.sub.html	Property border-right-color has initial
 css/css-backgrounds/inheritance.sub.html	Property border-right-style has initial value none
 css/css-backgrounds/inheritance.sub.html	Property border-top-color does not inherit
 css/css-backgrounds/inheritance.sub.html	Property border-top-color has initial value rgb(2, 3, 4)
+css/css-backgrounds/inheritance.sub.html	Property border-top-left-radius does not inherit
+css/css-backgrounds/inheritance.sub.html	Property border-top-left-radius has initial value 0px
+css/css-backgrounds/inheritance.sub.html	Property border-top-right-radius does not inherit
+css/css-backgrounds/inheritance.sub.html	Property border-top-right-radius has initial value 0px
 css/css-backgrounds/inheritance.sub.html	Property border-top-style has initial value none
 css/css-backgrounds/inheritance.sub.html	Property box-shadow does not inherit
 css/css-backgrounds/inheritance.sub.html	Property box-shadow has initial value none
@@ -5084,6 +5198,10 @@ css/css-backgrounds/parsing/background-size-valid.html	e.style['background-size'
 css/css-backgrounds/parsing/background-size-valid.html	e.style['background-size'] = "cover" should set the property value
 css/css-backgrounds/parsing/background-valid.html	e.style['background'] = "url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box, rgb(5, 6, 7) url(\\"https://example.com/\\") 1px 2px / 3px 4px space round local padding-box content-box" should set the property value
 css/css-backgrounds/parsing/border-color-computed.html	Property border-bottom-color value 'green'
+css/css-backgrounds/parsing/border-color-computed.html	Property border-color value 'currentcolor'
+css/css-backgrounds/parsing/border-color-computed.html	Property border-color value 'red yellow currentcolor'
+css/css-backgrounds/parsing/border-color-computed.html	Property border-color value 'red yellow green blue'
+css/css-backgrounds/parsing/border-color-computed.html	Property border-color value 'red yellow'
 css/css-backgrounds/parsing/border-color-computed.html	Property border-left-color value 'blue'
 css/css-backgrounds/parsing/border-color-computed.html	Property border-right-color value 'yellow'
 css/css-backgrounds/parsing/border-color-computed.html	Property border-top-color value 'red'
@@ -5136,6 +5254,19 @@ css/css-backgrounds/parsing/border-image-width-valid.html	e.style['border-image-
 css/css-backgrounds/parsing/border-image-width-valid.html	e.style['border-image-width'] = "2%" should set the property value
 css/css-backgrounds/parsing/border-image-width-valid.html	e.style['border-image-width'] = "3" should set the property value
 css/css-backgrounds/parsing/border-image-width-valid.html	e.style['border-image-width'] = "auto" should set the property value
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-bottom-left-radius value '50% 60px'
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-bottom-right-radius value 'calc(0.5em + 10px) 40%'
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-radius value '1px 1px 1px 1px / 1px 1px 2% 1px'
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-radius value '1px 1px 1px 2% / 1px 2% 1px 2%'
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-radius value '1px 1px 2% 2%'
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-radius value '1px 2% 1px 1px'
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-radius value '1px 2% 2% 2% / 1px 2% 3px 2%'
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-radius value '1px 2% 3px 4% / 5em'
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-radius value '1px 2% 3px 4%'
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-radius value '1px'
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-radius value '5em / 1px 2% 3px 4%'
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-top-left-radius value '40px 0px'
+css/css-backgrounds/parsing/border-radius-computed.html	Property border-top-right-radius value '20%'
 css/css-backgrounds/parsing/border-radius-valid.html	e.style['border-bottom-left-radius'] = "50% 60px" should set the property value
 css/css-backgrounds/parsing/border-radius-valid.html	e.style['border-bottom-right-radius'] = "30px 40%" should set the property value
 css/css-backgrounds/parsing/border-radius-valid.html	e.style['border-radius'] = "1px / 2px" should set the property value
@@ -5156,6 +5287,7 @@ css/css-backgrounds/parsing/border-radius-valid.html	e.style['border-radius'] = 
 css/css-backgrounds/parsing/border-radius-valid.html	e.style['border-radius'] = "unset" should set the property value
 css/css-backgrounds/parsing/border-radius-valid.html	e.style['border-top-left-radius'] = "10px" should set the property value
 css/css-backgrounds/parsing/border-radius-valid.html	e.style['border-top-right-radius'] = "20%" should set the property value
+css/css-backgrounds/parsing/border-style-computed.html	Property border-style value 'none'
 css/css-backgrounds/parsing/border-style-computed.html	Property border-top-style value 'solid'
 css/css-backgrounds/parsing/border-style-valid.html	e.style['border-bottom-style'] = "groove" should set the property value
 css/css-backgrounds/parsing/border-style-valid.html	e.style['border-left-style'] = "ridge" should set the property value
@@ -5173,6 +5305,12 @@ css/css-backgrounds/parsing/border-valid.html	e.style['border-top'] = "thin" sho
 css/css-backgrounds/parsing/border-width-computed.html	Property border-left-width value 'calc(0.5em + 10px)'
 css/css-backgrounds/parsing/border-width-computed.html	Property border-right-width value '10px'
 css/css-backgrounds/parsing/border-width-computed.html	Property border-top-width value '0px'
+css/css-backgrounds/parsing/border-width-computed.html	Property border-width value '0.5em'
+css/css-backgrounds/parsing/border-width-computed.html	Property border-width value '1px 2px 3px 4px'
+css/css-backgrounds/parsing/border-width-computed.html	Property border-width value '1px 2px 3px'
+css/css-backgrounds/parsing/border-width-computed.html	Property border-width value '1px 2px'
+css/css-backgrounds/parsing/border-width-computed.html	Property border-width value '1px'
+css/css-backgrounds/parsing/border-width-computed.html	Property border-width value '2px thin medium thick'
 css/css-backgrounds/parsing/border-width-computed.html	thin ≤ medium ≤ thick
 css/css-backgrounds/parsing/border-width-valid.html	e.style['border-bottom-width'] = "medium" should set the property value
 css/css-backgrounds/parsing/border-width-valid.html	e.style['border-left-width'] = "thick" should set the property value
@@ -5441,6 +5579,7 @@ css/css-cascade/scope-visited-cssom.html	:visited as scoping root, :scope
 css/css-conditional/at-media-matches-001.html	"@media all" always matches
 css/css-conditional/at-media-matches-002.html	Change iframe height to 90px, @media (max-height: 100px) now matches
 css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 10
 css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 11
 css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 12
 css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 13
@@ -5462,6 +5601,7 @@ css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 5
 css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 6
 css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 7
 css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 8
+css/css-conditional/at-supports-at-rule-serialization.html	@supports at-rule 9
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature(  anchor-position-follows-transforms  bar) should be false
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature(  foo   anchor-position-follows-transforms  ) should be false
 css/css-conditional/at-supports-named-feature-001.html	@supports named-feature( anchor-position-follows-transforms ) should be false
@@ -5506,6 +5646,8 @@ css/css-conditional/container-queries/idlharness.html	Stringification of sheet.c
 css/css-conditional/container-queries/idlharness.html	Stringification of sheet.cssRules[0].cssRules[0]
 css/css-conditional/container-queries/idlharness.html	idl_test setup
 css/css-conditional/container-queries/idlharness.html	idl_test validation
+css/css-conditional/container-queries/query-container-name-dynamic.html	Remove #couter --foo container-name, none match
+css/css-conditional/container-queries/query-container-name.html	no match for unused container name
 css/css-conditional/container-queries/style-query-custom-attr-change-named-container.html	Initially, container does not match. Target is red.
 css/css-conditional/container-queries/style-query-custom-attr-change.html	Initially, container does not match. Target is red.
 css/css-conditional/container-queries/style-query-registered-custom-em-change.html	Initially, 1em (16px) + 10px evaluates to 26px. Target does not match.
@@ -7904,6 +8046,7 @@ css/css-nesting/nested-declarations-cssom.html	Inserting a CSSNestedDeclaration 
 css/css-nesting/nested-declarations-cssom.html	Mixed declarations
 css/css-nesting/nested-declarations-cssom.html	Nested @scope rule
 css/css-nesting/nested-declarations-cssom.html	Trailing declarations
+css/css-nesting/nested-declarations-matching.html	Trailing declarations apply after any preceding rules
 css/css-nesting/nested-error-recovery.html	CSS Nesting: Error recovery
 css/css-nesting/nested-error-recovery.html	CSS Nesting: Error recovery 1
 css/css-nesting/nested-error-recovery.html	CSS Nesting: Error recovery 2
@@ -9405,6 +9548,40 @@ css/css-transitions/properties-value-001.html	min-width percentage(%) / events
 css/css-transitions/properties-value-001.html	min-width percentage(%) / values
 css/css-transitions/properties-value-001.html	opacity number[0,1](zero-to-one) / events
 css/css-transitions/properties-value-001.html	opacity number[0,1](zero-to-one) / values
+css/css-transitions/properties-value-001.html	outline-color color(rgba) / events
+css/css-transitions/properties-value-001.html	outline-color color(rgba) / values
+css/css-transitions/properties-value-001.html	outline-offset length(cm) / events
+css/css-transitions/properties-value-001.html	outline-offset length(cm) / values
+css/css-transitions/properties-value-001.html	outline-offset length(em) / events
+css/css-transitions/properties-value-001.html	outline-offset length(em) / values
+css/css-transitions/properties-value-001.html	outline-offset length(ex) / events
+css/css-transitions/properties-value-001.html	outline-offset length(ex) / values
+css/css-transitions/properties-value-001.html	outline-offset length(in) / events
+css/css-transitions/properties-value-001.html	outline-offset length(in) / values
+css/css-transitions/properties-value-001.html	outline-offset length(mm) / events
+css/css-transitions/properties-value-001.html	outline-offset length(mm) / values
+css/css-transitions/properties-value-001.html	outline-offset length(pc) / events
+css/css-transitions/properties-value-001.html	outline-offset length(pc) / values
+css/css-transitions/properties-value-001.html	outline-offset length(pt) / events
+css/css-transitions/properties-value-001.html	outline-offset length(pt) / values
+css/css-transitions/properties-value-001.html	outline-offset length(px) / events
+css/css-transitions/properties-value-001.html	outline-offset length(px) / values
+css/css-transitions/properties-value-001.html	outline-width length(cm) / events
+css/css-transitions/properties-value-001.html	outline-width length(cm) / values
+css/css-transitions/properties-value-001.html	outline-width length(em) / events
+css/css-transitions/properties-value-001.html	outline-width length(em) / values
+css/css-transitions/properties-value-001.html	outline-width length(ex) / events
+css/css-transitions/properties-value-001.html	outline-width length(ex) / values
+css/css-transitions/properties-value-001.html	outline-width length(in) / events
+css/css-transitions/properties-value-001.html	outline-width length(in) / values
+css/css-transitions/properties-value-001.html	outline-width length(mm) / events
+css/css-transitions/properties-value-001.html	outline-width length(mm) / values
+css/css-transitions/properties-value-001.html	outline-width length(pc) / events
+css/css-transitions/properties-value-001.html	outline-width length(pc) / values
+css/css-transitions/properties-value-001.html	outline-width length(pt) / events
+css/css-transitions/properties-value-001.html	outline-width length(pt) / values
+css/css-transitions/properties-value-001.html	outline-width length(px) / events
+css/css-transitions/properties-value-001.html	outline-width length(px) / values
 css/css-transitions/properties-value-001.html	padding-bottom length(cm) / events
 css/css-transitions/properties-value-001.html	padding-bottom length(cm) / values
 css/css-transitions/properties-value-001.html	padding-bottom length(em) / events
@@ -9561,8 +9738,40 @@ css/css-transitions/properties-value-002.html	padding-right percentage(%) / even
 css/css-transitions/properties-value-002.html	padding-right percentage(%) / values
 css/css-transitions/properties-value-002.html	padding-top percentage(%) / events
 css/css-transitions/properties-value-002.html	padding-top percentage(%) / values
+css/css-transitions/properties-value-003.html	border-bottom-left-radius border-radius(px) / events
+css/css-transitions/properties-value-003.html	border-bottom-left-radius border-radius(px) / values
+css/css-transitions/properties-value-003.html	border-bottom-left-radius border-radius(px-px) / events
+css/css-transitions/properties-value-003.html	border-bottom-left-radius border-radius(px-px) / values
+css/css-transitions/properties-value-003.html	border-bottom-right-radius border-radius(px) / events
+css/css-transitions/properties-value-003.html	border-bottom-right-radius border-radius(px) / values
+css/css-transitions/properties-value-003.html	border-bottom-right-radius border-radius(px-px) / events
+css/css-transitions/properties-value-003.html	border-bottom-right-radius border-radius(px-px) / values
+css/css-transitions/properties-value-003.html	border-top-left-radius border-radius(px) / events
+css/css-transitions/properties-value-003.html	border-top-left-radius border-radius(px) / values
+css/css-transitions/properties-value-003.html	border-top-left-radius border-radius(px-px) / events
+css/css-transitions/properties-value-003.html	border-top-left-radius border-radius(px-px) / values
+css/css-transitions/properties-value-003.html	border-top-right-radius border-radius(px) / events
+css/css-transitions/properties-value-003.html	border-top-right-radius border-radius(px) / values
+css/css-transitions/properties-value-003.html	border-top-right-radius border-radius(px-px) / events
+css/css-transitions/properties-value-003.html	border-top-right-radius border-radius(px-px) / values
 css/css-transitions/properties-value-003.html	box-shadow box-shadow(shadow) / events
 css/css-transitions/properties-value-003.html	box-shadow box-shadow(shadow) / values
+css/css-transitions/properties-value-003.html	column-gap length(cm) / events
+css/css-transitions/properties-value-003.html	column-gap length(cm) / values
+css/css-transitions/properties-value-003.html	column-gap length(em) / events
+css/css-transitions/properties-value-003.html	column-gap length(em) / values
+css/css-transitions/properties-value-003.html	column-gap length(ex) / events
+css/css-transitions/properties-value-003.html	column-gap length(ex) / values
+css/css-transitions/properties-value-003.html	column-gap length(in) / events
+css/css-transitions/properties-value-003.html	column-gap length(in) / values
+css/css-transitions/properties-value-003.html	column-gap length(mm) / events
+css/css-transitions/properties-value-003.html	column-gap length(mm) / values
+css/css-transitions/properties-value-003.html	column-gap length(pc) / events
+css/css-transitions/properties-value-003.html	column-gap length(pc) / values
+css/css-transitions/properties-value-003.html	column-gap length(pt) / events
+css/css-transitions/properties-value-003.html	column-gap length(pt) / values
+css/css-transitions/properties-value-003.html	column-gap length(px) / events
+css/css-transitions/properties-value-003.html	column-gap length(px) / values
 css/css-transitions/properties-value-003.html	font-stretch font-stretch(keyword) / events
 css/css-transitions/properties-value-003.html	font-stretch font-stretch(keyword) / values
 css/css-transitions/properties-value-implicit-001.html	border-bottom-width length-em(em) / events
@@ -9599,6 +9808,10 @@ css/css-transitions/properties-value-implicit-001.html	min-height length-em(em) 
 css/css-transitions/properties-value-implicit-001.html	min-height length-em(em) / values
 css/css-transitions/properties-value-implicit-001.html	min-width length-em(em) / events
 css/css-transitions/properties-value-implicit-001.html	min-width length-em(em) / values
+css/css-transitions/properties-value-implicit-001.html	outline-offset length-em(em) / events
+css/css-transitions/properties-value-implicit-001.html	outline-offset length-em(em) / values
+css/css-transitions/properties-value-implicit-001.html	outline-width length-em(em) / events
+css/css-transitions/properties-value-implicit-001.html	outline-width length-em(em) / values
 css/css-transitions/properties-value-implicit-001.html	padding-bottom length-em(em) / events
 css/css-transitions/properties-value-implicit-001.html	padding-bottom length-em(em) / values
 css/css-transitions/properties-value-implicit-001.html	padding-left length-em(em) / events
@@ -9943,6 +10156,40 @@ css/css-transitions/properties-value-inherit-001.html	min-width percentage(%) / 
 css/css-transitions/properties-value-inherit-001.html	min-width percentage(%) / values
 css/css-transitions/properties-value-inherit-001.html	opacity number[0,1](zero-to-one) / events
 css/css-transitions/properties-value-inherit-001.html	opacity number[0,1](zero-to-one) / values
+css/css-transitions/properties-value-inherit-001.html	outline-color color(rgba) / events
+css/css-transitions/properties-value-inherit-001.html	outline-color color(rgba) / values
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(cm) / events
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(cm) / values
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(em) / events
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(em) / values
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(ex) / events
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(ex) / values
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(in) / events
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(in) / values
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(mm) / events
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(mm) / values
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(pc) / events
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(pc) / values
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(pt) / events
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(pt) / values
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(px) / events
+css/css-transitions/properties-value-inherit-001.html	outline-offset length(px) / values
+css/css-transitions/properties-value-inherit-001.html	outline-width length(cm) / events
+css/css-transitions/properties-value-inherit-001.html	outline-width length(cm) / values
+css/css-transitions/properties-value-inherit-001.html	outline-width length(em) / events
+css/css-transitions/properties-value-inherit-001.html	outline-width length(em) / values
+css/css-transitions/properties-value-inherit-001.html	outline-width length(ex) / events
+css/css-transitions/properties-value-inherit-001.html	outline-width length(ex) / values
+css/css-transitions/properties-value-inherit-001.html	outline-width length(in) / events
+css/css-transitions/properties-value-inherit-001.html	outline-width length(in) / values
+css/css-transitions/properties-value-inherit-001.html	outline-width length(mm) / events
+css/css-transitions/properties-value-inherit-001.html	outline-width length(mm) / values
+css/css-transitions/properties-value-inherit-001.html	outline-width length(pc) / events
+css/css-transitions/properties-value-inherit-001.html	outline-width length(pc) / values
+css/css-transitions/properties-value-inherit-001.html	outline-width length(pt) / events
+css/css-transitions/properties-value-inherit-001.html	outline-width length(pt) / values
+css/css-transitions/properties-value-inherit-001.html	outline-width length(px) / events
+css/css-transitions/properties-value-inherit-001.html	outline-width length(px) / values
 css/css-transitions/properties-value-inherit-001.html	padding-bottom length(cm) / events
 css/css-transitions/properties-value-inherit-001.html	padding-bottom length(cm) / values
 css/css-transitions/properties-value-inherit-001.html	padding-bottom length(em) / events
@@ -10410,6 +10657,40 @@ css/css-transitions/properties-value-inherit-002.html	min-width percentage(%) / 
 css/css-transitions/properties-value-inherit-002.html	min-width percentage(%) / values
 css/css-transitions/properties-value-inherit-002.html	opacity number[0,1](zero-to-one) / events
 css/css-transitions/properties-value-inherit-002.html	opacity number[0,1](zero-to-one) / values
+css/css-transitions/properties-value-inherit-002.html	outline-color color(rgba) / events
+css/css-transitions/properties-value-inherit-002.html	outline-color color(rgba) / values
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(cm) / events
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(cm) / values
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(em) / events
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(em) / values
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(ex) / events
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(ex) / values
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(in) / events
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(in) / values
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(mm) / events
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(mm) / values
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(pc) / events
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(pc) / values
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(pt) / events
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(pt) / values
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(px) / events
+css/css-transitions/properties-value-inherit-002.html	outline-offset length(px) / values
+css/css-transitions/properties-value-inherit-002.html	outline-width length(cm) / events
+css/css-transitions/properties-value-inherit-002.html	outline-width length(cm) / values
+css/css-transitions/properties-value-inherit-002.html	outline-width length(em) / events
+css/css-transitions/properties-value-inherit-002.html	outline-width length(em) / values
+css/css-transitions/properties-value-inherit-002.html	outline-width length(ex) / events
+css/css-transitions/properties-value-inherit-002.html	outline-width length(ex) / values
+css/css-transitions/properties-value-inherit-002.html	outline-width length(in) / events
+css/css-transitions/properties-value-inherit-002.html	outline-width length(in) / values
+css/css-transitions/properties-value-inherit-002.html	outline-width length(mm) / events
+css/css-transitions/properties-value-inherit-002.html	outline-width length(mm) / values
+css/css-transitions/properties-value-inherit-002.html	outline-width length(pc) / events
+css/css-transitions/properties-value-inherit-002.html	outline-width length(pc) / values
+css/css-transitions/properties-value-inherit-002.html	outline-width length(pt) / events
+css/css-transitions/properties-value-inherit-002.html	outline-width length(pt) / values
+css/css-transitions/properties-value-inherit-002.html	outline-width length(px) / events
+css/css-transitions/properties-value-inherit-002.html	outline-width length(px) / values
 css/css-transitions/properties-value-inherit-002.html	padding-bottom length(cm) / events
 css/css-transitions/properties-value-inherit-002.html	padding-bottom length(cm) / values
 css/css-transitions/properties-value-inherit-002.html	padding-bottom length(em) / events
@@ -10584,6 +10865,10 @@ css/css-transitions/properties-value-inherit-003.html	min-height length-em(em) /
 css/css-transitions/properties-value-inherit-003.html	min-height length-em(em) / values
 css/css-transitions/properties-value-inherit-003.html	min-width length-em(em) / events
 css/css-transitions/properties-value-inherit-003.html	min-width length-em(em) / values
+css/css-transitions/properties-value-inherit-003.html	outline-offset length-em(em) / events
+css/css-transitions/properties-value-inherit-003.html	outline-offset length-em(em) / values
+css/css-transitions/properties-value-inherit-003.html	outline-width length-em(em) / events
+css/css-transitions/properties-value-inherit-003.html	outline-width length-em(em) / values
 css/css-transitions/properties-value-inherit-003.html	padding-bottom length-em(em) / events
 css/css-transitions/properties-value-inherit-003.html	padding-bottom length-em(em) / values
 css/css-transitions/properties-value-inherit-003.html	padding-left length-em(em) / events
@@ -11047,6 +11332,7 @@ css/cssom/cssstyledeclaration-csstext-setter.window.html	cssText setter should s
 css/cssom/cssstyledeclaration-csstext-setter.window.html	cssText setter should set style attribute even when there are no style changes, part 4 (body)
 css/cssom/cssstyledeclaration-csstext-setter.window.html	cssText setter should set style attribute even when there are no style changes, part 4 (cool-beans)
 css/cssom/cssstyledeclaration-csstext.html	another cssText order (non-alphabetical order)
+css/cssom/cssstyledeclaration-csstext.html	cssText on computed style declaration returns the empty string
 css/cssom/cssstyledeclaration-csstext.html	cssText order
 css/cssom/cssstyledeclaration-csstext.html	uppercase value
 css/cssom/cssstyledeclaration-csstext.html	use rgb
@@ -12205,7 +12491,9 @@ css/cssom/getComputedStyle-line-height.html	line-height: 10px
 css/cssom/getComputedStyle-line-height.html	line-height: normal
 css/cssom/getComputedStyle-margins-roundtrip.html	Fixed-length margin-left property value should roundtrip
 css/cssom/getComputedStyle-pseudo-checkmark.html	Resolution of width is correct when pseudo-element argument is ignored (due to no colon)
+css/cssom/getComputedStyle-pseudo-checkmark.html	Resolution of width is correct when pseudo-element argument is ignored (due to single-colon)
 css/cssom/getComputedStyle-pseudo-picker-icon.html	Resolution of width is correct when pseudo-element argument is ignored (due to no colon)
+css/cssom/getComputedStyle-pseudo-picker-icon.html	Resolution of width is correct when pseudo-element argument is ignored (due to single-colon)
 css/cssom/getComputedStyle-pseudo-picker.html	::picker(select) on non-select element with no rules resolves the style
 css/cssom/getComputedStyle-pseudo-picker.html	Invalid pseudo-element should return empty style: ::picker
 css/cssom/getComputedStyle-pseudo-picker.html	Invalid pseudo-element should return empty style: ::picker( )
@@ -12233,12 +12521,15 @@ css/cssom/getComputedStyle-pseudo-with-argument.html	This pseudo-element should 
 css/cssom/getComputedStyle-pseudo.html	CSSStyleDeclaration is immutable
 css/cssom/getComputedStyle-pseudo.html	Prefixed ::-webkit-file-upload-button does not resolve in getComputedStyle
 css/cssom/getComputedStyle-pseudo.html	Resolution of width is correct when pseudo-element argument is ignored (due to no colon)
+css/cssom/getComputedStyle-pseudo.html	Resolution of width is correct when pseudo-element argument is invalid (due to a trailing token)
+css/cssom/getComputedStyle-pseudo.html	Unknown pseudo-elements
 css/cssom/getComputedStyle-resolved-colors.html	The resolved value for 'background-color' is the used value
 css/cssom/getComputedStyle-resolved-colors.html	The resolved value for 'border-bottom-color' is the used value
 css/cssom/getComputedStyle-resolved-colors.html	The resolved value for 'border-left-color' is the used value
 css/cssom/getComputedStyle-resolved-colors.html	The resolved value for 'border-right-color' is the used value
 css/cssom/getComputedStyle-resolved-colors.html	The resolved value for 'border-top-color' is the used value
 css/cssom/getComputedStyle-resolved-colors.html	The resolved value for 'color' is the used value
+css/cssom/getComputedStyle-resolved-colors.html	The resolved value for 'outline-color' is the used value
 css/cssom/getComputedStyle-resolved-min-max-clamping.html	Resolved value of width / height when there's no used value isn't clamped by min/max properties
 css/cssom/getComputedStyle-resolved-min-size-auto.html	Resolved value of min-width & min-height 'auto' keyword behaves as expected on element with id="block-with-degenerate-aspect-ratio"
 css/cssom/getComputedStyle-resolved-min-size-auto.html	Resolved value of min-width & min-height 'auto' keyword behaves as expected on element with id="block-with-two-part-degenerate-aspect-ratio"
@@ -12709,6 +13000,12 @@ css/cssom/property-accessors.html	grid-gap
 css/cssom/property-accessors.html	overscroll-behavior
 css/cssom/property-accessors.html	src
 css/cssom/property-accessors.html	unicode-range
+css/cssom/resolved-border-width.html	checkbox
+css/cssom/resolved-border-width.html	radio
+css/cssom/selectorSerialize.html	escaped character (@) in attribute name
+css/cssom/selectorSerialize.html	escaped character (\\) in element name
+css/cssom/selectorSerialize.html	escaped character as code point in attribute name
+css/cssom/selectorSerialize.html	escaped character in attribute name
 css/cssom/selectorSerialize.html	single class (simple) selector in the sequence of simple selectors that is not a universal selector
 css/cssom/selectorSerialize.html	single id (simple) selector in the sequence of simple selectors that is not a universal selector
 css/cssom/selectorSerialize.html	single pseudo (simple) selector which does not accept arguments in the sequence of simple selectors that is not a universal selector
@@ -12719,6 +13016,14 @@ css/cssom/serialization-CSSDeclaration-with-important.html	Inline style declarat
 css/cssom/serialization-CSSDeclaration-with-important.html	Inline style declaration without whitespace between '!' and 'important'.
 css/cssom/serialization-CSSDeclaration-with-important.html	Style set dynamically via cssText with whitespace between '!' and 'important'.
 css/cssom/serialization-CSSDeclaration-with-important.html	Style set dynamically via cssText without whitespace between '!' and 'important'.
+css/cssom/serialize-custom-props.html	An <integer> custom prop can take a 12-digit integer
+css/cssom/serialize-custom-props.html	An <integer> custom prop can take a 4-digit integer
+css/cssom/serialize-custom-props.html	An <integer> custom prop can take a 6-digit integer
+css/cssom/serialize-custom-props.html	An <integer> custom prop can take a 8-digit integer
+css/cssom/serialize-custom-props.html	An unregistered custom prop can take a 12-digit integer
+css/cssom/serialize-custom-props.html	An unregistered custom prop can take a 4-digit integer
+css/cssom/serialize-custom-props.html	An unregistered custom prop can take a 6-digit integer
+css/cssom/serialize-custom-props.html	An unregistered custom prop can take a 8-digit integer
 css/cssom/serialize-custom-props.html	z-index can take a 12-digit integer
 css/cssom/serialize-custom-props.html	z-index can take a 4-digit integer
 css/cssom/serialize-custom-props.html	z-index can take a 6-digit integer
@@ -155652,8 +155957,14 @@ user-timing/user_timing_exists.any.html	self.performance.mark is defined.
 user-timing/user_timing_exists.any.html	self.performance.measure is defined.
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	Setup
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	align-content (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	align-content: "flex-end" onto "flex-start"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	align-content: "flex-start" onto "flex-end"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	align-items (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	align-items: "flex-end" onto "flex-start"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	align-items: "flex-start" onto "flex-end"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	align-self (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	align-self: "flex-end" onto "flex-start"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	align-self: "flex-start" onto "flex-end"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	appearance (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	appearance: "auto" onto "none"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	appearance: "none" onto "auto"
@@ -155681,6 +155992,8 @@ web-animations/animation-model/animation-types/accumulation-per-property-001.htm
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	border-bottom-width: length
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	border-bottom-width: length of rem
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	border-collapse (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	border-collapse: "collapse" onto "separate"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	border-collapse: "separate" onto "collapse"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	border-left-color (type: color) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	border-left-color supports animating as color of #RGB
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	border-left-color supports animating as color of #RGBa
@@ -155736,6 +156049,9 @@ web-animations/animation-model/animation-types/accumulation-per-property-001.htm
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	color supports animating as color of rgba()
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	column-gap (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	column-gap (type: length) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	column-gap: "normal" onto "200px"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	column-gap: length
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	column-gap: length of rem
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	counter-increment (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	counter-reset (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	empty-cells (type: discrete) has testAccumulation function
@@ -155743,11 +156059,29 @@ web-animations/animation-model/animation-types/accumulation-per-property-001.htm
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	fill-rule (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis (type: lengthPercentageOrCalc) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: "10px" onto "auto"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: "auto" onto "10px"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: calc
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: length
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: length of rem
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: percentage
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: units "%" onto "px"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: units "%" onto "rem"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: units "calc" onto "px"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: units "em" onto "rem"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: units "px" onto "%"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: units "rem" onto "%"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-basis: units "rem" onto "em"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-direction (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-direction: "row" onto "row-reverse"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-direction: "row-reverse" onto "row"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-flow (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-flow: "row-reverse wrap" onto "row"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-grow (type: positiveNumber) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-shrink (type: positiveNumber) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-wrap (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-wrap: "nowrap" onto "wrap"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	flex-wrap: "wrap" onto "nowrap"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	float (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	float: "left" onto "right"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	float: "right" onto "left"
@@ -155767,25 +156101,55 @@ web-animations/animation-model/animation-types/accumulation-per-property-001.htm
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-synthesis: "weight style" onto "none"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	gap (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	gap (type: length) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	gap: "normal" onto "200px"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	gap: length
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	gap: length of rem
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-area (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-area: "1" onto "5"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-area: "5" onto "1"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-auto-columns (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-auto-columns: "1px" onto "5px"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-auto-columns: "5px" onto "1px"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-auto-flow (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-auto-flow: "column" onto "row"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-auto-flow: "row" onto "column"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-auto-rows (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-auto-rows: "1px" onto "5px"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-auto-rows: "5px" onto "1px"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-column (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-column-end (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-column-end: "1" onto "5"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-column-end: "5" onto "1"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-column-start (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-column-start: "1" onto "5"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-column-start: "5" onto "1"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-column: "1" onto "5"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-column: "5" onto "1"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-row (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-row-end (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-row-end: "1" onto "5"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-row-end: "5" onto "1"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-row-start (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-row-start: "1" onto "5"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-row-start: "5" onto "1"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-row: "1" onto "5"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-row: "5" onto "1"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-template (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-template-areas (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	grid-template-areas: "". . a b" ". . a b"" onto "none"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	hyphens (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	hyphens: "manual" onto "none"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	hyphens: "none" onto "manual"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	Setup
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	justify-content (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	justify-content: "end" onto "start"
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	justify-content: "start" onto "end"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	justify-items (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	justify-items: "end" onto "start"
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	justify-items: "start" onto "end"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	justify-self (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	justify-self: "end" onto "start"
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	justify-self: "start" onto "end"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	letter-spacing (type: lengthPercentageOrCalc) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	letter-spacing: length
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	letter-spacing: length of rem
@@ -155803,10 +156167,22 @@ web-animations/animation-model/animation-types/accumulation-per-property-002.htm
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	object-fit: "contain" onto "fill"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	object-fit: "fill" onto "contain"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	order (type: integer) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	order: integer
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-color (type: color) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-color supports animating as color of #RGB
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-color supports animating as color of #RGBa
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-color supports animating as color of hsl()
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-color supports animating as color of hsla()
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-color supports animating as color of rgb() with overflowed  from and to values
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-color supports animating as color of rgba()
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-offset (type: length) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-offset: length
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-offset: length of rem
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-style (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-style: "none" onto "dotted"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-width (type: length) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-width: length
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	outline-width: length of rem
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	overflow (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	overflow-wrap (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	overflow-wrap: "break-word" onto "normal"
@@ -155820,8 +156196,14 @@ web-animations/animation-model/animation-types/accumulation-per-property-002.htm
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	overflow: "hidden" onto "visible"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	overflow: "visible" onto "hidden"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	place-content (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	place-content: "end" onto "start"
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	place-content: "start" onto "end"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	place-items (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	place-items: "end" onto "start"
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	place-items: "start" onto "end"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	place-self (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	place-self: "end" onto "start"
+web-animations/animation-model/animation-types/accumulation-per-property-002.html	place-self: "start" onto "end"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	pointer-events (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	pointer-events: "none" onto "fill"
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	position (type: discrete) has testAccumulation function
@@ -155869,8 +156251,14 @@ web-animations/animation-model/animation-types/accumulation-per-property-002.htm
 web-animations/animation-model/animation-types/accumulation-per-property-002.html	word-spacing: units "rem" onto "em"
 web-animations/animation-model/animation-types/addition-per-property-001.html	Setup
 web-animations/animation-model/animation-types/addition-per-property-001.html	align-content (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	align-content: "flex-end" onto "flex-start"
+web-animations/animation-model/animation-types/addition-per-property-001.html	align-content: "flex-start" onto "flex-end"
 web-animations/animation-model/animation-types/addition-per-property-001.html	align-items (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	align-items: "flex-end" onto "flex-start"
+web-animations/animation-model/animation-types/addition-per-property-001.html	align-items: "flex-start" onto "flex-end"
 web-animations/animation-model/animation-types/addition-per-property-001.html	align-self (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	align-self: "flex-end" onto "flex-start"
+web-animations/animation-model/animation-types/addition-per-property-001.html	align-self: "flex-start" onto "flex-end"
 web-animations/animation-model/animation-types/addition-per-property-001.html	appearance (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	appearance: "auto" onto "none"
 web-animations/animation-model/animation-types/addition-per-property-001.html	appearance: "none" onto "auto"
@@ -155898,6 +156286,8 @@ web-animations/animation-model/animation-types/addition-per-property-001.html	bo
 web-animations/animation-model/animation-types/addition-per-property-001.html	border-bottom-width: length
 web-animations/animation-model/animation-types/addition-per-property-001.html	border-bottom-width: length of rem
 web-animations/animation-model/animation-types/addition-per-property-001.html	border-collapse (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	border-collapse: "collapse" onto "separate"
+web-animations/animation-model/animation-types/addition-per-property-001.html	border-collapse: "separate" onto "collapse"
 web-animations/animation-model/animation-types/addition-per-property-001.html	border-left-color (type: color) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	border-left-color supports animating as color of #RGB
 web-animations/animation-model/animation-types/addition-per-property-001.html	border-left-color supports animating as color of #RGBa
@@ -155953,6 +156343,9 @@ web-animations/animation-model/animation-types/addition-per-property-001.html	co
 web-animations/animation-model/animation-types/addition-per-property-001.html	color supports animating as color of rgba()
 web-animations/animation-model/animation-types/addition-per-property-001.html	column-gap (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	column-gap (type: length) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	column-gap: "normal" onto "200px"
+web-animations/animation-model/animation-types/addition-per-property-001.html	column-gap: length
+web-animations/animation-model/animation-types/addition-per-property-001.html	column-gap: length of rem
 web-animations/animation-model/animation-types/addition-per-property-001.html	counter-increment (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	counter-reset (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	empty-cells (type: discrete) has testAddition function
@@ -155960,11 +156353,29 @@ web-animations/animation-model/animation-types/addition-per-property-001.html	fi
 web-animations/animation-model/animation-types/addition-per-property-001.html	fill-rule (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis (type: lengthPercentageOrCalc) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: "10px" onto "auto"
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: "auto" onto "10px"
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: calc
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: length
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: length of rem
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: percentage
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: units "%" onto "px"
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: units "%" onto "rem"
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: units "calc" onto "px"
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: units "em" onto "rem"
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: units "px" onto "%"
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: units "rem" onto "%"
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-basis: units "rem" onto "em"
 web-animations/animation-model/animation-types/addition-per-property-001.html	flex-direction (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-direction: "row" onto "row-reverse"
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-direction: "row-reverse" onto "row"
 web-animations/animation-model/animation-types/addition-per-property-001.html	flex-flow (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-flow: "row-reverse wrap" onto "row"
 web-animations/animation-model/animation-types/addition-per-property-001.html	flex-grow (type: positiveNumber) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	flex-shrink (type: positiveNumber) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	flex-wrap (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-wrap: "nowrap" onto "wrap"
+web-animations/animation-model/animation-types/addition-per-property-001.html	flex-wrap: "wrap" onto "nowrap"
 web-animations/animation-model/animation-types/addition-per-property-001.html	float (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	float: "left" onto "right"
 web-animations/animation-model/animation-types/addition-per-property-001.html	float: "right" onto "left"
@@ -155984,25 +156395,55 @@ web-animations/animation-model/animation-types/addition-per-property-001.html	fo
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-synthesis: "weight style" onto "none"
 web-animations/animation-model/animation-types/addition-per-property-001.html	gap (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	gap (type: length) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	gap: "normal" onto "200px"
+web-animations/animation-model/animation-types/addition-per-property-001.html	gap: length
+web-animations/animation-model/animation-types/addition-per-property-001.html	gap: length of rem
 web-animations/animation-model/animation-types/addition-per-property-001.html	grid-area (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-area: "1" onto "5"
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-area: "5" onto "1"
 web-animations/animation-model/animation-types/addition-per-property-001.html	grid-auto-columns (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-auto-columns: "1px" onto "5px"
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-auto-columns: "5px" onto "1px"
 web-animations/animation-model/animation-types/addition-per-property-001.html	grid-auto-flow (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-auto-flow: "column" onto "row"
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-auto-flow: "row" onto "column"
 web-animations/animation-model/animation-types/addition-per-property-001.html	grid-auto-rows (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-auto-rows: "1px" onto "5px"
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-auto-rows: "5px" onto "1px"
 web-animations/animation-model/animation-types/addition-per-property-001.html	grid-column (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	grid-column-end (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-column-end: "1" onto "5"
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-column-end: "5" onto "1"
 web-animations/animation-model/animation-types/addition-per-property-001.html	grid-column-start (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-column-start: "1" onto "5"
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-column-start: "5" onto "1"
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-column: "1" onto "5"
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-column: "5" onto "1"
 web-animations/animation-model/animation-types/addition-per-property-001.html	grid-row (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	grid-row-end (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-row-end: "1" onto "5"
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-row-end: "5" onto "1"
 web-animations/animation-model/animation-types/addition-per-property-001.html	grid-row-start (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-row-start: "1" onto "5"
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-row-start: "5" onto "1"
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-row: "1" onto "5"
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-row: "5" onto "1"
 web-animations/animation-model/animation-types/addition-per-property-001.html	grid-template (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	grid-template-areas (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	grid-template-areas: "". . a b" ". . a b"" onto "none"
 web-animations/animation-model/animation-types/addition-per-property-001.html	hyphens (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	hyphens: "manual" onto "none"
 web-animations/animation-model/animation-types/addition-per-property-001.html	hyphens: "none" onto "manual"
 web-animations/animation-model/animation-types/addition-per-property-002.html	Setup
 web-animations/animation-model/animation-types/addition-per-property-002.html	justify-content (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-002.html	justify-content: "end" onto "start"
+web-animations/animation-model/animation-types/addition-per-property-002.html	justify-content: "start" onto "end"
 web-animations/animation-model/animation-types/addition-per-property-002.html	justify-items (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-002.html	justify-items: "end" onto "start"
+web-animations/animation-model/animation-types/addition-per-property-002.html	justify-items: "start" onto "end"
 web-animations/animation-model/animation-types/addition-per-property-002.html	justify-self (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-002.html	justify-self: "end" onto "start"
+web-animations/animation-model/animation-types/addition-per-property-002.html	justify-self: "start" onto "end"
 web-animations/animation-model/animation-types/addition-per-property-002.html	letter-spacing (type: lengthPercentageOrCalc) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-002.html	letter-spacing: length
 web-animations/animation-model/animation-types/addition-per-property-002.html	letter-spacing: length of rem
@@ -156020,10 +156461,22 @@ web-animations/animation-model/animation-types/addition-per-property-002.html	ob
 web-animations/animation-model/animation-types/addition-per-property-002.html	object-fit: "contain" onto "fill"
 web-animations/animation-model/animation-types/addition-per-property-002.html	object-fit: "fill" onto "contain"
 web-animations/animation-model/animation-types/addition-per-property-002.html	order (type: integer) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-002.html	order: integer
 web-animations/animation-model/animation-types/addition-per-property-002.html	outline-color (type: color) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-002.html	outline-color supports animating as color of #RGB
+web-animations/animation-model/animation-types/addition-per-property-002.html	outline-color supports animating as color of #RGBa
+web-animations/animation-model/animation-types/addition-per-property-002.html	outline-color supports animating as color of hsl()
+web-animations/animation-model/animation-types/addition-per-property-002.html	outline-color supports animating as color of hsla()
+web-animations/animation-model/animation-types/addition-per-property-002.html	outline-color supports animating as color of rgb() with overflowed  from and to values
+web-animations/animation-model/animation-types/addition-per-property-002.html	outline-color supports animating as color of rgba()
 web-animations/animation-model/animation-types/addition-per-property-002.html	outline-offset (type: length) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-002.html	outline-offset: length
+web-animations/animation-model/animation-types/addition-per-property-002.html	outline-offset: length of rem
 web-animations/animation-model/animation-types/addition-per-property-002.html	outline-style (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-002.html	outline-style: "none" onto "dotted"
 web-animations/animation-model/animation-types/addition-per-property-002.html	outline-width (type: length) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-002.html	outline-width: length
+web-animations/animation-model/animation-types/addition-per-property-002.html	outline-width: length of rem
 web-animations/animation-model/animation-types/addition-per-property-002.html	overflow (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-002.html	overflow-wrap (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-002.html	overflow-wrap: "break-word" onto "normal"
@@ -156037,8 +156490,14 @@ web-animations/animation-model/animation-types/addition-per-property-002.html	ov
 web-animations/animation-model/animation-types/addition-per-property-002.html	overflow: "hidden" onto "visible"
 web-animations/animation-model/animation-types/addition-per-property-002.html	overflow: "visible" onto "hidden"
 web-animations/animation-model/animation-types/addition-per-property-002.html	place-content (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-002.html	place-content: "end" onto "start"
+web-animations/animation-model/animation-types/addition-per-property-002.html	place-content: "start" onto "end"
 web-animations/animation-model/animation-types/addition-per-property-002.html	place-items (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-002.html	place-items: "end" onto "start"
+web-animations/animation-model/animation-types/addition-per-property-002.html	place-items: "start" onto "end"
 web-animations/animation-model/animation-types/addition-per-property-002.html	place-self (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-002.html	place-self: "end" onto "start"
+web-animations/animation-model/animation-types/addition-per-property-002.html	place-self: "start" onto "end"
 web-animations/animation-model/animation-types/addition-per-property-002.html	pointer-events (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-002.html	pointer-events: "none" onto "fill"
 web-animations/animation-model/animation-types/addition-per-property-002.html	position (type: discrete) has testAddition function
@@ -156094,8 +156553,17 @@ web-animations/animation-model/animation-types/discrete.html	Test the 50% switch
 web-animations/animation-model/animation-types/display.tentative.html	Display can be held by animation
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	Setup
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	align-content (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	align-content uses discrete animation when animating between "flex-start" and "flex-end" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	align-content uses discrete animation when animating between "flex-start" and "flex-end" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	align-content uses discrete animation when animating between "flex-start" and "flex-end" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	align-items (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	align-items uses discrete animation when animating between "flex-start" and "flex-end" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	align-items uses discrete animation when animating between "flex-start" and "flex-end" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	align-items uses discrete animation when animating between "flex-start" and "flex-end" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	align-self (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	align-self uses discrete animation when animating between "flex-start" and "flex-end" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	align-self uses discrete animation when animating between "flex-start" and "flex-end" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	align-self uses discrete animation when animating between "flex-start" and "flex-end" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	appearance (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	appearance uses discrete animation when animating between "auto" and "none" with effect easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	appearance uses discrete animation when animating between "auto" and "none" with keyframe easing
@@ -156123,6 +156591,9 @@ web-animations/animation-model/animation-types/interpolation-per-property-001.ht
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	border-bottom-width supports animating as a length
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	border-bottom-width supports animating as a length of rem
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	border-collapse (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	border-collapse uses discrete animation when animating between "collapse" and "separate" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	border-collapse uses discrete animation when animating between "collapse" and "separate" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	border-collapse uses discrete animation when animating between "collapse" and "separate" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	border-left-color (type: color) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	border-left-color supports animating as color of #RGB
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	border-left-color supports animating as color of #RGBa
@@ -156186,11 +156657,28 @@ web-animations/animation-model/animation-types/interpolation-per-property-001.ht
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	fill-rule (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis (type: lengthPercentageOrCalc) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis supports animating as a calc
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis supports animating as a length
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis supports animating as a length of rem
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis supports animating as a percentage
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis supports animating as combination units "%" and "em"
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis supports animating as combination units "em" and "rem"
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis supports animating as combination units "px" and "%"
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis supports animating as combination units "px" and "calc"
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis uses discrete animation when animating between "auto" and "10px" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis uses discrete animation when animating between "auto" and "10px" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-basis uses discrete animation when animating between "auto" and "10px" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-direction (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-direction uses discrete animation when animating between "row" and "row-reverse" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-direction uses discrete animation when animating between "row" and "row-reverse" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-direction uses discrete animation when animating between "row" and "row-reverse" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-flow (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-grow (type: positiveNumber) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-shrink (type: positiveNumber) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-wrap (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-wrap uses discrete animation when animating between "nowrap" and "wrap" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-wrap uses discrete animation when animating between "nowrap" and "wrap" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	flex-wrap uses discrete animation when animating between "nowrap" and "wrap" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	float (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	float uses discrete animation when animating between "left" and "right" with effect easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	float uses discrete animation when animating between "left" and "right" with keyframe easing
@@ -156216,25 +156704,67 @@ web-animations/animation-model/animation-types/interpolation-per-property-001.ht
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	gap (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	gap (type: length) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-area (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-area uses discrete animation when animating between "1" and "5" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-area uses discrete animation when animating between "1" and "5" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-area uses discrete animation when animating between "1" and "5" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-auto-columns (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-auto-columns uses discrete animation when animating between "1px" and "5px" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-auto-columns uses discrete animation when animating between "1px" and "5px" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-auto-columns uses discrete animation when animating between "1px" and "5px" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-auto-flow (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-auto-flow uses discrete animation when animating between "row" and "column" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-auto-flow uses discrete animation when animating between "row" and "column" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-auto-flow uses discrete animation when animating between "row" and "column" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-auto-rows (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-auto-rows uses discrete animation when animating between "1px" and "5px" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-auto-rows uses discrete animation when animating between "1px" and "5px" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-auto-rows uses discrete animation when animating between "1px" and "5px" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-column (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-column uses discrete animation when animating between "1" and "5" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-column uses discrete animation when animating between "1" and "5" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-column uses discrete animation when animating between "1" and "5" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-column-end (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-column-end uses discrete animation when animating between "1" and "5" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-column-end uses discrete animation when animating between "1" and "5" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-column-end uses discrete animation when animating between "1" and "5" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-column-start (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-column-start uses discrete animation when animating between "1" and "5" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-column-start uses discrete animation when animating between "1" and "5" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-column-start uses discrete animation when animating between "1" and "5" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-row (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-row uses discrete animation when animating between "1" and "5" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-row uses discrete animation when animating between "1" and "5" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-row uses discrete animation when animating between "1" and "5" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-row-end (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-row-end uses discrete animation when animating between "1" and "5" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-row-end uses discrete animation when animating between "1" and "5" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-row-end uses discrete animation when animating between "1" and "5" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-row-start (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-row-start uses discrete animation when animating between "1" and "5" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-row-start uses discrete animation when animating between "1" and "5" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-row-start uses discrete animation when animating between "1" and "5" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-template (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-template-areas (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-template-areas uses discrete animation when animating between "". . a b" ". . a b"" and "none" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-template-areas uses discrete animation when animating between "". . a b" ". . a b"" and "none" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-template-areas uses discrete animation when animating between "". . a b" ". . a b"" and "none" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	hyphens (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	hyphens uses discrete animation when animating between "manual" and "none" with effect easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	hyphens uses discrete animation when animating between "manual" and "none" with keyframe easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	hyphens uses discrete animation when animating between "manual" and "none" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	Setup
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	justify-content (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	justify-content uses discrete animation when animating between "start" and "end" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	justify-content uses discrete animation when animating between "start" and "end" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	justify-content uses discrete animation when animating between "start" and "end" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	justify-items (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	justify-items uses discrete animation when animating between "start" and "end" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	justify-items uses discrete animation when animating between "start" and "end" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	justify-items uses discrete animation when animating between "start" and "end" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	justify-self (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	justify-self uses discrete animation when animating between "start" and "end" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	justify-self uses discrete animation when animating between "start" and "end" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	justify-self uses discrete animation when animating between "start" and "end" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	letter-spacing (type: lengthPercentageOrCalc) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	letter-spacing supports animating as a length
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	letter-spacing supports animating as a length of rem
@@ -156254,10 +156784,21 @@ web-animations/animation-model/animation-types/interpolation-per-property-002.ht
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	object-fit uses discrete animation when animating between "fill" and "contain" with keyframe easing
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	object-fit uses discrete animation when animating between "fill" and "contain" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	order (type: integer) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	order supports animating as an integer
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-color (type: color) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-color supports animating as color of #RGB
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-color supports animating as color of #RGBa
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-color supports animating as color of hsl()
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-color supports animating as color of hsla()
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-color supports animating as color of rgb()
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-color supports animating as color of rgba()
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-offset (type: length) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-offset supports animating as a length
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-offset supports animating as a length of rem
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-style (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-width (type: length) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-width supports animating as a length
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	outline-width supports animating as a length of rem
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	overflow (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	overflow uses discrete animation when animating between "visible" and "hidden" with effect easing
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	overflow uses discrete animation when animating between "visible" and "hidden" with keyframe easing
@@ -156275,8 +156816,17 @@ web-animations/animation-model/animation-types/interpolation-per-property-002.ht
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	overflow-y uses discrete animation when animating between "visible" and "hidden" with keyframe easing
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	overflow-y uses discrete animation when animating between "visible" and "hidden" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	place-content (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	place-content uses discrete animation when animating between "start" and "end" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	place-content uses discrete animation when animating between "start" and "end" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	place-content uses discrete animation when animating between "start" and "end" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	place-items (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	place-items uses discrete animation when animating between "start" and "end" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	place-items uses discrete animation when animating between "start" and "end" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	place-items uses discrete animation when animating between "start" and "end" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	place-self (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	place-self uses discrete animation when animating between "start" and "end" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	place-self uses discrete animation when animating between "start" and "end" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-002.html	place-self uses discrete animation when animating between "start" and "end" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	pointer-events (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	position (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-002.html	position uses discrete animation when animating between "absolute" and "fixed" with effect easing
@@ -156384,9 +156934,11 @@ web-animations/animation-model/keyframe-effects/effect-value-iteration-composite
 web-animations/animation-model/keyframe-effects/effect-value-iteration-composite-operation.html	iteration composition of <color> type animation
 web-animations/animation-model/keyframe-effects/effect-value-iteration-composite-operation.html	iteration composition of <color> type animation that green component is decreasing
 web-animations/animation-model/keyframe-effects/effect-value-iteration-composite-operation.html	iteration composition of <length> type animation
+web-animations/animation-model/keyframe-effects/effect-value-iteration-composite-operation.html	iteration composition of <number> type animation
 web-animations/animation-model/keyframe-effects/effect-value-iteration-composite-operation.html	iteration composition of <percentage> type animation
 web-animations/animation-model/keyframe-effects/effect-value-iteration-composite-operation.html	iteration composition of animation non-additive units
 web-animations/animation-model/keyframe-effects/effect-value-iteration-composite-operation.html	iteration composition of box-shadow animation
+web-animations/animation-model/keyframe-effects/effect-value-iteration-composite-operation.html	iteration composition of discrete type animation (align-content)
 web-animations/animation-model/keyframe-effects/effect-value-iteration-composite-operation.html	iteration composition of incompatible intrinsic size keywords (accumulation is skipped)
 web-animations/animation-model/keyframe-effects/effect-value-iteration-composite-operation.html	iteration composition of transform from none to translate
 web-animations/animation-model/keyframe-effects/effect-value-iteration-composite-operation.html	iteration composition starts with non-zero value animation
@@ -157418,7 +157970,10 @@ web-animations/responsive/assorted-lengths.html	height responsive to style chang
 web-animations/responsive/assorted-lengths.html	letterSpacing can be normal
 web-animations/responsive/assorted-lengths.html	letterSpacing responsive to style changes
 web-animations/responsive/assorted-lengths.html	marginRight responsive to style changes
+web-animations/responsive/assorted-lengths.html	outlineOffset responsive to style changes
 web-animations/responsive/assorted-lengths.html	wordSpacing responsive to style changes
+web-animations/responsive/borderRadius.html	Border radius lengths respond to style changes
+web-animations/responsive/borderRadius.html	Border radius percentages are supported
 web-animations/responsive/borderWidth.html	Border width responsive to border style changes
 web-animations/responsive/borderWidth.html	Border width responsive to font size changes
 web-animations/responsive/box-shadow-responsive.html	Animating to inherit responsive to change in style
@@ -157440,6 +157995,7 @@ web-animations/responsive/to-color-change.html	Border color responsive to curren
 web-animations/responsive/to-color-change.html	Color animations do not expose parent visited status
 web-animations/responsive/to-color-change.html	Color animations do not expose visited status
 web-animations/responsive/to-color-change.html	Color interpolation uses pre-multiplied colors
+web-animations/responsive/to-color-change.html	Outline color responsive to currentColor changes
 web-animations/responsive/to-inherited-change.html	Font size responsive to inherited changes
 web-animations/responsive/to-style-change.html	Lengths responsive to style changes
 web-animations/responsive/to-style-change.html	Numbers responsive to style changes
