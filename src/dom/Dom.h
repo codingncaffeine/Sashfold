@@ -16,6 +16,7 @@
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace sashfold::js {
@@ -503,6 +504,20 @@ public:
     };
     std::unordered_map<Element const*, InternalsValidity> internals_validity;
     std::unordered_map<Element const*, std::vector<std::string>> custom_states;
+    // The form-associated custom elements (HTML §4.13.4): autonomous custom
+    // elements whose class said formAssociated, from the moment they are
+    // theirs. They are listed, labelable, resettable and submittable, and
+    // can be disabled.
+    std::unordered_set<Element const*> form_associated_custom;
+    // What one submits (ElementInternals.setFormValue), absent for null: a
+    // value under its own name, or a list of entries named by themselves (a
+    // file is its name here).
+    struct InternalsFormValue {
+        bool is_list = false;
+        std::string value;
+        std::vector<std::pair<std::string, std::string>> entries;
+    };
+    std::unordered_map<Element const*, InternalsFormValue> internals_form_values;
     // Whether a value matches a pattern attribute (§4.10.5.3.6: the pattern
     // compiled as a JavaScript regular expression with the v flag, anchored);
     // nothing when the pattern does not compile, or no engine is here to say.

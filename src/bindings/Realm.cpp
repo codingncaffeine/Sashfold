@@ -262,6 +262,9 @@ void attribute_written(Realm::Internals& in, dom::Element& element, std::string_
     // and new: a component that compares the two ignores a change that
     // reports none, so a removal must say what was removed.
     custom_element_attribute_changed(in, element, local_name, old_value);
+    // A form-associated custom element's form or disabled state may follow.
+    if (local_name == "disabled" || local_name == "form" || local_name == "id")
+        form_associated_check(in);
     // An element's slot, and a slot's name, decide which slot shows what
     // (DOM §4.9 and HTML §4.12.4, the attribute change steps).
     if (local_name == "slot")
@@ -1723,6 +1726,7 @@ constexpr InterfaceGroup interface_groups[] = {
     // which every element interface must already exist for.
     { "custom_elements", install_custom_elements, false },
     { "shadow_dom", install_shadow_dom, false },
+    { "element_internals", install_element_internals, true },
     { "mutation_observer", install_mutation_observer, true },
     { "intersection", install_intersection_observer, true },
     { "indexeddb", install_indexeddb, true },
@@ -3242,8 +3246,16 @@ void Realm::custom_element_inserted(dom::Element& element)
     // class is defined for: it stays as written until it is put in one.
     if (in.custom_element_definitions.empty() || &element.document() != in.document || !element.is_connected())
         return;
+    if (element.is_html("form") && in.form_associated.empty())
+        return;
     Internals::HostEntry const host(in.agent);
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
+    // A form parsed after a form-associated element that names it by id.
+    if (element.is_html("form")) {
+        form_associated_check(in);
+        perform_microtask_checkpoint();
+        return;
+    }
     custom_element_parsed(in, element);
     // The callbacks were called from no script: what they queued runs now.
     perform_microtask_checkpoint();

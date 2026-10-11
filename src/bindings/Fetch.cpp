@@ -11,6 +11,7 @@
 // XMLHttpRequest (Xhr.cpp) fetches through the same core, perform_fetch.
 
 #include "core/Ascii.h"
+#include "dom/Forms.h"
 #include "html/Encoding.h"
 #include "js/Object.h"
 #include "js/Strings.h"
@@ -469,12 +470,7 @@ std::optional<bool> fill_headers(js::Interpreter& interp, HeadersObject& headers
 
 class FormDataObject final : public js::Object {
 public:
-    struct Entry {
-        std::string name;
-        std::string value; // a string entry
-        BlobObject* file = nullptr; // a file entry
-        std::string filename;
-    };
+    using Entry = FormEntry;
     explicit FormDataObject(js::Object* prototype)
         : Object(prototype, Class::Host)
     {
@@ -549,10 +545,14 @@ void collect_form_entries(Realm::Internals& in, dom::Element const& form, FormDa
     // Depth first, in tree order.
     std::function<void(dom::Node&)> walk = [&](dom::Node& node) {
         if (auto* element = dynamic_cast<dom::Element*>(&node)) {
+            // A form-associated custom element says its own entries.
+            bool const custom = element->document().form_associated_custom.contains(element);
+            if (custom && !dom::forms::actually_disabled(*element))
+                internals_form_entries(in, *element, data.entries);
             std::string const tag = lowercase(element->local_name());
             std::string const name = attribute_or_empty(*element, "name");
             bool const disabled = element->has_attribute("disabled");
-            if (!name.empty() && !disabled) {
+            if (!custom && !name.empty() && !disabled) {
                 if (tag == "input") {
                     std::string const type = lowercase(attribute_or_empty(*element, "type"));
                     if (type == "checkbox" || type == "radio") {
@@ -2105,6 +2105,19 @@ void install_fetch(Realm::Internals& in)
     install_request(in);
     install_response(in);
     define_operation(in.interpreter, *in.interpreter.global(), "fetch", 1, fetch_function);
+}
+
+Native iterator_of_values(js::Interpreter& interp, std::span<js::Value const> items)
+{
+    return iterator_over(interp, items);
+}
+
+std::optional<std::vector<FormEntry>> form_data_entries(js::Value const& value)
+{
+    auto const* const data = value.is_object() ? dynamic_cast<FormDataObject const*>(value.as_object()) : nullptr;
+    if (data == nullptr)
+        return std::nullopt;
+    return data->entries;
 }
 
 }

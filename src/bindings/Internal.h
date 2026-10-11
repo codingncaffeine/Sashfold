@@ -65,7 +65,29 @@ using HandlerMap = std::unordered_map<std::string, EventHandler>;
 
 // One entry of the custom element registry (CustomElements.cpp): the class
 // a page gave a name of its own, and the callbacks the engine owes it.
-struct CustomElementDefinition;
+struct CustomElementDefinition {
+    std::string name; // the local name, which is also what the page defined
+    js::Value constructor;
+    js::Value connected;
+    js::Value disconnected;
+    js::Value adopted;
+    js::Value attribute_changed;
+    std::vector<std::string> observed_attributes;
+    // What the class's static disabledFeatures turned off (§4.13.3): a
+    // shadow root of its own making, and attachInternals().
+    bool disable_shadow = false;
+    bool disable_internals = false;
+    // Its static formAssociated (§4.13.4): its elements take part in forms,
+    // and are told of it through the four callbacks read with it.
+    bool form_associated = false;
+    js::Value form_associated_callback;
+    js::Value form_reset;
+    js::Value form_disabled;
+    js::Value form_state_restore;
+    // The elements being upgraded through this definition, innermost last.
+    // A null entry is one whose constructor has already taken it.
+    std::vector<dom::Element*> construction_stack;
+};
 
 // The base of every host object that receives events: its listeners and
 // handlers live here, traced by the collector with the object.
@@ -120,6 +142,9 @@ public:
     // never tried again.
     CustomElementDefinition* custom_definition = nullptr;
     bool custom_failed = false;
+    // Its constructor is running over it, as an upgrade (the "precustomized"
+    // state): attachInternals() is allowed already.
+    bool custom_constructing = false;
 
 private:
     js::RealmRecord* m_record;
@@ -443,6 +468,20 @@ public:
     double last_modified = 0;
     std::size_t size_in_bytes() const override { return sizeof(*this) + bytes.capacity(); }
 };
+
+// One entry of a form's data set (XHR §5, HTML §4.10.21.4): a name with a
+// string, or with a File and the file's name.
+struct FormEntry {
+    std::string name;
+    std::string value; // a string entry
+    BlobObject* file = nullptr; // a file entry
+    std::string filename;
+};
+// A FormData's entries, in order; nothing for any other value (Fetch.cpp).
+std::optional<std::vector<FormEntry>> form_data_entries(js::Value const&);
+// An iterator over a snapshot of these values: the array iterator of a fresh
+// array, as Headers and FormData hand out (Fetch.cpp).
+Native iterator_of_values(js::Interpreter&, std::span<js::Value const> items);
 
 // An instance of an interface whose state the bindings keep in its
 // properties or in the realm — Location, History, Navigator, Screen,
@@ -1071,6 +1110,14 @@ struct Realm::Internals {
     // order it defined them. Held by pointer so that a definition's address
     // stands still while an element it upgraded points at it.
     std::vector<std::shared_ptr<CustomElementDefinition>> custom_element_definitions;
+    // What each form-associated custom element was last told (ElementInternals
+    // .cpp): its form owner and whether it was disabled, so that a change
+    // reaches its formAssociatedCallback and formDisabledCallback once.
+    struct FormAssociatedState {
+        dom::Element* owner = nullptr;
+        bool disabled = false;
+    };
+    std::unordered_map<dom::Element*, FormAssociatedState> form_associated;
     // The IntersectionObservers with something to watch or to deliver, and
     // what the last update saw, so that an update with nothing moved since
     // costs nothing (Intersection.cpp).
@@ -1690,6 +1737,36 @@ void custom_elements_cloned(Realm::Internals&, dom::Node& subtree);
 // An attribute a definition asked to watch was set, changed or removed.
 void custom_element_attribute_changed(Realm::Internals&, dom::Element&, std::string_view name,
     std::optional<std::string> const& old_value);
+// ElementInternals (ElementInternals.cpp, HTML §4.13.7): attachInternals on
+// HTMLElement's prototype, the interfaces (a group of their own), and the
+// form-associated custom elements' part in their forms.
+void install_attach_internals(Realm::Internals&, js::Object& html_element_prototype);
+void install_element_internals(Realm::Internals&);
+// An element of a form-associated class became one of its own: it joins the
+// forms, and is told its form and whether it is disabled.
+void form_associated_became(Realm::Internals&, dom::Element&);
+// The tree or an attribute changed: each form-associated element whose
+// form or disabled state moved is told so.
+void form_associated_check(Realm::Internals&);
+// The same after these subtrees entered or left a tree, when anything in
+// them can change a form owner or a disabled state.
+void form_associated_tree_changed(Realm::Internals&, std::span<dom::Node* const> subtrees);
+// Its form was reset (formResetCallback).
+void form_associated_reset(Realm::Internals&, dom::Element&);
+// What it adds to its form's data set: its submission value under its
+// name, or its own entries; nothing when it set none.
+void internals_form_entries(Realm::Internals&, dom::Element const&, std::vector<FormEntry>& out);
+// A form-associated element's form owner (§4.10.17.3): connected with a form
+// attribute, the form that names in its tree; otherwise its nearest form
+// ancestor; null for none.
+dom::Element* form_owner_of(Realm::Internals&, dom::Element&);
+// The constraint validation pieces the controls have (HtmlElements.cpp):
+// willValidate, checkValidity's steps for one element, its labels, and a
+// new ValidityState reading its flags.
+bool will_validate_element(dom::Element const&);
+bool check_validity_of(Realm::Internals&, dom::Element&);
+std::vector<dom::Node*> labels_of(Realm::Internals&, dom::Element&);
+js::Object* new_validity_state(Realm::Internals&, NodeWrapper&);
 // A media element's src attribute was set, changed or removed: it loads again.
 void media_src_changed(Realm::Internals&, dom::Element&);
 // The video elements' pictures now (Realm::video_frames), and the states

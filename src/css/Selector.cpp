@@ -677,18 +677,17 @@ bool parse_compound(Cursor& cursor, CompoundSelector& compound, Specificity& spe
                     continue;
                 }
                 if (name == "state") {
-                    // One name, a <custom-ident>, and nothing else.
-                    int names = 0;
+                    // One name, a <custom-ident>, and nothing else: a custom
+                    // element's own state (its CustomStateSet), case-sensitive.
                     for (ComponentValue const& part : function.values) {
                         if (part.is_token(Token::Type::Ident))
-                            ++names;
+                            simple.languages.push_back(part.token().value);
                         else if (!part.is_token(Token::Type::Whitespace))
                             return false;
                     }
-                    if (names != 1)
+                    if (simple.languages.size() != 1)
                         return false;
-                    // A custom element's own state (CustomStateSet): none set here.
-                    simple.pseudo = SimpleSelector::PseudoKind::NeverMatches;
+                    simple.pseudo = SimpleSelector::PseudoKind::State;
                     specificity.b += 1;
                     compound.simples.push_back(std::move(simple));
                     continue;
@@ -1377,6 +1376,12 @@ bool matches_simple(SimpleSelector const& simple, dom::Element const& element)
     }
     case SimpleSelector::PseudoKind::Dir:
         return direction_of(element) == simple.languages.front();
+    case SimpleSelector::PseudoKind::State: {
+        dom::Document const& document = element.document();
+        auto const states = document.custom_states.find(&element);
+        return states != document.custom_states.end()
+            && std::find(states->second.begin(), states->second.end(), simple.languages.front()) != states->second.end();
+    }
     case SimpleSelector::PseudoKind::Root:
         return element.parent() != nullptr && element.parent()->type() == dom::NodeType::Document;
     case SimpleSelector::PseudoKind::Host:

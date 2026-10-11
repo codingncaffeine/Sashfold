@@ -2289,7 +2289,9 @@ Element* TreeBuilder::insert_foreign_element(Token const& token, std::string_vie
     if (location.parent)
         location.parent->insert_before(*element, location.before);
     m_stack.push_back(element);
-    if (m_runner != nullptr && namespace_uri == dom::ns::html && element->local_name().find('-') != std::string::npos)
+    // A custom element, or a form one may name as its owner.
+    if (m_runner != nullptr && namespace_uri == dom::ns::html
+        && (element->local_name().find('-') != std::string::npos || element->local_name() == "form"))
         m_runner->custom_element_inserted(*element);
     return element;
 }

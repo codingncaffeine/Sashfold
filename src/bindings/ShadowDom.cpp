@@ -140,7 +140,9 @@ Native attach_shadow(Realm::Internals& in, dom::Element& element, Args args)
     shadow.slot_assignment = *assignment == "manual" ? dom::ShadowRoot::SlotAssignment::Manual : dom::ShadowRoot::SlotAssignment::Named;
     shadow.clonable = *clonable;
     shadow.serializable = *serializable;
-    shadow.available_to_element_internals = element.custom_defined();
+    // A custom element's, or one whose constructor is running (precustomized).
+    NodeWrapper const* const wrapper = element.wrapper != nullptr ? dynamic_cast<NodeWrapper const*>(element.wrapper) : nullptr;
+    shadow.available_to_element_internals = element.custom_defined() || (wrapper != nullptr && wrapper->custom_constructing);
     in.realm.note_mutation();
     return js::Value::object(in.wrap(shadow));
 }

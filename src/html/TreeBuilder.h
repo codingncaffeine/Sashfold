@@ -39,6 +39,8 @@ public:
     // the name makes the element one of its own (HTML §13.2.6.1 "create an
     // element for a token") and its connectedCallback runs — with the
     // element still empty, its children not yet parsed.
+    // A form is told of too: a form-associated custom element parsed before
+    // it may name it as its form.
     virtual void custom_element_inserted(dom::Element&) { }
 };
 

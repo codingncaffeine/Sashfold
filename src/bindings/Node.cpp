@@ -297,6 +297,8 @@ void insert_one(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::N
         in.frames_inserted(node);
         custom_elements_inserted(in, node);
     }
+    dom::Node* const moved_node = &node;
+    form_associated_tree_changed(in, { &moved_node, 1 });
 }
 
 } // namespace
@@ -396,6 +398,8 @@ void remove_node(Realm::Internals& in, dom::Node& node)
     if (parent != nullptr)
         mutation_children_changed(in, *parent, {}, { &node }, previous, next);
     in.realm.note_mutation();
+    dom::Node* const removed = &node;
+    form_associated_tree_changed(in, { &removed, 1 });
 }
 
 std::vector<dom::Node*> parse_markup(Realm::Internals& in, dom::Element& context, std::string_view markup, bool scripts_started,
@@ -467,23 +471,41 @@ void replace_children_with_markup(Realm::Internals& in, dom::Node& parent, dom::
             in.frames_inserted(*child);
             custom_elements_inserted(in, *child);
         }
+    } else if (dom::Node const& root = parent.root(); root.type() != dom::NodeType::DocumentFragment || root.is_shadow_root()) {
+        // Out of the document, the elements of defined names are theirs all
+        // the same: the fragment is parsed with the context's registry. Not
+        // in a template's contents (a fragment here), which belong to no
+        // document a class is defined for.
+        for (dom::Node* child : children)
+            custom_elements_cloned(in, *child);
     }
     in.realm.note_mutation();
+    form_associated_tree_changed(in, old);
+    form_associated_tree_changed(in, children);
 }
 
 void replace_children_with_text(Realm::Internals& in, dom::Node& parent, std::string_view text)
 {
     std::vector<dom::Node*> const old = parent.children();
+    bool const was_connected = parent.is_connected();
     for (dom::Node* child : old) {
         in.frames_removed(*child);
         child->remove();
+        if (was_connected)
+            custom_elements_removed(in, *child);
     }
+    std::vector<dom::Node*> added;
     if (!text.empty()) {
         dom::Text* node = parent.document().create<dom::Text>();
         node->data = std::string(text);
         parent.append_child(*node);
+        added.push_back(node);
     }
+    // DOM "replace all": one record, when anything went or came.
+    if (!old.empty() || !added.empty())
+        mutation_children_changed(in, parent, added, old, nullptr, nullptr);
     in.realm.note_mutation();
+    form_associated_tree_changed(in, old);
 }
 
 void copy_started_scripts(Realm::Internals& in, dom::Node const& source, dom::Node const& clone)

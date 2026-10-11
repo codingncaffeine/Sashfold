@@ -205,23 +205,59 @@ void install_url_parts(Realm::Internals& in, js::Object& proto)
     });
 }
 
+// A labelable element (§4.10.2).
+bool is_labelable(dom::Element const& element)
+{
+    if (element.is_html("input"))
+        return dom::forms::input_type(element) != "hidden";
+    return element.is_html("button") || element.is_html("meter") || element.is_html("output") || element.is_html("progress")
+        || element.is_html("select") || element.is_html("textarea") || element.document().form_associated_custom.contains(&element);
+}
+
+// A label's labeled control (§4.10.4): the element its for attribute names,
+// when that is labelable, else the first labelable element inside it.
+dom::Element* labeled_control(Realm::Internals&, dom::Element& label)
+{
+    if (dom::Attr const* const target = label.find_attribute("for")) {
+        if (target->value.empty())
+            return nullptr;
+        dom::Element* const named = element_by_id(label.root(), target->value);
+        return named != nullptr && is_labelable(*named) ? named : nullptr;
+    }
+    std::vector<dom::Node*> descendants;
+    collect_descendants(label, descendants);
+    for (dom::Node* node : descendants) {
+        if (node->is_element() && is_labelable(static_cast<dom::Element&>(*node)))
+            return static_cast<dom::Element*>(node);
+    }
+    return nullptr;
+}
+
+// The label elements whose labeled control an element is, in tree order.
+std::vector<dom::Node*> labels_for(Realm::Internals& internals, dom::Element& e)
+{
+    std::vector<dom::Node*> labels;
+    if (!is_labelable(e))
+        return labels;
+    std::vector<dom::Node*> descendants;
+    collect_descendants(*internals.document, descendants);
+    std::string const id = attribute_or_empty(e, "id");
+    for (dom::Node* node : descendants) {
+        if (!node->is_element() || !static_cast<dom::Element*>(node)->is_html("label"))
+            continue;
+        auto& label = static_cast<dom::Element&>(*node);
+        if (!id.empty() && attribute_or_empty(label, "for") == id)
+            labels.push_back(node);
+        else if (!label.has_attribute("for") && is_inclusive_ancestor(label, e) && &label != &e)
+            labels.push_back(node);
+    }
+    return labels;
+}
+
 void install_labels(Realm::Internals& in, js::Object& proto)
 {
     element_getter(in, proto, "labels", [](Realm::Internals& internals, dom::Element& e) -> Native {
-        std::vector<dom::Node*> descendants;
-        collect_descendants(*internals.document, descendants);
-        std::vector<dom::Node*> labels;
-        std::string const id = attribute_or_empty(e, "id");
-        for (dom::Node* node : descendants) {
-            if (!node->is_element() || !static_cast<dom::Element*>(node)->is_html("label"))
-                continue;
-            auto& label = static_cast<dom::Element&>(*node);
-            if (!id.empty() && attribute_or_empty(label, "for") == id)
-                labels.push_back(node);
-            else if (!label.has_attribute("for") && is_inclusive_ancestor(label, e) && &label != &e)
-                labels.push_back(node);
-        }
-        return node_list(internals, labels);
+        return node_list(internals, labels_for(internals, e));
     });
 }
 
@@ -265,15 +301,7 @@ bool check_one(Realm::Internals& in, dom::Element& element)
 void install_form_control_common(Realm::Internals& in, js::Object& proto, bool labelable = true)
 {
     element_getter(in, proto, "form", [](Realm::Internals& internals, dom::Element& e) -> Native {
-        if (dom::Attr const* form_id = e.find_attribute("form")) {
-            if (dom::Element* owner = element_by_id(*internals.document, form_id->value))
-                return js::Value::object(internals.wrap(*owner));
-        }
-        for (dom::Node* node = e.parent(); node; node = node->parent()) {
-            if (node->is_element() && static_cast<dom::Element*>(node)->is_html("form"))
-                return js::Value::object(internals.wrap(*node));
-        }
-        return js::Value::null();
+        return internals.realm.wrap_or_null(form_owner_of(internals, e));
     });
     // The constraint validation API (§4.10.20.3), over dom/Forms' model.
     element_getter(in, proto, "validity", [](Realm::Internals& internals, dom::Element& e) -> Native {
@@ -350,6 +378,14 @@ std::string option_value(dom::Element const& option)
     return option.has_attribute("value") ? attribute_or_empty(option, "value") : html::text_content(option);
 }
 
+// A listed element (§4.10.2): what a form's and a fieldset's elements hold.
+bool is_listed(dom::Element const& element)
+{
+    return element.is_html("input") || element.is_html("select") || element.is_html("textarea") || element.is_html("button")
+        || element.is_html("fieldset") || element.is_html("output") || element.is_html("object")
+        || element.document().form_associated_custom.contains(&element);
+}
+
 // The form controls of a form, in tree order (the listed elements).
 std::vector<dom::Node*> form_controls(Realm::Internals& in, dom::Element& form)
 {
@@ -361,8 +397,7 @@ std::vector<dom::Node*> form_controls(Realm::Internals& in, dom::Element& form)
         if (!node->is_element())
             continue;
         auto& element = static_cast<dom::Element&>(*node);
-        if (!(element.is_html("input") || element.is_html("select") || element.is_html("textarea") || element.is_html("button")
-                || element.is_html("fieldset") || element.is_html("output") || element.is_html("object")))
+        if (!is_listed(element))
             continue;
         bool owned = false;
         if (dom::Attr const* owner = element.find_attribute("form"))
@@ -447,6 +482,26 @@ void install_validity(Realm::Internals& in)
 }
 
 } // namespace
+
+bool will_validate_element(dom::Element const& element)
+{
+    return will_validate(element);
+}
+
+bool check_validity_of(Realm::Internals& in, dom::Element& element)
+{
+    return check_one(in, element);
+}
+
+std::vector<dom::Node*> labels_of(Realm::Internals& in, dom::Element& element)
+{
+    return labels_for(in, element);
+}
+
+js::Object* new_validity_state(Realm::Internals& in, NodeWrapper& wrapper)
+{
+    return in.interpreter.heap().allocate<ValidityStateObject>(in.prototype("ValidityState"), &wrapper);
+}
 
 bool Realm::submit_requested(dom::Element& form, dom::Element* submitter)
 {
@@ -1126,6 +1181,10 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 return js::Value::undefined();
             for (dom::Node* control : form_controls(internals, e)) {
                 auto& element = static_cast<dom::Element&>(*control);
+                if (element.document().form_associated_custom.contains(&element)) {
+                    form_associated_reset(internals, element);
+                    continue;
+                }
                 set_control_value_of(internals, element, default_value_of(element));
                 if (element.is_html("input"))
                     set_control_checked_of(internals, element, element.has_attribute("checked"));
@@ -1143,25 +1202,14 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     {
         js::Object& label = proto_of("HTMLLabelElement");
         element_getter(in, label, "control", [](Realm::Internals& internals, dom::Element& e) -> Native {
-            if (dom::Attr const* target = e.find_attribute("for"))
-                return internals.realm.wrap_or_null(element_by_id(*internals.document, target->value));
-            std::vector<dom::Node*> descendants;
-            collect_descendants(e, descendants);
-            for (dom::Node* node : descendants) {
-                if (!node->is_element())
-                    continue;
-                auto& element = static_cast<dom::Element&>(*node);
-                if (element.is_html("input") || element.is_html("select") || element.is_html("textarea") || element.is_html("button"))
-                    return js::Value::object(internals.wrap(element));
-            }
-            return js::Value::null();
+            return internals.realm.wrap_or_null(labeled_control(internals, e));
         });
+        // The form owner of what it labels, when that is form-associated.
         element_getter(in, label, "form", [](Realm::Internals& internals, dom::Element& e) -> Native {
-            for (dom::Node* node = e.parent(); node; node = node->parent()) {
-                if (node->is_element() && static_cast<dom::Element*>(node)->is_html("form"))
-                    return js::Value::object(internals.wrap(*node));
-            }
-            return js::Value::null();
+            dom::Element* const control = labeled_control(internals, e);
+            if (control == nullptr || control->is_html("meter") || control->is_html("progress"))
+                return js::Value::null();
+            return internals.realm.wrap_or_null(form_owner_of(internals, *control));
         });
         install_form_control_common(in, proto_of("HTMLFieldSetElement"), false);
         element_getter(in, proto_of("HTMLFieldSetElement"), "type", [](Realm::Internals& internals, dom::Element&) -> Native { return internals.string("fieldset"); });
@@ -1173,7 +1221,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 if (!node->is_element())
                     continue;
                 auto& element = static_cast<dom::Element&>(*node);
-                if (element.is_html("input") || element.is_html("select") || element.is_html("textarea") || element.is_html("button"))
+                if (is_listed(element))
                     controls.push_back(node);
             }
             return node_list(internals, controls);

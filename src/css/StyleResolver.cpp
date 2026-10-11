@@ -3031,6 +3031,7 @@ struct RuleSet {
                 case SimpleSelector::PseudoKind::Is:
                 case SimpleSelector::PseudoKind::Where:
                 case SimpleSelector::PseudoKind::Host:
+                case SimpleSelector::PseudoKind::State:
                 case SimpleSelector::PseudoKind::HostContext:
                 case SimpleSelector::PseudoKind::NeverMatches:
                     break;

@@ -2,6 +2,7 @@
 
 #include "core/Ascii.h"
 #include "dom/Dom.h"
+#include "dom/Forms.h"
 #include "html/DocumentBase.h"
 
 namespace sashfold::ui {
@@ -106,6 +107,21 @@ std::vector<FormField> form_data_set(dom::Element const& form, dom::Element cons
 {
     std::vector<FormField> fields;
     for_each_element(form, [&](dom::Element const& element) {
+        // A form-associated custom element gives what its ElementInternals
+        // set: a value under its name, or entries named by themselves.
+        dom::Document const& document = element.document();
+        if (document.form_associated_custom.contains(&element)) {
+            auto const given = document.internals_form_values.find(&element);
+            if (given == document.internals_form_values.end() || dom::forms::actually_disabled(element))
+                return;
+            if (given->second.is_list) {
+                for (auto const& [entry_name, entry_value] : given->second.entries)
+                    fields.push_back(FormField { entry_name, with_crlf(entry_value) });
+            } else if (dom::Attr const* const own = element.find_attribute("name"); own && !own->value.empty()) {
+                fields.push_back(FormField { own->value, with_crlf(given->second.value) });
+            }
+            return;
+        }
         if (!is_form_associated(element) || element.has_attribute("disabled"))
             return;
         dom::Attr const* name = element.find_attribute("name");

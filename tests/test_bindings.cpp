@@ -5277,6 +5277,41 @@ void test_custom_elements()
     CHECK_EQ(page->string("take()"), "attr:data-first-long-name:first value that is long"
         " attr:data-second-long-name:second value that is long attr:data-third-long-name:third value that is long");
     CHECK_EQ(page->string("'' + host.querySelector('my-grow').attributes.length"), "11");
+
+    // ElementInternals: a form-associated class takes its internals in its
+    // constructor — a parsed element's too, as it is upgraded — gives its
+    // form a value, says it is invalid, keeps custom states :state() sees,
+    // and is told its form and its disabled state as they change.
+    page->eval(R"JS(
+        class MyField extends HTMLElement {
+            static formAssociated = true;
+            constructor() { super(); this.i = this.attachInternals(); this.i.setFormValue('typed'); }
+            formAssociatedCallback(form) { log.push('form:' + (form ? form.id : null)); }
+            formDisabledCallback(disabled) { log.push('disabled:' + disabled); }
+            formResetCallback() { log.push('reset'); }
+        }
+        host.innerHTML = '<form id=f><fieldset><my-field name=q></my-field></fieldset></form>';
+        customElements.define('my-field', MyField);
+        var field = host.querySelector('my-field');
+    )JS");
+    CHECK_EQ(page->string("take()"), "form:f");
+    CHECK(page->boolean("field.i instanceof ElementInternals && field.i.form === host.firstChild"));
+    CHECK_EQ(page->string("var r = ''; try { field.attachInternals(); } catch (e) { r = e.name; } r"), "NotSupportedError");
+    CHECK_EQ(page->string("new FormData(host.firstChild).get('q')"), "typed");
+    CHECK(page->boolean("host.firstChild.elements[0] === host.querySelector('fieldset') && host.firstChild.elements[1] === field"));
+    CHECK(page->boolean("field.i.willValidate && field.i.checkValidity() && field.matches(':valid')"));
+    page->eval("field.i.setValidity({ valueMissing: true }, 'Fill it in');");
+    CHECK(page->boolean("!field.i.validity.valid && field.i.validity.valueMissing && field.matches(':invalid') && !host.firstChild.checkValidity()"));
+    CHECK_EQ(page->string("field.i.validationMessage"), "Fill it in");
+    CHECK_EQ(page->string("var r = ''; try { field.i.setValidity({ customError: true }); } catch (e) { r = e.name; } r"), "TypeError");
+    page->eval("field.i.states.add('open');");
+    CHECK(page->boolean("field.matches(':state(open)') && !field.matches(':state(Open)') && field.i.states.has('open') && field.i.states.size === 1"));
+    page->eval("host.querySelector('fieldset').disabled = true;");
+    CHECK(page->boolean("field.matches(':disabled') && !field.i.willValidate && new FormData(host.firstChild).get('q') === null"));
+    page->eval("host.querySelector('fieldset').disabled = false; host.firstChild.reset(); document.body.appendChild(field);");
+    CHECK_EQ(page->string("take()"), "disabled:true disabled:false reset form:null");
+    // An element that is not form-associated has internals, but no form.
+    CHECK_EQ(page->string("var r = ''; try { new Grow().attachInternals().form; } catch (e) { r = e.name; } r"), "NotSupportedError");
 }
 
 // What a player reads and sets on the element beside playback: a

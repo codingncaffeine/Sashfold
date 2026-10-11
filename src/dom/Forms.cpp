@@ -88,7 +88,8 @@ bool disabled_by_fieldset(dom::Element const& element)
 bool can_be_disabled(dom::Element const& element)
 {
     return element.is_html("button") || element.is_html("input") || element.is_html("select") || element.is_html("textarea")
-        || element.is_html("optgroup") || element.is_html("option") || element.is_html("fieldset");
+        || element.is_html("optgroup") || element.is_html("option") || element.is_html("fieldset")
+        || element.document().form_associated_custom.contains(&element);
 }
 
 bool actually_disabled(dom::Element const& element)
@@ -318,10 +319,10 @@ bool validation_candidate(dom::Element const& element)
         return !actually_disabled(element);
     if (element.is_html("button"))
         return attribute_lower(element, "type") != "button" && attribute_lower(element, "type") != "reset" && !actually_disabled(element);
-    // A form-associated custom element that has said its validity through
-    // ElementInternals, unless it is disabled.
-    if (element.document().internals_validity.contains(&element))
-        return !element.has_attribute("disabled");
+    // A form-associated custom element, unless it is disabled or has a
+    // readonly attribute (§4.10.20, the elements barred).
+    if (element.document().form_associated_custom.contains(&element))
+        return !element.has_attribute("readonly") && !actually_disabled(element);
     return false;
 }
 
@@ -623,7 +624,7 @@ namespace {
 bool has_constraints(dom::Element const& element)
 {
     return element.is_html("input") || element.is_html("select") || element.is_html("textarea") || element.is_html("button")
-        || element.document().internals_validity.contains(&element);
+        || element.document().form_associated_custom.contains(&element);
 }
 
 }

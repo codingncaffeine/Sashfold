@@ -123,6 +123,7 @@ struct SimpleSelector {
         Defined,
         Lang, // :lang(), its list in `languages`
         Dir, // :dir(), `languages` holds the one direction
+        State, // :state(), `languages` holds the custom state's name
         // css-scoping-1 §3.2: the shadow host, from inside its shadow tree —
         // :host, :host(<compound>) with the compound in `argument`, and
         // :host-context(<compound>) for the host or anything above it.
@@ -144,7 +145,7 @@ struct SimpleSelector {
     std::shared_ptr<SelectorList const> argument;
     int nth_a = 0; // :nth-*(an+b)
     int nth_b = 0;
-    std::vector<std::string> languages; // :lang() ranges, lower case; :dir()'s direction
+    std::vector<std::string> languages; // :lang() ranges, lower case; :dir()'s direction; :state()'s name
 };
 
 struct CompoundSelector {

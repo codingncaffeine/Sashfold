@@ -80,8 +80,8 @@ void each_in_radio_group(Element const& radio, Each const& each)
 }
 
 // §4.10.20: a submittable element that is not disabled, read-only or
-// otherwise barred; a form-associated custom element with internals counts
-// when the document has its validity.
+// otherwise barred; a form-associated custom element is one, its validity
+// what its ElementInternals said.
 bool validation_candidate(Element const& element);
 
 // ValidityState's flags (§4.10.20.1), in the order the interface lists them.

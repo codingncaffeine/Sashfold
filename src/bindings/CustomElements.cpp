@@ -26,23 +26,6 @@
 
 namespace sashfold::bindings {
 
-struct CustomElementDefinition {
-    std::string name; // the local name, which is also what the page defined
-    js::Value constructor;
-    js::Value connected;
-    js::Value disconnected;
-    js::Value adopted;
-    js::Value attribute_changed;
-    std::vector<std::string> observed_attributes;
-    // What the class's static disabledFeatures turned off (§4.13.3): a
-    // shadow root of its own making, and attachInternals().
-    bool disable_shadow = false;
-    bool disable_internals = false;
-    // The elements being upgraded through this definition, innermost last.
-    // A null entry is one whose constructor has already taken it.
-    std::vector<dom::Element*> construction_stack;
-};
-
 namespace {
 
 // A name a page may define (§4.13.1): a lowercase ASCII start, a dash
@@ -262,6 +245,24 @@ Native define(js::Interpreter& interp, js::Value const&, Args args)
                 definition->disable_internals = true;
         }
     }
+    // formAssociated, and the callbacks only a form-associated class has.
+    std::optional<js::Value> const form_associated = interp.get(*constructor.as_object(), interp.key("formAssociated"));
+    if (!form_associated)
+        return std::nullopt;
+    definition->form_associated = interp.to_boolean(*form_associated);
+    if (definition->form_associated) {
+        static constexpr Named form_callbacks[] = { { "formAssociatedCallback", &CustomElementDefinition::form_associated_callback },
+            { "formResetCallback", &CustomElementDefinition::form_reset },
+            { "formDisabledCallback", &CustomElementDefinition::form_disabled },
+            { "formStateRestoreCallback", &CustomElementDefinition::form_state_restore } };
+        for (Named const& callback : form_callbacks) {
+            std::optional<js::Value> const found = interp.get(*prototype->as_object(), interp.key(callback.key));
+            if (!found)
+                return std::nullopt;
+            if (found->is_object() && found->as_object()->is_callable())
+                definition.get()->*callback.into = *found;
+        }
+    }
     CustomElementDefinition& stored = *definition;
     trace("defined <" + stored.name + "> (" + std::to_string(in.custom_element_definitions.size() + 1) + ")");
     in.custom_element_definitions.push_back(std::move(definition));
@@ -311,6 +312,8 @@ Native construct_html_element(js::Interpreter& interp, Args, js::Object* new_tar
     wrapper.set_prototype(prototype_object);
     wrapper.custom_definition = definition;
     made->set_custom_defined(true); // :defined (HTML §4.13.6)
+    if (definition->form_associated)
+        form_associated_became(in, *made);
     return js::Value::object(&wrapper);
 }
 
@@ -347,9 +350,15 @@ void upgrade_custom_element(Realm::Internals& in, dom::Element& element, bool fr
         written = std::as_const(element).attributes();
         element.attributes().clear();
     }
+    // A form-associated class's element is one from the start of its
+    // constructor, which may already give its form a value.
+    if (definition->form_associated)
+        element.document().form_associated_custom.insert(&element);
     definition->construction_stack.push_back(&element);
+    wrapper.custom_constructing = true;
     std::optional<js::Value> const result = interpreter.construct(definition->constructor, {}, definition->constructor.as_object());
     definition->construction_stack.pop_back();
+    wrapper.custom_constructing = false;
     if (from_parser) {
         std::vector<dom::Attr>& now = element.attributes();
         now.insert(now.end(), written.begin(), written.end());
@@ -357,12 +366,14 @@ void upgrade_custom_element(Realm::Internals& in, dom::Element& element, bool fr
     if (!result) {
         ++in.stats.custom_elements_failed;
         wrapper.custom_failed = true;
+        element.document().form_associated_custom.erase(&element);
         in.report_uncaught(interpreter.take_exception(), "custom element constructor");
         return;
     }
     if (!result->is_object() || result->as_object() != &wrapper) {
         ++in.stats.custom_elements_failed;
         wrapper.custom_failed = true;
+        element.document().form_associated_custom.erase(&element);
         in.console("error", "the constructor of <" + definition->name + "> did not answer with the element it was given");
         return;
     }
@@ -385,6 +396,10 @@ void upgrade_custom_element(Realm::Internals& in, dom::Element& element, bool fr
         fire_attribute_changed(in, wrapper, *definition, name, std::nullopt, value);
     if (element.is_connected())
         fire_connected(in, wrapper, *definition);
+    // Then what a form-associated element is owed: its form, and whether it
+    // is disabled.
+    if (definition->form_associated)
+        form_associated_became(in, element);
 }
 
 void custom_elements_inserted(Realm::Internals& in, dom::Node& subtree)
@@ -489,6 +504,10 @@ void trace_custom_elements(Realm::Internals const& in, js::Tracer& tracer)
         tracer.visit(definition->disconnected);
         tracer.visit(definition->adopted);
         tracer.visit(definition->attribute_changed);
+        tracer.visit(definition->form_associated_callback);
+        tracer.visit(definition->form_reset);
+        tracer.visit(definition->form_disabled);
+        tracer.visit(definition->form_state_restore);
     }
 }
 
@@ -526,6 +545,9 @@ void install_custom_elements(Realm::Internals& in)
         html_element_prototype->put(interpreter.key("constructor"), js::Value::object(constructor), js::builtin_attributes);
         interpreter.global()->put(interpreter.key("HTMLElement"), js::Value::object(constructor), js::builtin_attributes);
     }
+
+    if (html_element_prototype != nullptr)
+        install_attach_internals(in, *html_element_prototype);
 
     js::Object* const registry = define_interface(in, "CustomElementRegistry", nullptr);
     define_operation(interpreter, *registry, "define", 2, define);
