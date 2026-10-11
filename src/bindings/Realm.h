@@ -488,6 +488,11 @@ public:
     // called preventDefault on a cancelable event: the host then skips
     // the default action.
     bool dispatch_event(dom::Node* target, std::string_view type, EventInit init = {});
+    // A form the reader submits (a submit button pressed, Enter in a field):
+    // its constraints checked interactively unless it or the submitter says
+    // novalidate, then a SubmitEvent the page may cancel. False when the
+    // host must not submit (HTML §4.10.21.3).
+    bool submit_requested(dom::Element& form, dom::Element* submitter);
     bool dispatch_mouse_event(dom::Node& target, std::string_view type, MouseInit const&);
     // The pointer over the page (UI Events §5.3, Pointer Events §5.2): the
     // host says which element is under it now, or none, and where; the

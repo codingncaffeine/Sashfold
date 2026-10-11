@@ -490,6 +490,23 @@ public:
     // The same for a text control's value (what was typed), which
     // :placeholder-shown and the validity states read.
     std::function<std::optional<std::string>(Element const&)> live_value;
+    // Constraint validation's state that is not in the tree (dom/Forms.h):
+    // the message setCustomValidity gave a control, and what a custom
+    // element's ElementInternals.setValidity said — its flags (the bits of
+    // forms::Validity, in order) and message; its custom states
+    // (CustomStateSet, :state()). Keyed by element: the document is an arena,
+    // its elements outlive the entries. Whoever writes them marks the state.
+    std::unordered_map<Element const*, std::string> custom_validity;
+    struct InternalsValidity {
+        std::uint16_t flags = 0;
+        std::string message;
+    };
+    std::unordered_map<Element const*, InternalsValidity> internals_validity;
+    std::unordered_map<Element const*, std::vector<std::string>> custom_states;
+    // Whether a value matches a pattern attribute (§4.10.5.3.6: the pattern
+    // compiled as a JavaScript regular expression with the v flag, anchored);
+    // nothing when the pattern does not compile, or no engine is here to say.
+    std::function<std::optional<bool>(std::string_view pattern, std::string_view value)> pattern_matches;
 
     QuirksMode quirks_mode = QuirksMode::No;
     // Whether the parser makes a shadow root of a `<template shadowrootmode>`

@@ -9363,6 +9363,18 @@ struct Browser::Impl {
             = layout::control_kind(control) == layout::ControlKind::Submit ? &control
                                                                             : default_submitter(*form);
         FrameView const* const view = view_of(tab, frame_holding_in(tab.frames, document));
+        // The page has its say first: an invalid form is not submitted (its
+        // invalid events fired), and a submit listener may cancel it (HTML
+        // §4.10.21.3) — the form a script submits itself goes through
+        // hooks.submit_form instead.
+        bindings::Realm* const realm = view ? view->realm : tab.realm.get();
+        if (realm && !realm->submit_requested(const_cast<dom::Element&>(*form), const_cast<dom::Element*>(submitter))) {
+            ensure_fresh(tab);
+            dirty = true;
+            return;
+        }
+        if (tab.current() != entry || !tab.document)
+            return; // a listener navigated away
         submit_form(tab, *form, submitter, view, *entry);
     }
 

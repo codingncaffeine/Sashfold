@@ -466,6 +466,12 @@ js::NativeFunction::ConstructCallback event_constructor(std::string interface)
                 return std::nullopt;
             event->detail_value = *detail;
         }
+        if (interface == "SubmitEvent") {
+            std::optional<js::Value> const submitter = init_value(interpreter, init, "submitter");
+            if (!submitter)
+                return std::nullopt;
+            event->related_target = submitter->is_undefined() ? js::Value::null() : *submitter;
+        }
         if (interface == "CloseEvent") {
             std::optional<bool> const clean = init_flag(interpreter, init, "wasClean", false);
             std::optional<double> const code = clean ? init_number(interpreter, init, "code", 0) : std::nullopt;
@@ -1410,6 +1416,10 @@ void install_events(Realm::Internals& in)
     event_getter(in, *progress_event, "loaded", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.loaded); });
     event_getter(in, *progress_event, "total", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.total); });
     define_interface(in, "HashChangeEvent", event, event_constructor("HashChangeEvent"), 1);
+    // SubmitEvent (HTML §4.10.21.2): the button that submitted, kept as the
+    // related target.
+    js::Object* submit_event = define_interface(in, "SubmitEvent", event, event_constructor("SubmitEvent"), 1);
+    event_getter(in, *submit_event, "submitter", [](Realm::Internals&, EventObject& e) { return e.related_target.is_undefined() ? js::Value::null() : e.related_target; });
     // CloseEvent (HTML §9.3.4): how a WebSocket ended.
     js::Object* close_event = define_interface(in, "CloseEvent", event, event_constructor("CloseEvent"), 1);
     event_getter(in, *close_event, "wasClean", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.was_clean); });

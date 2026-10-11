@@ -131,6 +131,7 @@ add_library(sashfold_core STATIC
   src/css/Stylesheets.cpp
   src/css/Tokenizer.cpp
   src/dom/Dom.cpp
+  src/dom/Forms.cpp
   src/layout/Controls.cpp
   src/layout/GridAlgorithm.cpp
   src/layout/Layout.cpp

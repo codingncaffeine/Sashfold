@@ -80,3 +80,27 @@ assert-pixel 19 90 #208020
 assert-pixel 4 85 #efefef
 click 10 81
 assert-url data:text/html,Pictured?p=1
+
+# The page has its say before a form goes: a click on its button fires
+# submit (a SubmitEvent naming the button), and a listener that cancels it
+# keeps the page where it is.
+open data:text/html,<title>Scripted</title><form action="data:text/html,Away"><input name="q"><input type="submit" value="Go"></form><script>document.forms[0].addEventListener('submit', e => { e.preventDefault(); document.title = 'Handled ' + (e.submitter ? e.submitter.value : 'none'); });</script>
+assert-title Scripted
+click-text Go
+assert-title Handled Go
+assert-no-text Away
+
+# A required field left empty: the form is not submitted, the field hears
+# invalid, and its message is the browsers'; filled, the form goes.
+open data:text/html,<title>Required</title><form action="data:text/html,Away"><input name="q" required><input type="submit" value="Go"></form><script>var q = document.querySelector('[name=q]'); q.addEventListener('invalid', () => { document.title = 'Invalid: ' + q.validationMessage; });</script>
+click-text Go
+assert-title Invalid: Please fill out this field.
+focus q
+type x
+click-text Go
+assert-url data:text/html,Away?q=x
+
+# novalidate: the same empty field goes.
+open data:text/html,<title>Novalidate</title><form novalidate action="data:text/html,Away"><input name="q" required><input type="submit" value="Go"></form>
+click-text Go
+assert-url data:text/html,Away?q=

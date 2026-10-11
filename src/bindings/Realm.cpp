@@ -8,6 +8,7 @@
 #include "html/DocumentBase.h"
 #include "html/Serializer.h"
 #include "js/Module.h"
+#include "js/Regex.h"
 #include "js/Strings.h"
 #include "platform/Memory.h"
 
@@ -905,6 +906,22 @@ void Realm::Internals::give_document_states()
         if (here.expired())
             return std::nullopt;
         return control_value_of(*self, element);
+    };
+    // A pattern attribute (§4.10.5.3.6): ^(?:pattern)$ as a JavaScript
+    // regular expression — under u rather than the v the standard now names,
+    // which the engine's regular expressions do not have yet. No realm is
+    // needed: the regular expressions are the engine's own, without a heap.
+    document->pattern_matches = [](std::string_view pattern, std::string_view value) -> std::optional<bool> {
+        js::RegexFlags flags;
+        flags.unicode = true;
+        // The pattern must compile on its own first: one that closes the
+        // group around it (")|(") is no pattern at all.
+        if (!js::Regex::compile(js::utf16_from_utf8(pattern), flags))
+            return std::nullopt;
+        std::optional<js::Regex> const compiled = js::Regex::compile(u"^(?:" + js::utf16_from_utf8(pattern) + u")$", flags);
+        if (!compiled)
+            return std::nullopt;
+        return compiled->exec(js::utf16_from_utf8(value), 0).has_value();
     };
     // A slot whose assigned nodes changed is told when the mutation
     // observers are next notified (DOM §4.2.2.5).

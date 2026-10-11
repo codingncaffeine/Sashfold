@@ -139,3 +139,6 @@ svg
 # Added 2026-10-11 with elementFromPoint: CSSOM View (the point and box
 # queries, scrolling, the screen).
 css/cssom-view
+# Added 2026-10-11 with constraint validation and the submit event: the
+# forms section (constraints, form submission, the controls).
+html/semantics/forms

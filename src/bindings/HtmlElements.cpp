@@ -1,4 +1,5 @@
 #include "bindings/NodeSupport.h"
+#include "dom/Forms.h"
 
 // The HTML element interfaces (HTML §4): HTMLElement itself and one
 // interface per tag family, each mostly reflecting attributes; the form
@@ -227,6 +228,40 @@ void install_labels(Realm::Internals& in, js::Object& proto)
 // form, validity and the validation methods every control carries.
 // What every form-associated element has; `labelable` is false for the
 // ones no label can be for (a fieldset), which have no labels.
+// A ValidityState: the flags of its element, read when asked (they follow
+// the value), from the one model the selectors read too (dom/Forms).
+class ValidityStateObject final : public ElementBackedObject {
+public:
+    using ElementBackedObject::ElementBackedObject;
+};
+
+// willValidate: a candidate for constraint validation not barred by a
+// datalist ancestor (§4.10.8).
+bool will_validate(dom::Element const& element)
+{
+    if (!dom::forms::validation_candidate(element))
+        return false;
+    for (dom::Node const* node = element.parent(); node; node = node->parent()) {
+        if (node->is_element() && static_cast<dom::Element const*>(node)->is_html("datalist"))
+            return false;
+    }
+    return true;
+}
+
+// checkValidity's steps for one element: a candidate that is not valid
+// gets an invalid event, cancelable and not bubbling, and answers false.
+bool check_one(Realm::Internals& in, dom::Element& element)
+{
+    if (!will_validate(element) || dom::forms::validity_state(element).valid())
+        return true;
+    js::Interpreter::Roots const roots(in.interpreter);
+    EventObject* event = in.new_event("Event", "invalid", false, true);
+    in.interpreter.root(js::Value::object(event));
+    event->is_trusted = true;
+    in.dispatch(*event, in.wrap(element));
+    return false;
+}
+
 void install_form_control_common(Realm::Internals& in, js::Object& proto, bool labelable = true)
 {
     element_getter(in, proto, "form", [](Realm::Internals& internals, dom::Element& e) -> Native {
@@ -240,20 +275,37 @@ void install_form_control_common(Realm::Internals& in, js::Object& proto, bool l
         }
         return js::Value::null();
     });
-    element_getter(in, proto, "validity", [](Realm::Internals& internals, dom::Element&) -> Native {
-        js::Heap::NoCollect const guard(internals.interpreter.heap());
-        js::Object* validity = internals.interpreter.new_object();
-        for (std::string_view const name : { "valueMissing", "typeMismatch", "patternMismatch", "tooLong", "tooShort", "rangeUnderflow",
-                 "rangeOverflow", "stepMismatch", "badInput", "customError" })
-            validity->put(internals.interpreter.key(name), js::Value::boolean(false));
-        validity->put(internals.interpreter.key("valid"), js::Value::boolean(true));
-        return js::Value::object(validity);
+    // The constraint validation API (§4.10.20.3), over dom/Forms' model.
+    element_getter(in, proto, "validity", [](Realm::Internals& internals, dom::Element& e) -> Native {
+        js::Interpreter::Roots const roots(internals.interpreter);
+        NodeWrapper& wrapper = wrapper_for(internals, e);
+        internals.interpreter.root(js::Value::object(&wrapper));
+        if (js::Object* const kept = wrapper.same_object("validity"))
+            return js::Value::object(kept);
+        js::Object* const made = internals.interpreter.heap().allocate<ValidityStateObject>(wrapper.realm().internals().prototype("ValidityState"), &wrapper);
+        wrapper.keep_same_object("validity", made);
+        return js::Value::object(made);
     });
-    element_getter(in, proto, "validationMessage", [](Realm::Internals& internals, dom::Element&) -> Native { return internals.string(""); });
-    element_getter(in, proto, "willValidate", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::boolean(true); });
-    element_method(in, proto, "checkValidity", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(true); });
-    element_method(in, proto, "reportValidity", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(true); });
-    element_method(in, proto, "setCustomValidity", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
+    element_getter(in, proto, "validationMessage", [](Realm::Internals& internals, dom::Element& e) -> Native {
+        return internals.string(will_validate(e) ? dom::forms::validation_message(e) : std::string());
+    });
+    element_getter(in, proto, "willValidate", [](Realm::Internals&, dom::Element& e) -> Native { return js::Value::boolean(will_validate(e)); });
+    for (std::string_view const name : { "checkValidity", "reportValidity" }) {
+        element_method(in, proto, name, 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+            return js::Value::boolean(check_one(internals, e));
+        });
+    }
+    element_method(in, proto, "setCustomValidity", 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        std::optional<std::string> message = internals.to_utf8(js::argument(args, 0));
+        if (!message)
+            return std::nullopt;
+        if (message->empty())
+            internals.document->custom_validity.erase(&e);
+        else
+            internals.document->custom_validity[&e] = std::move(*message);
+        internals.document->note_state_change();
+        return js::Value::undefined();
+    });
     if (labelable)
         install_labels(in, proto);
 }
@@ -323,7 +375,86 @@ std::vector<dom::Node*> form_controls(Realm::Internals& in, dom::Element& form)
     return controls;
 }
 
+// --- Constraint validation (§4.10.20) ----------------------------------------------------
+
+// A form's: every control of it checked, an invalid event at each that is
+// not valid (§4.10.20.2 "statically validate the constraints").
+bool check_form(Realm::Internals& in, dom::Element& form)
+{
+    bool valid = true;
+    for (dom::Node* node : form_controls(in, form)) {
+        if (!check_one(in, static_cast<dom::Element&>(*node)))
+            valid = false;
+    }
+    return valid;
+}
+
+// The script's half of a form's submission (§4.10.21.3 steps 6.4–6.7):
+// unless the form or its submitter says novalidate, its constraints are
+// checked interactively and an invalid form is not submitted; then the
+// submit event (a SubmitEvent naming the submitter), which a listener may
+// cancel. True when the host should go on and submit.
+bool request_submission(Realm::Internals& in, dom::Element& form, dom::Element* submitter)
+{
+    bool const no_validate = form.has_attribute("novalidate") || (submitter && submitter->has_attribute("formnovalidate"));
+    if (!no_validate && !check_form(in, form)) {
+        for (dom::Node* node : form_controls(in, form)) {
+            auto& control = static_cast<dom::Element&>(*node);
+            if (will_validate(control) && !dom::forms::validity_state(control).valid()) {
+                in.console("warn", "The form was not submitted: " + dom::forms::validation_message(control));
+                break;
+            }
+        }
+        return false;
+    }
+    js::Interpreter::Roots const roots(in.interpreter);
+    EventObject* event = in.new_event("SubmitEvent", "submit", true, true);
+    in.interpreter.root(js::Value::object(event));
+    event->is_trusted = true;
+    event->related_target = submitter ? js::Value::object(in.wrap(*submitter)) : js::Value::null();
+    return in.dispatch(*event, in.wrap(form));
+}
+
+void install_validity(Realm::Internals& in)
+{
+    js::Object* validity = define_interface(in, "ValidityState", nullptr);
+    struct Flag {
+        char const* name;
+        bool dom::forms::Validity::*member;
+    };
+    static constexpr Flag flags[] = { { "valueMissing", &dom::forms::Validity::value_missing }, { "typeMismatch", &dom::forms::Validity::type_mismatch },
+        { "patternMismatch", &dom::forms::Validity::pattern_mismatch }, { "tooLong", &dom::forms::Validity::too_long },
+        { "tooShort", &dom::forms::Validity::too_short }, { "rangeUnderflow", &dom::forms::Validity::range_underflow },
+        { "rangeOverflow", &dom::forms::Validity::range_overflow }, { "stepMismatch", &dom::forms::Validity::step_mismatch },
+        { "badInput", &dom::forms::Validity::bad_input }, { "customError", &dom::forms::Validity::custom_error } };
+    for (Flag const& flag : flags) {
+        bool dom::forms::Validity::* const member = flag.member;
+        define_getter(in, *validity, flag.name, [member](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+            auto* self = this_value.is_object() ? dynamic_cast<ValidityStateObject*>(this_value.as_object()) : nullptr;
+            if (!self)
+                return interp.throw_type_error("Illegal invocation");
+            dom::Element const* const element = self->element();
+            return js::Value::boolean(element ? dom::forms::validity_state(*element).*member : false);
+        });
+    }
+    define_getter(in, *validity, "valid", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        auto* self = this_value.is_object() ? dynamic_cast<ValidityStateObject*>(this_value.as_object()) : nullptr;
+        if (!self)
+            return interp.throw_type_error("Illegal invocation");
+        dom::Element const* const element = self->element();
+        return js::Value::boolean(!element || dom::forms::validity_state(*element).valid());
+    });
+}
+
 } // namespace
+
+bool Realm::submit_requested(dom::Element& form, dom::Element* submitter)
+{
+    Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
+    return request_submission(in, form, submitter);
+}
 
 // --- HTMLOrSVGElement -------------------------------------------------------------------
 
@@ -478,6 +609,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
     // generated/HtmlElements.gen.cpp). Anything not named there is an
     // HTMLElement; an unknown tag is an HTMLUnknownElement. What follows
     // here is the hand-written rest of each interface.
+    install_validity(in);
     generated::install_html_element_interfaces(in);
     generated::install_reflected_attributes(in);
     auto const proto_of = [&](std::string_view name) -> js::Object& { return *in.prototype(name); };
@@ -966,10 +1098,27 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 internals.hooks.submit_form(e, nullptr);
             return js::Value::undefined();
         });
+        // requestSubmit (§4.10.18.3): as a submit button would — validated and
+        // announced with a submit event first; a submitter given must be a
+        // submit button of this form.
         element_method(in, proto, "requestSubmit", 0, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
-            dom::Node* submitter = internals.realm.node_of(js::argument(args, 0));
-            if (internals.realm.dispatch_event(&e, "submit", Realm::EventInit { true, true, false }) && internals.hooks.submit_form)
-                internals.hooks.submit_form(e, submitter && submitter->is_element() ? static_cast<dom::Element*>(submitter) : nullptr);
+            dom::Element* submitter = nullptr;
+            js::Value const given = js::argument(args, 0);
+            if (!given.is_undefined() && !given.is_null()) {
+                dom::Node* const node = internals.realm.node_of(given);
+                auto* const element = node && node->is_element() ? static_cast<dom::Element*>(node) : nullptr;
+                std::string const type = element ? dom::forms::attribute_lower(*element, "type") : std::string();
+                bool const submit_button = element
+                    && ((element->is_html("button") && (type.empty() || type == "submit")) || (element->is_html("input") && (type == "submit" || type == "image")));
+                if (!submit_button)
+                    return internals.interpreter.throw_type_error("Failed to execute 'requestSubmit' on 'HTMLFormElement': The specified element is not a submit button.");
+                std::vector<dom::Node*> const controls = form_controls(internals, e);
+                if (std::find(controls.begin(), controls.end(), node) == controls.end())
+                    return internals.throw_dom_exception("NotFoundError", "The specified element is not owned by this form element.");
+                submitter = element;
+            }
+            if (request_submission(internals, e, submitter) && internals.hooks.submit_form)
+                internals.hooks.submit_form(e, submitter);
             return js::Value::undefined();
         });
         element_method(in, proto, "reset", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
@@ -983,8 +1132,11 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             }
             return js::Value::undefined();
         });
-        element_method(in, proto, "checkValidity", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(true); });
-        element_method(in, proto, "reportValidity", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(true); });
+        for (std::string_view const name : { "checkValidity", "reportValidity" }) {
+            element_method(in, proto, name, 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+                return js::Value::boolean(check_form(internals, e));
+            });
+        }
     }
 
     // Labels, fieldsets, legends, outputs.
