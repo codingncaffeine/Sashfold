@@ -3,6 +3,7 @@
 #include "core/Bmp.h"
 #include "core/Gif.h"
 #include "core/Jpeg.h"
+#include "core/Webp.h"
 #include "core/Png.h"
 #include "dom/Dom.h"
 #include "html/DocumentBase.h"
@@ -129,6 +130,8 @@ std::optional<Bitmap> decode_image_bytes(std::vector<std::uint8_t> const& bytes,
         return decode_gif(bytes);
     if (looks_like_jpeg(bytes))
         return decode_jpeg(bytes);
+    if (looks_like_webp(bytes))
+        return decode_webp(bytes);
     if (looks_like_bmp(bytes))
         return decode_bmp(bytes);
     if (looks_like_ico(bytes))

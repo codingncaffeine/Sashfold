@@ -143,7 +143,7 @@ int main()
         CHECK(ui::supports_image_type("IMAGE/JPEG"));
         CHECK(ui::supports_image_type(" image/gif ; foo=bar"));
         CHECK(ui::supports_image_type(""));
-        CHECK(!ui::supports_image_type("image/webp"));
+        CHECK(ui::supports_image_type("image/webp"));
         CHECK(!ui::supports_image_type("image/avif"));
         CHECK(ui::supports_image_type("image/svg+xml"));
     }
@@ -152,7 +152,7 @@ int main()
     {
         constexpr std::string_view html = R"HTML(<!doctype html><body>
 <picture id="p1">
-  <source type="image/webp" srcset="w.webp">
+  <source type="image/avif" srcset="w.avif">
   <source media="(max-width: 500px)" srcset="small.png">
   <source srcset="s1.png 400w, s2.png 800w" sizes="200px">
   <img id="i1" src="fallback.png">
@@ -307,7 +307,7 @@ int main()
 <html><head><style>body { margin: 0 } p { margin: 0 }</style></head><body>
 <p><img id="big" srcset="big.png 400w" sizes="200px"></p>
 <p><img id="two" srcset="two.png 2x"></p>
-<p><picture><source type="image/webp" srcset="never.webp"><img id="fallback" src="plain.png"></picture></p>
+<p><picture><source type="image/avif" srcset="never.avif"><img id="fallback" src="plain.png"></picture></p>
 </body></html>)HTML";
         auto const document = html::parse_document(html);
         css::StyleMap const styles = css::resolve_styles(*document);

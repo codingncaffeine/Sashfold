@@ -97,6 +97,7 @@ add_library(sashfold_core STATIC
   src/core/Brotli.cpp
   src/core/Inflate.cpp
   src/core/Jpeg.cpp
+  src/core/Webp.cpp
   src/core/Json.cpp
   src/core/Normalize.cpp
   src/core/Png.cpp

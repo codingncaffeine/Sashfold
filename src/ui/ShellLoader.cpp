@@ -249,6 +249,8 @@ std::string content_type_for(std::string const& path)
         return "image/jpeg";
     if (extension == "gif")
         return "image/gif";
+    if (extension == "webp")
+        return "image/webp";
     if (extension == "bmp")
         return "image/bmp";
     if (extension == "ico")
