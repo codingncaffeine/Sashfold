@@ -157,15 +157,18 @@ void Sha256::update(std::span<std::uint8_t const> data)
 Sha256::Digest Sha256::finish()
 {
     // §5.1.1: a 1 bit, zeros to 56 mod 64, then the bit length in 64 bits.
+    // Written into the block in place: a hash finished at every step of a
+    // key derivation pays for nothing more than its last one or two blocks.
     std::uint64_t const bits = m_length * 8;
-    std::uint8_t const one = 0x80;
-    update(std::span<std::uint8_t const>(&one, 1));
-    std::uint8_t const zero = 0;
-    while (m_buffered != 56)
-        update(std::span<std::uint8_t const>(&zero, 1));
-    std::uint8_t length[8];
-    store64(length, bits);
-    update(length);
+    m_buffer[m_buffered++] = 0x80;
+    if (m_buffered > 56) {
+        std::memset(m_buffer.data() + m_buffered, 0, block_size - m_buffered);
+        compress(m_buffer.data());
+        m_buffered = 0;
+    }
+    std::memset(m_buffer.data() + m_buffered, 0, 56 - m_buffered);
+    store64(m_buffer.data() + 56, bits);
+    compress(m_buffer.data());
     Digest digest;
     for (int i = 0; i < 8; ++i)
         store32(digest.data() + 4 * i, m_state[i]);
@@ -269,15 +272,16 @@ void Sha512::finish_into(std::uint8_t* out, std::size_t out_size)
     // §5.1.2: a 1 bit, zeros to 112 mod 128, then the bit length in 128
     // bits (the high 64 hold what 2^64 bytes would need — nothing here).
     std::uint64_t const bytes = m_length;
-    std::uint8_t const one = 0x80;
-    update(std::span<std::uint8_t const>(&one, 1));
-    std::uint8_t const zero = 0;
-    while (m_buffered != 112)
-        update(std::span<std::uint8_t const>(&zero, 1));
-    std::uint8_t length[16];
-    store64(length, bytes >> 61);
-    store64(length + 8, bytes << 3);
-    update(length);
+    m_buffer[m_buffered++] = 0x80;
+    if (m_buffered > 112) {
+        std::memset(m_buffer.data() + m_buffered, 0, block_size - m_buffered);
+        compress(m_buffer.data());
+        m_buffered = 0;
+    }
+    std::memset(m_buffer.data() + m_buffered, 0, 112 - m_buffered);
+    store64(m_buffer.data() + 112, bytes >> 61);
+    store64(m_buffer.data() + 120, bytes << 3);
+    compress(m_buffer.data());
     std::uint8_t full[64];
     for (int i = 0; i < 8; ++i)
         store64(full + 8 * i, m_state[i]);

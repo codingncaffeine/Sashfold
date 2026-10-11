@@ -597,8 +597,12 @@ Bytes pbkdf2_with(View password, View salt, std::uint32_t iterations, std::size_
 {
     Bytes out;
     out.reserve(length);
+    // The HMAC keyed once, its padded key blocks already absorbed: each
+    // iteration starts from a copy of it rather than keying it again, which
+    // halves the hashing (and spares a long password being hashed each time).
+    crypto::Hmac<Hash> const keyed(password);
     for (std::uint32_t block = 1; out.size() < length; ++block) {
-        crypto::Hmac<Hash> first(password);
+        crypto::Hmac<Hash> first = keyed;
         first.update(salt);
         std::uint8_t const index[4] = { static_cast<std::uint8_t>(block >> 24), static_cast<std::uint8_t>(block >> 16),
             static_cast<std::uint8_t>(block >> 8), static_cast<std::uint8_t>(block) };
@@ -606,7 +610,9 @@ Bytes pbkdf2_with(View password, View salt, std::uint32_t iterations, std::size_
         typename Hash::Digest u = first.finish();
         typename Hash::Digest t = u;
         for (std::uint32_t i = 1; i < iterations; ++i) {
-            u = crypto::Hmac<Hash>::mac(password, u);
+            crypto::Hmac<Hash> next = keyed;
+            next.update(u);
+            u = next.finish();
             for (std::size_t j = 0; j < t.size(); ++j)
                 t[j] = static_cast<std::uint8_t>(t[j] ^ u[j]);
         }
