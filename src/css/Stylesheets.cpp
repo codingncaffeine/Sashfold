@@ -231,6 +231,9 @@ std::vector<SheetSource> collect_stylesheets(dom::Document const& document, net:
                 collector.add_text(sheet->text(), named_against, 0);
         }
     }
+    // Then the faces scripts made (CSS Font Loading's FontFaceSet).
+    if (!document.script_font_faces.empty())
+        collector.add_text(document.script_font_faces, named_against, 0);
     return sheets;
 }
 
@@ -245,6 +248,8 @@ std::string scripted_sheets_signature(dom::Document const& document)
             signature += std::to_string(reinterpret_cast<std::uintptr_t>(sheet.get())) + ":" + std::to_string(sheet->version)
                 + (sheet->disabled ? "d," : ",");
     }
+    if (document.script_font_faces_version > 0)
+        signature += "f" + std::to_string(document.script_font_faces_version);
     return signature;
 }
 

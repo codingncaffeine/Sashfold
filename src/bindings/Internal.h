@@ -1180,6 +1180,8 @@ struct Realm::Internals {
     // page made, and the observers watching for entries.
     // The BroadcastChannels this realm has open (BroadcastChannel.cpp).
     std::vector<js::Object*> broadcast_channels;
+    // The FontFaces in document.fonts, in the order added (FontFace.cpp).
+    std::vector<js::Object*> font_faces;
     std::vector<js::Object*> performance_entries;
     std::vector<js::Object*> performance_observers;
     bool performance_delivery_pending = false;
@@ -1918,6 +1920,11 @@ void install_websockets(Realm::Internals&); // WebSockets.cpp: WebSocket
 // BroadcastChannel.cpp: BroadcastChannel, and the open channels a collection keeps.
 void install_broadcast_channel(Realm::Internals&);
 void trace_broadcast_channels(Realm::Internals const&, js::Tracer&);
+// FontFace.cpp: FontFace; the set members of document.fonts (FontFaceSet);
+// the faces in it, which a collection keeps.
+void install_font_face(Realm::Internals&);
+void install_font_face_set_members(Realm::Internals&, js::Object& font_face_set);
+void trace_font_faces(Realm::Internals const&, js::Tracer&);
 // An exception nothing in a worker's scope dealt with, on its way to the
 // document that started the worker: called in the worker's realm.
 void worker_report_error(Realm::Internals&, std::string const& message, std::string_view where);

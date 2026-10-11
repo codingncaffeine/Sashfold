@@ -720,7 +720,6 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     // on a canvas, where no layout would ask.
     js::Object* font_face_set = define_interface(in, "FontFaceSet", in.prototype("EventTarget"));
     define_getter(in, *font_face_set, "status", [](js::Interpreter& interp, js::Value const&, Args) -> Native { return internals_of(interp).string("loaded"); });
-    define_getter(in, *font_face_set, "size", [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::number(0); });
     define_promise_getter(in, *font_face_set, "ready", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native { return resolved_promise(interp, this_value); });
     define_operation(interpreter, *font_face_set, "check", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(true); });
     define_promise_operation(interpreter, *font_face_set, "load", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
@@ -755,15 +754,8 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             ask();
         return resolved_promise(interp, js::Value::object(interp.new_array()));
     });
-    define_operation(interpreter, *font_face_set, "add", 1, [](js::Interpreter&, js::Value const& this_value, Args) -> Native { return this_value; });
-    define_operation(interpreter, *font_face_set, "delete", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
-    define_operation(interpreter, *font_face_set, "has", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
-    define_operation(interpreter, *font_face_set, "clear", 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-    define_operation(interpreter, *font_face_set, "forEach", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-    for (std::string_view const name : { "entries", "keys", "values" })
-        define_operation(interpreter, *font_face_set, name, 0, empty_iterator);
-    if (std::optional<js::Value> const values = font_face_set->get(interpreter, interpreter.key("values"), js::Value::object(font_face_set)))
-        font_face_set->put(js::PropertyKey::symbol(interpreter.atoms().symbol_iterator), *values, js::Writable | js::Configurable);
+    // A set of the FontFaces scripts add (FontFace.cpp).
+    install_font_face_set_members(in, *font_face_set);
     static constexpr std::string_view font_face_set_event_types[] = { "loading", "loadingdone", "loadingerror" };
     define_event_handlers(in, *font_face_set, font_face_set_event_types);
     document_getter(in, *document, "fonts", [](Realm::Internals& internals, dom::Document&) -> Native {

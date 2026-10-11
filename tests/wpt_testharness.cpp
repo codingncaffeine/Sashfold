@@ -3,6 +3,7 @@
 #include "css/Stylesheets.h"
 #include "dom/Dom.h"
 #include "html/TreeBuilder.h"
+#include "net/DataUrl.h"
 #include "net/Url.h"
 #include "text/FontManager.h"
 #include "ui/Frames.h"
@@ -854,6 +855,13 @@ TestResult run_test(Server const& server, std::string const& id)
         std::cerr << "  run " << id << "\n";
     css::MediaContext const media { static_cast<float>(viewport_width), static_cast<float>(viewport_height) };
     auto const fetch_sheet = [&](net::Url const& target, std::string_view) -> std::optional<css::FetchedSheet> {
+        // A data: URL (a sheet's font, a script's FontFace) is its own content.
+        if (target.scheme == "data") {
+            std::optional<net::DataUrlPayload> payload = net::parse_data_url(target);
+            if (!payload)
+                return std::nullopt;
+            return css::FetchedSheet { std::move(payload->bytes), payload->mime_type };
+        }
         std::optional<Served> const served = server.serve(target);
         if (!served)
             return std::nullopt;
@@ -900,6 +908,19 @@ TestResult run_test(Server const& server, std::string const& id)
             std::cerr << "    " << id << " ~ fetch " << request.method << " " << target.serialize() << "\n";
         if (request.method != "GET" && request.method != "HEAD")
             return { std::nullopt, "the runner serves files only" };
+        // A data: URL is its own response, as a browser's loader makes it.
+        if (target.scheme == "data") {
+            std::optional<net::DataUrlPayload> payload = net::parse_data_url(target);
+            if (!payload)
+                return { std::nullopt, "a data: URL that does not parse" };
+            net::FetchResponse response;
+            response.status = 200;
+            response.status_text = "OK";
+            response.headers.push_back({ "Content-Type", payload->mime_type });
+            response.body = std::move(payload->bytes);
+            response.final_url = target;
+            return { std::move(response), "" };
+        }
         std::optional<Served> served = server.serve(target);
         if (!served)
             return { std::nullopt, "not found" };

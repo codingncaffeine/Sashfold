@@ -434,6 +434,11 @@ public:
     // by the root, each root's in the order adopted.
     std::vector<std::pair<Element const*, std::shared_ptr<ScriptedSheet>>> scripted_sheets;
     std::unordered_map<Node const*, std::vector<std::shared_ptr<ScriptedSheet>>> adopted_sheets;
+    // The faces a script added to document.fonts, as the @font-face rules
+    // they amount to, collected after every other sheet; the version moves
+    // with each change.
+    std::string script_font_faces;
+    std::uint64_t script_font_faces_version = 0;
     // The document's animations, made when something first animates here.
     std::unique_ptr<DocumentAnimationsBase> animations;
     // Told when they are made, by a style or a script: what a realm hears to

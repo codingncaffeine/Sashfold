@@ -83,6 +83,7 @@ add_library(sashfold_core STATIC
   src/bindings/SvgElements.cpp
   src/bindings/WebSockets.cpp
   src/bindings/BroadcastChannel.cpp
+  src/bindings/FontFace.cpp
   src/bindings/ElementInternals.cpp
   src/bindings/Collections.cpp
   src/bindings/ResizeObserver.cpp

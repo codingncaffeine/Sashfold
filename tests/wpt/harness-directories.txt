@@ -153,3 +153,5 @@ navigation-timing
 resize-observer
 # Added 2026-10-11 with BroadcastChannel.
 webmessaging/broadcastchannel
+# Added 2026-10-11 with FontFace and the set document.fonts keeps.
+css/css-font-loading
