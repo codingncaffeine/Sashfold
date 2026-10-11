@@ -4557,7 +4557,8 @@ void test_interfaces_that_promise()
         crypto.subtle.digest('SHA-256', new TextEncoder().encode('abc')).then(function (b) { out.push(hex(b)); });
         crypto.subtle.digest({ name: 'sha-512' }, new Uint8Array(0)).then(function (b) { out.push('512 ' + b.byteLength + ' ' + (b instanceof ArrayBuffer)); });
         crypto.subtle.digest('SHA-384', new Uint8Array([1, 2, 3]).buffer).then(function (b) { out.push('384 ' + b.byteLength); });
-        crypto.subtle.digest('SHA-1', new Uint8Array(0)).catch(function (e) { out.push('sha1 ' + e.name); });
+        crypto.subtle.digest('SHA-1', new Uint8Array(0)).then(function (b) { out.push('sha1 ' + hex(b)); });
+        crypto.subtle.digest('MD5', new Uint8Array(0)).catch(function (e) { out.push('md5 ' + e.name); });
         crypto.subtle.digest('SHA-256', 'not bytes').catch(function (e) { out.push('bytes ' + e.name); });
         crypto.subtle.sign().catch(function (e) { out.push('sign ' + e.name); });
     )JS");
@@ -4567,7 +4568,7 @@ void test_interfaces_that_promise()
     CHECK_EQ(page.string("out.join(' | ')"),
         std::string("when true | has true | request undefined | fonts function | load 0 | decode EncodingError | exit TypeError"
                     " | full TypeError | ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad | 512 64 true | 384 48"
-                    " | sha1 NotSupportedError | bytes TypeError | sign NotSupportedError | play NotSupportedError"));
+                    " | sha1 da39a3ee5e6b4b0d3255bfef95601890afd80709 | md5 NotSupportedError | bytes TypeError | sign TypeError | play NotSupportedError"));
     CHECK_EQ(page.console, std::string(""));
 }
 
