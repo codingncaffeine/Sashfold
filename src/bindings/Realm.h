@@ -61,6 +61,18 @@ struct LayoutBox {
     float height = 0;
 };
 
+// A box that scrolls (CSSOM View §6): how far its content is moved now and
+// how far it can be on each axis, in CSS px.
+struct ElementScroll {
+    float x = 0;
+    float y = 0;
+    float range_x = 0;
+    float range_y = 0;
+    // Whether the box scrolls; one that does not reports where its content
+    // reaches past it (its scrollWidth and scrollHeight), at offset 0.
+    bool scrolls = true;
+};
+
 // The picture a <video> element shows now — the frame due at its playback
 // position — for the painter. The bitmap stays the same object from frame
 // to frame while the video's size holds and is written again in place:
@@ -209,6 +221,12 @@ struct HostHooks {
     // and a frame's hooks are the page's.
     std::function<void(dom::Document const& document, int x, int y)> scroll_to;
     std::function<std::pair<int, int>(dom::Document const& document)> scroll_position;
+    // Element scrolling (scrollTop and the like): where an element's box stands
+    // and how far its content reaches, nothing for an element with no box; and
+    // a move of a box that scrolls, which the host holds within its reach.
+    // CSS px.
+    std::function<std::optional<ElementScroll>(dom::Element const& element)> element_scroll;
+    std::function<void(dom::Element const& element, float x, float y)> scroll_element;
     // document.cookie, read and written; without these the realm keeps its
     // own list, so a page that sets and reads a cookie sees what it set.
     std::function<std::string()> cookie_get;
@@ -494,6 +512,11 @@ public:
     // answer moved (HTML §8.1.7.3 "run the resize steps", "evaluate media
     // queries and report changes").
     void viewport_changed(float width, float height);
+    // A box the reader or a script moved — null for the page itself: it hears
+    // scroll in a task, once however often it moved before the task ran
+    // (CSSOM View §13.1); the page's goes to the document and bubbles to the
+    // window.
+    void scrolled(dom::Element const* element);
     // A form the reader submits (a submit button pressed, Enter in a field):
     // its constraints checked interactively unless it or the submitter says
     // novalidate, then a SubmitEvent the page may cancel. False when the

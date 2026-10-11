@@ -1321,6 +1321,8 @@ struct LaidOutPage {
         auto const oracle = slot;
         hooks.layout_box = [oracle](dom::Element const& element) { return (*oracle)->box(element); };
         hooks.computed_style = [oracle](dom::Element const& element) { return (*oracle)->style(element); };
+        hooks.element_scroll = [oracle](dom::Element const& element) { return (*oracle)->element_scroll(element); };
+        hooks.scroll_element = [oracle](dom::Element const& element, float x, float y) { (*oracle)->scroll_element(element, x, y); };
         std::string const url = "https://example.test/";
         page = std::make_unique<Page>(html, url, std::move(hooks));
         *slot = std::make_unique<bindings::LayoutOracle>(*page->document, *net::parse_url(url), css::SheetFetcher {},
@@ -1329,6 +1331,30 @@ struct LaidOutPage {
         page->load();
     }
 };
+
+// A box that scrolls, as a script reads and moves it: its offsets held
+// within its reach, its scroll size its content's, a scroll event once per
+// turn however often it moved, and scrollIntoView bringing a child up.
+void test_element_scrolling()
+{
+    LaidOutPage laid(R"HTML(<!DOCTYPE html><body style="margin:0">
+<div id=s style="overflow:auto; width:100px; height:50px"><div style="width:300px; height:40px"></div><p id=deep style="margin:0; height:20px">deep</p><div style="height:200px"></div></div>
+<div id=plain style="width:100px; height:10px"></div></body>)HTML");
+    Page& page = *laid.page;
+    CHECK_EQ(page.string("[s.scrollTop, s.scrollLeft, s.scrollWidth, s.scrollHeight, s.clientHeight].join()"), "0,0,300,260,50");
+    page.eval("var heard = 0; s.addEventListener('scroll', function () { heard++; }); s.scrollTop = 30; s.scrollTop = 35;");
+    CHECK_EQ(page.string("[s.scrollTop, heard].join()"), "35,0");
+    while (page.realm->run_pending()) {
+    }
+    CHECK_EQ(page.number("heard"), 1);
+    page.eval("s.scrollTo({ left: 1000 }); s.scrollBy(0, -5);");
+    CHECK_EQ(page.string("[s.scrollLeft, s.scrollTop].join()"), "200,30");
+    page.eval("s.scrollTop = 0; deep.scrollIntoView();");
+    CHECK_EQ(page.number("s.scrollTop"), 40);
+    page.eval("plain.scrollTop = 20;");
+    CHECK_EQ(page.string("[plain.scrollTop, plain.scrollHeight].join()"), "0,10");
+    CHECK_EQ(page.console, "");
+}
 
 // The CSS object model's sheets (CSSOM §6), as the style-in-script
 // libraries use them: emotion and styled-components put a page's whole
@@ -6286,6 +6312,7 @@ int main()
     test_uncaught_errors_are_reported_and_counted();
     test_layout_and_style_hooks();
     test_cssom_sheets();
+    test_element_scrolling();
     test_display_contents_geometry();
     test_form_controls_without_a_host();
     test_dom_parser_and_foreign_documents();

@@ -74,6 +74,96 @@ void union_runs(layout::Fragment const& fragment, dom::Element const& element, L
 
 } // namespace
 
+layout::Fragment const* find_element_fragment(layout::Fragment const& root, dom::Element const& element)
+{
+    return find_fragment(root, element);
+}
+
+namespace {
+
+// A length as layout resolves it, a percentage of `base`.
+float length_px(css::LengthPercent const& length, float base)
+{
+    switch (length.kind) {
+    case css::LengthPercent::Kind::Px: return length.value;
+    case css::LengthPercent::Kind::Percent: return base * length.value / 100.0f;
+    case css::LengthPercent::Kind::Calc: return length.value + base * length.percent / 100.0f;
+    default: return 0;
+    }
+}
+
+// The furthest right and bottom page edges a box's descendants reach, those
+// inside a box that clips them left out.
+void reach_of(layout::Fragment const& box, float& right, float& bottom)
+{
+    for (layout::TextRun const& run : box.runs)
+        right = std::max(right, run.x + run.width);
+    for (layout::Fragment const& child : box.children) {
+        right = std::max(right, child.x + child.width);
+        bottom = std::max(bottom, child.y + child.height);
+        bool const clips = child.style != nullptr && child.style->overflow_applies
+            && (child.style->overflow_x != css::Overflow::Visible || child.style->overflow_y != css::Overflow::Visible);
+        if (!clips)
+            reach_of(child, right, bottom);
+    }
+}
+
+// Where the margin boxes of a box's in-flow children end, which its end
+// padding comes after, as layout settles a scroll range.
+void in_flow_reach(layout::Fragment const& box, float base, float& right, float& bottom)
+{
+    for (layout::TextRun const& run : box.runs)
+        right = std::max(right, run.x + run.width);
+    for (layout::Fragment const& child : box.children) {
+        if (child.style && (child.style->position == css::Position::Absolute || child.style->position == css::Position::Fixed))
+            continue;
+        float const margin_right = child.style ? length_px(child.style->margin_right, base) : 0.0f;
+        float const margin_bottom = child.style ? length_px(child.style->margin_bottom, base) : 0.0f;
+        right = std::max(right, child.x + child.width + margin_right);
+        bottom = std::max(bottom, child.y + child.height + margin_bottom);
+    }
+}
+
+}
+
+ElementScroll scroll_of_box(layout::Fragment const& box, layout::ScrollOffsets const* offsets)
+{
+    ElementScroll at;
+    if (layout::is_scroll_container(box)) {
+        layout::ScrollOffset const now = layout::scroll_of(box, offsets);
+        at.x = now.x;
+        at.y = now.y;
+        at.range_x = box.scroll_range_x;
+        at.range_y = box.scroll_range_y;
+        return at;
+    }
+    at.scrolls = false;
+    css::ComputedStyle const* const style = box.style;
+    float const left = box.x + (style ? style->border_left.width : 0);
+    float const top = box.y + (style ? style->border_top.width : 0);
+    float const width = box.width - (style ? style->border_left.width + style->border_right.width : 0);
+    float const height = box.height - (style ? style->border_top.width + style->border_bottom.width : 0);
+    float right = left + width;
+    float bottom = top + height;
+    reach_of(box, right, bottom);
+    // The end padding after the in-flow content, as for a box that scrolls.
+    float flow_right = 0;
+    float flow_bottom = 0;
+    in_flow_reach(box, width, flow_right, flow_bottom);
+    if (style != nullptr && (!box.children.empty() || !box.runs.empty())) {
+        right = std::max(right, flow_right + length_px(style->padding_right, width));
+        // A block with nothing at its end edge lets its last child's bottom
+        // margin collapse through it, out of its box: then that margin is not
+        // content of its own.
+        float const end_padding = length_px(style->padding_bottom, width);
+        if (end_padding > 0 || style->border_bottom.width > 0 || style->display != css::Display::Block)
+            bottom = std::max(bottom, flow_bottom + end_padding);
+    }
+    at.range_x = std::max(0.0f, right - (left + width));
+    at.range_y = std::max(0.0f, bottom - (top + height));
+    return at;
+}
+
 std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Element const& element,
     css::StyleMap const& styles)
 {
@@ -134,6 +224,8 @@ void LayoutOracle::install(HostHooks& hooks)
     hooks.computed_style = [this](dom::Element const& element) { return style(element); };
     hooks.element_from_point = [this](float x, float y) { return element_at(x, y); };
     hooks.with_fonts = [this](std::function<void()> const& use) { with_fonts(use); };
+    hooks.element_scroll = [this](dom::Element const& element) { return element_scroll(element); };
+    hooks.scroll_element = [this](dom::Element const& element, float x, float y) { scroll_element(element, x, y); };
 }
 
 namespace {
@@ -264,6 +356,28 @@ css::ComputedStyle const* LayoutOracle::style(dom::Element const& element)
     ensure();
     auto const it = m_styles.find(&element);
     return it == m_styles.end() ? nullptr : &it->second;
+}
+
+std::optional<ElementScroll> LayoutOracle::element_scroll(dom::Element const& element)
+{
+    ensure();
+    layout::Fragment const* const fragment = find_fragment(m_layout.root, element);
+    if (fragment == nullptr)
+        return std::nullopt;
+    return scroll_of_box(*fragment, &m_scrolls);
+}
+
+void LayoutOracle::scroll_element(dom::Element const& element, float x, float y)
+{
+    std::optional<ElementScroll> const at = element_scroll(element);
+    if (!at || !at->scrolls)
+        return;
+    layout::ScrollOffset const want { std::clamp(x, 0.0f, at->range_x), std::clamp(y, 0.0f, at->range_y) };
+    if (want.x == at->x && want.y == at->y)
+        return;
+    m_scrolls[&element] = want;
+    if (m_realm != nullptr)
+        m_realm->scrolled(&element);
 }
 
 dom::Element const* LayoutOracle::element_at(float x, float y)

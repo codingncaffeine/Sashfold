@@ -25,6 +25,12 @@ namespace sashfold::bindings {
 // display: contents element, which has no box whatever its runs say.
 std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Element const& element,
     css::StyleMap const& styles);
+// The element's own fragment in a laid-out tree, or null.
+layout::Fragment const* find_element_fragment(layout::Fragment const& root, dom::Element const& element);
+// What element_scroll answers for a box (in its own px): a box that scrolls,
+// where it stands among `offsets` and its scroll range; any other, how far
+// its descendants reach past its padding box.
+ElementScroll scroll_of_box(layout::Fragment const& box, layout::ScrollOffsets const* offsets);
 
 // What each object and embed of the realm's document represents, as the realm
 // has decided it so far, for layout and for the pictures an object or an embed
@@ -59,6 +65,10 @@ public:
     css::ComputedStyle const* style(dom::Element const& element);
     // The element uppermost at a page point (elementFromPoint).
     dom::Element const* element_at(float x, float y);
+    // A box that scrolls, as a script moves it: the offsets are kept here,
+    // held within the box's reach as laid out now.
+    std::optional<ElementScroll> element_scroll(dom::Element const& element);
+    void scroll_element(dom::Element const& element, float x, float y);
     // Brings styles and layout up to date with the tree.
     void ensure();
     // Runs `use` with the document's own fonts in the process's font
@@ -91,6 +101,7 @@ private:
     css::StyleMap m_styles;
     css::StyleRecord m_style_record; // what the next update needs to compute only what changed
     layout::LayoutResult m_layout;
+    layout::ScrollOffsets m_scrolls;
 };
 
 }

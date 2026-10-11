@@ -2230,6 +2230,33 @@ void install_window(Realm::Internals& in)
     global->put(interpreter.key("external"), js::Value::object(interpreter.new_object(external_proto)), js::builtin_attributes);
 }
 
+void Realm::scrolled(dom::Element const* element)
+{
+    Internals& in = *m_internals;
+    if (in.ended)
+        return;
+    if (element == nullptr)
+        in.page_scrolled = true;
+    else if (std::find(in.scrolled_elements.begin(), in.scrolled_elements.end(), element) == in.scrolled_elements.end())
+        in.scrolled_elements.push_back(element);
+    if (in.scroll_task_queued)
+        return;
+    in.scroll_task_queued = true;
+    in.post_task([&in] {
+        in.scroll_task_queued = false;
+        std::vector<dom::Element const*> const elements = std::move(in.scrolled_elements);
+        in.scrolled_elements.clear();
+        bool const page = in.page_scrolled;
+        in.page_scrolled = false;
+        if (page)
+            in.realm.dispatch_event(in.document, "scroll", EventInit { true, false, false });
+        for (dom::Element const* const moved : elements) {
+            if (moved->is_connected() && &moved->document() == in.document)
+                in.realm.dispatch_event(const_cast<dom::Element*>(moved), "scroll");
+        }
+    });
+}
+
 void Realm::viewport_changed(float width, float height)
 {
     Internals& in = *m_internals;

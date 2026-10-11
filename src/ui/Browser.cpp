@@ -2794,6 +2794,8 @@ struct Browser::Impl {
             entry->scroll_y = clamped;
         settle_scrolls(tab);
         dirty = true;
+        if (tab.realm)
+            tab.realm->scrolled(nullptr);
     }
 
     // Puts the reader's scrolling on the fragments — each box's own, then
@@ -2883,6 +2885,8 @@ struct Browser::Impl {
         at = want;
         settle_scrolls(tab);
         dirty = true;
+        if (tab.realm)
+            tab.realm->scrolled(box.element);
         return true;
     }
 
@@ -3419,6 +3423,8 @@ struct Browser::Impl {
         view.scroll_y = want;
         view.settle_scrolls();
         repaint_frames(tab, chain);
+        if (view.realm)
+            view.realm->scrolled(nullptr);
         return true;
     }
     // The reader's wheel and keys, which a frame's document may have asked
@@ -3443,6 +3449,8 @@ struct Browser::Impl {
         view.scrolls[box.element] = want;
         view.settle_scrolls();
         repaint_frames(tab, chain);
+        if (view.realm)
+            view.realm->scrolled(box.element);
         return true;
     }
 
@@ -4419,6 +4427,32 @@ struct Browser::Impl {
                 return;
             }
             set_scroll(*owner, to_device_px(y));
+        };
+        // The boxes that scroll, as a script reads and moves them: the page's
+        // own; a frame's are read but not yet moved from here.
+        hooks.element_scroll = [this, document](dom::Element const& element) -> std::optional<bindings::ElementScroll> {
+            Tab* const owner = tab_of(document);
+            if (!owner)
+                return std::nullopt;
+            ensure_fresh(*owner);
+            FrameView const* const view = view_of(*owner, frame_holding_in(owner->frames, element.document()));
+            layout::Fragment const* const box = bindings::find_element_fragment(view ? view->layout.root : owner->layout.root, element);
+            if (box == nullptr)
+                return std::nullopt;
+            bindings::ElementScroll at = bindings::scroll_of_box(*box, view ? &view->scrolls : &owner->scrolls);
+            at.x = static_cast<float>(to_css_px(at.x));
+            at.y = static_cast<float>(to_css_px(at.y));
+            at.range_x = static_cast<float>(to_css_px(at.range_x));
+            at.range_y = static_cast<float>(to_css_px(at.range_y));
+            return at;
+        };
+        hooks.scroll_element = [this, document](dom::Element const& element, float x, float y) {
+            Tab* const owner = tab_of(document);
+            if (!owner || &element.document() != owner->document.get())
+                return;
+            ensure_fresh(*owner);
+            if (layout::Fragment const* const box = bindings::find_element_fragment(owner->layout.root, element))
+                scroll_box_to(*owner, *box, layout::ScrollOffset { static_cast<float>(to_device_px(x)), static_cast<float>(to_device_px(y)) });
         };
         hooks.scroll_position = [this, document](dom::Document const& from) -> std::pair<int, int> {
             Tab* const owner = tab_of(document);

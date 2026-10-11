@@ -1127,6 +1127,11 @@ struct Realm::Internals {
     // compared after a change of the media: those with no listener left go
     // when the list is long.
     std::vector<EventTargetObject*> media_query_lists;
+    // What has scrolled since the scroll task last ran (Realm::scrolled): the
+    // elements in the order they first moved, and whether the page did.
+    std::vector<dom::Element const*> scrolled_elements;
+    bool page_scrolled = false;
+    bool scroll_task_queued = false;
     // What each form-associated custom element was last told (ElementInternals
     // .cpp): its form owner and whether it was disabled, so that a change
     // reaches its formAssociatedCallback and formDisabledCallback once.

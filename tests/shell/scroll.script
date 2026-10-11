@@ -104,13 +104,14 @@ assert-box-scroll 200 160 0 287
 assert-scroll 0
 
 # A fragment link into the same pane moves it too, and the page after it —
-# the target's own box, so it reaches the pane's far edge. With the page at
-# 89 the pane is read at window 90.
+# the target's own box, so it reaches the pane's far edge — which counts the
+# last paragraph's bottom margin (css-overflow-3: the end padding follows the
+# in-flow margin boxes). With the page at 88 the pane is read at window 90.
 wheel-at 200 160 20
 assert-box-scroll 200 160 0 0
 navigate data:text/html,<title>Reach</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}.pane{width:300px;height:100px;overflow:auto;border:1px solid gray}.gap{height:300px}</style><div class="pane"><p>top of the pane</p><div class="gap"></div><p id="deep">buried</p></div><div style="height:900px">below</div>#deep
-assert-scroll 89
-assert-box-scroll 200 90 0 288
+assert-scroll 88
+assert-box-scroll 200 90 0 289
 
 # A fixed bar stands at the viewport's top however far the page is moved
 # under it, and a heading that sticks catches at the bar's foot once the

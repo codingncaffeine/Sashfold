@@ -633,6 +633,140 @@ std::optional<LayoutBox> client_box(Realm::Internals& in, dom::Element const& el
     return box;
 }
 
+
+namespace {
+
+// --- Element scrolling (CSSOM View §6) ----------------------------------------------------
+
+// The element whose scrollTop is the page's: the root element in standards
+// mode, the body in quirks mode (CSSOM View §6.1, "the scrolling element").
+bool scrolls_the_page(Realm::Internals& in, dom::Element const& element)
+{
+    if (&element.document() != in.document)
+        return false;
+    bool const quirks = in.document->quirks_mode == dom::QuirksMode::Yes;
+    if (element.parent() != nullptr && element.parent()->type() == dom::NodeType::Document)
+        return !quirks;
+    return quirks && element.is_html("body") && element.parent() != nullptr && element.parent()->is_element()
+        && element.parent()->parent() != nullptr && element.parent()->parent()->type() == dom::NodeType::Document;
+}
+
+std::pair<double, double> page_scroll(Realm::Internals& in)
+{
+    if (!in.hooks.scroll_position)
+        return { 0, 0 };
+    std::pair<int, int> const at = in.hooks.scroll_position(*in.document);
+    return { at.first, at.second };
+}
+
+// Where an element's content stands: the page's for the scrolling element,
+// its box's for one that scrolls, the origin for anything else.
+std::pair<double, double> element_scroll_of(Realm::Internals& in, dom::Element const& element)
+{
+    if (scrolls_the_page(in, element))
+        return page_scroll(in);
+    if (!in.hooks.element_scroll)
+        return { 0, 0 };
+    std::optional<ElementScroll> const at = in.hooks.element_scroll(element);
+    return at ? std::pair<double, double> { at->x, at->y } : std::pair<double, double> { 0, 0 };
+}
+
+// Moves an element's content (a no-op for one that does not scroll); the
+// host holds it within reach and tells the realm it scrolled.
+void scroll_element_to(Realm::Internals& in, dom::Element const& element, double x, double y)
+{
+    x = std::isfinite(x) ? x : 0;
+    y = std::isfinite(y) ? y : 0;
+    if (scrolls_the_page(in, element)) {
+        if (in.hooks.scroll_to)
+            in.hooks.scroll_to(*in.document, static_cast<int>(std::lround(x)), static_cast<int>(std::lround(y)));
+        return;
+    }
+    if (in.hooks.scroll_element)
+        in.hooks.scroll_element(element, static_cast<float>(x), static_cast<float>(y));
+}
+
+// ScrollToOptions or (x, y), as scrollTo/scroll/scrollBy take them: the
+// left and top asked for, each absent when not given.
+std::optional<std::pair<std::optional<double>, std::optional<double>>> scroll_arguments(js::Interpreter& interp, Args args)
+{
+    std::optional<double> left;
+    std::optional<double> top;
+    js::Value const first = js::argument(args, 0);
+    if (args.size() >= 2) {
+        std::optional<double> const x = interp.to_number(first);
+        std::optional<double> const y = x ? interp.to_number(js::argument(args, 1)) : std::nullopt;
+        if (!y)
+            return std::nullopt;
+        left = std::isnan(*x) ? 0 : *x;
+        top = std::isnan(*y) ? 0 : *y;
+    } else if (first.is_object()) {
+        for (auto const& [name, out] : { std::pair { "left", &left }, std::pair { "top", &top } }) {
+            std::optional<js::Value> const value = interp.get(first, name);
+            if (!value)
+                return std::nullopt;
+            if (!value->is_undefined()) {
+                std::optional<double> const number = interp.to_number(*value);
+                if (!number)
+                    return std::nullopt;
+                *out = std::isnan(*number) ? 0 : *number;
+            }
+        }
+    }
+    return std::pair { left, top };
+}
+
+// scrollIntoView (CSSOM View §6.5): each box that scrolls around the element,
+// innermost first, and then the page, brought to show it — its start edges
+// at theirs for block "start" (the default) and "nearest" when it is out of
+// sight, centred for "center", its end edges at theirs for "end".
+void scroll_into_view(Realm::Internals& in, dom::Element& element, std::string const& block, std::string const& inline_side)
+{
+    auto const place = [](double box_start, double box_size, double port_start, double port_size, std::string const& how) -> double {
+        // How far the port must move for the box to stand where `how` says.
+        if (how == "center")
+            return (box_start + box_size / 2) - (port_start + port_size / 2);
+        if (how == "end")
+            return (box_start + box_size) - (port_start + port_size);
+        if (how == "nearest") {
+            if (box_start < port_start)
+                return box_start - port_start;
+            if (box_start + box_size > port_start + port_size)
+                return box_size > port_size ? box_start - port_start : (box_start + box_size) - (port_start + port_size);
+            return 0;
+        }
+        return box_start - port_start;
+    };
+    for (dom::Node* node = element.parent(); node != nullptr && node->is_element(); node = node->parent()) {
+        auto& ancestor = static_cast<dom::Element&>(*node);
+        if (scrolls_the_page(in, ancestor) || !in.hooks.element_scroll)
+            break;
+        std::optional<ElementScroll> const at = in.hooks.element_scroll(ancestor);
+        if (!at || !at->scrolls || (at->range_x <= 0 && at->range_y <= 0))
+            continue;
+        std::optional<LayoutBox> const target = client_box(in, element);
+        std::optional<LayoutBox> const port = client_box(in, ancestor);
+        if (!target || !port)
+            return;
+        double const dy = place(target->y, target->height, port->y, port->height, block);
+        double const dx = place(target->x, target->width, port->x, port->width, inline_side);
+        if (dx != 0 || dy != 0)
+            scroll_element_to(in, ancestor, static_cast<double>(at->x) + dx, static_cast<double>(at->y) + dy);
+    }
+    std::optional<LayoutBox> const target = client_box(in, element);
+    if (!target || !in.hooks.scroll_to)
+        return;
+    if (in.hooks.refresh_viewport)
+        in.hooks.refresh_viewport();
+    std::pair<double, double> const page = page_scroll(in);
+    double const dy = place(target->y, target->height, 0, in.hooks.viewport_height, block);
+    double const dx = place(target->x, target->width, 0, in.hooks.viewport_width, inline_side);
+    if (dx != 0 || dy != 0)
+        in.hooks.scroll_to(*in.document, static_cast<int>(std::lround(page.first + dx)), static_cast<int>(std::lround(page.second + dy)));
+}
+
+}
+
 // A DOMRectReadOnly or DOMRect: the four numbers in slots, read and written
 // through the prototypes' accessors (Geometry Interfaces §4).
 class RectObject final : public js::Object {
@@ -1651,20 +1785,6 @@ void install_element(Realm::Internals& in, js::Object& element)
     element_method(in, element, "checkVisibility", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         return js::Value::boolean(internals.hooks.layout_box ? internals.hooks.layout_box(e).has_value() : true);
     });
-    auto const box_metric = [](Realm::Internals& internals, dom::Element& e, int which) -> Native {
-        // 0 width, 1 height, 2 top, 3 left: the box as laid out, page coordinates.
-        if (!internals.hooks.layout_box)
-            return js::Value::number(0);
-        std::optional<LayoutBox> const box = internals.hooks.layout_box(e);
-        if (!box)
-            return js::Value::number(0);
-        switch (which) {
-        case 0: return js::Value::number(std::round(static_cast<double>(box->width)));
-        case 1: return js::Value::number(std::round(static_cast<double>(box->height)));
-        case 2: return js::Value::number(std::round(static_cast<double>(box->y)));
-        default: return js::Value::number(std::round(static_cast<double>(box->x)));
-        }
-    };
     // clientWidth and clientHeight (CSSOM View §6): the root element's are
     // the viewport's; any other box's are its padding box's, which is its
     // border box without the borders. clientTop and clientLeft are those
@@ -1699,16 +1819,108 @@ void install_element(Realm::Internals& in, js::Object& element)
     element_getter(in, element, "clientHeight", [client_metric](Realm::Internals& internals, dom::Element& e) -> Native { return client_metric(internals, e, 1); });
     element_getter(in, element, "clientTop", [client_metric](Realm::Internals& internals, dom::Element& e) -> Native { return client_metric(internals, e, 2); });
     element_getter(in, element, "clientLeft", [client_metric](Realm::Internals& internals, dom::Element& e) -> Native { return client_metric(internals, e, 3); });
-    element_getter(in, element, "scrollWidth", [box_metric](Realm::Internals& internals, dom::Element& e) -> Native { return box_metric(internals, e, 0); });
-    element_getter(in, element, "scrollHeight", [box_metric](Realm::Internals& internals, dom::Element& e) -> Native { return box_metric(internals, e, 1); });
-    element_accessor(
-        in, element, "scrollTop", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); },
-        [](Realm::Internals&, dom::Element&, js::Value const&) -> Native { return js::Value::undefined(); });
-    element_accessor(
-        in, element, "scrollLeft", [](Realm::Internals&, dom::Element&) -> Native { return js::Value::number(0); },
-        [](Realm::Internals&, dom::Element&, js::Value const&) -> Native { return js::Value::undefined(); });
-    for (std::string_view const name : { "scrollIntoView", "scrollIntoViewIfNeeded", "scrollTo", "scroll", "scrollBy", "requestPointerLock" })
-        element_method(in, element, name, 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
+    // scrollWidth and scrollHeight: a box that scrolls reaches as far as its
+    // padding box and the range beyond it; any other is its own box.
+    for (bool const vertical : { false, true }) {
+        element_getter(in, element, vertical ? "scrollHeight" : "scrollWidth",
+            vertical ? +[](Realm::Internals& internals, dom::Element& e) -> Native {
+                if (internals.hooks.element_scroll) {
+                    if (std::optional<ElementScroll> const at = internals.hooks.element_scroll(e)) {
+                        std::optional<js::Value> const client = internals.interpreter.get(js::Value::object(internals.wrap(e)), "clientHeight");
+                        return js::Value::number((client && client->is_number() ? client->as_number() : 0) + std::round(static_cast<double>(at->range_y)));
+                    }
+                }
+                if (!internals.hooks.layout_box)
+                    return js::Value::number(0);
+                std::optional<LayoutBox> const box = internals.hooks.layout_box(e);
+                return js::Value::number(box ? std::round(static_cast<double>(box->height)) : 0);
+            }
+                     : +[](Realm::Internals& internals, dom::Element& e) -> Native {
+                           if (internals.hooks.element_scroll) {
+                               if (std::optional<ElementScroll> const at = internals.hooks.element_scroll(e)) {
+                                   std::optional<js::Value> const client = internals.interpreter.get(js::Value::object(internals.wrap(e)), "clientWidth");
+                                   return js::Value::number((client && client->is_number() ? client->as_number() : 0) + std::round(static_cast<double>(at->range_x)));
+                               }
+                           }
+                           if (!internals.hooks.layout_box)
+                               return js::Value::number(0);
+                           std::optional<LayoutBox> const box = internals.hooks.layout_box(e);
+                           return js::Value::number(box ? std::round(static_cast<double>(box->width)) : 0);
+                       });
+    }
+    // scrollTop and scrollLeft: where a box that scrolls has its content
+    // (the page's, for the scrolling element), written to move it.
+    for (bool const vertical : { true, false }) {
+        element_accessor(
+            in, element, vertical ? "scrollTop" : "scrollLeft",
+            vertical ? +[](Realm::Internals& internals, dom::Element& e) -> Native { return js::Value::number(element_scroll_of(internals, e).second); }
+                     : +[](Realm::Internals& internals, dom::Element& e) -> Native { return js::Value::number(element_scroll_of(internals, e).first); },
+            vertical ? +[](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
+                std::optional<double> const number = internals.interpreter.to_number(value);
+                if (!number)
+                    return std::nullopt;
+                scroll_element_to(internals, e, element_scroll_of(internals, e).first, *number);
+                return js::Value::undefined();
+            }
+                     : +[](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
+                           std::optional<double> const number = internals.interpreter.to_number(value);
+                           if (!number)
+                               return std::nullopt;
+                           scroll_element_to(internals, e, *number, element_scroll_of(internals, e).second);
+                           return js::Value::undefined();
+                       });
+    }
+    // scrollTo and scroll take a place, scrollBy a distance: (x, y) or a
+    // ScrollToOptions, whose side left out stays where it is.
+    for (std::string_view const name : { "scrollTo", "scroll", "scrollBy" }) {
+        element_method(in, element, name, 0,
+            name == "scrollBy" ? +[](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+                std::optional<std::pair<std::optional<double>, std::optional<double>>> const asked = scroll_arguments(internals.interpreter, args);
+                if (!asked)
+                    return std::nullopt;
+                std::pair<double, double> const at = element_scroll_of(internals, e);
+                scroll_element_to(internals, e, at.first + asked->first.value_or(0), at.second + asked->second.value_or(0));
+                return js::Value::undefined();
+            }
+                               : +[](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+                                     std::optional<std::pair<std::optional<double>, std::optional<double>>> const asked = scroll_arguments(internals.interpreter, args);
+                                     if (!asked)
+                                         return std::nullopt;
+                                     std::pair<double, double> const at = element_scroll_of(internals, e);
+                                     scroll_element_to(internals, e, asked->first.value_or(at.first), asked->second.value_or(at.second));
+                                     return js::Value::undefined();
+                                 });
+    }
+    // scrollIntoView(alignToTop | ScrollIntoViewOptions), and WebKit's
+    // scrollIntoViewIfNeeded(centerIfNeeded), which moves only what must.
+    element_method(in, element, "scrollIntoView", 0, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        std::string block = "start";
+        std::string inline_side = "nearest";
+        js::Value const given = js::argument(args, 0);
+        if (given.is_boolean()) {
+            block = given.as_boolean() ? "start" : "end";
+        } else if (given.is_object()) {
+            for (auto const& [name, out] : { std::pair { "block", &block }, std::pair { "inline", &inline_side } }) {
+                std::optional<js::Value> const value = internals.interpreter.get(given, name);
+                if (!value)
+                    return std::nullopt;
+                if (!value->is_undefined()) {
+                    std::optional<std::string> text = internals.to_utf8(*value);
+                    if (!text)
+                        return std::nullopt;
+                    *out = std::move(*text);
+                }
+            }
+        }
+        scroll_into_view(internals, e, block, inline_side);
+        return js::Value::undefined();
+    });
+    element_method(in, element, "scrollIntoViewIfNeeded", 0, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        bool const center = args.empty() || js::Interpreter::to_boolean(args[0]);
+        scroll_into_view(internals, e, center ? "center" : "nearest", "nearest");
+        return js::Value::undefined();
+    });
+    element_method(in, element, "requestPointerLock", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
     for (std::string_view const name : { "releasePointerCapture", "setPointerCapture" })
         element_method(in, element, name, 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
     element_method(in, element, "hasPointerCapture", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(false); });

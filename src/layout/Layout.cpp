@@ -1615,14 +1615,26 @@ struct Layouter {
                 box.width - s.border_left.width - s.border_right.width
                     - resolve(s.padding_left, cb_width) - resolve(s.padding_right, cb_width));
         }
+        // And the margin boxes of what is in flow inside it, which the end
+        // padding comes after (css-overflow-3 §2.2): a child pulled up by a
+        // negative margin ends its margin box before its border box, and the
+        // padding counts from there.
+        Reach in_flow {};
         for (Fragment& child : box.children) {
             Reach const child_reach = settle_scroll(child, inner_width);
             if (child.style && child.style->position == css::Position::Fixed)
                 continue;
             inside.take(child_reach);
+            if (child.style && (child.style->position == css::Position::Absolute))
+                continue;
+            float const margin_right = child.style ? resolve(child.style->margin_right, inner_width) : 0.0f;
+            float const margin_bottom = child.style ? resolve(child.style->margin_bottom, inner_width) : 0.0f;
+            in_flow.take(Reach { child.x + child.width + margin_right, child.y + child.height + margin_bottom });
         }
-        for (TextRun const& run : box.runs)
+        for (TextRun const& run : box.runs) {
             inside.take(run_reach(run));
+            in_flow.take(run_reach(run));
+        }
         Reach subtree = own;
         subtree.take(inside);
         if (!box.style || !box.style->overflow_applies)
@@ -1644,11 +1656,11 @@ struct Layouter {
         float const port_bottom = box.y + box.height - s.border_bottom.width;
         if (css::scrolls(s.overflow_x)) {
             box.scroll_range_x = std::max(
-                0.0f, inside.right + resolve(s.padding_right, cb_width) - port_right);
+                0.0f, std::max(inside.right, in_flow.right + resolve(s.padding_right, cb_width)) - port_right);
         }
         if (css::scrolls(s.overflow_y)) {
             box.scroll_range_y = std::max(
-                0.0f, inside.bottom + resolve(s.padding_bottom, cb_width) - port_bottom);
+                0.0f, std::max(inside.bottom, in_flow.bottom + resolve(s.padding_bottom, cb_width)) - port_bottom);
         }
         return own;
     }
