@@ -1,8 +1,11 @@
 #include "platform/Net.h"
 
+#include "platform/HostCache.h"
+
 #include <algorithm>
 #include <cerrno>
 #include <chrono>
+#include <cstring>
 
 #include <arpa/inet.h>
 #include <fcntl.h>
@@ -51,6 +54,49 @@ bool connect_with_deadline(int handle, sockaddr const* address, socklen_t length
     return ::fcntl(handle, F_SETFL, flags) >= 0;
 }
 
+// The host's addresses in the resolver's order, from the process's cache
+// or the system resolver; nothing when the name has none.
+std::optional<std::vector<ResolvedAddress>> resolve(std::string const& host)
+{
+    auto const now = HostCache::Clock::now();
+    if (std::optional<std::vector<ResolvedAddress>> kept = host_cache().find(host, now))
+        return kept;
+    addrinfo hints {};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    addrinfo* results = nullptr;
+    host_cache().count_lookup();
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &results) != 0)
+        return std::nullopt;
+    std::vector<ResolvedAddress> addresses;
+    for (addrinfo* entry = results; entry; entry = entry->ai_next) {
+        if ((entry->ai_family != AF_INET && entry->ai_family != AF_INET6) || entry->ai_addrlen > sizeof(sockaddr_storage))
+            continue;
+        auto const* const bytes = reinterpret_cast<std::uint8_t const*>(entry->ai_addr);
+        addresses.push_back({ entry->ai_family, entry->ai_socktype, entry->ai_protocol,
+            std::vector<std::uint8_t>(bytes, bytes + entry->ai_addrlen) });
+    }
+    freeaddrinfo(results);
+    if (addresses.empty())
+        return std::nullopt;
+    host_cache().keep(host, addresses, now);
+    return addresses;
+}
+
+// The address with the port written into it.
+sockaddr_storage with_port(ResolvedAddress const& address, std::uint16_t port, socklen_t& length)
+{
+    sockaddr_storage target {};
+    std::memcpy(&target, address.address.data(), address.address.size());
+    length = static_cast<socklen_t>(address.address.size());
+    if (address.family == AF_INET)
+        reinterpret_cast<sockaddr_in*>(&target)->sin_port = htons(port);
+    else
+        reinterpret_cast<sockaddr_in6*>(&target)->sin6_port = htons(port);
+    return target;
+}
+
 } // namespace
 
 std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16_t port, ConnectTiming* timing)
@@ -58,33 +104,31 @@ std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16
     using clock = std::chrono::steady_clock;
     using ms = std::chrono::duration<double, std::milli>;
     auto const started = clock::now();
-    addrinfo hints {};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-    addrinfo* results = nullptr;
-    std::string const port_text = std::to_string(port);
-    int const lookup = getaddrinfo(host.c_str(), port_text.c_str(), &hints, &results);
+    std::optional<std::vector<ResolvedAddress>> const addresses = resolve(host);
     auto const resolved = clock::now();
     if (timing)
         timing->resolve_ms = ms(resolved - started).count();
-    if (lookup != 0)
+    if (!addresses)
         return std::nullopt;
     int handle = -1;
-    for (addrinfo* entry = results; entry; entry = entry->ai_next) {
-        handle = ::socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
+    for (ResolvedAddress const& address : *addresses) {
+        socklen_t length = 0;
+        sockaddr_storage const target = with_port(address, port, length);
+        handle = ::socket(address.family, address.socktype, address.protocol);
         if (handle < 0)
             continue;
-        if (connect_with_deadline(handle, entry->ai_addr, entry->ai_addrlen))
+        if (connect_with_deadline(handle, reinterpret_cast<sockaddr const*>(&target), length))
             break;
         ::close(handle);
         handle = -1;
     }
-    freeaddrinfo(results);
     if (timing)
         timing->connect_ms = ms(clock::now() - resolved).count();
-    if (handle < 0)
+    if (handle < 0) {
+        // None of them took a connection: the next connect asks again.
+        host_cache().forget(host);
         return std::nullopt;
+    }
     // Every write goes out at once, as curl's and every browser's do: with
     // Nagle's algorithm a small write waits for the peer to acknowledge the
     // last one, so the HTTP/2 preface, the request after it and each TLS
@@ -92,6 +136,11 @@ std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16
     int const no_delay = 1;
     ::setsockopt(handle, IPPROTO_TCP, TCP_NODELAY, &no_delay, sizeof no_delay);
     return TcpSocket(static_cast<std::uintptr_t>(handle));
+}
+
+bool TcpSocket::look_up(std::string const& host)
+{
+    return resolve(host).has_value();
 }
 
 TcpSocket::TcpSocket(TcpSocket&& other) noexcept

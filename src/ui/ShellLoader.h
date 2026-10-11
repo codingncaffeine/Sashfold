@@ -39,6 +39,7 @@ public:
     std::shared_ptr<net::FetchTicket> load_ahead(net::Url const& url, std::string const& referrer,
         bool bypass_cache, std::string_view container = {}, std::shared_ptr<net::BodyTap> tap = nullptr) override;
     bool ahead_pending(net::Url const& url, net::ResourceKind kind, std::string_view container = {}) override;
+    void preconnect(net::Url const& url, net::Url const& first_party, bool name_only, std::string_view container = {}) override;
     net::FetchResult submit(net::Url const& url, std::string const& referrer, PostedForm const& form,
         std::string_view container = {}) override;
     std::shared_ptr<net::FetchTicket> submit_ahead(net::Url const& url, std::string const& referrer,
@@ -142,6 +143,9 @@ private:
     net::Blocklists m_blocklists;
     std::atomic<std::size_t> m_blocked { 0 };
     std::map<std::string, Ahead> m_ahead; // under m_mutex
+    std::map<std::string, std::int64_t> m_warmed; // origins a hint warmed, by when; under m_mutex
+    // A hint's connection opens here, never on a thread a fetch is waiting for.
+    net::FetchPool m_warming { 2 };
     // Last, so that it goes first: its threads use everything above.
     net::FetchPool m_fetches { 8 };
 };

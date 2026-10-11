@@ -403,6 +403,20 @@ namespace {
 std::mutex revocation_stats_mutex;
 RevocationStats revocation_totals;
 
+// The HTTP/2 settings a new session starts with: the defaults, or what the
+// caller's options say instead.
+Http2Config http2_config(FetchOptions const& options)
+{
+    Http2Config config;
+    if (options.http2_stream_window != 0)
+        config.stream_window = options.http2_stream_window;
+    if (options.http2_connection_window != 0)
+        config.connection_window = options.http2_connection_window;
+    if (options.http2_stall_ms > 0)
+        config.stall_ms = options.http2_stall_ms;
+    return config;
+}
+
 // The revocation lists a chain's validation asks for come over plain HTTP
 // through this same client: installed on the platform seam once, by the
 // first fetch of the process. Such a fetch carries no cookies, no cache and
@@ -700,14 +714,7 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
                         options.pool->note_opened();
                     bool const speaks_h2 = want_h2 && (!secure || connection->alpn() == "h2");
                     if (speaks_h2) {
-                        Http2Config config;
-                        if (options.http2_stream_window != 0)
-                            config.stream_window = options.http2_stream_window;
-                        if (options.http2_connection_window != 0)
-                            config.connection_window = options.http2_connection_window;
-                        if (options.http2_stall_ms > 0)
-                            config.stall_ms = options.http2_stall_ms;
-                        session = Http2Session::start(std::move(*connection), config);
+                        session = Http2Session::start(std::move(*connection), http2_config(options));
                         connection.reset();
                     }
                     // Word of HTTP/1.1 goes to the pool before the claim is
@@ -863,6 +870,61 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
     timing.total_ms = std::chrono::duration<double, std::milli>(clock::now() - started).count();
     result.timing = timing;
     return result;
+}
+
+bool preconnect(Url const& url, FetchOptions const& options)
+{
+    install_revocation_fetch();
+    ConnectionPool* const pool = options.pool;
+    if (!pool || (url.scheme != "https" && url.scheme != "http") || !url.has_host() || url.host.empty())
+        return false;
+    bool const secure = url.scheme == "https";
+    if (secure && !platform::TlsSocket::available())
+        return false;
+    std::uint16_t const port = url.port.value_or(secure ? 443 : 80);
+    std::string const key = origin_key(secure, url.host, port);
+    bool const want_h2 = (secure || options.http2_prior_knowledge) && !pool->http1_only(key);
+    if (!want_h2) {
+        // An HTTP/1.1 origin gets one idle connection, if it has none.
+        std::optional<Connection> kept = pool->take(key, unix_now());
+        if (kept) {
+            pool->give(key, std::move(*kept), unix_now());
+            return false;
+        }
+        std::string error;
+        std::optional<Connection> fresh = Connection::open(url.host, port, secure, error, nullptr, false);
+        if (!fresh)
+            return false;
+        pool->note_opened();
+        pool->give(key, std::move(*fresh), unix_now());
+        return true;
+    }
+    // The origin's claim, as the first fetch to it takes one: a fetch that
+    // comes meanwhile waits for this connection instead of opening its own.
+    bool claimed = false;
+    std::string waited_failure;
+    if (pool->find_session(key, unix_now(), claimed, waited_failure) || !claimed)
+        return false;
+    std::string error;
+    std::optional<Connection> connection = Connection::open(url.host, port, secure, error, nullptr, secure);
+    if (!connection) {
+        // Settled with no error: the fetches that waited connect on their
+        // own rather than fail with what a hint ran into.
+        pool->settle(key, nullptr);
+        return false;
+    }
+    pool->note_opened();
+    if (!secure || connection->alpn() == "h2") {
+        std::shared_ptr<Http2Session> session = Http2Session::start(std::move(*connection), http2_config(options));
+        pool->settle(key, session);
+        return session != nullptr;
+    }
+    // The server chose HTTP/1.1: word of it goes to the pool before the
+    // claim is settled, as fetch does, and the connection waits there.
+    pool->note_http1_only(key);
+    pool->settle(key, nullptr);
+    pool->give(key, std::move(*connection), unix_now());
+    return true;
 }
 
 }

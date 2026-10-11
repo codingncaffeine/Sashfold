@@ -18,10 +18,16 @@
 namespace sashfold::html {
 
 struct Preload {
-    enum class Kind { Stylesheet, Script };
+    // What is fetched ahead (a sheet, a script, a font, a picture), or a
+    // hint about a connection: one to open (preconnect) or a name to look up
+    // (dns-prefetch).
+    enum class Kind { Stylesheet, Script, Font, Image, Preconnect, DnsPrefetch };
     Kind kind = Kind::Stylesheet;
     std::string url; // as written, to be resolved against the document's base
     std::string nonce; // the tag's nonce attribute, for a policy that asks for one; empty for none
+    // From a preload or modulepreload hint, not a tag the parse will meet:
+    // fetched ahead, but nothing waits for it.
+    bool hint = false;
 };
 
 struct PreloadScan {

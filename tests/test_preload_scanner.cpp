@@ -14,14 +14,22 @@ using html::PreloadScan;
 
 namespace {
 
-// "S:url" for a stylesheet, "J:url" for a script, in the order found.
+// "S:url" for a stylesheet, "J:" a script, "F:" a font, "I:" a picture,
+// "P:" a connection to warm and "D:" a name to look up, in the order found.
 std::string said(PreloadScan const& scan)
 {
     std::string out;
     for (Preload const& resource : scan.resources) {
         if (!out.empty())
             out += " ";
-        out += resource.kind == Preload::Kind::Stylesheet ? "S:" : "J:";
+        switch (resource.kind) {
+        case Preload::Kind::Stylesheet: out += "S:"; break;
+        case Preload::Kind::Script: out += "J:"; break;
+        case Preload::Kind::Font: out += "F:"; break;
+        case Preload::Kind::Image: out += "I:"; break;
+        case Preload::Kind::Preconnect: out += "P:"; break;
+        case Preload::Kind::DnsPrefetch: out += "D:"; break;
+        }
         out += resource.url;
     }
     return out;
@@ -105,6 +113,35 @@ int main()
         }
         CHECK_EQ(said(html::scan_for_preloads("<script src=x.js>")), std::string("J:x.js"));
         CHECK(html::scan_for_preloads("").resources.empty());
+    }
+    // The hints a page gives about what it will want: connections to warm
+    // (preconnect, dns-prefetch) and resources to fetch now (preload by its
+    // as=, modulepreload as a script). A preload of a kind not fetched ahead,
+    // or with no as=, or for print, is passed over.
+    {
+        PreloadScan const scan = html::scan_for_preloads(R"html(<head>
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel=dns-prefetch href="//cdn.example">
+<link rel="preload" href="/f.woff2" as="font" type="font/woff2" crossorigin>
+<link rel="preload" as="image" href="hero.jpg">
+<link rel="preload" as="script" href="app.js">
+<link rel="PRELOAD" AS="Style" href="late.css">
+<link rel="modulepreload" href="mod.js">
+<link rel="preload" as="fetch" href="/api/data">
+<link rel="preload" href="no-as.js">
+<link rel="preload" as="style" media="print" href="print.css">
+<link rel="preconnect dns-prefetch" href="https://both.example">
+</head>)html");
+        CHECK_EQ(said(scan), std::string("P:https://fonts.gstatic.com D://cdn.example F:/f.woff2 I:hero.jpg J:app.js S:late.css "
+                                         "J:mod.js P:https://both.example"));
+        // What a hint fetches is marked so, and nothing waits for it.
+        bool marked = scan.resources.size() == 8;
+        for (std::size_t i = 0; i < scan.resources.size(); ++i) {
+            bool const fetched_by_hint = i >= 2 && i <= 6;
+            marked = marked && scan.resources[i].hint == fetched_by_hint;
+        }
+        CHECK(marked);
+        CHECK(!html::scan_for_preloads("<script src=a.js></script><link rel=stylesheet href=b.css>").resources[0].hint);
     }
     return test::report("preload scanner");
 }

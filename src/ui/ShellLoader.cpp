@@ -2,6 +2,8 @@
 
 #include "core/Ascii.h"
 #include "core/TraceClock.h"
+#include "net/Connections.h"
+#include "platform/Net.h"
 
 #include <algorithm>
 #include <atomic>
@@ -558,6 +560,42 @@ std::shared_ptr<net::FetchTicket> ShellLoader::prefetch(net::Url const& url, net
     std::lock_guard<std::mutex> const lock(m_mutex);
     m_ahead[key] = Ahead { ticket, now };
     return ticket;
+}
+
+void ShellLoader::preconnect(net::Url const& url, net::Url const& first_party, bool name_only, std::string_view container)
+{
+    (void)container; // the pool is shared by every container
+    if ((url.scheme != "http" && url.scheme != "https") || !url.has_host() || url.host.empty())
+        return;
+    // A host the lists keep the page from is not connected to either.
+    if (refusal(url, &first_party, net::ResourceKind::Other, net::RequestGuard {}, false))
+        return;
+    std::int64_t const now = std::chrono::duration_cast<std::chrono::seconds>(std::chrono::system_clock::now().time_since_epoch()).count();
+    bool const secure = url.scheme == "https";
+    std::string const key = net::origin_key(secure, url.host, url.port.value_or(secure ? 443 : 80));
+    {
+        // Each origin once in ten seconds: a page names one in its markup,
+        // and the scan of the arriving bytes and the whole document's both
+        // see it.
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        std::erase_if(m_warmed, [now](auto const& entry) { return now - entry.second >= 10; });
+        if (!m_warmed.emplace(key, now).second)
+            return;
+    }
+    m_warming.submit([this, url, name_only, key] {
+        bool done = false;
+        if (name_only) {
+            done = platform::TcpSocket::look_up(url.host);
+        } else {
+            net::FetchOptions options;
+            options.pool = &m_pool;
+            done = net::preconnect(url, options);
+        }
+        if (net_tracing())
+            std::cerr << "net: " << trace_stamp() << (name_only ? "dns-prefetch " : "preconnect ") << key
+                      << (done ? "" : " (nothing to do)") << "\n";
+        return net::FetchResult {};
+    });
 }
 
 bool ShellLoader::ahead_pending(net::Url const& url, net::ResourceKind kind, std::string_view container)

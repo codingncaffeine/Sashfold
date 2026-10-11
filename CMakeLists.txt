@@ -163,6 +163,7 @@ add_library(sashfold_core STATIC
   src/platform/AudioVirtual.cpp
   src/platform/PulseProtocol.cpp
   src/platform/MemoryWatch.cpp
+  src/platform/HostCache.cpp
   src/platform/Tls.cpp
   src/platform/Touch.cpp
   src/platform/Window.cpp

@@ -236,6 +236,15 @@ struct RevocationStats {
 };
 RevocationStats revocation_stats();
 
+// A connection to the URL's origin opened ahead of any request to it (a
+// page's <link rel=preconnect>, as every engine acts on) and left in the
+// options' pool: the HTTP/2 session the first request will share, or an
+// idle HTTP/1.1 connection. Nothing is opened when no pool is given, the
+// pool has a session for the origin, or another fetch is opening one. A
+// request that arrives while it connects waits for it, and connects on its
+// own when it fails. True when a connection was opened here.
+bool preconnect(Url const& url, FetchOptions const& options);
+
 std::string const* find_header(std::vector<Header> const& headers, std::string_view name);
 // Every value of a field the response may carry more than once.
 std::vector<std::string> header_values(std::vector<Header> const& headers, std::string_view name);

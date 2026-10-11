@@ -1,6 +1,7 @@
 #include "html/PreloadScanner.h"
 
 #include <cstddef>
+#include <optional>
 #include <utility>
 
 namespace sashfold::html {
@@ -199,8 +200,34 @@ PreloadScan scan_for_preloads(std::string_view html)
                 std::string const* const media = value_of("media");
                 bool const for_print = media && equals_ci(trimmed(*media), "print");
                 std::string const* const nonce = value_of("nonce");
-                if (has_token(*rel, "stylesheet") && !has_token(*rel, "alternate") && !for_print)
-                    scan.resources.push_back({ Preload::Kind::Stylesheet, trimmed(unescaped(*href)), nonce ? unescaped(*nonce) : std::string() });
+                std::string const address = trimmed(unescaped(*href));
+                std::string const nonce_value = nonce ? unescaped(*nonce) : std::string();
+                if (has_token(*rel, "stylesheet")) {
+                    if (!has_token(*rel, "alternate") && !for_print)
+                        scan.resources.push_back({ Preload::Kind::Stylesheet, address, nonce_value });
+                } else if (has_token(*rel, "preload")) {
+                    // Fetched now by what it says it is; the kinds a page
+                    // later asks for through the same loader are the ones
+                    // worth asking for ahead.
+                    std::string const as = value_of("as") ? trimmed(*value_of("as")) : std::string();
+                    std::optional<Preload::Kind> kind;
+                    if (equals_ci(as, "script"))
+                        kind = Preload::Kind::Script;
+                    else if (equals_ci(as, "style"))
+                        kind = Preload::Kind::Stylesheet;
+                    else if (equals_ci(as, "font"))
+                        kind = Preload::Kind::Font;
+                    else if (equals_ci(as, "image"))
+                        kind = Preload::Kind::Image;
+                    if (kind && !for_print)
+                        scan.resources.push_back({ *kind, address, nonce_value, true });
+                } else if (has_token(*rel, "modulepreload")) {
+                    scan.resources.push_back({ Preload::Kind::Script, address, nonce_value, true });
+                } else if (has_token(*rel, "preconnect")) {
+                    scan.resources.push_back({ Preload::Kind::Preconnect, address, {} });
+                } else if (has_token(*rel, "dns-prefetch")) {
+                    scan.resources.push_back({ Preload::Kind::DnsPrefetch, address, {} });
+                }
             }
         } else if (tag == "script") {
             std::string const* const src = value_of("src");

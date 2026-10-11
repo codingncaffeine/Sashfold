@@ -1,7 +1,10 @@
 #include "platform/Net.h"
 
+#include "platform/HostCache.h"
+
 #include <algorithm>
 #include <chrono>
+#include <cstring>
 
 #define WIN32_LEAN_AND_MEAN
 #include <winsock2.h>
@@ -22,6 +25,49 @@ bool ensure_winsock()
     return initialized;
 }
 
+// The host's addresses in the resolver's order, from the process's cache
+// or the system resolver (see NetPosix.cpp); nothing when it has none.
+std::optional<std::vector<ResolvedAddress>> resolve(std::string const& host)
+{
+    auto const now = HostCache::Clock::now();
+    if (std::optional<std::vector<ResolvedAddress>> kept = host_cache().find(host, now))
+        return kept;
+    addrinfo hints {};
+    hints.ai_family = AF_UNSPEC;
+    hints.ai_socktype = SOCK_STREAM;
+    hints.ai_protocol = IPPROTO_TCP;
+    addrinfo* results = nullptr;
+    host_cache().count_lookup();
+    if (getaddrinfo(host.c_str(), nullptr, &hints, &results) != 0)
+        return std::nullopt;
+    std::vector<ResolvedAddress> addresses;
+    for (addrinfo* entry = results; entry; entry = entry->ai_next) {
+        if ((entry->ai_family != AF_INET && entry->ai_family != AF_INET6) || entry->ai_addrlen > sizeof(SOCKADDR_STORAGE))
+            continue;
+        auto const* const bytes = reinterpret_cast<std::uint8_t const*>(entry->ai_addr);
+        addresses.push_back({ entry->ai_family, entry->ai_socktype, entry->ai_protocol,
+            std::vector<std::uint8_t>(bytes, bytes + entry->ai_addrlen) });
+    }
+    freeaddrinfo(results);
+    if (addresses.empty())
+        return std::nullopt;
+    host_cache().keep(host, addresses, now);
+    return addresses;
+}
+
+// The address with the port written into it.
+SOCKADDR_STORAGE with_port(ResolvedAddress const& address, std::uint16_t port, int& length)
+{
+    SOCKADDR_STORAGE target {};
+    std::memcpy(&target, address.address.data(), address.address.size());
+    length = static_cast<int>(address.address.size());
+    if (address.family == AF_INET)
+        reinterpret_cast<sockaddr_in*>(&target)->sin_port = htons(port);
+    else
+        reinterpret_cast<sockaddr_in6*>(&target)->sin6_port = htons(port);
+    return target;
+}
+
 } // namespace
 
 std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16_t port, ConnectTiming* timing)
@@ -31,38 +77,43 @@ std::optional<TcpSocket> TcpSocket::connect(std::string const& host, std::uint16
     if (!ensure_winsock())
         return std::nullopt;
     auto const started = clock::now();
-    addrinfo hints {};
-    hints.ai_family = AF_UNSPEC;
-    hints.ai_socktype = SOCK_STREAM;
-    hints.ai_protocol = IPPROTO_TCP;
-    addrinfo* results = nullptr;
-    std::string const port_text = std::to_string(port);
-    int const lookup = getaddrinfo(host.c_str(), port_text.c_str(), &hints, &results);
+    std::optional<std::vector<ResolvedAddress>> const addresses = resolve(host);
     auto const resolved = clock::now();
     if (timing)
         timing->resolve_ms = ms(resolved - started).count();
-    if (lookup != 0)
+    if (!addresses)
         return std::nullopt;
     SOCKET handle = INVALID_SOCKET;
-    for (addrinfo* entry = results; entry; entry = entry->ai_next) {
-        handle = ::socket(entry->ai_family, entry->ai_socktype, entry->ai_protocol);
+    for (ResolvedAddress const& address : *addresses) {
+        int length = 0;
+        SOCKADDR_STORAGE const target = with_port(address, port, length);
+        handle = ::socket(address.family, address.socktype, address.protocol);
         if (handle == INVALID_SOCKET)
             continue;
-        if (::connect(handle, entry->ai_addr, static_cast<int>(entry->ai_addrlen)) == 0)
+        if (::connect(handle, reinterpret_cast<sockaddr const*>(&target), length) == 0)
             break;
         closesocket(handle);
         handle = INVALID_SOCKET;
     }
-    freeaddrinfo(results);
     if (timing)
         timing->connect_ms = ms(clock::now() - resolved).count();
-    if (handle == INVALID_SOCKET)
+    if (handle == INVALID_SOCKET) {
+        // None of them took a connection: the next connect asks again.
+        host_cache().forget(host);
         return std::nullopt;
+    }
     // Every write goes out at once (see NetPosix.cpp): Nagle's algorithm
     // would hold each small write for the last one's acknowledgement.
     BOOL const no_delay = TRUE;
     ::setsockopt(handle, IPPROTO_TCP, TCP_NODELAY, reinterpret_cast<char const*>(&no_delay), sizeof no_delay);
     return TcpSocket(static_cast<std::uintptr_t>(handle));
+}
+
+bool TcpSocket::look_up(std::string const& host)
+{
+    if (!ensure_winsock())
+        return false;
+    return resolve(host).has_value();
 }
 
 TcpSocket::TcpSocket(TcpSocket&& other) noexcept

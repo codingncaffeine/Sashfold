@@ -3696,10 +3696,27 @@ struct Browser::Impl {
             = scan.base_href.empty() ? std::optional<net::Url>(page_url) : net::parse_url(scan.base_href, &page_url);
         net::Url const& base = based ? *based : page_url;
         for (html::Preload const& resource : scan.resources) {
-            if (std::optional<net::Url> const url = net::parse_url(resource.url, &base)) {
-                if (std::shared_ptr<net::FetchTicket> ticket = ask_ahead(tab, page_url, *url,
-                        resource.kind == html::Preload::Kind::Script ? net::ResourceKind::Script : net::ResourceKind::Stylesheet,
-                        policy, resource.nonce))
+            std::optional<net::Url> const url = net::parse_url(resource.url, &base);
+            if (!url)
+                continue;
+            net::ResourceKind kind = net::ResourceKind::Stylesheet;
+            switch (resource.kind) {
+            case html::Preload::Kind::Preconnect:
+            case html::Preload::Kind::DnsPrefetch:
+                // A connection warmed, or a name looked up: nothing is
+                // fetched, so nothing waits on it.
+                if (page_url.scheme == "http" || page_url.scheme == "https")
+                    loader.preconnect(*url, page_url, resource.kind == html::Preload::Kind::DnsPrefetch, tab.container);
+                continue;
+            case html::Preload::Kind::Script: kind = net::ResourceKind::Script; break;
+            case html::Preload::Kind::Stylesheet: kind = net::ResourceKind::Stylesheet; break;
+            case html::Preload::Kind::Font: kind = net::ResourceKind::Font; break;
+            case html::Preload::Kind::Image: kind = net::ResourceKind::Image; break;
+            }
+            if (std::shared_ptr<net::FetchTicket> ticket = ask_ahead(tab, page_url, *url, kind, policy, resource.nonce)) {
+                // A page's parse waits for the sheets and scripts its tags
+                // name; what a hint asked for is taken when the page asks.
+                if (!resource.hint)
                     asked.push_back(std::move(ticket));
             }
         }
@@ -9564,6 +9581,13 @@ struct Browser::Impl {
     void mouse_down(int x, int y, int button, platform::Modifiers const& modifiers)
     {
         update_hover(x, y);
+        // A press on a link opens a connection to its origin while the button
+        // is still down, as Chromium and Firefox do: the navigation the
+        // release starts finds the handshake done or under way.
+        if (button == 1 && hover == Hover::Content && hover_link && (hover_link->scheme == "http" || hover_link->scheme == "https")) {
+            if (Tab const* const front = active_tab(); front && front->current())
+                loader.preconnect(*hover_link, front->current()->final_url, false, front->container);
+        }
         note_activation();
         menu_press_button = 0;
         if (Tab const* const front = active_tab(); pages_in_engines && front && front->page_menu_open && hover != Hover::Content) {

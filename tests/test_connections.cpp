@@ -2,6 +2,7 @@
 
 #include "net/Connections.h"
 #include "net/Http.h"
+#include "platform/HostCache.h"
 #include "platform/Net.h"
 
 #include <algorithm>
@@ -393,6 +394,42 @@ int main()
         CHECK(server.requests_per_connection() == std::vector<int> { 2 });
         CHECK_EQ(pool.stats().opened, std::size_t { 1 });
         CHECK_EQ(pool.stats().reused, std::size_t { 1 });
+    }
+
+    // --- The resolver's answers kept for a minute ----------------------------
+    // A second connect to a name, and a page's dns-prefetch of it, use the
+    // answer the first connect got; a name none of whose addresses took a
+    // connection is asked again.
+    {
+        platform::HostCache& cache = platform::host_cache();
+        cache.clear();
+        auto listener = platform::TcpListener::listen_loopback();
+        CHECK(listener.has_value());
+        if (listener) {
+            std::size_t const before = cache.lookups();
+            auto first = platform::TcpSocket::connect("localhost", listener->port());
+            auto second = platform::TcpSocket::connect("localhost", listener->port());
+            CHECK(first.has_value() && second.has_value());
+            CHECK(platform::TcpSocket::look_up("localhost"));
+            CHECK_EQ(cache.lookups(), before + 1);
+            // Nothing listens on this port any more.
+            std::uint16_t const closed = listener->port();
+            listener.reset();
+            first.reset();
+            second.reset();
+            CHECK(!platform::TcpSocket::connect("localhost", closed).has_value());
+            CHECK_EQ(cache.lookups(), before + 1);
+            CHECK(platform::TcpSocket::look_up("localhost"));
+            CHECK_EQ(cache.lookups(), before + 2);
+        }
+        // The hold, on the cache's own clock: kept for 59 s, gone at 60.
+        platform::HostCache held;
+        auto const at = platform::HostCache::Clock::now();
+        held.keep("a.example", { platform::ResolvedAddress { 2, 1, 6, { 1, 2, 3 } } }, at);
+        CHECK(held.find("a.example", at + std::chrono::seconds(59)).has_value());
+        CHECK(!held.find("a.example", at + std::chrono::seconds(60)).has_value());
+        held.keep("b.example", {}, at);
+        CHECK(!held.find("b.example", at).has_value());
     }
 
     return sashfold::test::report("connections");

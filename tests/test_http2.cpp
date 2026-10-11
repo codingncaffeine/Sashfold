@@ -1526,6 +1526,92 @@ void test_unreachable_origin()
     std::printf("  unreachable origin: six fetches failed in %.0f ms over %d connection(s)\n", elapsed_ms, accepted.load());
 }
 
+// <link rel=preconnect>: a session opened before any request, which the
+// first request then rides; a second preconnect to the origin does nothing.
+void test_preconnect()
+{
+    H2Server server({});
+    net::ConnectionPool::Stats before;
+    net::ConnectionPool::Stats after;
+    bool first = false;
+    bool second = true;
+    net::FetchResult result;
+    {
+        net::ConnectionPool pool;
+        net::FetchOptions const options = h2_options(pool);
+        first = net::preconnect(server.url("/"), options);
+        second = net::preconnect(server.url("/elsewhere"), options);
+        before = pool.stats();
+        result = net::fetch(server.url("/after"), options);
+        after = pool.stats();
+    }
+    server.finish();
+    CHECK(first);
+    CHECK(!second);
+    CHECK_EQ(before.opened, 1u);
+    CHECK_EQ(before.sessions, 1u);
+    CHECK(result.response && text_of(result.response->body) == "body of /after");
+    CHECK_EQ(result.timing.reused, 1);
+    CHECK_EQ(after.opened, 1u);
+    H2Server::Report const report = server.report();
+    CHECK_EQ(report.h2_connections, 1);
+    CHECK_EQ(report.requests.size(), 1u);
+}
+
+// A preconnect that fails does not fail the request that waited on it: the
+// request opens a connection of its own, as browsers' do. Each connection
+// to this origin hangs for a while and is then dropped.
+void test_preconnect_that_fails()
+{
+    static constexpr int hang_ms = 300;
+    platform::TcpListener listener = *platform::TcpListener::listen_loopback();
+    std::uint16_t const port = listener.port();
+    std::atomic<int> accepted = 0;
+    std::atomic<bool> stop = false;
+    std::vector<std::thread> held;
+    std::thread accepter([&] {
+        while (true) {
+            std::optional<platform::TcpSocket> client = listener.accept();
+            if (stop || !client)
+                return;
+            ++accepted;
+            held.emplace_back([socket = std::move(*client)]() mutable {
+                socket.set_receive_timeout(hang_ms);
+                std::uint8_t buffer[4096];
+                static_cast<void>(socket.receive(buffer, sizeof buffer));
+                std::this_thread::sleep_for(std::chrono::milliseconds(hang_ms));
+                socket.close();
+            });
+        }
+    });
+    net::Url const url = *net::parse_url("https://127.0.0.1:" + std::to_string(port) + "/");
+    net::FetchResult result;
+    bool warmed = true;
+    auto const started = std::chrono::steady_clock::now();
+    {
+        net::ConnectionPool pool;
+        net::FetchOptions options;
+        options.pool = &pool;
+        std::thread warm([&] { warmed = net::preconnect(url, options); });
+        // The request comes while the preconnect holds the origin's claim.
+        std::this_thread::sleep_for(std::chrono::milliseconds(hang_ms / 3));
+        result = net::fetch(url, options);
+        warm.join();
+    }
+    double const elapsed_ms = ms_since(started);
+    stop = true;
+    if (auto poke = platform::TcpSocket::connect("127.0.0.1", port))
+        poke->close();
+    accepter.join();
+    for (std::thread& thread : held)
+        thread.join();
+    CHECK(!warmed);
+    CHECK(!result.response);
+    CHECK_EQ(accepted.load(), 2);
+    CHECK(elapsed_ms >= 2 * hang_ms - hang_ms / 3);
+    std::printf("  preconnect that fails: the request connected again (%d connections, %.0f ms)\n", accepted.load(), elapsed_ms);
+}
+
 void test_stalled_stream()
 {
     // One stream at a time, and a path the server never answers: the fetch
@@ -2006,6 +2092,8 @@ int main(int argc, char** argv)
     test_ping_push_and_continuation();
     test_garbage_after_preface();
     test_unreachable_origin();
+    test_preconnect();
+    test_preconnect_that_fails();
     test_stalled_stream();
     test_shut_send_window();
     test_post_to_a_busy_server();

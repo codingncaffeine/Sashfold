@@ -26,6 +26,10 @@ public:
     // the lookup and the connect took, on failure too.
     static std::optional<TcpSocket> connect(std::string const& host, std::uint16_t port,
         ConnectTiming* timing = nullptr);
+    // Looks the name up into the process's host cache (platform/HostCache.h),
+    // where the connect that follows (a page's dns-prefetch hint) finds it.
+    // False when the name has no address.
+    static bool look_up(std::string const& host);
 
     TcpSocket(TcpSocket&& other) noexcept;
     TcpSocket& operator=(TcpSocket&& other) noexcept;

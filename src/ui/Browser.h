@@ -99,6 +99,17 @@ public:
         (void)container;
         return nullptr;
     }
+    // A page's hint about an origin it will soon ask something of: a
+    // connection opened to it now (preconnect), or with `name_only` its name
+    // looked up (dns-prefetch). Done on threads of the loader's, never the
+    // caller's; a loader that fetches nothing ahead does nothing.
+    virtual void preconnect(net::Url const& url, net::Url const& first_party, bool name_only, std::string_view container = {})
+    {
+        (void)url;
+        (void)first_party;
+        (void)name_only;
+        (void)container;
+    }
     // A navigation that posts a form: load() with a method, a body and an
     // Origin — never from the cache or into it — and the same begun on
     // another thread. A redirect it meets is followed as browsers follow
