@@ -543,6 +543,10 @@ struct Browser::Impl {
     struct Tab {
         std::vector<HistoryEntry> history;
         std::size_t index = 0;
+        // The tab's sessionStorage, an area per origin, which its pages keep
+        // through navigations and reloads (HTML §12.2.2) and which goes with it.
+        std::shared_ptr<std::map<std::string, bindings::StorageArea>> session_storage
+            = std::make_shared<std::map<std::string, bindings::StorageArea>>();
         // In a shell whose pages live in engines, the engine this tab's page
         // is in — made the first time the page is needed — and everything
         // below that is a page's stays empty: the history above, the
@@ -4277,6 +4281,7 @@ struct Browser::Impl {
             return loader->load_resource(target, page_url, referrer_for(&page_url, target), request, guard, container);
         };
         hooks.local_storage = [this, container](std::string const& origin) { return storage_area(container, origin); };
+        hooks.session_storage = [areas = tab.session_storage](std::string const& origin) { return &(*areas)[origin]; };
         hooks.indexed_db = [this, container](std::string const& origin) { return indexed_db_storage(container, origin); };
         hooks.now = [this] { return script_now(); };
         if (HistoryEntry* const shown = tab.current(); shown && shown->navigation_started > 0) {

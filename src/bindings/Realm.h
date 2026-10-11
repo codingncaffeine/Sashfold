@@ -273,6 +273,11 @@ struct HostHooks {
     // change, so the host can write the area out when the count moves.
     // Without it a page's localStorage lives and dies with the document.
     std::function<StorageArea*(std::string const& origin)> local_storage;
+    // The sessionStorage area for an origin, kept by the host for the tab
+    // (the top-level browsing context): it lasts through the tab's
+    // navigations and reloads, and goes with the tab. Without it a page's
+    // sessionStorage lives and dies with the document.
+    std::function<StorageArea*(std::string const& origin)> session_storage;
     // The IndexedDB storage for an origin (storage/IndexedDb.h), owned by
     // the host and shared by every page and worker at that origin; it may
     // keep its databases in files under the profile. Without it the pages

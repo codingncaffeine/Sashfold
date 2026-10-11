@@ -1147,6 +1147,30 @@ void test_inserted_scripts_run_and_fragment_scripts_do_not()
     CHECK_EQ(page->console, "");
 }
 
+// A tab's sessionStorage is its host's: a later document in the same tab —
+// a reload, a navigation, a sign-in's redirect back — reads what the first
+// wrote; a document at another origin, or in another tab, does not.
+void test_session_storage_outlives_the_document()
+{
+    auto areas = std::make_shared<std::map<std::string, bindings::StorageArea>>();
+    bindings::HostHooks hooks;
+    hooks.session_storage = [areas](std::string const& origin) { return &(*areas)[origin]; };
+    {
+        Page first("<!DOCTYPE html>", "https://example.test/a.html", hooks);
+        first.load();
+        first.eval("sessionStorage.setItem('step', '2');");
+    }
+    Page again("<!DOCTYPE html>", "https://example.test/b.html", hooks);
+    again.load();
+    CHECK_EQ(again.string("sessionStorage.getItem('step')"), "2");
+    Page other_origin("<!DOCTYPE html>", "https://other.test/", hooks);
+    other_origin.load();
+    CHECK(other_origin.boolean("sessionStorage.getItem('step') === null"));
+    Page other_tab("<!DOCTYPE html>", "https://example.test/a.html");
+    other_tab.load();
+    CHECK(other_tab.boolean("sessionStorage.getItem('step') === null"));
+}
+
 void test_window_location_url_storage_navigator()
 {
     auto page = loaded("<!DOCTYPE html><body></body>");
@@ -6317,6 +6341,7 @@ int main()
     test_document_write_during_parsing();
     test_inserted_scripts_run_and_fragment_scripts_do_not();
     test_window_location_url_storage_navigator();
+    test_session_storage_outlives_the_document();
     test_uncaught_errors_are_reported_and_counted();
     test_layout_and_style_hooks();
     test_cssom_sheets();

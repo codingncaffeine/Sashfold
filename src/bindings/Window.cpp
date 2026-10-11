@@ -1559,19 +1559,22 @@ void install_window(Realm::Internals& in)
         return js::Value::undefined();
     });
     // localStorage is the host's area for the origin when it keeps one —
-    // a page at an opaque origin (data:, about:) has none to share —
-    // sessionStorage the document's own.
+    // a page at an opaque origin (data:, about:) has none to share — and
+    // sessionStorage the tab's for the origin, else the document's own.
     StorageArea* local_area = nullptr;
-    if (in.hooks.local_storage) {
+    StorageArea* session_area = nullptr;
+    {
         // Local files share one area, as the browsers give them.
         std::string const origin = in.url.scheme == "file" ? std::string("file://") : in.url.serialize_origin();
-        if (origin != "null")
+        if (origin != "null" && in.hooks.local_storage)
             local_area = in.hooks.local_storage(origin);
+        if (origin != "null" && in.hooks.session_storage)
+            session_area = in.hooks.session_storage(origin);
     }
     // A document sandboxed into an opaque origin has neither: reading one is a
     // SecurityError, as there is no storage key for such an origin.
     in.local_storage_object = interpreter.heap().allocate<StorageObject>(storage_proto, in.realm_record, local_area);
-    in.session_storage_object = interpreter.heap().allocate<StorageObject>(storage_proto, in.realm_record);
+    in.session_storage_object = interpreter.heap().allocate<StorageObject>(storage_proto, in.realm_record, session_area);
     define_getter(in, *global, "localStorage", [](js::Interpreter& interp, js::Value const&, Args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         if (internals.sandbox_flags & sandboxing::origin)

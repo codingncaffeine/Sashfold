@@ -2971,6 +2971,7 @@ void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument a
     frame_hooks.cookie_set = hooks.cookie_set;
     frame_hooks.console = hooks.console;
     frame_hooks.local_storage = hooks.local_storage;
+    frame_hooks.session_storage = hooks.session_storage;
     frame_hooks.frame_document = hooks.frame_document;
     frame_hooks.image_decodes = hooks.image_decodes;
     frame_hooks.image_picture = hooks.image_picture;
