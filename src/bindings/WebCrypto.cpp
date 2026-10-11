@@ -1345,7 +1345,7 @@ std::optional<Bytes> truncate_bits(js::Interpreter& interp, Bytes secret, std::o
     return secret;
 }
 
-std::optional<Bytes> derive_bits(js::Interpreter& interp, Params const& params, KeyData const& key, std::optional<double> length)
+std::optional<Bytes> derive_bits(js::Interpreter& interp, Params const& params, KeyData const& key, std::optional<double> const& length)
 {
     switch (params.alg) {
     case Alg::Ecdh:
@@ -2596,7 +2596,9 @@ Native subtle_derive_key_steps(js::Interpreter& interp, Args args)
     std::optional<KeyLength> const length = key_length(interp, *length_params);
     if (!length)
         return std::nullopt;
-    std::optional<double> const bits = length->bits ? std::optional<double>(static_cast<double>(*length->bits)) : std::nullopt;
+    std::optional<double> bits;
+    if (length->bits)
+        bits = static_cast<double>(*length->bits);
     std::optional<Bytes> secret = derive_bits(interp, *params, *(*key)->data, bits);
     if (!secret)
         return std::nullopt;
