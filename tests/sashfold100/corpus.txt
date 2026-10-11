@@ -92,7 +92,7 @@ row	blogger	blogs	330	https://android-developers.googleblog.com/	-	A Blogger-hos
 
 row	hn	aggregators	2258	https://news.ycombinator.com/	-	Hacker News
 row	lobsters	aggregators	47340	https://lobste.rs/	-	Lobsters
-row	old-reddit	aggregators	105	https://old.reddit.com/r/programming/	-	Old Reddit
+row	digg	aggregators	2443	https://digg.com/	-	Digg
 row	slashdot	aggregators	2543	https://slashdot.org/	-	Slashdot
 
 row	html-spec	specs	8672	https://html.spec.whatwg.org/multipage/parsing.html	-	The HTML standard's parsing chapter
@@ -136,10 +136,10 @@ row	microsoft	top	6	https://www.microsoft.com/	-	Microsoft
 row	youtube	top	8	https://www.youtube.com/	-	YouTube
 row	apple	top	9	https://www.apple.com/	-	Apple
 row	instagram	top	11	https://www.instagram.com/	-	Instagram
-row	mail-ru	top	12	https://mail.ru/	-	Mail.ru
-row	dzen	top	16	https://dzen.ru/	-	Dzen
 row	twitter	top	17	https://twitter.com/	-	Twitter, which forwards to X
 row	linkedin	top	18	https://www.linkedin.com/	-	LinkedIn
+row	office	top	21	https://www.office.com/	-	Office, which forwards to Microsoft 365
+row	live	top	24	https://www.live.com/	-	Live, which forwards to Outlook
 
 row	github	projects	29	https://github.com/codingncaffeine/Sashfold	-	Sashfold's own repository on GitHub
 row	stackoverflow	projects	506	https://stackoverflow.com/questions/11227809/why-is-processing-a-sorted-array-faster-than-processing-an-unsorted-array	-	A Stack Overflow question
