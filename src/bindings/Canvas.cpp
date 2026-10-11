@@ -1,4 +1,5 @@
 #include "bindings/Internal.h"
+#include "ui/SourceSet.h"
 #include "bindings/NodeSupport.h"
 
 #include "bindings/Fetching.h"
@@ -2674,8 +2675,25 @@ void trace_canvases(Realm::Internals const& in, js::Tracer& tracer)
         tracer.visit(state);
 }
 
+bool image_fetch_pending(Realm::Internals& in, dom::Element& image)
+{
+    auto const* const picture = static_cast<PictureObject const*>(wrapper_for(in, image).same_object("canvas picture"));
+    return picture != nullptr && !picture->pending.empty();
+}
+
+std::optional<std::pair<int, int>> realm_picture_size(Realm::Internals& in, dom::Element& image)
+{
+    auto const* const picture = static_cast<PictureObject const*>(wrapper_for(in, image).same_object("canvas picture"));
+    if (picture == nullptr || !picture->settled || !picture->pending.empty() || !picture->surface)
+        return std::nullopt;
+    return std::pair { picture->surface->width, picture->surface->height };
+}
+
 void image_source_changed(Realm::Internals& in, dom::Element& image)
 {
+    // What decode() calls wait for is no longer coming (HTML §4.8.4.3.4,
+    // "update the image data": the pending request is replaced).
+    settle_image_decodes(in, js::Value::object(&wrapper_for(in, image)), false);
     // An image in the document of a host that fetches pictures is the
     // host's to load, and to tell the realm of (Realm::resource_settled).
     if (in.hooks.image_state && &image.root() == in.document)
@@ -2684,11 +2702,15 @@ void image_source_changed(Realm::Internals& in, dom::Element& image)
     // written to from here, is the frame's.
     if (&image.document() != in.document)
         return;
-    dom::Attr const* const src = image.find_attribute("src");
-    if (!src || src->value.empty())
-        return;
-    std::optional<net::Url> const url = net::parse_url(src->value, &in.base_url());
-    std::string const key = url ? url->serialize() : std::string();
+    // The picture its src, srcset, sizes and <picture> sources choose for
+    // this viewport, as the host chooses one in the document.
+    std::optional<ui::ImageSource> const chosen = ui::select_image_source(image, &in.base_url(), media_context(in));
+    if (!chosen) {
+        dom::Attr const* const src = image.find_attribute("src");
+        if (!src || src->value.empty())
+            return;
+    }
+    std::string const key = chosen ? chosen->url.serialize() : std::string();
     NodeWrapper& wrapper = wrapper_for(in, image);
     auto* picture = static_cast<PictureObject*>(wrapper.same_object("canvas picture"));
     {
@@ -2727,6 +2749,7 @@ void image_source_changed(Realm::Internals& in, dom::Element& image)
         in.interpreter.root(js::Value::object(event));
         event->is_trusted = true;
         in.dispatch(*event, held->value().as_object());
+        settle_image_decodes(in, held->value(), !failed);
     });
 }
 

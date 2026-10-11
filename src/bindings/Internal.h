@@ -1669,6 +1669,16 @@ void trace_canvases(Realm::Internals const&, js::Tracer&);
 // fetched and decoded by the realm in a task, which fires its load or error
 // event (Canvas.cpp, whose drawImage draws the same picture).
 void image_source_changed(Realm::Internals&, dom::Element&);
+// The viewport as media queries and image source sets see it, in device px
+// (Window.cpp).
+css::MediaContext media_context(Realm::Internals&);
+// Whether the realm's own fetch of an <img>'s picture (above) is under way,
+// and the size of the picture it had, once it has one.
+bool image_fetch_pending(Realm::Internals&, dom::Element&);
+std::optional<std::pair<int, int>> realm_picture_size(Realm::Internals&, dom::Element&);
+// An <img>'s load or error event went out: the promises its decode() calls
+// made while it was on its way are settled (HtmlElements.cpp).
+void settle_image_decodes(Realm::Internals&, js::Value const& image, bool available);
 // An ImageData as the structured clone carries it (it is serializable): its
 // size and a copy of its bytes; nullopt for an object that is not one. And a
 // new ImageData in a realm from one (a RangeError pending on nullopt).

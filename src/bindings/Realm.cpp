@@ -353,7 +353,7 @@ void attribute_written(Realm::Internals& in, dom::Element& element, std::string_
             in.schedule_embedder_update(element);
         return;
     case ContainerKind::None:
-        if (local_name == "src" && element.is_html("img"))
+        if ((local_name == "src" || local_name == "srcset" || local_name == "sizes") && element.is_html("img"))
             image_source_changed(in, element);
         else if (local_name == "src")
             media_src_changed(in, element);
@@ -2547,6 +2547,7 @@ void Realm::resource_settled(dom::Element const& element, bool available)
         in.interpreter.root(js::Value::object(event));
         event->is_trusted = true;
         in.dispatch(*event, held->value().as_object());
+        settle_image_decodes(in, held->value(), type == "load");
     });
 }
 std::size_t Realm::settle_video(double timeout_ms) { return media_settle_video(*m_internals, timeout_ms); }

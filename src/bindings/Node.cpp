@@ -298,6 +298,11 @@ void insert_one(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::N
         in.frames_inserted(node);
         custom_elements_inserted(in, node);
     }
+    // An <img> put into a <picture> chooses its picture again (HTML
+    // §4.8.4.3.5, a relevant mutation).
+    if (node.is_element() && static_cast<dom::Element&>(node).is_html("img") && parent.is_element()
+        && static_cast<dom::Element&>(parent).is_html("picture"))
+        image_source_changed(in, static_cast<dom::Element&>(node));
     dom::Node* const moved_node = &node;
     form_associated_tree_changed(in, { &moved_node, 1 });
 }

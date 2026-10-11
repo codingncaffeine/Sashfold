@@ -146,6 +146,52 @@ void move_focus(Realm::Internals& in, dom::Element const* element)
 
 namespace {
 
+// The decode() calls made while an <img>'s picture was on its way.
+class DecodeRequestsObject final : public js::Object {
+public:
+    DecodeRequestsObject()
+        : Object(nullptr, Class::Host)
+    {
+    }
+    std::vector<js::PromiseCapability> waiting;
+    void trace(js::Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        for (js::PromiseCapability const& capability : waiting) {
+            tracer.visit(capability.promise);
+            tracer.visit(capability.resolve);
+            tracer.visit(capability.reject);
+        }
+    }
+};
+
+}
+
+void settle_image_decodes(Realm::Internals& in, js::Value const& image, bool available)
+{
+    NodeWrapper* const wrapper = in.wrapper_of(image);
+    auto* const requests = wrapper ? static_cast<DecodeRequestsObject*>(wrapper->same_object("decode requests")) : nullptr;
+    if (requests == nullptr || requests->waiting.empty())
+        return;
+    js::Interpreter& interp = in.interpreter;
+    js::Interpreter::Roots const roots(interp);
+    interp.root(js::Value::object(requests));
+    std::vector<js::PromiseCapability> const waiting = std::move(requests->waiting);
+    requests->waiting.clear();
+    for (js::PromiseCapability const& capability : waiting) {
+        interp.root(capability.promise);
+        interp.root(capability.resolve);
+        interp.root(capability.reject);
+    }
+    js::Value const failure = available ? js::Value::undefined() : interp.root(dom_exception_value(in, "EncodingError", "The source image cannot be decoded."));
+    for (js::PromiseCapability const& capability : waiting) {
+        js::Value const argument[1] = { failure };
+        static_cast<void>(interp.call(available ? capability.resolve : capability.reject, js::Value::undefined(), argument));
+    }
+}
+
+namespace {
+
 // --- Helpers ---------------------------------------------------------------------------
 
 std::optional<std::string> string_of(Realm::Internals& in, js::Value const& value)
@@ -778,6 +824,9 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                     if (auto const size = internals.hooks.image_size(e))
                         return js::Value::number(width ? size->first : size->second);
                 }
+                // One out of the document is the realm's to fetch (Canvas.cpp).
+                if (std::optional<std::pair<int, int>> const size = realm_picture_size(internals, e))
+                    return js::Value::number(width ? size->first : size->second);
                 return js::Value::number(0);
             };
         };
@@ -798,6 +847,9 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                     if (auto const size = internals.hooks.image_size(e))
                         return js::Value::number(width ? size->first : size->second);
                 }
+                // One out of the document is the realm's to fetch (Canvas.cpp).
+                if (std::optional<std::pair<int, int>> const size = realm_picture_size(internals, e))
+                    return js::Value::number(width ? size->first : size->second);
                 return js::Value::number(0);
             };
         };
@@ -825,11 +877,36 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             std::optional<LayoutBox> const box = client_box(internals, e);
             return js::Value::number(box ? std::round(static_cast<double>(box->y)) : 0);
         });
-        // decode(): settled by whether the host has the picture decoded.
+        // decode() (HTML §4.8.4.3): settled once the picture is had — at
+        // once for one already had or known broken, else when its load or
+        // error event goes out (settle_image_decodes).
         element_promise_method(in, proto, "decode", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
-            if (internals.hooks.image_size && internals.hooks.image_size(e))
-                return resolved_promise(internals.interpreter, js::Value::undefined());
-            return rejected_promise(internals.interpreter, dom_exception_value(internals, "EncodingError", "The source image cannot be decoded."));
+            js::Interpreter& interp = internals.interpreter;
+            bool const host_fetches = internals.hooks.image_state && &e.root() == internals.document;
+            ImageState const state = host_fetches ? internals.hooks.image_state(e)
+                : image_fetch_pending(internals, e) ? ImageState::Pending
+                : realm_picture_size(internals, e) || (internals.hooks.image_size && internals.hooks.image_size(e)) ? ImageState::Available
+                                                                                                                     : ImageState::Broken;
+            if (state == ImageState::Available)
+                return resolved_promise(interp, js::Value::undefined());
+            if (state != ImageState::Pending)
+                return rejected_promise(interp, dom_exception_value(internals, "EncodingError", "The source image cannot be decoded."));
+            js::Interpreter::Roots const roots(interp);
+            std::optional<js::PromiseCapability> const made
+                = js::new_promise_capability(interp, js::Value::object(interp.intrinsics().promise_constructor));
+            if (!made)
+                return std::nullopt;
+            interp.root(made->promise);
+            interp.root(made->resolve);
+            interp.root(made->reject);
+            NodeWrapper& wrapper = wrapper_for(internals, e);
+            auto* requests = static_cast<DecodeRequestsObject*>(wrapper.same_object("decode requests"));
+            if (requests == nullptr) {
+                requests = interp.heap().allocate<DecodeRequestsObject>();
+                wrapper.keep_same_object("decode requests", requests);
+            }
+            requests->waiting.push_back(*made);
+            return made->promise;
         });
     }
 

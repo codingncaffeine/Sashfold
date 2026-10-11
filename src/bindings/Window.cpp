@@ -518,6 +518,8 @@ void update_owner(SearchParamsObject& params)
 
 // --- Media queries -------------------------------------------------------------------------
 
+}
+
 css::MediaContext media_context(Realm::Internals& in)
 {
     // The hooks speak CSS px; the evaluator's context is in device px.
@@ -526,6 +528,8 @@ css::MediaContext media_context(Realm::Internals& in)
     float const scale = in.hooks.device_scale > 0 ? in.hooks.device_scale : 1.0f;
     return css::MediaContext { in.hooks.viewport_width * scale, in.hooks.viewport_height * scale, scale };
 }
+
+namespace {
 
 // A MediaQueryList: its query, and the answer its last change event (or its
 // making) gave, which the next evaluation compares with.

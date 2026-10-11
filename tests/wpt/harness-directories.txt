@@ -142,3 +142,7 @@ css/cssom-view
 # Added 2026-10-11 with constraint validation and the submit event: the
 # forms section (constraints, form submission, the controls).
 html/semantics/forms
+# Added 2026-10-11 with img.decode() that waits for the picture, and the
+# picture of an image out of the document chosen from its srcset and
+# <picture> sources.
+html/semantics/embedded-content/the-img-element
