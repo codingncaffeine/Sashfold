@@ -1527,6 +1527,7 @@ void install_xhr(Realm::Internals&); // Xhr.cpp: XMLHttpRequest
 void install_tasks(Realm::Internals&); // Tasks.cpp: AbortController, AbortSignal, MessageChannel, MessagePort, postMessage
 void install_origin(Realm::Internals&); // Origin.cpp: Origin
 void install_web_crypto(Realm::Internals&, js::Object& subtle); // WebCrypto.cpp: CryptoKey and SubtleCrypto's operations
+void install_file_reader(Realm::Internals&); // FileReader.cpp: FileReader, installed with Blob
 void install_ranges(Realm::Internals&); // Range.cpp: AbstractRange, Range, StaticRange
 void install_traversal(Realm::Internals&); // Traversal.cpp: NodeFilter, TreeWalker, NodeIterator
 void install_workers(Realm::Internals&); // Workers.cpp: Worker, for a window's realm

@@ -727,6 +727,7 @@ void install_binary(Realm::Internals& in)
 {
     install_text_coding(in);
     install_blob(in);
+    install_file_reader(in);
 }
 
 }

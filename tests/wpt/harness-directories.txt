@@ -130,3 +130,6 @@ css/css-text-decor
 # Added 2026-10-11 with Web Crypto's keys: import, export, generate,
 # the ciphers, signatures and derivations over src/crypto.
 WebCryptoAPI
+# Added 2026-10-11 with FileReader: the File API (Blob, File, FileReader,
+# blob: URLs).
+FileAPI

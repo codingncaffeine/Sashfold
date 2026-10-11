@@ -73,6 +73,7 @@ add_library(sashfold_core STATIC
   src/bindings/Node.cpp
   src/bindings/Origin.cpp
   src/bindings/WebCrypto.cpp
+  src/bindings/FileReader.cpp
   src/bindings/Range.cpp
   src/bindings/Reflect.cpp
   src/bindings/ShadowDom.cpp
