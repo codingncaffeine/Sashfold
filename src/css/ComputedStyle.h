@@ -1110,6 +1110,24 @@ struct ComputedStyle {
 
     // Flex and grid containers and their items.
     FlexDirection flex_direction = FlexDirection::Row;
+    // display: -webkit-box and -webkit-inline-box, the legacy flexible box
+    // (css-overflow-4 §6.1): a flex container, a column one when
+    // -webkit-box-orient is vertical, and a block container when vertical
+    // with a line clamp — the form every page writes to clamp its text.
+    bool webkit_box = false;
+    bool webkit_box_vertical = false;
+    // line-clamp (css-overflow-4 §6): the lines a block container keeps, 0
+    // for none; its height ends at the last one kept, which ends in an
+    // ellipsis when more followed. `line_clamp_webkit`: written as
+    // -webkit-line-clamp, which applies to a vertical -webkit-box alone and
+    // leaves what follows to the box's overflow; the standard property
+    // discards it (continue: discard).
+    int line_clamp = 0;
+    bool line_clamp_webkit = false;
+    // A multi-column container (css-multicol-1: columns, column-count or
+    // column-width other than auto). Columns are not laid out yet; a line
+    // clamp does not apply to one (css-overflow-4 §6).
+    bool multicol = false;
     FlexWrap flex_wrap = FlexWrap::NoWrap;
     JustifyContent justify_content = JustifyContent::Normal;
     AlignItems align_items = AlignItems::Normal;

@@ -334,6 +334,11 @@ std::optional<std::string_view> first_style_difference(ComputedStyle const& a, C
     field("translate_y", a.translate_y, b.translate_y);
     field("transformed", a.transformed, b.transformed);
     field("flex_direction", a.flex_direction, b.flex_direction);
+    field("webkit_box", a.webkit_box, b.webkit_box);
+    field("webkit_box_vertical", a.webkit_box_vertical, b.webkit_box_vertical);
+    field("line_clamp", a.line_clamp, b.line_clamp);
+    field("line_clamp_webkit", a.line_clamp_webkit, b.line_clamp_webkit);
+    field("multicol", a.multicol, b.multicol);
     field("flex_wrap", a.flex_wrap, b.flex_wrap);
     field("justify_content", a.justify_content, b.justify_content);
     field("align_items", a.align_items, b.align_items);

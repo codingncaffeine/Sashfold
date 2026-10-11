@@ -1698,6 +1698,21 @@ struct Layouter {
         std::shared_ptr<Bitmap const> bitmap;
     };
     mutable std::unordered_map<dom::Element const*, SvgPicture> svg_pictures;
+    // Line clamps (css-overflow-4 §6), innermost last: a box that clamps
+    // counts the lines of its block formatting context as they are made,
+    // and a box with a formatting context of its own inside it — an
+    // inline-block, a float, a flex item — is a barrier its lines do not
+    // pass. Each line box gets the next number, which its runs keep.
+    struct LineClamp {
+        bool barrier = false;
+        int remaining = 0; // lines still to be kept
+        std::uint32_t cut_line = 0; // the number of the last line kept
+        float cut_bottom = 0; // that line's bottom as it was made
+        std::optional<float> cut_baseline; // and the first of its runs' baseline then
+        bool more = false; // a line came after it
+    };
+    mutable std::vector<LineClamp> line_clamps;
+    mutable std::uint32_t next_line = 0;
     std::shared_ptr<Bitmap const> picture_for(dom::Element const& element,
         std::shared_ptr<Bitmap const> bitmap, float width, float height) const
     {
@@ -3930,6 +3945,25 @@ struct Layouter {
                 }
                 line_baseline = across - baseline;
             }
+            // The line's number goes on every run it made, and the clamp
+            // around it, if any, counts it (css-overflow-4 §6).
+            std::uint32_t const line_number = ++next_line;
+            for (std::size_t r = runs_before; r < out.runs.size(); ++r)
+                out.runs[r].line = line_number;
+            if (!line_clamps.empty() && !line_clamps.back().barrier) {
+                LineClamp& clamp = line_clamps.back();
+                if (clamp.remaining > 0) {
+                    if (--clamp.remaining == 0) {
+                        clamp.cut_line = line_number;
+                        clamp.cut_bottom = y + line_height;
+                        clamp.cut_baseline = runs_before < out.runs.size()
+                            ? std::optional<float>(out.runs[runs_before].baseline_y)
+                            : std::nullopt;
+                    }
+                } else {
+                    clamp.more = true;
+                }
+            }
             // An inline box that makes a paint layer takes its words with
             // it. Its fragment is otherwise only the paint behind the
             // line — the content is in the block's own lists — so flagging
@@ -4893,6 +4927,73 @@ struct Layouter {
         return inner_inline;
     }
 
+    // A line clamp's cut (css-overflow-4 §6), once its box's content is laid
+    // out and a line came after the last one kept: the content ends at the
+    // bottom of that line — wherever the line has moved since it was made —
+    // and the line ends in an ellipsis, its own text giving up characters
+    // until the ellipsis fits inside the box; the standard property also
+    // discards what came after (continue: discard). Returns the content
+    // height.
+    float cut_clamped_lines(Fragment& box, LineClamp const& clamp, ComputedStyle const& style, float content_x,
+        float content_y, float content_width, float content_height) const
+    {
+        std::vector<TextRun*> kept;
+        auto const gather = [&kept, &clamp](auto const& self, Fragment& fragment) -> void {
+            for (TextRun& run : fragment.runs) {
+                if (run.line == clamp.cut_line)
+                    kept.push_back(&run);
+            }
+            for (Fragment& child : fragment.children)
+                self(self, child);
+        };
+        gather(gather, box);
+        float const moved = !kept.empty() && clamp.cut_baseline ? kept.front()->baseline_y - *clamp.cut_baseline : 0.0f;
+        float const cut = clamp.cut_bottom + moved;
+        // The ellipsis, after the run that ends the line: the last along the
+        // line's own direction, on a horizontal line.
+        bool const rtl = style.direction == css::Direction::Rtl;
+        TextRun* end = nullptr;
+        for (TextRun* run : kept) {
+            if (run->swapped || run->mode != css::WritingMode::HorizontalTb || !run->style)
+                continue;
+            if (!end || (rtl ? run->x < end->x : run->x + run->width > end->x + end->width))
+                end = run;
+        }
+        if (end) {
+            std::u32string const ellipsis = U"…";
+            float const ellipsis_width = measure(*end->style, ellipsis);
+            float const right = content_x + content_width;
+            auto const overflows = [&] {
+                return rtl ? end->x - ellipsis_width < content_x - 0.01f
+                           : end->x + end->width + ellipsis_width > right + 0.01f;
+            };
+            while (!end->text.empty() && (overflows() || end->text.back() == U' ')) {
+                float const before = end->width;
+                end->text.pop_back();
+                end->width = measure(*end->style, end->text);
+                if (rtl)
+                    end->x += before - end->width;
+            }
+            if (rtl) {
+                end->text.insert(end->text.begin(), ellipsis.begin(), ellipsis.end());
+                end->x -= ellipsis_width;
+            } else {
+                end->text += ellipsis;
+            }
+            end->width += ellipsis_width;
+        }
+        if (!style.line_clamp_webkit) {
+            auto const discard = [&clamp, cut](auto const& self, Fragment& fragment) -> void {
+                std::erase_if(fragment.runs, [&clamp](TextRun const& run) { return run.line > clamp.cut_line; });
+                std::erase_if(fragment.children, [cut](Fragment const& child) { return child.y >= cut - 0.01f; });
+                for (Fragment& child : fragment.children)
+                    self(self, child);
+            };
+            discard(discard, box);
+        }
+        return std::min(content_height, std::max(0.0f, cut - content_y));
+    }
+
     Fragment layout_block(dom::Element const& element, ComputedStyle const& style, float x,
         float y, float containing_width, int list_depth, FloatContext& floats,
         BlockOptions const& options = {}) const
@@ -5129,6 +5230,26 @@ struct Layouter {
         bool const own_context = options.own_context || establishes_bfc(style) || button;
         bool const flex = is_flex_container(style);
         bool const grid = is_grid_container(style);
+        // A block container with a line clamp counts the lines of its block
+        // formatting context (css-overflow-4 §6); any other box with a
+        // formatting context of its own keeps its lines from the clamp
+        // around it. In-flow blocks inside pass their lines up.
+        bool const clamps = style.line_clamp > 0 && !flex && !grid && !style.multicol;
+        struct ClampScope {
+            std::vector<LineClamp>* stack = nullptr;
+            ~ClampScope()
+            {
+                if (stack)
+                    stack->pop_back();
+            }
+        } clamp_scope;
+        if (clamps || own_context || flex || grid) {
+            LineClamp entered;
+            entered.barrier = !clamps;
+            entered.remaining = clamps ? style.line_clamp : 0;
+            line_clamps.push_back(entered);
+            clamp_scope.stack = &line_clamps;
+        }
         // This box's definite content height, when it has one — settled by
         // its formatting context, written as a length, or a percentage of a
         // definite containing height: the base for its children's percentages.
@@ -5174,6 +5295,9 @@ struct Layouter {
                 bottom_edge_collapses(element, style, containing_width, options), children_base, nullptr,
                 false, options.inside_marker);
         }
+        if (clamps && line_clamps.back().cut_line != 0 && line_clamps.back().more)
+            content_height = cut_clamped_lines(fragment, line_clamps.back(), style, content_x, content_y, content_width,
+                content_height);
         // The box's baseline, for an inline-block's sake: its own lines set
         // it; with block children it is the last in-flow child's (a flex or
         // grid container's the first item's).
@@ -8930,7 +9054,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
         return result;
 
     Layouter layouter { styles, {}, images, controls, embedded, device_scale > 0 ? device_scale : 1.0f, {}, {}, {}, 0, {}, {},
-        css::WritingMode::HorizontalTb, 0, 0, {}, {}, {} };
+        css::WritingMode::HorizontalTb, 0, 0, {}, {}, {}, {}, 0 };
     // The whole page is laid out in the root's own writing mode — which the
     // resolver has already taken from body where there is one — so the
     // frame is settled before a single style is read: everything after this

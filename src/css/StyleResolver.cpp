@@ -4362,6 +4362,10 @@ struct Resolver {
                 },
                 0 },
             { "flex-direction", false, [](S& to, S const& from) { to.flex_direction = from.flex_direction; }, 0 },
+            { "column-count", false, [](S& to, S const& from) { to.multicol = from.multicol; }, 0 },
+            { "-webkit-box-orient", false, [](S& to, S const& from) { to.webkit_box_vertical = from.webkit_box_vertical; }, 0 },
+            { "-webkit-line-clamp", false, [](S& to, S const& from) { to.line_clamp = from.line_clamp; to.line_clamp_webkit = from.line_clamp_webkit; }, 0 },
+            { "line-clamp", false, [](S& to, S const& from) { to.line_clamp = from.line_clamp; to.line_clamp_webkit = from.line_clamp_webkit; }, 0 },
             { "flex-wrap", false, [](S& to, S const& from) { to.flex_wrap = from.flex_wrap; }, 0 },
             { "flex-flow", false,
                 [](S& to, S const& from) {
@@ -5597,6 +5601,19 @@ struct Resolver {
             if (side->style == BorderStyle::None || side->style == BorderStyle::Hidden)
                 side->width = 0;
         }
+        // The legacy flexible box, now that its orientation and its clamp
+        // are known (css-overflow-4 §6.1, as Firefox and Chrome lay it out):
+        // vertical with a -webkit-line-clamp it is a block container whose
+        // lines the clamp counts; otherwise a flex container along its
+        // orientation. -webkit-line-clamp means nothing on any other box.
+        if (style.webkit_box) {
+            if (style.webkit_box_vertical && style.line_clamp > 0)
+                style.display = style.display == Display::InlineFlex ? Display::InlineBlock : Display::FlowRoot;
+            else
+                style.flex_direction = style.webkit_box_vertical ? FlexDirection::Column : FlexDirection::Row;
+        }
+        if (style.line_clamp_webkit && !(style.webkit_box && style.webkit_box_vertical))
+            style.line_clamp = 0;
         // A text field the page gave a border of its own and no background
         // has lost its built-in face, and shows the field's own white as a
         // background (HTML's `background-color: Field`): under the border
@@ -5987,6 +6004,21 @@ struct Resolver {
                     keyword = inline_outer ? "inline-table" : "table";
                 else
                     return;
+            }
+            // The legacy flexible box (css-overflow-4 §6.1): a flex container
+            // now, settled once the cascade knows its orientation and clamp.
+            if (values.size() == 1
+                && (ascii_ci_equals(keyword, "-webkit-box") || ascii_ci_equals(keyword, "-webkit-inline-box"))) {
+                style.display = ascii_ci_equals(keyword, "-webkit-box") ? Display::Flex : Display::InlineFlex;
+                style.webkit_box = true;
+                return;
+            }
+            for (std::string_view const known : { "none", "contents", "inline", "list-item", "flow-root", "flex",
+                     "inline-flex", "block", "grid", "inline-grid", "table", "inline-table", "inline-block",
+                     "table-cell", "table-caption", "table-column", "table-column-group", "table-row-group",
+                     "table-header-group", "table-footer-group", "table-row" }) {
+                if (ascii_ci_equals(keyword, known))
+                    style.webkit_box = false;
             }
             if (ascii_ci_equals(keyword, "none"))
                 style.display = Display::None;
@@ -7108,6 +7140,50 @@ struct Resolver {
                 style.table_layout = TableLayout::Auto;
             else if (ascii_ci_equals(keyword, "fixed"))
                 style.table_layout = TableLayout::Fixed;
+            return;
+        }
+        // The legacy box's orientation, and the line clamp in both spellings
+        // (css-overflow-4 §6): `none` or a positive integer; the standard
+        // shorthand may name its block-ellipsis after the count, which is
+        // the ellipsis either way here.
+        if (name == "columns" || name == "column-count" || name == "column-width") {
+            // Every value but auto (alone, or twice in the shorthand) asks for columns.
+            bool any = false;
+            for (ComponentValue const* value : values)
+                any = any || !is_ident(value, "auto");
+            style.multicol = any;
+            note_gap("css property", name); // read for the clamp; columns are not laid out yet
+            return;
+        }
+        if (name == "-webkit-box-orient") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const orient = values[0]->token().value;
+            if (ascii_ci_equals(orient, "vertical") || ascii_ci_equals(orient, "block-axis"))
+                style.webkit_box_vertical = true;
+            else if (ascii_ci_equals(orient, "horizontal") || ascii_ci_equals(orient, "inline-axis"))
+                style.webkit_box_vertical = false;
+            return;
+        }
+        if (name == "-webkit-line-clamp" || name == "line-clamp") {
+            bool const webkit = name == "-webkit-line-clamp";
+            if (values.empty() || (webkit && values.size() != 1) || values.size() > 2)
+                return;
+            if (values.size() == 1 && is_ident(values[0], "none")) {
+                style.line_clamp = 0;
+                style.line_clamp_webkit = webkit;
+                return;
+            }
+            if (!values[0]->is_token(Token::Type::Number))
+                return;
+            double const number = values[0]->token().numeric_value;
+            if (number < 1 || number != static_cast<double>(static_cast<int>(number)))
+                return;
+            if (values.size() == 2 && !(is_ident(values[1], "auto") || is_ident(values[1], "no-ellipsis")
+                    || values[1]->is_token(Token::Type::String)))
+                return;
+            style.line_clamp = static_cast<int>(number);
+            style.line_clamp_webkit = webkit;
             return;
         }
         if (name == "order") {

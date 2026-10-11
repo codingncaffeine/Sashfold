@@ -11,6 +11,7 @@
 #include "css/StyleResolver.h"
 #include "layout/Controls.h"
 
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -50,6 +51,10 @@ struct TextRun {
     // A field's placeholder, shown while the field is empty: drawn in the
     // field's own color, dimmed.
     bool placeholder = false;
+    // The line box the run was laid out on, numbered in layout order across
+    // the page (0 for a run no line made): what a line clamp finds its last
+    // kept line by, wherever later steps moved the run.
+    std::uint32_t line = 0;
 };
 
 struct Fragment {

@@ -2387,5 +2387,66 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- A line clamp ends its box at the last line it keeps ----------------------
+    // The form pages write (-webkit-box, vertical, -webkit-line-clamp, overflow
+    // hidden): the box is as tall as the lines it keeps, the last of them ends
+    // in an ellipsis, and what follows is left to the overflow; the standard
+    // property discards it. Lines of an in-flow block inside count; a box
+    // that keeps to its lines is not clamped, and an inline-block's own
+    // lines are not the clamp's.
+    {
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  .w { overflow: hidden; display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 2; width: 300px }
+  .s { line-clamp: 2; width: 300px }
+  p { margin: 0 }
+  .ib { display: inline-block }
+</style></head><body>
+<div id=a class=w>one<br>two<br>three<br>four</div>
+<div id=b class=w>five<br>six</div>
+<div id=c class=w><p>seven</p><p>eight</p><p>nine</p></div>
+<div id=d class=s>ten<br>eleven<br>twelve</div>
+<div id=e class=w><span class=ib>x1<br>x2<br>x3</span><br>last</div>
+</body></html>)HTML", 400);
+        auto const box = [&](std::string_view id) -> layout::Fragment const* {
+            layout::Fragment const* found = nullptr;
+            auto const walk = [&](auto const& self, layout::Fragment const& f) -> void {
+                if (f.element) {
+                    if (dom::Attr const* attribute = f.element->find_attribute("id"); attribute && attribute->value == id)
+                        found = &f;
+                }
+                for (layout::Fragment const& child : f.children)
+                    self(self, child);
+            };
+            walk(walk, page.result.root);
+            return found;
+        };
+        auto const texts = [](layout::Fragment const* f) {
+            std::vector<layout::TextRun const*> runs;
+            if (f)
+                collect(*f, runs);
+            std::u32string all;
+            for (layout::TextRun const* run : runs)
+                all += run->text + U"|";
+            return all;
+        };
+        layout::Fragment const* a = box("a");
+        layout::Fragment const* b = box("b");
+        layout::Fragment const* c = box("c");
+        layout::Fragment const* d = box("d");
+        layout::Fragment const* e = box("e");
+        if (CHECK(a && b && c && d && e)) {
+            CHECK_EQ(a->height, 40.0f);
+            CHECK(texts(a) == U"one|two\u2026|three|four|");
+            CHECK_EQ(b->height, 40.0f); // two lines of two: nothing cut, no ellipsis
+            CHECK(texts(b) == U"five|six|");
+            CHECK_EQ(c->height, 40.0f);
+            CHECK(texts(c) == U"seven|eight\u2026|nine|");
+            CHECK_EQ(d->height, 40.0f);
+            CHECK(texts(d) == U"ten|eleven\u2026|"); // the standard property discards the rest
+            CHECK_EQ(e->height, 80.0f); // the inline-block is one line of the box, whatever is inside it
+        }
+    }
+
     return test::report("layout");
 }
