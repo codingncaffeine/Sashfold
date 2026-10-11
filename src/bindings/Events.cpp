@@ -493,6 +493,7 @@ struct TableEvent {
 };
 
 constexpr TableMember page_transition_members[] = { { "persisted", TableKind::Boolean } };
+constexpr TableMember hash_change_members[] = { { "oldURL", TableKind::String }, { "newURL", TableKind::String } };
 constexpr TableMember storage_members[] = { { "key", TableKind::NullableString }, { "newValue", TableKind::NullableString },
     { "oldValue", TableKind::NullableString }, { "storageArea", TableKind::NullableObject }, { "url", TableKind::String } };
 constexpr TableMember before_unload_members[] = { { "returnValue", TableKind::String } };
@@ -507,6 +508,7 @@ constexpr TableMember touch_event_members[] = { { "changedTouches", TableKind::T
 
 constexpr TableEvent table_events[] = {
     { "PageTransitionEvent", "Event", page_transition_members, true, true },
+    { "HashChangeEvent", "Event", hash_change_members, true, true },
     { "StorageEvent", "Event", storage_members },
     { "BeforeUnloadEvent", "Event", before_unload_members, false },
     { "CompositionEvent", "UIEvent", composition_members },
@@ -2011,7 +2013,6 @@ void install_events(Realm::Internals& in)
     event_getter(in, *progress_event, "lengthComputable", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.length_computable); });
     event_getter(in, *progress_event, "loaded", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.loaded); });
     event_getter(in, *progress_event, "total", [](Realm::Internals&, EventObject& e) { return js::Value::number(e.total); });
-    define_interface(in, "HashChangeEvent", event, event_constructor("HashChangeEvent"), 1);
     // SubmitEvent (HTML §4.10.21.2): the button that submitted, kept as the
     // related target.
     js::Object* submit_event = define_interface(in, "SubmitEvent", event, event_constructor("SubmitEvent"), 1);

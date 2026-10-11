@@ -222,6 +222,11 @@ struct HostHooks {
     std::function<void(std::function<void()> const&)> with_fonts;
     // location.href = …, location.assign, a form the script submits.
     std::function<void(net::Url const&)> navigate;
+    // The page moved to a fragment of its own document (location.hash, a
+    // link to #something): the realm has the new URL already and fires
+    // hashchange; the host records the history entry, shows the address and
+    // scrolls to the fragment — it loads nothing.
+    std::function<void(net::Url const&)> navigated_to_fragment;
     // window.scrollTo and friends, and where the document stands — the
     // document asking, since a frame's document scrolls inside its frame
     // and a frame's hooks are the page's.

@@ -4376,6 +4376,28 @@ struct Browser::Impl {
             if (Tab* const owner = tab_of(document))
                 queue(index_of(*owner), target, Mode::Push);
         };
+        // A move to a fragment of the page's own document, which the page has
+        // made already: a history entry of its own, the address, the scroll.
+        hooks.navigated_to_fragment = [this, document](net::Url const& target) {
+            Tab* const owner = tab_of(document);
+            if (!owner || owner->document.get() != document)
+                return;
+            HistoryEntry const* const current = owner->current();
+            if (!current)
+                return;
+            HistoryEntry copy = *current;
+            copy.url = target;
+            copy.final_url = target;
+            copy.scroll_y = 0;
+            owner->history.resize(owner->index + 1);
+            owner->history.push_back(std::move(copy));
+            owner->index = owner->history.size() - 1;
+            if (target.fragment)
+                scroll_to_fragment(*owner, *target.fragment);
+            if (owner == active_tab())
+                sync_address();
+            dirty = true;
+        };
         // A window the page opens: a new tab in the page's container, with
         // no history behind it and so no referrer and no opener, only while
         // the reader's last click or key is fresh — opened on the next tick,

@@ -48,6 +48,7 @@ struct Page {
     std::map<std::string, std::string> scripts; // URL → source, for <script src>
     std::vector<std::string> fetched;
     std::vector<net::Url> navigations;
+    std::vector<net::Url> fragment_navigations; // the page's own moves to a fragment
     // Canned responses for fetch() and XMLHttpRequest by URL, and the
     // requests made: "METHOD url [body]" and every header sent.
     std::map<std::string, net::FetchResponse> responses;
@@ -95,6 +96,7 @@ struct Page {
             return { std::move(response), "" };
         };
         hooks.navigate = [this](net::Url const& target) { navigations.push_back(target); };
+        hooks.navigated_to_fragment = [this](net::Url const& target) { fragment_navigations.push_back(target); };
         hooks.user_agent = "Mozilla/5.0 TestAgent Sashfold/0.0";
         realm = std::make_unique<bindings::Realm>(*document, *net::parse_url(url), std::move(hooks));
         realm->interpreter().heap().set_stress(true);
@@ -1156,10 +1158,14 @@ void test_window_location_url_storage_navigator()
     page->eval("location.href = 'other.html?q=1#frag';");
     CHECK_EQ(page->navigations.size(), 1u);
     CHECK_EQ(page->navigations[0].serialize(), "https://example.test/dir/other.html?q=1#frag");
-    page->eval("location.hash = 'top'; location.assign('/root');");
-    CHECK_EQ(page->navigations.size(), 3u);
-    CHECK_EQ(page->navigations[1].serialize(), "https://example.test/dir/page.html#top");
-    CHECK_EQ(page->navigations[2].serialize(), "https://example.test/root");
+    // A fragment of the page's own document is the page's to move to, at
+    // once: the host is told, and loads nothing.
+    page->eval("location.hash = 'top'; window.hashSeen = location.hash; location.assign('/root');");
+    CHECK_EQ(page->string("hashSeen"), "#top");
+    CHECK_EQ(page->fragment_navigations.size(), 1u);
+    CHECK_EQ(page->fragment_navigations[0].serialize(), "https://example.test/dir/page.html#top");
+    CHECK_EQ(page->navigations.size(), 2u);
+    CHECK_EQ(page->navigations[1].serialize(), "https://example.test/root");
     page->eval("history.pushState({ p: 1 }, '', '/pushed?x=2');");
     CHECK_EQ(page->string("location.pathname + location.search"), "/pushed?x=2");
     CHECK(page->boolean("history.state.p === 1 && history.length === 2"));
@@ -2992,14 +2998,16 @@ void test_a_frame_navigates()
     CHECK_EQ(page->console, "");
     page.reset();
 
-    // A page's own hash: its host navigates, but not to the fragment the URL
+    // A page's own hash: a move to the fragment, which the page makes and
+    // its host is told of (loading nothing), but not to the fragment the URL
     // already has.
     auto hashed = std::make_unique<Page>("<!DOCTYPE html>", "https://example.test/dir/page.html#here");
     hashed->load();
     hashed->eval("location.hash = 'here'; location.hash = '#here';");
-    CHECK(hashed->navigations.empty());
+    CHECK(hashed->fragment_navigations.empty());
     hashed->eval("location.hash = 'there';");
-    CHECK_EQ(hashed->navigations.size(), 1u);
+    CHECK_EQ(hashed->fragment_navigations.size(), 1u);
+    CHECK(hashed->navigations.empty());
     CHECK_EQ(hashed->console, "");
     hashed.reset();
 }

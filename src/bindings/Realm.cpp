@@ -3783,22 +3783,34 @@ bool Realm::Internals::navigate_from_location(net::Url const& target_url, Intern
     // the Location's own document, which is not a navigation by `source`.
     if (!reload && !allowed_by_sandboxing(source, *this))
         return false;
-    // A page with a host is navigated by its host, fragment and all.
-    if (parent_realm == nullptr && hooks.navigate) {
-        trace("navigate: " + target_url.serialize());
-        hooks.navigate(target_url);
-        return true;
-    }
     // The fragment alone, on this document (HTML's "navigate to a fragment"):
     // the URL at once, and hashchange at the window after the script when the
     // fragment is not the one the URL had (HTML's "update document for history
-    // step application").
+    // step application"). Nothing is loaded: a page's host only records it.
     if (!reload && target_url.fragment && target_url.serialize(true) == url.serialize(true)) {
         trace("navigate to a fragment: " + target_url.serialize());
         bool const changed = target_url.fragment != url.fragment;
+        std::string old_url = url.serialize();
         url = target_url;
-        if (changed)
-            post_task([this] { realm.dispatch_event(nullptr, "hashchange"); });
+        if (parent_realm == nullptr && hooks.navigated_to_fragment)
+            hooks.navigated_to_fragment(target_url);
+        if (changed) {
+            post_task([this, old_url = std::move(old_url), new_url = target_url.serialize()] {
+                Entry const entry(*this);
+                js::Interpreter::Roots const roots(interpreter);
+                EventObject* const event = new_event("HashChangeEvent", "hashchange", true, false);
+                interpreter.root(js::Value::object(event));
+                event->is_trusted = true;
+                event->members = { string(old_url), string(new_url) };
+                dispatch(*event, window_proxy());
+            });
+        }
+        return true;
+    }
+    // A page with a host is navigated by its host.
+    if (parent_realm == nullptr && hooks.navigate) {
+        trace("navigate: " + target_url.serialize());
+        hooks.navigate(target_url);
         return true;
     }
     // A page with no host to navigate it keeps the URL alone.
