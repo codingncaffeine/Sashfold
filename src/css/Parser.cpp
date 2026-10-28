@@ -175,21 +175,53 @@ struct Parser {
     }
 
     // §5.5.6. Consume a declaration.
-    bool consume_declaration(Declaration& out, bool nested)
+    // `rewound`: the caller goes back to where it started when this fails
+    // (a block's contents trying a declaration before a rule), so a value
+    // that can no longer be valid is left unread. Without it, a rule like
+    // `a:hover { … }` or `div p { … }` in an @media block read as a
+    // declaration ran on over every rule after it to the block's end, once
+    // per rule (3.5 s of github's 3.5 MB of CSS).
+    bool consume_declaration(Declaration& out, bool nested, bool rewound = false)
     {
         if (input.peek().type != Token::Type::Ident) {
-            consume_bad_declaration_remnants(nested);
+            if (!rewound)
+                consume_bad_declaration_remnants(nested);
             return false;
         }
         out.name = input.consume().value;
         input.discard_whitespace();
         if (input.peek().type != Token::Type::Colon) {
-            consume_bad_declaration_remnants(nested);
+            if (!rewound)
+                consume_bad_declaration_remnants(nested);
             return false;
         }
         input.discard();
         input.discard_whitespace();
-        out.value = consume_component_value_list(Token::Type::Semicolon, nested);
+        bool const custom_name = out.name.size() >= 2 && out.name[0] == '-' && out.name[1] == '-';
+        if (rewound && !custom_name) {
+            // The check below refuses a top-level {}-block beside anything
+            // but whitespace and the `! important` it strips: once both are
+            // read, the answer is no.
+            bool brace_block = false;
+            bool other = false;
+            while (true) {
+                Token::Type const type = input.peek().type;
+                if (type == Token::Type::EndOfFile || type == Token::Type::Semicolon || (type == Token::Type::CloseBrace && nested))
+                    break;
+                ComponentValue value = type == Token::Type::CloseBrace ? ComponentValue { input.consume() } : consume_component_value();
+                if (value.is_block() && value.block().open == Token::Type::OpenBrace)
+                    brace_block = true;
+                else if (!value.is_token(Token::Type::Whitespace)
+                    && !(value.is_token(Token::Type::Delim) && value.token().delim == U'!')
+                    && !(value.is_token(Token::Type::Ident) && ascii_ci_equals(value.token().value, "important")))
+                    other = true;
+                out.value.push_back(std::move(value));
+                if (brace_block && other)
+                    return false;
+            }
+        } else {
+            out.value = consume_component_value_list(Token::Type::Semicolon, nested);
+        }
 
         // The last two non-whitespace values being "!" then "important" set the
         // flag; whitespace may sit anywhere around them.
@@ -394,7 +426,7 @@ struct Parser {
             }
             std::size_t const mark = input.mark();
             Declaration declaration;
-            if (consume_declaration(declaration, true)) {
+            if (consume_declaration(declaration, true, true)) {
                 declarations.push_back(std::move(declaration));
                 continue;
             }

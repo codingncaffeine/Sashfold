@@ -2,6 +2,7 @@
 
 #include "css/Parser.h"
 
+#include <chrono>
 #include <string>
 
 using namespace sashfold;
@@ -227,6 +228,25 @@ int main()
     {
         auto decls = css::parse_declaration_list("color: red; font-weight: bold");
         CHECK_EQ(decls.size(), std::size_t { 2 });
+    }
+
+    // --- A block of many rules: read once, not once per rule -----------------
+    // A rule in a block is first tried as a declaration and the block goes
+    // back when that fails; `a:hover { }` and `div p { }` each used to read
+    // on to the block's end first, so 60,000 rules took minutes. Now well
+    // under a second, and every rule is there.
+    {
+        std::string many = "@media screen {";
+        for (int i = 0; i < 30000; ++i)
+            many += " a:hover { color: red } div p { margin: 0 }";
+        many += " }";
+        auto const started = std::chrono::steady_clock::now();
+        css::Stylesheet const sheet = css::parse_stylesheet(many);
+        double const seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - started).count();
+        CHECK(seconds < 5.0);
+        CHECK_EQ(sheet.rules.size(), std::size_t { 1 });
+        if (sheet.rules.size() == 1 && sheet.rules[0].is_at_rule())
+            CHECK_EQ(std::get<css::AtRule>(sheet.rules[0].value).child_rules.size(), std::size_t { 60000 });
     }
 
     return sashfold::test::report("css-parser");
