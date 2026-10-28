@@ -60,6 +60,8 @@ void Sha1::compress(std::uint8_t const* block)
 
 void Sha1::update(std::span<std::uint8_t const> data)
 {
+    if (data.empty())
+        return; // as Sha256: an empty span may carry no pointer, which memcpy may not be given
     m_length += data.size();
     std::size_t offset = 0;
     if (m_buffered > 0) {

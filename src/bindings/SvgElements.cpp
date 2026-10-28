@@ -908,7 +908,9 @@ void install_types(Realm::Internals& in)
         std::optional<SvgValueObject*> const self = this_value_object(interp, this_value, Kind::Length);
         if (!self)
             return std::nullopt;
-        std::optional<double> const type = interp.to_number(js::argument(args, 0));
+        // WebIDL unsigned short: ToUint16 (NaN is 0, out of range wraps).
+        std::optional<std::uint32_t> const type_bits = interp.to_uint32(js::argument(args, 0));
+        std::optional<double> const type = type_bits ? std::optional<double>(*type_bits & 0xFFFFu) : std::nullopt;
         std::optional<double> const number = type ? interp.to_number(js::argument(args, 1)) : std::nullopt;
         if (!number)
             return std::nullopt;
@@ -922,9 +924,10 @@ void install_types(Realm::Internals& in)
         std::optional<SvgValueObject*> const self = this_value_object(interp, this_value, Kind::Length);
         if (!self)
             return std::nullopt;
-        std::optional<double> const type = interp.to_number(js::argument(args, 0));
-        if (!type)
+        std::optional<std::uint32_t> const type_bits = interp.to_uint32(js::argument(args, 0));
+        if (!type_bits)
             return std::nullopt;
+        std::optional<double> const type = static_cast<double>(*type_bits & 0xFFFFu);
         if (*type < 1 || *type > 10)
             return internals_of(interp).throw_dom_exception("NotSupportedError", "The unit type is not supported.");
         Realm::Internals& internals = internals_of(interp);
@@ -1007,11 +1010,12 @@ void install_types(Realm::Internals& in)
             std::optional<SvgValueObject*> const self = this_value_object(interp, this_value, Kind::AnimatedEnumeration);
             if (!self)
                 return std::nullopt;
-            std::optional<double> const number = interp.to_number(js::argument(args, 0));
+            // WebIDL unsigned short: ToUint16 (-1 wraps to 65535, NaN is 0).
+            std::optional<std::uint32_t> const number = interp.to_uint32(js::argument(args, 0));
             if (!number)
                 return std::nullopt;
-            std::size_t const index = static_cast<std::size_t>(*number);
-            if (*number < 1 || index > (*self)->table->keywords.size())
+            std::size_t const index = *number & 0xFFFFu;
+            if (index < 1 || index > (*self)->table->keywords.size())
                 return interp.throw_type_error("The enumeration value provided is not a valid value.");
             if (dom::Element* const element = (*self)->element())
                 set_attribute(internals_of(interp), *element, (*self)->attribute, std::string((*self)->table->keywords[index - 1]));
@@ -1163,11 +1167,12 @@ void install_types(Realm::Internals& in)
         std::optional<SvgValueObject*> const self = this_value_object(interp, this_value, Kind::TransformList);
         if (!self)
             return std::nullopt;
-        std::optional<double> const index = interp.to_number(js::argument(args, 0));
+        // WebIDL unsigned long: ToUint32 (NaN is 0, a negative wraps).
+        std::optional<std::uint32_t> const index = interp.to_uint32(js::argument(args, 0));
         if (!index)
             return std::nullopt;
         Realm::Internals& internals = internals_of(interp);
-        if (*index < 0 || *index >= static_cast<double>(items_of(**self).size()))
+        if (*index >= items_of(**self).size())
             return internals.throw_dom_exception("IndexSizeError", "The index provided is greater than or equal to the number of items.");
         return js::Value::object(new_transform(internals, (*self)->wrapper, (*self)->attribute, static_cast<std::size_t>(*index), (*self)->read_only));
     });
@@ -1221,10 +1226,11 @@ void install_types(Realm::Internals& in)
             }
             std::size_t index = items.size();
             if (edit == Edit::Insert || edit == Edit::Replace || edit == Edit::Remove) {
-                std::optional<double> const at = interp.to_number(js::argument(args, edit == Edit::Remove ? 0 : 1));
+                // WebIDL unsigned long: ToUint32.
+                std::optional<std::uint32_t> const at = interp.to_uint32(js::argument(args, edit == Edit::Remove ? 0 : 1));
                 if (!at)
                     return std::nullopt;
-                index = *at < 0 ? 0 : static_cast<std::size_t>(*at);
+                index = *at;
                 if ((edit != Edit::Insert && index >= items.size()))
                     return internals.throw_dom_exception("IndexSizeError", "The index provided is greater than or equal to the number of items.");
                 index = std::min(index, items.size());
@@ -1311,11 +1317,11 @@ void install_types(Realm::Internals& in)
         std::optional<SvgValueObject*> const self = this_value_object(interp, this_value, Kind::PointList);
         if (!self)
             return std::nullopt;
-        std::optional<double> const index = interp.to_number(js::argument(args, 0));
+        std::optional<std::uint32_t> const index = interp.to_uint32(js::argument(args, 0));
         if (!index)
             return std::nullopt;
         std::vector<double> const numbers = points_of(**self);
-        if (*index < 0 || *index >= static_cast<double>(numbers.size() / 2))
+        if (*index >= numbers.size() / 2)
             return internals_of(interp).throw_dom_exception("IndexSizeError", "The index provided is greater than or equal to the number of items.");
         std::size_t const at = static_cast<std::size_t>(*index) * 2;
         return new_dom_point(internals_of(interp), numbers[at], numbers[at + 1]);
