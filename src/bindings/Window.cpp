@@ -1889,12 +1889,23 @@ void install_window(Realm::Internals& in)
                     params->pairs = other->pairs;
                     return js::Value::object(params);
                 }
-                if (js::Interpreter::is_array(init)) {
-                    std::optional<std::vector<js::Value>> const entries = interp.create_list_from_array_like(init);
+                // WebIDL's union: an object with an iterator is a sequence of
+                // pairs (an array, a Map, any iterable), each pair iterated in
+                // turn; any other object is a record of its own keys.
+                std::optional<js::Value> const iterator_method
+                    = interp.get(init, js::PropertyKey::symbol(interp.atoms().symbol_iterator));
+                if (!iterator_method)
+                    return std::nullopt;
+                if (!iterator_method->is_undefined() && !iterator_method->is_null()) {
+                    std::optional<std::vector<js::Value>> const entries = interp.iterable_to_list(init);
                     if (!entries)
                         return std::nullopt;
+                    for (js::Value const& entry : *entries)
+                        interp.root(entry);
                     for (js::Value const& entry : *entries) {
-                        std::optional<std::vector<js::Value>> const pair = interp.create_list_from_array_like(entry);
+                        if (!entry.is_object())
+                            return interp.throw_type_error("Failed to construct 'URLSearchParams': The provided value cannot be converted to a sequence.");
+                        std::optional<std::vector<js::Value>> const pair = interp.iterable_to_list(entry);
                         if (!pair)
                             return std::nullopt;
                         if (pair->size() != 2)
@@ -2085,9 +2096,18 @@ void install_window(Realm::Internals& in)
                     out->push(internals_of(interp).string(value));
                 }
             }
-            return js::Value::object(out);
+            // An iterator over them, as the iterable declaration gives (over
+            // the list as it is now, not a live one).
+            std::optional<js::Value> const make
+                = interp.get(js::Value::object(out), js::PropertyKey::symbol(interp.atoms().symbol_iterator));
+            if (!make)
+                return std::nullopt;
+            return interp.call(*make, js::Value::object(out), {});
         });
     }
+    // WebIDL §3.7.10: @@iterator is the entries function itself.
+    if (std::optional<js::Value> const entries = params_proto->get(interpreter, interpreter.key("entries"), js::Value::object(params_proto)))
+        params_proto->put(js::PropertyKey::symbol(interpreter.atoms().symbol_iterator), *entries, js::Writable | js::Configurable);
 
     // The window's event handlers: HTML's GlobalEventHandlers, its
     // WindowEventHandlers, and the device, gamepad and install sets the
