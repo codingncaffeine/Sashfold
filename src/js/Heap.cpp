@@ -113,6 +113,14 @@ std::size_t JsString::hash() const
 Heap::Heap()
 {
     intern_well_known();
+    // SASHFOLD_GC_STRESS=1 collects at every allocation, so a value
+    // left unrooted across an allocation dies at once instead of now
+    // and then (the instrument for a crash a run shows only sometimes).
+    static bool const stress = [] {
+        char const* const value = std::getenv("SASHFOLD_GC_STRESS");
+        return value != nullptr && value[0] == '1';
+    }();
+    m_stress = stress;
 }
 
 bool Heap::lazy_census_asked()

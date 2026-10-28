@@ -3803,7 +3803,11 @@ bool Realm::Internals::navigate_from_location(net::Url const& target_url, Intern
                 EventObject* const event = new_event("HashChangeEvent", "hashchange", true, false);
                 interpreter.root(js::Value::object(event));
                 event->is_trusted = true;
-                event->members = { string(old_url), string(new_url) };
+                // Rooted one at a time: making the second string can
+                // collect, and the first would sit unrooted in a temporary.
+                js::Value const old_value = interpreter.root(string(old_url));
+                js::Value const new_value = interpreter.root(string(new_url));
+                event->members = { old_value, new_value };
                 dispatch(*event, window_proxy());
             });
         }
