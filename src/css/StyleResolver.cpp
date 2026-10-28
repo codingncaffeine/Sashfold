@@ -27,6 +27,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <set>
 #include <span>
 #include <string>
 #include <string_view>
@@ -2904,27 +2905,95 @@ struct RuleSet {
     // and everything in it is computed again.
     std::vector<CompoundSelector const*> has_anchors;
     static constexpr std::size_t max_has_anchors = 64;
+    // What the anchors are tested for, but the :has() (all their test reads):
+    // the rules a component writes once per case — the same anchor with a
+    // :has() for each — are one anchor, not one each.
+    std::set<std::string> has_anchor_keys;
+
+    // The anchor's test as text, for the simple selectors that are plain
+    // (names, attributes, pseudo-classes without a selector argument);
+    // nothing for one that is not, which is then kept by itself.
+    static std::optional<std::string> anchor_key(CompoundSelector const& compound)
+    {
+        std::string key;
+        for (SimpleSelector const& simple : compound.simples) {
+            if (contains_has(simple))
+                continue;
+            switch (simple.kind) {
+            case SimpleSelector::Kind::Universal:
+                key += "*";
+                break;
+            case SimpleSelector::Kind::Type:
+                key += "t" + simple.name;
+                break;
+            case SimpleSelector::Kind::Class:
+                key += "." + simple.name;
+                break;
+            case SimpleSelector::Kind::Id:
+                key += "#" + simple.name;
+                break;
+            case SimpleSelector::Kind::Attribute:
+                key += "[" + simple.attribute.name + "|" + std::to_string(static_cast<int>(simple.attribute.match)) + "|"
+                    + simple.attribute.value + (simple.attribute.case_insensitive ? "|i]" : "]");
+                break;
+            case SimpleSelector::Kind::PseudoClass:
+                if (simple.argument || !simple.languages.empty())
+                    return std::nullopt;
+                key += ":" + std::to_string(static_cast<int>(simple.pseudo)) + "(" + std::to_string(simple.nth_a) + ","
+                    + std::to_string(simple.nth_b) + ")";
+                break;
+            case SimpleSelector::Kind::PseudoElement:
+                return std::nullopt;
+            }
+            key += " ";
+        }
+        return key;
+    }
+
+    // Whether compound `c` can anchor a :has() at all: in a rule's own
+    // selector, always; in the argument of an :is(), :not() or :where()
+    // (`:is(.box:has(.on) .row)`, the shape nesting and CSS modules write),
+    // when a descendant or child combinator comes next — what the argument
+    // matches is then inside the anchor, and so is whatever the selector
+    // around it goes on to from there.
+    static bool anchor_holds(ComplexSelector const& selector, std::size_t c, bool top)
+    {
+        if (top)
+            return true;
+        return c < selector.combinators.size()
+            && (selector.combinators[c] == Combinator::Descendant || selector.combinators[c] == Combinator::Child);
+    }
 
     // Whether a :has() in compound `c` of a rule's own selector, above the
-    // subject and joined to it by descendant and child combinators alone, is
-    // bounded by its anchor; noted when it is. The :has() may stand in the
-    // compound itself or on the subject of an :is(), :not() or :where()
-    // there (`.box:not(:has(.on)) p`): either way it is tested on the
-    // anchor.
+    // subject, is bounded by its anchor; noted when it is. The :has() may
+    // stand in the compound itself or on the subject of an :is(), :not() or
+    // :where() there (`.box:not(:has(.on)) p`): either way it is tested on
+    // the anchor. What the rest of the selector reaches from the anchor is
+    // inside it when a descendant or child combinator comes first (siblings
+    // further on are inside it too), and the elements after it among its
+    // siblings, and inside those, when a + or ~ does (`li:has(.on) + p`).
     bool note_has_anchor(ComplexSelector const& selector, std::size_t c)
     {
-        for (std::size_t i = c; i < selector.combinators.size(); ++i) {
-            if (selector.combinators[i] != Combinator::Descendant && selector.combinators[i] != Combinator::Child)
-                return false;
-        }
+        bool const beside = c < selector.combinators.size()
+            && (selector.combinators[c] == Combinator::NextSibling || selector.combinators[c] == Combinator::SubsequentSibling);
         CompoundSelector const& compound = selector.compounds[c];
         bool const names_something = std::any_of(compound.simples.begin(), compound.simples.end(),
             [](SimpleSelector const& simple) { return !contains_has(simple); });
         // An anchor that is any element is every ancestor of every change.
-        if (!names_something || has_anchors.size() >= max_has_anchors)
+        if (!names_something)
             return false;
-        if (std::find(has_anchors.begin(), has_anchors.end(), &compound) == has_anchors.end())
+        std::optional<std::string> const key = anchor_key(compound);
+        bool const known = key ? has_anchor_keys.contains(*key)
+                               : std::find(has_anchors.begin(), has_anchors.end(), &compound) != has_anchors.end();
+        if (!known) {
+            if (has_anchors.size() >= max_has_anchors)
+                return false;
             has_anchors.push_back(&compound);
+            if (key)
+                has_anchor_keys.insert(*key);
+        }
+        if (beside)
+            uses.has_anchor_siblings = true;
         return true;
     }
 
@@ -2941,10 +3010,26 @@ struct RuleSet {
             if (combinator == Combinator::NextSibling || combinator == Combinator::SubsequentSibling) {
                 uses.sibling_combinators = true;
                 // A :has() argument that starts beside the element (+ or ~
-                // first): a change outside it turns the answer. Siblings
-                // further on are inside the element, as what they follow is.
-                if (relative && i == 0)
-                    uses.has_beyond_ancestors = true;
+                // first): a change in a later sibling, or inside one, turns
+                // the answer. Siblings further on are inside the element, as
+                // what they follow is.
+                if (relative && i == 0) {
+                    uses.has_siblings = true;
+                    std::size_t steps = 0;
+                    bool every = false;
+                    for (std::size_t j = 0; j < selector.combinators.size(); ++j) {
+                        if (selector.combinators[j] == Combinator::NextSibling)
+                            ++steps;
+                        else if (selector.combinators[j] == Combinator::SubsequentSibling)
+                            every = true;
+                        else
+                            break;
+                    }
+                    std::uint8_t const back = every || steps >= StyleUses::every_sibling
+                        ? StyleUses::every_sibling
+                        : static_cast<std::uint8_t>(steps);
+                    uses.has_sibling_reach = std::max(uses.has_sibling_reach, back);
+                }
             }
         }
         for (std::size_t c = 0; c < selector.compounds.size(); ++c) {
@@ -2981,7 +3066,7 @@ struct RuleSet {
                     uses.has = true;
                     if (in_has
                         || (!subject_compound && !(anchored && c + 1 == selector.compounds.size())
-                            && !(top && note_has_anchor(selector, c))))
+                            && !(anchor_holds(selector, c, top) && note_has_anchor(selector, c))))
                         uses.has_beyond_ancestors = true;
                     break;
                 case SimpleSelector::PseudoKind::Disabled:
@@ -3040,7 +3125,8 @@ struct RuleSet {
                     bool const into_has = simple.pseudo == SimpleSelector::PseudoKind::Has;
                     bool const matches_any = simple.pseudo == SimpleSelector::PseudoKind::Is
                         || simple.pseudo == SimpleSelector::PseudoKind::Not || simple.pseudo == SimpleSelector::PseudoKind::Where;
-                    bool const anchors = matches_any && top && !subject_compound && contains_has(simple) && note_has_anchor(selector, c);
+                    bool const anchors = matches_any && anchor_holds(selector, c, top) && !subject_compound && contains_has(simple)
+                        && note_has_anchor(selector, c);
                     for (ComplexSelector const& inner : simple.argument->selectors)
                         note_uses(inner, subject_compound && !into_has, in_has || into_has, false, into_has, anchors);
                 }
@@ -3370,6 +3456,9 @@ void RuleSet::take_invalidation_of(RuleSet const& scope)
     uses.empty = uses.empty || scope.uses.empty;
     uses.has = uses.has || scope.uses.has;
     uses.has_beyond_ancestors = uses.has_beyond_ancestors || scope.uses.has_beyond_ancestors;
+    uses.has_siblings = uses.has_siblings || scope.uses.has_siblings;
+    uses.has_sibling_reach = std::max(uses.has_sibling_reach, scope.uses.has_sibling_reach);
+    uses.has_anchor_siblings = uses.has_anchor_siblings || scope.uses.has_anchor_siblings;
     uses.first_letter = uses.first_letter || scope.uses.first_letter;
     uses.control_values = uses.control_values || scope.uses.control_values;
     for (auto const& [key, entry] : scope.reach) {
@@ -3379,8 +3468,18 @@ void RuleSet::take_invalidation_of(RuleSet const& scope)
     }
     reach_siblings.insert(scope.reach_siblings.begin(), scope.reach_siblings.end());
     for (CompoundSelector const* anchor : scope.has_anchors) {
-        if (has_anchors.size() < max_has_anchors && std::find(has_anchors.begin(), has_anchors.end(), anchor) == has_anchors.end())
-            has_anchors.push_back(anchor);
+        std::optional<std::string> const key = anchor_key(*anchor);
+        if (key ? has_anchor_keys.contains(*key) : std::find(has_anchors.begin(), has_anchors.end(), anchor) != has_anchors.end())
+            continue;
+        // An anchor not kept would be no anchor: a change under it would
+        // turn its :has() unseen.
+        if (has_anchors.size() >= max_has_anchors) {
+            uses.has_beyond_ancestors = true;
+            continue;
+        }
+        has_anchors.push_back(anchor);
+        if (key)
+            has_anchor_keys.insert(*key);
     }
     media_conditions.insert(media_conditions.end(), scope.media_conditions.begin(), scope.media_conditions.end());
 }
@@ -8995,11 +9094,51 @@ struct Updater {
 
     bool changed(std::uint32_t stamp) const { return stamp >= since; }
 
+    // An element a :has() starting beside it may be tested on, with a change
+    // after it among its siblings: itself again, and what it holds when it
+    // is an anchor.
+    void force_sibling_reader(dom::Element const& element)
+    {
+        if (!forced.insert(&element).second)
+            return;
+        for (CompoundSelector const* anchor : resolver.set.has_anchors) {
+            if (matches_compound_but_has(*anchor, element)) {
+                forced_subtrees.insert(&element);
+                break;
+            }
+        }
+    }
+
+    // The elements before `node` among its siblings in the tree (where
+    // selectors look for siblings; a slot shows them in another order), as
+    // far back as the arguments' leading `+` reach, or all of them.
+    void force_readers_before(dom::Node const& node)
+    {
+        std::size_t left = uses.has_sibling_reach;
+        for (dom::Node const* sibling = node.previous_sibling(); sibling && left > 0; sibling = sibling->previous_sibling()) {
+            if (!sibling->is_element())
+                continue;
+            force_sibling_reader(static_cast<dom::Element const&>(*sibling));
+            if (uses.has_sibling_reach != StyleUses::every_sibling)
+                --left;
+        }
+    }
+
     void find_inside_readers(dom::Node const& node)
     {
         dom::Node::StyleMarks const& marks = node.style_marks();
         if (changed(marks.self) || changed(marks.children) || changed(marks.subtree)) {
+            // A child that came or went answers `:has(+ x)` for every child
+            // that stays (which one stood before it is not kept).
+            if (uses.has_siblings && changed(marks.children)) {
+                for (dom::Node const* child : node.children()) {
+                    if (child->is_element())
+                        force_sibling_reader(static_cast<dom::Element const&>(*child));
+                }
+            }
             for (dom::Node const* up = &node; up; up = up->style_parent()) {
+                if (uses.has_siblings)
+                    force_readers_before(*up);
                 if (!up->is_element())
                     continue;
                 auto const& element = static_cast<dom::Element const&>(*up);
@@ -9147,7 +9286,9 @@ struct Updater {
                 if (!siblings[i]->is_element())
                     continue;
                 dom::Node::StyleMarks const& marks = siblings[i]->style_marks();
-                if (!changed(marks.self) && !changed(marks.subtree) && !forced.contains(static_cast<dom::Element const*>(siblings[i])))
+                auto const* const sibling = static_cast<dom::Element const*>(siblings[i]);
+                if (!changed(marks.self) && !changed(marks.subtree) && !forced.contains(sibling)
+                    && !(uses.has_anchor_siblings && forced_subtrees.contains(sibling)))
                     continue;
                 if (uses.nth_of) {
                     all = true;
@@ -9184,6 +9325,10 @@ struct Updater {
                 || reached(element, reaching))
                 redo = Redo::Self;
             if (arrived && uses.sibling_combinators)
+                after_change = true;
+            // An anchor whose :has() may have turned reaches the elements
+            // after it through the + or ~ that follow it in the selector.
+            if (uses.has_anchor_siblings && forced_subtrees.contains(&element))
                 after_change = true;
             if (redo != Redo::None) {
                 bool const reaches_siblings

@@ -103,6 +103,33 @@ body:has(.frame .inner) { word-spacing: 3px }
 .box:is(:has(> .row.pick), .frame) > .row { padding-bottom: 1px }
 )";
 
+// :has() starting beside the element (+ and ~ first in its argument), on
+// the subject and on an anchor, through :is() and :not(), reaching into the
+// later siblings: what a change after an element among its siblings, or
+// inside one of those, turns.
+constexpr std::string_view has_sibling_sheet = R"(
+body { color: rgb(10, 20, 30); font-size: 15px }
+.row:has(+ .row.on) { color: rgb(200, 0, 0) }
+.leaf:has(~ .tail.pick) { padding-left: 6px }
+.row:has(+ .row .leaf.on) { font-size: 17px }
+div:not(:has(+ [data-k="2"])) { letter-spacing: 1px }
+:is(.box, .row):has(~ #hero) { border-top: 1px solid rgb(0, 0, 9) }
+.row:has(+ .row.pick) .leaf { word-spacing: 1px }
+.leaf:has(+ .e:empty) { text-indent: 2px }
+.row:has(.leaf.on) + .row { padding-top: 3px }
+.leaf { color: inherit }
+)";
+
+// The same reaching every later sibling and all inside it: a change after
+// an anchor (or inside one) computes those again, which on this page is
+// much of it — less than a whole restyle each, and exact.
+constexpr std::string_view has_every_sibling_sheet = R"(
+body { color: rgb(10, 20, 30); font-size: 15px }
+.group:has(~ .group .on) > .row { margin-left: 1px }
+.group:has(> .row.pick) ~ .group .leaf { margin-right: 1px }
+.leaf { color: inherit }
+)";
+
 // ::first-letter on blocks, handed down the chain of first block children,
 // with classes that make a box a flex container, take it out of the flow or
 // out of the tree: what an update must hand down again.
@@ -322,7 +349,7 @@ Step update_and_check(dom::Document const& document, css::StyleSet const& set, K
     return step;
 }
 
-void random_mutations(std::string_view sheet, std::uint64_t seed)
+void random_mutations(std::string_view sheet, std::uint64_t seed, std::size_t share = 4)
 {
     Page page = make_page(3000);
     std::size_t const size = count_elements(*page.document);
@@ -463,8 +490,9 @@ void random_mutations(std::string_view sheet, std::uint64_t seed)
     std::size_t const final_size = count_elements(*page.document);
     std::cout << "  " << steps << " mutations over " << final_size << " elements: " << computed_total
               << " computed in all, " << whole_updates << " whole (" << whole_reasons << ")\n";
-    // Most of the changes are local: far less than a whole restyle each.
-    CHECK(computed_total < static_cast<std::size_t>(steps) * final_size / 4);
+    // Most of the changes are local: far less than a whole restyle each
+    // (a `share` of one: less than whole, for sheets that reach far).
+    CHECK(computed_total < static_cast<std::size_t>(steps) * final_size / share);
 }
 
 // The bounds, each measured on a fresh page: a leaf's class, the root's
@@ -704,14 +732,32 @@ void reaches()
         CHECK(!through_back.outcome.whole);
         CHECK_EQ(through_back.difference.value_or(""), std::string());
     }
-    // Siblings in the argument or after the anchor, an anchor that is any
-    // element, or a :has() inside another selector's argument other than on
-    // an anchor's own element: a change reaches further, and the update is
-    // whole.
-    for (std::string_view const sheet : { "div:has(+ .on) { color: red }", ":has(.on) p { color: red }",
-             "div:has(~ p .on) { color: red }", ":not(div:has(.on)) > p { color: red }", "div:has(.on) + p { color: red }",
-             ":not(:has(.on)) span { color: red }", "div:not(:has(.on) b) span { color: red }",
-             "div:not(:has(.on)) + p { color: red }" }) {
+    // Starting beside the element: the elements before the change among
+    // its siblings, and before each of its ancestors, are computed again,
+    // and not the whole document. So with an anchor left by + or ~, and
+    // one inside an :is() or :where() that a descendant or child follows.
+    for (std::string_view const sheet : { "div:has(+ .on) { color: red }", "div:has(~ p .on) { color: red }",
+             "div:has(+ div .on) span { color: red }", "div:has(.on) + p { color: red }",
+             "div:not(:has(.on)) + p { color: red }", "div:has(> .on) ~ p b { color: red }",
+             ":is(div:has(.on) span) { color: red }", ":where(div:has(.on) > p) b { color: red }" }) {
+        css::StyleSet beside(std::vector<css::SheetSource> { { std::string(sheet), std::nullopt } });
+        Kept beside_kept;
+        update_and_check(*document, beside, beside_kept);
+        toggle_class(*by_id("s2"), "on");
+        Step const beside_step = update_and_check(*document, beside, beside_kept);
+        CHECK(!beside_step.outcome.whole);
+        CHECK(beside_step.outcome.computed < count_elements(*document));
+        CHECK_EQ(beside_step.difference.value_or(""), std::string());
+        toggle_class(*by_id("s2"), "on");
+        Step const beside_back = update_and_check(*document, beside, beside_kept);
+        CHECK(!beside_back.outcome.whole);
+        CHECK_EQ(beside_back.difference.value_or(""), std::string());
+    }
+    // An anchor that is any element, or a :has() inside another selector's
+    // argument other than on an anchor's own element: a change reaches
+    // further, and the update is whole.
+    for (std::string_view const sheet : { ":has(.on) p { color: red }", ":not(div:has(.on)) > p { color: red }",
+             ":not(:has(.on)) span { color: red }", "div:not(:has(.on) b) span { color: red }" }) {
         css::StyleSet wide(std::vector<css::SheetSource> { { std::string(sheet), std::nullopt } });
         Kept wide_kept;
         update_and_check(*document, wide, wide_kept);
@@ -1153,6 +1199,8 @@ int main()
     random_mutations(page_sheet, 0x1234abcdu);
     random_mutations(argument_sheet, 0x9e3779b9u);
     random_mutations(has_sheet, 0x51ed27f3u);
+    random_mutations(has_sibling_sheet, 0x3c6ef372u);
+    random_mutations(has_every_sibling_sheet, 0x3c6ef372u, 1);
     random_mutations(state_sheet, 0x2545f491u);
     random_mutations(first_letter_sheet, 0x6a09e667u);
     first_letters_handed_down();

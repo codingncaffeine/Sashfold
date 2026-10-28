@@ -45,9 +45,23 @@ struct StyleUses {
     bool empty = false; // :empty
     bool has = false; // :has()
     // A :has() whose answer a change can turn for an element other than an
-    // ancestor of the changed one: outside the compound that names the
-    // subject, inside another :has(), or with a sibling in its argument.
+    // ancestor of the changed one or an element before one of those: outside
+    // the compound that names the subject (or an anchor), or inside another
+    // :has().
     bool has_beyond_ancestors = false;
+    // A :has() whose argument starts beside the element (`:has(+ x)`,
+    // `:has(~ x y)`): a change turns it for the elements before the changed
+    // one or before one of its ancestors, among their siblings.
+    bool has_siblings = false;
+    // How many elements back such a change reaches: the longest run of `+`
+    // its arguments start with (`:has(+ a + b c)` two), or every element
+    // before it when one starts with a `~` among them.
+    static constexpr std::uint8_t every_sibling = 255;
+    std::uint8_t has_sibling_reach = 0;
+    // A :has() on an anchor that the rest of its selector leaves by + or ~:
+    // what is computed again for an anchor is computed for the elements
+    // after it among its siblings too.
+    bool has_anchor_siblings = false;
     bool first_letter = false; // ::first-letter
     // :placeholder-shown, :valid/:invalid, :in-range/:out-of-range: what a
     // control's typed value turns, so a keystroke restyles it.

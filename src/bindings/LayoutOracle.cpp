@@ -7,6 +7,8 @@
 
 #include <algorithm>
 #include <cstdint>
+#include <cstdlib>
+#include <iostream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -306,6 +308,14 @@ std::string sheet_signature(dom::Node const& node)
     return signature;
 }
 
+// SASHFOLD_TRACE_FRAMES: why a script's measurement restyled the whole
+// document, and when it parsed the page's sheets again.
+bool frames_traced()
+{
+    static bool const traced = [] { char const* const asked = std::getenv("SASHFOLD_TRACE_FRAMES"); return asked && *asked && *asked != '0'; }();
+    return traced;
+}
+
 } // namespace
 
 void LayoutOracle::ensure()
@@ -332,7 +342,9 @@ void LayoutOracle::ensure()
     } const fonts_back { m_keep_page_fonts, page_faces };
     // Only what changed since the last answer is computed again; layout
     // stays whole.
-    css::update_styles(*m_document, *m_style_set, m_styles, m_style_record);
+    css::RestyleOutcome const outcome = css::update_styles(*m_document, *m_style_set, m_styles, m_style_record);
+    if (outcome.whole && frames_traced())
+        std::cerr << "measure restyle: whole, " + std::to_string(outcome.computed) + " elements: " + std::string(outcome.reason) + "\n";
     // The objects and embeds as the realm has decided them, so that a script
     // measuring an object's fallback, or an embed that represents nothing,
     // measures what is drawn.
@@ -368,6 +380,8 @@ void LayoutOracle::sheets_up_to_date()
     // carrying them changed; every mutation still cascades and lays out.
     std::string signature = sheet_signature(*m_document) + css::scripted_sheets_signature(*m_document);
     if (!m_style_set || signature != m_sheet_signature) {
+        if (frames_traced())
+            std::cerr << std::string("measure sheets: ") + (m_style_set ? "changed" : "first") + ", parsed again\n";
         css::InlineSheetCheck check;
         if (m_policy) {
             check = [this](dom::Element const& style, std::string_view text) {
