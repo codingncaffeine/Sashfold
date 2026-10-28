@@ -435,6 +435,40 @@ ui::ImageFetcher image_fetcher(LoadedPage const& page, int* failures = nullptr)
     };
 }
 
+// Every picture the page will want asked for at once, as the window asks
+// (the same walk with nothing fetched names them), each handed to `decodes`
+// on the loader's thread the moment it arrives. A picture the page's policy
+// refuses is not asked for; the pass after this judges every one again.
+void ask_pictures_ahead(LoadedPage const& page, dom::Document const& document, css::StyleMap const& styles,
+    css::MediaContext const& media, layout::EmbeddedStates const* embedded, std::shared_ptr<ui::PictureDecodes> const& decodes)
+{
+    if (!page.loader || (page.url.scheme != "http" && page.url.scheme != "https"))
+        return;
+    std::vector<net::Url> wanted;
+    ui::ImageFetcher const note = [&wanted](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+        wanted.push_back(url);
+        return std::nullopt;
+    };
+    ui::collect_images(document, &page.url, note, media, embedded);
+    ui::collect_background_images(styles, note);
+    for (net::Url const& asked : wanted) {
+        net::Url url = asked;
+        if (page.policy) {
+            if (page.policy->upgrade_insecure_requests())
+                url = net::upgraded_insecure(url);
+            if (!page.policy->empty() && !page.policy->allows_quietly(net::ResourceKind::Image, url))
+                continue;
+        }
+        page.loader->prefetch(url, page.url, "", net::ResourceKind::Image, {},
+            [held = std::weak_ptr<ui::PictureDecodes>(decodes), name = asked.serialize(true)](net::FetchResult const& result) {
+                if (!result.response || result.response->status != 200)
+                    return;
+                if (std::shared_ptr<ui::PictureDecodes> const kept = held.lock())
+                    kept->offer(name, result.response->body);
+            });
+    }
+}
+
 // The page's frames and what their documents fetch, through its own
 // session: a frame's document, an object's or an embed's whatever its status,
 // which goes with it, as a window shows a server's error page in a frame, and
@@ -1101,15 +1135,20 @@ int render_page(std::string const& path, std::string const& output, int viewport
     // The objects and embeds as the page's realm decided them; without scripts
     // nothing is decided, and each is the replaced box it always was.
     layout::EmbeddedStates const embedded = realm ? bindings::embedded_states(*realm) : layout::EmbeddedStates {};
+    // Every picture the page shows is asked for at once, as the window asks,
+    // each decoded on the thread that fetched it; the passes below then take
+    // them as they come instead of fetching and decoding one at a time.
+    std::shared_ptr<ui::PictureDecodes> const decodes = std::make_shared<ui::PictureDecodes>();
+    ask_pictures_ahead(loaded, *document, styles, media, realm ? &embedded : nullptr, decodes);
     layout::ImageMap images = ui::collect_images(*document, &loaded.url,
-        image_fetcher(loaded, &image_failures), media, realm ? &embedded : nullptr);
+        image_fetcher(loaded, &image_failures), media, realm ? &embedded : nullptr, ui::ImagePass { nullptr, 0, nullptr, {}, decodes.get() });
     // What the page's videos show at the moment it is drawn.
     if (realm) {
         for (bindings::VideoFrame const& frame : realm->video_frames())
             images[frame.element] = layout::PageImage { frame.bitmap, 1 };
     }
     layout::BackgroundImages const backgrounds
-        = ui::collect_background_images(styles, image_fetcher(loaded, &image_failures));
+        = ui::collect_background_images(styles, image_fetcher(loaded, &image_failures), nullptr, decodes.get());
     auto const t4 = clock::now();
     layout::LayoutResult page = layout::layout_document(*document, styles,
         static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height), g_device_scale,

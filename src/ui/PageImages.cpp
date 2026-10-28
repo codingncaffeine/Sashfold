@@ -23,6 +23,23 @@ constexpr std::size_t max_image_bytes = 8u * 1024u * 1024u;
 // their alt text rather than the machine's memory.
 constexpr std::size_t max_page_decoded_bytes = 256u * 1024u * 1024u;
 
+// A fetched picture's bitmap: the one decoded from these bytes on a
+// loader's thread when there is one, else decoded here.
+std::shared_ptr<Bitmap const> decode_fetched(std::vector<std::uint8_t> const& bytes, std::string const& key,
+    PictureDecodes const* decodes, float* density)
+{
+    if (decodes) {
+        if (std::optional<PictureDecodes::Decoded> found = decodes->find(key, bytes)) {
+            if (density)
+                *density = 1;
+            return std::move(found->image);
+        }
+    }
+    if (std::optional<Bitmap> decoded = decode_image_bytes(bytes, 0, density))
+        return std::make_shared<Bitmap const>(std::move(*decoded));
+    return nullptr;
+}
+
 struct Collector {
     net::Url const* base;
     css::MediaContext const& media;
@@ -103,10 +120,9 @@ struct Collector {
             ++fetched;
             if (std::optional<std::vector<std::uint8_t>> bytes = fetch(url);
                 bytes && bytes->size() <= max_image_bytes) {
-                if (std::optional<Bitmap> decoded = decode_image_bytes(*bytes, 0, &drawn_at)) {
-                    decoded_bytes += static_cast<std::size_t>(decoded->width()) * static_cast<std::size_t>(decoded->height()) * 4u;
-                    image = std::make_shared<Bitmap const>(std::move(*decoded));
-                }
+                image = decode_fetched(*bytes, key, pass.decodes, &drawn_at);
+                if (image)
+                    decoded_bytes += static_cast<std::size_t>(image->width()) * static_cast<std::size_t>(image->height()) * 4u;
             }
         }
         by_url.emplace(key, image);
@@ -158,7 +174,7 @@ layout::ImageMap collect_images(dom::Document const& document, net::Url const* b
 }
 
 layout::BackgroundImages collect_background_images(css::StyleMap const& styles, ImageFetcher const& fetch,
-    layout::BackgroundImages const* known)
+    layout::BackgroundImages const* known, PictureDecodes const* decodes)
 {
     layout::BackgroundImages out;
     std::size_t fetched = 0;
@@ -173,10 +189,8 @@ layout::BackgroundImages collect_background_images(css::StyleMap const& styles, 
             if (url && fetched < max_background_images && fetch) {
                 ++fetched;
                 if (std::optional<std::vector<std::uint8_t>> bytes = fetch(*url);
-                    bytes && bytes->size() <= max_image_bytes) {
-                    if (std::optional<Bitmap> decoded = decode_image_bytes(*bytes))
-                        bitmap = std::make_shared<Bitmap const>(std::move(*decoded));
-                }
+                    bytes && bytes->size() <= max_image_bytes)
+                    bitmap = decode_fetched(*bytes, url->serialize(true), decodes, nullptr);
             }
             out.emplace(image.url, std::move(bitmap));
         }

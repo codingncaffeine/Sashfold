@@ -583,6 +583,9 @@ struct Browser::Impl {
         // that asks for a script, handed to the page's interpreter when its
         // realm is made.
         std::shared_ptr<js::ScriptPreparer> scripts_ahead;
+        // Its pictures likewise: decoded on the loader's threads as they come,
+        // taken by the passes over its pictures. One per page.
+        std::shared_ptr<PictureDecodes> pictures_ahead = std::make_shared<PictureDecodes>();
         // The container the tab is in: its cookie jar and its storage are
         // that container's, kept apart from every other's. Empty for the
         // default container.
@@ -3681,6 +3684,7 @@ struct Browser::Impl {
     {
         if (page_url.scheme != "http" && page_url.scheme != "https")
             return nullptr;
+        std::string const asked_as = url.serialize(true); // the name a page's pass looks a picture up by
         if (policy) {
             if (policy->upgrade_insecure_requests())
                 url = net::upgraded_insecure(url);
@@ -3700,6 +3704,16 @@ struct Browser::Impl {
                     return;
                 if (std::shared_ptr<js::ScriptPreparer> const held = preparer.lock())
                     held->offer(name, std::string(result.response->body.begin(), result.response->body.end()));
+            };
+        }
+        // A picture likewise is decoded the moment it has come, on the
+        // thread that fetched it, for the passes over the page's pictures.
+        if (kind == net::ResourceKind::Image) {
+            arrived = [decodes = std::weak_ptr<PictureDecodes>(tab.pictures_ahead), name = asked_as](net::FetchResult const& result) {
+                if (!result.response || result.response->status != 200)
+                    return;
+                if (std::shared_ptr<PictureDecodes> const held = decodes.lock())
+                    held->offer(name, result.response->body);
             };
         }
         return loader.prefetch(url, page_url, referrer_for(&page_url, url), kind, tab.container, std::move(arrived));
@@ -3881,7 +3895,7 @@ struct Browser::Impl {
         {
             Stopwatch const collecting(profile.images_ms);
             layout::ImageMap fresh = collect_images(*tab.document, &entry->final_url, image_fetcher(tab), media_context(),
-                tab.realm ? &embedded : nullptr, ImagePass { &tab.images, images_per_pass, &more, picture_arrived(tab) });
+                tab.realm ? &embedded : nullptr, ImagePass { &tab.images, images_per_pass, &more, picture_arrived(tab), tab.pictures_ahead.get() });
             took_some = !fresh.empty();
             take_pictures(tab, fresh);
         }
@@ -4803,12 +4817,12 @@ struct Browser::Impl {
                 // on its way is taken as it comes, a pass per batch.
                 bool more = false;
                 layout::ImageMap fresh = collect_images(*tab.document, &page_url, fetch_image, media_context(),
-                    tab.realm ? &embedded : nullptr, ImagePass { &tab.images, images_per_pass, &more, picture_arrived(tab) });
+                    tab.realm ? &embedded : nullptr, ImagePass { &tab.images, images_per_pass, &more, picture_arrived(tab), tab.pictures_ahead.get() });
                 take_pictures(tab, fresh);
                 tab.images_owed = more;
             }
             // The backgrounds the styles name now that were not had before.
-            for (auto& [url, bitmap] : collect_background_images(tab.styles, fetch_image, &tab.backgrounds))
+            for (auto& [url, bitmap] : collect_background_images(tab.styles, fetch_image, &tab.backgrounds, tab.pictures_ahead.get()))
                 tab.backgrounds[url] = std::move(bitmap);
         }
         if (!entry->unloaded) // a restored entry keeps its saved title until its page arrives
@@ -5401,6 +5415,8 @@ struct Browser::Impl {
                     tab.navigating = std::move(navigating);
                     // A new document: its scripts are parsed for its own page.
                     tab.scripts_ahead.reset();
+                    // And its pictures decoded for it: the last page's are let go.
+                    tab.pictures_ahead = std::make_shared<PictureDecodes>();
                     dirty = true;
                     return true;
                 }

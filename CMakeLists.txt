@@ -212,6 +212,7 @@ add_library(sashfold_core STATIC
   src/ui/Frames.cpp
   src/ui/PageCompositor.cpp
   src/ui/PageImages.cpp
+  src/ui/PictureDecodes.cpp
   src/ui/Reader.cpp
   src/ui/Script.cpp
   src/ui/ShellLoader.cpp

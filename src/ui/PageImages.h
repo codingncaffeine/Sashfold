@@ -10,6 +10,7 @@
 #include "css/Stylesheets.h"
 #include "layout/Layout.h"
 #include "net/Url.h"
+#include "ui/PictureDecodes.h"
 
 #include <cstdint>
 #include <functional>
@@ -51,6 +52,9 @@ struct ImagePass {
     // for a later pass like one past the budget, and costs none of it; with
     // no such question every source is fetched where it is met.
     std::function<bool(net::Url const&)> arrived;
+    // The pictures decoded on the loader's threads as they came: one found
+    // there for the bytes fetched is taken, not decoded again.
+    PictureDecodes const* decodes = nullptr;
 };
 
 // `media` is the viewport the sources are chosen for. The map returned
@@ -62,8 +66,8 @@ layout::ImageMap collect_images(dom::Document const& document, net::Url const* b
 // The pictures the styles name as backgrounds (their URLs already
 // resolved), fetched once each and decoded, for the painter; bounded per
 // pass. Those in `known` are left as they are, and the map returned holds
-// the new ones only.
+// the new ones only. `decodes` as for an ImagePass.
 layout::BackgroundImages collect_background_images(css::StyleMap const& styles, ImageFetcher const& fetch,
-    layout::BackgroundImages const* known = nullptr);
+    layout::BackgroundImages const* known = nullptr, PictureDecodes const* decodes = nullptr);
 
 }
