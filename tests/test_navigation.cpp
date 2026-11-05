@@ -445,6 +445,11 @@ int main()
         // shown in what it has meanwhile, and laid out in the piece when it
         // has come.
         Rect const area = browser.chrome_layout().content;
+        // Counted from before the click: the Greek text is laid out once in
+        // what the page has, which is what asks for the piece, and again when
+        // the piece has come. A slow machine's tick can outlast the piece's
+        // 100 ms, so the second layout may land before the wait below ends.
+        std::uint64_t const layouts_before_click = browser.profile().relayouts;
         browser.mouse_move(area.x + 50, area.y + 50);
         browser.mouse_down(area.x + 50, area.y + 50, 1);
         browser.mouse_up(area.x + 50, area.y + 50, 1);
@@ -452,9 +457,8 @@ int main()
         while ((browser.page_title() != "Greek" || server.asked("/greek.ttf") == 0) && ms_since(clicked) < 5000)
             browser.tick();
         CHECK_EQ(browser.page_title(), std::string("Greek"));
-        std::uint64_t const layouts_without = browser.profile().relayouts;
         load_fully(browser);
-        CHECK(browser.profile().relayouts > layouts_without); // laid out again, in the piece
+        CHECK(browser.profile().relayouts >= layouts_before_click + 2); // in what it had, then in the piece
         CHECK_EQ(server.asked("/greek.ttf"), std::size_t { 1 });
         CHECK_EQ(server.asked("/used.ttf"), std::size_t { 1 });
         CHECK_EQ(server.asked("/unused.ttf"), std::size_t { 0 });
