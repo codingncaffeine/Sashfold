@@ -1202,6 +1202,10 @@ void test_window_location_url_storage_navigator()
     page->eval("u.searchParams.set('x', '9'); u.searchParams.append('z', 'a b'); u.searchParams.delete('y'); u.hash = 'new';");
     CHECK_EQ(page->string("u.href"), "https://h.test/p/a/b?x=9&z=a+b#new");
     CHECK_EQ(page->string("new URLSearchParams({ a: 1, b: 'x y' }).toString() + ' ' + new URLSearchParams('?k=v&k=w').getAll('k').length + ' ' + new URLSearchParams([['p', 'q']]).get('p')"), "a=1&b=x+y 2 q");
+    // forEach hands the callback the value and the name: two strings made
+    // one after the other, the first of which must outlive the second's
+    // making (the page collects at every allocation).
+    CHECK_EQ(page->string("(function () { var seen = []; new URLSearchParams('alpha=first&beta=second').forEach(function (value, name) { seen.push(name + '=' + value); }); return seen.join('&'); })()"), "alpha=first&beta=second");
     CHECK(page->throws("new URL('nope')").starts_with("TypeError"));
     CHECK(page->boolean("URL.canParse('https://x.test') && !URL.canParse('nope') && u instanceof URL && JSON.stringify({ u: u }) === '{\"u\":\"https://h.test/p/a/b?x=9&z=a+b#new\"}'"));
     // Storage.

@@ -2063,12 +2063,18 @@ void install_window(Realm::Internals& in)
         if (!js::Interpreter::is_callable(callback))
             return interp.throw_type_error("parameter 1 is not of type 'Function'");
         std::vector<std::pair<std::string, std::string>> const pairs = (*params)->pairs;
+        Realm::Internals& internals = internals_of(interp);
         js::Interpreter::Roots const roots(interp);
+        interp.root(this_value);
         interp.root(callback);
+        js::Value const this_argument = js::argument(args, 1);
+        interp.root(this_argument);
         for (auto const& [name, value] : pairs) {
-            js::Value const arguments[3] = { internals_of(interp).string(value), internals_of(interp).string(name), this_value };
-            interp.root(arguments[0]);
-            if (!interp.call(callback, js::argument(args, 1), arguments))
+            // The value's string is held before the name's is made: making
+            // the second may collect, and swept the first.
+            js::Interpreter::Roots const pair_roots(interp);
+            js::Value const arguments[3] = { interp.root(internals.string(value)), interp.root(internals.string(name)), this_value };
+            if (!interp.call(callback, this_argument, arguments))
                 return std::nullopt;
         }
         return js::Value::undefined();
