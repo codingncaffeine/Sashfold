@@ -888,17 +888,27 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     document_method(in, *document, "createDocumentFragment", 0, [](Realm::Internals& internals, dom::Document& d, Args) -> Native {
         return js::Value::object(internals.wrap(*d.create<dom::DocumentFragment>()));
     });
+    // createAttribute / createAttributeNS (DOM §4.5): an Attr of no element.
     document_method(in, *document, "createAttribute", 1, [](Realm::Internals& internals, dom::Document&, Args args) -> Native {
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)
             return std::nullopt;
-        js::Heap::NoCollect const no_collect(internals.interpreter.heap());
-        js::Object* attr = internals.interpreter.heap().allocate<PlainPlatformObject>(internals.prototype("Attr"), internals.realm_record);
-        attr->put(internals.interpreter.key("name"), internals.string(ascii_lower(*name)), js::Enumerable);
-        attr->put(internals.interpreter.key("localName"), internals.string(ascii_lower(*name)), js::Enumerable);
-        attr->put(internals.interpreter.key("value"), internals.string(""), js::Enumerable | js::Writable);
-        attr->put(internals.interpreter.key("nodeType"), js::Value::number(2), js::Enumerable);
-        return js::Value::object(attr);
+        if (name->empty() || name->find_first_of(std::string_view("\t\n\f\r />=\0", 9)) != std::string::npos)
+            return internals.throw_dom_exception("InvalidCharacterError", "The localName provided ('" + *name + "') is not a valid attribute name.");
+        return new_attr(internals, "", "", ascii_lower(*name), "");
+    });
+    document_method(in, *document, "createAttributeNS", 2, [](Realm::Internals& internals, dom::Document&, Args args) -> Native {
+        js::Value const space = js::argument(args, 0);
+        std::optional<std::string> namespace_uri = space.is_nullish() ? std::optional<std::string>("") : internals.to_utf8(space);
+        if (!namespace_uri)
+            return std::nullopt;
+        std::optional<std::string> const qualified_name = internals.to_utf8(js::argument(args, 1));
+        if (!qualified_name)
+            return std::nullopt;
+        ExtractedName name = validate_and_extract(std::move(*namespace_uri), *qualified_name);
+        if (!name.error.empty())
+            return internals.throw_dom_exception(name.error, "'" + *qualified_name + "' is not a valid attribute name in the namespace '" + name.namespace_uri + "'");
+        return new_attr(internals, std::move(name.namespace_uri), std::move(name.prefix), std::move(name.local_name), "");
     });
     document_method(in, *document, "createEvent", 1, [](Realm::Internals& internals, dom::Document&, Args args) -> Native {
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));

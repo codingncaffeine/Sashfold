@@ -1728,10 +1728,10 @@ void install_window(Realm::Internals& in)
             return dom_exception_value(internals, *name, *message);
         },
         0);
-    for (auto const& [name, code] : { std::pair { "INDEX_SIZE_ERR", 1 }, std::pair { "HIERARCHY_REQUEST_ERR", 3 }, std::pair { "WRONG_DOCUMENT_ERR", 4 },
+    for (auto const& [name, code] : { std::pair { "INDEX_SIZE_ERR", 1 }, std::pair { "DOMSTRING_SIZE_ERR", 2 }, std::pair { "HIERARCHY_REQUEST_ERR", 3 }, std::pair { "WRONG_DOCUMENT_ERR", 4 },
              std::pair { "INVALID_CHARACTER_ERR", 5 }, std::pair { "NO_MODIFICATION_ALLOWED_ERR", 7 }, std::pair { "NOT_FOUND_ERR", 8 },
-             std::pair { "NOT_SUPPORTED_ERR", 9 }, std::pair { "INVALID_STATE_ERR", 11 }, std::pair { "SYNTAX_ERR", 12 },
-             std::pair { "INVALID_MODIFICATION_ERR", 13 }, std::pair { "NAMESPACE_ERR", 14 }, std::pair { "INVALID_ACCESS_ERR", 15 },
+             std::pair { "NOT_SUPPORTED_ERR", 9 }, std::pair { "INUSE_ATTRIBUTE_ERR", 10 }, std::pair { "INVALID_STATE_ERR", 11 }, std::pair { "SYNTAX_ERR", 12 },
+             std::pair { "INVALID_MODIFICATION_ERR", 13 }, std::pair { "NAMESPACE_ERR", 14 }, std::pair { "INVALID_ACCESS_ERR", 15 }, std::pair { "VALIDATION_ERR", 16 },
              std::pair { "TYPE_MISMATCH_ERR", 17 }, std::pair { "SECURITY_ERR", 18 }, std::pair { "NETWORK_ERR", 19 }, std::pair { "ABORT_ERR", 20 },
              std::pair { "URL_MISMATCH_ERR", 21 }, std::pair { "QUOTA_EXCEEDED_ERR", 22 }, std::pair { "TIMEOUT_ERR", 23 },
              std::pair { "INVALID_NODE_TYPE_ERR", 24 }, std::pair { "DATA_CLONE_ERR", 25 } }) {

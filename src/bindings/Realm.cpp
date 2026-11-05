@@ -371,6 +371,7 @@ void erase_attribute(Realm::Internals& in, dom::Element& element, std::vector<do
     std::string const local_name = it->local_name;
     std::string old_value = std::move(it->value);
     element.attributes().erase(it);
+    attribute_let_go(element, namespace_uri, local_name, old_value);
     attribute_written(in, element, namespace_uri, local_name, old_value);
 }
 
@@ -1261,7 +1262,7 @@ js::Value Realm::Internals::make_dom_exception(std::string_view name, std::strin
     static constexpr std::pair<std::string_view, int> codes[] = {
         { "IndexSizeError", 1 }, { "HierarchyRequestError", 3 }, { "WrongDocumentError", 4 },
         { "InvalidCharacterError", 5 }, { "NoModificationAllowedError", 7 }, { "NotFoundError", 8 },
-        { "NotSupportedError", 9 }, { "InvalidStateError", 11 }, { "SyntaxError", 12 },
+        { "NotSupportedError", 9 }, { "InUseAttributeError", 10 }, { "InvalidStateError", 11 }, { "SyntaxError", 12 },
         { "InvalidModificationError", 13 }, { "NamespaceError", 14 }, { "InvalidAccessError", 15 },
         { "TypeMismatchError", 17 }, { "SecurityError", 18 }, { "NetworkError", 19 }, { "AbortError", 20 },
         { "URLMismatchError", 21 }, { "QuotaExceededError", 22 }, { "TimeoutError", 23 },

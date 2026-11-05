@@ -5,13 +5,17 @@
 // strings into TrustedHTML, TrustedScript and TrustedScriptURL through the
 // rules the page gave it; the factory says which attributes and
 // properties take which type, and tells a trusted value from a string.
-// Enforcement at the sinks under `require-trusted-types-for 'script'` is
-// not written yet: a sink here still takes a string, and takes a trusted
-// value through its toString, as every sink does in a browser.
+// Under `require-trusted-types-for 'script'` the attribute sinks are
+// enforced (setAttribute, setAttributeNS, an Attr given to an element, an
+// Attr's value): a plain string goes through the default policy or is
+// refused. The other sinks still take a string, and take a trusted value
+// through its toString, as every sink does in a browser.
 
 #include "js/Runtime.h"
 
+#include <algorithm>
 #include <cstdint>
+#include <span>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -179,21 +183,41 @@ bool is_html_namespace(std::string_view ns)
     return ns.empty() || ns == "http://www.w3.org/1999/xhtml";
 }
 
+// An event handler content attribute (HTML §8.1.8.2): "on" and the name of
+// one of the handlers every element, or the window through the body, has,
+// or the two a media element adds (Encrypted Media Extensions). An element
+// of no namespace those handlers belong to has none.
+bool is_event_handler_attribute(std::string_view element_ns, std::string const& attribute)
+{
+    if (!is_html_namespace(element_ns) && element_ns != dom::ns::svg && element_ns != dom::ns::mathml)
+        return false;
+    if (attribute.size() <= 2 || !attribute.starts_with("on"))
+        return false;
+    std::string_view const type = std::string_view(attribute).substr(2);
+    if (type == "encrypted" || type == "waitingforkey")
+        return true;
+    for (std::span<std::string_view const> const names : { global_event_handler_types(), window_event_handler_types() }) {
+        if (std::find(names.begin(), names.end(), type) != names.end())
+            return true;
+    }
+    return false;
+}
+
+// The table of §4.3.4 "Get Trusted Type data for attribute". (The embed's
+// src and the object's data and codebase left it: w3c/trusted-types#554.)
 std::optional<std::string_view> attribute_type_of(std::string_view element_ns, std::string const& tag, std::string const& attribute, std::string_view attribute_ns)
 {
+    if (element_ns == dom::ns::svg && tag == "script" && attribute == "href" && (attribute_ns.empty() || attribute_ns == dom::ns::xlink))
+        return "TrustedScriptURL";
     if (!attribute_ns.empty())
         return std::nullopt;
-    if (attribute.size() > 2 && attribute[0] == 'o' && attribute[1] == 'n')
+    if (is_event_handler_attribute(element_ns, attribute))
         return "TrustedScript";
     if (!is_html_namespace(element_ns))
         return std::nullopt;
     if (tag == "iframe" && attribute == "srcdoc")
         return "TrustedHTML";
     if (tag == "script" && attribute == "src")
-        return "TrustedScriptURL";
-    if (tag == "embed" && attribute == "src")
-        return "TrustedScriptURL";
-    if (tag == "object" && (attribute == "data" || attribute == "codebase"))
         return "TrustedScriptURL";
     return std::nullopt;
 }
@@ -209,10 +233,6 @@ std::optional<std::string_view> property_type_of(std::string_view element_ns, st
     if (tag == "script" && (property == "innerText" || property == "text" || property == "textContent"))
         return "TrustedScript";
     if (tag == "script" && property == "src")
-        return "TrustedScriptURL";
-    if (tag == "embed" && property == "src")
-        return "TrustedScriptURL";
-    if (tag == "object" && (property == "data" || property == "codeBase"))
         return "TrustedScriptURL";
     return std::nullopt;
 }
@@ -378,6 +398,103 @@ std::optional<std::string> trusted_script_code(js::Value const& value)
     if (trusted == nullptr || trusted->kind != TrustedKind::Script)
         return std::nullopt;
     return trusted->data;
+}
+
+namespace {
+
+TrustedTypeFactoryObject& factory_for(Realm::Internals& in)
+{
+    return *static_cast<TrustedTypeFactoryObject*>(same_object(in, "trustedTypes", [&] {
+        auto* made = in.interpreter.heap().allocate<TrustedTypeFactoryObject>(in.prototype("TrustedTypePolicyFactory"), in.realm_record);
+        made->default_policy = js::Value::undefined();
+        return made;
+    }));
+}
+
+// The sink an attribute's data names (§4.1, the attribute table).
+std::string attribute_sink(std::string_view element_ns, std::string const& tag, std::string const& attribute)
+{
+    if (attribute.size() > 2 && attribute[0] == 'o' && attribute[1] == 'n')
+        return "Element " + attribute;
+    if (element_ns == dom::ns::svg)
+        return "SVGScriptElement href";
+    if (tag == "iframe")
+        return "HTMLIFrameElement srcdoc";
+    return "HTMLScriptElement src";
+}
+
+// "Get Trusted Type compliant string" (§4.3.1) for a value that is not of
+// the type: as given when no policy requires Trusted Types for scripts;
+// else what the default policy makes of it, or, with none or nothing from
+// it, a TypeError under an enforced policy and the input under one that
+// only reports.
+std::optional<std::string> compliant_string(Realm::Internals& in, TrustedKind kind, std::string input, std::string_view sink)
+{
+    bool enforced = false;
+    bool reported = false;
+    if (in.hooks.policy != nullptr) {
+        for (net::ContentSecurityPolicy::Policy const& policy : in.hooks.policy->policies()) {
+            net::ContentSecurityPolicy::Directive const* const directive = policy.find("require-trusted-types-for");
+            if (directive == nullptr)
+                continue;
+            bool const script = std::any_of(directive->values.begin(), directive->values.end(),
+                [](std::string const& value) { return ascii_lower(value) == "'script'"; });
+            if (script)
+                (policy.report_only ? reported : enforced) = true;
+        }
+    }
+    if (!enforced && !reported)
+        return input;
+    js::Interpreter& interp = in.interpreter;
+    js::Interpreter::Roots const roots(interp);
+    js::Value const policy_value = interp.root(factory_for(in).default_policy);
+    if (auto* const policy = policy_value.is_object() ? dynamic_cast<TrustedPolicyObject*>(policy_value.as_object()) : nullptr) {
+        js::Value const rule = kind == TrustedKind::Html ? policy->create_html : kind == TrustedKind::Script ? policy->create_script : policy->create_script_url;
+        if (js::Interpreter::is_callable(rule)) {
+            interp.root(rule);
+            std::vector<js::Value> const arguments { interp.root(in.string(input)), interp.root(in.string(kind_name(kind))),
+                interp.root(in.string(sink)) };
+            std::optional<js::Value> const result = interp.call(rule, js::Value::undefined(), arguments);
+            if (!result)
+                return std::nullopt;
+            if (!result->is_nullish()) {
+                interp.root(*result);
+                return in.to_utf8(*result);
+            }
+        }
+    }
+    if (enforced) {
+        interp.throw_type_error("Failed to set '" + std::string(sink) + "': This document requires '" + std::string(kind_name(kind)) + "' assignment.");
+        return std::nullopt;
+    }
+    return input;
+}
+
+}
+
+bool is_trusted_value(js::Value const& value)
+{
+    return value.is_object() && dynamic_cast<TrustedValueObject*>(value.as_object()) != nullptr;
+}
+
+std::optional<std::string> trusted_attribute_value(Realm::Internals& in, dom::Element const& element, std::string_view attribute_ns,
+    std::string_view local_name, js::Value const& value)
+{
+    std::string const& element_ns = element.namespace_uri();
+    std::string const tag = is_html_namespace(element_ns) ? ascii_lower(element.local_name()) : element.local_name();
+    std::string const attribute(local_name);
+    std::optional<std::string_view> const type = attribute_type_of(element_ns, tag, attribute, attribute_ns);
+    if (!type)
+        return in.to_utf8(value);
+    TrustedKind const kind = *type == "TrustedHTML" ? TrustedKind::Html : *type == "TrustedScript" ? TrustedKind::Script : TrustedKind::ScriptUrl;
+    if (auto* const trusted = value.is_object() ? dynamic_cast<TrustedValueObject*>(value.as_object()) : nullptr) {
+        if (trusted->kind == kind)
+            return trusted->data;
+    }
+    std::optional<std::string> input = in.to_utf8(value);
+    if (!input)
+        return std::nullopt;
+    return compliant_string(in, kind, std::move(*input), attribute_sink(element_ns, tag, attribute));
 }
 
 void install_trusted_types(Realm::Internals& in)

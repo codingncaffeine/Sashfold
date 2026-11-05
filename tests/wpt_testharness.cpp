@@ -894,6 +894,16 @@ TestResult run_test(Server const& server, std::string const& id)
     std::optional<std::string> report;
     bool stopped = false;
     bindings::HostHooks hooks;
+    // The page's Content Security Policy, as a browser keeps one: the
+    // headers its .headers file gives, and its <meta> elements' as they
+    // appear.
+    net::ContentSecurityPolicy page_policy(*url);
+    for (net::Header const& header : page->headers) {
+        std::string const name = lowercased(header.name);
+        if (name == "content-security-policy" || name == "content-security-policy-report-only")
+            page_policy.add_header(header.value, name == "content-security-policy-report-only");
+    }
+    hooks.policy = &page_policy;
     hooks.fetch_script = [&](net::Url const& target, net::RequestGuard const&) -> std::optional<std::string> {
         std::optional<Served> const served = server.serve(target);
         if (deep)

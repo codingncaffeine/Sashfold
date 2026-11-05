@@ -873,52 +873,14 @@ std::optional<std::string> string_argument(Realm::Internals& in, Args args, std:
     return in.to_utf8(js::argument(args, index));
 }
 
-// The Attr objects of an element as a NamedNodeMap-shaped array.
-js::Value attribute_map(Realm::Internals& in, dom::Element& element)
-{
-    js::Interpreter& interpreter = in.interpreter;
-    // Several cells per attribute, none reachable until the map holds them:
-    // no collection while they are made.
-    js::Heap::NoCollect const guard(interpreter.heap());
-    js::ArrayObject* map = interpreter.new_array();
-    map->set_prototype(in.prototype("NamedNodeMap"));
-    map->host_data = &element;
-    for (dom::Attr const& attribute : std::as_const(element).attributes()) {
-        js::Object* attr = interpreter.heap().allocate<PlainPlatformObject>(in.prototype("Attr"), in.realm_record);
-        map->push(js::Value::object(attr));
-        std::string const name = attribute.qualified_name();
-        attr->put(interpreter.key("name"), in.string(name), js::Enumerable);
-        attr->put(interpreter.key("localName"), in.string(attribute.local_name), js::Enumerable);
-        attr->put(interpreter.key("value"), in.string(attribute.value), js::Enumerable | js::Writable);
-        attr->put(interpreter.key("nodeName"), in.string(name), js::Enumerable);
-        attr->put(interpreter.key("nodeValue"), in.string(attribute.value), js::Enumerable | js::Writable);
-        attr->put(interpreter.key("textContent"), in.string(attribute.value), js::Enumerable | js::Writable);
-        attr->put(interpreter.key("namespaceURI"), attribute.namespace_uri.empty() ? js::Value::null() : in.string(attribute.namespace_uri), js::Enumerable);
-        attr->put(interpreter.key("prefix"), attribute.prefix.empty() ? js::Value::null() : in.string(attribute.prefix), js::Enumerable);
-        attr->put(interpreter.key("specified"), js::Value::boolean(true), js::Enumerable);
-        attr->put(interpreter.key("nodeType"), js::Value::number(2), js::Enumerable);
-        attr->put(interpreter.key("ownerElement"), js::Value::object(in.wrap(element)), js::Enumerable);
-        // WebIDL's named properties: the attribute reachable by its name
-        // (jQuery 1.x reads `attributes[name].expando` in its support
-        // tests), unless the map or its prototype already has that name,
-        // and never as an index. Not enumerable, like every named property.
-        bool const looks_like_index = !name.empty() && name.find_first_not_of("0123456789") == std::string::npos;
-        if (!looks_like_index) {
-            js::PropertyKey const named = interpreter.key(name);
-            if (!map->has_property(named))
-                map->put(named, js::Value::object(attr), js::Configurable);
-        }
-    }
-    return js::Value::object(map);
-}
-
+// A valid attribute local name (DOM §1.4): at least one code unit, and none
+// of them ASCII whitespace, U+0000, "/", ">" or "=".
 bool is_valid_attribute_name(std::string_view name)
 {
     if (name.empty())
         return false;
     for (char const c : name) {
-        if (c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r' || c == '/' || c == '>' || c == '<' || c == '='
-            || c == '"' || c == '\'' || c == '\0')
+        if (c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r' || c == '/' || c == '>' || c == '=' || c == '\0')
             return false;
     }
     return true;
@@ -1533,7 +1495,7 @@ void install_element(Realm::Internals& in, js::Object& element)
         "value");
     element_forwarding_getter(
         in, element, "part", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_token_list(internals, e, "part"); }, "value");
-    element_getter(in, element, "attributes", [](Realm::Internals& internals, dom::Element& e) -> Native { return attribute_map(internals, e); });
+    element_getter(in, element, "attributes", [](Realm::Internals& internals, dom::Element& e) -> Native { return attributes_of(internals, e); });
     element_method(in, element, "hasAttributes", 0, [](Realm::Internals&, dom::Element& e, Args) -> Native { return js::Value::boolean(!std::as_const(e).attributes().empty()); });
     element_method(in, element, "getAttributeNames", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
         js::Interpreter::Roots const roots(internals.interpreter);
@@ -1568,12 +1530,26 @@ void install_element(Realm::Internals& in, js::Object& element)
     });
     auto const set_attribute_native = [](Realm::Internals& internals, dom::Element& e, Args args, std::size_t name_index) -> Native {
         std::optional<std::string> const name = string_argument(internals, args, name_index);
-        std::optional<std::string> value = string_argument(internals, args, name_index + 1);
-        if (!name || !value)
+        if (!name)
             return std::nullopt;
+        // The value converted as its IDL type says: a trusted value is
+        // kept, anything else is its string.
+        js::Value const given = js::argument(args, name_index + 1);
+        js::Interpreter::Roots const roots(internals.interpreter);
+        js::Value value = given;
+        if (!is_trusted_value(given)) {
+            std::optional<std::string> const text = internals.to_utf8(given);
+            if (!text)
+                return std::nullopt;
+            value = internals.interpreter.root(internals.string(*text));
+        }
         if (!is_valid_attribute_name(*name))
             return internals.throw_dom_exception("InvalidCharacterError", "'" + *name + "' is not a valid attribute name");
-        set_attribute(internals, e, e.is_html() ? ascii_lower(*name) : *name, std::move(*value));
+        std::string const lower = e.is_html() ? ascii_lower(*name) : *name;
+        std::optional<std::string> verified = trusted_attribute_value(internals, e, "", lower, value);
+        if (!verified)
+            return std::nullopt;
+        set_attribute(internals, e, lower, std::move(*verified));
         return js::Value::undefined();
     };
     element_method(in, element, "setAttribute", 2, [set_attribute_native](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
@@ -1588,13 +1564,22 @@ void install_element(Realm::Internals& in, js::Object& element)
         std::optional<std::string> const qualified_name = string_argument(internals, args, 1);
         if (!qualified_name)
             return std::nullopt;
-        std::optional<std::string> value = string_argument(internals, args, 2);
-        if (!value)
-            return std::nullopt;
+        js::Value const given = js::argument(args, 2);
+        js::Interpreter::Roots const roots(internals.interpreter);
+        js::Value value = given;
+        if (!is_trusted_value(given)) {
+            std::optional<std::string> const text = internals.to_utf8(given);
+            if (!text)
+                return std::nullopt;
+            value = internals.interpreter.root(internals.string(*text));
+        }
         ExtractedName const name = validate_and_extract(std::move(*namespace_uri), *qualified_name);
         if (!name.error.empty())
             return internals.throw_dom_exception(name.error, "'" + *qualified_name + "' is not a valid attribute name in the namespace '" + name.namespace_uri + "'");
-        set_attribute_ns(internals, e, name.namespace_uri, name.prefix, name.local_name, std::move(*value));
+        std::optional<std::string> verified = trusted_attribute_value(internals, e, name.namespace_uri, name.local_name, value);
+        if (!verified)
+            return std::nullopt;
+        set_attribute_ns(internals, e, name.namespace_uri, name.prefix, name.local_name, std::move(*verified));
         return js::Value::undefined();
     });
     element_method(in, element, "removeAttribute", 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
@@ -1654,78 +1639,36 @@ void install_element(Realm::Internals& in, js::Object& element)
         if (!name)
             return std::nullopt;
         std::string const lower = e.is_html() ? ascii_lower(*name) : *name;
-        js::Interpreter::Roots const roots(internals.interpreter);
-        js::Value const map = internals.interpreter.root(attribute_map(internals, e));
-        auto* array = static_cast<js::ArrayObject*>(map.as_object());
         std::vector<dom::Attr> const& attributes = std::as_const(e).attributes();
         for (std::size_t i = 0; i < attributes.size(); ++i) {
             if (attributes[i].has_qualified_name(lower))
-                return array->element(static_cast<std::uint32_t>(i));
+                return attribute_node(internals, e, i);
+        }
+        return js::Value::null();
+    });
+    element_method(in, element, "getAttributeNodeNS", 2, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        std::optional<std::string> const namespace_uri = namespace_argument(internals, args, 0);
+        if (!namespace_uri)
+            return std::nullopt;
+        std::optional<std::string> const name = string_argument(internals, args, 1);
+        if (!name)
+            return std::nullopt;
+        std::vector<dom::Attr> const& attributes = std::as_const(e).attributes();
+        for (std::size_t i = 0; i < attributes.size(); ++i) {
+            if (attributes[i].namespace_uri == *namespace_uri && attributes[i].local_name == *name)
+                return attribute_node(internals, e, i);
         }
         return js::Value::null();
     });
     // setAttributeNode, setAttributeNodeNS, removeAttributeNode (DOM §4.9):
-    // an Attr given sets or removes the attribute it names; the one it
-    // replaces (or removes) is answered, as the Attr object it was.
-    auto const attr_parts = [](Realm::Internals& internals, js::Value const& value)
-        -> std::optional<std::tuple<std::string, std::string, std::string, std::string>> {
-        if (!value.is_object() || value.as_object()->prototype() != internals.prototype("Attr")) {
-            internals.interpreter.throw_type_error("parameter 1 is not of type 'Attr'.");
-            return std::nullopt;
-        }
-        auto const text = [&](std::string_view key) -> std::optional<std::string> {
-            std::optional<js::Value> const got = internals.interpreter.get(value, key);
-            if (!got)
-                return std::nullopt;
-            if (got->is_nullish())
-                return std::string();
-            return internals.to_utf8(*got);
-        };
-        std::optional<std::string> name = text("name");
-        std::optional<std::string> local = name ? text("localName") : std::nullopt;
-        std::optional<std::string> space = local ? text("namespaceURI") : std::nullopt;
-        std::optional<std::string> attribute_value = space ? text("value") : std::nullopt;
-        if (!attribute_value)
-            return std::nullopt;
-        return std::tuple { std::move(*name), local->empty() ? *name : std::move(*local), std::move(*space), std::move(*attribute_value) };
-    };
-    auto const old_attr = [](Realm::Internals& internals, dom::Element& e, std::string const& space, std::string const& local) -> js::Value {
-        js::Interpreter::Roots const roots(internals.interpreter);
-        js::Value const map = internals.interpreter.root(attribute_map(internals, e));
-        auto* array = static_cast<js::ArrayObject*>(map.as_object());
-        std::vector<dom::Attr> const& attributes = std::as_const(e).attributes();
-        for (std::size_t i = 0; i < attributes.size(); ++i) {
-            if (attributes[i].local_name == local && attributes[i].namespace_uri == space)
-                return array->element(static_cast<std::uint32_t>(i));
-        }
-        return js::Value::null();
-    };
+    // the Attr objects themselves (Attributes.cpp).
     for (std::string_view const method : { "setAttributeNode", "setAttributeNodeNS" }) {
-        element_method(in, element, method, 1, [attr_parts, old_attr](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
-            auto const parts = attr_parts(internals, js::argument(args, 0));
-            if (!parts)
-                return std::nullopt;
-            auto const& [name, local, space, value] = *parts;
-            js::Interpreter::Roots const roots(internals.interpreter);
-            js::Value const previous = internals.interpreter.root(old_attr(internals, e, space, local));
-            if (space.empty() && name == local)
-                set_attribute(internals, e, local, value);
-            else
-                set_attribute_ns(internals, e, space, name.find(':') != std::string::npos ? name.substr(0, name.find(':')) : std::string(), local, value);
-            return previous;
+        element_method(in, element, method, 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+            return set_attribute_node(internals, e, js::argument(args, 0));
         });
     }
-    element_method(in, element, "removeAttributeNode", 1, [attr_parts](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
-        js::Value const given = js::argument(args, 0);
-        auto const parts = attr_parts(internals, given);
-        if (!parts)
-            return std::nullopt;
-        auto const& [name, local, space, value] = *parts;
-        static_cast<void>(value);
-        bool const removed = space.empty() && name == local ? remove_attribute(internals, e, local) : remove_attribute_ns(internals, e, space, local);
-        if (!removed)
-            return internals.throw_dom_exception("NotFoundError", "The node provided is not an attribute of this element.");
-        return given;
+    element_method(in, element, "removeAttributeNode", 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        return remove_attribute_node(internals, e, js::argument(args, 0));
     });
     element_accessor(
         in, element, "innerHTML",
@@ -2373,7 +2316,8 @@ void install_nodes(Realm::Internals& in)
             }
             return js::Value::undefined();
         });
-    define_interface(in, "Attr", nullptr);
+    js::Object* attr_proto = define_interface(in, "Attr", nullptr);
+    install_attributes(in, *attr_proto, *named_node_map);
     auto const item = [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         if (!collection_length(this_value))
             return interp.throw_type_error("Illegal invocation");
@@ -2394,7 +2338,6 @@ void install_nodes(Realm::Internals& in)
     define_getter(in, *collection_proto, "length", length);
     define_operation(interpreter, *node_list_proto, "item", 1, item);
     define_operation(interpreter, *collection_proto, "item", 1, item);
-    define_operation(interpreter, *named_node_map, "item", 1, item);
     define_operation(interpreter, *collection_proto, "namedItem", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
         if (!collection_length(this_value))
             return interp.throw_type_error("Illegal invocation");
@@ -2415,27 +2358,6 @@ void install_nodes(Realm::Internals& in)
         }
         return js::Value::null();
     });
-    define_operation(interpreter, *named_node_map, "getNamedItem", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
-        if (!js::Interpreter::is_array(this_value))
-            return interp.throw_type_error("Illegal invocation");
-        Realm::Internals& internals = internals_of(interp);
-        std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
-        if (!name)
-            return std::nullopt;
-        auto* array = static_cast<js::ArrayObject*>(this_value.as_object());
-        for (std::uint32_t i = 0; i < array->length(); ++i) {
-            js::Value const attr = array->element(i);
-            if (!attr.is_object())
-                continue;
-            std::optional<js::Value> const attr_name = interp.get(attr, "name");
-            if (!attr_name)
-                return std::nullopt;
-            if (attr_name->is_string() && attr_name->as_string()->to_utf8() == *name)
-                return attr;
-        }
-        return js::Value::null();
-    });
-
     // DOMRectReadOnly and DOMRect (Geometry Interfaces §4): a rectangle's
     // four numbers in slots of the object, read through accessors on the
     // prototypes, the read-only interface's without setters; the edges

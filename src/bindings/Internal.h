@@ -2245,6 +2245,13 @@ void install_trusted_types(Realm::Internals&);
 // The code a TrustedScript carries, for eval (HostGetCodeForEval); nothing
 // for any other value.
 std::optional<std::string> trusted_script_code(js::Value const&);
+// Trusted Types' "get Trusted Type compliant attribute value": the value an
+// attribute of the element is set to, as a string; nothing when that threw
+// (a policy requiring Trusted Types refused it, or the default policy threw).
+std::optional<std::string> trusted_attribute_value(Realm::Internals&, dom::Element const&, std::string_view attribute_ns,
+    std::string_view local_name, js::Value const& value);
+// Whether a value is a TrustedHTML, TrustedScript or TrustedScriptURL.
+bool is_trusted_value(js::Value const&);
 
 // An attribute marked [SameObject] (WebIDL): the object `make` builds the
 // first time, kept with the realm's roots under `key` and handed out again.
@@ -2280,6 +2287,19 @@ void set_attribute_ns(Realm::Internals&, dom::Element&, std::string_view namespa
     std::string value);
 bool remove_attribute_ns(Realm::Internals&, dom::Element&, std::string_view namespace_uri, std::string_view local_name);
 std::string attribute_or_empty(dom::Element const&, std::string_view name);
+
+// Attr objects and the NamedNodeMap (Attributes.cpp). The element's one live
+// map; the Attr object of its attribute at an index, the same one each time
+// while the attribute lasts; an Attr of no element (createAttribute); what
+// erasing an attribute tells the map, so its Attr keeps the value and has no
+// owner; the Attr operations of Element and the map; the members.
+js::Value attributes_of(Realm::Internals&, dom::Element&);
+js::Value attribute_node(Realm::Internals&, dom::Element&, std::size_t index);
+js::Value new_attr(Realm::Internals&, std::string namespace_uri, std::string prefix, std::string local_name, std::string value);
+void attribute_let_go(dom::Element&, std::string_view namespace_uri, std::string_view local_name, std::string const& old_value);
+Native set_attribute_node(Realm::Internals&, dom::Element&, js::Value const& attr);
+Native remove_attribute_node(Realm::Internals&, dom::Element&, js::Value const& attr);
+void install_attributes(Realm::Internals&, js::Object& attr_prototype, js::Object& map_prototype);
 
 // Whether a MIME type's essence is a JavaScript MIME type (Realm.cpp).
 bool is_javascript_type(std::string_view essence);
