@@ -369,7 +369,10 @@ std::optional<std::vector<std::uint8_t>> decode_content(std::string_view encodin
     std::vector<std::uint8_t> const& body, std::size_t max_output)
 {
     std::string_view const trimmed = trim_ows(encoding);
-    if (trimmed.empty() || ascii_ci_equals(trimmed, "identity"))
+    // No bytes decode to no bytes under every encoding, as the browsers
+    // take it: a 204 or an empty 200 that names one has nothing to decode
+    // (an empty stream is not a valid gzip or brotli one).
+    if (trimmed.empty() || ascii_ci_equals(trimmed, "identity") || body.empty())
         return body;
     if (ascii_ci_equals(trimmed, "gzip") || ascii_ci_equals(trimmed, "x-gzip"))
         return gzip_decompress(body, max_output);

@@ -174,6 +174,12 @@ int main(int argc, char** argv)
         CHECK(from_raw_deflate && *from_raw_deflate == raw); // the raw spelling
         CHECK(net::decode_content("identity", raw, 1u << 20).has_value());
         CHECK(!net::decode_content("br", raw, 1u << 20).has_value()); // brotli: not written yet
+        // No body under any encoding is no body: a 204 that names one
+        // (api.msn.com answers its CORS fetches so) is not a failed fetch.
+        for (char const* encoding : { "br", "gzip", "deflate", "x-gzip" }) {
+            auto const empty = net::decode_content(encoding, {}, 1u << 20);
+            CHECK(empty.has_value() && empty->empty());
+        }
     }
 
     // --- The real socket path, hermetically ----------------------------------
