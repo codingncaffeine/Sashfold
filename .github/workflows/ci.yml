@@ -17,6 +17,11 @@ jobs:
       - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
+      # The script-facing tests once more with freed memory poisoned and
+      # kept back (tools/poison-preload.cpp): their pages collect at every
+      # allocation, and a value swept while something still names it dies
+      # here, where glibc alone hands its block to the next cell and passes.
+      - run: cd build/tests && bash ../../tools/poison.sh ./test_bindings
       - run: bash tools/pledge-check.sh build/sashfold
       - run: bash tools/egress-check.sh
 
