@@ -7,6 +7,7 @@
 #include "net/Connections.h"
 #include "net/Cookies.h"
 #include "net/DataUrl.h"
+#include "net/Hsts.h"
 #include "net/Http2Session.h"
 #include "platform/Tls.h"
 
@@ -528,6 +529,10 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
         return out;
     };
     for (int hop = 0; hop <= options.max_redirects; ++hop) {
+        // A host that asked for HTTPS only gets nothing in the clear: the
+        // hop is rewritten before the cache is asked or a connection opened.
+        if (options.transport_security)
+            current = options.transport_security->upgraded(std::move(current), unix_now());
         if (options.tap)
             options.tap->request(current);
         bool const secure = current.scheme == "https";
@@ -799,6 +804,10 @@ static FetchResult fetch_hops(Url const& url, FetchOptions const& options, Fetch
         // Set-Cookie applies on every hop, redirects included.
         if (options.cookie_jar)
             options.cookie_jar->store(current, options.first_party, raw->headers, unix_now());
+        // So does Strict-Transport-Security, from a host reached over TLS
+        // (a handshake that failed never gets here).
+        if (secure && options.transport_security)
+            options.transport_security->note(current, raw->headers, unix_now());
 
         // 304: the stored copy stands, renewed by what came back with it.
         if (revalidating && raw->status == 304) {
@@ -875,9 +884,11 @@ FetchResult fetch(Url const& url, FetchOptions const& options)
     return result;
 }
 
-bool preconnect(Url const& url, FetchOptions const& options)
+bool preconnect(Url const& asked, FetchOptions const& options)
 {
     install_revocation_fetch();
+    // The connection warmed is the one the fetch will use.
+    Url const url = options.transport_security ? options.transport_security->upgraded(asked, unix_now()) : asked;
     ConnectionPool* const pool = options.pool;
     if (!pool || (url.scheme != "https" && url.scheme != "http") || !url.has_host() || url.host.empty())
         return false;

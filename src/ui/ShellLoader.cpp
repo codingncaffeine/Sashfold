@@ -338,6 +338,7 @@ net::FetchResult ShellLoader::submit(net::Url const& url, std::string const& ref
     options.referrer = referrer;
     options.cache = nullptr; // what a POST brings back is never the cache's
     options.pool = &m_pool;
+    options.transport_security = &m_transport_security;
     options.method = "POST";
     options.headers.push_back({ "Content-Type", form.content_type });
     options.headers.push_back({ "Origin", form.origin.empty() ? std::string("null") : form.origin });
@@ -387,6 +388,7 @@ net::FetchResult ShellLoader::load_document(net::Url const& url, std::string con
     options.referrer = referrer;
     options.cache = bypass_cache ? nullptr : &m_cache;
     options.pool = &m_pool;
+    options.transport_security = &m_transport_security;
     // A navigation redirected onto a listed site is refused where it lands.
     options.hop_refusal = hop_refusal(nullptr, net::ResourceKind::Document, none);
     options.tap = tap;
@@ -510,6 +512,7 @@ net::FetchResult ShellLoader::fetch_subresource(net::Url const& url, net::Url co
     options.referrer = referrer;
     options.cache = &m_cache;
     options.pool = &m_pool;
+    options.transport_security = &m_transport_security;
     options.headers.push_back({ "Accept", default_accept(kind) });
     add_fetch_metadata(options.headers, fetch_destination(kind), fetch_mode(kind), fetch_site(&first_party, url), false);
     options.hop_refusal = hop_refusal(&first_party, kind, guard);
@@ -595,6 +598,7 @@ void ShellLoader::preconnect(net::Url const& url, net::Url const& first_party, b
         } else {
             net::FetchOptions options;
             options.pool = &m_pool;
+            options.transport_security = &m_transport_security;
             done = net::preconnect(url, options);
         }
         if (net_tracing())
@@ -670,6 +674,7 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
     options.referrer = referrer;
     options.cache = &m_cache;
     options.pool = &m_pool;
+    options.transport_security = &m_transport_security;
     options.method = request.method;
     options.headers = request.headers;
     if (std::none_of(options.headers.begin(), options.headers.end(), [](net::Header const& header) { return ascii_ci_equals(header.name, "accept"); }))
@@ -692,6 +697,13 @@ std::shared_ptr<net::WebSocket> ShellLoader::open_websocket(net::WebSocket::Requ
     if (std::optional<std::string> why = refusal(request.url, &first_party, net::ResourceKind::Other, guard, false)) {
         refused = std::move(*why);
         return nullptr;
+    }
+    // A socket to a host that asked for HTTPS only is opened over TLS (ws
+    // becomes wss as http becomes https).
+    {
+        using namespace std::chrono;
+        request.url = m_transport_security.upgraded(std::move(request.url),
+            duration_cast<seconds>(system_clock::now().time_since_epoch()).count());
     }
     // Its cookies are those of the same URL over http(s) (RFC 6455 §4.1).
     net::Url twin = request.url;

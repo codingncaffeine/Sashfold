@@ -12,6 +12,7 @@
 #include "net/Csp.h"
 #include "net/FetchPool.h"
 #include "net/Filters.h"
+#include "net/Hsts.h"
 #include "ui/Browser.h"
 
 #include <atomic>
@@ -104,6 +105,9 @@ public:
     // made on first use; and the names of the containers that have one.
     net::CookieJar& cookies(std::string_view container = {});
     std::vector<std::string> container_names() const;
+    // The hosts that asked to be reached over HTTPS only (net/Hsts.h): one
+    // list for the profile, as the cache and the connections are one.
+    net::TransportSecurity& transport_security() { return m_transport_security; }
 
 private:
     // load(), with the body told to `tap` as it arrives when one is given.
@@ -143,6 +147,7 @@ private:
     std::map<std::string, net::CookieJar> m_container_jars; // by name; the cache and the pool are shared
     net::HttpCache m_cache;
     net::ConnectionPool m_pool;
+    net::TransportSecurity m_transport_security;
     net::Blocklists m_blocklists;
     std::atomic<std::size_t> m_blocked { 0 };
     std::map<std::string, Ahead> m_ahead; // under m_mutex

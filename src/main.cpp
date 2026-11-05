@@ -2199,6 +2199,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     std::uint64_t saved_storage = 0;
     std::uint64_t saved_bookmarks = 0;
     std::map<std::string, std::uint64_t> saved_cookies; // by container name; "" the default
+    std::uint64_t saved_transport_security = 0;
     bool restored = false;
     if (!profile_path.empty()) {
         browser.set_containers(load_containers(profile_path / "containers.json"));
@@ -2211,6 +2212,11 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 loader.cookies(name).load(*text, now);
             saved_cookies[name] = loader.cookies(name).changes();
         }
+        // The hosts that asked for HTTPS only (net/Hsts.h), one list for
+        // the profile.
+        if (std::optional<std::string> const text = read_text_file(profile_path / "hsts.txt"))
+            loader.transport_security().load(*text, now);
+        saved_transport_security = loader.transport_security().changes();
         if (std::optional<std::string> const text = read_text_file(profile_path / "storage.json"))
             browser.restore_storage(*text);
         saved_storage = browser.storage_changes();
@@ -2362,6 +2368,16 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 std::uint64_t const changes = jar.changes();
                 writer.write(cookie_file(profile_path, name), jar.serialize());
                 saved_cookies[name] = changes;
+                last_profile_write = now;
+            }
+        }
+        if (net::TransportSecurity& known = loader.transport_security(); known.changes() != saved_transport_security) {
+            if (throttled) {
+                owed = true;
+            } else {
+                std::uint64_t const changes = known.changes();
+                writer.write(profile_path / "hsts.txt", known.serialize(unix_seconds_now()));
+                saved_transport_security = changes;
                 last_profile_write = now;
             }
         }

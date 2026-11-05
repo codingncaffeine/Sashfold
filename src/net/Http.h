@@ -57,6 +57,7 @@ struct ResourceRequest {
 class ConnectionPool;
 class CookieJar;
 class HttpCache;
+class TransportSecurity;
 
 // A response body as it arrives, for whoever wants to look at it before it
 // is whole (a document's preload scan): the bytes as they came off the
@@ -135,6 +136,11 @@ struct FetchOptions {
     // first_party marks the request itself as the navigation.
     CookieJar* cookie_jar = nullptr;
     Url const* first_party = nullptr;
+    // The hosts known to want HTTPS only (net/Hsts.h): every hop to one of
+    // them goes out as https, before a connection is opened, and what a
+    // response over HTTPS says of its host is remembered. Null keeps every
+    // address as it was written.
+    TransportSecurity* transport_security = nullptr;
     // Referer header value, already policy-shaped by the caller (the shell
     // applies strict-origin-when-cross-origin); empty sends none.
     std::string referrer;
