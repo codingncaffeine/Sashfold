@@ -50,6 +50,16 @@ cmake --build build
 ctest --test-dir build --output-on-failure
 ```
 
+The compilers and tools by distribution:
+
+```
+sudo pacman -S --needed base-devel cmake ninja                      # Arch
+sudo apt install build-essential cmake ninja-build                  # Debian 13 / Ubuntu 24.04 or later (gcc ≥ 13)
+sudo apk add build-base cmake ninja linux-headers                   # Alpine (musl)
+```
+
+On musl the same steps build and run it; CI builds and tests every change on Alpine.
+
 `bash tools/buildall.sh` runs the gcc and clang lanes plus the pledge and egress checks.
 
 ## Running

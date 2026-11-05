@@ -361,14 +361,13 @@ std::optional<std::vector<std::uint8_t>> pkcs1_encoding(HashId hash, std::span<s
     std::size_t const t_length = prefix.size() + digest.size();
     if (k < t_length + 11)
         return std::nullopt;
-    std::vector<std::uint8_t> em;
-    em.reserve(k);
-    em.push_back(0x00);
-    em.push_back(0x01);
-    em.insert(em.end(), k - t_length - 3, 0xff);
-    em.push_back(0x00);
-    em.insert(em.end(), prefix.begin(), prefix.end());
-    em.insert(em.end(), digest.begin(), digest.end());
+    // 0x00 0x01, the 0xff padding, 0x00, then T: sized once, filled in place.
+    std::vector<std::uint8_t> em(k, 0xff);
+    em[0] = 0x00;
+    em[1] = 0x01;
+    em[k - t_length - 1] = 0x00;
+    std::copy(prefix.begin(), prefix.end(), em.begin() + static_cast<std::ptrdiff_t>(k - t_length));
+    std::copy(digest.begin(), digest.end(), em.begin() + static_cast<std::ptrdiff_t>(k - digest.size()));
     return em;
 }
 

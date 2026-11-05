@@ -298,25 +298,30 @@ bool WebSocket::handshake(std::vector<std::uint8_t>& leftover, std::string& prot
 
 bool WebSocket::write_frame(std::uint8_t opcode, std::span<std::uint8_t const> payload)
 {
-    std::vector<std::uint8_t> frame;
-    frame.reserve(payload.size() + 14);
-    frame.push_back(static_cast<std::uint8_t>(0x80 | opcode));
-    if (payload.size() < 126) {
-        frame.push_back(static_cast<std::uint8_t>(0x80 | payload.size()));
-    } else if (payload.size() <= 0xFFFF) {
-        frame.push_back(0x80 | 126);
-        frame.push_back(static_cast<std::uint8_t>(payload.size() >> 8));
-        frame.push_back(static_cast<std::uint8_t>(payload.size()));
+    // RFC 6455 §5.2: the opcode byte, the masked length in 1, 3 or 9 bytes,
+    // the four mask bytes, then the payload under the mask. Sized once and
+    // written in place.
+    std::size_t const length_bytes = payload.size() < 126 ? 1 : payload.size() <= 0xFFFF ? 3 : 9;
+    std::vector<std::uint8_t> frame(1 + length_bytes + 4 + payload.size());
+    std::size_t at = 0;
+    frame[at++] = static_cast<std::uint8_t>(0x80 | opcode);
+    if (length_bytes == 1) {
+        frame[at++] = static_cast<std::uint8_t>(0x80 | payload.size());
+    } else if (length_bytes == 3) {
+        frame[at++] = 0x80 | 126;
+        frame[at++] = static_cast<std::uint8_t>(payload.size() >> 8);
+        frame[at++] = static_cast<std::uint8_t>(payload.size());
     } else {
-        frame.push_back(0x80 | 127);
+        frame[at++] = 0x80 | 127;
         for (int shift = 56; shift >= 0; shift -= 8)
-            frame.push_back(static_cast<std::uint8_t>(static_cast<std::uint64_t>(payload.size()) >> shift));
+            frame[at++] = static_cast<std::uint8_t>(static_cast<std::uint64_t>(payload.size()) >> shift);
     }
     std::uint8_t mask[4];
     platform::fill_random(mask);
-    frame.insert(frame.end(), mask, mask + 4);
+    for (std::uint8_t const byte : mask)
+        frame[at++] = byte;
     for (std::size_t i = 0; i < payload.size(); ++i)
-        frame.push_back(static_cast<std::uint8_t>(payload[i] ^ mask[i % 4]));
+        frame[at++] = static_cast<std::uint8_t>(payload[i] ^ mask[i % 4]);
     std::lock_guard<std::mutex> const lock(m_write_mutex);
     std::lock_guard<std::mutex> const connection_lock(m_connection_mutex);
     return m_connection && m_connection->send_all(frame.data(), frame.size());

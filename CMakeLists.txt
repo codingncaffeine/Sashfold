@@ -33,6 +33,13 @@ if(MINGW)
   add_link_options(-Wl,--stack,268435456)
 elseif(APPLE)
   add_link_options(-Wl,-stack_size,0x10000000)
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # A thread the standard library starts (the compositor, the HTTP/2 and
+  # WebSocket readers, video, sound) gets the C library's default stack:
+  # eight megabytes on glibc, 128 KB on musl. musl takes the size written in
+  # the executable's PT_GNU_STACK header as that default instead, so the
+  # same eight megabytes are written there; glibc reads no size from it.
+  add_link_options(-Wl,-z,stack-size=8388608)
 endif()
 
 # The fuzzing lane (see fuzz/README.md): only on request, and only clang

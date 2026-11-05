@@ -72,6 +72,25 @@ jobs:
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
 
+  # musl: Alpine's own toolchain builds the tree from source and runs every
+  # test, so nothing glibc-only (execinfo, a thread's default stack, a
+  # compiler release the other lanes skip) slips in. The checkout runs on the
+  # host and the build in a plain Alpine container, with no fonts installed:
+  # the built-in face has to carry the tests alone.
+  linux-musl:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - run: >
+          docker run --rm -v "$PWD:/src" -w /src alpine:3.24 sh -euc '
+          apk add -q build-base cmake ninja linux-headers bash;
+          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release;
+          cmake --build build;
+          ctest --test-dir build --output-on-failure;
+          bash tools/pledge-check.sh build/sashfold;
+          ./build/sashfold --render tests/fixtures/deep-recursion.html -o build/deep.png --dump-live-dom build/deep;
+          grep -q ">depth 10000<" build/deep.html'
+
   linux-sanitizers:
     runs-on: ubuntu-latest
     env:

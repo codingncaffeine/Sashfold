@@ -1,0 +1,10 @@
+<!doctype html>
+<title>Deep recursion</title>
+<!-- A page recursing ten thousand calls deep, as V8 lets one: on a C library
+     whose threads start small (musl) this ends in a RangeError or a crash
+     unless the engine's stacks are sized as the build says. -->
+<p id="out">not run</p>
+<script>
+function depth(n) { return n ? 1 + depth(n - 1) : 0; }
+document.getElementById("out").textContent = "depth " + depth(10000);
+</script>

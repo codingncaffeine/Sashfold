@@ -103,8 +103,13 @@ int main(int argc, char** argv)
     for (std::size_t i = 0; i < count; ++i) {
         layout::TextRun const& a = *builtin_runs[i];
         layout::TextRun const& b = *truetype_runs[i];
-        if (!b.fonts || b.fonts->primary().family() != "Sashfold Mono")
-            continue; // the sans paragraph, when the machine has a sans face
+        // The sans paragraph is checked below: by what it asked for, since on
+        // a machine with no fonts at all it lands on the built-in face, which
+        // is named Sashfold Mono too.
+        bool const asked_for_mono = b.style && b.style->font_family && !b.style->font_family->empty()
+            && b.style->font_family->front() == "Sashfold Mono";
+        if (!b.fonts || !asked_for_mono)
+            continue;
         ++compared;
         CHECK(&b.fonts->primary() != &builtin); // the TrueType face, not the shortcut
         CHECK(b.text == a.text);
