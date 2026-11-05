@@ -4946,6 +4946,44 @@ void test_interface_receivers()
 // The objects hanging off navigator that answer for themselves: each the
 // standard's shape and the same object every read; the answers of an
 // engine with no device, no permission granted and no system integration.
+// Notifications (https://notifications.spec.whatwg.org/) with the permission
+// denied: the interface is there, asking answers "denied" to the promise and
+// to the old callback, and a notification made all the same hears `error`
+// in a task and keeps what it was given.
+void test_notifications_are_denied()
+{
+    auto page = loaded("<!DOCTYPE html><body></body>");
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    CHECK(page->boolean("typeof Notification === 'function' && Notification.length === 1 && Notification.prototype instanceof EventTarget"));
+    CHECK_EQ(page->string("Notification.permission"), "denied");
+    page->eval(R"JS(
+        var out = [];
+        Notification.requestPermission(function (answer) { out.push('callback ' + answer); })
+            .then(function (answer) { out.push('promise ' + answer); });
+        Notification.requestPermission(5).then(function () { out.push('resolved'); }, function (e) { out.push('refused ' + e.name); });
+        navigator.permissions.query({ name: 'notifications' }).then(function (status) { out.push('query ' + status.state); });
+        var n = new Notification('Hello', { body: 'there', tag: 't', dir: 'rtl', lang: 'en', icon: 'pic.png', data: { k: 1 }, silent: true, requireInteraction: 1 });
+        n.onerror = function (e) { out.push('error ' + e.type + ' ' + e.isTrusted + ' ' + (e.target === n)); };
+        n.addEventListener('show', function () { out.push('shown'); });
+        out.push('made');
+    )JS");
+    pump();
+    CHECK_EQ(page->string("out.slice().sort().join('|')"), "callback denied|error error true true|made|promise denied|query denied|refused TypeError");
+    // Made before it was told: the error comes in a task.
+    CHECK_EQ(page->string("out[0]"), "made");
+    CHECK_EQ(page->string("[n.title, n.body, n.tag, n.dir, n.lang, n.icon, n.data.k, n.silent, n.requireInteraction].join('|')"),
+        "Hello|there|t|rtl|en|https://example.test/dir/pic.png|1|true|true");
+    CHECK_EQ(page->string("var plain = new Notification(7); [plain.title, plain.body, plain.dir, plain.icon, plain.data, plain.silent, plain.requireInteraction, plain.close()].join('|')"),
+        "7||auto||||false|");
+    CHECK_EQ(page->string("(function () { var seen = []; ['new Notification()', 'new Notification(\"a\", 5)', 'new Notification(\"a\", { dir: \"up\" })', 'Notification(\"a\")', 'Notification.prototype.title']"
+                          ".forEach(function (code) { try { eval(code); seen.push('ok'); } catch (e) { seen.push(e.name); } }); return seen.join('|'); })()"),
+        "TypeError|TypeError|TypeError|TypeError|TypeError");
+    pump();
+    CHECK(page->console.find("error:") == std::string::npos);
+}
+
 void test_navigator_objects()
 {
     auto page = loaded("<!DOCTYPE html><body></body>");
@@ -6422,6 +6460,7 @@ int main()
     test_rejections_are_events();
     test_interface_receivers();
     test_navigator_objects();
+    test_notifications_are_denied();
     test_trusted_types();
     test_scripts_that_must_not_run_again();
     test_mutation_observer();

@@ -1775,6 +1775,7 @@ constexpr InterfaceGroup interface_groups[] = {
     { "xhr", install_xhr, true },
     { "websockets", install_websockets, true },
     { "broadcast_channel", install_broadcast_channel, true },
+    { "notifications", install_notifications, true },
     { "font_face", install_font_face, true },
     { "tasks", install_tasks, false },
     { "origin", install_origin, true },

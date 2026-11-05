@@ -1942,6 +1942,8 @@ void abort_websockets(Realm::Internals&);
 void install_websockets(Realm::Internals&); // WebSockets.cpp: WebSocket
 // BroadcastChannel.cpp: BroadcastChannel, and the open channels a collection keeps.
 void install_broadcast_channel(Realm::Internals&);
+// Notifications.cpp: Notification, with the permission denied.
+void install_notifications(Realm::Internals&);
 void trace_broadcast_channels(Realm::Internals const&, js::Tracer&);
 // FontFace.cpp: FontFace; the set members of document.fonts (FontFaceSet);
 // the faces in it, which a collection keeps.
