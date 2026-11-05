@@ -4849,7 +4849,9 @@ void test_trusted_types()
     })())JS"));
     CHECK(page->boolean("trustedTypes.getAttributeType('script', 'src') === 'TrustedScriptURL' && trustedTypes.getAttributeType('SCRIPT', 'SRC') === 'TrustedScriptURL'"
                         " && trustedTypes.getAttributeType('iframe', 'srcdoc') === 'TrustedHTML' && trustedTypes.getAttributeType('div', 'onclick') === 'TrustedScript'"
-                        " && trustedTypes.getAttributeType('object', 'data') === 'TrustedScriptURL' && trustedTypes.getAttributeType('div', 'title') === null"
+                        " && trustedTypes.getAttributeType('object', 'data') === null && trustedTypes.getAttributeType('div', 'title') === null"
+                        " && trustedTypes.getAttributeType('div', 'onfoo') === null"
+                        " && trustedTypes.getAttributeType('script', 'href', 'http://www.w3.org/2000/svg') === 'TrustedScriptURL'"
                         " && trustedTypes.getAttributeType('script', 'src', 'http://www.w3.org/2000/svg') === null && trustedTypes.getAttributeType('a', 'href') === null"));
     // eval runs the code a TrustedScript carries, direct and indirect; any
     // other object still comes back as it is.
