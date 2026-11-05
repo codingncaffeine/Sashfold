@@ -2300,6 +2300,9 @@ void attribute_let_go(dom::Element&, std::string_view namespace_uri, std::string
 Native set_attribute_node(Realm::Internals&, dom::Element&, js::Value const& attr);
 Native remove_attribute_node(Realm::Internals&, dom::Element&, js::Value const& attr);
 void install_attributes(Realm::Internals&, js::Object& attr_prototype, js::Object& map_prototype);
+// elementFromPoint / elementsFromPoint of a document or a shadow root
+// (Document.cpp): `all` for the list.
+Native from_point(Realm::Internals&, dom::Node& scope, Args, bool all);
 
 // Whether a MIME type's essence is a JavaScript MIME type (Realm.cpp).
 bool is_javascript_type(std::string_view essence);

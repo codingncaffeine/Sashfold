@@ -251,6 +251,13 @@ void install_shadow_dom(Realm::Internals& in)
     });
     shadow_getter(in, shadow_root, "clonable", [](Realm::Internals&, dom::ShadowRoot& shadow) -> Native { return js::Value::boolean(shadow.clonable); });
     shadow_getter(in, shadow_root, "serializable", [](Realm::Internals&, dom::ShadowRoot& shadow) -> Native { return js::Value::boolean(shadow.serializable); });
+    for (bool const all : { false, true }) {
+        node_method(in, shadow_root, all ? "elementsFromPoint" : "elementFromPoint", 2, [all](Realm::Internals& internals, dom::Node& n, Args args) -> Native {
+            if (!n.is_shadow_root())
+                return internals.interpreter.throw_type_error("Illegal invocation");
+            return from_point(internals, n, args, all);
+        });
+    }
     shadow_getter(in, shadow_root, "host", [](Realm::Internals& internals, dom::ShadowRoot& shadow) -> Native {
         return js::Value::object(internals.wrap(shadow.host()));
     });

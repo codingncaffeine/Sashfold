@@ -226,6 +226,29 @@ std::optional<dom::Element const*> element_at_point(Realm::Internals& in, Args a
     return in.hooks.element_from_point(static_cast<float>(point[0]), static_cast<float>(point[1]));
 }
 
+// Whether `root` is `scope` or above it in the shadow-including tree.
+bool shadow_including_inclusive_ancestor(dom::Node const& root, dom::Node const& scope)
+{
+    for (dom::Node const* node = &scope; node; node = node->parent_or_host()) {
+        if (node == &root)
+            return true;
+    }
+    return false;
+}
+
+// DOM §4.8 "retarget": the element, or the host of the shadow tree it is in
+// (over and over) until that tree is one `scope` is in.
+dom::Element const* retargeted(dom::Element const* element, dom::Node const& scope)
+{
+    while (element) {
+        dom::Node const& root = element->root();
+        if (!root.is_shadow_root() || shadow_including_inclusive_ancestor(root, scope))
+            return element;
+        element = &static_cast<dom::ShadowRoot const&>(root).host();
+    }
+    return nullptr;
+}
+
 void install_view_transition(Realm::Internals& in)
 {
     js::Object* view_transition = define_interface(in, "ViewTransition", nullptr);
@@ -412,6 +435,35 @@ void set_cookie(Realm::Internals& in, std::string_view text)
 }
 
 } // namespace
+
+// elementFromPoint and elementsFromPoint (CSSOM View §5) of a document or a
+// shadow root: what the host finds uppermost at a viewport point, retargeted
+// against the tree asked (an element in a shadow tree inside it answers as
+// that tree's host), null outside the viewport; the list is that element
+// and the ones it is drawn inside, the topmost first, each retargeted, once.
+Native from_point(Realm::Internals& in, dom::Node& scope, Args args, bool all)
+{
+    std::optional<dom::Element const*> const hit = element_at_point(in, args);
+    if (!hit)
+        return std::nullopt;
+    dom::Element const* const first = retargeted(*hit, scope);
+    if (!all)
+        return first ? js::Value::object(in.wrap(const_cast<dom::Element&>(*first))) : js::Value::null();
+    js::Interpreter::Roots const roots(in.interpreter);
+    js::ArrayObject* const list = in.interpreter.new_array();
+    in.interpreter.root(js::Value::object(list));
+    dom::Element const* last = nullptr;
+    for (dom::Node const* node = *hit; node; node = node->parent_or_host()) {
+        if (!node->is_element())
+            continue;
+        dom::Element const* const element = retargeted(static_cast<dom::Element const*>(node), scope);
+        if (element == nullptr || element == last)
+            continue;
+        last = element;
+        list->push(js::Value::object(in.wrap(const_cast<dom::Element&>(*element))));
+    }
+    return js::Value::object(list);
+}
 
 void install_document(Realm::Internals& in, js::Object& node_prototype)
 {
@@ -1001,22 +1053,11 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     // the host finds uppermost at a viewport point, null outside the
     // viewport; the list is that element and the ones it is drawn inside,
     // the topmost first, the root last.
-    document_method(in, *document, "elementFromPoint", 2, [](Realm::Internals& internals, dom::Document&, Args args) -> Native {
-        std::optional<dom::Element const*> const hit = element_at_point(internals, args);
-        if (!hit)
-            return std::nullopt;
-        return *hit ? js::Value::object(internals.wrap(const_cast<dom::Element&>(**hit))) : js::Value::null();
+    document_method(in, *document, "elementFromPoint", 2, [](Realm::Internals& internals, dom::Document& d, Args args) -> Native {
+        return from_point(internals, d, args, false);
     });
-    document_method(in, *document, "elementsFromPoint", 2, [](Realm::Internals& internals, dom::Document&, Args args) -> Native {
-        std::optional<dom::Element const*> const hit = element_at_point(internals, args);
-        if (!hit)
-            return std::nullopt;
-        js::Interpreter::Roots const roots(internals.interpreter);
-        js::ArrayObject* const list = internals.interpreter.new_array();
-        internals.interpreter.root(js::Value::object(list));
-        for (dom::Node const* node = *hit; node && node->is_element(); node = node->parent())
-            list->push(js::Value::object(internals.wrap(const_cast<dom::Node&>(*node))));
-        return js::Value::object(list);
+    document_method(in, *document, "elementsFromPoint", 2, [](Realm::Internals& internals, dom::Document& d, Args args) -> Native {
+        return from_point(internals, d, args, true);
     });
     document_method(in, *document, "caretRangeFromPoint", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::null(); });
     document_method(in, *document, "hasFocus", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(true); });
