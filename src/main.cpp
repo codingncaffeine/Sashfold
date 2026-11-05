@@ -20,6 +20,7 @@
 #include "net/Http.h"
 #include "paint/Painter.h"
 #include "platform/Clipboard.h"
+#include "platform/Confine.h"
 #include "platform/Memory.h"
 #include "platform/MemoryWatch.h"
 #include "platform/Tls.h"
@@ -2771,6 +2772,12 @@ int main(int argc, char** argv)
     // recursion has is the room V8 gives it, and every realm made here
     // reads the stack it is on for its budget.
     platform::widen_main_thread_stack(platform::script_stack_bytes);
+    // Before a byte is read from anywhere: the right to start a program,
+    // and the calls only an intruder has a use for, are given up for good
+    // (platform/Confine.h). SASHFOLD_CONFINE=0 keeps them, for a tool that
+    // must be run from inside the process.
+    if (char const* const confine = std::getenv("SASHFOLD_CONFINE"); confine == nullptr || confine[0] != '0')
+        platform::forbid_new_programs();
     std::vector<std::string> const args(argv + 1, argv + argc);
     std::string mode;
     std::string input;
