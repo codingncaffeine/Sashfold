@@ -209,9 +209,15 @@ void test_script_clock_is_coarse()
         monotonic = monotonic && t >= last;
         last = t;
     }
+    // Read once more now that the five milliseconds are over: a thread
+    // that was set aside between its last sample and the loop's end (a
+    // loaded machine does that) had sampled only the start.
+    double const after = bindings::coarse_clock_ms();
+    monotonic = monotonic && after >= last;
+    last = after;
     CHECK(on_grid);
     CHECK(monotonic);
-    CHECK(last >= first + 4.0); // five milliseconds sampled: it moved
+    CHECK(last >= first + 4.0); // five milliseconds on: it moved
 }
 
 void test_wrapper_identity_and_expandos_survive_collection()
