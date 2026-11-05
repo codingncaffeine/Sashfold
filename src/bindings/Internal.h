@@ -518,6 +518,29 @@ private:
     js::RealmRecord* m_realm;
 };
 
+// An AbortController (Tasks.cpp): its signal in a slot of its own (DOM
+// §3.1), read through the prototype's `signal`, so a page that writes the
+// name or walks the controller's own keys finds no signal there.
+class AbortControllerObject final : public js::Object {
+public:
+    AbortControllerObject(js::Object* prototype, js::RealmRecord* realm)
+        : Object(prototype)
+        , m_realm(realm)
+    {
+    }
+    js::RealmRecord* home_realm() const override { return m_realm; }
+    js::Value signal;
+    void trace(js::Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(m_realm);
+        tracer.visit(signal);
+    }
+
+private:
+    js::RealmRecord* m_realm;
+};
+
 // An AbortSignal (Tasks.cpp): whether it has fired and why.
 class AbortSignalObject final : public EventTargetObject {
 public:

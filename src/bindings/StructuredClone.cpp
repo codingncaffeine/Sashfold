@@ -418,7 +418,8 @@ std::optional<std::size_t> Serializer::serialize_object(js::Object& object, js::
     case Class::Json: {
         // A platform object the bindings build as an ordinary object is not
         // serializable either; an ordinary object is, whatever its prototype.
-        if (dynamic_cast<PlainPlatformObject const*>(&object) != nullptr)
+        if (dynamic_cast<PlainPlatformObject const*>(&object) != nullptr
+            || dynamic_cast<AbortControllerObject const*>(&object) != nullptr)
             return refuse(value);
         std::size_t const index = add(Kind::Object);
         memory[&object] = index;

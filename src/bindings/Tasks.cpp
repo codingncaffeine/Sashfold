@@ -684,25 +684,24 @@ void install_abort(Realm::Internals& in)
         [](js::Interpreter& interp, Args, js::Object*) -> Native {
             Realm::Internals& internals = internals_of(interp);
             js::Heap::NoCollect const no_collect(interp.heap());
-            js::Object* object = interp.heap().allocate<PlainPlatformObject>(internals.prototype("AbortController"), internals.realm_record);
-            object->put(interp.key("signal"), js::Value::object(new_abort_signal(internals)), js::Enumerable);
+            auto* object = interp.heap().allocate<AbortControllerObject>(internals.prototype("AbortController"), internals.realm_record);
+            object->signal = js::Value::object(new_abort_signal(internals));
             return js::Value::object(object);
         },
         0);
+    define_getter(in, *controller, "signal", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        auto* found = this_value.is_object() ? dynamic_cast<AbortControllerObject*>(this_value.as_object()) : nullptr;
+        if (found == nullptr)
+            return interp.throw_type_error("Illegal invocation");
+        return found->signal;
+    });
     define_operation(interpreter, *controller, "abort", 0, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
-        if (!this_value.is_object())
+        auto* found = this_value.is_object() ? dynamic_cast<AbortControllerObject*>(this_value.as_object()) : nullptr;
+        if (found == nullptr)
             return interp.throw_type_error("Illegal invocation");
-        std::optional<js::Value> const signal_value = interp.get(*this_value.as_object(), interp.key("signal"));
-        if (!signal_value)
-            return std::nullopt;
-        if (!signal_value->is_object())
-            return interp.throw_type_error("Illegal invocation");
-        auto* target = dynamic_cast<AbortSignalObject*>(signal_value->as_object());
-        if (target == nullptr)
-            return interp.throw_type_error("Illegal invocation");
+        auto* target = static_cast<AbortSignalObject*>(found->signal.as_object());
         js::Interpreter::Roots const roots(interp);
         interp.root(this_value);
-        interp.root(*signal_value);
         signal_abort(internals_of(interp), *target, js::argument(args, 0));
         return js::Value::undefined();
     });
