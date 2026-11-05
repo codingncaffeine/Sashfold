@@ -4182,6 +4182,22 @@ void test_blob_urls_are_fetched_from_the_store()
     CHECK(page.console.find("error:") == std::string::npos);
 }
 
+// A module that reaches import.meta before anything in its realm has named
+// "url": the hook makes the address's string and then the property's name,
+// and the name's cell is an allocation the string must outlive (these pages
+// collect at every allocation). The name is spelt in two halves so that the
+// parser has not interned it first.
+void test_import_meta_url_before_its_name_is_known()
+{
+    Page page(R"HTML(<!DOCTYPE html><body><script type="module">
+var meta = import.meta;
+window.out = meta['u' + 'rl'];
+</script></body>)HTML");
+    page.load();
+    while (page.realm->run_pending()) { }
+    CHECK_EQ(page.string("out"), "https://example.test/dir/page.html");
+}
+
 // Import maps (HTML §8.1.5.2, §8.1.5.3): a bare specifier named to a URL, a
 // prefix moved, a scope that overrides for the scripts under it, a later
 // map that adds and does not override, and the specifiers that resolve to
@@ -6385,6 +6401,7 @@ int main()
     test_the_computed_style_with_none_behind_it();
     test_interface_constructors_make_what_new_target_names();
     test_blob_urls_are_fetched_from_the_store();
+    test_import_meta_url_before_its_name_is_known();
     test_import_maps();
     test_an_inserted_script_runs_after_the_script_that_inserted_it();
     test_shadow_trees();

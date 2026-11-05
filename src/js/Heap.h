@@ -316,6 +316,8 @@ public:
     JsString* concat(JsString* left, JsString* right);
 
     // Interning. The atom with these contents, made if absent; permanent.
+    // Never collects, and neither does key() below: a name may be made
+    // while a value not yet held anywhere waits beside it.
     JsString* atom(std::u16string_view);
     JsString* atom(std::string_view utf8);
     JsString* atom(JsString*); // the atom for an existing string's contents

@@ -412,11 +412,19 @@ JsString* Heap::atom(std::u16string_view contents)
         if (found != m_atoms.end())
             return found->second;
     }
-    // The copy is taken before allocate() can collect: `contents` may view
-    // an unrooted string that the collection would sweep. The lock is not
-    // held across allocate(): a collection takes it to mark the atoms.
+    // Naming a property is never where a collection runs: a name is asked
+    // for beside the value it is about to hold — put(key("url"), string(…)),
+    // the string made first by either compiler — and a collection here swept
+    // that value before it had a holder. (glibc then gave the name the
+    // string's own block, so the property silently held its own name; an
+    // allocator that picks another block left it dangling.) What this cell
+    // adds is collected for at the next allocation that is not a name.
     std::u16string copy(contents);
-    JsString* cell = allocate<JsString>(std::move(copy));
+    JsString* cell = nullptr;
+    {
+        NoCollect const naming(*this);
+        cell = allocate<JsString>(std::move(copy));
+    }
     std::lock_guard<std::mutex> const lock(m_atoms_mutex);
     // The key views the atom's own data; the cell never moves and the
     // data is immutable, so the view stays valid for the heap's life. A
