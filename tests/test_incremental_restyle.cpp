@@ -1216,10 +1216,107 @@ void shadow_trees(std::uint64_t seed)
 
 }
 
+// `:nth-child(An+B of S)`: a sibling whose own state changed may move the
+// others' places among what S matches, so they are computed again. The root
+// has no element siblings: a change of its own is its own, as in a sheet
+// without `of S` (cnn.com toggles classes on <html> and has an `of S` rule,
+// and every toggle computed the whole page again).
+void nth_of_at_the_root()
+{
+    Page page = make_page(3000);
+    std::string const sheet = std::string(page_sheet) + ".row:nth-child(2 of .on) { margin-top: 4px }\n";
+    css::StyleSet set(std::vector<css::SheetSource> { { sheet, std::nullopt } });
+    Kept kept;
+    update_and_check(*page.document, set, kept);
+
+    dom::Element& html = static_cast<dom::Element&>(*page.body->parent());
+    toggle_class(html, "wide");
+    Step const root = update_and_check(*page.document, set, kept);
+    CHECK(!root.outcome.whole);
+    CHECK_EQ(root.outcome.computed, std::size_t(2)); // the root, and the body `html.wide body` names
+    CHECK_EQ(root.difference.value_or(""), std::string());
+
+    // Among siblings it still reaches the others: a row's class, checked
+    // against a from-scratch resolution.
+    dom::Element* row = nullptr;
+    for (dom::Element* element : page.elements) {
+        dom::Attr const* classes = element->find_attribute("class");
+        if (classes && (" " + classes->value + " ").find(" row ") != std::string::npos && element->previous_sibling()) {
+            row = element;
+            break;
+        }
+    }
+    CHECK(row != nullptr);
+    toggle_class(*row, "on");
+    Step const sibling = update_and_check(*page.document, set, kept);
+    CHECK(!sibling.outcome.whole);
+    CHECK(sibling.outcome.computed > 1);
+    CHECK_EQ(sibling.difference.value_or(""), std::string());
+}
+
+// A change inside a :has() anchor reaches the subjects of the selectors it
+// anchors, not everything the anchor holds (cnn.com's header and content
+// wrappers are anchors; every insertion under them computed thousands).
+void anchor_reaches_its_subjects()
+{
+    Page page = make_page(3000);
+    css::StyleSet set(std::vector<css::SheetSource> { { ".group:has(.on) .leaf { font-style: italic }", std::nullopt } });
+    Kept kept;
+    update_and_check(*page.document, set, kept);
+
+    auto const has_class = [](dom::Element const& element, std::string_view name) {
+        dom::Attr const* classes = element.find_attribute("class");
+        return classes && (" " + classes->value + " ").find(" " + std::string(name) + " ") != std::string::npos;
+    };
+    dom::Element* leaf = nullptr;
+    dom::Element* group = nullptr;
+    for (dom::Element* element : page.elements) {
+        if (!element->is_connected() || !has_class(*element, "leaf"))
+            continue;
+        for (dom::Node* up = element->parent(); up; up = up->parent()) {
+            if (up->is_element() && has_class(static_cast<dom::Element&>(*up), "group")) {
+                group = static_cast<dom::Element*>(up);
+                break;
+            }
+        }
+        if (group) {
+            leaf = element;
+            break;
+        }
+    }
+    CHECK(leaf != nullptr && group != nullptr);
+    if (!leaf || !group)
+        return;
+    std::size_t ancestors = 0;
+    for (dom::Node* up = leaf->parent(); up; up = up->parent())
+        ancestors += up->is_element() ? 1 : 0;
+    std::size_t held = 0;
+    std::size_t leaves = 0;
+    std::vector<dom::Node const*> pending { group };
+    while (!pending.empty()) {
+        dom::Node const* node = pending.back();
+        pending.pop_back();
+        if (node->is_element()) {
+            ++held;
+            leaves += has_class(static_cast<dom::Element const&>(*node), "leaf") ? 1 : 0;
+        }
+        for (dom::Node const* child : node->children())
+            pending.push_back(child);
+    }
+    toggle_class(*leaf, "on");
+    Step const step = update_and_check(*page.document, set, kept);
+    CHECK(!step.outcome.whole);
+    CHECK_EQ(step.difference.value_or(""), std::string());
+    CHECK(step.outcome.computed <= 1 + ancestors + leaves);
+    CHECK(step.outcome.computed < held + ancestors); // not the anchor's whole subtree
+}
+
 int main()
 {
     text::FontManager::instance().set_system_fonts(false);
     bounds();
+    nth_of_at_the_root();
+    anchor_reaches_its_subjects();
     reaches();
     random_mutations(page_sheet, 0x1234abcdu);
     random_mutations(argument_sheet, 0x9e3779b9u);

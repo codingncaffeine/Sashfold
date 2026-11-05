@@ -428,6 +428,25 @@ int origin_class(int rank)
     return 0;
 }
 
+// Whether a selector list reads anything inside the element it tests, so
+// that a change in there can turn its answer: :has(), :dir() (taken from the
+// element's own text under dir=auto) and :empty, at any depth.
+bool reads_inside(SelectorList const& list)
+{
+    for (ComplexSelector const& selector : list.selectors) {
+        for (CompoundSelector const& compound : selector.compounds) {
+            for (SimpleSelector const& simple : compound.simples) {
+                if (simple.pseudo == SimpleSelector::PseudoKind::Has || simple.pseudo == SimpleSelector::PseudoKind::Dir
+                    || simple.pseudo == SimpleSelector::PseudoKind::Empty)
+                    return true;
+                if (simple.argument && reads_inside(*simple.argument))
+                    return true;
+            }
+        }
+    }
+    return false;
+}
+
 bool cascades_before(MatchedDeclaration const& a, MatchedDeclaration const& b)
 {
     // Origin and importance, then the tree context, then the rest
@@ -2908,7 +2927,13 @@ struct RuleSet {
     // What the anchors are tested for, but the :has() (all their test reads):
     // the rules a component writes once per case — the same anchor with a
     // :has() for each — are one anchor, not one each.
-    std::set<std::string> has_anchor_keys;
+    std::map<std::string, CompoundSelector const*> has_anchor_keys;
+    // What each kept anchor's :has() turning reaches below it: the subjects
+    // of the selectors it anchors (`.a:has(.x) .b .c` reaches `.c`), or any
+    // element when one names none or is not a rule's own selector. The
+    // invalidation set other engines keep for :has(); the subjects alone
+    // are computed again, not everything the anchor holds.
+    std::unordered_map<CompoundSelector const*, Reach> has_anchor_reach;
     // The anchors filed by one thing an element must have to match one (an
     // id, a class, its name, lowercased), so a restyle tests an element
     // only against the anchors it could be; those that require none of
@@ -2936,23 +2961,27 @@ struct RuleSet {
 
     // Keeps an anchor once (by its test, or itself when that is not plain);
     // false when it cannot be kept, which leaves its :has() unbounded.
-    bool keep_has_anchor(CompoundSelector const& anchor)
+    CompoundSelector const* keep_has_anchor(CompoundSelector const& anchor)
     {
         std::optional<std::string> const key = anchor_key(anchor);
-        if (key ? has_anchor_keys.contains(*key) : has_anchor_set.contains(&anchor))
-            return true;
+        if (key) {
+            if (auto const found = has_anchor_keys.find(*key); found != has_anchor_keys.end())
+                return found->second;
+        } else if (has_anchor_set.contains(&anchor)) {
+            return &anchor;
+        }
         std::optional<std::string> const file = anchor_file(anchor);
         if (!file && has_anchors_unfiled.size() >= max_unfiled_has_anchors)
-            return false;
+            return nullptr;
         has_anchors.push_back(&anchor);
         has_anchor_set.insert(&anchor);
         if (key)
-            has_anchor_keys.insert(*key);
+            has_anchor_keys.emplace(*key, &anchor);
         if (file)
             has_anchors_filed[*file].push_back(&anchor);
         else
             has_anchors_unfiled.push_back(&anchor);
-        return true;
+        return &anchor;
     }
 
     // The anchor's test as text, for the simple selectors that are plain
@@ -3017,7 +3046,7 @@ struct RuleSet {
     // inside it when a descendant or child combinator comes first (siblings
     // further on are inside it too), and the elements after it among its
     // siblings, and inside those, when a + or ~ does (`li:has(.on) + p`).
-    bool note_has_anchor(ComplexSelector const& selector, std::size_t c)
+    bool note_has_anchor(ComplexSelector const& selector, std::size_t c, bool top)
     {
         bool beside = c < selector.combinators.size()
             && (selector.combinators[c] == Combinator::NextSibling || selector.combinators[c] == Combinator::SubsequentSibling);
@@ -3038,10 +3067,23 @@ struct RuleSet {
             --at;
             beside = false;
         }
-        if (!keep_has_anchor(selector.compounds[at]))
+        CompoundSelector const* const kept = keep_has_anchor(selector.compounds[at]);
+        if (kept == nullptr)
             return false;
         if (beside)
             uses.has_anchor_siblings = true;
+        // What its turning reaches below it: a rule's own subject, by the
+        // feature it cannot match without; any element otherwise (an
+        // argument's selector, a subject that names nothing, a ::slotted or
+        // ::part rule, which styles across).
+        Reach& reaches = has_anchor_reach[kept];
+        bool const styles_across = selector.pseudo_element == ComplexSelector::PseudoElement::Slotted
+            || selector.pseudo_element == ComplexSelector::PseudoElement::Part;
+        std::string const subject = top && !styles_across ? subject_key(selector.compounds.back()) : std::string();
+        if (subject.empty())
+            reaches.any = true;
+        else
+            reaches.subjects.insert(subject);
         return true;
     }
 
@@ -3098,8 +3140,11 @@ struct RuleSet {
                 case SimpleSelector::PseudoKind::NthChild:
                 case SimpleSelector::PseudoKind::NthLastChild:
                     uses.positional = true;
-                    if (simple.argument)
+                    if (simple.argument) {
                         uses.nth_of = true;
+                        if (reads_inside(*simple.argument))
+                            uses.nth_of_reads_inside = true;
+                    }
                     break;
                 case SimpleSelector::PseudoKind::Empty:
                     uses.empty = true;
@@ -3114,7 +3159,7 @@ struct RuleSet {
                     uses.has = true;
                     if (in_has
                         || (!subject_compound && !(anchored && c + 1 == selector.compounds.size())
-                            && !(anchor_holds(selector, c, top) && note_has_anchor(selector, c))))
+                            && !(anchor_holds(selector, c, top) && note_has_anchor(selector, c, top))))
                         uses.has_beyond_ancestors = true;
                     break;
                 case SimpleSelector::PseudoKind::Disabled:
@@ -3174,7 +3219,7 @@ struct RuleSet {
                     bool const matches_any = simple.pseudo == SimpleSelector::PseudoKind::Is
                         || simple.pseudo == SimpleSelector::PseudoKind::Not || simple.pseudo == SimpleSelector::PseudoKind::Where;
                     bool const anchors = matches_any && anchor_holds(selector, c, top) && !subject_compound && contains_has(simple)
-                        && note_has_anchor(selector, c);
+                        && note_has_anchor(selector, c, top);
                     for (ComplexSelector const& inner : simple.argument->selectors)
                         note_uses(inner, subject_compound && !into_has, in_has || into_has, false, into_has, anchors);
                 }
@@ -3501,6 +3546,7 @@ void RuleSet::take_invalidation_of(RuleSet const& scope)
     uses.sibling_combinators = uses.sibling_combinators || scope.uses.sibling_combinators;
     uses.positional = uses.positional || scope.uses.positional;
     uses.nth_of = uses.nth_of || scope.uses.nth_of;
+    uses.nth_of_reads_inside = uses.nth_of_reads_inside || scope.uses.nth_of_reads_inside;
     uses.empty = uses.empty || scope.uses.empty;
     uses.has = uses.has || scope.uses.has;
     uses.has_beyond_ancestors = uses.has_beyond_ancestors || scope.uses.has_beyond_ancestors;
@@ -3518,8 +3564,19 @@ void RuleSet::take_invalidation_of(RuleSet const& scope)
     // An anchor not kept would be no anchor: a change under it would turn
     // its :has() unseen.
     for (CompoundSelector const* anchor : scope.has_anchors) {
-        if (!keep_has_anchor(*anchor))
+        CompoundSelector const* const kept = keep_has_anchor(*anchor);
+        if (kept == nullptr) {
             uses.has_beyond_ancestors = true;
+            continue;
+        }
+        Reach& own = has_anchor_reach[kept];
+        auto const theirs = scope.has_anchor_reach.find(anchor);
+        if (theirs == scope.has_anchor_reach.end()) {
+            own.any = true;
+            continue;
+        }
+        own.any = own.any || theirs->second.any;
+        own.subjects.insert(theirs->second.subjects.begin(), theirs->second.subjects.end());
     }
     media_conditions.insert(media_conditions.end(), scope.media_conditions.begin(), scope.media_conditions.end());
 }
@@ -9173,6 +9230,48 @@ struct Updater {
         return false;
     }
 
+    // What a change inside an anchor reaches below it, for every anchor the
+    // element matches but for its :has(): the subjects of the selectors
+    // they anchor, or — `any` — everything in it. Asked once an element.
+    struct AnchorReach {
+        bool any = false;
+        std::vector<RuleSet::Reach const*> reaches;
+    };
+    std::unordered_map<dom::Element const*, AnchorReach> anchor_reaches;
+    AnchorReach const& anchor_reach(dom::Element const& element)
+    {
+        auto const [entry, fresh] = anchor_reaches.try_emplace(&element);
+        if (!fresh)
+            return entry->second;
+        AnchorReach& out = entry->second;
+        RuleSet const& set = resolver.set;
+        auto const take = [&](std::vector<CompoundSelector const*> const& anchors) {
+            for (CompoundSelector const* anchor : anchors) {
+                if (out.any || !matches_compound_but_has(*anchor, element))
+                    continue;
+                auto const found = set.has_anchor_reach.find(anchor);
+                if (found == set.has_anchor_reach.end() || found->second.any)
+                    out.any = true;
+                else
+                    out.reaches.push_back(&found->second);
+            }
+        };
+        take(set.has_anchors_unfiled);
+        auto const filed = [&](std::string const& key) {
+            if (auto const found = set.has_anchors_filed.find(key); found != set.has_anchors_filed.end())
+                take(found->second);
+        };
+        filed("t" + RuleSet::lowercased(element.local_name()));
+        for (dom::Attr const& attribute : element.attributes()) {
+            std::string const lower = RuleSet::lowercased(attribute.qualified_name());
+            if (lower == "id")
+                filed("#" + RuleSet::lowercased(attribute.value));
+            else if (lower == "class")
+                Resolver::for_each_class(attribute.value, [&](std::string_view word) { filed("." + RuleSet::lowercased(word)); });
+        }
+        return out;
+    }
+
     // An element a :has() starting beside it may be tested on, with a change
     // after it among its siblings: itself again, and what it holds when it
     // is an anchor.
@@ -9334,10 +9433,23 @@ struct Updater {
             all = true;
         if (!all && changed(holder->style_marks().children) && (uses.sibling_combinators || uses.positional))
             all = true;
-        if (!all && uses.nth_of) {
+        // Through `of S` a child whose own state changed moves the places of
+        // the others among what S matches; with no other element among them
+        // (the root, an only child) there is no place to move, and its change
+        // is its own.
+        auto const elements_among = [](std::vector<dom::Node*> const& nodes) {
+            std::size_t count = 0;
+            for (dom::Node const* node : nodes) {
+                if (node->is_element() && ++count > 1)
+                    break;
+            }
+            return count;
+        };
+        if (!all && uses.nth_of && elements_among(children) > 1) {
             for (dom::Node const* child : children) {
                 if (child->is_element()
-                    && (changed(child->style_marks().self) || forced.contains(static_cast<dom::Element const*>(child)))) {
+                    && (changed(child->style_marks().self)
+                        || (uses.nth_of_reads_inside && forced.contains(static_cast<dom::Element const*>(child))))) {
                     all = true;
                     break;
                 }
@@ -9388,7 +9500,8 @@ struct Updater {
             bool const arrived = kept == resolver.map.end() || changed(marks.subtree)
                 || (uses.empty && changed(marks.children)) || (hosted != nullptr && changed(hosted->style_marks().subtree));
             Redo redo = Redo::None;
-            if (all || after_change || arrived || forced_subtrees.contains(&element) || after_changed_sibling.contains(&element))
+            if (all || after_change || arrived || after_changed_sibling.contains(&element)
+                || (forced_subtrees.contains(&element) && anchor_reach(element).any))
                 redo = Redo::Subtree;
             else if (changed(marks.self) || forced.contains(&element))
                 redo = Redo::Own;
@@ -9500,6 +9613,15 @@ struct Updater {
                 }
             }
         }
+        // An anchor with a change inside it: its :has() may have turned, which
+        // reaches the subjects of the selectors it anchors.
+        if (children != Redo::Subtree && forced_subtrees.contains(&element)) {
+            AnchorReach const& anchored = anchor_reach(element);
+            if (anchored.any)
+                children = Redo::Subtree;
+            else
+                below.insert(below.end(), anchored.reaches.begin(), anchored.reaches.end());
+        }
         if (&element == record.root) {
             record.root_cascaded = style;
             root_or_body_computed = true;
@@ -9599,7 +9721,7 @@ struct Restyler {
             Resolver resolver(rules);
             resolver.map = std::move(styles);
             resolver.previous_styles = &resolver.map;
-            Updater updater { resolver, rules.uses, record, since, {}, {}, 0, {}, false };
+            Updater updater { resolver, rules.uses, record, since, {}, {}, 0, {}, false, {} };
             updater.run(document);
             if (updater.bail.empty()) {
                 if (rules.uses.first_letter)

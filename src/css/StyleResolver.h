@@ -42,6 +42,10 @@ struct StyleUses {
     bool sibling_combinators = false; // + and ~
     bool positional = false; // :nth-*, :first-/:last-/:only-child and -of-type
     bool nth_of = false; // :nth-child(An+B of S), :nth-last-child(... of S)
+    // An S that reads what is inside the element it tests (:has(), :dir(),
+    // :empty): a change inside a sibling can then move the others' places
+    // among what S matches, as a change to the sibling itself always can.
+    bool nth_of_reads_inside = false;
     bool empty = false; // :empty
     bool has = false; // :has()
     // A :has() whose answer a change can turn for an element other than an
