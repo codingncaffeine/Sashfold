@@ -753,6 +753,31 @@ void reaches()
         CHECK(!beside_back.outcome.whole);
         CHECK_EQ(beside_back.difference.value_or(""), std::string());
     }
+    // An anchor that is any element below one that is named: the named one
+    // anchors it, since what the :has() is tested on is inside it. And
+    // anchors past any count, filed by id, class and name: a page that
+    // writes one per component keeps every one, and each still turns.
+    std::string many;
+    for (int i = 0; i < 300; ++i)
+        many += ".c" + std::to_string(i) + ":not(:has(.x" + std::to_string(i) + ")) span { color: red }\n";
+    many += "#sib:has(.on) .tail { color: blue }\n.leaf:has(~ .on) { margin-left: 1px }\n"
+            "body div:has(> .on) b { font-weight: 700 }\n";
+    for (std::string const& sheet : { std::string("div :has(.on) b { color: red }"),
+             std::string("#sib > :has(+ .on) ~ b { color: red }"), std::string("body :not(:has(.on)) span { color: red }"),
+             many }) {
+        css::StyleSet named_above(std::vector<css::SheetSource> { { sheet, std::nullopt } });
+        Kept named_kept;
+        update_and_check(*document, named_above, named_kept);
+        toggle_class(*by_id("s2"), "on");
+        Step const named_step = update_and_check(*document, named_above, named_kept);
+        CHECK(!named_step.outcome.whole);
+        CHECK(named_step.outcome.computed < count_elements(*document));
+        CHECK_EQ(named_step.difference.value_or(""), std::string());
+        toggle_class(*by_id("s2"), "on");
+        Step const named_back = update_and_check(*document, named_above, named_kept);
+        CHECK(!named_back.outcome.whole);
+        CHECK_EQ(named_back.difference.value_or(""), std::string());
+    }
     // An anchor that is any element, or a :has() inside another selector's
     // argument other than on an anchor's own element: a change reaches
     // further, and the update is whole.
