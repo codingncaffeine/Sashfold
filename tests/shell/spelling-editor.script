@@ -1,0 +1,41 @@
+# Spelling in rich editors (contenteditable): the words the dictionary does
+# not know are marked with the red wave, a word that runs on through inline
+# markup read whole ("qu<b>ick</b>" is "quick"), the word being typed left
+# alone; the menu offers the spellings, and taking one is the editor's own
+# edit — beforeinput and input of type insertReplacementText — as in Chrome.
+# An editor whose spellcheck is false is never marked.
+resize 600 300
+spell-dictionary files/test-spell.aff files/test-spell.dic
+open data:text/html,<title>S</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}div{width:400px;outline:none}</style><div id=e contenteditable>the helo qu<b>ick</b> wrold</div><div id=off contenteditable spellcheck=false>helo wrold</div><script>var log=[];e.addEventListener('beforeinput',function(v){log.push('before:'+v.inputType)});e.addEventListener('input',function(v){log.push(v.inputType+':'+e.innerHTML);document.title=log.join(',')})</script>
+click 300 95
+key end
+type .
+assert-golden goldens/spelling-editor.png 0 76 600 60
+right-click 60 95
+assert-menu hello | Add to dictionary | - | (Cut) | (Copy) | (Paste) | (Paste as plain text) | - | Select all | - | *Check spelling | (Languages) | - | Inspect
+assert-misspelled helo wrold
+menu-click 0 0
+assert-title before:insertText,insertText:the helo qu<b>ick</b> wrold.,before:insertReplacementText,insertReplacementText:the hello qu<b>ick</b> wrold.
+assert-misspelled wrold
+# The word being typed is not marked until it is left.
+key end
+type " fxo"
+assert-misspelled wrold
+type " "
+assert-misspelled wrold fxo
+# Added to the dictionary from the menu: no longer marked anywhere.
+right-click 245 95
+assert-menu fox | Add to dictionary | - | (Cut) | (Copy) | (Paste) | (Paste as plain text) | - | Select all | - | *Check spelling | (Languages) | - | Inspect
+menu-click 0 1
+assert-misspelled wrold
+# Checking turned off from the menu: nothing is marked; on again, it is.
+right-click 60 95
+assert-menu (Cut) | (Copy) | (Paste) | (Paste as plain text) | - | Select all | - | *Check spelling | (Languages) | - | Inspect
+menu-click 0 7
+assert-misspelled
+right-click 60 95
+menu-click 0 7
+assert-misspelled wrold
+# An editor whose spellcheck is false: nothing marked.
+click 60 115
+assert-misspelled

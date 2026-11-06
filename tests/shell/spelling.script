@@ -13,12 +13,12 @@ assert-value t helo wrold.
 assert-golden goldens/spelling.png
 # The menu of a misspelled word: its spellings first.
 right-click 20 95
-assert-menu hello | Add to dictionary | - | (Cut) | (Copy) | (Paste) | - | Select all | - | Inspect
+assert-menu hello | Add to dictionary | - | (Cut) | (Copy) | (Paste) | - | Select all | - | *Check spelling | (Languages) | - | Inspect
 menu-click 0 0
 assert-value t hello wrold.
 # A word added is a word: its mark goes.
 right-click 80 95
-assert-menu world | brown | Add to dictionary | - | (Cut) | (Copy) | (Paste) | - | Select all | - | Inspect
+assert-menu world | brown | Add to dictionary | - | (Cut) | (Copy) | (Paste) | - | Select all | - | *Check spelling | (Languages) | - | Inspect
 menu-click 0 2
 right-click 80 95
-assert-menu (Cut) | (Copy) | (Paste) | - | Select all | - | Inspect
+assert-menu (Cut) | (Copy) | (Paste) | - | Select all | - | *Check spelling | (Languages) | - | Inspect

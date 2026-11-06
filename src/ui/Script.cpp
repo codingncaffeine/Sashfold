@@ -1147,6 +1147,10 @@ struct Runner {
             expect_equal("assert-question", browser.notification_question(), argument);
             if (browser.chrome_layout().permission_bar.is_empty() != argument.empty())
                 fail("assert-question: the bar is " + std::string(argument.empty() ? "there" : "not there"));
+        } else if (command == "assert-misspelled") {
+            // `assert-misspelled <word> <word>…`: what the rich editor with
+            // the focus has marked, in order (nothing: none).
+            expect_equal("assert-misspelled", browser.editor_misspellings(), argument);
         } else if (command == "assert-question-focus") {
             // `assert-question-focus allow|block|close|none`: the answer of
             // the question's bar the keyboard is on.

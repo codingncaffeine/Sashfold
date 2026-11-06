@@ -103,6 +103,7 @@ sashfold_test(test_confine)
 sashfold_test(test_dbus)
 # The release check and its unpacking; the folder holds archives as GNU tar
 # writes them.
+sashfold_test(test_spell_service)
 add_executable(test_update_package test_update_package.cpp)
 target_link_libraries(test_update_package PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_update_package COMMAND test_update_package ${CMAKE_CURRENT_SOURCE_DIR}/update)
@@ -260,6 +261,8 @@ add_test(NAME shell_ime_editing
 # menu's spellings and Add to dictionary, spellcheck=false honored.
 add_test(NAME shell_spelling
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/spelling.script)
+add_test(NAME shell_spelling_editor
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/spelling-editor.script)
 # Drags from other programs: files shown as Files while moving and read in
 # drop, a file input given them, text dropped into a field.
 add_test(NAME shell_os_drag

@@ -560,6 +560,20 @@ struct Browser::Impl {
         // The site whose page here has asked to show notifications, while
         // the reader has not answered: the question's bar is this tab's.
         std::string permission_ask;
+        // The misspelled words of the rich editor with the focus: each a
+        // part of one text node, UTF-16 offsets as the DOM counts them; and
+        // what they were found for (the host, its document's changes and
+        // selection), so that they are found again only when those move.
+        struct EditorMisspelling {
+            dom::Node const* node = nullptr;
+            std::uint32_t from = 0;
+            std::uint32_t to = 0;
+            std::u32string word;
+        };
+        std::vector<EditorMisspelling> editor_misspelled;
+        dom::Element const* editor_spelled_host = nullptr;
+        std::uint64_t editor_spelled_tree = ~std::uint64_t { 0 };
+        std::uint64_t editor_spelled_selection = ~std::uint64_t { 0 };
         bool page_fullscreen = false; // of that mirror: an element of the page is shown full screen
         bool page_modal = false; // a menu of the page's is open, or its link hints
         bool page_menu_open = false;
@@ -1069,7 +1083,7 @@ struct Browser::Impl {
     std::optional<double> caret_rest_from; // on script_now()'s clock
     std::optional<platform::CaretBlink> caret_blink_fixed;
     std::shared_ptr<SpellService> spell;
-    bool spell_was_ready = false; // the dictionary had come at the last look
+    std::uint64_t spell_seen = 0; // the dictionary (SpellService::version) the texts were last checked with
     std::optional<platform::CaretBlink> caret_blink_now() const
     {
         return caret_blink_fixed ? caret_blink_fixed : platform::caret_blink();
@@ -8974,8 +8988,59 @@ struct Browser::Impl {
                 if (Tab* const with_control = tab_with_focused_control())
                     select_all_in_control(*with_control);
             }, has_value));
+            if (spell_checked(*control))
+                add_spelling_rows(items);
             specific = true;
-        } else if (editing_focus(*tab)) {
+        } else if (std::optional<EditingFocus> const editing = editing_focus(*tab)) {
+            // A misspelled word under the pointer: its spellings, then "Add to
+            // dictionary", as in a field.
+            refresh_editor_spelling(*tab);
+            if (std::optional<EditingSurface> const surface = spell ? surface_of(*tab, editing->frame) : std::nullopt) {
+                ChromeLayout const c = layout_chrome();
+                float const px = static_cast<float>(x - c.content.x) - surface->x;
+                float const py = static_cast<float>(y - c.content.y + tab->scroll_y) - surface->y;
+                std::optional<TextPosition> const at = position_at(*surface->runs, px, py);
+                std::optional<std::pair<dom::Node*, std::uint32_t>> const point = at ? dom_point_of(*surface->runs, *at) : std::nullopt;
+                for (Tab::EditorMisspelling const& wrong : tab->editor_misspelled) {
+                    if (!point || point->first != wrong.node || point->second < wrong.from || point->second > wrong.to)
+                        continue;
+                    std::u32string const word = wrong.word;
+                    std::vector<std::u32string> const spellings = spell->suggest(word);
+                    for (std::u32string const& spelling : spellings) {
+                        items.push_back(menu_item(utf8_of(spelling), {}, [this, node = wrong.node, from = wrong.from, to = wrong.to, spelling] {
+                            Tab* const front = active_tab();
+                            std::optional<EditingFocus> const now = front ? editing_focus(*front) : std::nullopt;
+                            if (!now)
+                                return;
+                            // Still a misspelling of the editor as it is now
+                            // (and so a node still in it).
+                            refresh_editor_spelling(*front);
+                            bool const still = std::any_of(front->editor_misspelled.begin(), front->editor_misspelled.end(),
+                                [&](Tab::EditorMisspelling const& m) { return m.node == node && m.from == from && m.to == to; });
+                            if (!still)
+                                return;
+                            script_started = std::chrono::steady_clock::now();
+                            dom::Node& text = const_cast<dom::Node&>(*node);
+                            now->realm->set_selection(text, from, text, to);
+                            now->realm->edit("insertReplacementText", utf8_of(spelling));
+                            edited(*front);
+                        }));
+                    }
+                    if (spellings.empty())
+                        items.push_back(menu_item("No spelling suggestions", {}, [] {}, false));
+                    items.push_back(menu_item("Add to dictionary", {}, [this, word] {
+                        spell->add_word(word);
+                        for (Tab& each : tabs) {
+                            each.editor_spelled_host = nullptr; // checked again at the next look
+                            if (each.document && each.controls.focused)
+                                spell_check_control(each, *each.controls.focused);
+                        }
+                        dirty = true;
+                    }));
+                    items.push_back({});
+                    break;
+                }
+            }
             // A rich editor's menu: what its keys do, as every browser offers.
             bool const has_selection = !selected_text(*tab).empty();
             bool const can_paste = clipboard_has_something();
@@ -8995,6 +9060,8 @@ struct Browser::Impl {
             items.push_back(menu_item("Paste as plain text", "Ctrl+Shift+V", [chord] { chord(U'V', true); }, can_paste));
             items.push_back({});
             items.push_back(menu_item("Select all", "Ctrl+A", [chord] { chord(U'A', false); }));
+            if (editor_spell_checked(*editing->host))
+                add_spelling_rows(items);
             specific = true;
         } else if (!selected_text(*tab).empty()) {
             items.push_back({});
@@ -12352,16 +12419,211 @@ struct Browser::Impl {
         }
     }
 
+    // The rows every editable place's menu ends with, as Firefox has them:
+    // whether words are checked at all, and the language they are checked in
+    // (a submenu of the dictionaries there are).
+    void add_spelling_rows(std::vector<MenuItem>& items)
+    {
+        if (!spell)
+            return;
+        items.push_back({});
+        MenuItem toggle = menu_item("Check spelling", {}, [this] {
+            spell->set_enabled(!spell->enabled());
+            spelling_changed();
+        });
+        toggle.checked = spell->enabled();
+        items.push_back(std::move(toggle));
+        MenuItem languages = menu_item("Languages", {}, [] {});
+        std::string const current = spell->language();
+        for (std::string const& language : spell->languages()) {
+            MenuItem each = menu_item(language, {}, [this, language] {
+                spell->set_language(language);
+                spelling_changed();
+            });
+            each.checked = language == current;
+            languages.children.push_back(std::move(each));
+        }
+        if (languages.children.empty())
+            languages.enabled = false;
+        items.push_back(std::move(languages));
+    }
+
+    // Every field and editor is checked again (and the dictionary watched
+    // for, should a new language be on its way).
+    void spelling_changed()
+    {
+        for (Tab& each : tabs) {
+            each.editor_spelled_host = nullptr;
+            if (each.document && each.controls.focused)
+                spell_check_control(each, *each.controls.focused);
+        }
+        dirty = true;
+    }
+
+    // Whether a rich editor's words are checked (HTML §6.8.4): by default
+    // yes, unless the host or an element above it says spellcheck=false.
+    static bool editor_spell_checked(dom::Element const& host)
+    {
+        for (dom::Node const* node = &host; node; node = node->parent()) {
+            if (!node->is_element())
+                continue;
+            if (dom::Attr const* const given = static_cast<dom::Element const*>(node)->find_attribute("spellcheck")) {
+                std::string value = given->value;
+                for (char& c : value)
+                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (value == "false")
+                    return false;
+                if (value == "true" || value.empty())
+                    return true;
+            }
+        }
+        return true;
+    }
+
+    // Elements a word may run on through (it is cut at any other: a
+    // paragraph, a list item, a line break).
+    static bool runs_inline(dom::Element const& element)
+    {
+        static constexpr std::string_view inline_tags[] = { "a", "abbr", "b", "bdi", "bdo", "cite", "code", "data", "dfn", "em", "font",
+            "i", "kbd", "mark", "q", "s", "samp", "small", "span", "strike", "strong", "sub", "sup", "time", "u", "var" };
+        for (std::string_view const tag : inline_tags) {
+            if (element.is_html(tag))
+                return true;
+        }
+        return false;
+    }
+
+    static std::uint32_t utf16_units_of(std::u32string_view text)
+    {
+        std::uint32_t units = 0;
+        for (char32_t const c : text)
+            units += c >= 0x10000 ? 2 : 1;
+        return units;
+    }
+
+    // The rich editor with the focus, its words checked again if what they
+    // were found for has moved: its text read as one (cut at its blocks),
+    // the dictionary's misspellings mapped back to the nodes — less the word
+    // the caret is in, which is being written yet. True when they changed.
+    bool refresh_editor_spelling(Tab& tab)
+    {
+        std::optional<EditingFocus> const editing = editing_focus(tab);
+        dom::Element const* const host = editing ? editing->host : nullptr;
+        bool const checking = host && spell && spell->ready() && editor_spell_checked(*host);
+        std::uint64_t const tree = checking ? editing->realm->tree_mutation_count() : 0;
+        std::uint64_t const selection = checking ? editing->realm->selection_version() : 0;
+        if (!checking) {
+            if (tab.editor_misspelled.empty() && !tab.editor_spelled_host)
+                return false;
+            tab.editor_misspelled.clear();
+            tab.editor_spelled_host = nullptr;
+            return true;
+        }
+        if (host == tab.editor_spelled_host && tree == tab.editor_spelled_tree && selection == tab.editor_spelled_selection)
+            return false;
+        tab.editor_spelled_host = host;
+        tab.editor_spelled_tree = tree;
+        tab.editor_spelled_selection = selection;
+        struct Piece {
+            dom::Node const* node;
+            std::size_t start;
+            std::u32string text;
+        };
+        std::vector<Piece> pieces;
+        std::u32string joined;
+        auto const cut = [&joined] {
+            if (!joined.empty() && joined.back() != U'\n')
+                joined.push_back(U'\n');
+        };
+        auto const walk = [&](auto const& self, dom::Node const& node) -> void {
+            if (joined.size() > 500000)
+                return; // a book in one editor: what is past this is left unmarked
+            if (node.is_text()) {
+                std::u32string text = decode_utf8(data_of(node));
+                pieces.push_back({ &node, joined.size(), text });
+                joined += text;
+                return;
+            }
+            if (!node.is_element())
+                return;
+            auto const& element = static_cast<dom::Element const&>(node);
+            bool const block = !runs_inline(element);
+            if (block)
+                cut();
+            for (dom::Node const* child : node.children())
+                self(self, *child);
+            if (block)
+                cut();
+        };
+        walk(walk, *host);
+        // The caret, as a place in the joined text.
+        std::optional<std::size_t> caret_at;
+        if (std::optional<bindings::Realm::SelectionPoints> const points = editing->realm->selection();
+            points && points->focus && points->anchor == points->focus && points->anchor_offset == points->focus_offset) {
+            for (Piece const& piece : pieces) {
+                if (piece.node == points->focus)
+                    caret_at = piece.start + code_points_in(data_of(*piece.node), points->focus_offset);
+            }
+        }
+        std::vector<Tab::EditorMisspelling> found;
+        for (auto const& [start, end] : spell->misspelled(joined)) {
+            if (caret_at && *caret_at > start && *caret_at <= end)
+                continue;
+            for (Piece const& piece : pieces) {
+                std::size_t const from = std::max(start, piece.start);
+                std::size_t const to = std::min(end, piece.start + piece.text.size());
+                if (from >= to)
+                    continue;
+                std::u32string_view const text = piece.text;
+                found.push_back({ piece.node, utf16_units_of(text.substr(0, from - piece.start)), utf16_units_of(text.substr(0, to - piece.start)),
+                    joined.substr(start, end - start) });
+            }
+        }
+        bool const changed = found.size() != tab.editor_misspelled.size()
+            || !std::equal(found.begin(), found.end(), tab.editor_misspelled.begin(), [](auto const& a, auto const& b) {
+                   return a.node == b.node && a.from == b.from && a.to == b.to;
+               });
+        tab.editor_misspelled = std::move(found);
+        return changed;
+    }
+
+    // The spell checker's red wave under the text between two positions.
+    static void paint_waves(Bitmap& content, std::vector<layout::TextRun const*> const& runs, TextPosition start, TextPosition end,
+        float offset_x, float scroll_y, float scale)
+    {
+        for (std::size_t i = start.run; i <= end.run && i < runs.size(); ++i) {
+            layout::TextRun const& run = *runs[i];
+            std::size_t const from = i == start.run ? std::min(start.offset, run.text.size()) : 0;
+            std::size_t const to = i == end.run ? std::min(end.offset, run.text.size()) : run.text.size();
+            if (to <= from)
+                continue;
+            text::FaceMetrics const metrics = run_metrics(run);
+            int const x0 = static_cast<int>(std::lround(offset_x + run.x + prefix_width(run, from)));
+            int const x1 = static_cast<int>(std::lround(offset_x + run.x + prefix_width(run, to)));
+            int const top = static_cast<int>(std::lround(run.baseline_y + std::max(1.0f, metrics.descent * 0.25f) - scroll_y));
+            // As the fields' (paint::Painter): a period of four device px, two tall.
+            int const unit = std::max(1, static_cast<int>(std::lround(scale)));
+            int const period = 4 * unit;
+            for (int x = x0; x < x1; ++x) {
+                int const phase = (x - x0) % period;
+                int const rise = phase < period / 2 ? phase : period - phase;
+                content.fill_rect(Rect { x, top + unit * 2 - rise * unit * 2 / std::max(1, period / 2), 1, unit }, Color::rgb(0xe0, 0x1b, 0x24));
+            }
+        }
+    }
+
     // The dictionary came while a field had the focus: its words are checked.
     void hear_spell()
     {
-        if (!spell || spell_was_ready || !spell->ready())
+        if (!spell || !spell->ready() || spell->version() == spell_seen)
             return;
-        spell_was_ready = true;
+        spell_seen = spell->version();
         for (Tab& tab : tabs) {
+            tab.editor_spelled_host = nullptr;
             if (tab.document && tab.controls.focused)
                 spell_check_control(tab, *tab.controls.focused);
         }
+        dirty = true;
     }
 
     // The maxlength the reader's typing stops at, in UTF-16 code units.
@@ -14616,6 +14878,16 @@ struct Browser::Impl {
                     // where its frame is, then up by the page's scrolling.
                     float const ox = surface ? surface->x : 0;
                     float const oy = (surface ? surface->y : 0) - static_cast<float>(tab->scroll_y);
+                    // Its misspelled words, each with the red wave.
+                    const_cast<Impl*>(this)->refresh_editor_spelling(*front);
+                    if (surface) {
+                        for (Tab::EditorMisspelling const& wrong : front->editor_misspelled) {
+                            std::optional<TextPosition> const from = text_position_of(*surface->runs, *wrong.node, wrong.from);
+                            std::optional<TextPosition> const to = text_position_of(*surface->runs, *wrong.node, wrong.to);
+                            if (from && to)
+                                paint_waves(content, *surface->runs, *from, *to, ox, -oy, scale);
+                        }
+                    }
                     // The composing text, underlined as every system draws it.
                     if (std::optional<bindings::Realm::CompositionSpan> const span = editing->realm->composition_span(); span && surface) {
                         std::optional<TextPosition> const from = text_position_of(*surface->runs, *span->node, span->start);
@@ -15268,6 +15540,20 @@ void Browser::set_on_notification_sites_changed(std::function<void()> changed)
     m_impl->on_notification_sites_changed = std::move(changed);
 }
 
+std::string Browser::editor_misspellings()
+{
+    if (Impl::FrontPage const page = m_impl->front_page())
+        return page->editor_misspellings();
+    Impl::Tab* const tab = m_impl->active_tab();
+    if (!tab)
+        return {};
+    m_impl->refresh_editor_spelling(*tab);
+    std::string words;
+    for (Impl::Tab::EditorMisspelling const& wrong : tab->editor_misspelled)
+        words += (words.empty() ? "" : " ") + Impl::utf8_of(wrong.word);
+    return words;
+}
+
 std::string Browser::question_focus() const
 {
     std::optional<int> const at = m_impl->question_focus;
@@ -15417,7 +15703,7 @@ Browser::WindowRequest Browser::take_window_request()
 void Browser::set_spell_service(std::shared_ptr<SpellService> spell)
 {
     m_impl->spell = spell;
-    m_impl->spell_was_ready = false;
+    m_impl->spell_seen = 0;
     m_impl->tell_pages([spell](Browser& page) { page.set_spell_service(spell); });
     m_impl->dirty = true;
 }

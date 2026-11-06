@@ -452,6 +452,9 @@ public:
     // Which answer of the question bar the keyboard is on: "allow",
     // "block", "close", or "none" (for scripts).
     std::string question_focus() const;
+    // The words marked misspelled in the rich editor with the focus, in
+    // order, joined by spaces (for scripts).
+    std::string editor_misspellings();
     void answer_notification_question(std::optional<bool> allowed);
     // The threads the pages' workers run on (bindings/Workers.h), which the
     // caller keeps for longer than the browser and for no longer than the

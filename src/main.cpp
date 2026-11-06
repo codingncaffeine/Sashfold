@@ -2235,7 +2235,8 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         if (std::string const shipped = shipped_file_path(program, "dictionaries"); !shipped.empty())
             folders.push_back(shipped);
         std::string const own_words = profile.empty() ? std::string() : (std::filesystem::path(profile) / "spelling-words.txt").string();
-        auto spell = std::make_shared<ui::SpellService>(language, std::move(folders), own_words);
+        std::string const settings = profile.empty() ? std::string() : (std::filesystem::path(profile) / "spelling-settings.txt").string();
+        auto spell = std::make_shared<ui::SpellService>(language, std::move(folders), own_words, settings);
         browser.set_spell_service(std::move(spell));
     }
     // The desktop's file chooser, for file inputs: opened on a thread of its
