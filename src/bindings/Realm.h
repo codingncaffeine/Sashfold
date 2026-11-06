@@ -587,6 +587,9 @@ public:
     // the pointerdown was canceled. False when the mousedown was canceled:
     // the host then skips what a press does on its own (focus, selection).
     bool pointer_pressed(dom::Element& target, MouseInit const&);
+    // A press that became a drag (HTML §6.11.5, Pointer Events §4.2.6):
+    // pointercancel where it went down, and no mouseup or click to come.
+    void pointer_cancelled(MouseInit const&);
     // The button released over an element, or over nothing: pointerup and
     // mouseup there (at the pressed element when over nothing), then the
     // click at the nearest common ancestor of the pressed and the released
@@ -657,6 +660,31 @@ public:
         std::uint32_t end = 0;
     };
     std::optional<CompositionSpan> composition_span() const;
+
+    // Drag and drop (HTML §6.11.5), the page's side of it. drag_start()
+    // fires dragstart at the source with the store holding `data` (the
+    // page may change it, or cancel: false, and there is no drag);
+    // `kind` is "selection", "link" or "element". drag_event() fires drag,
+    // dragenter, dragover, dragleave, drop or dragend at a node with the
+    // store in the mode that event gives it and dropEffect as the standard
+    // sets it first; true when not cancelled. The drag's operation as the
+    // page left it (dropEffect after dragenter/dragover), its data, and an
+    // end that lets the store go.
+    bool drag_start(dom::Element& source, MouseInit const&, std::vector<std::pair<std::string, std::string>> data, std::string kind);
+    bool drag_event(dom::Node& target, std::string_view type, MouseInit const&, std::string const& operation = "none");
+    bool dragging() const;
+    std::string drag_drop_effect() const;
+    std::string drag_effect_allowed() const;
+    std::vector<std::pair<std::string, std::string>> drag_data() const;
+    dom::Element* drag_source() const;
+    std::string drag_kind() const;
+    void drag_finished();
+    // A drop into the editing host the selection is in (put at the drop
+    // point first): insertFromDrop with the data on beforeinput's
+    // dataTransfer, the dragged selection deleted first (deleteByDrag) when
+    // it moves within the document. False when there was no editing host.
+    bool drop_into_editing_host(std::vector<std::pair<std::string, std::string>> const& data, bool move_from_selection,
+        std::optional<SelectionPoints> const& dragged);
     // The editing host around a node: its outermost contenteditable element,
     // the body in designMode; null when the node is not editable.
     dom::Element* editing_host(dom::Node& node);

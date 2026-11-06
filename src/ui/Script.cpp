@@ -870,6 +870,10 @@ struct Runner {
                 case platform::Cursor::ResizeHorizontal: return "ew-resize";
                 case platform::Cursor::ResizeDiagonalDown: return "nwse-resize";
                 case platform::Cursor::ResizeDiagonalUp: return "nesw-resize";
+                case platform::Cursor::DragCopy: return "copy";
+                case platform::Cursor::DragMove: return "move";
+                case platform::Cursor::DragLink: return "alias";
+                case platform::Cursor::NoDrop: return "no-drop";
                 }
                 return "?";
             };

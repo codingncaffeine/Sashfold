@@ -1336,6 +1336,11 @@ public:
     // A paste's data is the clipboard's, read but never changed (HTML's
     // "protected" and "read-only" modes); a copy's is the page's to fill.
     bool read_only = false;
+    // A drag's store between dragstart and drop (HTML §6.11.3 "protected
+    // mode"): its formats are seen, its data is not.
+    bool protected_mode = false;
+    // A drag's: effectAllowed may be set in dragstart alone.
+    bool in_drag = false;
     std::string drop_effect = "none";
     std::string effect_allowed = "none";
     js::Object* files = nullptr;
@@ -1471,7 +1476,7 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
         std::optional<std::string> data = format ? internals_of(interp).to_utf8(js::argument(args, 1)) : std::nullopt;
         if (!data)
             return std::nullopt;
-        if (!self->read_only)
+        if (!self->read_only && !self->protected_mode)
             set_data(*self, data_format(std::move(*format)), std::move(*data));
         return js::Value::undefined();
     });
@@ -1483,6 +1488,8 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
         if (!format)
             return std::nullopt;
         std::string const wanted = data_format(std::move(*format));
+        if (self->protected_mode)
+            return internals_of(interp).string("");
         for (auto const& [kept, value] : self->data) {
             if (kept == wanted)
                 return internals_of(interp).string(value);
@@ -1493,7 +1500,7 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
         DataTransferObject* const self = data_transfer_this(interp, this_value);
         if (self == nullptr)
             return std::nullopt;
-        if (self->read_only)
+        if (self->read_only || self->protected_mode)
             return js::Value::undefined();
         if (js::argument(args, 0).is_undefined()) {
             self->data.clear();
@@ -1554,7 +1561,8 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
                 if (!value)
                     return std::nullopt;
                 static constexpr std::string_view known[] = { "none", "copy", "copyLink", "copyMove", "link", "linkMove", "move", "all", "uninitialized" };
-                if (std::find(std::begin(known), std::end(known), *value) != std::end(known))
+                bool const settable = !self->in_drag || (!self->read_only && !self->protected_mode);
+                if (settable && std::find(std::begin(known), std::end(known), *value) != std::end(known))
                     self->effect_allowed = std::move(*value);
                 return js::Value::undefined();
             }
@@ -2090,6 +2098,28 @@ std::vector<std::pair<std::string, std::string>> data_transfer_data(js::Object c
     if (auto const* const transfer = dynamic_cast<DataTransferObject const*>(&object))
         return transfer->data;
     return {};
+}
+
+void set_drag_store_mode(js::Object& object, bool read_only, bool protected_mode)
+{
+    if (auto* const transfer = dynamic_cast<DataTransferObject*>(&object)) {
+        transfer->in_drag = true;
+        transfer->read_only = read_only;
+        transfer->protected_mode = protected_mode;
+    }
+}
+
+std::string data_transfer_effect(js::Object const& object, bool allowed)
+{
+    if (auto const* const transfer = dynamic_cast<DataTransferObject const*>(&object))
+        return allowed ? transfer->effect_allowed : transfer->drop_effect;
+    return "none";
+}
+
+void set_data_transfer_effect(js::Object& object, bool allowed, std::string value)
+{
+    if (auto* const transfer = dynamic_cast<DataTransferObject*>(&object))
+        (allowed ? transfer->effect_allowed : transfer->drop_effect) = std::move(value);
 }
 
 }

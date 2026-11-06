@@ -1455,6 +1455,14 @@ struct Realm::Internals {
         std::vector<std::uint32_t> caret_before;
     };
     std::optional<Composition> composition;
+    // The drag under way, if one began here (DragDrop.cpp): its store, the
+    // element it came from, and what was dragged (a selection, a link).
+    struct Drag {
+        std::unique_ptr<js::Persistent> store;
+        dom::Element* source = nullptr;
+        std::string kind; // "selection", "link", "element"
+    };
+    std::optional<Drag> drag;
     bool autofocus_pending = false;
     bool autofocus_processed = false;
     std::uint64_t autofocus_tree_seen = 0;
@@ -1968,6 +1976,11 @@ js::Object* new_validity_state(Realm::Internals&, NodeWrapper&);
 // DataTransfer holds (none for any other object).
 js::Object* new_data_transfer(Realm::Internals&, std::vector<std::pair<std::string, std::string>> data, bool read_only);
 std::vector<std::pair<std::string, std::string>> data_transfer_data(js::Object const&);
+// A drag's store (DragDrop.cpp): the mode an event of the drag gives it, and
+// its effects (effectAllowed when `allowed`, else dropEffect).
+void set_drag_store_mode(js::Object&, bool read_only, bool protected_mode);
+std::string data_transfer_effect(js::Object const&, bool allowed);
+void set_data_transfer_effect(js::Object&, bool allowed, std::string value);
 // A media element's src attribute was set, changed or removed: it loads again.
 void media_src_changed(Realm::Internals&, dom::Element&);
 // The video elements' pictures now (Realm::video_frames), and the states

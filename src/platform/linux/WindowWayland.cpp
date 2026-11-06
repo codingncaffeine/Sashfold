@@ -233,6 +233,10 @@ namespace wp_cursor_shape_device_v1 {
     constexpr std::uint32_t shape_default = 1;
     constexpr std::uint32_t shape_pointer = 4;
     constexpr std::uint32_t shape_text = 9;
+    constexpr std::uint32_t shape_alias = 11;
+    constexpr std::uint32_t shape_copy = 12;
+    constexpr std::uint32_t shape_move = 13;
+    constexpr std::uint32_t shape_no_drop = 14;
     constexpr std::uint32_t shape_ew_resize = 26;
     constexpr std::uint32_t shape_ns_resize = 27;
     constexpr std::uint32_t shape_nesw_resize = 28;
@@ -2067,6 +2071,10 @@ void WaylandWindow::apply_cursor()
     case Cursor::ResizeHorizontal: shape = wp_cursor_shape_device_v1::shape_ew_resize; break;
     case Cursor::ResizeDiagonalDown: shape = wp_cursor_shape_device_v1::shape_nwse_resize; break;
     case Cursor::ResizeDiagonalUp: shape = wp_cursor_shape_device_v1::shape_nesw_resize; break;
+    case Cursor::DragCopy: shape = wp_cursor_shape_device_v1::shape_copy; break;
+    case Cursor::DragMove: shape = wp_cursor_shape_device_v1::shape_move; break;
+    case Cursor::DragLink: shape = wp_cursor_shape_device_v1::shape_alias; break;
+    case Cursor::NoDrop: shape = wp_cursor_shape_device_v1::shape_no_drop; break;
     case Cursor::Arrow: break;
     }
     Request set_shape(m_cursor_device, wp_cursor_shape_device_v1::set_shape);

@@ -245,6 +245,10 @@ private:
         case Cursor::ResizeHorizontal: return LoadCursorW(nullptr, resource_id(idc_sizewe));
         case Cursor::ResizeDiagonalDown: return LoadCursorW(nullptr, resource_id(idc_sizenwse));
         case Cursor::ResizeDiagonalUp: return LoadCursorW(nullptr, resource_id(idc_sizenesw));
+        case Cursor::NoDrop: return LoadCursorW(nullptr, resource_id(32648)); // IDC_NO
+        case Cursor::DragCopy:
+        case Cursor::DragMove:
+        case Cursor::DragLink:
         case Cursor::Arrow: break;
         }
         return LoadCursorW(nullptr, resource_id(idc_arrow));

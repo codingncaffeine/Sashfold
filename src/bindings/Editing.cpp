@@ -2208,6 +2208,68 @@ std::optional<Realm::CompositionSpan> Realm::composition_span() const
     return CompositionSpan { in.composition->node, in.composition->start, in.composition->start + length };
 }
 
+bool Realm::drop_into_editing_host(std::vector<std::pair<std::string, std::string>> const& data, bool move_from_selection,
+    std::optional<SelectionPoints> const& dragged)
+{
+    Internals& in = *m_internals;
+    Internals::Entry const entry(in);
+    js::Interpreter::Roots const roots(in.interpreter);
+    std::optional<Current> current = current_selection(in);
+    if (!current)
+        return false;
+    dom::Element* const host = current->host;
+    in.interpreter.root(js::Value::object(in.wrap(*host)));
+    std::string text;
+    std::string html;
+    for (auto const& [format, value] : data) {
+        if (format == "text/plain")
+            text = value;
+        else if (format == "text/html")
+            html = value;
+        else if (format == "text/uri-list" && text.empty())
+            text = value;
+    }
+    bool const rich = !html.empty() && !plaintext_only(*host);
+    if (!rich && text.empty())
+        return true;
+    // Where the drop goes, kept by a live range while the dragged text
+    // leaves its place (which may be before it in the same text).
+    js::Object* const drop_object = make_live_range(in, *current->range->start_node, current->range->start_offset, *current->range->start_node,
+        current->range->start_offset);
+    in.interpreter.root(js::Value::object(drop_object));
+    dom::Range* const drop_at = live_range_of(js::Value::object(drop_object));
+    if (move_from_selection && dragged && dragged->anchor->is_connected() && dragged->focus->is_connected()) {
+        set_selection(*dragged->anchor, dragged->anchor_offset, *dragged->focus, dragged->focus_offset);
+        edit("deleteByDrag");
+        if (!drop_at->start_node->is_connected())
+            return true;
+        set_selection(*drop_at->start_node, drop_at->start_offset, *drop_at->start_node, drop_at->start_offset);
+    }
+    current = current_selection(in);
+    if (!current || current->host != host)
+        return true;
+    js::Object* const transfer = new_data_transfer(in, data, true);
+    in.interpreter.root(js::Value::object(transfer));
+    EventObject* const before = input_event(in, "beforeinput", "insertFromDrop", std::nullopt);
+    before->members.push_back(js::Value::object(transfer));
+    before->target_ranges = target_ranges(in, *current, Command::InsertText);
+    if (!in.dispatch(*before, in.wrap(*host)))
+        return true;
+    current = current_selection(in);
+    if (!current || current->host != host)
+        return true;
+    std::string markup_before = html::serialize_children(*host);
+    std::vector<std::uint32_t> caret_before = caret_path(in, *host);
+    bool const done = rich ? perform(in, *current, Command::InsertHtml, html, true) : perform(in, *current, Command::InsertText, text);
+    if (!done)
+        return true;
+    record_edit(in, *host, "insertFromDrop", std::move(markup_before), std::move(caret_before));
+    EventObject* const after = input_event(in, "input", "insertFromDrop", std::nullopt);
+    after->members.push_back(js::Value::object(new_data_transfer(in, data, true)));
+    in.dispatch(*after, in.wrap(*host));
+    return true;
+}
+
 dom::Element* Realm::editing_host(dom::Node& node)
 {
     return editing_host_of(*m_internals, node);

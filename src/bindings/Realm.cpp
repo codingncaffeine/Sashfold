@@ -4026,6 +4026,22 @@ bool Realm::pointer_pressed(dom::Element& target, MouseInit const& given)
     return dispatch_mouse_event(target, "mousedown", init);
 }
 
+void Realm::pointer_cancelled(MouseInit const& given)
+{
+    Internals& in = *m_internals;
+    dom::Element* const pressed = in.pressed_target;
+    in.buttons_down = 0;
+    in.pressed_target = nullptr;
+    in.document->set_active(nullptr);
+    in.mouse_suppressed = false;
+    if (pressed == nullptr || !pressed->is_connected())
+        return;
+    MouseInit init = given;
+    init.buttons = 0;
+    init.pointer = true;
+    dispatch_mouse_event(*pressed, "pointercancel", init);
+}
+
 PointerRelease Realm::pointer_released(dom::Element* target, MouseInit const& given)
 {
     Internals& in = *m_internals;

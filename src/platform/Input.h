@@ -54,6 +54,11 @@ enum class Cursor {
     ResizeHorizontal, // the left or right edge
     ResizeDiagonalDown, // the top-left or bottom-right corner
     ResizeDiagonalUp, // the top-right or bottom-left corner
+    // While something is dragged: what a drop here would do with it.
+    DragCopy,
+    DragMove,
+    DragLink,
+    NoDrop,
 };
 
 }

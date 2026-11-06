@@ -1178,6 +1178,34 @@ struct Browser::Impl {
     std::chrono::steady_clock::time_point activation_until {};
     bool selecting = false; // the left button went down on page text and is still held
     bool editing_drag = false; // ... in an editing host: the drag selects in the document too
+    // Drag and drop (HTML §6.11.5): a press on what can be dragged, which
+    // becomes a drag once the pointer moves far enough with the button
+    // held, and the drag under way.
+    struct DragCandidate {
+        bindings::Realm* realm = nullptr;
+        dom::Element* source = nullptr;
+        std::string kind; // "selection", "link", "element"
+        std::vector<std::pair<std::string, std::string>> data;
+        std::string label;
+        int x = 0;
+        int y = 0;
+        bindings::MouseInit init;
+        std::optional<bindings::Realm::SelectionPoints> dragged;
+    };
+    std::optional<DragCandidate> drag_candidate;
+    struct DragOperation {
+        bindings::Realm* realm = nullptr;
+        dom::Element* immediate = nullptr;
+        dom::Element* current = nullptr;
+        std::string operation = "none";
+        std::string label;
+        std::optional<bindings::Realm::SelectionPoints> dragged;
+        bool from_selection = false;
+        dom::Element* drop_host = nullptr;
+        std::optional<std::pair<dom::Node*, std::uint32_t>> drop_point;
+        bindings::MouseInit init;
+    };
+    std::optional<DragOperation> drag_op;
     // The scrollbar thumb the left button took hold of, and where along it.
     struct BarDrag {
         dom::Element const* box = nullptr;
@@ -9061,6 +9089,19 @@ struct Browser::Impl {
             }
             return;
         }
+        if (drag_op) {
+            drag_moved(x, y);
+            return;
+        }
+        if (drag_candidate) {
+            int const threshold = static_cast<int>(std::lround(4 * scale));
+            if (std::abs(x - drag_candidate->x) >= threshold || std::abs(y - drag_candidate->y) >= threshold) {
+                if (begin_drag()) {
+                    drag_moved(x, y);
+                    return;
+                }
+            }
+        }
         if (!selecting)
             return;
         Tab* const tab = active_tab();
@@ -9101,6 +9142,29 @@ struct Browser::Impl {
         if (pages_in_engines && (page_buttons & (1 << button)) != 0) {
             page_buttons &= ~(1 << button);
             ask_front([button](Browser& shell) { shell.mouse_up(0, 0, button); });
+        }
+        if (button == 1 && drag_op) {
+            finish_drag();
+            drag_candidate.reset();
+            pressed_realm = nullptr; // no mouseup or click after a drag
+            if (pressed != Hover::None) {
+                pressed = Hover::None;
+                dirty = true;
+            }
+            return;
+        }
+        if (button == 1 && drag_candidate) {
+            // A press in the selection that did not become a drag does now
+            // what a press does: the caret, or the selection let go.
+            bool const in_selection = drag_candidate->kind == "selection";
+            drag_candidate.reset();
+            if (in_selection && !pages_in_engines) {
+                if (Tab* const tab = active_tab(); tab && tab->document) {
+                    std::optional<PageHit> const hit = page_hit(mouse_x, mouse_y);
+                    if (!(hit && hit->element && press_in_editing_host(*tab, *hit->element, mouse_x, mouse_y, false)))
+                        clear_selection(*tab);
+                }
+            }
         }
         if (button == 1) {
             selecting = false;
@@ -9537,6 +9601,10 @@ struct Browser::Impl {
         }
         if (!tab.realm || tab.selection_frame)
             return;
+        // A drag selecting in an editor is the window's to draw while it
+        // goes; it is pushed to the document as it moves.
+        if (selecting && editing_drag && tab.selection)
+            return;
         std::uint64_t const version = tab.realm->selection_version();
         bool const editing = editing_focus(tab).has_value();
         if (!editing && version == tab.selection_seen)
@@ -9703,8 +9771,8 @@ struct Browser::Impl {
                 selecting = true;
             }
         }
-        if (tab.selection && tab.selection->anchor == tab.selection->focus)
-            tab.selection.reset();
+        // (A selection that is only a caret stays for the drag to extend;
+        // the next look at the document's selection lets it go.)
         dirty = true;
         return true;
     }
@@ -9927,6 +9995,330 @@ struct Browser::Impl {
         pull_selection(tab);
         if (std::optional<EditingFocus> const editing = editing_focus(tab))
             reveal_caret(tab, *editing);
+        dirty = true;
+    }
+
+    // --- Drag and drop (HTML §6.11.5) -------------------------------------------------
+
+    // What a press at a window point would drag, if anything.
+    std::optional<DragCandidate> drag_candidate_at(Tab& tab, int x, int y)
+    {
+        std::optional<PageHit> const hit = page_hit(x, y);
+        if (!hit || !hit->realm || !hit->element)
+            return std::nullopt;
+        DragCandidate candidate;
+        candidate.realm = hit->realm;
+        candidate.x = x;
+        candidate.y = y;
+        candidate.init = hit->init;
+        candidate.init.buttons = 1;
+        // In the selection: the selected text and its markup.
+        if (tab.selection && !(tab.selection->anchor == tab.selection->focus)) {
+            std::optional<std::pair<float, float>> const point = page_point(x, y);
+            std::vector<layout::TextRun const*> const& runs = runs_of(tab);
+            float px = point ? point->first : 0;
+            float py = point ? point->second : 0;
+            bool inside_frame = true;
+            if (tab.selection_frame) {
+                std::vector<FrameStep> const chain = frames_to(tab, tab.selection_frame);
+                inside_frame = !chain.empty() && hit->view == chain.back().view;
+                if (!chain.empty()) {
+                    auto const [ox, oy] = origin_of(chain);
+                    px -= ox;
+                    py -= oy;
+                }
+            } else {
+                inside_frame = hit->view == nullptr;
+            }
+            auto const [from, to] = ordered(*tab.selection);
+            std::optional<TextPosition> const at = point && inside_frame ? position_at(runs, px, py) : std::nullopt;
+            // The letter under the pointer, not the caret place nearest it:
+            // a press on the selection's last letter is in the selection.
+            std::optional<TextPosition> letter = at;
+            if (letter && letter->run < runs.size() && letter->offset > 0
+                && runs[letter->run]->x + prefix_width(*runs[letter->run], letter->offset) > px)
+                --letter->offset;
+            bool const within = letter && !(*letter < from) && *letter < to && run_contains(runs, *letter, px, py);
+            if (within) {
+                std::string const text = selected_text(tab);
+                push_selection(tab);
+                candidate.kind = "selection";
+                candidate.source = hit->element;
+                candidate.data.emplace_back("text/plain", text);
+                if (std::string const markup = hit->realm->selection_markup(); !markup.empty())
+                    candidate.data.emplace_back("text/html", markup);
+                candidate.label = text;
+                candidate.dragged = hit->realm->selection();
+                return candidate;
+            }
+        }
+        // An element made draggable, a link, a picture — draggable="false"
+        // on the way up keeps any of them still.
+        for (dom::Node* at = hit->element; at && at->is_element(); at = at->parent()) {
+            auto* const element = static_cast<dom::Element*>(at);
+            if (dom::Attr const* const draggable = element->find_attribute("draggable")) {
+                if (draggable->value == "false")
+                    return std::nullopt;
+                if (draggable->value == "true") {
+                    candidate.kind = "element";
+                    candidate.source = element;
+                    candidate.label = html::text_content(*element).substr(0, 60);
+                    return candidate;
+                }
+            }
+            if (element->is_html("a") && element->has_attribute("href")) {
+                std::optional<net::Url> const url = link_at(x, y);
+                if (!url)
+                    return std::nullopt;
+                std::string const link_address = url->serialize();
+                std::string text = html::text_content(*element);
+                candidate.kind = "link";
+                candidate.source = element;
+                candidate.data.emplace_back("text/uri-list", link_address);
+                candidate.data.emplace_back("text/plain", link_address);
+                candidate.data.emplace_back("text/html", "<a href=\"" + link_address + "\">" + (text.empty() ? link_address : text) + "</a>");
+                candidate.label = text.empty() ? link_address : text;
+                return candidate;
+            }
+            if (element->is_html("img") && element->has_attribute("src")) {
+                candidate.kind = "element";
+                candidate.source = element;
+                std::string const src = element->find_attribute("src")->value;
+                candidate.data.emplace_back("text/uri-list", src);
+                candidate.data.emplace_back("text/html", "<img src=\"" + src + "\">");
+                candidate.label = src;
+                return candidate;
+            }
+        }
+        return std::nullopt;
+    }
+
+    // A document's body element, if it has one.
+    static dom::Element* body_of(dom::Document& document)
+    {
+        for (dom::Node* html : document.children()) {
+            if (!html->is_element() || !static_cast<dom::Element*>(html)->is_html("html"))
+                continue;
+            for (dom::Node* child : html->children()) {
+                if (child->is_element() && static_cast<dom::Element*>(child)->is_html("body"))
+                    return static_cast<dom::Element*>(child);
+            }
+        }
+        return nullptr;
+    }
+
+    // Whether a position found under a point is on that run's own line (a
+    // point past a line's end finds the end, which is no press "in" it).
+    static bool run_contains(std::vector<layout::TextRun const*> const& runs, TextPosition at, float x, float y)
+    {
+        if (at.run >= runs.size())
+            return false;
+        layout::TextRun const& run = *runs[at.run];
+        text::FaceMetrics const metrics = run_metrics(run);
+        float const right = run.x + prefix_width(run, run.text.size());
+        return y >= run.baseline_y - metrics.ascent && y <= run.baseline_y + metrics.descent && x >= run.x && x <= right;
+    }
+
+    // The press became a drag: dragstart, and the press itself is over.
+    bool begin_drag()
+    {
+        DragCandidate candidate = std::move(*drag_candidate);
+        drag_candidate.reset();
+        Tab* const tab = active_tab();
+        if (!tab || !candidate.realm || !candidate.source || !candidate.source->is_connected() || !realm_alive(*tab, candidate.realm))
+            return false;
+        script_started = std::chrono::steady_clock::now();
+        if (!candidate.realm->drag_start(*candidate.source, candidate.init, candidate.data, candidate.kind)) {
+            ensure_fresh(*tab);
+            dirty = true;
+            return false;
+        }
+        // A drag under way: the press is over for the page (pointercancel,
+        // and no mouseup or click to come), and no text is selected by it.
+        candidate.realm->pointer_cancelled(candidate.init);
+        pressed_realm = nullptr;
+        selecting = false;
+        editing_drag = false;
+        if (candidate.kind != "selection")
+            clear_selection(*tab);
+        DragOperation operation;
+        operation.realm = candidate.realm;
+        operation.label = candidate.label;
+        operation.dragged = candidate.dragged;
+        operation.from_selection = candidate.kind == "selection";
+        operation.init = candidate.init;
+        drag_op = std::move(operation);
+        ensure_fresh(*tab);
+        dirty = true;
+        return true;
+    }
+
+    // The pointer moved with something dragged (HTML §6.11.5's "drag-and-
+    // drop processing model" steps for a move): drag at the source, then
+    // dragenter and dragleave as the element under the pointer changes,
+    // then dragover, which decides what a drop here would do.
+    void drag_moved(int x, int y)
+    {
+        Tab* const tab = active_tab();
+        DragOperation& op = *drag_op;
+        bindings::Realm* const realm = op.realm;
+        if (!tab || !realm_alive(*tab, realm) || !realm->dragging()) {
+            drag_op.reset();
+            return;
+        }
+        script_started = std::chrono::steady_clock::now();
+        std::optional<PageHit> const hit = hover == Hover::Content ? page_hit(x, y) : std::nullopt;
+        bindings::MouseInit init = hit ? hit->init : op.init;
+        init.buttons = 1;
+        op.init = init;
+        dom::Element* const source = realm->drag_source();
+        if (source && source->is_connected() && !realm->drag_event(*source, "drag", init)) {
+            cancel_drag();
+            return;
+        }
+        dom::Element* const immediate = hit && hit->realm == realm ? hit->element : nullptr;
+        if (immediate != op.immediate) {
+            op.immediate = immediate;
+            dom::Element* next = nullptr;
+            if (immediate) {
+                bool const taken = !realm->drag_event(*immediate, "dragenter", init);
+                if (taken || realm->editing_host(*immediate))
+                    next = immediate;
+                else if (dom::Element* const body = body_of(immediate->document())) {
+                    if (body != op.current)
+                        realm->drag_event(*body, "dragenter", init);
+                    next = body;
+                }
+            }
+            if (op.current && op.current != next && op.current->is_connected()) {
+                bindings::MouseInit left = init;
+                left.related_target = next;
+                realm->drag_event(*op.current, "dragleave", left);
+            }
+            op.current = next;
+        }
+        op.operation = "none";
+        op.drop_host = nullptr;
+        op.drop_point.reset();
+        if (op.current && op.current->is_connected()) {
+            bool const taken = !realm->drag_event(*op.current, "dragover", init);
+            std::string const allowed = realm->drag_effect_allowed();
+            auto const allows = [&](std::string const& effect) {
+                return allowed == "uninitialized" || allowed == "all" || allowed == effect || (allowed == "copyLink" && (effect == "copy" || effect == "link"))
+                    || (allowed == "copyMove" && (effect == "copy" || effect == "move")) || (allowed == "linkMove" && (effect == "link" || effect == "move"));
+            };
+            if (taken) {
+                std::string const effect = realm->drag_drop_effect();
+                op.operation = effect != "none" && allows(effect) ? effect : "none";
+            } else if (dom::Element* const host = hit && hit->realm == realm ? realm->editing_host(*op.current) : nullptr) {
+                // An editor takes text by default: moved within the
+                // document it came from, copied otherwise.
+                bool has_text = false;
+                for (auto const& [format, value] : realm->drag_data())
+                    has_text = has_text || format == "text/plain" || format == "text/html" || format == "text/uri-list";
+                if (has_text) {
+                    std::string const wanted = op.from_selection && allows("move") ? "move" : "copy";
+                    op.operation = allows(wanted) ? wanted : allows("copy") ? "copy" : "none";
+                    if (op.operation != "none") {
+                        op.drop_host = host;
+                        op.drop_point = drop_point_at(*tab, *host, hit->view, x, y);
+                    }
+                }
+            }
+        }
+        dirty = true;
+    }
+
+    // Where in an editing host a drop at a window point puts its text.
+    std::optional<std::pair<dom::Node*, std::uint32_t>> drop_point_at(Tab& tab, dom::Element& host, FrameView* view, int x, int y)
+    {
+        std::optional<std::pair<float, float>> point = page_point(x, y);
+        if (!point)
+            return std::nullopt;
+        std::vector<layout::TextRun const*> const* runs = &tab.runs;
+        if (view) {
+            std::vector<FrameStep> const chain = frames_at(tab, point->first, point->second);
+            if (chain.empty() || chain.back().view != view)
+                return std::nullopt;
+            point = std::pair { chain.back().x, chain.back().y };
+            runs = &view->runs;
+        }
+        std::vector<layout::TextRun const*> host_runs;
+        std::vector<std::size_t> indexes;
+        for (std::size_t i = 0; i < runs->size(); ++i) {
+            for (dom::Node const* at = (*runs)[i]->source; at; at = at->parent()) {
+                if (at == &host) {
+                    host_runs.push_back((*runs)[i]);
+                    indexes.push_back(i);
+                    break;
+                }
+            }
+        }
+        if (host_runs.empty())
+            return std::pair<dom::Node*, std::uint32_t> { &host, static_cast<std::uint32_t>(host.children().size()) };
+        std::optional<TextPosition> const local = position_at(host_runs, point->first, point->second);
+        if (!local)
+            return std::nullopt;
+        return dom_point_of(*runs, TextPosition { indexes[local->run], local->offset });
+    }
+
+    // The button came up with something dragged: drop where the drag
+    // stands (the page's, else into an editor by default), then dragend.
+    void finish_drag()
+    {
+        DragOperation op = std::move(*drag_op);
+        drag_op.reset();
+        Tab* const tab = active_tab();
+        bindings::Realm* const realm = op.realm;
+        if (!tab || !realm_alive(*tab, realm) || !realm->dragging())
+            return;
+        script_started = std::chrono::steady_clock::now();
+        std::string operation = op.operation;
+        if (op.current && op.current->is_connected() && operation != "none") {
+            std::vector<std::pair<std::string, std::string>> const data = realm->drag_data();
+            if (!realm->drag_event(*op.current, "drop", op.init, operation)) {
+                // The page took the drop as its own; what it said it did stands.
+                std::string const effect = realm->drag_drop_effect();
+                operation = effect;
+            } else if (op.drop_host && op.drop_point && op.drop_point->first->is_connected()) {
+                // Into the editor: the caret at the drop point, the text in
+                // (the dragged selection out of its place first, when moved).
+                focus_control(*tab, op.drop_host, false);
+                realm->set_selection(*op.drop_point->first, op.drop_point->second, *op.drop_point->first, op.drop_point->second);
+                realm->drop_into_editing_host(data, operation == "move" && op.from_selection, op.dragged);
+            } else {
+                operation = "none";
+            }
+        } else if (op.current && op.current->is_connected()) {
+            realm->drag_event(*op.current, "dragleave", op.init);
+        }
+        if (dom::Element* const source = realm->drag_source(); source && source->is_connected())
+            realm->drag_event(*source, "dragend", op.init, operation);
+        realm->drag_finished();
+        if (std::optional<EditingFocus> const editing = editing_focus(*tab))
+            edited(*tab);
+        else
+            ensure_fresh(*tab);
+        dirty = true;
+    }
+
+    // Escape, or the page's drag event cancelled: dragleave where the drag
+    // stood, and dragend with nothing done.
+    void cancel_drag()
+    {
+        DragOperation op = std::move(*drag_op);
+        drag_op.reset();
+        Tab* const tab = active_tab();
+        bindings::Realm* const realm = op.realm;
+        if (!tab || !realm_alive(*tab, realm) || !realm->dragging())
+            return;
+        script_started = std::chrono::steady_clock::now();
+        if (op.current && op.current->is_connected())
+            realm->drag_event(*op.current, "dragleave", op.init);
+        if (dom::Element* const source = realm->drag_source(); source && source->is_connected())
+            realm->drag_event(*source, "dragend", op.init, "none");
+        realm->drag_finished();
+        ensure_fresh(*tab);
         dirty = true;
     }
 
@@ -11427,6 +11819,17 @@ struct Browser::Impl {
                         }
                     }
                 }
+                // A press that may begin a drag: on a link, a picture or an
+                // element made draggable, or in the selection — which then
+                // stays selected until the release shows it was a click.
+                drag_candidate.reset();
+                if (button == 1 && !modifiers.shift) {
+                    if (Tab* const tab = active_tab(); tab && tab->document) {
+                        drag_candidate = drag_candidate_at(*tab, x, y);
+                        if (drag_candidate && drag_candidate->kind == "selection")
+                            break;
+                    }
+                }
                 // A press in an editing host puts the caret there — the
                 // page's, or one in the frame under the pointer.
                 if (Tab* const tab = active_tab(); tab && tab->document) {
@@ -11643,6 +12046,11 @@ struct Browser::Impl {
 
     void key_down(KeyEvent const& key)
     {
+        // Escape lets go of a drag: nothing is dropped.
+        if (drag_op && key.key == Key::Escape && !pages_in_engines) {
+            cancel_drag();
+            return;
+        }
         // A key scrolls, selects and moves through the page as it is laid
         // out for the window as it is now.
         if (Tab* const front = active_tab())
@@ -12679,6 +13087,38 @@ struct Browser::Impl {
                                 box->color);
                         }
                     }
+                }
+            }
+            // A drag: where an editor would take the drop, its caret; and what
+            // is dragged, beside the pointer.
+            if (drag_op && active_tab() == tab) {
+                ChromeLayout const chrome = layout_chrome();
+                if (drag_op->drop_point && drag_op->drop_host) {
+                    dom::Element const* const container = &drag_op->drop_host->document() == tab->document.get()
+                        ? nullptr
+                        : frame_holding_in(tab->frames, drag_op->drop_host->document());
+                    if (std::optional<EditingSurface> const surface = surface_of(const_cast<Tab&>(*tab), container)) {
+                        if (std::optional<CaretBox> const box = caret_box(*surface, *drag_op->drop_point->first, drag_op->drop_point->second)) {
+                            int const caret_width = std::max(2, static_cast<int>(std::lround(2 * scale)));
+                            content.fill_rect(Rect { static_cast<int>(std::lround(surface->x + box->x)),
+                                                  static_cast<int>(std::lround(surface->y + box->top)) - tab->scroll_y, caret_width,
+                                                  std::max(1, static_cast<int>(std::lround(box->height))) },
+                                box->color);
+                        }
+                    }
+                }
+                if (!drag_op->label.empty()) {
+                    float const size = t.tab_font_size;
+                    std::string first_line = drag_op->label.substr(0, drag_op->label.find('\n'));
+                    std::u32string label = decode_utf8(first_line);
+                    if (label.size() > 40)
+                        label = label.substr(0, 39) + U'…';
+                    int const label_width = static_cast<int>(text_width(label, size) + 0.5f) + 12;
+                    int const label_height = static_cast<int>(size + 0.5f) + 8;
+                    int const offset = static_cast<int>(std::lround(14 * scale));
+                    Rect const box { mouse_x - chrome.content.x + offset, mouse_y - chrome.content.y + offset, label_width, label_height };
+                    content.fill_round_rect(box, 4, Color::rgba(0x20, 0x22, 0x26, 0xc8));
+                    draw_text(content, label, static_cast<float>(box.x + 6), centered_baseline(box, size), size, Color::rgb(0xf2, 0xf2, 0xf2), true);
                 }
             }
             if (hints_active) {
@@ -13903,6 +14343,10 @@ platform::Cursor Browser::cursor() const
         case Request::ResizeBottomLeft: return Cursor::ResizeDiagonalUp;
         default: break;
         }
+    }
+    if (m_impl->drag_op) {
+        std::string const& operation = m_impl->drag_op->operation;
+        return operation == "copy" ? Cursor::DragCopy : operation == "move" ? Cursor::DragMove : operation == "link" ? Cursor::DragLink : Cursor::NoDrop;
     }
     if (m_impl->hover == Impl::Hover::Content && m_impl->pages_in_engines) {
         // What the pointer is over on the page is the page's to say.

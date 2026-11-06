@@ -1,0 +1,57 @@
+# Drag and drop in the page (gaps plan item 4, HTML §6.11.5): an element
+# made draggable is pressed and moved past the threshold, so the page hears
+# dragstart (and fills the store), pointercancel instead of a click, drag
+# as it goes, dragenter and dragover where the pointer is (seeing the
+# store's formats but not its data), dragleave as it moves on, and drop
+# (reading the data) and dragend with the operation the zone chose. The
+# cursor says what a drop would do; Escape lets go with nothing dropped.
+# The title is what the page heard. Content starts 76 px down: the source
+# is at 84-114, the zone at 124-154, the other box at 164-194.
+resize 600 300
+open data:text/html,<title>DnD</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}div{height:30px;margin-bottom:10px;border:1px solid}</style><div id=src draggable=true>Drag me</div><div id=zone>Drop here</div><div id=other>Not here</div><script>var log=[],dragged=0;function n(s){log.push(s);document.title=log.join(',')}src.addEventListener('dragstart',function(e){n('start');e.dataTransfer.setData('text/plain','payload');e.dataTransfer.effectAllowed='move'});src.addEventListener('drag',function(){if(!dragged++)n('drag')});src.addEventListener('pointercancel',function(){n('cancel')});src.addEventListener('click',function(){n('click')});src.addEventListener('dragend',function(e){n('end:'+e.dataTransfer.dropEffect)});zone.addEventListener('dragenter',function(e){n('enter:'+e.dataTransfer.types.join('+')+':'+e.dataTransfer.getData('text/plain'));e.preventDefault()});zone.addEventListener('dragover',function(e){if(dragged<9){dragged=9;n('over')}e.preventDefault();e.dataTransfer.dropEffect='move'});zone.addEventListener('dragleave',function(){n('leave')});zone.addEventListener('drop',function(e){e.preventDefault();n('drop:'+e.dataTransfer.getData('text/plain'))})</script>
+assert-title DnD
+press 40 99
+move 44 103
+move 60 120
+move 60 139
+assert-cursor move
+assert-title start,cancel,drag,enter:text/plain:,over
+release
+assert-title start,cancel,drag,enter:text/plain:,over,drop:payload,end:move
+# Over a box that takes nothing: no drop, the cursor says so; Escape ends it.
+press 40 99
+move 60 120
+move 60 179
+assert-cursor no-drop
+key Escape
+assert-title start,cancel,drag,enter:text/plain:,over,drop:payload,end:move,start,cancel,end:none
+# A press that does not move far enough is a click, not a drag.
+press 40 99
+move 41 100
+release
+assert-title start,cancel,drag,enter:text/plain:,over,drop:payload,end:move,start,cancel,end:none,click
+# Text dragged in rich editors, as Chrome does it: selected by a drag in
+# editor A, then pressed and moved into editor B, it moves (deleteByDrag in
+# A, insertFromDrop in B carrying the data); a link dropped into B is
+# copied in as a link (the page stays, nothing followed). Undo puts B back.
+# Editor A's line is at 89-109, B's at 129-149, the link at 170-190.
+open data:text/html,<title>Ed</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}[contenteditable]{border:1px solid;padding:4px;height:20px;margin-bottom:10px;outline:none}</style><div id=a contenteditable>one two three</div><div id=b contenteditable>end</div><p><a href="https://example.com/x">a link</a></p><script>var log=[];function show(){document.title=a.innerHTML+' | '+b.innerHTML+' / '+log.join(',')}[a,b].forEach(function(h){h.addEventListener('beforeinput',function(e){log.push(h.id+':'+e.inputType+(e.dataTransfer?':'+e.dataTransfer.getData('text/plain'):''));show()});h.addEventListener('input',show)})</script>
+drag 53 99 83 99
+assert-selection two
+press 65 99
+move 70 103
+move 150 139
+assert-cursor move
+# Where the drop would go: a caret in B after "end".
+assert-pixel 43 139 #000000
+release
+assert-title one three | endtwo / a:deleteByDrag,b:insertFromDrop:two
+press 40 180
+move 45 175
+move 200 139
+assert-cursor copy
+release
+assert-title one three | endtwo<a href="https://example.com/x">a link</a> / a:deleteByDrag,b:insertFromDrop:two,b:insertFromDrop:https://example.com/x
+key ctrl+z
+assert-text endtwo
+assert-no-text endtwoa link

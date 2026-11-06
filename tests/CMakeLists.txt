@@ -235,6 +235,11 @@ add_test(NAME shell_notifications
 # Shift, Ctrl+A, and the page's getSelection() following the reader's.
 add_test(NAME shell_contenteditable
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/contenteditable.script)
+# Drag and drop in the page: an element made draggable, the events and the
+# store's modes, the cursor, Escape; text moved between editors, a link
+# dropped into one, undo.
+add_test(NAME shell_drag_drop
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/drag-drop.script)
 # Editors inside frames (an iframe's contenteditable, a designMode
 # document): the caret, typing, selecting, the clipboard between frames,
 # an input method.
