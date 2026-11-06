@@ -20,7 +20,19 @@ void keep_last_pointer_moves(std::vector<WindowEvent>& events)
     // Where in `kept` the run's move so far stands, while a run is running.
     std::size_t const none = static_cast<std::size_t>(-1);
     std::size_t run = none;
+    std::size_t drag_run = none; // the same for a drag from elsewhere moving over the window
     for (WindowEvent& event : events) {
+        if (event.kind == Kind::DragMove) {
+            if (drag_run != none) {
+                kept[drag_run] = std::move(event);
+            } else {
+                drag_run = kept.size();
+                kept.push_back(std::move(event));
+            }
+            continue;
+        }
+        if (!passes(event.kind))
+            drag_run = none;
         if (event.kind == Kind::MouseMove) {
             if (run != none) {
                 // The later move takes the earlier one's place in the order.

@@ -2,7 +2,9 @@
 # The language runtime is linked statically (see CMakeLists.txt), so it must
 # not appear here. Extend ONLY alongside the platform work that needs the new
 # import — user32/gdi32 arrived with the shell window, ws2_32 with
-# networking, secur32 with SChannel TLS, bcrypt with the random seam.
+# networking, secur32 with SChannel TLS, bcrypt with the random seam, ole32
+# and shell32 with the file chooser (the common item dialog) and drops from
+# other programs (OLE drag and drop, CF_HDROP).
 kernel32.dll
 msvcrt.dll
 ws2_32.dll
@@ -10,3 +12,5 @@ secur32.dll
 user32.dll
 gdi32.dll
 bcrypt.dll
+ole32.dll
+shell32.dll

@@ -2560,6 +2560,17 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             case Kind::Commit: browser.commit_text(event.commit); break;
             case Kind::Active: browser.set_window_active(event.active); break;
             case Kind::Visible: browser.set_window_visible(event.visible); break;
+            case Kind::DragEnter:
+                browser.drag_enter(event.x, event.y, event.drag_formats,
+                    [w = window.get()](std::string const& format) { return w->drag_data(format); },
+                    [w = window.get()](platform::Window::DragAction action, std::string const& format) { w->answer_drag(action, format); });
+                break;
+            case Kind::DragMove: browser.drag_move(event.x, event.y); break;
+            case Kind::DragLeave:
+                browser.drag_leave();
+                window->finish_drag(false);
+                break;
+            case Kind::DragDrop: window->finish_drag(browser.drag_drop(event.x, event.y)); break;
             case Kind::None: break;
             }
         }

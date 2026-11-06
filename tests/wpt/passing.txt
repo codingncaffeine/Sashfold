@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (10362 of 15682) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (10370 of 15682) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -8815,6 +8815,14 @@ css/css-text/white-space/text-wrap-balance-line-clamp-001.html
 css/css-text/white-space/text-wrap-balance-line-clamp-005.html
 css/css-text/white-space/text-wrap-balance-overflow-001.html
 css/css-text/white-space/textarea-always-preserves-spaces-001.tentative.html
+css/css-text/white-space/textarea-break-spaces-002.html
+css/css-text/white-space/textarea-pre-wrap-001.html
+css/css-text/white-space/textarea-pre-wrap-002.html
+css/css-text/white-space/textarea-pre-wrap-003.html
+css/css-text/white-space/textarea-pre-wrap-004.html
+css/css-text/white-space/textarea-pre-wrap-005.html
+css/css-text/white-space/textarea-pre-wrap-006.html
+css/css-text/white-space/textarea-pre-wrap-007.html
 css/css-text/white-space/textarea-pre-wrap-011.html
 css/css-text/white-space/trailing-ideographic-space-007.html
 css/css-text/white-space/trailing-ideographic-space-009.html

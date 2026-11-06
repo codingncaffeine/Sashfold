@@ -166,12 +166,22 @@ namespace wl_data_device {
     constexpr std::uint16_t set_selection = 1;
     constexpr std::uint16_t event_data_offer = 0;
     constexpr std::uint16_t event_enter = 1;
+    constexpr std::uint16_t event_leave = 2;
+    constexpr std::uint16_t event_motion = 3;
+    constexpr std::uint16_t event_drop = 4;
     constexpr std::uint16_t event_selection = 5;
 }
 namespace wl_data_offer {
+    constexpr std::uint16_t accept = 0;
     constexpr std::uint16_t receive = 1;
     constexpr std::uint16_t destroy = 2;
+    constexpr std::uint16_t finish = 3;
+    constexpr std::uint16_t set_actions = 4;
     constexpr std::uint16_t event_offer = 0;
+    constexpr std::uint32_t action_none = 0;
+    constexpr std::uint32_t action_copy = 1;
+    constexpr std::uint32_t action_move = 2;
+    constexpr std::uint32_t action_ask = 4;
 }
 namespace wl_data_source {
     constexpr std::uint16_t offer = 0;
@@ -468,6 +478,10 @@ private:
     void listen_keyboard();
     void listen_touch();
     void listen_data_device();
+    void answer_drag(DragAction action, std::string const& format) override;
+    std::optional<std::string> drag_data(std::string const& format) override;
+    void finish_drag(bool dropped) override;
+    std::optional<std::string> receive_from(std::uint32_t offer, std::string const& chosen);
     void listen_text_input();
     void sync_text_input();
     void apply_text_input_done();
@@ -519,6 +533,13 @@ private:
     bool m_pending_preedit_set = false;
     std::string m_pending_commit;
     std::uint32_t m_data_device = 0;
+    // A drag over the window: its offer, the serial of its enter, where it
+    // is, and whether it was dropped (its offer then kept for the reading).
+    std::uint32_t m_drag_offer = 0;
+    std::uint32_t m_drag_serial = 0;
+    int m_drag_x = 0;
+    int m_drag_y = 0;
+    bool m_drag_dropped = false;
     std::uint32_t m_viewporter = 0;
     std::uint32_t m_viewport = 0;
     std::uint32_t m_fractional_scale_manager = 0;
@@ -1652,13 +1673,56 @@ void WaylandWindow::listen_data_device()
             break;
         }
         case wl_data_device::event_enter: {
-            // A drag over the window: not accepted, so its offer goes at once.
-            message.uint(); // serial
+            // A drag over the window: its offer kept until it leaves or is
+            // dropped, refused until the shell says what a drop would do.
+            std::uint32_t const serial = message.uint();
             message.object(); // surface
-            message.fixed();
-            message.fixed();
-            if (std::uint32_t const id = message.object())
-                destroy_offer(id);
+            m_drag_x = static_cast<int>(std::floor(message.fixed() * m_scale));
+            m_drag_y = static_cast<int>(std::floor(message.fixed() * m_scale));
+            std::uint32_t const id = message.object();
+            if (m_drag_offer && m_drag_offer != id)
+                destroy_offer(m_drag_offer);
+            m_drag_offer = id;
+            m_drag_serial = serial;
+            m_drag_dropped = false;
+            if (!id)
+                break;
+            WindowEvent event;
+            event.kind = WindowEvent::Kind::DragEnter;
+            event.x = m_drag_x;
+            event.y = m_drag_y;
+            event.drag_formats = m_offers[id];
+            push(event);
+            break;
+        }
+        case wl_data_device::event_leave: {
+            if (m_drag_offer && !m_drag_dropped)
+                destroy_offer(m_drag_offer);
+            if (!m_drag_dropped)
+                m_drag_offer = 0;
+            WindowEvent event;
+            event.kind = WindowEvent::Kind::DragLeave;
+            push(event);
+            break;
+        }
+        case wl_data_device::event_motion: {
+            message.uint(); // time
+            m_drag_x = static_cast<int>(std::floor(message.fixed() * m_scale));
+            m_drag_y = static_cast<int>(std::floor(message.fixed() * m_scale));
+            WindowEvent event;
+            event.kind = WindowEvent::Kind::DragMove;
+            event.x = m_drag_x;
+            event.y = m_drag_y;
+            push(event);
+            break;
+        }
+        case wl_data_device::event_drop: {
+            m_drag_dropped = true;
+            WindowEvent event;
+            event.kind = WindowEvent::Kind::DragDrop;
+            event.x = m_drag_x;
+            event.y = m_drag_y;
+            push(event);
             break;
         }
         case wl_data_device::event_selection: {
@@ -1787,13 +1851,61 @@ std::optional<ClipboardContent> WaylandWindow::read_clipboard()
     return content;
 }
 
+void WaylandWindow::answer_drag(DragAction action, std::string const& format)
+{
+    if (!m_drag_offer || m_connection->failed())
+        return;
+    Request accept(m_drag_offer, wl_data_offer::accept);
+    accept.uint(m_drag_serial);
+    if (action == DragAction::None || format.empty())
+        accept.null_string();
+    else
+        accept.string(format);
+    send(accept);
+    // A link is taken as a copy: Wayland has no link action.
+    std::uint32_t const wanted = action == DragAction::Move ? wl_data_offer::action_move
+        : action == DragAction::None                      ? wl_data_offer::action_none
+                                                          : wl_data_offer::action_copy;
+    Request actions(m_drag_offer, wl_data_offer::set_actions);
+    actions.uint(wanted == wl_data_offer::action_none ? 0 : (wl_data_offer::action_copy | wl_data_offer::action_move)).uint(wanted);
+    send(actions);
+    m_connection->flush();
+}
+
+std::optional<std::string> WaylandWindow::drag_data(std::string const& format)
+{
+    if (!m_drag_offer || m_connection->failed())
+        return std::nullopt;
+    return receive_from(m_drag_offer, format);
+}
+
+void WaylandWindow::finish_drag(bool dropped)
+{
+    if (!m_drag_offer)
+        return;
+    if (dropped && m_drag_dropped) {
+        Request finish(m_drag_offer, wl_data_offer::finish);
+        send(finish);
+    }
+    destroy_offer(m_drag_offer);
+    m_drag_offer = 0;
+    m_drag_dropped = false;
+    m_connection->flush();
+}
+
 // One format of the selection's offer, read through a pipe from its owner.
 std::optional<std::string> WaylandWindow::receive_offer(std::string const& chosen)
+{
+    return receive_from(m_selection_offer, chosen);
+}
+
+// One format of an offer, read through a pipe from the program offering it.
+std::optional<std::string> WaylandWindow::receive_from(std::uint32_t offer, std::string const& chosen)
 {
     int pipe_fds[2];
     if (pipe2(pipe_fds, O_CLOEXEC) != 0)
         return std::nullopt;
-    Request receive(m_selection_offer, wl_data_offer::receive);
+    Request receive(offer, wl_data_offer::receive);
     receive.string(chosen).fd(pipe_fds[1]);
     send(receive);
     ::close(pipe_fds[1]);

@@ -3090,7 +3090,9 @@ struct Layouter {
             // The soft-wrapped lines, as many as fit from the first one shown:
             // that one moved only as far as keeps a focused caret in view.
             float const text_x = box.x + inset_left + spec.pad_left;
-            float const inner = std::max(0.0f, box.width - inset_left - spec.pad_left - spec.pad_right - (own_frame ? style.border_right.width : 4.0f) - 2.0f);
+            // Lines wrap at the content box's width; the caret at a full
+            // line's end stands in the edge beyond it, as in every engine.
+            float const inner = std::max(0.0f, box.width - inset_left - spec.pad_left - spec.pad_right - (own_frame ? style.border_right.width : 4.0f));
             float const top = box.y + inset_top + spec.pad_top;
             float const room = box.y + box.height - inset_bottom - spec.pad_bottom - top;
             std::size_t const rows = std::max<std::size_t>(1, static_cast<std::size_t>(std::floor(room / std::max(1.0f, line))));

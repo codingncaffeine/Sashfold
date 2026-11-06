@@ -262153,6 +262153,7 @@ html/semantics/forms/form-submission-0/constructing-form-data-set.html	Files in 
 html/semantics/forms/form-submission-0/constructing-form-data-set.html	Files in a text/plain form show up as File objects in the "formData" IDL attribute
 html/semantics/forms/form-submission-0/constructing-form-data-set.html	The constructed FormData object should not contain an entry for the image submit button that was used to submit the form.
 html/semantics/forms/form-submission-0/constructing-form-data-set.html	The constructed FormData object should not contain an entry for the submit button that was used to submit the form.
+html/semantics/forms/form-submission-0/form-data-set-empty-file.window.html	Empty <input type=file> is still added to the form's entry list
 html/semantics/forms/form-submission-0/form-submission-algorithm.html	If firing submission events flag of form is true, then return
 html/semantics/forms/form-submission-0/form-submission-algorithm.html	If form's firing submission events is true, then return; 'invalid' event
 html/semantics/forms/form-submission-0/historical.window.html	invalid event is only supported for form controls
@@ -263434,6 +263435,7 @@ html/semantics/forms/the-input-element/input-untrusted-key-event.html	Dispatchin
 html/semantics/forms/the-input-element/input-untrusted-key-event.html	Dispatching untrusted keyup/keydown events to input week should not cause submission, click, change, input, or focus events
 html/semantics/forms/the-input-element/input-validationmessage.html	Forms
 html/semantics/forms/the-input-element/input-validity.html	Forms
+html/semantics/forms/the-input-element/input-value-invalidstateerr.html	Forms
 html/semantics/forms/the-input-element/input-valueasdate.html	valueAsDate setter on type date (new Date("2016-02-29T00:00:00.000Z"))
 html/semantics/forms/the-input-element/input-valueasdate.html	valueAsDate setter on type month (new Date("2019-12-01T00:00:00.000Z"))
 html/semantics/forms/the-input-element/input-valueasdate.html	valueAsDate setter on type time (new Date("1970-01-01T23:59:00.000Z"))
@@ -263649,6 +263651,28 @@ html/semantics/forms/the-input-element/selection.html	input type url should supp
 html/semantics/forms/the-input-element/selection.html	input type url should support the select() method
 html/semantics/forms/the-input-element/show-picker-cross-origin-iframe.html	Test showPicker() called from cross-origin iframe
 html/semantics/forms/the-input-element/show-picker-cross-origin-iframe.html	Test showPicker() called from cross-origin iframe 2
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=button] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=checkbox] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=color] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=date] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=datetime-local] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=email] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=file] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=hidden] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=image] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=month] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=number] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=password] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=radio] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=range] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=reset] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=search] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=submit] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=tel] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=text] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=time] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=url] showPicker() throws when disabled
+html/semantics/forms/the-input-element/show-picker-disabled-readonly.html	input[type=week] showPicker() throws when disabled
 html/semantics/forms/the-input-element/telephone.html	Element can accept the phone number with dots
 html/semantics/forms/the-input-element/telephone.html	Element can accept the phone number with hash mark(extension number)
 html/semantics/forms/the-input-element/telephone.html	Element can accept the phone number with hyphen
@@ -263719,6 +263743,8 @@ html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change s
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from datetime-local to week
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from email to month
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from email to week
+html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from file to month
+html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from file to week
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from hidden to month
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from hidden to week
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from image to month
@@ -263726,6 +263752,7 @@ html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change s
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from month to color
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from month to date
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from month to datetime-local
+html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from month to file
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from month to number
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from month to time
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from month to week
@@ -263754,6 +263781,7 @@ html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change s
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from week to color
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from week to date
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from week to datetime-local
+html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from week to file
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from week to month
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from week to number
 html/semantics/forms/the-input-element/type-change-state-weekmonth.html	change state from week to time
@@ -263762,6 +263790,7 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from button to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from button to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from button to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from button to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from button to hidden
 html/semantics/forms/the-input-element/type-change-state.html	change state from button to image
 html/semantics/forms/the-input-element/type-change-state.html	change state from button to number
@@ -263779,6 +263808,7 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from checkbox to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from checkbox to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from checkbox to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from checkbox to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from checkbox to hidden
 html/semantics/forms/the-input-element/type-change-state.html	change state from checkbox to image
 html/semantics/forms/the-input-element/type-change-state.html	change state from checkbox to number
@@ -263793,28 +263823,52 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from checkbox to url
 html/semantics/forms/the-input-element/type-change-state.html	change state from color to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from color to datetime-local
+html/semantics/forms/the-input-element/type-change-state.html	change state from color to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from color to number
 html/semantics/forms/the-input-element/type-change-state.html	change state from color to time
 html/semantics/forms/the-input-element/type-change-state.html	change state from date to color
 html/semantics/forms/the-input-element/type-change-state.html	change state from date to datetime-local
+html/semantics/forms/the-input-element/type-change-state.html	change state from date to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from date to number
 html/semantics/forms/the-input-element/type-change-state.html	change state from date to time
 html/semantics/forms/the-input-element/type-change-state.html	change state from datetime-local to color
 html/semantics/forms/the-input-element/type-change-state.html	change state from datetime-local to date
+html/semantics/forms/the-input-element/type-change-state.html	change state from datetime-local to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from datetime-local to number
 html/semantics/forms/the-input-element/type-change-state.html	change state from datetime-local to time
 html/semantics/forms/the-input-element/type-change-state.html	change state from email to color
 html/semantics/forms/the-input-element/type-change-state.html	change state from email to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from email to datetime-local
+html/semantics/forms/the-input-element/type-change-state.html	change state from email to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from email to number
 html/semantics/forms/the-input-element/type-change-state.html	change state from email to time
 html/semantics/forms/the-input-element/type-change-state.html	change state from email to url
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to button
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to checkbox
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to color
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to date
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to datetime-local
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to hidden
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to image
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to number
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to password
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to radio
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to range
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to reset
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to search
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to submit
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to tel
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to text
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to time
+html/semantics/forms/the-input-element/type-change-state.html	change state from file to url
 html/semantics/forms/the-input-element/type-change-state.html	change state from hidden to button
 html/semantics/forms/the-input-element/type-change-state.html	change state from hidden to checkbox
 html/semantics/forms/the-input-element/type-change-state.html	change state from hidden to color
 html/semantics/forms/the-input-element/type-change-state.html	change state from hidden to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from hidden to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from hidden to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from hidden to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from hidden to image
 html/semantics/forms/the-input-element/type-change-state.html	change state from hidden to number
 html/semantics/forms/the-input-element/type-change-state.html	change state from hidden to password
@@ -263832,6 +263886,7 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from image to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from image to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from image to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from image to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from image to hidden
 html/semantics/forms/the-input-element/type-change-state.html	change state from image to number
 html/semantics/forms/the-input-element/type-change-state.html	change state from image to password
@@ -263846,11 +263901,13 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from number to color
 html/semantics/forms/the-input-element/type-change-state.html	change state from number to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from number to datetime-local
+html/semantics/forms/the-input-element/type-change-state.html	change state from number to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from number to time
 html/semantics/forms/the-input-element/type-change-state.html	change state from password to color
 html/semantics/forms/the-input-element/type-change-state.html	change state from password to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from password to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from password to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from password to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from password to number
 html/semantics/forms/the-input-element/type-change-state.html	change state from password to search
 html/semantics/forms/the-input-element/type-change-state.html	change state from password to tel
@@ -263863,6 +263920,7 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from radio to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from radio to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from radio to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from radio to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from radio to hidden
 html/semantics/forms/the-input-element/type-change-state.html	change state from radio to image
 html/semantics/forms/the-input-element/type-change-state.html	change state from radio to number
@@ -263880,6 +263938,7 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from range to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from range to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from range to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from range to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from range to hidden
 html/semantics/forms/the-input-element/type-change-state.html	change state from range to image
 html/semantics/forms/the-input-element/type-change-state.html	change state from range to number
@@ -263898,6 +263957,7 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from reset to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from reset to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from reset to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from reset to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from reset to hidden
 html/semantics/forms/the-input-element/type-change-state.html	change state from reset to image
 html/semantics/forms/the-input-element/type-change-state.html	change state from reset to number
@@ -263913,6 +263973,7 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from search to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from search to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from search to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from search to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from search to number
 html/semantics/forms/the-input-element/type-change-state.html	change state from search to password
 html/semantics/forms/the-input-element/type-change-state.html	change state from search to tel
@@ -263925,6 +263986,7 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from submit to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from submit to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from submit to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from submit to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from submit to hidden
 html/semantics/forms/the-input-element/type-change-state.html	change state from submit to image
 html/semantics/forms/the-input-element/type-change-state.html	change state from submit to number
@@ -263940,6 +264002,7 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from tel to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from tel to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from tel to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from tel to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from tel to number
 html/semantics/forms/the-input-element/type-change-state.html	change state from tel to password
 html/semantics/forms/the-input-element/type-change-state.html	change state from tel to search
@@ -263950,6 +264013,7 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from text to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from text to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from text to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from text to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from text to number
 html/semantics/forms/the-input-element/type-change-state.html	change state from text to password
 html/semantics/forms/the-input-element/type-change-state.html	change state from text to search
@@ -263959,11 +264023,13 @@ html/semantics/forms/the-input-element/type-change-state.html	change state from 
 html/semantics/forms/the-input-element/type-change-state.html	change state from time to color
 html/semantics/forms/the-input-element/type-change-state.html	change state from time to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from time to datetime-local
+html/semantics/forms/the-input-element/type-change-state.html	change state from time to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from time to number
 html/semantics/forms/the-input-element/type-change-state.html	change state from url to color
 html/semantics/forms/the-input-element/type-change-state.html	change state from url to date
 html/semantics/forms/the-input-element/type-change-state.html	change state from url to datetime-local
 html/semantics/forms/the-input-element/type-change-state.html	change state from url to email
+html/semantics/forms/the-input-element/type-change-state.html	change state from url to file
 html/semantics/forms/the-input-element/type-change-state.html	change state from url to number
 html/semantics/forms/the-input-element/type-change-state.html	change state from url to time
 html/semantics/forms/the-input-element/url.html	The value must not be set with "LF" (U+000A) or "CR" (U+000D)

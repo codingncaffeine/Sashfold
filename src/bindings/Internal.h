@@ -2003,6 +2003,9 @@ js::Object* new_validity_state(Realm::Internals&, NodeWrapper&);
 // A DataTransfer holding the formats given (Events.cpp), and the formats a
 // DataTransfer holds (none for any other object).
 js::Object* new_data_transfer(Realm::Internals&, std::vector<std::pair<std::string, std::string>> data, bool read_only);
+// The files a DataTransfer carries (a drag from another program).
+void set_data_transfer_files(js::Object&, std::vector<dom::forms::ChosenFile> files);
+void set_data_transfer_data(js::Object&, std::vector<std::pair<std::string, std::string>> data);
 std::vector<std::pair<std::string, std::string>> data_transfer_data(js::Object const&);
 // A drag's store (DragDrop.cpp): the mode an event of the drag gives it, and
 // its effects (effectAllowed when `allowed`, else dropEffect).

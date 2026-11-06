@@ -1345,6 +1345,9 @@ public:
     std::string effect_allowed = "none";
     js::Object* files = nullptr;
     js::Object* items = nullptr;
+    // A drag's files from another program (or a paste's): named in types as
+    // "Files", the Files themselves seen only when the store is readable.
+    std::vector<dom::forms::ChosenFile> chosen;
     void trace(js::Tracer& tracer) override
     {
         Object::trace(tracer);
@@ -1525,6 +1528,8 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
         interp.root(js::Value::object(types));
         for (auto const& [format, value] : self->data)
             types->push(interp.root(internals_of(interp).string(format)));
+        if (!self->chosen.empty())
+            types->push(interp.root(internals_of(interp).string("Files")));
         types->prevent_extensions();
         return js::Value::object(types);
     });
@@ -1532,8 +1537,17 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
         DataTransferObject* const self = data_transfer_this(interp, this_value);
         if (self == nullptr)
             return std::nullopt;
-        if (self->files == nullptr)
-            self->files = empty_file_list(internals_of(interp)).as_object();
+        // While the store is protected its files are not to be seen.
+        if (self->protected_mode)
+            return empty_file_list(internals_of(interp));
+        if (self->files == nullptr) {
+            Realm::Internals& internals = internals_of(interp);
+            js::Interpreter::Roots const roots(interp);
+            js::Value const list = interp.root(empty_file_list(internals));
+            for (dom::forms::ChosenFile const& file : self->chosen)
+                static_cast<js::ArrayObject*>(list.as_object())->push(js::Value::object(file_object_for(internals, file)));
+            self->files = list.as_object();
+        }
         return js::Value::object(self->files);
     });
     define_getter(in, *transfer, "items", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
@@ -2091,6 +2105,20 @@ js::Object* new_data_transfer(Realm::Internals& in, std::vector<std::pair<std::s
     transfer->data = std::move(data);
     transfer->read_only = read_only;
     return transfer;
+}
+
+void set_data_transfer_files(js::Object& object, std::vector<dom::forms::ChosenFile> files)
+{
+    if (auto* const transfer = dynamic_cast<DataTransferObject*>(&object)) {
+        transfer->chosen = std::move(files);
+        transfer->files = nullptr;
+    }
+}
+
+void set_data_transfer_data(js::Object& object, std::vector<std::pair<std::string, std::string>> data)
+{
+    if (auto* const transfer = dynamic_cast<DataTransferObject*>(&object))
+        transfer->data = std::move(data);
 }
 
 std::vector<std::pair<std::string, std::string>> data_transfer_data(js::Object const& object)

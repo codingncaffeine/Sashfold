@@ -21,6 +21,7 @@
 #include "platform/CaretBlink.h"
 #include "platform/Input.h"
 #include "platform/FileChooser.h"
+#include "platform/Window.h"
 #include "platform/Notifier.h"
 #include "ui/Theme.h"
 
@@ -479,6 +480,17 @@ public:
 
     // --- Input, window coordinates ------------------------------------------
     void mouse_move(int x, int y);
+    // A drag from another program over the window (platform::Window's drag
+    // events): where it enters with the formats it offers and a way to read
+    // them, how it moves, its leaving, its drop — true when the drop was
+    // taken. What a drop would do is told through the answer given (the
+    // window's answer_drag), whenever it changes.
+    using DragReader = std::function<std::optional<std::string>(std::string const& format)>;
+    using DragAnswer = std::function<void(platform::Window::DragAction action, std::string const& format)>;
+    void drag_enter(int x, int y, std::vector<std::string> const& formats, DragReader read, DragAnswer answer);
+    void drag_move(int x, int y);
+    void drag_leave();
+    bool drag_drop(int x, int y);
     // 1 left, 2 middle, 3 right; with the keys held as it went down — Ctrl
     // with a click on a link opens it in a new tab, Shift with a right
     // click shows the shell's menu whatever the page says.

@@ -3,7 +3,8 @@
 // The Win32 window: RegisterClass/CreateWindow, a PeekMessage
 // pump translated into WindowEvents, MsgWaitForMultipleObjectsEx to sleep,
 // and the frame blitted with SetDIBitsToDevice (the pixels are ours; GDI only
-// copies them). user32 and gdi32 are OS interfaces under the pledge.
+// copies them). user32 and gdi32 are OS interfaces under the pledge, as are
+// ole32 and shell32 for drops from other programs.
 
 #ifndef WIN32_LEAN_AND_MEAN
 #define WIN32_LEAN_AND_MEAN
@@ -12,13 +13,18 @@
 #define NOMINMAX
 #endif
 #include <windows.h>
+#include <ole2.h>
+#include <shellapi.h>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
+#include <cstdio>
 #include <deque>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace sashfold::platform {
@@ -123,12 +129,157 @@ KeyEvent key_event_from(WPARAM virtual_key)
 
 } // namespace
 
+class WindowWin32;
+
+// The window as an OLE drop target: a drag from another program (Explorer's
+// files, a page's text from another browser) over it is the window's drag
+// events; what it carries is read while OLE holds it out, and a drop's
+// formats are read before Drop returns, since the object goes with it.
+class DropTarget final : public IDropTarget {
+public:
+    explicit DropTarget(WindowWin32& window)
+        : m_window(window)
+    {
+    }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override
+    {
+        if (id == IID_IUnknown || id == IID_IDropTarget) {
+            *out = static_cast<IDropTarget*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++m_references; }
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        ULONG const left = --m_references;
+        if (left == 0)
+            delete this;
+        return left;
+    }
+    HRESULT STDMETHODCALLTYPE DragEnter(IDataObject* data, DWORD keys, POINTL point, DWORD* effect) override;
+    HRESULT STDMETHODCALLTYPE DragOver(DWORD keys, POINTL point, DWORD* effect) override;
+    HRESULT STDMETHODCALLTYPE DragLeave() override;
+    HRESULT STDMETHODCALLTYPE Drop(IDataObject* data, DWORD keys, POINTL point, DWORD* effect) override;
+
+private:
+    WindowWin32& m_window;
+    ULONG m_references = 1;
+};
+
+namespace {
+
+// A path as a file: URI (file:///C:/dir/a%20b.txt).
+std::string file_uri_of(std::wstring const& path)
+{
+    std::string utf8;
+    int const length = WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (length > 1) {
+        utf8.resize(static_cast<std::size_t>(length - 1));
+        WideCharToMultiByte(CP_UTF8, 0, path.c_str(), -1, utf8.data(), length, nullptr, nullptr);
+    }
+    std::string out = "file:///";
+    for (unsigned char const c : utf8) {
+        if (c == '\\')
+            out += '/';
+        else if (std::isalnum(c) || c == '/' || c == ':' || c == '-' || c == '.' || c == '_' || c == '~')
+            out += static_cast<char>(c);
+        else {
+            char buffer[4];
+            std::snprintf(buffer, sizeof buffer, "%%%02X", c);
+            out += buffer;
+        }
+    }
+    return out;
+}
+
+// One of the formats pages know, read from a data object: the files as a URI
+// list, the text as UTF-8.
+std::optional<std::string> read_data_object(IDataObject* data, std::string const& format)
+{
+    if (!data)
+        return std::nullopt;
+    if (format == "text/uri-list") {
+        FORMATETC wanted { CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+        STGMEDIUM medium {};
+        if (FAILED(data->GetData(&wanted, &medium)))
+            return std::nullopt;
+        std::string list;
+        if (auto* const drop = static_cast<HDROP>(GlobalLock(medium.hGlobal))) {
+            UINT const count = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+            for (UINT i = 0; i < count; ++i) {
+                UINT const length = DragQueryFileW(drop, i, nullptr, 0);
+                std::wstring path(length, L'\0');
+                DragQueryFileW(drop, i, path.data(), length + 1);
+                list += file_uri_of(path) + "\r\n";
+            }
+            GlobalUnlock(medium.hGlobal);
+        }
+        ReleaseStgMedium(&medium);
+        return list;
+    }
+    if (format == "text/plain;charset=utf-8") {
+        FORMATETC wanted { CF_UNICODETEXT, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+        STGMEDIUM medium {};
+        if (FAILED(data->GetData(&wanted, &medium)))
+            return std::nullopt;
+        std::string text;
+        if (auto const* const wide = static_cast<wchar_t const*>(GlobalLock(medium.hGlobal))) {
+            int const length = WideCharToMultiByte(CP_UTF8, 0, wide, -1, nullptr, 0, nullptr, nullptr);
+            if (length > 1) {
+                text.resize(static_cast<std::size_t>(length - 1));
+                WideCharToMultiByte(CP_UTF8, 0, wide, -1, text.data(), length, nullptr, nullptr);
+            }
+            GlobalUnlock(medium.hGlobal);
+        }
+        ReleaseStgMedium(&medium);
+        return text;
+    }
+    return std::nullopt;
+}
+
+// The formats a data object offers, as the shell names them.
+std::vector<std::string> formats_of(IDataObject* data)
+{
+    std::vector<std::string> formats;
+    FORMATETC files { CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    if (data->QueryGetData(&files) == S_OK)
+        formats.push_back("text/uri-list");
+    FORMATETC text { CF_UNICODETEXT, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+    if (data->QueryGetData(&text) == S_OK)
+        formats.push_back("text/plain;charset=utf-8");
+    return formats;
+}
+
+DWORD effect_of(Window::DragAction action)
+{
+    switch (action) {
+    case Window::DragAction::Copy: return DROPEFFECT_COPY;
+    case Window::DragAction::Move: return DROPEFFECT_MOVE;
+    case Window::DragAction::Link: return DROPEFFECT_LINK;
+    case Window::DragAction::None: break;
+    }
+    return DROPEFFECT_NONE;
+}
+
+} // namespace
+
 class WindowWin32 final : public Window {
+    friend class DropTarget;
+
 public:
     static std::unique_ptr<Window> open(std::string const& title, WindowPlacement const& placement);
 
     ~WindowWin32() override
     {
+        if (m_drop_target) {
+            RevokeDragDrop(m_hwnd);
+            m_drop_target->Release();
+        }
+        if (m_dragged)
+            m_dragged->Release();
         if (m_hwnd) {
             SetWindowLongPtrW(m_hwnd, GWLP_USERDATA, 0);
             DestroyWindow(m_hwnd);
@@ -442,6 +593,33 @@ private:
         return DefWindowProcW(m_hwnd, message, wparam, lparam);
     }
 
+public:
+    void answer_drag(DragAction action, std::string const&) override { m_drag_effect = effect_of(action); }
+    std::optional<std::string> drag_data(std::string const& format) override
+    {
+        if (m_dragged)
+            return read_data_object(m_dragged, format);
+        for (auto const& [kept, value] : m_dropped) {
+            if (kept == format)
+                return value;
+        }
+        return std::nullopt;
+    }
+    void finish_drag(bool) override { m_dropped.clear(); }
+
+private:
+    // A point OLE gives (screen pixels) in the client's.
+    POINT client_point(POINTL point) const
+    {
+        POINT at { point.x, point.y };
+        ScreenToClient(m_hwnd, &at);
+        return at;
+    }
+
+    DropTarget* m_drop_target = nullptr;
+    IDataObject* m_dragged = nullptr; // held between DragEnter and DragLeave or Drop
+    std::vector<std::pair<std::string, std::string>> m_dropped; // a drop's formats, read in Drop
+    DWORD m_drag_effect = DROPEFFECT_NONE;
     HWND m_hwnd = nullptr;
     int m_width = 0;
     int m_height = 0;
@@ -522,6 +700,14 @@ std::unique_ptr<Window> WindowWin32::open(std::string const& title, WindowPlacem
             window->m_scale = static_cast<float>(dpi) / 96.0f;
     }
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window.get()));
+    // Drags from other programs: OLE on this thread, the window a drop target.
+    if (SUCCEEDED(OleInitialize(nullptr))) {
+        window->m_drop_target = new DropTarget(*window);
+        if (FAILED(RegisterDragDrop(hwnd, window->m_drop_target))) {
+            window->m_drop_target->Release();
+            window->m_drop_target = nullptr;
+        }
+    }
     // Shown where the last run left it and as it was — maximized or not —
     // as Chrome does, through the placement the system keeps: the place
     // only while some display still shows it (one unplugged since leaves
@@ -541,6 +727,75 @@ std::unique_ptr<Window> WindowWin32::open(std::string const& title, WindowPlacem
     // The WM_SIZE of creation went to DefWindowProc (our procedure attaches
     // after CreateWindow); the shell paints its first frame unprompted.
     return window;
+}
+
+HRESULT STDMETHODCALLTYPE DropTarget::DragEnter(IDataObject* data, DWORD, POINTL point, DWORD* effect)
+{
+    if (m_window.m_dragged)
+        m_window.m_dragged->Release();
+    m_window.m_dragged = data;
+    if (data)
+        data->AddRef();
+    m_window.m_dropped.clear();
+    m_window.m_drag_effect = DROPEFFECT_NONE;
+    POINT const at = m_window.client_point(point);
+    WindowEvent event;
+    event.kind = WindowEvent::Kind::DragEnter;
+    event.x = at.x;
+    event.y = at.y;
+    if (data)
+        event.drag_formats = formats_of(data);
+    m_window.push(event);
+    *effect = m_window.m_drag_effect;
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE DropTarget::DragOver(DWORD, POINTL point, DWORD* effect)
+{
+    POINT const at = m_window.client_point(point);
+    WindowEvent event;
+    event.kind = WindowEvent::Kind::DragMove;
+    event.x = at.x;
+    event.y = at.y;
+    m_window.push(event);
+    *effect = m_window.m_drag_effect;
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE DropTarget::DragLeave()
+{
+    if (m_window.m_dragged) {
+        m_window.m_dragged->Release();
+        m_window.m_dragged = nullptr;
+    }
+    WindowEvent event;
+    event.kind = WindowEvent::Kind::DragLeave;
+    m_window.push(event);
+    return S_OK;
+}
+
+HRESULT STDMETHODCALLTYPE DropTarget::Drop(IDataObject* data, DWORD, POINTL point, DWORD* effect)
+{
+    // The object goes when Drop returns: what it carries is read now.
+    m_window.m_dropped.clear();
+    if (data) {
+        for (std::string const& format : formats_of(data)) {
+            if (std::optional<std::string> value = read_data_object(data, format))
+                m_window.m_dropped.emplace_back(format, std::move(*value));
+        }
+    }
+    if (m_window.m_dragged) {
+        m_window.m_dragged->Release();
+        m_window.m_dragged = nullptr;
+    }
+    POINT const at = m_window.client_point(point);
+    WindowEvent event;
+    event.kind = WindowEvent::Kind::DragDrop;
+    event.x = at.x;
+    event.y = at.y;
+    m_window.push(event);
+    *effect = m_window.m_drag_effect;
+    return S_OK;
 }
 
 std::unique_ptr<Window> Window::create(std::string const& title, WindowPlacement const& placement, Bitmap const*)

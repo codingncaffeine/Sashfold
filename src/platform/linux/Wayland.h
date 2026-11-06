@@ -56,6 +56,8 @@ public:
     Request& int_(std::int32_t value);
     Request& fixed(double value);
     Request& string(std::string_view value);
+    // A null string (its length 0 on the wire, as a string's counts its NUL).
+    Request& null_string() { return uint(0); }
     Request& array(std::span<std::uint8_t const> bytes);
     Request& new_id(std::uint32_t id) { return uint(id); }
     Request& object(std::uint32_t id) { return uint(id); }

@@ -218,6 +218,10 @@ struct Runner {
 
     ScriptedNotifier notifier {}; // the browser's, once `notifier` says so
     std::shared_ptr<ChooserAnswer> chooser = std::make_shared<ChooserAnswer>();
+    // A drag from another program as a script plays it: the formats it offers
+    // with their data, and what the window was last told a drop would do.
+    std::vector<std::pair<std::string, std::string>> os_drag_offer {};
+    std::shared_ptr<std::string> os_drag_answer = std::make_shared<std::string>("none");
 
     // Loads, then the scripts they set going, then the loads those queued.
     void settle()
@@ -977,6 +981,63 @@ struct Runner {
             expect_equal("assert-hints", std::to_string(browser.hint_count()), argument);
         } else if (command == "assert-find") {
             expect_equal("assert-find", browser.find_status(), argument);
+        } else if (command == "os-drag-data") {
+            // `os-drag-data <format> <text>`: what a drag from another program
+            // will offer in that format (a file: URI list's paths relative to
+            // the script are made whole).
+            std::istringstream words(argument);
+            std::string format;
+            words >> format;
+            std::string text;
+            std::getline(words, text);
+            if (!text.empty() && text.front() == ' ')
+                text.erase(0, 1);
+            if (format == "text/uri-list") {
+                std::istringstream paths(text);
+                std::string joined;
+                for (std::string path; paths >> path;)
+                    joined += "file://" + (std::filesystem::path(path).is_absolute() ? path : (directory / path).string()) + "\r\n";
+                text = joined;
+            }
+            os_drag_offer.emplace_back(format, text);
+        } else if (command == "os-drag-enter" || command == "os-drag-move" || command == "os-drag-drop") {
+            // `os-drag-enter|move|drop <x> <y>`: the drag from another program
+            // comes over the window, moves, is let go.
+            auto const x = int_arg(0);
+            auto const y = int_arg(1);
+            if (!x || !y)
+                return fail(command + ": needs x y");
+            if (command == "os-drag-enter") {
+                std::vector<std::string> formats;
+                for (auto const& [format, text] : os_drag_offer)
+                    formats.push_back(format);
+                auto offer = os_drag_offer;
+                browser.drag_enter(*x, *y, formats,
+                    [offer](std::string const& format) -> std::optional<std::string> {
+                        for (auto const& [kept, text] : offer) {
+                            if (kept == format)
+                                return text;
+                        }
+                        return std::nullopt;
+                    },
+                    [answer = os_drag_answer](platform::Window::DragAction action, std::string const&) {
+                        *answer = action == platform::Window::DragAction::Move ? "move"
+                            : action == platform::Window::DragAction::Copy   ? "copy"
+                            : action == platform::Window::DragAction::Link   ? "link"
+                                                                             : "none";
+                    });
+            } else if (command == "os-drag-move") {
+                browser.drag_move(*x, *y);
+            } else {
+                bool const taken = browser.drag_drop(*x, *y);
+                os_drag_offer.clear();
+                *os_drag_answer = taken ? "taken" : "refused";
+            }
+            settle();
+        } else if (command == "assert-drag-answer") {
+            // `assert-drag-answer none|copy|move|link|taken|refused`: what the
+            // window was last told of the drag from another program.
+            expect_equal("assert-drag-answer", *os_drag_answer, argument);
         } else if (command == "choose-files") {
             // `choose-files [<path>...]`: the open file chooser answers with
             // these files (relative to the script), or with none: cancelled.

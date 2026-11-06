@@ -54,6 +54,10 @@ std::string said(std::vector<WindowEvent> const& events)
         case Kind::Preedit: out += "P"; break;
         case Kind::Commit: out += "O"; break;
         case Kind::Close: out += "C"; break;
+        case Kind::DragEnter: out += "E"; break;
+        case Kind::DragMove: out += "G"; break;
+        case Kind::DragLeave: out += "L"; break;
+        case Kind::DragDrop: out += "Q"; break;
         case Kind::None: out += "-"; break;
         }
         out += std::to_string(event.x) + "," + std::to_string(event.y);

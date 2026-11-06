@@ -34,6 +34,14 @@ struct WindowEvent {
         Commit,
         Active,
         Visible,
+        // A drag from another program (or from this window, once it has
+        // left it): over the window with the formats it offers, moved, gone
+        // again, or let go here. The window answers what a drop would do
+        // (answer_drag) and, after a drop, reads what it carries.
+        DragEnter,
+        DragMove,
+        DragLeave,
+        DragDrop,
     };
     Kind kind = Kind::None;
     int x = 0; // mouse position, client pixels
@@ -60,6 +68,8 @@ struct WindowEvent {
     // Active: whether the window is now the one in front, the one the
     // keyboard goes to. A window is taken to be until an event says not.
     bool active = true;
+    // DragEnter: the formats (MIME types) the drag offers.
+    std::vector<std::string> drag_formats;
     // Visible: whether any of the window can be seen — not minimized, not
     // wholly covered, not on another desktop — as far as the system says. A
     // window is taken to be until an event says not.
@@ -164,6 +174,26 @@ public:
     // The window over the whole screen, with nothing of the system's
     // around it, at a page's asking (the Fullscreen API) — and back.
     virtual void set_fullscreen(bool fullscreen) { static_cast<void>(fullscreen); }
+    // A drag over the window from elsewhere: what a drop here would do —
+    // nothing (refused), a copy, a move or a link — and the format it would
+    // be taken in. Said again whenever it changes.
+    enum class DragAction { None, Copy, Move, Link };
+    virtual void answer_drag(DragAction action, std::string const& format)
+    {
+        static_cast<void>(action);
+        static_cast<void>(format);
+    }
+    // One format of the drag over the window (while it is over it, or just
+    // after its drop): its bytes, from the program it comes from; nothing
+    // when it cannot be read.
+    virtual std::optional<std::string> drag_data(std::string const& format)
+    {
+        static_cast<void>(format);
+        return std::nullopt;
+    }
+    // The drag is over: `dropped` when its drop here was taken, which the
+    // program it came from then finishes (a move deletes its original).
+    virtual void finish_drag(bool dropped) { static_cast<void>(dropped); }
 };
 
 }

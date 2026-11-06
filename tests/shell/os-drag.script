@@ -1,0 +1,29 @@
+# Drags from other programs (gaps plan item 4, HTML §6.11.5): a file from a
+# file manager over the page shows the page "Files" as it moves and the
+# Files themselves in drop; a file input takes them; text from another
+# program goes into an editor or a field. The window is told what a drop
+# would do. Content starts 76 px down; the zone is 84-114, the file input
+# about 124-144, the field about 150-170.
+resize 600 300
+open data:text/html,<title>D</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}div{height:30px;border:1px solid}</style><div id=zone>Drop files here</div><p style=margin:8px><input type=file id=f></p><input id=t name=t><script>var log=[];function n(s){log.push(s);document.title=log.join(',')}zone.addEventListener('dragenter',function(e){n('enter:'+e.dataTransfer.types.join('+')+':'+e.dataTransfer.files.length);e.preventDefault()});zone.addEventListener('dragover',function(e){e.preventDefault();e.dataTransfer.dropEffect='copy'});zone.addEventListener('drop',function(e){e.preventDefault();var x=e.dataTransfer.files[0];n('drop:'+e.dataTransfer.files.length+':'+x.name+':'+x.size)});f.addEventListener('change',function(){n('input:'+f.files[0].name)})</script>
+os-drag-data text/uri-list files/hello.txt
+os-drag-enter 40 99
+assert-title enter:Files:0
+assert-drag-answer copy
+os-drag-drop 40 99
+assert-title enter:Files:0,drop:1:hello.txt:6
+assert-drag-answer taken
+# Onto the file input: its files, with change.
+os-drag-data text/uri-list files/dot.png
+os-drag-enter 300 20
+os-drag-move 50 134
+assert-drag-answer copy
+os-drag-drop 50 134
+assert-title enter:Files:0,drop:1:hello.txt:6,input:dot.png
+# Text from another program into a field.
+os-drag-data text/plain;charset=utf-8 dropped words
+os-drag-enter 300 20
+os-drag-move 40 160
+assert-drag-answer copy
+os-drag-drop 40 160
+assert-value t dropped words

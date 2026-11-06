@@ -692,6 +692,14 @@ public:
     // end that lets the store go.
     bool drag_start(dom::Element& source, MouseInit const&, std::vector<std::pair<std::string, std::string>> data, std::string kind);
     bool drag_event(dom::Node& target, std::string_view type, MouseInit const&, std::string const& operation = "none");
+    // A drag from another program over the page (HTML §6.11.5 with no source
+    // here: no dragstart, drag or dragend): a store with the formats it
+    // offers, their data empty until the drop, and the files it carries —
+    // seen as "Files" in types while it moves, as Files in drop.
+    void external_drag_start(std::vector<std::string> const& formats, std::vector<dom::forms::ChosenFile> files);
+    // The drag's data, read from the program at the drop, put in the store
+    // before the drop is fired.
+    void external_drag_data(std::vector<std::pair<std::string, std::string>> data);
     bool dragging() const;
     std::string drag_drop_effect() const;
     std::string drag_effect_allowed() const;

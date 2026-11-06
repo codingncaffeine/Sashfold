@@ -1243,8 +1243,24 @@ struct Browser::Impl {
         std::size_t drop_index = 0;
         dom::Element const* field = nullptr;
         std::pair<std::size_t, std::size_t> field_range;
+        // A drag from another program: no source here; the files it carries,
+        // and a file input a drop would give them to.
+        bool external = false;
+        std::vector<dom::forms::ChosenFile> files;
+        dom::Element const* drop_file_input = nullptr;
     };
     std::optional<DragOperation> drag_op;
+    // The shell's side of a drag from another program: how to read what it
+    // carries and how to tell its window what a drop would do, and the
+    // formats it offers under the names pages know them by.
+    struct OsDrag {
+        Browser::DragReader read;
+        Browser::DragAnswer answer;
+        std::vector<std::pair<std::string, std::string>> formats; // page's name, the offer's
+        std::vector<dom::forms::ChosenFile> files;
+        std::string answered;
+    };
+    std::optional<OsDrag> os_drag;
     // The scrollbar thumb the left button took hold of, and where along it.
     struct BarDrag {
         dom::Element const* box = nullptr;
@@ -10334,6 +10350,15 @@ struct Browser::Impl {
             if (taken) {
                 std::string const effect = realm->drag_drop_effect();
                 op.operation = effect != "none" && allows(effect) ? effect : "none";
+            } else if (op.external && !op.files.empty()) {
+                // Files from another program: a file input takes them; anywhere
+                // else a drop opens the first in the tab, as every engine does.
+                op.operation = "copy";
+                if (hit && hit->realm == realm && hit->element && layout::is_control(*hit->element)
+                    && layout::control_kind(*hit->element) == layout::ControlKind::File && !dom::forms::actually_disabled(*hit->element))
+                    op.drop_file_input = hit->element;
+                else
+                    op.drop_file_input = nullptr;
             } else if (dom::Element const* const field = hit && hit->realm == realm ? droppable_field(*op.current) : nullptr) {
                 // A text field takes text by default, as an editor does: moved
                 // when it is a selection's from this document, else copied.
@@ -10403,6 +10428,221 @@ struct Browser::Impl {
         return dom_point_of(*runs, TextPosition { indexes[local->run], local->offset });
     }
 
+    // --- Drags from other programs -------------------------------------------------
+
+    // The files a text/uri-list names that are on this machine (RFC 2483:
+    // a line each, # lines comments).
+    static std::vector<dom::forms::ChosenFile> files_of_uri_list(std::string const& list)
+    {
+        std::vector<dom::forms::ChosenFile> files;
+        std::size_t start = 0;
+        while (start < list.size()) {
+            std::size_t end = list.find('\n', start);
+            if (end == std::string::npos)
+                end = list.size();
+            std::string line = list.substr(start, end - start);
+            while (!line.empty() && (line.back() == '\r' || line.back() == ' '))
+                line.pop_back();
+            start = end + 1;
+            if (line.empty() || line[0] == '#')
+                continue;
+            if (std::optional<std::string> const path = platform::path_of_file_uri(line)) {
+                std::error_code error;
+                if (std::filesystem::is_regular_file(*path, error))
+                    files.push_back(chosen_file(*path));
+            }
+        }
+        return files;
+    }
+
+    // The shell: a drag from another program enters the window. What it
+    // offers is named as pages know formats (text, markup, links), its files
+    // read from its list of them now, so the page sees "Files" as it moves.
+    void os_drag_enter(int x, int y, std::vector<std::string> const& offered, Browser::DragReader read, Browser::DragAnswer answer)
+    {
+        OsDrag drag;
+        drag.read = std::move(read);
+        drag.answer = std::move(answer);
+        auto const offers = [&](std::string_view format) { return std::find(offered.begin(), offered.end(), format) != offered.end(); };
+        for (char const* text : { "text/plain;charset=utf-8", "UTF8_STRING", "text/plain", "TEXT", "STRING" }) {
+            if (offers(text)) {
+                drag.formats.emplace_back("text/plain", text);
+                break;
+            }
+        }
+        if (offers("text/html"))
+            drag.formats.emplace_back("text/html", "text/html");
+        if (offers("text/uri-list")) {
+            std::optional<std::string> const list = drag.read ? drag.read("text/uri-list") : std::nullopt;
+            if (list)
+                drag.files = files_of_uri_list(*list);
+            if (drag.files.empty())
+                drag.formats.emplace_back("text/uri-list", "text/uri-list");
+        }
+        // A drag of files is files alone, as the engines show it.
+        if (!drag.files.empty())
+            drag.formats.clear();
+        std::vector<std::string> names;
+        for (auto const& [name, offer] : drag.formats)
+            names.push_back(name);
+        std::vector<dom::forms::ChosenFile> files = drag.files;
+        os_drag = std::move(drag);
+        if (pages_in_engines) {
+            auto const [px, py] = to_page(x, y);
+            ask_front([px, py, names, files](Browser& page) { page.m_impl->page_drag_enter(px, py, names, files); });
+            return;
+        }
+        page_drag_enter(x, y, names, files);
+    }
+
+    // The page: the drag begins here (no dragstart: its source is not here).
+    void page_drag_enter(int x, int y, std::vector<std::string> const& formats, std::vector<dom::forms::ChosenFile> const& files)
+    {
+        Tab* const tab = active_tab();
+        if (!tab || !tab->document || drag_op)
+            return;
+        update_hover(x, y);
+        std::optional<PageHit> const hit = page_hit(x, y);
+        bindings::Realm* const realm = hit && hit->realm ? hit->realm : tab->realm.get();
+        if (!realm)
+            return;
+        script_started = std::chrono::steady_clock::now();
+        realm->external_drag_start(formats, files);
+        DragOperation operation;
+        operation.realm = realm;
+        operation.external = true;
+        operation.files = files;
+        if (hit)
+            operation.init = hit->init;
+        drag_op = std::move(operation);
+        drag_moved(x, y);
+        tell_drag_answer();
+    }
+
+    void page_drag_move(int x, int y)
+    {
+        if (!drag_op || !drag_op->external)
+            return;
+        update_hover(x, y);
+        drag_moved(x, y);
+        tell_drag_answer();
+    }
+
+    void page_drag_leave()
+    {
+        if (!drag_op || !drag_op->external)
+            return;
+        cancel_drag();
+    }
+
+    // The page's answer to what a drop here would do, to the shell's window
+    // (through the shell when this is an engine).
+    void tell_drag_answer()
+    {
+        std::string const operation = drag_op ? drag_op->operation : std::string("none");
+        if (engine_self) {
+            ask_shell([operation](Impl& shell, std::size_t) { shell.os_drag_answer(operation); });
+            return;
+        }
+        os_drag_answer(operation);
+    }
+
+    void os_drag_answer(std::string const& operation)
+    {
+        if (!os_drag || !os_drag->answer || os_drag->answered == operation)
+            return;
+        os_drag->answered = operation;
+        using Action = platform::Window::DragAction;
+        Action const action = operation == "move" ? Action::Move : operation == "copy" ? Action::Copy : operation == "link" ? Action::Link : Action::None;
+        std::string const format = !os_drag->files.empty() ? std::string("text/uri-list") : os_drag->formats.empty() ? std::string() : os_drag->formats.front().second;
+        os_drag->answer(action, format);
+    }
+
+    // The shell: the drop. What the drag carries is read from its program
+    // now, given to the page, and the page drops it.
+    bool os_drag_drop(int x, int y)
+    {
+        if (!os_drag)
+            return false;
+        OsDrag drag = std::move(*os_drag);
+        os_drag.reset();
+        std::vector<std::pair<std::string, std::string>> data;
+        if (drag.read) {
+            for (auto const& [name, offer] : drag.formats) {
+                if (std::optional<std::string> value = drag.read(offer))
+                    data.emplace_back(name, std::move(*value));
+            }
+        }
+        if (pages_in_engines) {
+            auto const [px, py] = to_page(x, y);
+            bool taken = false;
+            ask_front([px, py, data, &taken](Browser& page) { taken = page.m_impl->page_drag_drop(px, py, data); });
+            return taken || drag.answered != "none";
+        }
+        return page_drag_drop(x, y, std::move(data));
+    }
+
+    bool page_drag_drop(int x, int y, std::vector<std::pair<std::string, std::string>> data)
+    {
+        if (!drag_op || !drag_op->external)
+            return false;
+        page_drag_move(x, y);
+        if (!drag_op)
+            return false;
+        Tab* const tab = active_tab();
+        if (tab && realm_alive(*tab, drag_op->realm))
+            drag_op->realm->external_drag_data(std::move(data));
+        finish_drag();
+        if (!dropped_file_to_open.empty()) {
+            std::string const path = std::exchange(dropped_file_to_open, std::string());
+            if (std::optional<net::Url> const url = net::parse_url("file://" + percent_encode_path(path)))
+                open(*url);
+        }
+        return last_drop_operation != "none";
+    }
+
+    // A path as a file: URL's path, every byte that is not unreserved or a
+    // slash written %XX.
+    static std::string percent_encode_path(std::string const& path)
+    {
+        std::string out;
+        for (unsigned char const c : path) {
+            if (std::isalnum(c) || c == '/' || c == '-' || c == '.' || c == '_' || c == '~')
+                out += static_cast<char>(c);
+            else {
+                char buffer[4];
+                std::snprintf(buffer, sizeof buffer, "%%%02X", c);
+                out += buffer;
+            }
+        }
+        return out;
+    }
+
+    void os_drag_leave()
+    {
+        os_drag.reset();
+        if (pages_in_engines) {
+            ask_front([](Browser& page) { page.m_impl->page_drag_leave(); });
+            return;
+        }
+        page_drag_leave();
+    }
+
+    void os_drag_move(int x, int y)
+    {
+        if (!os_drag)
+            return;
+        if (pages_in_engines) {
+            auto const [px, py] = to_page(x, y);
+            ask_front([px, py](Browser& page) { page.m_impl->page_drag_move(px, py); });
+            return;
+        }
+        page_drag_move(x, y);
+    }
+
+    std::string dropped_file_to_open;
+    std::string last_drop_operation;
+
     // A text field a drop may go into: one that can be typed in.
     static dom::Element const* droppable_field(dom::Element const& element)
     {
@@ -10465,6 +10705,17 @@ struct Browser::Impl {
                 // The page took the drop as its own; what it said it did stands.
                 std::string const effect = realm->drag_drop_effect();
                 operation = effect;
+            } else if (op.external && !op.files.empty()) {
+                if (op.drop_file_input && op.drop_file_input->is_connected()) {
+                    std::vector<std::string> paths;
+                    for (dom::forms::ChosenFile const& file : op.files)
+                        paths.push_back(file.path);
+                    if (!op.drop_file_input->has_attribute("multiple") && paths.size() > 1)
+                        paths.resize(1);
+                    files_chosen(op.drop_file_input, paths);
+                } else {
+                    dropped_file_to_open = op.files.front().path;
+                }
             } else if (op.drop_field && op.drop_field->is_connected()) {
                 drop_into_field(*tab, op, data, operation == "move" && op.from_selection);
             } else if (op.drop_host && op.drop_point && op.drop_point->first->is_connected()) {
@@ -10482,6 +10733,7 @@ struct Browser::Impl {
         if (dom::Element* const source = realm->drag_source(); source && source->is_connected())
             realm->drag_event(*source, "dragend", op.init, operation);
         realm->drag_finished();
+        last_drop_operation = operation;
         if (std::optional<EditingFocus> const editing = editing_focus(*tab))
             edited(*tab);
         else
@@ -14634,6 +14886,13 @@ int Browser::width() const { return m_impl->width; }
 int Browser::height() const { return m_impl->height; }
 
 void Browser::mouse_move(int x, int y) { m_impl->mouse_move(x, y); }
+void Browser::drag_enter(int x, int y, std::vector<std::string> const& formats, DragReader read, DragAnswer answer)
+{
+    m_impl->os_drag_enter(x, y, formats, std::move(read), std::move(answer));
+}
+void Browser::drag_move(int x, int y) { m_impl->os_drag_move(x, y); }
+void Browser::drag_leave() { m_impl->os_drag_leave(); }
+bool Browser::drag_drop(int x, int y) { return m_impl->os_drag_drop(x, y); }
 void Browser::mouse_down(int x, int y, int button, platform::Modifiers modifiers)
 {
     m_impl->caret_rests();
