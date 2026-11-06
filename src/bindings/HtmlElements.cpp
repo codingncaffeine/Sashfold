@@ -1,4 +1,5 @@
 #include "core/Ascii.h"
+#include "core/Unicode.h"
 #include "bindings/NodeSupport.h"
 #include "dom/Forms.h"
 
@@ -69,7 +70,7 @@ Realm* content_realm(Realm::Internals& internals, dom::Element const& container)
 
 } // namespace
 
-std::string control_value_of(Realm::Internals& in, dom::Element const& element)
+std::string raw_control_value_of(Realm::Internals& in, dom::Element const& element)
 {
     if (in.hooks.control_value) {
         if (std::optional<std::string> value = in.hooks.control_value(element))
@@ -82,12 +83,40 @@ std::string control_value_of(Realm::Internals& in, dom::Element const& element)
     return default_value_of(element);
 }
 
+namespace {
+void record_selection(Realm::Internals&, dom::Element const&, dom::forms::TextSelection const&);
+}
+
+// The API value: an input's sanitized as its type has it (§4.10.5.1), a
+// textarea's with its newlines made LF (§4.10.11).
+std::string control_value_of(Realm::Internals& in, dom::Element const& element)
+{
+    std::string value = raw_control_value_of(in, element);
+    if (element.is_html("textarea"))
+        return dom::forms::normalize_newlines(std::move(value));
+    if (element.is_html("input"))
+        return dom::forms::sanitize_value(dom::forms::input_type(element), std::move(value));
+    return value;
+}
+
 void set_control_value_of(Realm::Internals& in, dom::Element const& element, std::string value)
 {
+    // A value that differs from the one there was (as sanitized) puts the
+    // caret at its end, the direction reset (§4.10.5.4, the value setter).
+    bool const selectable = dom::forms::select_applies(element);
+    std::string const before = selectable ? control_value_of(in, element) : std::string();
     if (in.hooks.set_control_value)
         in.hooks.set_control_value(element, value);
     else
         in.fallback_values[&element] = std::move(value);
+    if (selectable) {
+        std::string const after = control_value_of(in, element);
+        if (after != before) {
+            dom::forms::TextSelection end;
+            end.start = end.end = decode_utf8(after, true).size();
+            record_selection(in, element, end);
+        }
+    }
     // :placeholder-shown and the validity states read it.
     const_cast<dom::Element&>(element).mark_style_self();
     in.realm.note_mutation();
@@ -483,6 +512,326 @@ void install_form_control_common(Realm::Internals& in, js::Object& proto, bool l
     });
     if (labelable)
         install_labels(in, proto);
+}
+
+// --- Text control selection (HTML §4.10.18.6) ---------------------------------
+// The selection is kept in code points of the value it was made in
+// (dom::forms::TextSelection), by the host when it has one; the interface
+// speaks UTF-16 code units of the API value.
+
+std::size_t code_points_before(std::u32string_view value, std::size_t units)
+{
+    std::size_t at = 0;
+    std::size_t index = 0;
+    while (index < value.size()) {
+        std::size_t const width = value[index] > 0xFFFF ? 2 : 1;
+        if (at + width > units)
+            break;
+        at += width;
+        ++index;
+    }
+    return index;
+}
+
+std::size_t units_before(std::u32string_view value, std::size_t points)
+{
+    std::size_t units = 0;
+    for (std::size_t i = 0; i < points && i < value.size(); ++i)
+        units += value[i] > 0xFFFF ? 2 : 1;
+    return units;
+}
+
+std::optional<dom::forms::TextSelection> recorded_selection(Realm::Internals& in, dom::Element const& e)
+{
+    if (in.hooks.control_selection)
+        return in.hooks.control_selection(e);
+    if (auto const it = in.fallback_selections.find(&e); it != in.fallback_selections.end())
+        return it->second;
+    return std::nullopt;
+}
+
+void record_selection(Realm::Internals& in, dom::Element const& e, dom::forms::TextSelection const& selection)
+{
+    if (in.hooks.set_control_selection)
+        in.hooks.set_control_selection(e, selection);
+    else
+        in.fallback_selections[&e] = selection;
+}
+
+// The selection in `value`; a control nothing has selected in has its caret
+// at the start, as every engine has it.
+dom::forms::TextSelection text_selection_of(Realm::Internals& in, dom::Element const& e, std::u32string_view value)
+{
+    return recorded_selection(in, e).value_or(dom::forms::TextSelection {}).clamped(value.size());
+}
+
+} // namespace
+
+// After a control's value changed some way other than the value setter (a
+// clean textarea's text, the value attribute, a type change): its selection
+// held within the new value (§4.10.18.6). A type that takes no selection
+// and becomes one that does puts the caret at the start.
+void clamp_text_selection(Realm::Internals& in, dom::Element const& e, bool newly_selectable)
+{
+    if (!dom::forms::select_applies(e))
+        return;
+    if (newly_selectable) {
+        record_selection(in, e, dom::forms::TextSelection {});
+        return;
+    }
+    std::optional<dom::forms::TextSelection> const recorded = recorded_selection(in, e);
+    if (!recorded)
+        return;
+    std::size_t const length = decode_utf8(control_value_of(in, e), true).size();
+    dom::forms::TextSelection const held = recorded->clamped(length);
+    if (!held.same_range(*recorded))
+        record_selection(in, e, held);
+}
+
+// The same within a value of `length` code points the control's value went
+// through on its way to the one it has now.
+void clamp_text_selection_to(Realm::Internals& in, dom::Element const& e, std::size_t length)
+{
+    if (std::optional<dom::forms::TextSelection> const recorded = recorded_selection(in, e))
+        record_selection(in, e, recorded->clamped(length));
+}
+
+namespace {
+
+// selectionchange at a text control (§4.10.18.6 "schedule a selectionchange
+// event"): one queued at a time, bubbling from the control.
+void schedule_control_selectionchange(Realm::Internals& in, dom::Element const& e)
+{
+    if (!in.selectionchange_queued_at.insert(&e).second)
+        return;
+    auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(in.wrap(const_cast<dom::Element&>(e))));
+    in.post_task([&in, held, at = &e] {
+        in.selectionchange_queued_at.erase(at);
+        Realm::Internals::Entry const entry(in);
+        js::Interpreter::Roots const task_roots(in.interpreter);
+        EventObject* const event = in.new_event("Event", "selectionchange", true, false);
+        in.interpreter.root(js::Value::object(event));
+        event->is_trusted = true;
+        in.dispatch(*event, held->value().as_object());
+    });
+}
+
+// Records a new selection in `value` and, when it differs from the one
+// there was, queues select at the control (bubbling, not cancelable) and a
+// selectionchange.
+void set_text_selection(Realm::Internals& in, dom::Element const& e, std::u32string_view value, dom::forms::TextSelection next,
+    std::optional<dom::forms::TextSelection> before = std::nullopt)
+{
+    if (!before)
+        before = text_selection_of(in, e, value);
+    next = next.clamped(value.size());
+    record_selection(in, e, next);
+    if (before->same_range(next))
+        return;
+    const_cast<dom::Element&>(e).mark_style_self();
+    in.realm.note_mutation();
+    auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(in.wrap(const_cast<dom::Element&>(e))));
+    in.post_task([&in, held] {
+        Realm::Internals::Entry const entry(in);
+        js::Interpreter::Roots const task_roots(in.interpreter);
+        EventObject* const event = in.new_event("Event", "select", true, false);
+        in.interpreter.root(js::Value::object(event));
+        event->is_trusted = true;
+        in.dispatch(*event, held->value().as_object());
+    });
+    schedule_control_selectionchange(in, e);
+}
+
+dom::forms::TextSelection::Direction direction_named(std::string_view name)
+{
+    using Direction = dom::forms::TextSelection::Direction;
+    return name == "backward" ? Direction::Backward : name == "forward" ? Direction::Forward : Direction::None;
+}
+
+std::string_view direction_name(dom::forms::TextSelection::Direction direction)
+{
+    using Direction = dom::forms::TextSelection::Direction;
+    return direction == Direction::Backward ? "backward" : direction == Direction::Forward ? "forward" : "none";
+}
+
+// "Set the selection range" with start and end in code units (an end
+// before the start is the start), and a direction by name.
+void set_selection_range(Realm::Internals& in, dom::Element const& e, double start, double end, std::string_view direction,
+    std::optional<dom::forms::TextSelection> before = std::nullopt)
+{
+    std::u32string const value = decode_utf8(control_value_of(in, e), true);
+    std::size_t const length = units_before(value, value.size());
+    std::size_t const t = std::min<std::size_t>(to_unsigned_long(end), length);
+    std::size_t const s = std::min<std::size_t>(std::min<std::size_t>(to_unsigned_long(start), length), t);
+    dom::forms::TextSelection next;
+    next.start = code_points_before(value, s);
+    next.end = code_points_before(value, t);
+    next.direction = direction_named(direction);
+    set_text_selection(in, e, value, next, before);
+}
+
+// An unsigned long argument (WebIDL: modulo 2^32), from a number the
+// interpreter converts; nullopt when the conversion threw.
+std::optional<double> unsigned_long_argument(Realm::Internals& in, js::Value const& value)
+{
+    std::optional<double> const number = in.interpreter.to_number(value);
+    if (!number)
+        return std::nullopt;
+    return static_cast<double>(to_unsigned_long(*number));
+}
+
+void install_text_selection(Realm::Internals& in, js::Object& proto)
+{
+    using Selection = dom::forms::TextSelection;
+    element_method(in, proto, "select", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+        if (!dom::forms::select_applies(e))
+            return js::Value::undefined();
+        std::u32string const value = decode_utf8(control_value_of(internals, e), true);
+        Selection all;
+        all.start = 0;
+        all.end = value.size();
+        // A control whose selection does not show (email, number...) still
+        // has its whole value taken, as the platform's own field would.
+        set_text_selection(internals, e, value, all);
+        return js::Value::undefined();
+    });
+    for (bool const is_start : { true, false }) {
+        auto read = [is_start](Realm::Internals& internals, dom::Element& e) -> Native {
+            if (!dom::forms::selection_applies(e))
+                return js::Value::null();
+            std::u32string const value = decode_utf8(control_value_of(internals, e), true);
+            Selection const selection = text_selection_of(internals, e, value);
+            return js::Value::number(static_cast<double>(units_before(value, is_start ? selection.start : selection.end)));
+        };
+        auto write = [is_start](Realm::Internals& internals, dom::Element& e, js::Value const& given) -> Native {
+            // A null is 0 (WebIDL unsigned long?), anything else converted.
+            std::optional<double> const number = given.is_null() ? std::optional<double>(0) : unsigned_long_argument(internals, given);
+            if (!number)
+                return std::nullopt;
+            if (!dom::forms::selection_applies(e))
+                return internals.throw_dom_exception("InvalidStateError", "The input element's type does not support selection.");
+            std::u32string const value = decode_utf8(control_value_of(internals, e), true);
+            Selection const selection = text_selection_of(internals, e, value);
+            double const start = static_cast<double>(units_before(value, selection.start));
+            double const end = static_cast<double>(units_before(value, selection.end));
+            std::string_view const direction = direction_name(selection.direction);
+            if (is_start)
+                set_selection_range(internals, e, *number, std::max(end, *number), direction);
+            else
+                set_selection_range(internals, e, start, *number, direction);
+            return js::Value::undefined();
+        };
+        element_accessor(in, proto, is_start ? "selectionStart" : "selectionEnd", read, write);
+    }
+    element_accessor(
+        in, proto, "selectionDirection",
+        [](Realm::Internals& internals, dom::Element& e) -> Native {
+            if (!dom::forms::selection_applies(e))
+                return js::Value::null();
+            std::u32string const value = decode_utf8(control_value_of(internals, e), true);
+            return internals.string(direction_name(text_selection_of(internals, e, value).direction));
+        },
+        [](Realm::Internals& internals, dom::Element& e, js::Value const& given) -> Native {
+            std::optional<std::string> const name = given.is_null() ? std::optional<std::string>("null") : string_of(internals, given);
+            if (!name)
+                return std::nullopt;
+            if (!dom::forms::selection_applies(e))
+                return internals.throw_dom_exception("InvalidStateError", "The input element's type does not support selection.");
+            std::u32string const value = decode_utf8(control_value_of(internals, e), true);
+            Selection const selection = text_selection_of(internals, e, value);
+            set_selection_range(internals, e, static_cast<double>(units_before(value, selection.start)),
+                static_cast<double>(units_before(value, selection.end)), *name);
+            return js::Value::undefined();
+        });
+    element_method(in, proto, "setSelectionRange", 2, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        if (args.size() < 2)
+            return internals.interpreter.throw_type_error("setSelectionRange needs a start and an end");
+        std::optional<double> const start = unsigned_long_argument(internals, args[0]);
+        if (!start)
+            return std::nullopt;
+        std::optional<double> const end = unsigned_long_argument(internals, args[1]);
+        if (!end)
+            return std::nullopt;
+        std::optional<std::string> direction = std::string("none");
+        if (args.size() > 2 && !args[2].is_undefined()) {
+            direction = string_of(internals, args[2]);
+            if (!direction)
+                return std::nullopt;
+        }
+        if (!dom::forms::selection_applies(e))
+            return internals.throw_dom_exception("InvalidStateError", "The input element's type does not support selection.");
+        set_selection_range(internals, e, *start, *end, *direction);
+        return js::Value::undefined();
+    });
+    // setRangeText (§4.10.18.6): the text between two points (the
+    // selection's, when none are given) replaced, and the selection put as
+    // the mode says; the value is dirty after, and no input event is fired.
+    element_method(in, proto, "setRangeText", 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        if (args.empty())
+            return internals.interpreter.throw_type_error("setRangeText needs the replacement");
+        std::optional<std::string> const replacement_utf8 = string_of(internals, args[0]);
+        if (!replacement_utf8)
+            return std::nullopt;
+        std::optional<double> start_arg;
+        std::optional<double> end_arg;
+        std::string mode = "preserve";
+        if (args.size() > 1) {
+            if (args.size() < 3)
+                return internals.interpreter.throw_type_error("setRangeText needs both a start and an end");
+            start_arg = unsigned_long_argument(internals, args[1]);
+            if (!start_arg)
+                return std::nullopt;
+            end_arg = unsigned_long_argument(internals, args[2]);
+            if (!end_arg)
+                return std::nullopt;
+            if (args.size() > 3 && !args[3].is_undefined()) {
+                std::optional<std::string> const named = string_of(internals, args[3]);
+                if (!named)
+                    return std::nullopt;
+                if (*named != "select" && *named != "start" && *named != "end" && *named != "preserve")
+                    return internals.interpreter.throw_type_error("The provided value is not a valid SelectionMode");
+                mode = *named;
+            }
+        }
+        if (!dom::forms::selection_applies(e))
+            return internals.throw_dom_exception("InvalidStateError", "The input element's type does not support selection.");
+        std::u32string const value = decode_utf8(control_value_of(internals, e), true);
+        Selection const selection = text_selection_of(internals, e, value);
+        std::u16string text = js::utf16_from_utf8(to_utf8(value));
+        std::size_t const length = text.size();
+        std::size_t selection_start = units_before(value, selection.start);
+        std::size_t selection_end = units_before(value, selection.end);
+        std::size_t start = start_arg ? static_cast<std::size_t>(*start_arg) : selection_start;
+        std::size_t end = end_arg ? static_cast<std::size_t>(*end_arg) : selection_end;
+        if (start > end)
+            return internals.throw_dom_exception("IndexSizeError", "The start is after the end.");
+        start = std::min(start, length);
+        end = std::min(end, length);
+        std::u16string const replacement = js::utf16_from_utf8(*replacement_utf8);
+        text.replace(start, end - start, replacement);
+        std::size_t const new_end = start + replacement.size();
+        if (mode == "select") {
+            selection_start = start;
+            selection_end = new_end;
+        } else if (mode == "start") {
+            selection_start = selection_end = start;
+        } else if (mode == "end") {
+            selection_start = selection_end = new_end;
+        } else {
+            std::ptrdiff_t const delta = static_cast<std::ptrdiff_t>(replacement.size()) - static_cast<std::ptrdiff_t>(end - start);
+            if (selection_start > end)
+                selection_start = static_cast<std::size_t>(static_cast<std::ptrdiff_t>(selection_start) + delta);
+            else if (selection_start > start)
+                selection_start = start;
+            if (selection_end > end)
+                selection_end = static_cast<std::size_t>(static_cast<std::ptrdiff_t>(selection_end) + delta);
+            else if (selection_end > start)
+                selection_end = new_end;
+        }
+        set_control_value_of(internals, e, js::utf8_from_utf16(text));
+        set_selection_range(internals, e, static_cast<double>(selection_start), static_cast<double>(selection_end), "none", selection);
+        return js::Value::undefined();
+    });
 }
 
 void install_value_accessor(Realm::Internals& in, js::Object& proto)
@@ -1321,7 +1670,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         element_accessor(
             in, proto, "valueAsNumber",
             [](Realm::Internals& internals, dom::Element& e) -> Native {
-                return js::Value::number(js::string_to_number(js::utf16_from_utf8(control_value_of(internals, e))));
+                return js::Value::number(dom::forms::value_as_number(dom::forms::input_type(e), control_value_of(internals, e)));
             },
             [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
                 std::optional<double> const number = internals.interpreter.to_number(value);
@@ -1330,19 +1679,8 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 set_control_value_of(internals, e, std::isnan(*number) ? "" : js::number_to_utf8(*number));
                 return js::Value::undefined();
             });
-        for (std::string_view const name : { "selectionStart", "selectionEnd" }) {
-            element_accessor(
-                in, proto, name,
-                [](Realm::Internals& internals, dom::Element& e) -> Native {
-                    return js::Value::number(static_cast<double>(js::utf16_from_utf8(control_value_of(internals, e)).size()));
-                },
-                [](Realm::Internals&, dom::Element&, js::Value const&) -> Native { return js::Value::undefined(); });
-        }
-        element_accessor(
-            in, proto, "selectionDirection", [](Realm::Internals& internals, dom::Element&) -> Native { return internals.string("none"); },
-            [](Realm::Internals&, dom::Element&, js::Value const&) -> Native { return js::Value::undefined(); });
-        for (auto const& [name, length] : { std::pair { "select", 0 }, std::pair { "setSelectionRange", 2 }, std::pair { "setRangeText", 1 },
-                 std::pair { "stepUp", 0 }, std::pair { "stepDown", 0 }, std::pair { "showPicker", 0 } })
+        install_text_selection(in, proto);
+        for (auto const& [name, length] : { std::pair { "stepUp", 0 }, std::pair { "stepDown", 0 }, std::pair { "showPicker", 0 } })
             element_method(in, proto, name, length, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
     }
 
@@ -1364,8 +1702,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         element_getter(in, proto, "textLength", [](Realm::Internals& internals, dom::Element& e) -> Native {
             return js::Value::number(static_cast<double>(js::utf16_from_utf8(control_value_of(internals, e)).size()));
         });
-        for (auto const& [name, length] : { std::pair { "select", 0 }, std::pair { "setSelectionRange", 2 }, std::pair { "setRangeText", 1 } })
-            element_method(in, proto, name, length, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
+        install_text_selection(in, proto);
     }
 
     // Selects and options.

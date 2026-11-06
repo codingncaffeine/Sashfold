@@ -1479,6 +1479,9 @@ struct Realm::Internals {
     // hooks for them (a test, --render): the dirty value, kept apart from
     // the attribute as the specification keeps it.
     std::unordered_map<dom::Element const*, std::string> fallback_values;
+    std::unordered_map<dom::Element const*, dom::forms::TextSelection> fallback_selections;
+    // Text controls with a selectionchange queued (§4.10.18.6), one each.
+    std::unordered_set<dom::Element const*> selectionchange_queued_at;
     std::unordered_map<dom::Element const*, bool> fallback_checked;
     dom::Element const* fallback_focus = nullptr;
     js::Object* location = nullptr;
@@ -2086,6 +2089,8 @@ NodeWrapper& wrapper_for(Realm::Internals&, dom::Node&);
 // Control state through the hooks, else the realm's fallback.
 std::string control_value_of(Realm::Internals&, dom::Element const&);
 void set_control_value_of(Realm::Internals&, dom::Element const&, std::string value);
+void clamp_text_selection(Realm::Internals&, dom::Element const&, bool newly_selectable = false);
+void clamp_text_selection_to(Realm::Internals&, dom::Element const&, std::size_t length);
 bool control_checked_of(Realm::Internals&, dom::Element const&);
 void set_control_checked_of(Realm::Internals&, dom::Element const&, bool checked);
 // Focus moves: the hook, the events, the fallback.

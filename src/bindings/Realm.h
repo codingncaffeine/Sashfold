@@ -17,6 +17,7 @@
 
 #include "css/ComputedStyle.h"
 #include "dom/Dom.h"
+#include "dom/Forms.h"
 #include "html/TreeBuilder.h"
 #include "js/Interpreter.h"
 #include "net/Csp.h"
@@ -259,6 +260,11 @@ struct HostHooks {
     // toggled), and setting them; without these the attributes answer.
     std::function<std::optional<std::string>(dom::Element const&)> control_value;
     std::function<void(dom::Element const&, std::string_view)> set_control_value;
+    // A text control's selection as the host keeps it (the user's caret and
+    // what they selected, dom::forms::TextSelection), and setting it; without
+    // these the realm keeps its own.
+    std::function<std::optional<dom::forms::TextSelection>(dom::Element const&)> control_selection;
+    std::function<void(dom::Element const&, dom::forms::TextSelection const&)> set_control_selection;
     std::function<std::optional<bool>(dom::Element const&)> control_checked;
     std::function<void(dom::Element const&, bool)> set_control_checked;
     // Focus: element.focus(), element.blur() (null), document.activeElement.

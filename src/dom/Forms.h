@@ -12,6 +12,7 @@
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <cstddef>
 #include <string_view>
 
 namespace sashfold::dom::forms {
@@ -83,6 +84,46 @@ void each_in_radio_group(Element const& radio, Each const& each)
 // otherwise barred; a form-associated custom element is one, its validity
 // what its ElementInternals said.
 bool validation_candidate(Element const& element);
+
+// A text control's selection (HTML §4.10.18.6), in code points of its value.
+// It is clamped to the value whenever the value changes (a clean textarea's
+// text, a form reset, a type change), moved to the end when script sets
+// another value, and set with the value by the user's edits.
+struct TextSelection {
+    enum class Direction { None, Forward, Backward };
+    std::size_t start = 0;
+    std::size_t end = 0;
+    Direction direction = Direction::None;
+    // The end the caret is at (what moves when the selection is extended),
+    // and the other.
+    std::size_t focus() const { return direction == Direction::Backward ? start : end; }
+    std::size_t anchor() const { return direction == Direction::Backward ? end : start; }
+    bool collapsed() const { return start == end; }
+    bool same_range(TextSelection const& other) const
+    {
+        return start == other.start && end == other.end && direction == other.direction;
+    }
+    // The same selection held within a value of `length` code points.
+    TextSelection clamped(std::size_t length) const;
+};
+// Where the selection APIs apply (§4.10.5.4 table): selectionStart, End,
+// Direction, setRangeText and setSelectionRange on text, search, url, tel
+// and password inputs and on a textarea; select() on those and the other
+// typed inputs too.
+bool selection_applies(Element const& element);
+bool select_applies(Element const& element);
+// The same for an input of a type attribute's lowercased keyword.
+bool select_applies_to_type(std::string const& keyword);
+bool selection_applies_to_type(std::string const& keyword);
+// The value sanitization algorithm of an input type (§4.10.5.1): newlines
+// out of a text field's, a url or email trimmed, a number, date or time that
+// is not a valid one emptied, a color lowercased or black.
+std::string sanitize_value(std::string const& type, std::string value);
+// valueAsNumber of an input's value: a number, range, date, month, week,
+// time or datetime-local as the number it means, else NaN.
+double value_as_number(std::string const& type, std::string_view value);
+// A textarea's API value from its raw value: CR LF and CR become LF.
+std::string normalize_newlines(std::string value);
 
 // ValidityState's flags (§4.10.20.1), in the order the interface lists them.
 struct Validity {

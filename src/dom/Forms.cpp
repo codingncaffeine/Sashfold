@@ -1,6 +1,7 @@
 #include "dom/Forms.h"
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdlib>
 #include <vector>
@@ -44,6 +45,55 @@ bool takes_readonly(std::string const& type)
 {
     return type == "text" || type == "search" || type == "url" || type == "tel" || type == "email" || type == "password"
         || type == "date" || type == "month" || type == "week" || type == "time" || type == "datetime-local" || type == "number";
+}
+
+TextSelection TextSelection::clamped(std::size_t length) const
+{
+    TextSelection out = *this;
+    out.start = std::min(start, length);
+    out.end = std::min(std::max(end, out.start), length);
+    return out;
+}
+
+bool selection_applies(Element const& element)
+{
+    if (element.is_html("textarea"))
+        return true;
+    if (!element.is_html("input"))
+        return false;
+    std::string const type = input_type(element);
+    return type == "text" || type == "search" || type == "url" || type == "tel" || type == "password";
+}
+
+std::string_view known_type(std::string const& keyword)
+{
+    static constexpr std::string_view known[] = { "hidden", "text", "search", "tel", "url", "email", "password", "date", "month", "week",
+        "time", "datetime-local", "number", "range", "color", "checkbox", "radio", "file", "submit", "image", "reset", "button" };
+    std::string_view type = keyword;
+    if (std::find(std::begin(known), std::end(known), type) == std::end(known))
+        type = "text";
+    return type;
+}
+
+bool selection_applies_to_type(std::string const& keyword)
+{
+    std::string_view const type = known_type(keyword);
+    return type == "text" || type == "search" || type == "url" || type == "tel" || type == "password";
+}
+
+bool select_applies_to_type(std::string const& keyword)
+{
+    std::string_view const type = known_type(keyword);
+    return type == "text" || type == "search" || type == "url" || type == "tel" || type == "password" || type == "email" || type == "date"
+        || type == "month" || type == "week" || type == "time" || type == "datetime-local" || type == "number" || type == "color"
+        || type == "file";
+}
+
+bool select_applies(Element const& element)
+{
+    if (element.is_html("textarea"))
+        return true;
+    return element.is_html("input") && select_applies_to_type(input_type(element));
 }
 
 bool takes_placeholder(std::string const& type)
@@ -848,6 +898,85 @@ std::optional<bool> validity(dom::Element const& element)
     if (!validation_candidate(element))
         return std::nullopt;
     return validity_state(element).valid();
+}
+
+// The value sanitization algorithm of each input type (§4.10.5.1): what a
+// value set by script, by the attribute or by a type change becomes.
+std::string sanitize_value(std::string const& type, std::string value)
+{
+    auto const strip_newlines = [](std::string& text) {
+        std::erase_if(text, [](char c) { return c == '\n' || c == '\r'; });
+    };
+    auto const ascii_space = [](char c) { return c == ' ' || c == '\t' || c == '\n' || c == '\f' || c == '\r'; };
+    auto const trim = [&](std::string& text) {
+        std::size_t from = 0;
+        while (from < text.size() && ascii_space(text[from]))
+            ++from;
+        std::size_t to = text.size();
+        while (to > from && ascii_space(text[to - 1]))
+            --to;
+        text = text.substr(from, to - from);
+    };
+    if (type == "text" || type == "search" || type == "tel" || type == "password") {
+        strip_newlines(value);
+    } else if (type == "url") {
+        strip_newlines(value);
+        trim(value);
+    } else if (type == "email") {
+        strip_newlines(value);
+        trim(value);
+    } else if (type == "number") {
+        double parsed = 0;
+        if (!parse_number(value, parsed))
+            value.clear();
+    } else if (type == "color") {
+        bool valid = value.size() == 7 && value[0] == '#';
+        for (std::size_t i = 1; valid && i < value.size(); ++i)
+            valid = std::isxdigit(static_cast<unsigned char>(value[i])) != 0;
+        if (valid) {
+            for (char& c : value)
+                c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+        } else {
+            value = "#000000";
+        }
+    } else if (date_like(type)) {
+        if (!date_like_number(type, value))
+            value.clear();
+    }
+    return value;
+}
+
+// valueAsNumber (§4.10.5.4): what a number, range or date-like value means
+// as a number; NaN for any other type, and for a value that is no valid one.
+double value_as_number(std::string const& type, std::string_view value)
+{
+    if (type == "number" || type == "range") {
+        double parsed = 0;
+        return parse_number(value, parsed) ? parsed : std::nan("");
+    }
+    if (date_like(type)) {
+        if (std::optional<double> const number = date_like_number(type, value))
+            return *number;
+    }
+    return std::nan("");
+}
+
+// A textarea's API value: its raw value with every CR LF pair and lone CR
+// made a LF (§4.10.11).
+std::string normalize_newlines(std::string value)
+{
+    std::string out;
+    out.reserve(value.size());
+    for (std::size_t i = 0; i < value.size(); ++i) {
+        if (value[i] == '\r') {
+            out += '\n';
+            if (i + 1 < value.size() && value[i + 1] == '\n')
+                ++i;
+        } else {
+            out += value[i];
+        }
+    }
+    return out;
 }
 
 }

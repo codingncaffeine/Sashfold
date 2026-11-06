@@ -1,5 +1,7 @@
 #include "bindings/Internal.h"
 #include "bindings/NodeSupport.h"
+#include "core/Unicode.h"
+#include "dom/Forms.h"
 
 #include <algorithm>
 #include <string>
@@ -217,22 +219,60 @@ void slot_change_signalled(Realm::Internals& in)
 
 // --- What the tree tells it -------------------------------------------------------------
 
+namespace {
+
+// The length in code points of a node's text children's text, leaving out
+// some of them.
+std::size_t text_without(dom::Node& parent, std::vector<dom::Node*> const& left_out)
+{
+    std::string text;
+    for (dom::Node* child : parent.children()) {
+        if (child->is_text() && std::find(left_out.begin(), left_out.end(), child) == left_out.end())
+            text += static_cast<dom::Text*>(child)->data;
+    }
+    return decode_utf8(dom::forms::normalize_newlines(std::move(text)), true).size();
+}
+
+}
+
 void mutation_children_changed(Realm::Internals& in, dom::Node& parent, std::vector<dom::Node*> const& added,
     std::vector<dom::Node*> const& removed, dom::Node* previous, dom::Node* next)
 {
     if (added.empty() && removed.empty())
         return;
+    // A textarea's text is its value until the reader edits it.
+    if (parent.is_element() && static_cast<dom::Element&>(parent).is_html("textarea")) {
+        // Children taken away and others put in at once (textContent, the
+        // defaultValue setter) took the text away first: what is held within
+        // the text without them is held within the new text.
+        if (!removed.empty() && !added.empty())
+            clamp_text_selection_to(in, static_cast<dom::Element&>(parent), text_without(parent, added));
+        clamp_text_selection(in, static_cast<dom::Element&>(parent));
+    }
     queue_record(in, parent, "childList", added, removed, previous, next, {}, {}, std::nullopt);
 }
 
 void mutation_attribute_changed(Realm::Internals& in, dom::Element& element, std::string_view namespace_uri,
     std::string_view local_name, std::optional<std::string> const& old_value)
 {
+    // An input's value attribute or type changes its value: the selection
+    // is held within it, and a type that newly takes a selection starts it
+    // at the start (§4.10.5, the type attribute's steps).
+    if (namespace_uri.empty() && element.is_html("input")) {
+        if (local_name == "value") {
+            clamp_text_selection(in, element);
+        } else if (local_name == "type") {
+            bool const was = dom::forms::selection_applies_to_type(ascii_lower(old_value.value_or("text")));
+            clamp_text_selection(in, element, !was && dom::forms::selection_applies(element));
+        }
+    }
     queue_record(in, element, "attributes", {}, {}, nullptr, nullptr, local_name, namespace_uri, old_value);
 }
 
 void mutation_character_data_changed(Realm::Internals& in, dom::Node& node, std::optional<std::string> const& old_value)
 {
+    if (dom::Node* const parent = node.parent(); parent && parent->is_element() && static_cast<dom::Element*>(parent)->is_html("textarea"))
+        clamp_text_selection(in, *static_cast<dom::Element*>(parent));
     queue_record(in, node, "characterData", {}, {}, nullptr, nullptr, {}, {}, old_value);
 }
 
