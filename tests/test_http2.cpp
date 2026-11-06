@@ -877,10 +877,17 @@ private:
         bool pushed = false;
         auto const started = Clock::now();
 
-        while (!m_stop) {
+        while (true) {
+            // Told to stop, the connection still reads what the client has
+            // already sent — a report is of everything the client said, not
+            // of what this thread happened to have read when the test asked
+            // — and stops at the first moment nothing is waiting.
+            bool const stopping = m_stop;
             std::uint8_t buffer[16384];
             std::ptrdiff_t const got = socket.receive(buffer, sizeof buffer);
             if (got == 0)
+                return;
+            if (got < 0 && stopping)
                 return;
             if (got > 0)
                 reader.feed(std::span<std::uint8_t const>(buffer, static_cast<std::size_t>(got)));

@@ -184,7 +184,11 @@ void Http2Session::close()
         }
     }
     if (say_goodbye) {
+        // What was owed the server goes first — a ping's answer, a stream's
+        // reset, the window given back — and then the goodbye: the reader
+        // may have queued them a moment ago and not yet had the write lock.
         std::vector<std::uint8_t> out;
+        take_output(out);
         h2::write_goaway(out, 0, h2::ErrorCode::NoError);
         m_connection.send_all(out.data(), out.size());
     }
