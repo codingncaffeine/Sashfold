@@ -486,6 +486,9 @@ public:
     // focused field, underlined, until text arrives or focus moves; empty
     // clears it.
     void preedit(std::string const& text);
+    // What an input method committed, whole: in a rich editor it ends the
+    // composition with that text (compositionend), elsewhere it is typed.
+    void commit_text(std::string const& text);
     // The caret's box in the focused field, window coordinates, for an
     // input method to compose beside; nothing when no field has focus.
     std::optional<Rect> text_input_area() const;

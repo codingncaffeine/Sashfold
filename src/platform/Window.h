@@ -31,6 +31,7 @@ struct WindowEvent {
         KeyDown,
         Text,
         Preedit,
+        Commit,
         Active,
         Visible,
     };
@@ -53,6 +54,9 @@ struct WindowEvent {
     // Preedit: an input method's composing text (UTF-8), to show at the
     // caret until it is committed as Text or replaced; empty clears it.
     std::string preedit;
+    // Commit: what an input method committed (UTF-8), whole — a composition
+    // ends with all of it at once, as the method gave it.
+    std::string commit;
     // Active: whether the window is now the one in front, the one the
     // keyboard goes to. A window is taken to be until an event says not.
     bool active = true;

@@ -434,6 +434,10 @@ struct Runner {
             // `preedit <text>`: an input method's composing text at the
             // caret, as the window would relay it; no text clears it.
             browser.preedit(argument);
+        } else if (command == "commit") {
+            // `commit <text>`: what an input method committed, whole, as
+            // the window would relay it.
+            browser.commit_text(argument);
         } else if (command == "assert-text-input") {
             // `assert-text-input on|off`: whether a field has the caret an
             // input method would be told about.

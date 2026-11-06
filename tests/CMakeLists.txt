@@ -235,6 +235,10 @@ add_test(NAME shell_notifications
 # Shift, Ctrl+A, and the page's getSelection() following the reader's.
 add_test(NAME shell_contenteditable
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/contenteditable.script)
+# An input method composing in a rich editor: the text in the DOM as it
+# changes, the composition events, commit, cancel, a key, undo.
+add_test(NAME shell_ime_editing
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/ime-editing.script)
 # autofocus: the first field that can take the focus takes it at load,
 # a later insertion while nothing has it, never over a page's own focus.
 add_test(NAME shell_autofocus

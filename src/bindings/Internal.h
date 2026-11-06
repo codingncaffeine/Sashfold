@@ -241,6 +241,7 @@ public:
     std::string data;
     std::string input_type;
     bool data_null = false;
+    bool is_composing = false; // InputEvent, KeyboardEvent: inside an input method's composition
     js::Value target_ranges;
     // WheelEvent.
     double delta_x = 0;
@@ -1442,6 +1443,18 @@ struct Realm::Internals {
     // parser has added to the tree since the last look, or a script
     // inserted one); once one has been taken, or the reader or a script
     // focused something first, the document's chance has passed.
+    // The input method's composition in an editing host (Editing.cpp): the
+    // composing text as it now stands in the DOM, and the host's markup and
+    // caret from before it began (the one undo step it makes).
+    struct Composition {
+        dom::Element* host = nullptr;
+        dom::Node* node = nullptr; // the text node holding it, or null while empty
+        std::uint32_t start = 0;   // code units
+        std::string text;
+        std::string markup_before;
+        std::vector<std::uint32_t> caret_before;
+    };
+    std::optional<Composition> composition;
     bool autofocus_pending = false;
     bool autofocus_processed = false;
     std::uint64_t autofocus_tree_seen = 0;

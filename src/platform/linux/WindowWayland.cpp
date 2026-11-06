@@ -1213,21 +1213,23 @@ void WaylandWindow::listen_text_input()
 void WaylandWindow::apply_text_input_done()
 {
     if (!m_pending_commit.empty()) {
-        std::string const& text = m_pending_commit;
+        // The committed text whole, without the control characters a
+        // method has no business sending as text.
+        std::string text;
         std::size_t i = 0;
-        while (i < text.size()) {
-            unsigned char const lead = static_cast<unsigned char>(text[i]);
+        std::string const& given = m_pending_commit;
+        while (i < given.size()) {
+            unsigned char const lead = static_cast<unsigned char>(given[i]);
             std::size_t const length = lead < 0x80 ? 1 : (lead >> 5) == 0x6 ? 2 : (lead >> 4) == 0xe ? 3 : (lead >> 3) == 0x1e ? 4 : 1;
-            char32_t code_point = length == 1 ? lead : static_cast<char32_t>(lead & (0xff >> (length + 1)));
-            for (std::size_t k = 1; k < length && i + k < text.size(); ++k)
-                code_point = (code_point << 6) | (static_cast<unsigned char>(text[i + k]) & 0x3f);
+            if (!(length == 1 && (lead < 0x20 || lead == 0x7f)))
+                text.append(given, i, std::min(length, given.size() - i));
             i += length;
-            if (code_point < 0x20 || code_point == 0x7f)
-                continue;
-            WindowEvent typed;
-            typed.kind = WindowEvent::Kind::Text;
-            typed.text = code_point;
-            push(typed);
+        }
+        if (!text.empty()) {
+            WindowEvent committed;
+            committed.kind = WindowEvent::Kind::Commit;
+            committed.commit = std::move(text);
+            push(committed);
         }
     }
     if (m_pending_preedit_set || !m_pending_commit.empty()) {

@@ -10317,6 +10317,25 @@ struct Browser::Impl {
         }
     }
 
+    // A line under the text between two positions (an input method's
+    // composing text), just under the baseline.
+    static void paint_underlines(Bitmap& content, std::vector<layout::TextRun const*> const& runs, TextPosition start, TextPosition end,
+        Color color, float scroll_y, int thickness)
+    {
+        for (std::size_t i = start.run; i <= end.run && i < runs.size(); ++i) {
+            layout::TextRun const& run = *runs[i];
+            std::size_t const from = i == start.run ? std::min(start.offset, run.text.size()) : 0;
+            std::size_t const to = i == end.run ? std::min(end.offset, run.text.size()) : run.text.size();
+            if (to <= from)
+                continue;
+            text::FaceMetrics const metrics = run_metrics(run);
+            float const x1 = run.x + prefix_width(run, from);
+            float const x2 = run.x + prefix_width(run, to);
+            float const y = run.baseline_y + std::max(1.0f, metrics.descent * 0.4f) - scroll_y;
+            content.fill_rect(Rect { static_cast<int>(x1 + 0.5f), static_cast<int>(y + 0.5f), static_cast<int>(x2 - x1 + 0.5f), thickness }, color);
+        }
+    }
+
     static void paint_bands(Bitmap& content, Tab const& tab, TextPosition start, TextPosition end, Color color)
     {
         paint_bands(content, tab.runs, start, end, color, static_cast<float>(tab.scroll_y));
@@ -11686,6 +11705,31 @@ struct Browser::Impl {
 
     // Shown at the focused field's caret, underlined, and part of nothing
     // until the method commits it as text; empty clears it.
+    void commit_text(std::string const& text)
+    {
+        if (text.empty())
+            return;
+        if (pages_in_engines && !address_focus && !find_focus && !palette_open && menus.empty() && !hints_active) {
+            ask_front([text](Browser& shell) { shell.commit_text(text); });
+            return;
+        }
+        if (Tab* const tab = active_tab(); tab && !address_focus && !find_focus && !palette_open && menus.empty() && !hints_active) {
+            if (std::optional<EditingFocus> const editing = editing_focus(*tab)) {
+                // The composition ends with the method's text; with none
+                // going on, the text goes in as one insertText, as typed.
+                script_started = std::chrono::steady_clock::now();
+                if (editing->realm->composing())
+                    editing->realm->end_composition(text);
+                else
+                    editing->realm->edit("insertText", text);
+                edited(*tab);
+                return;
+            }
+        }
+        for (char32_t const c : decode_utf8(text))
+            text_input(c);
+    }
+
     void set_preedit(std::string const& text)
     {
         if (find_focus) {
@@ -11698,6 +11742,19 @@ struct Browser::Impl {
             ask_front([text](Browser& shell) { shell.preedit(text); });
             return;
         } else if (Tab* const tab = tab_with_focused_control()) {
+            // A rich editor composes in its DOM, as Chrome does: the page
+            // hears each change (compositionupdate, insertCompositionText).
+            if (std::optional<EditingFocus> const editing = editing_focus(*tab)) {
+                if (text.empty() && !editing->realm->composing())
+                    return;
+                script_started = std::chrono::steady_clock::now();
+                if (text.empty())
+                    editing->realm->end_composition(std::string());
+                else
+                    editing->realm->compose(text);
+                edited(*tab);
+                return;
+            }
             if (tab->controls.preedit == text && tab->controls.preedit_owner == tab->controls.focused)
                 return;
             tab->controls.preedit = text;
@@ -11719,6 +11776,12 @@ struct Browser::Impl {
         }
         preedit_owner = PreeditOwner::None;
         for (Tab& tab : tabs) {
+            // A rich editor's composition ends with what was composed.
+            if (tab.realm && tab.realm->composing()) {
+                script_started = std::chrono::steady_clock::now();
+                tab.realm->end_composition(std::nullopt);
+                edited(tab);
+            }
             if (!tab.controls.preedit.empty() || tab.controls.preedit_owner) {
                 tab.controls.preedit.clear();
                 tab.controls.preedit_owner = nullptr;
@@ -11846,6 +11909,17 @@ struct Browser::Impl {
     {
         if (code_point < 0x20 || code_point == 0x7F || hints_active)
             return; // a hint's letters are keys, not text
+        // Text while a rich editor composes: the method's commit, one code
+        // point at a time (a window that has no whole commit to give).
+        if (Tab* const tab = active_tab(); tab && !pages_in_engines && !address_focus && !find_focus && !palette_open && tab->realm
+            && tab->realm->composing()) {
+            std::string utf8;
+            append_utf8(utf8, code_point);
+            script_started = std::chrono::steady_clock::now();
+            tab->realm->end_composition(utf8);
+            edited(*tab);
+            return;
+        }
         clear_preedit();
         if (!menus.empty()) {
             menu_letter(code_point);
@@ -12362,6 +12436,15 @@ struct Browser::Impl {
             if (Tab* const front = active_tab(); front == tab) {
                 if (std::optional<EditingFocus> const editing = editing_focus(*front)) {
                     std::optional<bindings::Realm::SelectionPoints> const points = editing->realm->selection();
+                    // The composing text, underlined as every system draws it.
+                    if (std::optional<bindings::Realm::CompositionSpan> const span = editing->realm->composition_span()) {
+                        std::optional<TextPosition> const from = text_position_of(front->runs, *span->node, span->start);
+                        std::optional<TextPosition> const to = text_position_of(front->runs, *span->node, span->end);
+                        std::optional<CaretBox> const box = caret_box(*front, *span->node, span->end);
+                        if (from && to)
+                            paint_underlines(content, front->runs, *from, *to, box ? box->color : Color::rgb(0, 0, 0),
+                                static_cast<float>(tab->scroll_y), std::max(1, static_cast<int>(std::lround(scale))));
+                    }
                     if (points && points->anchor == points->focus && points->anchor_offset == points->focus_offset && caret_shown()) {
                         if (std::optional<CaretBox> const box = caret_box(*front, *points->focus, points->focus_offset)) {
                             int const caret_width = std::max(1, static_cast<int>(std::lround(scale)));
@@ -13052,6 +13135,11 @@ void Browser::preedit(std::string const& text)
 {
     m_impl->caret_rests();
     m_impl->set_preedit(text);
+}
+void Browser::commit_text(std::string const& text)
+{
+    m_impl->caret_rests();
+    m_impl->commit_text(text);
 }
 std::optional<Rect> Browser::text_input_area() const { return m_impl->text_input_area(); }
 

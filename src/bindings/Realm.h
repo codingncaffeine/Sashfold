@@ -638,6 +638,25 @@ public:
     // there is some and the host takes it, else the text, as
     // insertFromPaste with the data on beforeinput's dataTransfer.
     bool paste_into_editing_host(ClipboardItems const& items);
+
+    // An input method's composition in the editing host the selection is in
+    // (UI Events §5.7, Input Events): compose() starts one (compositionstart)
+    // or updates it — compositionupdate, then beforeinput and input of
+    // insertCompositionText with the composing text put in the DOM where
+    // the selection was, as Chrome does. end_composition() ends it with the
+    // text committed (nullopt: what is composed stays) and compositionend.
+    // False when there is no editing host, or no composition to end.
+    bool compose(std::string const& text);
+    bool end_composition(std::optional<std::string> const& committed);
+    bool composing() const;
+    // Where the composing text is, to be underlined: its text node and the
+    // code units it spans there.
+    struct CompositionSpan {
+        dom::Node* node = nullptr;
+        std::uint32_t start = 0;
+        std::uint32_t end = 0;
+    };
+    std::optional<CompositionSpan> composition_span() const;
     // The editing host around a node: its outermost contenteditable element,
     // the body in designMode; null when the node is not editable.
     dom::Element* editing_host(dom::Node& node);

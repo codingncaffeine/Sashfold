@@ -52,6 +52,7 @@ std::string said(std::vector<WindowEvent> const& events)
         case Kind::Active: out += "A"; break;
         case Kind::Visible: out += "V"; break;
         case Kind::Preedit: out += "P"; break;
+        case Kind::Commit: out += "O"; break;
         case Kind::Close: out += "C"; break;
         case Kind::None: out += "-"; break;
         }
@@ -82,7 +83,7 @@ int main()
         CHECK_EQ(said(events), std::string("M2,2 D2,2 M4,4 U4,4 M5,5"));
     }
     // So do a wheel, a finger's scroll, a key and typed text.
-    for (Kind const kind : { Kind::Wheel, Kind::Scroll, Kind::KeyDown, Kind::Text, Kind::Preedit, Kind::Close }) {
+    for (Kind const kind : { Kind::Wheel, Kind::Scroll, Kind::KeyDown, Kind::Text, Kind::Preedit, Kind::Commit, Kind::Close }) {
         std::vector<WindowEvent> events { move_to(1, 1), move_to(2, 2), of(kind), move_to(3, 3), move_to(4, 4) };
         platform::keep_last_pointer_moves(events);
         CHECK_EQ(events.size(), std::size_t { 3 });

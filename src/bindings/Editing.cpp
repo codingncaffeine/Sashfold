@@ -2016,6 +2016,154 @@ bool Realm::paste_into_editing_host(ClipboardItems const& items)
     return true;
 }
 
+// --- The input method's composition -------------------------------------------------
+
+namespace {
+
+EventObject* composition_event(Realm::Internals& in, std::string_view type, std::string const& data)
+{
+    EventObject* const event = in.new_event("CompositionEvent", type, true, type == "compositionstart");
+    in.interpreter.root(js::Value::object(event));
+    event->is_trusted = true;
+    event->composed = true;
+    event->members.push_back(in.string(data));
+    return event;
+}
+
+// The composing text replaced by `text`: compositionupdate, beforeinput
+// (which cannot be cancelled: the method's text is not the page's to
+// refuse), the change, input.
+void update_composition(Realm::Internals& in, std::string const& text)
+{
+    Realm::Internals::Composition& composition = *in.composition;
+    dom::Element* const host = composition.host;
+    in.dispatch(*composition_event(in, "compositionupdate", text), in.wrap(*host));
+    EventObject* const before = input_event(in, "beforeinput", "insertCompositionText", text);
+    before->cancelable = false;
+    before->is_composing = true;
+    if (std::optional<Current> const current = current_selection(in); current && current->host == host)
+        before->target_ranges = target_ranges(in, *current, Command::InsertText);
+    in.dispatch(*before, in.wrap(*host));
+    if (!in.composition)
+        return; // a listener ended it
+    // Select what was composed, where it still stands, so the new text
+    // takes its place: where it was put, else (a listener drew the editor
+    // again) just before the caret, else nowhere and the text goes in at
+    // the caret.
+    std::u16string const old_units = js::utf16_from_utf8(composition.text);
+    auto const holds_at = [&](dom::Node const* node, std::uint32_t start) {
+        if (!node || !node->is_text() || !node->is_connected() || editing_host_of(in, const_cast<dom::Node&>(*node)) != host)
+            return false;
+        std::u16string const units = units_of(*node);
+        return start + old_units.size() <= units.size() && units.compare(start, old_units.size(), old_units) == 0;
+    };
+    if (!old_units.empty()) {
+        if (holds_at(composition.node, composition.start)) {
+            in.realm.set_selection(*composition.node, composition.start, *composition.node,
+                composition.start + static_cast<std::uint32_t>(old_units.size()));
+        } else if (std::optional<Current> const current = current_selection(in); current && collapsed(*current->range)
+                   && current->range->start_offset >= old_units.size()
+                   && holds_at(current->range->start_node, current->range->start_offset - static_cast<std::uint32_t>(old_units.size()))) {
+            std::uint32_t const end = current->range->start_offset;
+            in.realm.set_selection(*current->range->start_node, end - static_cast<std::uint32_t>(old_units.size()), *current->range->start_node, end);
+        }
+    }
+    std::optional<Current> const current = current_selection(in);
+    if (!current || current->host != host) {
+        in.composition.reset();
+        return;
+    }
+    js::Heap::NoCollect const no_collect(in.interpreter.heap());
+    Point caret { current->range->start_node, current->range->start_offset };
+    if (!collapsed(*current->range))
+        caret = delete_range(in, *current->range, *host);
+    composition.node = nullptr;
+    composition.start = 0;
+    composition.text.clear();
+    if (!text.empty()) {
+        std::u16string const units = js::utf16_from_utf8(text);
+        caret = insert_text(in, caret, units, false);
+        auto const length = static_cast<std::uint32_t>(units.size());
+        composition.node = caret.node;
+        composition.start = caret.offset >= length ? caret.offset - length : 0;
+        // As it stands in the DOM (a space may have become a no-break one).
+        composition.text = js::utf8_from_utf16(units_of(*caret.node).substr(composition.start, length));
+    }
+    place_caret(in, caret);
+    EventObject* const after = input_event(in, "input", "insertCompositionText", text);
+    after->is_composing = true;
+    in.dispatch(*after, in.wrap(*host));
+}
+
+}
+
+bool Realm::compose(std::string const& text)
+{
+    Internals& in = *m_internals;
+    Internals::Entry const entry(in);
+    js::Interpreter::Roots const roots(in.interpreter);
+    std::optional<Current> current = current_selection(in);
+    if (!current)
+        return false;
+    dom::Element* const host = current->host;
+    in.interpreter.root(js::Value::object(in.wrap(*host)));
+    if (in.composition && in.composition->host != host)
+        end_composition(std::nullopt);
+    if (!in.composition) {
+        if (text.empty())
+            return true;
+        Internals::Composition composition;
+        composition.host = host;
+        composition.markup_before = html::serialize_children(*host);
+        composition.caret_before = caret_path(in, *host);
+        in.composition = std::move(composition);
+        in.dispatch(*composition_event(in, "compositionstart", std::string()), in.wrap(*host));
+        current = current_selection(in);
+        if (!in.composition || !current || current->host != host) {
+            in.composition.reset();
+            return true;
+        }
+    }
+    update_composition(in, text);
+    return true;
+}
+
+bool Realm::end_composition(std::optional<std::string> const& committed)
+{
+    Internals& in = *m_internals;
+    if (!in.composition)
+        return false;
+    Internals::Entry const entry(in);
+    js::Interpreter::Roots const roots(in.interpreter);
+    dom::Element* const host = in.composition->host;
+    in.interpreter.root(js::Value::object(in.wrap(*host)));
+    if (committed && *committed != in.composition->text)
+        update_composition(in, *committed);
+    std::string const final_text = committed ? *committed : in.composition ? in.composition->text : std::string();
+    if (in.composition) {
+        Internals::Composition const done = std::move(*in.composition);
+        in.composition.reset();
+        if (host->is_connected())
+            record_edit(in, *host, "insertCompositionText", done.markup_before, done.caret_before);
+    }
+    in.dispatch(*composition_event(in, "compositionend", final_text), in.wrap(*host));
+    return true;
+}
+
+bool Realm::composing() const
+{
+    return m_internals->composition.has_value();
+}
+
+std::optional<Realm::CompositionSpan> Realm::composition_span() const
+{
+    Internals const& in = *m_internals;
+    if (!in.composition || !in.composition->node || !in.composition->node->is_connected() || in.composition->text.empty())
+        return std::nullopt;
+    auto const length = static_cast<std::uint32_t>(js::utf16_from_utf8(in.composition->text).size());
+    return CompositionSpan { in.composition->node, in.composition->start, in.composition->start + length };
+}
+
 dom::Element* Realm::editing_host(dom::Node& node)
 {
     return editing_host_of(*m_internals, node);

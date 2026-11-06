@@ -1,0 +1,41 @@
+# An input method composing in a rich editor (gaps plan item 4), as Chrome
+# does it: the composing text is in the editor's DOM while it changes, the
+# page hears compositionstart, then for each change compositionupdate and
+# insertCompositionText (beforeinput, input, isComposing true), and
+# compositionend with what was committed. Cancelled, the text goes; a key
+# ends it with what was composed; undo takes the whole composition back as
+# one step. The title is the editor's markup and what the page heard since
+# the composition began. Its text starts at 13 px, its line at 89 px.
+resize 600 300
+open data:text/html,<title>IME</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}[contenteditable]{border:1px solid;padding:4px;height:20px;outline:none}</style><div id=e contenteditable>ab</div><script>var log=[];function show(){document.title=e.innerHTML+' / '+log.join(',')}e.addEventListener('compositionstart',function(v){log=['cs:'+v.data];show()});e.addEventListener('compositionupdate',function(v){log.push('cu:'+v.data);show()});e.addEventListener('compositionend',function(v){log.push('ce:'+v.data);show()});e.addEventListener('beforeinput',function(v){log.push('bi:'+v.inputType+':'+v.isComposing+':'+v.cancelable+':'+v.data);show()});e.addEventListener('input',function(v){log.push('in:'+v.isComposing);show()})</script>
+click 200 99
+assert-focused e
+preedit ni
+assert-title abni / cs:,cu:ni,bi:insertCompositionText:true:false:ni,in:true
+assert-text-input on
+preedit nih
+assert-title abnih / cs:,cu:ni,bi:insertCompositionText:true:false:ni,in:true,cu:nih,bi:insertCompositionText:true:false:nih,in:true
+# The composing text is underlined, in the editor's ink: under "nih",
+# not under "ab".
+assert-pixel 40 105 #000000
+assert-pixel 20 105 #ffffff
+commit 日本
+preedit
+assert-title ab日本 / cs:,cu:ni,bi:insertCompositionText:true:false:ni,in:true,cu:nih,bi:insertCompositionText:true:false:nih,in:true,cu:日本,bi:insertCompositionText:true:false:日本,in:true,ce:日本
+assert-pixel 40 105 #ffffff
+# Typing goes on after the committed text.
+type x
+assert-text ab日本x
+# Cancelled: the composing text goes, the page hears an empty end.
+preedit ka
+preedit
+assert-title ab日本x / cs:,cu:ka,bi:insertCompositionText:true:false:ka,in:true,cu:,bi:insertCompositionText:true:false:,in:true,ce:
+# A key in the middle of a composition ends it with what was composed.
+preedit zz
+key Left
+assert-title ab日本xzz / cs:,cu:zz,bi:insertCompositionText:true:false:zz,in:true,ce:zz
+# Undo takes the composition back whole.
+key End
+key ctrl+z
+assert-text ab日本x
+assert-no-text ab日本xzz

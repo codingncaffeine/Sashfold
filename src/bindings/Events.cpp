@@ -802,6 +802,10 @@ js::NativeFunction::ConstructCallback event_constructor(std::string interface)
                 return std::nullopt;
             event->data = std::move(*data);
             event->input_type = std::move(*input_type);
+            std::optional<js::Value> const composing = init_value(interpreter, init, "isComposing");
+            if (!composing)
+                return std::nullopt;
+            event->is_composing = js::Interpreter::to_boolean(*composing);
         }
         if (interface == "FocusEvent") {
             std::optional<js::Value> const related = init_value(interpreter, init, "relatedTarget");
@@ -1931,7 +1935,7 @@ void install_events(Realm::Internals& in)
     });
     event_getter(in, *keyboard_event, "location", [](Realm::Internals&, EventObject&) { return js::Value::number(0); });
     event_getter(in, *keyboard_event, "repeat", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.repeat); });
-    event_getter(in, *keyboard_event, "isComposing", [](Realm::Internals&, EventObject&) { return js::Value::boolean(false); });
+    event_getter(in, *keyboard_event, "isComposing", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.is_composing); });
     event_getter(in, *keyboard_event, "ctrlKey", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.ctrl_key); });
     event_getter(in, *keyboard_event, "shiftKey", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.shift_key); });
     event_getter(in, *keyboard_event, "altKey", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.alt_key); });
@@ -1964,7 +1968,7 @@ void install_events(Realm::Internals& in)
         return js::Value::object(array);
     });
     event_getter(in, *input_event, "inputType", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.input_type); });
-    event_getter(in, *input_event, "isComposing", [](Realm::Internals&, EventObject&) { return js::Value::boolean(false); });
+    event_getter(in, *input_event, "isComposing", [](Realm::Internals&, EventObject& e) { return js::Value::boolean(e.is_composing); });
     // A paste's or a drop's data rides the event (members[0]); typing has none.
     event_getter(in, *input_event, "dataTransfer", [](Realm::Internals&, EventObject& e) { return e.members.empty() ? js::Value::null() : e.members[0]; });
 
