@@ -1,5 +1,8 @@
 #include "ui/Forms.h"
 
+#include <fstream>
+#include <iterator>
+
 #include "core/Ascii.h"
 #include "dom/Dom.h"
 #include "dom/Forms.h"
@@ -143,8 +146,19 @@ std::vector<FormField> form_data_set(dom::Element const& form, dom::Element cons
                 return;
             value = layout::control_value(element, states);
             break;
-        case ControlKind::File:
+        case ControlKind::File: {
+            layout::ControlState const* const state = states ? states->find(element) : nullptr;
+            if (!state || state->files.empty()) {
+                fields.push_back(FormField { name->value, "", true, "", "", "application/octet-stream" });
+            } else {
+                for (dom::forms::ChosenFile const& file : state->files) {
+                    std::string const sent_name = file.relative.empty() ? file.name : file.relative;
+                    fields.push_back(FormField { name->value, sent_name, true, sent_name, file.path,
+                        file.type.empty() ? "application/octet-stream" : file.type });
+                }
+            }
             return;
+        }
         default:
             value = with_crlf(layout::control_value(element, states));
             break;
@@ -228,19 +242,25 @@ std::string multipart_boundary_for(std::vector<FormField> const& fields)
 std::string multipart_form(std::vector<FormField> const& fields, std::string const& boundary)
 {
     std::string out;
-    for (FormField const& field : fields) {
-        out += "--" + boundary + "\r\nContent-Disposition: form-data; name=\"";
-        for (char const c : field.name) {
+    auto const escaped = [](std::string const& text) {
+        std::string escaped_text;
+        for (char const c : text) {
             if (c == '"')
-                out += "%22";
+                escaped_text += "%22";
             else if (c == '\n')
-                out += "%0A";
+                escaped_text += "%0A";
             else if (c == '\r')
-                out += "%0D";
+                escaped_text += "%0D";
             else
-                out += c;
+                escaped_text += c;
         }
-        out += "\"\r\n\r\n" + field.value + "\r\n";
+        return escaped_text;
+    };
+    for (FormField const& field : fields) {
+        out += "--" + boundary + "\r\nContent-Disposition: form-data; name=\"" + escaped(field.name) + "\"";
+        if (field.is_file)
+            out += "; filename=\"" + escaped(field.filename) + "\"\r\nContent-Type: " + field.type;
+        out += "\r\n\r\n" + field.value + "\r\n";
     }
     out += "--" + boundary + "--\r\n";
     return out;
@@ -291,8 +311,20 @@ std::optional<FormSubmission> form_submission(dom::Element const& form, dom::Ele
     submission.url = std::move(*url);
     std::string text;
     if (enctype == "multipart/form-data") {
-        std::string const boundary = multipart_boundary_for(fields);
-        text = multipart_form(fields, boundary);
+        // The files' bytes, as they are now (each read whole: what is sent
+        // is what the file holds when the form goes).
+        std::vector<FormField> with_files = fields;
+        for (FormField& field : with_files) {
+            if (!field.is_file)
+                continue;
+            field.value.clear();
+            if (field.path.empty())
+                continue;
+            std::ifstream file(field.path, std::ios::binary);
+            field.value.assign(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+        }
+        std::string const boundary = multipart_boundary_for(with_files);
+        text = multipart_form(with_files, boundary);
         submission.content_type = "multipart/form-data; boundary=" + boundary;
     } else if (enctype == "text/plain") {
         text = plain_text_form(fields);

@@ -194,7 +194,7 @@ Native read(js::Interpreter& interp, js::Value const& this_value, Args args, Rea
     reader.result = js::Value::null();
     reader.error = js::Value::null();
     std::uint64_t const generation = ++reader.generation;
-    auto bytes = std::make_shared<std::vector<std::uint8_t> const>(blob->bytes);
+    auto bytes = std::make_shared<std::vector<std::uint8_t> const>(blob->bytes());
     auto held = std::make_shared<js::Persistent>(interp.heap(), this_value);
     std::string const type = blob->type;
     double const total = static_cast<double>(bytes->size());

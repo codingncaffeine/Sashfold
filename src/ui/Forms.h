@@ -12,6 +12,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace sashfold::dom {
@@ -26,8 +27,30 @@ namespace sashfold::ui {
 dom::Element const* form_owner(dom::Element const& control, dom::Document const& document);
 
 struct FormField {
+    FormField() = default;
+    FormField(std::string field_name, std::string field_value)
+        : name(std::move(field_name))
+        , value(std::move(field_value))
+    {
+    }
+    FormField(std::string field_name, std::string field_value, bool file, std::string file_name, std::string file_path, std::string file_type)
+        : name(std::move(field_name))
+        , value(std::move(field_value))
+        , is_file(file)
+        , filename(std::move(file_name))
+        , path(std::move(file_path))
+        , type(std::move(file_type))
+    {
+    }
     std::string name;
     std::string value;
+    // A file input's entry (§4.10.21.4): the file's name, its type, and
+    // where it is — read when the form is sent as multipart/form-data; none
+    // chosen is a file of no name, as application/octet-stream.
+    bool is_file = false;
+    std::string filename;
+    std::string path;
+    std::string type;
 };
 
 // The form's data set in tree order: every named control that is not

@@ -157,6 +157,9 @@ struct Fragment {
             std::vector<float> stops;
         };
         std::vector<TextLine> lines;
+        // A file input's button, from its left edge: the face is drawn that
+        // wide, its caption in it, and what was chosen beside it.
+        float button_width = 0;
         // How many lines a textarea has in all, and how many fit.
         std::size_t line_count = 0;
         std::size_t rows_shown = 0;

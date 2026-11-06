@@ -170,6 +170,26 @@ private:
     std::vector<Event> m_events;
 };
 
+// The desktop's file chooser as a script has it: it opens when a page asks,
+// and answers what `choose-files` says (no paths: cancelled).
+struct ChooserAnswer {
+    std::optional<std::vector<std::string>> paths;
+    int opened = 0;
+    platform::FileChoice last;
+};
+class ScriptedChooser final : public platform::FileChooser {
+public:
+    explicit ScriptedChooser(std::shared_ptr<ChooserAnswer> answer)
+        : m_answer(std::move(answer))
+    {
+    }
+    std::optional<std::vector<std::string>> take_result() override { return std::exchange(m_answer->paths, std::nullopt); }
+    bool unavailable() const override { return false; }
+
+private:
+    std::shared_ptr<ChooserAnswer> m_answer;
+};
+
 struct Runner {
     Browser& browser;
     std::filesystem::path directory;
@@ -197,6 +217,7 @@ struct Runner {
     }
 
     ScriptedNotifier notifier {}; // the browser's, once `notifier` says so
+    std::shared_ptr<ChooserAnswer> chooser = std::make_shared<ChooserAnswer>();
 
     // Loads, then the scripts they set going, then the loads those queued.
     void settle()
@@ -956,6 +977,49 @@ struct Runner {
             expect_equal("assert-hints", std::to_string(browser.hint_count()), argument);
         } else if (command == "assert-find") {
             expect_equal("assert-find", browser.find_status(), argument);
+        } else if (command == "choose-files") {
+            // `choose-files [<path>...]`: the open file chooser answers with
+            // these files (relative to the script), or with none: cancelled.
+            if (!browser.file_chooser_open())
+                return fail("choose-files: no file chooser is open");
+            std::vector<std::string> paths;
+            std::istringstream words(argument);
+            for (std::string word; words >> word;)
+                paths.push_back(std::filesystem::path(word).is_absolute() ? word : (directory / word).string());
+            chooser->paths = std::move(paths);
+            for (int step = 0; step < 6 && browser.file_chooser_open(); ++step) {
+                browser.tick();
+                browser.run_scripts();
+            }
+            settle();
+            for (int step = 0; step < 4; ++step) {
+                browser.tick();
+                browser.run_scripts();
+            }
+        } else if (command == "assert-chooser") {
+            // `assert-chooser open|closed [<count>]`: whether a file chooser is
+            // open, and how many have opened in all.
+            std::istringstream words(argument);
+            std::string state;
+            int count = -1;
+            words >> state >> count;
+            expect_equal("assert-chooser", browser.file_chooser_open() ? "open" : "closed", state);
+            if (count >= 0)
+                expect_equal("assert-chooser count", std::to_string(chooser->opened), std::to_string(count));
+        } else if (command == "assert-chooser-filters") {
+            // `assert-chooser-filters <text>`: the last chooser's filters and
+            // flags, as "multiple;directory;name=patterns|types,...".
+            std::string text = std::string(chooser->last.multiple ? "multiple" : "single") + (chooser->last.directory ? ";directory" : "");
+            for (platform::FileFilter const& filter : chooser->last.filters) {
+                text += ";" + filter.name + "=";
+                for (std::string const& pattern : filter.patterns)
+                    text += pattern + " ";
+                for (std::string const& type : filter.mime_types)
+                    text += type + " ";
+                if (text.back() == ' ')
+                    text.pop_back();
+            }
+            expect_equal("assert-chooser-filters", text, argument);
         } else if (command == "notifier") {
             // `notifier`: the desktop has a notification service from here
             // on — the script's own, which shows nothing anywhere.
@@ -1099,6 +1163,12 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
         return runner.result;
     }
     browser.set_clock([&runner] { return runner.clock_ms; });
+    browser.set_file_chooser([answer = runner.chooser](platform::FileChoice choice) -> std::unique_ptr<platform::FileChooser> {
+        ++answer->opened;
+        answer->last = std::move(choice);
+        answer->paths.reset();
+        return std::make_unique<ScriptedChooser>(answer);
+    });
     // The pages' Date moves with that clock, as in a browser.
     js::DateFollows const date_follows([&runner] { return runner.clock_ms; });
     // The new-tab page's time: a Monday morning, the same on every machine.
@@ -1119,6 +1189,7 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
         out << "FAILED " << std::filesystem::path(path).filename().string() << ": "
             << runner.result.failures << " failure(s) in " << runner.result.commands << " commands\n";
     browser.set_notifier(nullptr); // the script's notifier ends with it
+    browser.set_file_chooser(nullptr);
     return runner.result;
 }
 

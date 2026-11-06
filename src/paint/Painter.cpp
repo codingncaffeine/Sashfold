@@ -1078,10 +1078,19 @@ void paint_control(Context& context, Fragment const& fragment)
         bool const field = !control.contents
             && (control.kind == ControlKind::Text || control.kind == ControlKind::Password
                 || control.kind == ControlKind::TextArea);
-        if (field ? !style.author_background && !style.author_border : !author_look)
-            context.target.fill_rect(rect, button || control.disabled ? gray : white);
+        // A file input's face is its button alone; what was chosen beside it
+        // is text on the page.
+        Rect const face = control.kind == ControlKind::File && control.button_width > 0
+            ? Rect { rect.x, rect.y, std::max(1, static_cast<int>(std::lround(control.button_width))), rect.height }
+            : rect;
+        if (field ? !style.author_background && !style.author_border : !author_look) {
+            if (control.kind == ControlKind::File)
+                context.target.fill_rect(face, control.disabled ? gray : Color::rgb(0xe9, 0xe9, 0xed));
+            else
+                context.target.fill_rect(face, button || control.disabled ? gray : white);
+        }
         if (field ? !style.author_border : !author_look)
-            frame(rect, border);
+            frame(face, border);
         if (control.kind == ControlKind::Select) {
             // A small triangle pointing down, near the right edge: four
             // rows of 7, 5, 3 and 1 CSS px, each row `line` device px tall.

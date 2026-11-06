@@ -1112,6 +1112,16 @@ struct Browser::Impl {
     // notifier's names for them; and a page's own names for the ones it
     // has asked for.
     platform::Notifier* notifier = nullptr;
+    // The desktop's file chooser (the shell's), and the one open for a
+    // page's file input: its tab and the input, which the page checks is
+    // still there when the answer comes.
+    Browser::FileChooserFactory file_chooser;
+    struct OpenChooser {
+        std::size_t tab = 0;
+        dom::Element const* control = nullptr;
+        std::unique_ptr<platform::FileChooser> chooser;
+    };
+    std::optional<OpenChooser> open_chooser;
     std::map<std::string, bool> notification_sites;
     bool notifications_available = false;
     std::function<void()> on_notification_sites_changed;
@@ -5036,6 +5046,30 @@ struct Browser::Impl {
                 state.redo.clear();
                 state.coalescing.clear();
             }
+        };
+        hooks.control_files = [this, document](dom::Element const& element)
+            -> std::optional<std::pair<std::vector<dom::forms::ChosenFile>, std::uint64_t>> {
+            Tab* const owner = tab_of(document);
+            if (!owner)
+                return std::nullopt;
+            auto const it = owner->controls.states.find(&element);
+            if (it == owner->controls.states.end())
+                return std::pair<std::vector<dom::forms::ChosenFile>, std::uint64_t> {};
+            return std::pair { it->second.files, it->second.files_version };
+        };
+        hooks.set_control_files = [this, document](dom::Element const& element, std::vector<dom::forms::ChosenFile> files) {
+            if (Tab* const owner = tab_of(document)) {
+                layout::ControlState& state = state_of(*owner, element);
+                state.files = std::move(files);
+                ++state.files_version;
+                restyle_control(element);
+                relayout(*owner);
+                dirty = true;
+            }
+        };
+        hooks.choose_files = [this, document](dom::Element& element) {
+            if (Tab* const owner = tab_of(document))
+                choose_files(*owner, element);
         };
         hooks.control_selection = [this, document](dom::Element const& element) -> std::optional<dom::forms::TextSelection> {
             Tab* const owner = tab_of(document);
@@ -11429,6 +11463,216 @@ struct Browser::Impl {
         }
     }
 
+    // --- File inputs (HTML §4.10.5.1.18) -------------------------------------------------
+
+    // What a file input asks the chooser for: one file or several, a folder
+    // (webkitdirectory), and the filters its accept attribute names — each
+    // type or extension a filter of its own, and all of them together first.
+    static platform::FileChoice file_choice_for(dom::Element const& control)
+    {
+        platform::FileChoice choice;
+        choice.multiple = control.has_attribute("multiple");
+        choice.directory = control.has_attribute("webkitdirectory");
+        choice.title = choice.directory ? "Select a folder to upload" : choice.multiple ? "Open files" : "Open";
+        if (dom::Attr const* const accept = control.find_attribute("accept")) {
+            platform::FileFilter all;
+            all.name = "Accepted files";
+            std::string token;
+            std::vector<std::string> tokens;
+            for (char const c : accept->value + ",") {
+                if (c == ',') {
+                    std::size_t from = 0;
+                    std::size_t to = token.size();
+                    while (from < to && (token[from] == ' ' || token[from] == '\t'))
+                        ++from;
+                    while (to > from && (token[to - 1] == ' ' || token[to - 1] == '\t'))
+                        --to;
+                    std::string trimmed = token.substr(from, to - from);
+                    for (char& ch : trimmed)
+                        ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+                    if (!trimmed.empty())
+                        tokens.push_back(trimmed);
+                    token.clear();
+                } else {
+                    token += c;
+                }
+            }
+            for (std::string const& accepted : tokens) {
+                platform::FileFilter one;
+                if (accepted.front() == '.') {
+                    one.name = accepted.substr(1) + " files";
+                    one.patterns.push_back("*" + accepted);
+                    all.patterns.push_back("*" + accepted);
+                } else if (accepted.find('/') != std::string::npos) {
+                    one.name = accepted == "image/*" ? "Images" : accepted == "video/*" ? "Videos" : accepted == "audio/*" ? "Audio" : accepted;
+                    one.mime_types.push_back(accepted);
+                    all.mime_types.push_back(accepted);
+                    // The common item dialog filters by pattern alone.
+                    for (std::string const& pattern : platform::patterns_for_type(accepted)) {
+                        one.patterns.push_back(pattern);
+                        all.patterns.push_back(pattern);
+                    }
+                } else {
+                    continue;
+                }
+                choice.filters.push_back(std::move(one));
+            }
+            if (choice.filters.size() > 1)
+                choice.filters.insert(choice.filters.begin(), std::move(all));
+        }
+        return choice;
+    }
+
+    // A file input pressed (or its showPicker(), or a script's click() in a
+    // user activation): the desktop's chooser, the shell's to open. One at a
+    // time, as in every engine.
+    void choose_files(Tab& tab, dom::Element const& control)
+    {
+        if (dom::forms::actually_disabled(control))
+            return;
+        platform::FileChoice choice = file_choice_for(control);
+        if (engine_self) {
+            ask_shell([control_ptr = &control, choice](Impl& shell, std::size_t at) { shell.open_file_chooser(at, control_ptr, choice); });
+            return;
+        }
+        open_file_chooser(index_of(tab), &control, std::move(choice));
+    }
+
+    void open_file_chooser(std::size_t tab, dom::Element const* control, platform::FileChoice choice)
+    {
+        if (open_chooser || !file_chooser || tab >= tabs.size())
+            return;
+        open_chooser = OpenChooser { tab, control, file_chooser(std::move(choice)) };
+        if (!open_chooser->chooser)
+            open_chooser.reset();
+    }
+
+    // The shell hears the chooser: the files go to the input's page (its
+    // engine's, when it has one).
+    bool hear_chooser()
+    {
+        if (!open_chooser)
+            return false;
+        std::optional<std::vector<std::string>> paths = open_chooser->chooser->take_result();
+        if (!paths && open_chooser->chooser->unavailable())
+            paths = std::vector<std::string> {}; // no chooser on this desktop: as if cancelled
+        if (!paths)
+            return false;
+        std::size_t const tab = open_chooser->tab;
+        dom::Element const* const control = open_chooser->control;
+        bool const unavailable = open_chooser->chooser->unavailable();
+        open_chooser.reset();
+        if (tab >= tabs.size())
+            return true;
+        if (unavailable) {
+            tabs[tab].status = "This desktop has no file chooser to show (xdg-desktop-portal)";
+            dirty = true;
+        }
+        if (Engine* const engine = tabs[tab].engine.get(); engine) {
+            ask(tabs[tab], [control, chosen = std::move(*paths)](Browser& page) { page.m_impl->files_chosen(control, chosen); });
+        } else {
+            files_chosen(control, *paths);
+        }
+        return true;
+    }
+
+    // Whether an element is still in one of a tab's documents (compared by
+    // address alone: a control the chooser was opened for may be gone).
+    static bool holds_element(dom::Node const& root, dom::Element const* wanted)
+    {
+        if (&root == wanted)
+            return true;
+        for (dom::Node const* child : root.children()) {
+            if (holds_element(*child, wanted))
+                return true;
+        }
+        return false;
+    }
+    static bool frames_hold(DrawnFrames const& frames, dom::Element const* wanted)
+    {
+        for (auto const& [element, drawn] : frames) {
+            if (drawn.view && drawn.view->document && (holds_element(*drawn.view->document, wanted) || frames_hold(drawn.view->frames, wanted)))
+                return true;
+        }
+        return false;
+    }
+
+    // The chooser's answer at the page (§4.10.5.1.18 "update the file
+    // selection"): the files chosen — input, then change, when they differ
+    // from what there was — or cancel, when the reader chose none.
+    void files_chosen(dom::Element const* control, std::vector<std::string> const& paths)
+    {
+        Tab* holder = nullptr;
+        for (Tab& tab : tabs) {
+            if (tab.document && (holds_element(*tab.document, control) || frames_hold(tab.frames, control))) {
+                holder = &tab;
+                break;
+            }
+        }
+        if (!holder)
+            return;
+        Tab& tab = *holder;
+        dom::Element& target = const_cast<dom::Element&>(*control);
+        bindings::Realm* const realm = tab.realm ? realm_for(tab, *control) : nullptr;
+        script_started = std::chrono::steady_clock::now();
+        if (paths.empty()) {
+            if (realm)
+                realm->dispatch_event(&target, "cancel", bindings::Realm::EventInit { true, false, false });
+            ensure_fresh(tab);
+            dirty = true;
+            return;
+        }
+        std::vector<dom::forms::ChosenFile> files;
+        for (std::string const& path : paths) {
+            std::error_code error;
+            std::filesystem::path const at(path);
+            if (std::filesystem::is_directory(at, error)) {
+                // A folder (webkitdirectory): its files, under it.
+                for (auto it = std::filesystem::recursive_directory_iterator(at, std::filesystem::directory_options::skip_permission_denied, error);
+                     !error && it != std::filesystem::recursive_directory_iterator(); it.increment(error)) {
+                    if (!it->is_regular_file(error))
+                        continue;
+                    dom::forms::ChosenFile file = chosen_file(it->path().string());
+                    file.relative = (at.filename() / std::filesystem::relative(it->path(), at, error)).generic_string();
+                    files.push_back(std::move(file));
+                }
+                continue;
+            }
+            files.push_back(chosen_file(path));
+        }
+        layout::ControlState& state = state_of(tab, *control);
+        bool const same = files.size() == state.files.size()
+            && std::equal(files.begin(), files.end(), state.files.begin(), [](auto const& a, auto const& b) { return a.path == b.path && a.modified == b.modified; });
+        state.files = std::move(files);
+        ++state.files_version;
+        restyle_control(*control);
+        relayout(tab);
+        dirty = true;
+        if (realm && !same) {
+            realm->dispatch_event(&target, "input", bindings::Realm::EventInit { true, false, true });
+            realm->dispatch_event(&target, "change", bindings::Realm::EventInit { true, false, false });
+        }
+        ensure_fresh(tab);
+    }
+
+    // A chosen file as the file system has it now.
+    static dom::forms::ChosenFile chosen_file(std::string const& path)
+    {
+        dom::forms::ChosenFile file;
+        file.path = path;
+        std::filesystem::path const at(path);
+        file.name = at.filename().string();
+        std::error_code error;
+        std::uintmax_t const size = std::filesystem::file_size(at, error);
+        file.size = error ? 0 : static_cast<std::uint64_t>(size);
+        auto const stamp = std::filesystem::last_write_time(at, error);
+        if (!error)
+            file.modified = static_cast<double>(
+                std::chrono::duration_cast<std::chrono::seconds>(std::chrono::clock_cast<std::chrono::system_clock>(stamp).time_since_epoch()).count());
+        file.type = platform::type_of_file(file.name);
+        return file;
+    }
+
     // --- Text fields: the selection, typing, the clipboard ----------------------------
 
     // A text control's value as the reader edits it, in code points.
@@ -12143,6 +12387,9 @@ struct Browser::Impl {
         case ControlKind::Submit:
             submit(*tab, control);
             break;
+        case ControlKind::File:
+            choose_files(*tab, control);
+            break;
         default:
             break;
         }
@@ -12212,6 +12459,13 @@ struct Browser::Impl {
             case ControlKind::Submit:
                 if (key.key == Key::Space || key.key == Key::Enter) {
                     submit(*tab, control);
+                    return true;
+                }
+                changed = false;
+                break;
+            case ControlKind::File:
+                if (key.key == Key::Space || key.key == Key::Enter) {
+                    choose_files(*tab, control);
                     return true;
                 }
                 changed = false;
@@ -14297,6 +14551,16 @@ void Browser::set_update_notice(std::string newer_version, bool checks, bool wai
     m_impl->tell_pages([newer_version, checks, waits, installs](Browser& page) { page.set_update_notice(newer_version, checks, waits, installs); });
 }
 
+void Browser::set_file_chooser(FileChooserFactory factory)
+{
+    m_impl->file_chooser = std::move(factory);
+}
+
+bool Browser::file_chooser_open() const
+{
+    return m_impl->open_chooser.has_value();
+}
+
 void Browser::set_notifier(platform::Notifier* notifier)
 {
     m_impl->notifier = notifier;
@@ -14605,7 +14869,7 @@ bool Browser::tick()
 {
     // What the desktop says of the notices first: a page that hears of one
     // may have something to do about it in this same step.
-    bool const notices_heard = m_impl->hear_notifier();
+    bool const notices_heard = m_impl->hear_notifier() | m_impl->hear_chooser();
     if (m_impl->page_threads) {
         m_impl->hear_pages();
         m_impl->tell_shown();
@@ -14734,8 +14998,9 @@ bool Browser::run_scripts()
     Impl& impl = *m_impl;
     bool ran = false;
     // The window's loop comes here every turn, and the notifier woke it:
-    // what the desktop said of the notices is heard now.
+    // what the desktop said of the notices is heard now, and the chooser.
     impl.hear_notifier();
+    impl.hear_chooser();
     if (impl.page_threads) {
         // The pages' timers are their threads' to run: the shell hears what
         // the pages have said, and keeps its own clockwork.

@@ -405,7 +405,7 @@ std::optional<std::size_t> Serializer::serialize_object(js::Object& object, js::
             return refuse(value);
         std::size_t const index = add(Kind::Blob);
         Record& record = at(index);
-        record.bytes = blob->bytes;
+        record.bytes = blob->bytes();
         record.type = blob->type;
         record.is_file = blob->is_file;
         record.file_name = blob->name;
@@ -811,7 +811,7 @@ std::optional<Deserialized> structured_deserialize(Realm::Internals& target, Ser
                 // Made from the realm's own interfaces, which a script deleting
                 // the global Blob or File does not reach.
                 auto* blob = heap.allocate<BlobObject>(target.prototype(record.is_file ? "File" : "Blob"));
-                blob->bytes = record.bytes;
+                blob->bytes() = record.bytes;
                 blob->type = record.type;
                 blob->is_file = record.is_file;
                 blob->name = record.file_name;

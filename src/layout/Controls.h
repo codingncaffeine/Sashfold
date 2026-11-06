@@ -72,6 +72,10 @@ struct ControlState {
     std::string coalescing;
     // Up and Down in a textarea keep to the column they started from.
     std::optional<float> goal_x;
+    // A file input's chosen files, and a number that moves each time they
+    // change (input.files stays the same object until it does).
+    std::vector<dom::forms::ChosenFile> files;
+    std::uint64_t files_version = 0;
 
     dom::forms::TextSelection selection_in(std::size_t length) const
     {

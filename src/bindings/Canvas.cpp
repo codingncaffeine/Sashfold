@@ -2450,7 +2450,7 @@ void install_image_bitmap(Realm::Internals& in)
             return rejected_promise(interp, dom_exception_value(internals, name, message));
         };
         if (auto* blob = object_as<BlobObject>(source)) {
-            std::optional<Bitmap> decoded = decode_picture(blob->bytes);
+            std::optional<Bitmap> decoded = decode_picture(blob->bytes());
             if (!decoded)
                 return reject("InvalidStateError", "The source image could not be decoded.");
             picture = std::make_shared<Surface const>(Surface::from_bitmap(*decoded));

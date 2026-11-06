@@ -1,0 +1,29 @@
+# File inputs (gaps plan item 4, HTML §4.10.5.1.18): a press — or, the way
+# most sites do it, a styled button's handler calling input.click() — opens
+# the desktop's chooser; the files chosen are the input's, as Files read
+# from disk when read, with input and change; none chosen is cancel. The
+# value is the first name behind C:\fakepath\, the accept attribute is the
+# chooser's filters, and the control shows what was chosen.
+resize 600 300
+open data:text/html,<title>U</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}</style><input type=file id=f hidden><button id=b onclick="f.click()">Upload</button><p><input type=file id=g name=g accept="image/*,.pdf" multiple></p><script>var log=[];function n(s){log.push(s);document.title=log.join(',')}f.addEventListener('input',function(){n('input')});f.addEventListener('change',function(){var x=f.files[0];n('change:'+x.name+':'+x.size+':'+x.type+':'+f.value);x.text().then(function(t){n('text:'+t.trim())})});f.addEventListener('cancel',function(){n('cancel')})</script>
+assert-chooser closed 0
+click-text Upload
+assert-chooser open 1
+choose-files files/hello.txt
+assert-chooser closed 1
+assert-title input,change:hello.txt:6:text/plain:C:\fakepath\hello.txt,text:hello
+# Cancelled: the files stay, the page hears cancel.
+click-text Upload
+choose-files
+assert-title input,change:hello.txt:6:text/plain:C:\fakepath\hello.txt,text:hello,cancel
+# The visible input: pressed, its filters are its accept attribute's.
+click 60 133
+assert-chooser open 3
+assert-chooser-filters multiple;Accepted files=*.png *.jpg *.jpeg *.jpe *.jfif *.gif *.webp *.avif *.heic *.heif *.bmp *.ico *.svg *.svgz *.tif *.tiff *.jxl *.pdf image/*;Images=*.png *.jpg *.jpeg *.jpe *.jfif *.gif *.webp *.avif *.heic *.heif *.bmp *.ico *.svg *.svgz *.tif *.tiff *.jxl image/*;pdf files=*.pdf
+choose-files files/dot.png files/hello.txt
+assert-golden goldens/file-input.png
+# A page's click() with no gesture of the reader's behind it (a page that
+# calls it as it loads) opens nothing.
+open data:text/html,<title>Auto</title><input type=file id=h><script>h.click()</script>
+assert-title Auto
+assert-chooser closed 3

@@ -87,6 +87,45 @@ namespace {
 void record_selection(Realm::Internals&, dom::Element const&, dom::forms::TextSelection const&);
 }
 
+// A file input's chosen files and the version of them (the host's, else the
+// realm's own), and setting them.
+std::pair<std::vector<dom::forms::ChosenFile>, std::uint64_t> chosen_files_of(Realm::Internals& in, dom::Element const& e)
+{
+    if (in.hooks.control_files) {
+        if (auto files = in.hooks.control_files(e))
+            return std::move(*files);
+        return {};
+    }
+    auto const it = in.fallback_files.find(&e);
+    return it == in.fallback_files.end() ? std::pair<std::vector<dom::forms::ChosenFile>, std::uint64_t> {} : it->second;
+}
+
+void set_chosen_files_of(Realm::Internals& in, dom::Element const& e, std::vector<dom::forms::ChosenFile> files)
+{
+    if (in.hooks.set_control_files) {
+        in.hooks.set_control_files(e, std::move(files));
+    } else {
+        auto& entry = in.fallback_files[&e];
+        entry.first = std::move(files);
+        ++entry.second;
+    }
+    const_cast<dom::Element&>(e).mark_style_self();
+    in.realm.note_mutation();
+}
+
+// A File for a chosen file: its name, type and date now, its bytes when
+// something reads them.
+BlobObject* file_object_for(Realm::Internals& in, dom::forms::ChosenFile const& file)
+{
+    auto* const object = in.interpreter.heap().allocate<BlobObject>(in.prototype("File"));
+    object->is_file = true;
+    object->name = file.name;
+    object->type = file.type;
+    object->last_modified = file.modified * 1000.0;
+    object->back_by_file(file.path, 0, file.size, file.modified);
+    return object;
+}
+
 // The API value: an input's sanitized as its type has it (§4.10.5.1), a
 // textarea's with its newlines made LF (§4.10.11).
 std::string control_value_of(Realm::Internals& in, dom::Element const& element)
@@ -860,11 +899,27 @@ void install_text_selection(Realm::Internals& in, js::Object& proto)
 void install_value_accessor(Realm::Internals& in, js::Object& proto)
 {
     element_accessor(
-        in, proto, "value", [](Realm::Internals& internals, dom::Element& e) -> Native { return internals.string(control_value_of(internals, e)); },
+        in, proto, "value",
+        [](Realm::Internals& internals, dom::Element& e) -> Native {
+            // A file input's value is in the filename mode (§4.10.5.4): the
+            // first file's name behind C:\fakepath\, as every engine has it.
+            if (e.is_html("input") && dom::forms::input_type(e) == "file") {
+                auto const chosen = chosen_files_of(internals, e).first;
+                return internals.string(chosen.empty() ? std::string() : "C:\\fakepath\\" + chosen.front().name);
+            }
+            return internals.string(control_value_of(internals, e));
+        },
         [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
             std::optional<std::string> text = value.is_nullish() ? std::optional<std::string>("") : string_of(internals, value);
             if (!text)
                 return std::nullopt;
+            if (e.is_html("input") && dom::forms::input_type(e) == "file") {
+                // Only the empty string, which lets the files go.
+                if (!text->empty())
+                    return internals.throw_dom_exception("InvalidStateError", "A file input's value can only be set to the empty string.");
+                set_chosen_files_of(internals, e, {});
+                return js::Value::undefined();
+            }
             set_control_value_of(internals, e, std::move(*text));
             return js::Value::undefined();
         });
@@ -1102,7 +1157,7 @@ void reset_form(Realm::Internals& in, dom::Element& form)
     }
 }
 
-enum class Activation : std::uint8_t { None, Checkbox, Radio, Submit, Reset, Hyperlink, Label, Summary };
+enum class Activation : std::uint8_t { None, Checkbox, Radio, Submit, Reset, Hyperlink, Label, Summary, File };
 
 // What a click sets off at an element (the activation behaviours of HTML's
 // elements): a disabled control's nothing.
@@ -1122,6 +1177,8 @@ Activation activation_of(dom::Element const& element)
             return Activation::Submit;
         if (type == "reset")
             return Activation::Reset;
+        if (type == "file")
+            return Activation::File;
         return Activation::None;
     }
     if (element.is_html("button")) {
@@ -1250,6 +1307,13 @@ bool dispatch_with_activation(Realm::Internals& in, dom::Element& target, bool b
     case Activation::Reset:
         if (dom::Element* const form = form_owner_of(in, *subject); form != nullptr && subject->is_connected())
             reset_form(in, *form);
+        break;
+    case Activation::File:
+        // §4.10.5.1.18: the chooser, when the page has the reader's
+        // activation (a script's click() in a click handler, the usual way a
+        // styled button opens it); its answer comes as input and change.
+        if (subject->is_connected() && in.hooks.choose_files && (!in.hooks.user_activation || in.hooks.user_activation()))
+            in.hooks.choose_files(*subject);
         break;
     case Activation::Hyperlink: {
         dom::Attr const* const href = subject->find_attribute("href");
@@ -1661,26 +1725,37 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 set_checkedness(internals, e, js::Interpreter::to_boolean(value));
                 return js::Value::undefined();
             });
-        // A file input's FileList: empty, as no file is ever chosen here, or the
-        // one a script assigned (a DataTransfer's files); null for any other
-        // type.
+        // A file input's FileList (§4.10.5.1.18): the files the reader chose,
+        // each a File read from its disk when first read, the same list until
+        // the choice changes — or the one a script assigned (a DataTransfer's
+        // files); null for any other type.
         element_accessor(
             in, proto, "files",
             [](Realm::Internals& internals, dom::Element& e) -> Native {
                 if (dom::forms::input_type(e) != "file")
                     return js::Value::null();
+                auto const [chosen, version] = chosen_files_of(internals, e);
                 NodeWrapper& wrapper = wrapper_for(internals, e);
-                if (js::Object* const kept = wrapper.same_object("files"))
-                    return js::Value::object(kept);
+                if (js::Object* const kept = wrapper.same_object("files")) {
+                    auto const at = internals.files_list_version.find(&e);
+                    if (at != internals.files_list_version.end() && at->second == version)
+                        return js::Value::object(kept);
+                }
+                js::Interpreter::Roots const roots(internals.interpreter);
                 js::ArrayObject* const list = internals.interpreter.new_array();
+                internals.interpreter.root(js::Value::object(list));
                 list->set_prototype(internals.prototype("FileList"));
+                for (dom::forms::ChosenFile const& file : chosen)
+                    list->push(js::Value::object(file_object_for(internals, file)));
                 wrapper.keep_same_object("files", list);
+                internals.files_list_version[&e] = version;
                 return js::Value::object(list);
             },
             [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
                 if (dom::forms::input_type(e) != "file" || !value.is_object() || value.as_object()->prototype() != internals.prototype("FileList"))
                     return js::Value::undefined();
                 wrapper_for(internals, e).keep_same_object("files", value.as_object());
+                internals.files_list_version[&e] = chosen_files_of(internals, e).second;
                 return js::Value::undefined();
             });
         element_getter(in, proto, "list", [](Realm::Internals& internals, dom::Element& e) -> Native {
@@ -1703,7 +1778,18 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
                 return js::Value::undefined();
             });
         install_text_selection(in, proto);
-        for (auto const& [name, length] : { std::pair { "stepUp", 0 }, std::pair { "stepDown", 0 }, std::pair { "showPicker", 0 } })
+        // showPicker() (§4.10.5.4): a file input's chooser, in a user
+        // activation only.
+        element_method(in, proto, "showPicker", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+            if (dom::forms::actually_disabled(e) || e.has_attribute("readonly"))
+                return internals.throw_dom_exception("InvalidStateError", "The control is disabled or read-only.");
+            if (internals.hooks.user_activation && !internals.hooks.user_activation())
+                return internals.throw_dom_exception("NotAllowedError", "showPicker() needs the reader's activation.");
+            if (dom::forms::input_type(e) == "file" && internals.hooks.choose_files)
+                internals.hooks.choose_files(e);
+            return js::Value::undefined();
+        });
+        for (auto const& [name, length] : { std::pair { "stepUp", 0 }, std::pair { "stepDown", 0 } })
             element_method(in, proto, name, length, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
     }
 

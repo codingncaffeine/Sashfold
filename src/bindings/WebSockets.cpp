@@ -348,7 +348,7 @@ Native send(js::Interpreter& interp, js::Value const& this_value, Args args)
     if (std::optional<std::span<std::uint8_t const>> const view = buffer_source_bytes(data)) {
         bytes.assign(view->begin(), view->end());
     } else if (auto const* blob = data.is_object() ? dynamic_cast<BlobObject const*>(data.as_object()) : nullptr) {
-        bytes = blob->bytes;
+        bytes = blob->bytes();
     } else {
         std::optional<std::string> text = in.to_utf8(data);
         if (!text)

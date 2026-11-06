@@ -12,6 +12,9 @@
 #include "js/Object.h"
 
 #include <algorithm>
+#include <chrono>
+#include <cstdio>
+#include <filesystem>
 #include <cstdint>
 #include <cstring>
 #include <optional>
@@ -105,10 +108,41 @@ Native rejected_promise(js::Interpreter& interp, js::Value const& reason)
     return capability->promise;
 }
 
+std::vector<std::uint8_t>& BlobObject::bytes()
+{
+    if (m_on_disk) {
+        OnDisk const part = std::move(*m_on_disk);
+        m_on_disk.reset();
+        // A snapshot (File API §4.1): the file as it was when chosen; one that
+        // changed since reads as nothing, as the engines fail its read.
+        std::error_code error;
+        auto const stamp = std::filesystem::last_write_time(part.path, error);
+        double const now_modified = error ? -1
+            : static_cast<double>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::clock_cast<std::chrono::system_clock>(stamp).time_since_epoch()).count());
+        if (!error && now_modified == part.modified) {
+            if (std::FILE* const file = std::fopen(part.path.c_str(), "rb")) {
+                if (std::fseek(file, static_cast<long>(part.offset), SEEK_SET) == 0) {
+                    m_bytes.resize(part.length);
+                    std::size_t const got = part.length == 0 ? 0 : std::fread(m_bytes.data(), 1, part.length, file);
+                    m_bytes.resize(got);
+                }
+                std::fclose(file);
+            }
+        }
+    }
+    return m_bytes;
+}
+
+void BlobObject::back_by_file(std::string path, std::uint64_t offset, std::uint64_t length, double modified)
+{
+    m_bytes.clear();
+    m_on_disk = OnDisk { std::move(path), offset, length, modified };
+}
+
 BlobObject* new_blob(Realm::Internals& in, std::vector<std::uint8_t> bytes, std::string type)
 {
     auto* blob = in.interpreter.heap().allocate<BlobObject>(in.prototype("Blob"));
-    blob->bytes = std::move(bytes);
+    blob->bytes() = std::move(bytes);
     blob->type = std::move(type);
     return blob;
 }
@@ -539,12 +573,12 @@ std::optional<bool> append_parts(js::Interpreter& interp, BlobObject& blob, js::
         interp.root(part);
     for (js::Value const& part : *list) {
         if (std::optional<std::span<std::uint8_t const>> const bytes = buffer_source_bytes(part)) {
-            blob.bytes.insert(blob.bytes.end(), bytes->begin(), bytes->end());
+            blob.bytes().insert(blob.bytes().end(), bytes->begin(), bytes->end());
             continue;
         }
         if (part.is_object()) {
             if (auto const* other = dynamic_cast<BlobObject const*>(part.as_object())) {
-                blob.bytes.insert(blob.bytes.end(), other->bytes.begin(), other->bytes.end());
+                blob.bytes().insert(blob.bytes().end(), other->bytes().begin(), other->bytes().end());
                 continue;
             }
         }
@@ -552,7 +586,7 @@ std::optional<bool> append_parts(js::Interpreter& interp, BlobObject& blob, js::
         if (!text)
             return std::nullopt;
         std::string const encoded = encode_utf8((*text)->view());
-        blob.bytes.insert(blob.bytes.end(), encoded.begin(), encoded.end());
+        blob.bytes().insert(blob.bytes().end(), encoded.begin(), encoded.end());
     }
     return true;
 }
@@ -584,7 +618,7 @@ void install_blob(Realm::Internals& in)
         std::optional<BlobObject*> const object = this_blob(interp, this_value);
         if (!object)
             return std::nullopt;
-        return js::Value::number(static_cast<double>((*object)->bytes.size()));
+        return js::Value::number(static_cast<double>((*object)->size()));
     });
     define_getter(in, *blob, "type", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<BlobObject*> const object = this_blob(interp, this_value);
@@ -600,7 +634,7 @@ void install_blob(Realm::Internals& in)
             return std::nullopt;
         js::Interpreter::Roots const roots(interp);
         interp.root(this_value);
-        double const size = static_cast<double>((*found)->bytes.size());
+        double const size = static_cast<double>((*found)->size());
         auto const position = [&](js::Value const& argument_value, double fallback) -> std::optional<double> {
             if (argument_value.is_undefined())
                 return fallback;
@@ -624,12 +658,16 @@ void install_blob(Realm::Internals& in)
                 return std::nullopt;
             type = normalize_type(*text);
         }
-        BlobObject const& source = **found;
+        BlobObject& source = **found;
         auto* piece = interp.heap().allocate<BlobObject>(internals_of(interp).prototype("Blob"));
         if (*end > *start) {
             auto const from = static_cast<std::size_t>(*start);
             auto const to = static_cast<std::size_t>(*end);
-            piece->bytes.assign(source.bytes.begin() + static_cast<std::ptrdiff_t>(from), source.bytes.begin() + static_cast<std::ptrdiff_t>(to));
+            // A part of a file not read yet is a smaller part of that file.
+            if (std::optional<BlobObject::OnDisk> const& disk = source.on_disk())
+                piece->back_by_file(disk->path, disk->offset + from, to - from, disk->modified);
+            else
+                piece->bytes().assign(source.bytes().begin() + static_cast<std::ptrdiff_t>(from), source.bytes().begin() + static_cast<std::ptrdiff_t>(to));
         }
         piece->type = type;
         return js::Value::object(piece);
@@ -639,7 +677,7 @@ void install_blob(Realm::Internals& in)
         std::optional<BlobObject*> const found = this_blob(interp, this_value);
         if (!found)
             return std::nullopt;
-        std::string_view const bytes(reinterpret_cast<char const*>((*found)->bytes.data()), (*found)->bytes.size());
+        std::string_view const bytes(reinterpret_cast<char const*>((*found)->bytes().data()), (*found)->bytes().size());
         std::u16string text;
         for (char32_t const code_point : html::decode(bytes, html::Encoding::Utf8))
             js::append_code_point(text, code_point);
@@ -649,18 +687,18 @@ void install_blob(Realm::Internals& in)
         std::optional<BlobObject*> const found = this_blob(interp, this_value);
         if (!found)
             return std::nullopt;
-        std::optional<js::ArrayBufferObject*> const buffer = js::allocate_array_buffer(interp, nullptr, static_cast<double>((*found)->bytes.size()), std::nullopt);
+        std::optional<js::ArrayBufferObject*> const buffer = js::allocate_array_buffer(interp, nullptr, static_cast<double>((*found)->bytes().size()), std::nullopt);
         if (!buffer)
             return std::nullopt;
-        if (!(*found)->bytes.empty())
-            std::memcpy((*buffer)->data(), (*found)->bytes.data(), (*found)->bytes.size());
+        if (!(*found)->bytes().empty())
+            std::memcpy((*buffer)->data(), (*found)->bytes().data(), (*found)->bytes().size());
         return resolved_promise(interp,js::Value::object(*buffer));
     });
     define_promise_operation(interpreter, *blob, "bytes", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
         std::optional<BlobObject*> const found = this_blob(interp, this_value);
         if (!found)
             return std::nullopt;
-        Native const array = uint8_array_of(interp, (*found)->bytes);
+        Native const array = uint8_array_of(interp, (*found)->bytes());
         if (!array)
             return std::nullopt;
         return resolved_promise(interp,*array);

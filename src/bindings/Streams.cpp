@@ -284,7 +284,7 @@ void install_streams(Realm::Internals& in)
             auto* found = this_value.is_object() ? dynamic_cast<BlobObject*>(this_value.as_object()) : nullptr;
             if (!found)
                 return interp.throw_type_error("Illegal invocation");
-            return bytes_stream(internals_of(interp), found->bytes);
+            return bytes_stream(internals_of(interp), found->bytes());
         });
     }
 }

@@ -624,7 +624,7 @@ Evaluated evaluate_path(Realm::Internals& in, js::Value const& start, std::u16st
         js::Object& object = *value.as_object();
         if (auto* blob = dynamic_cast<BlobObject*>(&object)) {
             if (identifier == u"size") {
-                value = js::Value::number(static_cast<double>(blob->bytes.size()));
+                value = js::Value::number(static_cast<double>(blob->size()));
                 continue;
             }
             if (identifier == u"type") {

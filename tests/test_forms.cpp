@@ -156,10 +156,13 @@ line2</textarea><input type=hidden name=h value=v><input name=dis disabled value
         std::vector<std::string> pairs;
         for (ui::FormField const& field : fields)
             pairs.push_back(field.name + "=" + field.value);
+        // A file input with no file chosen is an entry all the same: an empty
+        // file of no name (§4.10.21.4), its name the value a urlencoded form sends.
         CHECK((pairs == std::vector<std::string> { "q=hello world", "c=on", "r=1", "s=two",
-                   "t=line1\r\nline2", "h=v", "empty=", "go=Go" }));
+                   "t=line1\r\nline2", "h=v", "empty=", "up=", "go=Go" }));
+        CHECK(fields.size() > 7 && fields[7].is_file && fields[7].type == "application/octet-stream");
         std::vector<ui::FormField> const without = ui::form_data_set(*form, nullptr, nullptr);
-        CHECK_EQ(without.size(), std::size_t { 7 }); // no button without a submitter
+        CHECK_EQ(without.size(), std::size_t { 8 }); // no button without a submitter
         std::vector<ui::FormField> const by_button
             = ui::form_data_set(*form, named(*document, "b"), nullptr);
         CHECK(!by_button.empty() && by_button.back().name == "b" && by_button.back().value == "bv");
@@ -175,7 +178,7 @@ line2</textarea><input type=hidden name=h value=v><input name=dis disabled value
         net::Url const page = *net::parse_url("https://example.org/dir/page.html?old=1#frag");
         std::optional<net::Url> const url = ui::get_submission_url(*form, go, nullptr, page);
         CHECK(url && url->serialize()
-                == "https://example.org/dir/search?q=hello+world&c=on&r=1&s=two&t=line1%0D%0Aline2&h=v&empty=&go=Go");
+                == "https://example.org/dir/search?q=hello+world&c=on&r=1&s=two&t=line1%0D%0Aline2&h=v&empty=&up=&go=Go");
         // No action: the page's own URL, its query replaced and its fragment dropped.
         auto const plain = parse(R"(<form><input name=a value=1></form>)");
         dom::Element const* const plain_form = ui::form_owner(*named(*plain, "a"), *plain);
@@ -231,6 +234,9 @@ line2"><input id=s type=submit name=go value=Send></form>)");
             std::string const other = ui::multipart_boundary_for(awkward);
             CHECK(awkward[0].value.find(other) == std::string::npos);
             CHECK_EQ(ui::multipart_form({}, "B"), std::string("--B--\r\n"));
+            // A file's part names it and says its type (RFC 7578 §4.2, §4.4).
+            CHECK_EQ(ui::multipart_form({ ui::FormField { "up", "abc", true, "a \"b\".txt", "", "text/plain" } }, "B"),
+                std::string("--B\r\nContent-Disposition: form-data; name=\"up\"; filename=\"a %22b%22.txt\"\r\nContent-Type: text/plain\r\n\r\nabc\r\n--B--\r\n"));
         }
         // text/plain, by the submitter's formenctype; a formmethod of post on
         // a form that says get; and what is no method at all is get.

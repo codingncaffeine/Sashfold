@@ -472,19 +472,41 @@ public:
 };
 
 // A Blob or a File (Binary.cpp): bytes with a type, and a File's name and
-// modification time.
+// modification time. A File the reader chose (an <input type=file>, a drop)
+// is a part of a file on disk: its size known at once, its bytes read when
+// something first reads them (File API §4: a snapshot of the file).
 class BlobObject final : public js::Object {
 public:
     explicit BlobObject(js::Object* prototype)
         : Object(prototype, Class::Host)
     {
     }
-    std::vector<std::uint8_t> bytes;
+    // The bytes, read from the file first when it is one not read yet (a
+    // file that changed or went since it was chosen reads as nothing).
+    std::vector<std::uint8_t>& bytes();
+    std::vector<std::uint8_t> const& bytes() const { return const_cast<BlobObject*>(this)->bytes(); }
+    std::uint64_t size() const { return m_on_disk ? m_on_disk->length : m_bytes.size(); }
+    // Makes this the part [offset, offset + length) of the file at `path`,
+    // as it was at `modified` (seconds since the epoch, from the file system).
+    void back_by_file(std::string path, std::uint64_t offset, std::uint64_t length, double modified);
+    // The file and part this is, when it is one not read yet (for a slice of
+    // it to be another part of the same file).
+    struct OnDisk {
+        std::string path;
+        std::uint64_t offset = 0;
+        std::uint64_t length = 0;
+        double modified = 0;
+    };
+    std::optional<OnDisk> const& on_disk() const { return m_on_disk; }
     std::string type;
     bool is_file = false;
     std::string name;
     double last_modified = 0;
-    std::size_t size_in_bytes() const override { return sizeof(*this) + bytes.capacity(); }
+    std::size_t size_in_bytes() const override { return sizeof(*this) + m_bytes.capacity(); }
+
+private:
+    std::vector<std::uint8_t> m_bytes;
+    std::optional<OnDisk> m_on_disk;
 };
 
 // One entry of a form's data set (XHR §5, HTML §4.10.21.4): a name with a
@@ -1480,6 +1502,9 @@ struct Realm::Internals {
     // the attribute as the specification keeps it.
     std::unordered_map<dom::Element const*, std::string> fallback_values;
     std::unordered_map<dom::Element const*, dom::forms::TextSelection> fallback_selections;
+    std::unordered_map<dom::Element const*, std::pair<std::vector<dom::forms::ChosenFile>, std::uint64_t>> fallback_files;
+    // Which version of a file input's files its kept FileList holds.
+    std::unordered_map<dom::Element const*, std::uint64_t> files_list_version;
     // Text controls with a selectionchange queued (§4.10.18.6), one each.
     std::unordered_set<dom::Element const*> selectionchange_queued_at;
     std::unordered_map<dom::Element const*, bool> fallback_checked;
@@ -2090,6 +2115,10 @@ NodeWrapper& wrapper_for(Realm::Internals&, dom::Node&);
 std::string control_value_of(Realm::Internals&, dom::Element const&);
 void set_control_value_of(Realm::Internals&, dom::Element const&, std::string value);
 void clamp_text_selection(Realm::Internals&, dom::Element const&, bool newly_selectable = false);
+std::pair<std::vector<dom::forms::ChosenFile>, std::uint64_t> chosen_files_of(Realm::Internals&, dom::Element const&);
+void set_chosen_files_of(Realm::Internals&, dom::Element const&, std::vector<dom::forms::ChosenFile>);
+class BlobObject;
+BlobObject* file_object_for(Realm::Internals&, dom::forms::ChosenFile const&);
 void clamp_text_selection_to(Realm::Internals&, dom::Element const&, std::size_t length);
 bool control_checked_of(Realm::Internals&, dom::Element const&);
 void set_control_checked_of(Realm::Internals&, dom::Element const&, bool checked);

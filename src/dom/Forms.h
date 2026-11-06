@@ -10,6 +10,7 @@
 #include "dom/Dom.h"
 
 #include <cstdint>
+#include <vector>
 #include <optional>
 #include <string>
 #include <cstddef>
@@ -106,6 +107,19 @@ struct TextSelection {
     // The same selection held within a value of `length` code points.
     TextSelection clamped(std::size_t length) const;
 };
+// A file the reader chose for an <input type=file> (or dropped on one): its
+// path, the name it goes by, and what the file system said of it when it
+// was chosen (File API §4: a snapshot). `relative` is its path under the
+// folder chosen, for webkitdirectory.
+struct ChosenFile {
+    std::string path;
+    std::string name;
+    std::uint64_t size = 0;
+    double modified = 0; // seconds since the epoch
+    std::string type;
+    std::string relative;
+};
+
 // Where the selection APIs apply (§4.10.5.4 table): selectionStart, End,
 // Direction, setRangeText and setSelectionRange on text, search, url, tel
 // and password inputs and on a textarea; select() on those and the other

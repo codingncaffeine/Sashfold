@@ -2205,6 +2205,9 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // allows: reached in the background, and gone before the browser is.
     std::unique_ptr<platform::Notifier> const notifier = platform::open_notifier("Sashfold", [waker] { waker->wake(); });
     browser.set_notifier(notifier.get());
+    // The desktop's file chooser, for file inputs: opened on a thread of its
+    // own, which wakes the loop when it has answered.
+    browser.set_file_chooser([waker](platform::FileChoice choice) { return platform::open_file_chooser(std::move(choice), [waker] { waker->wake(); }); });
     struct NotifierLet {
         ui::Browser& browser;
         ~NotifierLet() { browser.set_notifier(nullptr); }

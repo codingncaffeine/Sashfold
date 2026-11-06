@@ -195,7 +195,7 @@ std::string control_caption(dom::Element const& element, ControlStates const* st
         return options.labels.empty() ? std::string() : options.labels[options.selected];
     }
     case ControlKind::File:
-        return "Browse...";
+        return "Choose File";
     case ControlKind::Checkbox:
     case ControlKind::Radio:
     case ControlKind::Hidden:

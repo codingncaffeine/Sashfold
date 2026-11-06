@@ -2736,6 +2736,8 @@ struct Layouter {
         float pad_bottom = 0;
         std::size_t preedit_from = 0; // an input method's composing text within `shown`
         std::size_t preedit_length = 0;
+        float button_width = 0; // a file input's button
+        std::u32string status; // and what it says was chosen
     };
 
     ControlSpec control_spec(dom::Element const& element, ComputedStyle const& style,
@@ -2744,7 +2746,7 @@ struct Layouter {
         ControlSpec spec;
         ControlKind const kind = control_kind(element);
         spec.box.kind = kind;
-        spec.box.disabled = element.has_attribute("disabled") || kind == ControlKind::File;
+        spec.box.disabled = element.has_attribute("disabled");
         spec.box.focused = controls && controls->focused == &element;
         spec.box.checked = control_checked(element, controls);
         ControlState const* state = controls ? controls->find(element) : nullptr;
@@ -2784,10 +2786,23 @@ struct Layouter {
         }
         case ControlKind::Submit:
         case ControlKind::Button:
-        case ControlKind::File:
             intrinsic.width = measure(style, text) + 18 * scale; // 8px of padding and the border each side
             spec.centered = true;
             break;
+        case ControlKind::File: {
+            // Chrome's look: a "Choose File" button, then what was chosen —
+            // "No file chosen", the file's name, or how many — in room for
+            // the first of those (a longer name is cut with an ellipsis).
+            spec.button_width = measure(style, text) + 18 * scale;
+            std::size_t const count = state ? state->files.size() : 0;
+            spec.status = count == 0 ? (element.has_attribute("multiple") ? U"No files chosen" : U"No file chosen")
+                : count == 1        ? decode_utf8(state->files.front().name)
+                                    : decode_utf8(std::to_string(count) + " files");
+            intrinsic.width = spec.button_width + 6 * scale
+                + measure(style, element.has_attribute("multiple") ? U"No files chosen" : U"No file chosen") + 4 * scale;
+            spec.centered = true;
+            break;
+        }
         case ControlKind::Checkbox:
         case ControlKind::Radio:
             intrinsic = ReplacedSize { 13 * scale, 13 * scale };
@@ -3161,6 +3176,25 @@ struct Layouter {
                 control.caret_top = top;
                 control.caret_bottom = top + line;
             }
+        } else if (spec.box.kind == ControlKind::File) {
+            // The caption centered in the button; what was chosen after it,
+            // cut with an ellipsis to the room left.
+            float const button = std::min(spec.button_width, box.width);
+            float const caption_x = box.x + (button - measure(style, spec.shown)) / 2.0f;
+            float const baseline = box.y + spec.pad_top + (box.height - spec.pad_top - spec.pad_bottom - line) / 2.0f + ascent;
+            if (!spec.shown.empty())
+                box.runs.push_back(TextRun { caption_x, baseline, spec.shown, &style, box.element, stack, measure(style, spec.shown) });
+            float const status_x = box.x + button + 6.0f * (device_scale > 0 ? device_scale : 1.0f);
+            float const room = box.x + box.width - status_x;
+            std::u32string status = spec.status;
+            if (!status.empty() && measure(style, status) > room) {
+                while (!status.empty() && measure(style, status + U"\u2026") > room)
+                    status.pop_back();
+                status += U'\u2026';
+            }
+            if (!status.empty() && room > 0)
+                box.runs.push_back(TextRun { status_x, baseline, status, &style, box.element, stack, measure(style, status) });
+            control.button_width = button;
         } else {
             // A caption is centered in the room the padding leaves; a field's
             // text starts where the left padding ends.

@@ -263,6 +263,15 @@ struct HostHooks {
     // A text control's selection as the host keeps it (the user's caret and
     // what they selected, dom::forms::TextSelection), and setting it; without
     // these the realm keeps its own.
+    // A file input's chosen files as the host keeps them, with a number that
+    // moves each time they change (what keeps input.files the same object
+    // until then), and setting them (input.value = "" lets them go).
+    // choose_files opens the desktop's chooser for the input — a script's
+    // click() in a user activation, showPicker() — its answer coming later
+    // as input and change.
+    std::function<std::optional<std::pair<std::vector<dom::forms::ChosenFile>, std::uint64_t>>(dom::Element const&)> control_files;
+    std::function<void(dom::Element const&, std::vector<dom::forms::ChosenFile>)> set_control_files;
+    std::function<void(dom::Element&)> choose_files;
     std::function<std::optional<dom::forms::TextSelection>(dom::Element const&)> control_selection;
     std::function<void(dom::Element const&, dom::forms::TextSelection const&)> set_control_selection;
     std::function<std::optional<bool>(dom::Element const&)> control_checked;

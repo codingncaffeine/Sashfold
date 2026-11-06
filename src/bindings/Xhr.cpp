@@ -318,7 +318,7 @@ Native send(js::Interpreter& interp, js::Value const& this_value, Args args)
         std::vector<std::uint8_t> bytes;
         if (body_value.is_object()) {
             if (auto const* blob = dynamic_cast<BlobObject const*>(body_value.as_object())) {
-                bytes = blob->bytes;
+                bytes = blob->bytes();
                 type = blob->type;
             } else if (std::optional<std::span<std::uint8_t const>> const source = buffer_source_bytes(body_value)) {
                 bytes.assign(source->begin(), source->end());

@@ -20,6 +20,7 @@
 #include "net/WebSocket.h"
 #include "platform/CaretBlink.h"
 #include "platform/Input.h"
+#include "platform/FileChooser.h"
 #include "platform/Notifier.h"
 #include "ui/Theme.h"
 
@@ -404,6 +405,13 @@ public:
     // has its question put to the reader in a bar under the toolbar.
     // Without one (as unsaid) every page is answered "denied".
     void set_notifier(platform::Notifier* notifier);
+    // How the window asks the reader for files (platform/FileChooser.h):
+    // main gives the desktop's own chooser, a script one that answers as
+    // it is told. Without one a file input's chooser does not open.
+    using FileChooserFactory = std::function<std::unique_ptr<platform::FileChooser>(platform::FileChoice)>;
+    void set_file_chooser(FileChooserFactory factory);
+    // Whether a file chooser is open now (for scripts).
+    bool file_chooser_open() const;
     // What the reader has said of each site's notifications, by its
     // origin: allowed (true) or blocked. The caller gives what the profile
     // holds and hears, through `changed`, when the reader says something

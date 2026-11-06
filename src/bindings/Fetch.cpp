@@ -519,7 +519,7 @@ std::optional<FormDataObject::Entry> make_entry(js::Interpreter& interp, std::st
             }
             if (!blob->is_file || file_name != blob->name) {
                 auto* file = internals.interpreter.heap().allocate<BlobObject>(internals.prototype("File"));
-                file->bytes = blob->bytes;
+                file->bytes() = blob->bytes();
                 file->type = blob->type;
                 file->is_file = true;
                 file->name = file_name;
@@ -562,7 +562,19 @@ void collect_form_entries(Realm::Internals& in, dom::Element const& form, FormDa
                                 value = "on";
                             data.entries.push_back({ name, value, nullptr, "" });
                         }
-                    } else if (type != "submit" && type != "button" && type != "reset" && type != "image" && type != "file") {
+                    } else if (type == "file") {
+                        // §4.10.21.4: each chosen file, or with none an empty
+                        // file of no name, as application/octet-stream.
+                        std::vector<dom::forms::ChosenFile> const chosen = chosen_files_of(in, *element).first;
+                        for (dom::forms::ChosenFile const& file : chosen)
+                            data.entries.push_back({ name, "", file_object_for(in, file), file.name });
+                        if (chosen.empty()) {
+                            auto* const empty = in.interpreter.heap().allocate<BlobObject>(in.prototype("File"));
+                            empty->is_file = true;
+                            empty->type = "application/octet-stream";
+                            data.entries.push_back({ name, "", empty, "" });
+                        }
+                    } else if (type != "submit" && type != "button" && type != "reset" && type != "image") {
                         data.entries.push_back({ name, control_value_of(in, *element), nullptr, "" });
                     }
                 } else if (tag == "textarea" || tag == "select") {
@@ -614,7 +626,7 @@ std::pair<std::vector<std::uint8_t>, std::string> multipart_encode(FormDataObjec
         if (entry.file != nullptr) {
             out += "; filename=\"" + escape_disposition(entry.filename) + "\"\r\n";
             out += "Content-Type: " + (entry.file->type.empty() ? std::string("application/octet-stream") : entry.file->type) + "\r\n\r\n";
-            out.append(entry.file->bytes.begin(), entry.file->bytes.end());
+            out.append(entry.file->bytes().begin(), entry.file->bytes().end());
         } else {
             out += "\r\n\r\n";
             out += entry.value;
@@ -683,7 +695,7 @@ bool multipart_decode(Realm::Internals& in, std::span<std::uint8_t const> bytes,
         entry.name = name;
         if (filename) {
             auto* file = in.interpreter.heap().allocate<BlobObject>(in.prototype("File"));
-            file->bytes.assign(body.begin(), body.end());
+            file->bytes().assign(body.begin(), body.end());
             file->type = type;
             file->is_file = true;
             file->name = *filename;
@@ -720,7 +732,7 @@ std::optional<std::optional<BodyInit>> extract_body(js::Interpreter& interp, js:
     }
     if (value.is_object()) {
         if (auto const* blob = dynamic_cast<BlobObject const*>(value.as_object())) {
-            body.bytes = blob->bytes;
+            body.bytes = blob->bytes();
             body.type = blob->type;
             return body;
         }

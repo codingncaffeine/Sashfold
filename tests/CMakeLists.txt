@@ -256,6 +256,11 @@ add_test(NAME shell_editing_frames
 # changes, the composition events, commit, cancel, a key, undo.
 add_test(NAME shell_ime_editing
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/ime-editing.script)
+# File inputs: the chooser opened by a press or a script's click() in a
+# gesture, the files as Files with input and change, cancel, the value,
+# the accept filters, the control drawn with what was chosen.
+add_test(NAME shell_file_input
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/file-input.script)
 # Text fields as a reader edits them: the caret where a press lands,
 # Shift and the arrows, a double press, a drag, typing over a selection,
 # undo, the clipboard's part of the value, word deletes, a textarea's
