@@ -532,8 +532,16 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/wpt/dom)
   # It runs many tests at once on threads of its own, and some of them have
   # deadlines in real time: ctest is told, so that `ctest -j` does not start
   # as many other tests beside it as if it were one thread.
+  set(wpt_harness_environment "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt")
+  # Under the address sanitizer the Vulkan driver is left out: the Vulkan
+  # loader unloads it when the instance ends, so a leak inside the driver
+  # (radv leaks 224 bytes on this machine) is reported from an "unknown
+  # module" no suppression can name. The video path is run by the other lanes.
+  if(CMAKE_CXX_FLAGS MATCHES "sanitize=address")
+    list(APPEND wpt_harness_environment "VK_DRIVER_FILES=/nonexistent.json" "VK_ICD_FILENAMES=/nonexistent.json")
+  endif()
   set_tests_properties(wpt_testharness PROPERTIES TIMEOUT 1800 PROCESSORS 4
-    ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt")
+    ENVIRONMENT "${wpt_harness_environment}")
 endif()
 
 # test262, the ECMAScript conformance suite, scored against the checkout
