@@ -5509,6 +5509,70 @@ void test_event_interfaces()
     CHECK(page->boolean("file.files = dt.files; file.files === dt.files"));
 }
 
+// DataTransfer's items (HTML §6.11.3.2–3): a live list indexed as an array,
+// the same item for the same entry, an item taken away disabled; strings
+// handed to a callback in a task, files as Files and as entries; and a
+// store that is read-only (a paste's, a drop's) changed by nothing.
+void test_data_transfer_items()
+{
+    auto page = loaded("<!DOCTYPE html><body></body>");
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    page->eval(R"JS(
+        var dt = new DataTransfer();
+        var list = dt.items;
+        var first = list.add('hello', 'text/plain');
+        var file = new File(['abc'], 'a.txt', { type: 'text/plain' });
+        var second = list.add(file);
+        dt.setData('text/html', '<b>x</b>');
+    )JS");
+    CHECK(page->boolean("dt.items === list && list instanceof DataTransferItemList && first instanceof DataTransferItem"));
+    // Strings first, then files; the list follows setData as it happens.
+    CHECK_EQ(page->string("[list.length, list[0].kind, list[0].type, list[1].kind, list[1].type, list[2].kind, list[2].type].join('|')"),
+        "3|string|text/plain|string|text/html|file|text/plain");
+    CHECK(page->boolean("list[0] === first && list[2] === second && second.getAsFile() === file && dt.files[0] === file && dt.files.length === 1"));
+    CHECK_EQ(page->string("dt.types.join(',')"), "text/plain,text/html,Files");
+    CHECK_EQ(page->string("var e = first.getAsFile(); String(e) + ' ' + second.getAsFile().name"), "null a.txt");
+    // A file's entry: its name, its place, and the File in a task.
+    page->eval("var out = []; var entry = second.webkitGetAsEntry(); entry.file(function (f) { out.push('file ' + (f === file)); });"
+               " first.getAsString(function (s) { out.push('string ' + s); }); out.push('asked');");
+    CHECK_EQ(page->string("[entry instanceof FileSystemFileEntry, entry instanceof FileSystemEntry, entry.isFile, entry.isDirectory, entry.name, entry.fullPath, String(first.webkitGetAsEntry())].join('|')"),
+        "true|true|true|false|a.txt|/a.txt|null");
+    pump();
+    CHECK_EQ(page->string("out.join('|')"), "asked|file true|string hello");
+    // Taken away: the item is disabled, and stays so.
+    page->eval("list.remove(0);");
+    CHECK_EQ(page->string("[list.length, first.kind, first.type, list[0].type, list[1] === second].join('|')"), "2||" "|text/html|true");
+    page->eval("dt.setData('text/plain', 'again');");
+    CHECK(page->boolean("list.length === 3 && list[1] !== first && first.kind === ''"));
+    // clearData leaves the files; clear() takes everything.
+    page->eval("dt.clearData();");
+    CHECK(page->boolean("list.length === 1 && list[0] === second && dt.files.length === 1"));
+    CHECK_EQ(page->string("var r = ''; try { list.add('x', 'text/plain'); list.add('y', 'TEXT/PLAIN'); } catch (e) { r = e.name; } r"), "NotSupportedError");
+    page->eval("list.clear();");
+    CHECK(page->boolean("list.length === 0 && dt.files.length === 0 && second.kind === '' && second.getAsFile() === null"));
+    CHECK(page->boolean("Array.prototype.indexOf.call(list, second) === -1"));
+
+    // A paste's store: read, never changed — and an item's string still read.
+    page->eval(R"JS(
+        var pasted = null;
+        document.addEventListener('paste', function (e) {
+            pasted = e.clipboardData;
+            var r = pasted.items.add('nope', 'text/x-other');
+            pasted.items.clear();
+            window.addResult = String(r);
+        });
+    )JS");
+    bindings::Realm::ClipboardItems items;
+    items.text = "pasted words";
+    page->realm->clipboard_event("paste", &items);
+    CHECK_EQ(page->string("[addResult, pasted.items.length, pasted.items[0].kind, pasted.items[0].type].join('|')"), "null|1|string|text/plain");
+    page->eval("out = []; pasted.items[0].getAsString(function (s) { out.push(s); });");
+    pump();
+    CHECK_EQ(page->string("out.join('|')"), "pasted words");
+}
+
 // Live collections: what a script keeps of the tree follows it — the
 // scripts the parser has added since, a class changed, a child removed —
 // and a form answers for its controls by name.
@@ -6656,6 +6720,7 @@ int main()
     test_custom_elements();
     test_live_collections();
     test_event_interfaces();
+    test_data_transfer_items();
     test_reflected_attributes();
     test_media_source_and_the_media_element();
     test_media_element_extras();

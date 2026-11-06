@@ -101,7 +101,7 @@ void Realm::external_drag_start(std::vector<std::string> const& formats, std::ve
         data.emplace_back(format, std::string());
     js::Object* const store = new_data_transfer(in, std::move(data), false);
     in.interpreter.root(js::Value::object(store));
-    set_data_transfer_files(*store, std::move(files));
+    set_data_transfer_files(in, *store, std::move(files));
     // What another program lets be done with what it drags: copied or moved.
     set_data_transfer_effect(*store, true, "copyMove");
     set_data_transfer_effect(*store, false, "none");
@@ -116,7 +116,7 @@ void Realm::external_drag_start(std::vector<std::string> const& formats, std::ve
 void Realm::external_drag_data(std::vector<std::pair<std::string, std::string>> data)
 {
     if (js::Object* const store = store_of(*m_internals))
-        set_data_transfer_data(*store, std::move(data));
+        set_data_transfer_data(*m_internals, *store, std::move(data));
 }
 
 bool Realm::drag_event(dom::Node& target, std::string_view type, MouseInit const& init, std::string const& operation)

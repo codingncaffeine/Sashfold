@@ -1324,8 +1324,9 @@ Native construct_touch(js::Interpreter& interp, Args args, js::Object*)
 }
 
 // A DataTransfer (HTML §6.11.3): what a drag or a clipboard event carries,
-// and what a page builds itself to hand a file input its files. Its data
-// is a list of formats and strings; no file is ever in it here.
+// and what a page builds itself to hand a file input its files. Its items
+// are its strings (a format each) and then its files: those a drag from
+// another program or a paste brought (`chosen`), then those the page added.
 class DataTransferObject final : public js::Object {
 public:
     explicit DataTransferObject(js::Object* prototype)
@@ -1333,6 +1334,14 @@ public:
     {
     }
     std::vector<std::pair<std::string, std::string>> data;
+    // Its files as Files, once the page has asked for one: those of
+    // `chosen` first, then those the page put in with items.add(file).
+    // Until then `chosen` alone says what they are.
+    std::vector<js::Object*> file_objects;
+    bool files_made = false;
+    // The items as the page has met them, by what each stands for ("s:" and
+    // a format, "f:" and a file's place): the same object every time.
+    std::vector<std::pair<std::string, js::Object*>> item_objects;
     // A paste's data is the clipboard's, read but never changed (HTML's
     // "protected" and "read-only" modes); a copy's is the page's to fill.
     bool read_only = false;
@@ -1353,22 +1362,69 @@ public:
         Object::trace(tracer);
         tracer.visit(files);
         tracer.visit(items);
+        for (js::Object* const file : file_objects)
+            tracer.visit(file);
+        for (auto const& [key, item] : item_objects)
+            tracer.visit(item);
     }
+    std::size_t file_count() const { return files_made ? file_objects.size() : chosen.size(); }
+    // Whether its data may be read (not while a drag moves: protected mode).
+    bool readable() const { return !protected_mode; }
+    // Whether its items may be added and taken away (HTML's read/write mode).
+    bool writable() const { return !read_only && !protected_mode; }
 };
 
-// Its item list: a view of the same data.
-class DataTransferItemListObject final : public js::Object {
+// Its item list (HTML §6.11.3.2): live, indexed as an array is — the store's
+// items, made again whenever the store changes — and the same object for as
+// long as the DataTransfer lives.
+class DataTransferItemListObject final : public js::ArrayObject {
 public:
     DataTransferItemListObject(js::Object* prototype, DataTransferObject& the_owner)
-        : Object(prototype, Class::Host)
+        : ArrayObject(prototype)
         , owner(&the_owner)
     {
     }
     DataTransferObject* owner;
     void trace(js::Tracer& tracer) override
     {
+        ArrayObject::trace(tracer);
+        tracer.visit(owner);
+    }
+};
+
+// One of its items (HTML §6.11.3.3): what it stands for, while it is there;
+// once taken away it is "disabled" and reads as nothing.
+class DataTransferItemObject final : public js::Object {
+public:
+    DataTransferItemObject(js::Object* prototype, DataTransferObject& the_owner, std::string the_key)
+        : Object(prototype, Class::Host)
+        , owner(&the_owner)
+        , key(std::move(the_key))
+    {
+    }
+    DataTransferObject* owner;
+    std::string key;
+    void trace(js::Tracer& tracer) override
+    {
         Object::trace(tracer);
         tracer.visit(owner);
+    }
+};
+
+// A dropped file as the file and directory entries API has it
+// (webkitGetAsEntry: FileSystemFileEntry), as Chrome and Firefox give it.
+class FileEntryObject final : public js::Object {
+public:
+    explicit FileEntryObject(js::Object* prototype)
+        : Object(prototype, Class::Host)
+    {
+    }
+    js::Object* file = nullptr;
+    std::string name;
+    void trace(js::Tracer& tracer) override
+    {
+        Object::trace(tracer);
+        tracer.visit(file);
     }
 };
 
@@ -1408,6 +1464,117 @@ js::Value empty_file_list(Realm::Internals& in)
 {
     js::Value const list = js::Value::object(in.interpreter.new_array());
     list.as_object()->set_prototype(in.prototype("FileList"));
+    return list;
+}
+
+// The store's files made Files, once.
+void make_files(Realm::Internals& in, DataTransferObject& transfer)
+{
+    if (transfer.files_made)
+        return;
+    js::Interpreter::Roots const roots(in.interpreter);
+    for (dom::forms::ChosenFile const& file : transfer.chosen) {
+        js::Object* const made = file_object_for(in, file);
+        in.interpreter.root(js::Value::object(made));
+        transfer.file_objects.push_back(made);
+    }
+    transfer.files_made = true;
+}
+
+std::string file_item_key(js::Object const* file)
+{
+    return "f:" + std::to_string(reinterpret_cast<std::uintptr_t>(file));
+}
+
+// The lists the page holds, made again from the store: its FileList (when
+// made) and its item list (when made), each the same object as before.
+// An item whose entry is gone is disabled and forgotten.
+void refresh_transfer(Realm::Internals& in, DataTransferObject& transfer)
+{
+    js::Interpreter& interp = in.interpreter;
+    js::Interpreter::Roots const roots(interp);
+    if (transfer.files) {
+        auto* const list = static_cast<js::ArrayObject*>(transfer.files);
+        list->set_length(0);
+        make_files(in, transfer);
+        for (js::Object* const file : transfer.file_objects)
+            list->push(js::Value::object(file));
+    }
+    std::vector<std::string> keys;
+    for (auto const& [format, value] : transfer.data)
+        keys.push_back("s:" + format);
+    if (transfer.items || !transfer.item_objects.empty())
+        make_files(in, transfer);
+    for (js::Object* const file : transfer.file_objects)
+        keys.push_back(file_item_key(file));
+    std::erase_if(transfer.item_objects, [&keys](auto& entry) {
+        if (std::find(keys.begin(), keys.end(), entry.first) != keys.end())
+            return false;
+        static_cast<DataTransferItemObject*>(entry.second)->key.clear();
+        return true;
+    });
+    if (!transfer.items)
+        return;
+    auto* const list = static_cast<js::ArrayObject*>(transfer.items);
+    list->set_length(0);
+    for (std::string const& key : keys) {
+        js::Object* item = nullptr;
+        for (auto const& [kept, object] : transfer.item_objects) {
+            if (kept == key)
+                item = object;
+        }
+        if (!item) {
+            item = interp.heap().allocate<DataTransferItemObject>(in.prototype("DataTransferItem"), transfer, key);
+            interp.root(js::Value::object(item));
+            transfer.item_objects.emplace_back(key, item);
+        }
+        list->push(js::Value::object(item));
+    }
+}
+
+DataTransferItemObject* item_this(js::Interpreter& interp, js::Value const& this_value)
+{
+    auto* const item = this_value.is_object() ? dynamic_cast<DataTransferItemObject*>(this_value.as_object()) : nullptr;
+    if (item == nullptr)
+        interp.throw_type_error("Illegal invocation");
+    return item;
+}
+
+// What an item stands for now: its string's place, or its file.
+struct ItemEntry {
+    std::pair<std::string, std::string> const* string = nullptr;
+    js::Object* file = nullptr;
+};
+ItemEntry entry_of(DataTransferItemObject const& item)
+{
+    ItemEntry entry;
+    if (item.key.starts_with("s:")) {
+        for (auto const& kept : item.owner->data) {
+            if ("s:" + kept.first == item.key)
+                entry.string = &kept;
+        }
+    } else if (item.key.starts_with("f:")) {
+        for (js::Object* const file : item.owner->file_objects) {
+            if (file_item_key(file) == item.key)
+                entry.file = file;
+        }
+    }
+    return entry;
+}
+
+FileEntryObject* entry_this(js::Interpreter& interp, js::Value const& this_value)
+{
+    auto* const found = this_value.is_object() ? dynamic_cast<FileEntryObject*>(this_value.as_object()) : nullptr;
+    if (found == nullptr)
+        interp.throw_type_error("Illegal invocation");
+    return found;
+}
+
+DataTransferItemListObject* list_this(js::Interpreter& interp, js::Value const& this_value)
+{
+    auto* const list = this_value.is_object() ? dynamic_cast<DataTransferItemListObject*>(this_value.as_object()) : nullptr;
+    if (list == nullptr)
+        interp.throw_type_error("Illegal invocation");
     return list;
 }
 
@@ -1479,8 +1646,10 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
         std::optional<std::string> data = format ? internals_of(interp).to_utf8(js::argument(args, 1)) : std::nullopt;
         if (!data)
             return std::nullopt;
-        if (!self->read_only && !self->protected_mode)
+        if (!self->read_only && !self->protected_mode) {
             set_data(*self, data_format(std::move(*format)), std::move(*data));
+            refresh_transfer(internals_of(interp), *self);
+        }
         return js::Value::undefined();
     });
     define_operation(interpreter, *transfer, "getData", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
@@ -1505,8 +1674,10 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
             return std::nullopt;
         if (self->read_only || self->protected_mode)
             return js::Value::undefined();
+        // (The strings only: clearData leaves the files, §6.11.3.)
         if (js::argument(args, 0).is_undefined()) {
             self->data.clear();
+            refresh_transfer(internals_of(interp), *self);
             return js::Value::undefined();
         }
         std::optional<std::string> format = internals_of(interp).to_utf8(js::argument(args, 0));
@@ -1514,6 +1685,7 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
             return std::nullopt;
         std::string const wanted = data_format(std::move(*format));
         std::erase_if(self->data, [&](auto const& entry) { return entry.first == wanted; });
+        refresh_transfer(internals_of(interp), *self);
         return js::Value::undefined();
     });
     define_operation(interpreter, *transfer, "setDragImage", 3, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
@@ -1528,7 +1700,7 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
         interp.root(js::Value::object(types));
         for (auto const& [format, value] : self->data)
             types->push(interp.root(internals_of(interp).string(format)));
-        if (!self->chosen.empty())
+        if (self->file_count() > 0)
             types->push(interp.root(internals_of(interp).string("Files")));
         types->prevent_extensions();
         return js::Value::object(types);
@@ -1543,10 +1715,8 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
         if (self->files == nullptr) {
             Realm::Internals& internals = internals_of(interp);
             js::Interpreter::Roots const roots(interp);
-            js::Value const list = interp.root(empty_file_list(internals));
-            for (dom::forms::ChosenFile const& file : self->chosen)
-                static_cast<js::ArrayObject*>(list.as_object())->push(js::Value::object(file_object_for(internals, file)));
-            self->files = list.as_object();
+            self->files = interp.root(empty_file_list(internals)).as_object();
+            refresh_transfer(internals, *self);
         }
         return js::Value::object(self->files);
     });
@@ -1554,8 +1724,12 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
         DataTransferObject* const self = data_transfer_this(interp, this_value);
         if (self == nullptr)
             return std::nullopt;
-        if (self->items == nullptr)
+        if (self->items == nullptr) {
+            js::Interpreter::Roots const roots(interp);
             self->items = interp.heap().allocate<DataTransferItemListObject>(internals_of(interp).prototype("DataTransferItemList"), *self);
+            interp.root(js::Value::object(self->items));
+            refresh_transfer(internals_of(interp), *self);
+        }
         return js::Value::object(self->items);
     });
     for (bool const allowed : { false, true }) {
@@ -1590,46 +1764,181 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
                           return js::Value::undefined();
                       });
     }
+    // DataTransferItemList (§6.11.3.2): the items held as an array's
+    // elements, kept live, under an interface of its own (not Array's).
     js::Object* const items = define_interface(in, "DataTransferItemList", nullptr);
     define_getter(in, *items, "length", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
-        auto* const self = this_value.is_object() ? dynamic_cast<DataTransferItemListObject*>(this_value.as_object()) : nullptr;
-        if (self == nullptr)
-            return interp.throw_type_error("Illegal invocation");
-        return js::Value::number(static_cast<double>(self->owner->data.size()));
+        DataTransferItemListObject* const self = list_this(interp, this_value);
+        return self ? Native(js::Value::number(self->length())) : Native(std::nullopt);
     });
     define_operation(interpreter, *items, "add", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
-        auto* const self = this_value.is_object() ? dynamic_cast<DataTransferItemListObject*>(this_value.as_object()) : nullptr;
+        DataTransferItemListObject* const self = list_this(interp, this_value);
         if (self == nullptr)
-            return interp.throw_type_error("Illegal invocation");
-        std::optional<std::string> data = internals_of(interp).to_utf8(js::argument(args, 0));
-        std::optional<std::string> type = data ? internals_of(interp).to_utf8(js::argument(args, 1)) : std::nullopt;
-        if (!type)
             return std::nullopt;
-        std::string const format = data_format(std::move(*type));
-        for (auto const& entry : self->owner->data) {
-            if (entry.first == format)
-                return internals_of(interp).throw_dom_exception("NotSupportedError", "An item already exists for type '" + format + "'.");
+        Realm::Internals& internals = internals_of(interp);
+        DataTransferObject& owner = *self->owner;
+        js::Value const first = js::argument(args, 0);
+        auto* const file = first.is_object() ? dynamic_cast<BlobObject*>(first.as_object()) : nullptr;
+        if (file != nullptr && file->is_file) {
+            if (!owner.writable())
+                return js::Value::null();
+            make_files(internals, owner);
+            owner.file_objects.push_back(file);
+        } else {
+            if (args.size() < 2 && file == nullptr && !first.is_object())
+                return interp.throw_type_error("Failed to execute 'add' on 'DataTransferItemList': 2 arguments required, but only 1 present.");
+            std::optional<std::string> data = internals.to_utf8(first);
+            std::optional<std::string> type = data ? internals.to_utf8(js::argument(args, 1)) : std::nullopt;
+            if (!type)
+                return std::nullopt;
+            if (!owner.writable())
+                return js::Value::null();
+            std::string const format = data_format(std::move(*type));
+            for (auto const& entry : owner.data) {
+                if (entry.first == format)
+                    return internals.throw_dom_exception("NotSupportedError", "Failed to execute 'add' on 'DataTransferItemList': An item already exists for type '" + format + "'.");
+            }
+            owner.data.emplace_back(format, std::move(*data));
         }
-        self->owner->data.emplace_back(format, std::move(*data));
-        return js::Value::null();
+        refresh_transfer(internals, owner);
+        return static_cast<js::ArrayObject*>(owner.items)->element(static_cast<js::ArrayObject*>(owner.items)->length() - 1);
     });
     define_operation(interpreter, *items, "remove", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
-        auto* const self = this_value.is_object() ? dynamic_cast<DataTransferItemListObject*>(this_value.as_object()) : nullptr;
+        DataTransferItemListObject* const self = list_this(interp, this_value);
         if (self == nullptr)
-            return interp.throw_type_error("Illegal invocation");
+            return std::nullopt;
         std::optional<double> const index = interp.to_number(js::argument(args, 0));
         if (!index)
             return std::nullopt;
+        DataTransferObject& owner = *self->owner;
+        if (!owner.writable())
+            return internals_of(interp).throw_dom_exception("InvalidStateError", "Failed to execute 'remove' on 'DataTransferItemList': The list is not writable.");
         std::size_t const at = to_unsigned_long(*index);
-        if (at < self->owner->data.size())
-            self->owner->data.erase(self->owner->data.begin() + static_cast<std::ptrdiff_t>(at));
+        if (at < owner.data.size()) {
+            owner.data.erase(owner.data.begin() + static_cast<std::ptrdiff_t>(at));
+        } else if (at - owner.data.size() < owner.file_count()) {
+            make_files(internals_of(interp), owner);
+            owner.file_objects.erase(owner.file_objects.begin() + static_cast<std::ptrdiff_t>(at - owner.data.size()));
+        }
+        refresh_transfer(internals_of(interp), owner);
         return js::Value::undefined();
     });
     define_operation(interpreter, *items, "clear", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
-        auto* const self = this_value.is_object() ? dynamic_cast<DataTransferItemListObject*>(this_value.as_object()) : nullptr;
+        DataTransferItemListObject* const self = list_this(interp, this_value);
         if (self == nullptr)
-            return interp.throw_type_error("Illegal invocation");
-        self->owner->data.clear();
+            return std::nullopt;
+        DataTransferObject& owner = *self->owner;
+        if (!owner.writable())
+            return js::Value::undefined();
+        owner.data.clear();
+        owner.chosen.clear();
+        owner.file_objects.clear();
+        owner.files_made = true;
+        refresh_transfer(internals_of(interp), owner);
+        return js::Value::undefined();
+    });
+
+    // DataTransferItem (§6.11.3.3).
+    js::Object* const item_interface = define_interface(in, "DataTransferItem", nullptr);
+    define_getter(in, *item_interface, "kind", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        DataTransferItemObject* const self = item_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        ItemEntry const entry = entry_of(*self);
+        return internals_of(interp).string(entry.string ? "string" : entry.file ? "file" : "");
+    });
+    define_getter(in, *item_interface, "type", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        DataTransferItemObject* const self = item_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        ItemEntry const entry = entry_of(*self);
+        if (entry.string)
+            return internals_of(interp).string(entry.string->first);
+        if (entry.file)
+            return internals_of(interp).string(static_cast<BlobObject*>(entry.file)->type);
+        return internals_of(interp).string("");
+    });
+    // getAsString(callback): the string, to the callback in a task, when
+    // the store may be read.
+    define_operation(interpreter, *item_interface, "getAsString", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+        DataTransferItemObject* const self = item_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        js::Value const callback = js::argument(args, 0);
+        if (!callback.is_nullish() && !js::Interpreter::is_callable(callback))
+            return interp.throw_type_error("Failed to execute 'getAsString' on 'DataTransferItem': The callback provided as parameter 1 is not a function.");
+        ItemEntry const entry = entry_of(*self);
+        if (!js::Interpreter::is_callable(callback) || !entry.string || !self->owner->readable())
+            return js::Value::undefined();
+        Realm::Internals& internals = internals_of(interp);
+        auto held = std::make_shared<js::Persistent>(interp.heap(), callback);
+        internals.post_task([&internals, held, text = entry.string->second] {
+            Realm::Internals::Entry const in_task(internals);
+            js::Interpreter& inner = internals.interpreter;
+            js::Interpreter::Roots const task_roots(inner);
+            js::Value const arguments[] = { inner.root(internals.string(text)) };
+            internals.call_reporting(held->value(), js::Value::undefined(), arguments, "getAsString");
+        });
+        return js::Value::undefined();
+    });
+    define_operation(interpreter, *item_interface, "getAsFile", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        DataTransferItemObject* const self = item_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        ItemEntry const entry = entry_of(*self);
+        if (!entry.file || !self->owner->readable())
+            return js::Value::null();
+        return js::Value::object(entry.file);
+    });
+    // webkitGetAsEntry(): a file's entry, as both engines give one.
+    define_operation(interpreter, *item_interface, "webkitGetAsEntry", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        DataTransferItemObject* const self = item_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        ItemEntry const entry = entry_of(*self);
+        if (!entry.file || !self->owner->readable())
+            return js::Value::null();
+        auto* const made = interp.heap().allocate<FileEntryObject>(internals_of(interp).prototype("FileSystemFileEntry"));
+        made->file = entry.file;
+        made->name = static_cast<BlobObject*>(entry.file)->name;
+        return js::Value::object(made);
+    });
+
+    // FileSystemEntry and FileSystemFileEntry (File and Directory Entries
+    // API): a dropped file's name, its place ("/" and the name), and the
+    // File itself, handed to a callback in a task.
+    js::Object* const entry_interface = define_interface(in, "FileSystemEntry", nullptr);
+    js::Object* const file_entry = define_interface(in, "FileSystemFileEntry", entry_interface);
+    define_getter(in, *entry_interface, "isFile", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        return entry_this(interp, this_value) ? Native(js::Value::boolean(true)) : Native(std::nullopt);
+    });
+    define_getter(in, *entry_interface, "isDirectory", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        return entry_this(interp, this_value) ? Native(js::Value::boolean(false)) : Native(std::nullopt);
+    });
+    define_getter(in, *entry_interface, "name", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        FileEntryObject* const self = entry_this(interp, this_value);
+        return self ? Native(internals_of(interp).string(self->name)) : Native(std::nullopt);
+    });
+    define_getter(in, *entry_interface, "fullPath", [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        FileEntryObject* const self = entry_this(interp, this_value);
+        return self ? Native(internals_of(interp).string("/" + self->name)) : Native(std::nullopt);
+    });
+    define_operation(interpreter, *file_entry, "file", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+        FileEntryObject* const self = entry_this(interp, this_value);
+        if (self == nullptr)
+            return std::nullopt;
+        js::Value const success = js::argument(args, 0);
+        if (!js::Interpreter::is_callable(success))
+            return interp.throw_type_error("Failed to execute 'file' on 'FileSystemFileEntry': parameter 1 is not of type 'Function'.");
+        Realm::Internals& internals = internals_of(interp);
+        auto held = std::make_shared<js::Persistent>(interp.heap(), success);
+        auto file = std::make_shared<js::Persistent>(interp.heap(), js::Value::object(self->file));
+        internals.post_task([&internals, held, file] {
+            Realm::Internals::Entry const in_task(internals);
+            js::Interpreter::Roots const task_roots(internals.interpreter);
+            js::Value const arguments[] = { file->value() };
+            internals.call_reporting(held->value(), js::Value::undefined(), arguments, "FileSystemFileEntry.file");
+        });
         return js::Value::undefined();
     });
 }
@@ -2107,18 +2416,22 @@ js::Object* new_data_transfer(Realm::Internals& in, std::vector<std::pair<std::s
     return transfer;
 }
 
-void set_data_transfer_files(js::Object& object, std::vector<dom::forms::ChosenFile> files)
+void set_data_transfer_files(Realm::Internals& in, js::Object& object, std::vector<dom::forms::ChosenFile> files)
 {
     if (auto* const transfer = dynamic_cast<DataTransferObject*>(&object)) {
         transfer->chosen = std::move(files);
-        transfer->files = nullptr;
+        transfer->file_objects.clear();
+        transfer->files_made = false;
+        refresh_transfer(in, *transfer);
     }
 }
 
-void set_data_transfer_data(js::Object& object, std::vector<std::pair<std::string, std::string>> data)
+void set_data_transfer_data(Realm::Internals& in, js::Object& object, std::vector<std::pair<std::string, std::string>> data)
 {
-    if (auto* const transfer = dynamic_cast<DataTransferObject*>(&object))
+    if (auto* const transfer = dynamic_cast<DataTransferObject*>(&object)) {
         transfer->data = std::move(data);
+        refresh_transfer(in, *transfer);
+    }
 }
 
 std::vector<std::pair<std::string, std::string>> data_transfer_data(js::Object const& object)
