@@ -37,6 +37,9 @@ Harnesses:
 - `truetype.cpp` — the TrueType reader: table directory, cmap, glyf,
   composites (seed: a small Sashfold Mono from `gen_font --seed`); smoke run
   in CI.
+- `pdf.cpp` — the PDF reader's file layer: cross-reference tables and streams,
+  the rebuild, object streams, the security handler, every filter (seeds: a
+  hand-written file and an AES-128 one from tools/pdf-make-encrypted.py).
 - `png.cpp` — the PNG decoder: chunks, filters, interlace, palettes (seed: a
   small render by our own encoder); smoke run in CI.
 - `gif.cpp` — the GIF decoder: blocks, color tables, LZW, interlace (seed:

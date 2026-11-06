@@ -656,3 +656,8 @@ else()
   add_test(NAME test_http2 COMMAND test_http2)
 endif()
 set_tests_properties(test_http2 PROPERTIES TIMEOUT 180)
+
+add_executable(test_pdf test_pdf.cpp)
+target_link_libraries(test_pdf PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_pdf
+  COMMAND test_pdf ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/pdf)

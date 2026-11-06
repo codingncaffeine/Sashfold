@@ -334,6 +334,19 @@ std::optional<std::vector<std::uint8_t>> zlib_decompress(std::vector<std::uint8_
     return out;
 }
 
+std::vector<std::uint8_t> zlib_decompress_lenient(std::vector<std::uint8_t> const& data, std::size_t max_output)
+{
+    // A zlib header when there is one (many writers leave it off), then
+    // every byte the stream yields before it ends or breaks.
+    std::size_t start = 0;
+    if (data.size() >= 2 && (data[0] & 0x0F) == 8 && (static_cast<unsigned>(data[0]) * 256 + data[1]) % 31 == 0)
+        start = (data[1] & 0x20) ? 6 : 2;
+    BitReader reader { data, start, 0, false };
+    std::vector<std::uint8_t> out;
+    inflate_into(reader, max_output, out);
+    return out;
+}
+
 std::optional<std::vector<std::uint8_t>> gzip_decompress(std::vector<std::uint8_t> const& data,
     std::size_t max_output)
 {

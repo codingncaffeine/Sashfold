@@ -22,6 +22,13 @@ std::optional<std::vector<std::uint8_t>> inflate(std::vector<std::uint8_t> const
 std::optional<std::vector<std::uint8_t>> zlib_decompress(std::vector<std::uint8_t> const& data,
     std::size_t max_output = 256u * 1024u * 1024u);
 
+// What a reader of damaged files makes of a zlib stream (PDF's
+// FlateDecode, as every viewer reads it): the header is optional, the
+// checksum unread, and a stream that breaks gives every byte decoded
+// before the break. Never fails; empty is what nothing decoded to.
+std::vector<std::uint8_t> zlib_decompress_lenient(std::vector<std::uint8_t> const& data,
+    std::size_t max_output = 256u * 1024u * 1024u);
+
 // gzip wrapper: header parse (flags honored), CRC-32 + ISIZE verification.
 std::optional<std::vector<std::uint8_t>> gzip_decompress(std::vector<std::uint8_t> const& data,
     std::size_t max_output = 256u * 1024u * 1024u);

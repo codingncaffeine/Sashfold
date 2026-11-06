@@ -141,6 +141,7 @@ add_library(sashfold_core STATIC
   src/crypto/Ec.cpp
   src/crypto/Ed25519.cpp
   src/crypto/Rsa.cpp
+  src/crypto/Md5.cpp
   src/crypto/Sha1.cpp
   src/crypto/Sha2.cpp
   src/crypto/X25519.cpp
@@ -206,6 +207,11 @@ add_library(sashfold_core STATIC
   src/platform/Touch.cpp
   src/platform/Window.cpp
   src/storage/IndexedDb.cpp
+  src/pdf/Document.cpp
+  src/pdf/Filters.cpp
+  src/pdf/Object.cpp
+  src/pdf/Parser.cpp
+  src/pdf/Security.cpp
   src/svg/Raster.cpp
   src/svg/Svg.cpp
   src/text/Cff.cpp
@@ -413,6 +419,13 @@ target_link_libraries(js_probe PRIVATE sashfold_core sashfold_warnings)
 add_executable(realm_cost tools/realm-cost.cpp)
 target_link_libraries(realm_cost PRIVATE sashfold_core sashfold_warnings)
 
+# pdf_probe opens a PDF with the engine's reader and prints what it found:
+# version, pages and their boxes, the title, whether the file was rebuilt;
+# --object N and --content P show an object and a page's decoded content
+# (tools/pdf-probe.cpp). What tools/pdf-corpus.sh compares with pdfinfo.
+add_executable(pdf_probe tools/pdf-probe.cpp)
+target_link_libraries(pdf_probe PRIVATE sashfold_core sashfold_warnings)
+
 # png_diff says where two pictures differ and whether that is only inside
 # the boxes given (tools/png-diff.cpp): what a change to the chrome shows
 # before its goldens are blessed. A build tool, never shipped.
@@ -465,6 +478,7 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(x509)
   sashfold_fuzzer(truetype)
   sashfold_fuzzer(png)
+  sashfold_fuzzer(pdf)
   sashfold_fuzzer(gif)
   sashfold_fuzzer(jpeg)
   sashfold_fuzzer(bmp)
