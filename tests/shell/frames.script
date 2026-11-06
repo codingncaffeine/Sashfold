@@ -72,3 +72,10 @@ assert-text Arrived in frame
 assert-no-text Inner link here
 assert-text Outer text
 assert-title Frames
+
+# A frame's intersection and resize observers run with the page's (HTML's
+# rendering update is for every document of the event loop): they once
+# never fired in a frame.
+open data:text/html,<title>outer</title><script>var got=[];addEventListener('message',function(e){got.push(e.data);got.sort();document.title=got.join(' ')})</script><iframe width=300 height=200 srcdoc="<div id=d style='height:50px'></div><script>new IntersectionObserver(function(es){parent.postMessage('io '+es[0].isIntersecting,'*')}).observe(d);new ResizeObserver(function(es){parent.postMessage('ro '+es.length,'*')}).observe(d)</script>"></iframe>
+advance 300 4
+assert-title io true ro 1

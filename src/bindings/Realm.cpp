@@ -2987,6 +2987,9 @@ void Realm::Internals::open_frame_document(dom::Element& iframe, FrameDocument a
     frame_hooks.frame_document = hooks.frame_document;
     frame_hooks.image_decodes = hooks.image_decodes;
     frame_hooks.image_picture = hooks.image_picture;
+    // Where the reader has scrolled the frame: the page's host answers for
+    // any of its documents (what a frame's intersection observers measure).
+    frame_hooks.scroll_position = hooks.scroll_position;
     frame_hooks.trace = hooks.trace;
     frame_hooks.device_scale = hooks.device_scale;
     frame_hooks.user_agent = hooks.user_agent;
@@ -4251,12 +4254,24 @@ bool Realm::run_pending()
     if (!in.interpreter.terminated() && run_rendering_update(in, now))
         ran = true;
     // The page's share of the rendering update, once the turn's work is
-    // done: what its intersection observers see now. Measuring costs
-    // nothing when nothing has moved since the last time.
-    if (!in.interpreter.terminated() && update_intersection_observations(in))
-        ran = true;
-    // And its resize observers, after the layout that measured them.
-    if (!in.interpreter.terminated() && update_resize_observations(in))
+    // done, for its document and every document in its frames (HTML runs
+    // these steps for each fully active document of the event loop): what
+    // the intersection observers see now — measuring costs nothing when
+    // nothing has moved since the last time — and then the resize
+    // observers, after the layout that measured them.
+    auto const observe = [](auto const& self, Internals& realm) -> bool {
+        bool any = false;
+        if (!realm.interpreter.terminated() && update_intersection_observations(realm))
+            any = true;
+        if (!realm.interpreter.terminated() && update_resize_observations(realm))
+            any = true;
+        for (ChildFrame& child : realm.child_frames) {
+            if (child.realm && self(self, child.realm->internals()))
+                any = true;
+        }
+        return any;
+    };
+    if (observe(observe, in))
         ran = true;
     // An [autofocus] element waiting takes the focus (HTML §6.6.7).
     if (!in.interpreter.terminated() && flush_autofocus_candidates(in))
