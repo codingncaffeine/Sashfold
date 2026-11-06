@@ -17,3 +17,7 @@ tests/fixtures/brotli/* binary
 
 # Release archives as tar writes them, unpacked by the update tests.
 *.gz binary
+
+# Files the shell's tests hand pages, measured to the byte (a checkout on
+# Windows must not turn their line ends into two bytes).
+tests/shell/files/* binary

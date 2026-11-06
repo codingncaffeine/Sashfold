@@ -1024,8 +1024,16 @@ struct Runner {
             if (format == "text/uri-list") {
                 std::istringstream paths(text);
                 std::string joined;
-                for (std::string path; paths >> path;)
-                    joined += "file://" + (std::filesystem::path(path).is_absolute() ? path : (directory / path).string()) + "\r\n";
+                for (std::string path; paths >> path;) {
+                    // file:///home/… or file:///C:/… (RFC 8089), a space as %20.
+                    std::string whole = (std::filesystem::path(path).is_absolute() ? std::filesystem::path(path) : directory / path).generic_string();
+                    if (whole.empty() || whole.front() != '/')
+                        whole.insert(0, "/");
+                    std::string uri = "file://";
+                    for (char const c : whole)
+                        uri += c == ' ' ? std::string("%20") : std::string(1, c);
+                    joined += uri + "\r\n";
+                }
                 text = joined;
             }
             os_drag_offer.emplace_back(format, text);
