@@ -5122,8 +5122,9 @@ void test_notifications_with_a_host()
     CHECK_EQ(page->string("Notification.permission + '|' + out.join('|')"), "denied|asked denied|error");
     CHECK_EQ(host.asked, 0);
     CHECK_EQ(host.shown.size(), 0u);
-    // A page that is not a secure context is denied whatever the host says,
-    // and so is a frame's document.
+    // A page that is not a secure context is denied whatever the host says;
+    // a frame's document of the page's origin speaks as the page does, one
+    // of its own origin (sandboxed) is denied.
     host.state = "granted";
     page = page_with("http://example.test/");
     CHECK_EQ(page->string("Notification.permission"), "denied");
@@ -5133,8 +5134,41 @@ void test_notifications_with_a_host()
     CHECK_EQ(page->string("Notification.permission"), "granted");
     page = page_with("https://example.test/");
     CHECK_EQ(page->string("(function () { var f = document.createElement('iframe'); document.body.appendChild(f);"
+                          " var g = document.createElement('iframe'); g.id = 'boxed'; g.setAttribute('sandbox', 'allow-scripts'); document.body.appendChild(g);"
                           " return Notification.permission + '|' + f.contentWindow.Notification.permission; })()"),
-        "granted|denied");
+        "granted|granted");
+    CHECK_EQ(string_in(frame_realm_of(*page, "boxed"), "Notification.permission"), "denied");
+    // The same-origin frame's notification is the page's site's to show,
+    // and its events reach the frame's object, not the page.
+    host.shown.clear();
+    page->eval("var f = document.querySelector('iframe').contentWindow; f.eval(\"var out = []; var n = new Notification('framed', { icon: 'pic.png' });"
+               " n.onclick = function (e) { out.push('click ' + (e.target === n)); };\");");
+    CHECK_EQ(host.shown.size(), 1u);
+    if (host.shown.size() == 1) {
+        CHECK_EQ(host.shown[0].title, "framed");
+        CHECK_EQ(host.shown[0].icon, "https://example.test/pic.png"); // about:blank's base is the page's
+    }
+    page->realm->notification_event(host.next, "click");
+    CHECK_EQ(page->string("f.eval('out.join(\"|\")')"), "click true");
+    // A frame's ask goes through the page and the page's answer settles it.
+    host = Host {};
+    page = page_with("https://example.test/");
+    page->eval("var f = document.createElement('iframe'); document.body.appendChild(f); var w = f.contentWindow;"
+               " w.eval(\"var out = []; Notification.requestPermission().then(function (a) { out.push('framed ' + a); });\");");
+    pump();
+    CHECK_EQ(host.asked, 1);
+    host.state = "granted";
+    page->realm->notification_permission_answered("granted");
+    pump();
+    CHECK_EQ(page->string("w.eval('out.join(\"|\")')"), "framed granted");
+    // A sandboxed frame is asked no one and told "denied".
+    page->eval("var s = document.createElement('iframe'); s.id = 'boxed'; s.setAttribute('sandbox', 'allow-scripts'); document.body.appendChild(s);");
+    bindings::Realm* const boxed = frame_realm_of(*page, "boxed");
+    string_in(boxed, "var out = []; Notification.requestPermission().then(function (a) { out.push('boxed ' + a); }); ''");
+    pump();
+    for (int i = 0; boxed && i < 100 && boxed->run_pending(); ++i) { }
+    CHECK_EQ(host.asked, 1);
+    CHECK_EQ(string_in(boxed, "out.join('|')"), "boxed denied");
 }
 
 void test_navigator_objects()

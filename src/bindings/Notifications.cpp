@@ -11,10 +11,17 @@
 // `click`, `close`, or `error`. A notification made without permission is
 // told `error` in a task (§2.9) and is never shown.
 //
-// A frame's document, a document that is not a secure context and a host
-// with no notifier are all answered "denied", with no question asked.
-// Not here: service workers' persistent notifications, actions, badges,
-// images, vibration and the icon (the desktop shows the browser's).
+// A frame's document of the page's own origin speaks as the page does: it
+// reads the page's permission, asks through the page (at the reader's act
+// on the page), and its notifications are the page's site's, with their
+// events coming back to the frame that made them. A frame of another
+// origin — or a sandboxed one, whose origin is its own — is answered
+// "denied" with no question asked, as Chrome and Firefox answer it, so
+// that an embedded advertisement cannot ask in the page's name; so are a
+// document that is not a secure context and a host with no notifier.
+// The icon is handed to the host, which fetches it.
+// Not here: service workers' persistent notifications (and so actions),
+// badges, images and vibration.
 
 #include <memory>
 #include <optional>
@@ -70,6 +77,33 @@ std::optional<std::string> string_member(js::Interpreter& interp, js::Value cons
     if (value->is_undefined())
         return fallback;
     return internals_of(interp).to_utf8(*value);
+}
+
+// The realm whose hooks speak for `in`'s notifications: the page's (the
+// realm at the top of the frame tree), when `in` is the page or a frame of
+// the page's origin; null for a frame of any other origin. An opaque
+// origin is the same as no other, its own serialization included.
+Realm::Internals* speaking_realm(Realm::Internals& in)
+{
+    Realm::Internals* top = &in;
+    while (top->parent_realm != nullptr)
+        top = top->parent_realm;
+    if (top == &in)
+        return top;
+    std::string const mine = in.origin_url.serialize_origin();
+    if (mine == "null" || mine != top->origin_url.serialize_origin())
+        return nullptr;
+    return top;
+}
+
+// `in` and the realms of every frame under it, at any depth.
+void each_realm_under(Realm::Internals& in, std::vector<Realm::Internals*>& out)
+{
+    out.push_back(&in);
+    for (ChildFrame const& frame : in.child_frames) {
+        if (frame.realm)
+            each_realm_under(frame.realm->internals(), out);
+    }
 }
 
 }
@@ -147,14 +181,16 @@ void install_notifications(Realm::Internals& in)
             made->require_interaction = require_interaction;
             made->silent = silent;
             made->tag = std::move(*tag);
-            if (notification_permission(internals) == "granted" && internals.hooks.show_notification) {
+            Realm::Internals* const speaker = speaking_realm(internals);
+            if (notification_permission(internals) == "granted" && speaker && speaker->hooks.show_notification) {
                 NotificationRequest request;
                 request.title = made->title;
                 request.body = made->body;
                 request.tag = made->tag;
+                request.icon = made->icon;
                 request.require_interaction = made->require_interaction;
                 request.silent = made->silent.value_or(false);
-                made->shown_as = internals.hooks.show_notification(request);
+                made->shown_as = speaker->hooks.show_notification(request);
                 if (made->shown_as != 0) {
                     // Kept for as long as it shows: its events have
                     // somewhere to go though the page holds it nowhere.
@@ -216,8 +252,9 @@ void install_notifications(Realm::Internals& in)
         if (!found)
             return std::nullopt;
         Realm::Internals& internals = internals_of(interp);
-        if ((*found)->shown_as != 0 && internals.hooks.close_notification)
-            internals.hooks.close_notification((*found)->shown_as);
+        Realm::Internals* const speaker = speaking_realm(internals);
+        if ((*found)->shown_as != 0 && speaker && speaker->hooks.close_notification)
+            speaker->hooks.close_notification((*found)->shown_as);
         return js::Value::undefined();
     });
     static constexpr std::string_view events[] = { "click", "show", "error", "close" };
@@ -244,8 +281,11 @@ void install_notifications(Realm::Internals& in)
             return rejected_promise(interp, interp.take_exception());
         }
         std::string state = notification_permission(internals);
-        bool const acted = !internals.hooks.user_activation || internals.hooks.user_activation();
-        if (state == "default" && internals.hooks.ask_notification_permission && acted) {
+        // A frame asks through the page, at the reader's act on the page.
+        Realm::Internals* const speaker = speaking_realm(internals);
+        bool const can_ask = speaker && speaker->hooks.ask_notification_permission;
+        bool const acted = !speaker || !speaker->hooks.user_activation || speaker->hooks.user_activation();
+        if (state == "default" && can_ask && acted) {
             js::Interpreter::Roots const roots(interp);
             interp.root(callback);
             std::optional<js::PromiseCapability> const capability
@@ -255,10 +295,10 @@ void install_notifications(Realm::Internals& in)
             bool const asking = !internals.notification_asks.empty();
             internals.notification_asks.push_back({ capability->resolve, js::Interpreter::is_callable(callback) ? callback : js::Value::undefined() });
             if (!asking)
-                internals.hooks.ask_notification_permission();
+                speaker->hooks.ask_notification_permission();
             return capability->promise;
         }
-        if (state == "default" && internals.hooks.ask_notification_permission && internals.hooks.console)
+        if (state == "default" && can_ask && internals.hooks.console)
             internals.hooks.console("warn", "Notification.requestPermission() was not asked of the reader: it may only be called while handling a click or a key.");
         if (js::Interpreter::is_callable(callback)) {
             auto held = std::make_shared<js::Persistent>(interp.heap(), callback);
@@ -281,9 +321,10 @@ std::string notification_permission(Realm::Internals& in)
     net::Url const& url = in.url;
     // As isSecureContext says it (Window.cpp).
     bool const secure = url.scheme == "https" || url.scheme == "file" || url.scheme == "about" || url.host == "localhost";
-    if (in.parent_realm != nullptr || !secure || !in.hooks.notification_permission)
+    Realm::Internals* const speaker = speaking_realm(in);
+    if (!speaker || !secure || !speaker->hooks.notification_permission)
         return "denied";
-    std::string state = in.hooks.notification_permission();
+    std::string state = speaker->hooks.notification_permission();
     return state == "granted" || state == "default" ? state : std::string("denied");
 }
 
@@ -298,6 +339,18 @@ void trace_notifications(Realm::Internals& in, js::Tracer& tracer)
 }
 
 void Realm::notification_permission_answered(std::string_view state)
+{
+    // The page's answer is its frames' of the same origin too: each that
+    // asked through it hears.
+    std::vector<Internals*> realms;
+    each_realm_under(*m_internals, realms);
+    for (Internals* const each : realms) {
+        if (each == m_internals.get() || (!each->notification_asks.empty() && speaking_realm(*each) == m_internals.get()))
+            each->realm.answer_notification_asks(state);
+    }
+}
+
+void Realm::answer_notification_asks(std::string_view state)
 {
     Internals& in = *m_internals;
     if (in.notification_asks.empty())
@@ -319,12 +372,21 @@ void Realm::notification_permission_answered(std::string_view state)
     }
 }
 
-void Realm::notification_event(std::uint64_t id, std::string_view type)
+bool Realm::notification_event(std::uint64_t id, std::string_view type)
 {
-    Internals& in = *m_internals;
+    // The host names a notice once, whichever frame made it: it is heard
+    // where it was made.
+    std::vector<Internals*> realms;
+    each_realm_under(*m_internals, realms);
+    Internals* maker = nullptr;
+    for (Internals* const each : realms) {
+        if (each->shown_notifications.contains(id))
+            maker = each;
+    }
+    if (!maker)
+        return true;
+    Internals& in = *maker;
     auto const found = in.shown_notifications.find(id);
-    if (found == in.shown_notifications.end())
-        return;
     Internals::Entry const entry(in);
     js::Interpreter& interp = in.interpreter;
     js::Interpreter::Roots const roots(interp);
@@ -339,7 +401,7 @@ void Realm::notification_event(std::uint64_t id, std::string_view type)
     EventObject* const event = in.new_event("Event", type, false, type == "click");
     interp.root(js::Value::object(event));
     event->is_trusted = true;
-    in.dispatch(*event, notification);
+    return in.dispatch(*event, notification);
 }
 
 }

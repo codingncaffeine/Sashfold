@@ -112,6 +112,22 @@ public:
         (void)container;
         return nullptr;
     }
+    // A subresource the shell wants for itself — a notice's picture — asked
+    // for on the loader's threads as the page would ask for it, and told to
+    // `done` there when it has come or failed; nothing of it is kept for a
+    // later asker. False, and `done` never called, for a loader with no
+    // threads of its own.
+    virtual bool fetch_in_background(net::Url const& url, net::Url const& first_party, std::string const& referrer,
+        net::ResourceKind kind, std::string_view container, std::function<void(net::FetchResult const&)> done)
+    {
+        (void)url;
+        (void)first_party;
+        (void)referrer;
+        (void)kind;
+        (void)container;
+        (void)done;
+        return false;
+    }
     // A page's hint about an origin it will soon ask something of: a
     // connection opened to it now (preconnect), or with `name_only` its name
     // looked up (dns-prefetch). Done on threads of the loader's, never the
@@ -408,6 +424,10 @@ public:
     // has its question put to the reader in a bar under the toolbar.
     // Without one (as unsaid) every page is answered "denied".
     void set_notifier(platform::Notifier* notifier);
+    // What brings the window to the front when the reader presses one of
+    // a page's notices and the page lets it: called with the desktop's
+    // token for it (platform::Notifier::Event::activation_token).
+    void set_on_raise_window(std::function<void(std::string const& token)> raise);
     // How the window asks the reader for files (platform/FileChooser.h):
     // main gives the desktop's own chooser, a script one that answers as
     // it is told. Without one a file input's chooser does not open.
@@ -415,6 +435,9 @@ public:
     void set_file_chooser(FileChooserFactory factory);
     // Whether a file chooser is open now (for scripts).
     bool file_chooser_open() const;
+    // Whether a notice is waiting for its picture to come (for scripts,
+    // which wait for it as the reader would).
+    bool notices_coming() const;
     // What the reader has said of each site's notifications, by its
     // origin: allowed (true) or blocked. The caller gives what the profile
     // holds and hears, through `changed`, when the reader says something
@@ -426,6 +449,9 @@ public:
     // shows it — or empty; and the reader's answer to it: allowed, blocked,
     // or neither (the bar is closed, and the page may ask again).
     std::string notification_question() const;
+    // Which answer of the question bar the keyboard is on: "allow",
+    // "block", "close", or "none" (for scripts).
+    std::string question_focus() const;
     void answer_notification_question(std::optional<bool> allowed);
     // The threads the pages' workers run on (bindings/Workers.h), which the
     // caller keeps for longer than the browser and for no longer than the

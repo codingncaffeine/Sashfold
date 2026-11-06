@@ -44,7 +44,8 @@ assert-question
 assert-title default, unbidden default, error First, asked default default, asked granted granted
 assert-notification-sites file://=allowed
 
-# Shown on the desktop, under the site's name, with the page's text.
+# Shown on the desktop, under the site's name, with the page's text; a picture
+# that cannot be had holds nothing back.
 click-text Show
 assert-notices 1 1
 assert-notice 1 First | Hello <b>there</b> | A file on this computer
@@ -52,12 +53,16 @@ assert-title default, unbidden default, error First, asked default default, aske
 # One with the same tag takes its place: the first hears it is closed.
 click-text Again
 assert-notices 1 2
-assert-notice 2 Second |  | A file on this computer | stays | silent
+assert-notice 2 Second |  | A file on this computer | picture 256x128 | stays | silent
 assert-title default, unbidden default, error First, asked default default, asked granted granted, show First, close First, show Second
-# Pressed on the desktop from another tab: its tab comes to the front and its page hears.
+# Pressed on the desktop from another tab: its page hears, and its tab and the
+# window come to the front with the desktop's token for the press.
 select-tab 1
+assert-raised none
 notice-press 2
 assert-tabs 2
+assert-raised token-2
+assert-tab-titles [default, unbidden default, error First, asked default default, asked granted granted, show First, close First, show Second, click Second] | New Tab
 assert-title default, unbidden default, error First, asked default default, asked granted granted, show First, close First, show Second, click Second
 # Closed by the page.
 click-text Close
@@ -70,9 +75,17 @@ assert-title granted, unbidden granted
 assert-question
 click-text Show
 assert-notices 1 3
+# Pressed from another tab, but its page keeps the reader where they are
+# (preventDefault in its click handler): the page hears, nothing comes forward.
+select-tab 1
+notice-press 3
+assert-raised token-2
+assert-tab-titles granted, unbidden granted, show First, click First | [New Tab]
+select-tab 0
+assert-title granted, unbidden granted, show First, click First
 # Dismissed on the desktop.
 notice-dismiss 3
-assert-title granted, unbidden granted, show First, close First
+assert-title granted, unbidden granted, show First, click First, close First
 # The reader changes their mind in the main menu: blocked, the site's notice
 # comes down and its pages are denied.
 click-text Show
@@ -97,8 +110,34 @@ open notifications.html
 assert-title default, unbidden default
 click-text Ask
 assert-question A file on this computer
-click-question block
-assert-title default, unbidden default, asked denied denied
+# From the keyboard: Alt+Shift+A goes to the answers, the arrows and Tab go
+# round them, Escape closes the bar unanswered.
+assert-question-focus none
+key alt+shift+a
+assert-question-focus allow
+assert-golden goldens/notifications-question-focus.png 0 76 800 40
+key right
+assert-question-focus block
+key tab
+assert-question-focus close
+key right
+assert-question-focus allow
+key shift+tab
+assert-question-focus close
+key left
+key left
+assert-question-focus allow
+key escape
+assert-question
+assert-question-focus none
+assert-title default, unbidden default, asked default default
+# Enter gives the answer the keyboard is on.
+click-text Ask
+key alt+shift+a
+key right
+key enter
+assert-question
+assert-title default, unbidden default, asked default default, asked denied denied
 assert-notification-sites file://=blocked
 # Allowed again from the menu, and a notice whose tab is closed is taken down.
 main-menu

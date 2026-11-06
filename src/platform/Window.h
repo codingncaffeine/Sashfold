@@ -174,6 +174,12 @@ public:
     // The window over the whole screen, with nothing of the system's
     // around it, at a page's asking (the Fullscreen API) — and back.
     virtual void set_fullscreen(bool fullscreen) { static_cast<void>(fullscreen); }
+    // Comes to the front, as far as the system lets it: `token` is the
+    // leave another program handed over for it (the notification service's
+    // xdg-activation token, on Wayland). With none the window asks for one
+    // of its own, which a compositor may answer by only marking it as
+    // wanting attention — focus is not a program's to take on its own word.
+    virtual void activate(std::string const& token) { static_cast<void>(token); }
     // A drag over the window from elsewhere: what a drop here would do —
     // nothing (refused), a copy, a move or a link — and the format it would
     // be taken in. Said again whenever it changes.

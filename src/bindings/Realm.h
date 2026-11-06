@@ -162,6 +162,11 @@ struct NotificationRequest {
     std::string title;
     std::string body;
     std::string tag; // one with the same tag, of the same site, is replaced
+    // The picture the page gave it (NotificationOptions.icon), resolved
+    // against the document's base; empty for none. The host fetches it as
+    // the document's own picture would be and shows the notice once it has
+    // come — or has failed: a notice is never held back for its picture.
+    std::string icon;
     bool require_interaction = false;
     bool silent = false;
 };
@@ -568,10 +573,16 @@ public:
     // "granted", "denied" or "default". Every requestPermission() waiting
     // on it is settled with it.
     void notification_permission_answered(std::string_view state);
+    // This realm's own waiting asks settled (the page's answer, told to a
+    // frame of its origin that asked through it).
+    void answer_notification_asks(std::string_view state);
     // What became of a notification HostHooks::show_notification named:
     // "show" (the desktop has it), "click", "close", or "error" (it could
     // not be shown). The event of that name fires at the Notification.
-    void notification_event(std::uint64_t id, std::string_view type);
+    // False when it was a `click` the page canceled: the reader's press is
+    // then the page's alone, and the host brings nothing forward (§2.7
+    // "activate"); true otherwise.
+    bool notification_event(std::uint64_t id, std::string_view type);
     // The host's window (or what it shows the page in) has another size, in
     // CSS px: innerWidth and the media queries read it from now, and a task
     // fires resize at the window and change at each MediaQueryList whose

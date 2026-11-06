@@ -217,6 +217,10 @@ struct Notified {
     std::vector<std::string> actions;
     std::int32_t timeout = 0;
     std::uint32_t given = 0;
+    std::vector<std::string> hints; // by name, in order
+    // The "image-data" hint, as read: width, height, row, alpha, bits,
+    // channels, the pixels' length, and the first pixel's four bytes.
+    std::vector<std::uint32_t> image;
 };
 
 class FakeBus {
@@ -271,6 +275,14 @@ public:
 
     // The service's signals, sent when the connection's thread next looks.
     void press(std::uint32_t number) { emit("ActionInvoked", number, 0, true); }
+    // A press as version 1.2 of the specification has it: the window's
+    // token first, then the action.
+    void press_with_token(std::uint32_t number, std::string token)
+    {
+        std::lock_guard const lock(m_mutex);
+        m_emissions.push_back(Emission { "ActivationToken", number, 0, true, std::move(token) });
+        m_emissions.push_back(Emission { "ActionInvoked", number, 0, true, {} });
+    }
     void dismiss(std::uint32_t number) { emit("NotificationClosed", number, 2, false); }
     // A signal about a notice from a sender that is not the service.
     void hang_up() { m_hang_up = true; }
@@ -281,12 +293,13 @@ private:
         std::uint32_t number;
         std::uint32_t reason;
         bool action;
+        std::string text = {}; // a token's, in place of the action's name
     };
 
     void emit(std::string member, std::uint32_t number, std::uint32_t reason, bool action)
     {
         std::lock_guard const lock(m_mutex);
-        m_emissions.push_back(Emission { std::move(member), number, reason, action });
+        m_emissions.push_back(Emission { std::move(member), number, reason, action, {} });
     }
 
     static bool send_all(int fd, Bytes const& bytes)
@@ -383,7 +396,7 @@ private:
                 dbus::Writer arguments;
                 arguments.uint32(emission.number);
                 if (emission.action)
-                    arguments.string("default");
+                    arguments.string(emission.text.empty() ? std::string("default") : emission.text);
                 else
                     arguments.uint32(emission.reason);
                 signal.body = arguments.take();
@@ -433,10 +446,37 @@ private:
                 notified.summary = body.string().value_or("?");
                 notified.body = body.string().value_or("?");
                 notified.actions = body.string_array().value_or(std::vector<std::string> { "?" });
-                // The hints: an array of entries, passed over by its length.
+                // The hints: an array of entries, each read by its signature.
                 std::uint32_t const hints = body.uint32().value_or(0);
                 body.align(8);
-                body.skip(hints);
+                std::size_t const hints_end = body.position() + hints;
+                while (!body.failed() && body.position() < hints_end) {
+                    body.align(8);
+                    std::string const name = body.string().value_or("?");
+                    std::string const type = body.signature().value_or("?");
+                    notified.hints.push_back(name);
+                    if (type == "s") {
+                        body.string();
+                    } else if (type == "b" || type == "u" || type == "i") {
+                        body.uint32();
+                    } else if (type == "y") {
+                        body.byte();
+                    } else if (type == "(iiibiiay)") {
+                        body.align(8);
+                        for (int field = 0; field < 6; ++field)
+                            notified.image.push_back(body.uint32().value_or(0));
+                        std::uint32_t const length = body.uint32().value_or(0);
+                        notified.image.push_back(length);
+                        for (std::uint32_t at = 0; at < length; ++at) {
+                            std::uint8_t const value = body.byte().value_or(0);
+                            if (at < 4)
+                                notified.image.push_back(value);
+                        }
+                    } else {
+                        notified.hints.push_back("UNREAD " + type);
+                        body.skip(hints_end - body.position());
+                    }
+                }
                 notified.timeout = static_cast<std::int32_t>(body.uint32().value_or(77));
                 if (body.failed() || message->signature != "susssasa{sv}i")
                     notified.summary = "UNREADABLE";
@@ -571,6 +611,8 @@ void test_notifier()
         CHECK(notified[0].actions == (std::vector<std::string> { "default", "Show" }));
         CHECK_EQ(notified[0].timeout, -1);
         CHECK_EQ(notified[0].given, 100u);
+        // No picture: no image-data.
+        CHECK(notified[0].hints == (std::vector<std::string> { "desktop-entry" }));
     }
 
     // Pressed, then dismissed: each heard once, under the name show() gave.
@@ -621,6 +663,32 @@ void test_notifier()
     CHECK(eventually([&] { return heard.has(Kind::Clicked, third); }));
     CHECK(!heard.has(Kind::Clicked, second));
 
+    // A picture goes as raw RGBA in "image-data"; a press the service sends
+    // its window token ahead of comes with that token.
+    platform::Notice pictured;
+    pictured.title = "Pictured";
+    pictured.site = "chat.example";
+    pictured.silent = true;
+    auto picture = std::make_shared<Bitmap>(3, 2, Color::rgba(10, 20, 30, 40));
+    pictured.picture = picture;
+    std::uint64_t const fifth_shown = notifier->show(pictured);
+    CHECK(eventually([&] { return heard.has(Kind::Shown, fifth_shown); }));
+    notified = bus.notified();
+    CHECK_EQ(notified.size(), 4u);
+    if (notified.size() == 4) {
+        CHECK(notified[3].hints == (std::vector<std::string> { "desktop-entry", "suppress-sound", "image-data" }));
+        CHECK(notified[3].image == (std::vector<std::uint32_t> { 3, 2, 12, 1, 8, 4, 24, 10, 20, 30, 40 }));
+        CHECK_EQ(notified[3].timeout, -1);
+        bus.press_with_token(notified[3].given, "kwin-token-7");
+        CHECK(eventually([&] { return heard.has(Kind::Clicked, fifth_shown); }));
+        for (platform::Notifier::Event const& event : heard.events) {
+            if (event.kind == Kind::Clicked && event.id == fifth_shown)
+                CHECK_EQ(event.activation_token, std::string("kwin-token-7"));
+            if (event.kind == Kind::Clicked && event.id == first)
+                CHECK_EQ(event.activation_token, std::string()); // pressed with no token
+        }
+    }
+
     // Closed from here: the service is told, and says it is closed.
     notifier->close(third);
     CHECK(eventually([&] { return heard.has(Kind::Closed, third); }));
@@ -667,7 +735,7 @@ void test_notifier_without_markup_or_service()
         FakeBus bus(path, true, true);
         std::unique_ptr<platform::Notifier> const notifier = platform::open_notifier_on(dbus::SocketAddress { path, false }, "Sashfold", {});
         Heard heard { *notifier, {} };
-        std::uint64_t const id = notifier->show(platform::Notice { "T", "", "x.example", false, false });
+        std::uint64_t const id = notifier->show(platform::Notice { "T", "", "x.example", nullptr, false, false });
         CHECK(eventually([&] { return heard.has(Kind::Failed, id); }));
         CHECK(!heard.has(Kind::Shown, id));
         CHECK(notifier->available()); // a notice refused is not a service gone
@@ -679,11 +747,11 @@ void test_notifier_without_markup_or_service()
         std::unique_ptr<platform::Notifier> const notifier
             = platform::open_notifier_on(dbus::SocketAddress { scratch_socket("no-such-bus"), false }, "Sashfold", [&wakes] { ++wakes; });
         Heard heard { *notifier, {} };
-        std::uint64_t const id = notifier->show(platform::Notice { "T", "", "x.example", false, false });
+        std::uint64_t const id = notifier->show(platform::Notice { "T", "", "x.example", nullptr, false, false });
         CHECK(eventually([&] { return heard.has(Kind::Failed, id); }));
         CHECK(eventually([&] { return !notifier->available(); }));
         CHECK(wakes > 0);
-        std::uint64_t const later = notifier->show(platform::Notice { "T", "", "x.example", false, false });
+        std::uint64_t const later = notifier->show(platform::Notice { "T", "", "x.example", nullptr, false, false });
         CHECK(eventually([&] { return heard.has(Kind::Failed, later); }));
     }
 }

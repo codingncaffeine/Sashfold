@@ -11,6 +11,8 @@
 // events, taken at the window's own pace; `wake` is called (from another
 // thread) when there is one to take.
 
+#include "core/Bitmap.h"
+
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -26,9 +28,17 @@ struct Notice {
     // Who is speaking, shown with the notice so that a page cannot pass
     // for the browser or for another site: its host.
     std::string site;
+    // The page's picture for it (its icon), no larger than
+    // `notice_picture_size` either way; null for none.
+    std::shared_ptr<Bitmap const> picture;
     bool stays = false; // until the reader dismisses it (requireInteraction)
     bool silent = false;
 };
+
+// The largest a notice's picture is sent at: what the desktops show is
+// smaller still (GNOME and Plasma draw it at 48 to 64 px, Windows at 48 by
+// 48 scaled), and four times 64 covers a screen of any density.
+inline constexpr int notice_picture_size = 256;
 
 class Notifier {
 public:
@@ -54,6 +64,11 @@ public:
         };
         Kind kind = Kind::Shown;
         std::uint64_t id = 0;
+        // Of a press: the desktop's leave for the window to come to the
+        // front (Wayland's xdg-activation token, which the notification
+        // service hands over with the press); empty where it gave none and
+        // where the system needs none.
+        std::string activation_token = {};
     };
     virtual std::vector<Event> take_events() = 0;
 };

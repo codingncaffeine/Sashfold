@@ -2206,6 +2206,8 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // allows: reached in the background, and gone before the browser is.
     std::unique_ptr<platform::Notifier> const notifier = platform::open_notifier("Sashfold", [waker] { waker->wake(); });
     browser.set_notifier(notifier.get());
+    // A notice pressed brings the window forward with the desktop's leave.
+    browser.set_on_raise_window([&window](std::string const& token) { window->activate(token); });
     // Spelling, in the reader's language: the system's Hunspell dictionaries
     // first, then the one shipped beside the program; read in the background.
     {

@@ -1116,6 +1116,9 @@ struct Browser::Impl {
     // notifier's names for them; and a page's own names for the ones it
     // has asked for.
     platform::Notifier* notifier = nullptr;
+    // What brings the window to the front, given the desktop's token
+    // (Browser::set_on_raise_window).
+    std::function<void(std::string const&)> raise_window;
     // The desktop's file chooser (the shell's), and the one open for a
     // page's file input: its tab and the input, which the page checks is
     // still there when the answer comes.
@@ -1138,6 +1141,19 @@ struct Browser::Impl {
     };
     std::map<std::uint64_t, ShownNotice> shown_notices;
     std::uint64_t notice_ids = 0;
+    // A notice whose picture is on its way, fetched and decoded on the
+    // loader's threads; shown when it has come or failed, then without one.
+    struct PictureComing {
+        std::mutex mutex;
+        bool done = false; // under the mutex
+        std::shared_ptr<Bitmap const> picture; // under the mutex
+    };
+    struct WaitingNotice {
+        ShownNotice who; // whose it is, as a shown one is told apart
+        bindings::NotificationRequest request;
+        std::shared_ptr<PictureComing> coming;
+    };
+    std::vector<WaitingNotice> waiting_notices;
     // Where the pages' workers run, when not on this thread
     // (Browser::set_worker_threads).
     bindings::WorkerThreads* worker_threads = nullptr;
@@ -1276,6 +1292,9 @@ struct Browser::Impl {
     // The find bar: shared by the tabs, its matches kept per tab.
     bool find_open = false;
     bool find_focus = false;
+    // The answer of the question bar the keyboard is on (0 Allow, 1 Block,
+    // 2 the close button), while it is: Alt+Shift+A takes it there.
+    std::optional<int> question_focus;
     std::string find_query;
     std::size_t find_caret = 0; // bytes into find_query
     bool find_select_all = false;
@@ -2747,8 +2766,29 @@ struct Browser::Impl {
         select_all = false;
     }
 
+    // A key while the question bar has the keyboard: the arrows and Tab go
+    // from answer to answer, Enter or Space gives the one it is on, Escape
+    // closes the bar unanswered (as its close button does); nothing reaches
+    // the page meanwhile.
+    void question_key(platform::KeyEvent const& key)
+    {
+        using platform::Key;
+        int const at = question_focus.value_or(0);
+        bool const back = key.key == Key::Left || (key.key == Key::Tab && key.shift);
+        bool const on = key.key == Key::Right || (key.key == Key::Tab && !key.shift);
+        if (back || on) {
+            question_focus = (at + (back ? 2 : 1)) % 3;
+            dirty = true;
+        } else if (key.key == Key::Enter || key.key == Key::Space || key.key == Key::Escape) {
+            question_focus.reset();
+            std::optional<bool> const answer = key.key == Key::Escape || at == 2 ? std::nullopt : std::optional<bool>(at == 0);
+            answer_notification_question(active, answer);
+        }
+    }
+
     void focus_address(bool select_everything)
     {
+        question_focus.reset();
         find_focus = false;
         address_focus = true;
         select_all = select_everything && !address.empty();
@@ -2947,6 +2987,101 @@ struct Browser::Impl {
             tell_page_of_notice(tabs[tab], page_id, "error");
             return;
         }
+        // Its picture first, if it has one: fetched as the page's own would
+        // be, on the loader's threads, and decoded there.
+        if (!request.icon.empty()) {
+            if (std::optional<net::Url> const icon = net::parse_url(request.icon)) {
+                auto coming = std::make_shared<PictureComing>();
+                net::Url const page_url = entry->final_url;
+                auto const done = [coming, wake = wake_window](net::FetchResult const& result) {
+                    std::shared_ptr<Bitmap const> picture;
+                    if (result.response && result.response->status == 200 && result.response->body.size() <= max_icon_bytes)
+                        picture = notice_picture(result.response->body);
+                    {
+                        std::lock_guard const lock(coming->mutex);
+                        coming->picture = std::move(picture);
+                        coming->done = true;
+                    }
+                    if (wake)
+                        wake();
+                };
+                if (loader.fetch_in_background(*icon, page_url, referrer_for(&page_url, *icon), net::ResourceKind::Image, tabs[tab].container, done)) {
+                    WaitingNotice waiting;
+                    waiting.who = notice_owner(tabs[tab], page_id, site, request.tag);
+                    waiting.request = request;
+                    waiting.coming = std::move(coming);
+                    waiting_notices.push_back(std::move(waiting));
+                    return;
+                }
+            }
+        }
+        put_notice_up(tab, page_id, site, request, nullptr);
+    }
+
+    // A page's picture for a notice, at no more than the notifier's size.
+    static std::shared_ptr<Bitmap const> notice_picture(std::vector<std::uint8_t> const& bytes)
+    {
+        std::optional<Bitmap> decoded = decode_image_bytes(bytes, platform::notice_picture_size);
+        if (!decoded || decoded->width() <= 0 || decoded->height() <= 0)
+            return nullptr;
+        int const largest = std::max(decoded->width(), decoded->height());
+        if (largest <= platform::notice_picture_size)
+            return std::make_shared<Bitmap const>(std::move(*decoded));
+        int const width = std::max(1, decoded->width() * platform::notice_picture_size / largest);
+        int const height = std::max(1, decoded->height() * platform::notice_picture_size / largest);
+        auto smaller = std::make_shared<Bitmap>(width, height, Color::rgba(0, 0, 0, 0));
+        smaller->draw_scaled(*decoded, Rect { 0, 0, width, height });
+        return smaller;
+    }
+
+    ShownNotice notice_owner(Tab const& tab, std::uint64_t page_id, std::string const& site, std::string const& tag) const
+    {
+        ShownNotice who;
+        who.engine = tab.engine;
+        who.document = tab.engine ? nullptr : tab.document.get();
+        who.page_id = page_id;
+        who.site = site;
+        who.tag = tag;
+        return who;
+    }
+
+    // The notices whose pictures have come (or failed) go up, if their tab
+    // is still on their site; those whose tab is gone are dropped.
+    bool show_waiting_notices()
+    {
+        bool shown = false;
+        for (auto it = waiting_notices.begin(); it != waiting_notices.end();) {
+            std::shared_ptr<Bitmap const> picture;
+            {
+                std::lock_guard const lock(it->coming->mutex);
+                if (!it->coming->done) {
+                    ++it;
+                    continue;
+                }
+                picture = it->coming->picture;
+            }
+            WaitingNotice const waiting = std::move(*it);
+            it = waiting_notices.erase(it);
+            if (Tab* const tab = tab_of_notice(waiting.who)) {
+                put_notice_up(index_of(*tab), waiting.who.page_id, waiting.who.site, waiting.request, std::move(picture));
+                shown = true;
+            }
+        }
+        return shown;
+    }
+
+    // The notice goes to the desktop: the shell's word on its site is
+    // asked again, as the moments its picture took may have changed it.
+    void put_notice_up(std::size_t tab, std::uint64_t page_id, std::string const& site, bindings::NotificationRequest const& request,
+        std::shared_ptr<Bitmap const> picture)
+    {
+        HistoryEntry const* const entry = tab < tabs.size() ? tabs[tab].current() : nullptr;
+        auto const allowed = notification_sites.find(site);
+        if (!notifier || !entry || notification_site(entry->final_url) != site || allowed == notification_sites.end() || !allowed->second) {
+            if (tab < tabs.size())
+                tell_page_of_notice(tabs[tab], page_id, "error");
+            return;
+        }
         // One with the same tag, of the same site, gives way to it.
         std::uint64_t replaces = 0;
         if (!request.tag.empty()) {
@@ -2961,6 +3096,7 @@ struct Browser::Impl {
         notice.site = site_shown(site);
         notice.stays = request.require_interaction;
         notice.silent = request.silent;
+        notice.picture = std::move(picture);
         std::uint64_t const id = notifier->show(notice, replaces);
         if (replaces != 0) {
             ShownNotice const before = shown_notices[replaces];
@@ -2968,13 +3104,7 @@ struct Browser::Impl {
             if (Tab* const its = tab_of_notice(before))
                 tell_page_of_notice(*its, before.page_id, "close");
         }
-        ShownNotice shown;
-        shown.engine = tabs[tab].engine;
-        shown.document = tabs[tab].engine ? nullptr : tabs[tab].document.get();
-        shown.page_id = page_id;
-        shown.site = site;
-        shown.tag = request.tag;
-        shown_notices[id] = std::move(shown);
+        shown_notices[id] = notice_owner(tabs[tab], page_id, site, request.tag);
     }
 
     Tab* tab_of_notice(ShownNotice const& shown)
@@ -2987,24 +3117,46 @@ struct Browser::Impl {
         return nullptr;
     }
 
-    // What became of a notice, told to the page that made it.
-    void tell_page_of_notice(Tab& tab, std::uint64_t page_id, std::string const& type)
+    // What became of a notice, told to the page that made it; a press
+    // comes with the desktop's leave for the window to come forward.
+    void tell_page_of_notice(Tab& tab, std::uint64_t page_id, std::string const& type, std::string token = {})
     {
         if (engine_of(tab)) {
-            ask(tab, [page_id, type](Browser& page) {
+            ask(tab, [page_id, type, token](Browser& page) {
                 if (!page.m_impl->tabs.empty())
-                    page.m_impl->notice_event(page.m_impl->tabs.front(), page_id, type);
+                    page.m_impl->notice_event(page.m_impl->tabs.front(), page_id, type, token);
             });
             return;
         }
-        notice_event(tab, page_id, type);
+        notice_event(tab, page_id, type, token);
     }
 
-    void notice_event(Tab& tab, std::uint64_t page_id, std::string const& type)
+    // The page hears; a press it did not cancel brings its tab to the front
+    // and the window with it (the Notifications Standard's "activate", as
+    // Firefox does it): the page's own `click` handler may keep the reader
+    // where they are with preventDefault().
+    void notice_event(Tab& tab, std::uint64_t page_id, std::string const& type, std::string const& token)
     {
         if (!tab.realm)
             return;
-        tab.realm->notification_event(page_id, type);
+        bool const forward = tab.realm->notification_event(page_id, type) && type == "click";
+        dirty = true;
+        if (!forward)
+            return;
+        if (engine_self)
+            ask_shell([token](Impl& shell, std::size_t at) { shell.bring_forward(at, token); });
+        else
+            bring_forward(index_of(tab), token);
+    }
+
+    void bring_forward(std::size_t tab, std::string const& token)
+    {
+        if (tab >= tabs.size())
+            return;
+        if (&tabs[tab] != active_tab())
+            select_tab(tab);
+        if (raise_window)
+            raise_window(token);
         dirty = true;
     }
 
@@ -3023,6 +3175,14 @@ struct Browser::Impl {
     {
         if (tab >= tabs.size() || !notifier)
             return;
+        // Not up yet, its picture still coming: it never goes up.
+        for (auto it = waiting_notices.begin(); it != waiting_notices.end(); ++it) {
+            if (it->who.page_id == page_id && tab_of_notice(it->who) == &tabs[tab]) {
+                waiting_notices.erase(it);
+                tell_page_of_notice(tabs[tab], page_id, "close");
+                return;
+            }
+        }
         for (auto const& [id, shown] : shown_notices) {
             if (shown.page_id == page_id && tab_of_notice(shown) == &tabs[tab]) {
                 notifier->close(id);
@@ -3053,6 +3213,7 @@ struct Browser::Impl {
         }
         if (!notifier)
             return heard;
+        heard = show_waiting_notices() || heard;
         for (platform::Notifier::Event const& event : notifier->take_events()) {
             auto const found = shown_notices.find(event.id);
             if (found == shown_notices.end())
@@ -3071,10 +3232,9 @@ struct Browser::Impl {
             Tab* const tab = tab_of_notice(shown);
             if (!tab)
                 continue;
-            // Pressed: its tab comes to the front, and its page hears.
-            if (event.kind == platform::Notifier::Event::Kind::Clicked && tab != active_tab())
-                select_tab(index_of(*tab));
-            tell_page_of_notice(*tab_of_notice(shown), shown.page_id, type);
+            // Pressed: its page hears first, and then — unless it said no —
+            // its tab and the window come forward.
+            tell_page_of_notice(*tab, shown.page_id, type, event.activation_token);
         }
         // A notice whose tab is gone has no one to tell: it is taken down.
         for (auto it = shown_notices.begin(); it != shown_notices.end();) {
@@ -12921,6 +13081,8 @@ struct Browser::Impl {
             if (palette_open && hover != Hover::Palette && hover != Hover::PaletteRow)
                 close_palette();
             pressed = hover; // a toolbar button paints itself held until the button comes up
+            if (hover != Hover::PermissionAllow && hover != Hover::PermissionBlock && hover != Hover::PermissionClose)
+                question_focus.reset(); // a press elsewhere takes the keyboard with it
             switch (hover) {
             case Hover::Palette: break;
             case Hover::PaletteRow: run_palette_match(palette_first_shown() + hover_index); break;
@@ -13315,6 +13477,24 @@ struct Browser::Impl {
         if (key.ctrl && key.shift && key.key == Key::Letter && key.letter == U'P') {
             open_palette({});
             return;
+        }
+        // A page's question waiting under the toolbar is answered from the
+        // keyboard too: Alt+Shift+A goes to it (Chrome's key for a prompt
+        // that waits), and while it is there it has the keys.
+        if (Tab const* const front = active_tab(); front && notification_question(*front)) {
+            if (key.alt && key.shift && !key.ctrl && key.key == Key::Letter && key.letter == U'A') {
+                question_focus = 0;
+                address_focus = false;
+                find_focus = false;
+                dirty = true;
+                return;
+            }
+            if (question_focus && !key.ctrl) {
+                question_key(key);
+                return;
+            }
+        } else {
+            question_focus.reset();
         }
         // The page hears a key meant for it — not the shell's own chords —
         // at the focused control, else the document; preventDefault keeps
@@ -14159,9 +14339,17 @@ struct Browser::Impl {
                 draw_text(frame, words, static_cast<float>(box.x) + (static_cast<float>(box.width) - words_width) / 2,
                     centered_baseline(box, t.font_size), t.font_size, ink);
             };
-            text_button(c.permission_allow, "Allow", true, hover == Hover::PermissionAllow);
-            text_button(c.permission_block, "Block", false, hover == Hover::PermissionBlock);
-            paint_button(c.permission_close, Icon::Close, true, hover == Hover::PermissionClose, pressed == Hover::PermissionClose);
+            text_button(c.permission_allow, "Allow", true, hover == Hover::PermissionAllow || question_focus == 0);
+            text_button(c.permission_block, "Block", false, hover == Hover::PermissionBlock || question_focus == 1);
+            paint_button(c.permission_close, Icon::Close, true, hover == Hover::PermissionClose || question_focus == 2, pressed == Hover::PermissionClose);
+            // The keyboard's answer has the focus ring: the accent, two
+            // pixels out from the button with a pixel's gap, as a focused
+            // field's.
+            if (question_focus) {
+                Rect const& focused = *question_focus == 0 ? c.permission_allow : *question_focus == 1 ? c.permission_block : c.permission_close;
+                Rect const ring { focused.x - 3, focused.y - 3, focused.width + 6, focused.height + 6 };
+                frame.fill_round_box(ring, t.address_corner_radius + 3, 2, t.accent, Color::rgba(0, 0, 0, 0));
+            }
             Rect const label { t.padding * 2, c.permission_bar.y, std::max(0, c.permission_allow.x - 4 * t.padding), t.find_height };
             if (std::string const* const site = notification_question(*tab); site != nullptr && label.width > 0) {
                 // The site in the chrome's own color, the question after it
@@ -14908,6 +15096,16 @@ bool Browser::file_chooser_open() const
     return m_impl->open_chooser.has_value();
 }
 
+bool Browser::notices_coming() const
+{
+    return !m_impl->waiting_notices.empty();
+}
+
+void Browser::set_on_raise_window(std::function<void(std::string const& token)> raise)
+{
+    m_impl->raise_window = std::move(raise);
+}
+
 void Browser::set_notifier(platform::Notifier* notifier)
 {
     m_impl->notifier = notifier;
@@ -14928,6 +15126,12 @@ std::map<std::string, bool> const& Browser::notification_sites() const
 void Browser::set_on_notification_sites_changed(std::function<void()> changed)
 {
     m_impl->on_notification_sites_changed = std::move(changed);
+}
+
+std::string Browser::question_focus() const
+{
+    std::optional<int> const at = m_impl->question_focus;
+    return !at ? "none" : *at == 0 ? "allow" : *at == 1 ? "block" : "close";
 }
 
 std::string Browser::notification_question() const

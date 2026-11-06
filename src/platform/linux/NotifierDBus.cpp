@@ -3,8 +3,9 @@
 // The Desktop Notifications Specification
 // (https://specifications.freedesktop.org/notification-spec/): the service
 // org.freedesktop.Notifications on the session bus, its Notify and
-// CloseNotification calls and its NotificationClosed and ActionInvoked
-// signals. One thread holds the connection: it sends what the window's
+// CloseNotification calls and its NotificationClosed, ActivationToken and
+// ActionInvoked signals. A notice's picture goes as its "image-data" hint
+// (the specification's raw RGBA, §Icons and Images). One thread holds the connection: it sends what the window's
 // thread asks for and turns what comes back into events.
 
 #include <atomic>
@@ -54,7 +55,7 @@ public:
         {
             std::lock_guard const lock(m_mutex);
             if (!m_available) {
-                m_events.push_back(Event { Event::Kind::Failed, id });
+                m_events.push_back(Event { Event::Kind::Failed, id, {} });
                 if (m_wake)
                     m_wake();
                 return id;
@@ -96,11 +97,11 @@ private:
         }
     }
 
-    void say(Event::Kind kind, std::uint64_t id)
+    void say(Event::Kind kind, std::uint64_t id, std::string activation_token = {})
     {
         {
             std::lock_guard const lock(m_mutex);
-            m_events.push_back(Event { kind, id });
+            m_events.push_back(Event { kind, id, std::move(activation_token) });
         }
         if (m_wake)
             m_wake();
@@ -172,6 +173,9 @@ private:
         std::map<std::uint32_t, std::uint64_t> ours;
         std::map<std::uint32_t, std::uint64_t> asked;
         std::map<std::uint64_t, bool> close_when_shown;
+        // The token the service sent ahead of a press (version 1.2 of the
+        // specification), by its number, for the press that follows.
+        std::map<std::uint32_t, std::string> tokens;
 
         while (!m_stop) {
             std::optional<dbus::Message> const message = connection->receive(-1, m_poke);
@@ -213,9 +217,18 @@ private:
                     auto const known = number ? ours.find(*number) : ours.end();
                     if (known != ours.end()) {
                         std::uint64_t const id = known->second;
-                        if (message->member == "ActionInvoked") {
-                            say(Event::Kind::Clicked, id);
+                        if (message->member == "ActivationToken") {
+                            if (std::optional<std::string> token = body.string())
+                                tokens[*number] = std::move(*token);
+                        } else if (message->member == "ActionInvoked") {
+                            std::string token;
+                            if (auto const given = tokens.find(*number); given != tokens.end()) {
+                                token = std::move(given->second);
+                                tokens.erase(given);
+                            }
+                            say(Event::Kind::Clicked, id, std::move(token));
                         } else if (message->member == "NotificationClosed") {
+                            tokens.erase(*number);
                             ours.erase(known);
                             theirs.erase(id);
                             say(Event::Kind::Closed, id);
@@ -265,6 +278,22 @@ private:
                         arguments.align(8);
                         arguments.string("suppress-sound");
                         arguments.variant_boolean(true);
+                    }
+                    if (notice.picture) {
+                        // (iiibiiay): width, height, the bytes a row, alpha,
+                        // bits a sample, samples a pixel, then the pixels.
+                        Bitmap const& picture = *notice.picture;
+                        arguments.align(8);
+                        arguments.string("image-data");
+                        arguments.signature("(iiibiiay)");
+                        arguments.align(8);
+                        arguments.int32(picture.width());
+                        arguments.int32(picture.height());
+                        arguments.int32(picture.width() * 4);
+                        arguments.boolean(true);
+                        arguments.int32(8);
+                        arguments.int32(4);
+                        arguments.byte_array(picture.pixels());
                     }
                 });
                 arguments.int32(notice.stays ? 0 : -1); // never, or as long as the desktop likes

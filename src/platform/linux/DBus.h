@@ -33,6 +33,8 @@ public:
     void uint32(std::uint32_t value);
     void string(std::string_view text); // also an object path
     void signature(std::string_view text);
+    // An array of bytes (`ay`), copied whole.
+    void byte_array(std::span<std::uint8_t const> values);
     // An array: `fill` writes its elements, each aligned to
     // `element_alignment` (1 byte, 4 a number or a string, 8 a struct or a
     // dictionary entry).

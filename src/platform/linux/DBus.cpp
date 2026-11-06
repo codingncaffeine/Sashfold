@@ -81,6 +81,12 @@ void Writer::signature(std::string_view text)
     m_bytes.push_back(0);
 }
 
+void Writer::byte_array(std::span<std::uint8_t const> values)
+{
+    uint32(static_cast<std::uint32_t>(values.size()));
+    m_bytes.insert(m_bytes.end(), values.begin(), values.end());
+}
+
 void Writer::align(std::size_t alignment) { pad(m_bytes, alignment); }
 
 std::size_t Writer::begin_array(std::size_t element_alignment)

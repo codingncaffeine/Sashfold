@@ -6,6 +6,9 @@
 <button id="again" style="position: absolute; left: 20px; top: 140px; width: 160px; height: 40px">Again</button>
 <button id="close" style="position: absolute; left: 20px; top: 200px; width: 160px; height: 40px">Close</button>
 <script>
+// A picture twice the largest a notice is sent at (a 512 by 256 PNG): it
+// goes to the desktop at 256 by 128.
+var picture = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAgAAAAEACAYAAADFkM5nAAADgElEQVR42u3WMQEAAAjDMOTMvwpcgQZucsRAr1YnAwD8UiIAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAABgAIQDAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAAAwACIAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAABgAIQDAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAAAwACIAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAABgAAMAAAAAGAAAwAACAAQAADAAAYAAAAAMAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAADAAAIABAAAMAABgAAAAAwAAGAAAwAAAAAYAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAABgAIQDAAAAABgAAMAAAgAEAAAwAAGAAAAADAAAYAADAAAAABgAAMAAAgAEAAAwAAHCxBTc+s6TH7ekAAAAASUVORK5CYII=';
 var log = [];
 var last = null;
 function say(what) { log.push(what); document.title = log.join(', '); }
@@ -18,10 +21,15 @@ document.getElementById('ask').addEventListener('click', function () {
 function show(title, options) {
     last = new Notification(title, options);
     ['show', 'click', 'close', 'error'].forEach(function (type) {
-        last.addEventListener(type, function () { say(type + ' ' + title); });
+        last.addEventListener(type, function (e) {
+            say(type + ' ' + title);
+            // The first keeps the reader where they are when pressed.
+            if (type === 'click' && title === 'First')
+                e.preventDefault();
+        });
     });
 }
-document.getElementById('show').addEventListener('click', function () { show('First', { body: 'Hello <b>there</b>', tag: 'chat' }); });
-document.getElementById('again').addEventListener('click', function () { show('Second', { tag: 'chat', requireInteraction: true, silent: true }); });
+document.getElementById('show').addEventListener('click', function () { show('First', { body: 'Hello <b>there</b>', tag: 'chat', icon: 'no-such-picture.png' }); });
+document.getElementById('again').addEventListener('click', function () { show('Second', { tag: 'chat', requireInteraction: true, silent: true, icon: picture }); });
 document.getElementById('close').addEventListener('click', function () { last.close(); });
 </script>

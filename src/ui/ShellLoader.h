@@ -38,6 +38,8 @@ public:
     std::shared_ptr<net::FetchTicket> prefetch(net::Url const& url, net::Url const& first_party,
         std::string const& referrer, net::ResourceKind kind, std::string_view container = {},
         std::function<void(net::FetchResult const&)> arrived = {}) override;
+    bool fetch_in_background(net::Url const& url, net::Url const& first_party, std::string const& referrer,
+        net::ResourceKind kind, std::string_view container, std::function<void(net::FetchResult const&)> done) override;
     std::shared_ptr<net::FetchTicket> load_ahead(net::Url const& url, std::string const& referrer,
         bool bypass_cache, std::string_view container = {}, std::shared_ptr<net::BodyTap> tap = nullptr) override;
     bool ahead_pending(net::Url const& url, net::ResourceKind kind, std::string_view container = {}) override;

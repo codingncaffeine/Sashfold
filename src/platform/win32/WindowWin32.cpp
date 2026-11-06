@@ -352,6 +352,23 @@ public:
 
     int width() const override { return m_width; }
     int height() const override { return m_height; }
+    // Brought back from the taskbar and to the front. Windows lets a
+    // program take the foreground while the shell has handed it the right
+    // (a toast pressed does); otherwise it only flashes the taskbar button.
+    void activate(std::string const&) override
+    {
+        if (!m_hwnd)
+            return;
+        if (IsIconic(m_hwnd))
+            ShowWindow(m_hwnd, SW_RESTORE);
+        if (!SetForegroundWindow(m_hwnd)) {
+            FLASHWINFO flash {};
+            flash.cbSize = sizeof flash;
+            flash.hwnd = m_hwnd;
+            flash.dwFlags = FLASHW_TRAY | FLASHW_TIMERNOFG;
+            FlashWindowEx(&flash);
+        }
+    }
     float scale() const override { return m_scale; }
 
     // The system keeps where the window stands when neither maximized nor

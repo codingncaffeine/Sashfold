@@ -251,6 +251,16 @@ namespace wp_cursor_shape_device_v1 {
     constexpr std::uint32_t shape_nesw_resize = 28;
     constexpr std::uint32_t shape_nwse_resize = 29;
 }
+namespace xdg_activation_v1 {
+    constexpr std::uint16_t get_activation_token = 1;
+    constexpr std::uint16_t activate = 2;
+}
+namespace xdg_activation_token_v1 {
+    constexpr std::uint16_t set_surface = 2;
+    constexpr std::uint16_t commit = 3;
+    constexpr std::uint16_t destroy = 4;
+    constexpr std::uint16_t event_done = 0;
+}
 namespace xdg_toplevel_icon_manager_v1 {
     constexpr std::uint16_t create_icon = 1;
     constexpr std::uint16_t set_icon = 2;
@@ -439,6 +449,7 @@ public:
     void minimize() override;
     void toggle_maximize() override;
     void set_fullscreen(bool fullscreen) override;
+    void activate(std::string const& token) override;
     // The buffer's size: the logical size the compositor configured, at the
     // display's scale.
     int width() const override { return m_buffer_width; }
@@ -509,6 +520,7 @@ private:
     std::uint32_t m_decoration_manager = 0;
     std::uint32_t m_cursor_shape_manager = 0;
     std::uint32_t m_icon_manager = 0;
+    std::uint32_t m_activation = 0; // xdg_activation_v1, where the compositor has it
     std::uint32_t m_data_device_manager = 0;
     std::uint32_t m_surface = 0;
     std::uint32_t m_xdg_surface = 0;
@@ -787,6 +799,7 @@ bool WaylandWindow::setup(std::string const& title, Bitmap const* icon, std::str
     m_data_device_manager = bind("wl_data_device_manager", 3);
     if (m_data_device_manager && m_seat)
         listen_data_device();
+    m_activation = bind("xdg_activation_v1", 1);
     m_icon_manager = bind("xdg_toplevel_icon_manager_v1", 1);
     if (m_icon_manager) {
         m_connection->listen(m_icon_manager, [this](std::uint16_t opcode, Message& message) {
@@ -1354,6 +1367,47 @@ void WaylandWindow::minimize()
     debug("minimize");
     Request request(m_toplevel, xdg_toplevel::set_minimized);
     send(request);
+    m_connection->flush();
+}
+
+// xdg-activation-v1: the token goes with the surface to the compositor,
+// which decides. With none, one is asked for in the window's own name.
+void WaylandWindow::activate(std::string const& token)
+{
+    if (!m_activation || !m_surface)
+        return;
+    if (!token.empty()) {
+        debug("activate with a token handed over");
+        Request activate(m_activation, xdg_activation_v1::activate);
+        activate.string(token).object(m_surface);
+        send(activate);
+        m_connection->flush();
+        return;
+    }
+    std::uint32_t const asked = m_connection->allocate_id();
+    Request get(m_activation, xdg_activation_v1::get_activation_token);
+    get.new_id(asked);
+    send(get);
+    Request set_surface(asked, xdg_activation_token_v1::set_surface);
+    set_surface.object(m_surface);
+    send(set_surface);
+    m_connection->listen(asked, [this, asked](std::uint16_t opcode, Message& message) {
+        if (opcode != xdg_activation_token_v1::event_done)
+            return;
+        std::string const own = message.string();
+        Request destroy(asked, xdg_activation_token_v1::destroy);
+        send(destroy);
+        m_connection->forget(asked);
+        if (own.empty() || !m_surface)
+            return;
+        debug("activate with a token of the window's own");
+        Request activate(m_activation, xdg_activation_v1::activate);
+        activate.string(own).object(m_surface);
+        send(activate);
+        m_connection->flush();
+    });
+    Request commit(asked, xdg_activation_token_v1::commit);
+    send(commit);
     m_connection->flush();
 }
 

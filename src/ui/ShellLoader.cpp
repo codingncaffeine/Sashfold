@@ -639,6 +639,21 @@ std::shared_ptr<net::FetchTicket> ShellLoader::prefetch(net::Url const& url, net
     return ticket;
 }
 
+bool ShellLoader::fetch_in_background(net::Url const& url, net::Url const& first_party, std::string const& referrer,
+    net::ResourceKind kind, std::string_view container, std::function<void(net::FetchResult const&)> done)
+{
+    // The page's own path — its lists, its local files, data: — on a thread
+    // of the pool; the work owns copies, and the pool waits for it before the
+    // loader goes.
+    m_fetches.submit([this, url, first_party, referrer, kind, held = std::string(container), done = std::move(done)] {
+        net::FetchResult result = load_subresource(url, first_party, referrer, kind, net::RequestGuard {}, held);
+        if (done)
+            done(result);
+        return net::FetchResult {};
+    });
+    return true;
+}
+
 void ShellLoader::preconnect(net::Url const& url, net::Url const& first_party, bool name_only, std::string_view container)
 {
     (void)container; // the pool is shared by every container
