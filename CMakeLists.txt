@@ -294,9 +294,9 @@ add_library(sashfold_core STATIC
 if(WIN32)
   target_sources(sashfold_core PRIVATE src/platform/win32/ClipboardWin32.cpp src/platform/win32/RandomWin32.cpp src/platform/win32/NetWin32.cpp src/platform/win32/TlsWin32.cpp src/platform/win32/MemoryWin32.cpp src/platform/win32/ExecutableMemoryWin32.cpp
     src/platform/win32/WindowWin32.cpp src/platform/win32/FontsWin32.cpp src/platform/AudioNone.cpp src/media/Vp9AcceleratorNone.cpp
-    src/platform/ConfineNone.cpp src/platform/NotifierNone.cpp src/platform/win32/CaretBlinkWin32.cpp
+    src/platform/ConfineNone.cpp src/platform/win32/NotifierWin32.cpp src/platform/win32/CaretBlinkWin32.cpp
     src/platform/win32/FileChooserWin32.cpp)
-  target_link_libraries(sashfold_core PUBLIC ws2_32 secur32 user32 gdi32 bcrypt ole32 shell32 uuid)
+  target_link_libraries(sashfold_core PUBLIC ws2_32 secur32 user32 gdi32 bcrypt ole32 shell32 uuid advapi32)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # The Wayland window speaks the wire protocol over the compositor's socket
   # itself, so the import table stays libc and the language runtime.

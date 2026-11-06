@@ -4,7 +4,9 @@
 # import — user32/gdi32 arrived with the shell window, ws2_32 with
 # networking, secur32 with SChannel TLS, bcrypt with the random seam, ole32
 # and shell32 with the file chooser (the common item dialog) and drops from
-# other programs (OLE drag and drop, CF_HDROP).
+# other programs (OLE drag and drop, CF_HDROP), advapi32 with notifications
+# (the browser's name for its toasts, registered for the user; the toasts
+# themselves are reached through combase.dll at run time, not imported).
 kernel32.dll
 msvcrt.dll
 ws2_32.dll
@@ -14,3 +16,4 @@ gdi32.dll
 bcrypt.dll
 ole32.dll
 shell32.dll
+advapi32.dll

@@ -4,8 +4,10 @@
 // shown through once the reader has allowed its site to. On Linux that is
 // the desktop's own notification service, spoken to over the session bus
 // (platform/linux/NotifierDBus.cpp, the Desktop Notifications
-// Specification); Windows and macOS have their own, not written yet, and
-// there the seam opens nothing and a page is answered "denied".
+// Specification); on Windows it is the system's toasts
+// (platform/win32/NotifierWin32.cpp, Windows.UI.Notifications). macOS has
+// no window of ours yet, so no notifier either: there the seam opens
+// nothing and a page is answered "denied".
 //
 // A notifier is asked from the window's thread and answers through
 // events, taken at the window's own pace; `wake` is called (from another
@@ -82,5 +84,12 @@ std::unique_ptr<Notifier> open_notifier(std::string application, std::function<v
 // ("body-markup"): what a page wrote is then escaped, so that it reads as
 // it was written and can be no link.
 std::string escape_notice_markup(std::string_view text);
+
+// A notice as a Windows toast's XML (the ToastGeneric template): the title
+// (the site where it has none), the body, the site on the attribution line
+// as Chrome puts it, the picture by `picture_uri` (a file: URI; none when
+// empty), long on screen when it stays, and no sound when silent. What a
+// page wrote is escaped, so that it reads as written and is no markup.
+std::string toast_xml(Notice const& notice, std::string_view picture_uri);
 
 }

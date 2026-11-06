@@ -762,6 +762,27 @@ void test_notifier_without_markup_or_service()
 int main()
 {
     CHECK_EQ(platform::escape_notice_markup("a < b && <a href=\"x\">c</a>"), std::string("a &lt; b &amp;&amp; &lt;a href=\"x\"&gt;c&lt;/a&gt;"));
+    // A notice as a Windows toast: the page's text escaped (an apostrophe, a
+    // quote, a control character XML cannot hold), the site on the
+    // attribution line, the picture as the logo, long and silent as asked.
+    {
+        platform::Notice notice;
+        notice.title = "Tom's <b>\"news\"</b>";
+        notice.body = "a & b\x01\tc";
+        notice.site = "chat.example";
+        CHECK_EQ(platform::toast_xml(notice, ""),
+            std::string("<toast><visual><binding template=\"ToastGeneric\"><text>Tom&apos;s &lt;b&gt;&quot;news&quot;&lt;/b&gt;</text>"
+                        "<text>a &amp; b\tc</text><text placement=\"attribution\">chat.example</text></binding></visual></toast>"));
+        platform::Notice quiet;
+        quiet.site = "chat.example";
+        quiet.stays = true;
+        quiet.silent = true;
+        CHECK_EQ(platform::toast_xml(quiet, "file:///C:/Temp/sashfold-notices/1-2.png"),
+            std::string("<toast duration=\"long\"><visual><binding template=\"ToastGeneric\"><text>chat.example</text>"
+                        "<text placement=\"attribution\">chat.example</text>"
+                        "<image placement=\"appLogoOverride\" src=\"file:///C:/Temp/sashfold-notices/1-2.png\"/></binding></visual>"
+                        "<audio silent=\"true\"/></toast>"));
+    }
 #if defined(__linux__)
     test_wire();
     test_addresses();
@@ -769,6 +790,15 @@ int main()
     test_notifier_without_markup_or_service();
     std::error_code error;
     std::filesystem::remove_all("dbus-scratch", error);
+#elif defined(_WIN32)
+    // The toasts' notifier: there from the first moment (it reaches the
+    // runtime on a thread of its own), and gone cleanly. Nothing is shown:
+    // a test puts no toast on the machine it runs on.
+    {
+        std::unique_ptr<platform::Notifier> const notifier = platform::open_notifier("Sashfold", {});
+        CHECK(notifier != nullptr);
+        CHECK(notifier && notifier->available());
+    }
 #else
     CHECK(platform::open_notifier("Sashfold", {}) == nullptr);
 #endif
