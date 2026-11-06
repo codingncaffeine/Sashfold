@@ -1,3 +1,4 @@
+#include "core/Ascii.h"
 #include "bindings/NodeSupport.h"
 #include "dom/Forms.h"
 
@@ -134,6 +135,10 @@ void move_focus(Realm::Internals& in, dom::Element const* element)
     // :focus and the rest follow it; a focus a script gives after a key
     // shows itself, after the pointer it does not (but in a text field).
     in.document->set_focused(element, in.keyboard_modality);
+    // The page is drawn again whoever moved the focus: :focus restyles and
+    // a field lays out its caret (a timer's focus() has no input event
+    // behind it to ask for a picture).
+    in.realm.note_mutation();
     if (previous) {
         in.realm.dispatch_event(const_cast<dom::Element*>(previous), "blur");
         in.realm.dispatch_event(const_cast<dom::Element*>(previous), "focusout", Realm::EventInit { true, false, true });
@@ -142,6 +147,103 @@ void move_focus(Realm::Internals& in, dom::Element const* element)
         in.realm.dispatch_event(const_cast<dom::Element*>(element), "focus");
         in.realm.dispatch_event(const_cast<dom::Element*>(element), "focusin", Realm::EventInit { true, false, true });
     }
+}
+
+// --- Autofocus (HTML §6.6.7) ------------------------------------------------------------
+
+namespace {
+
+bool has_autofocus_inside(dom::Node const& node)
+{
+    if (node.is_element() && static_cast<dom::Element const&>(node).has_attribute("autofocus"))
+        return true;
+    for (dom::Node const* child : node.children()) {
+        if (has_autofocus_inside(*child))
+            return true;
+    }
+    return false;
+}
+
+// A focusable area as autofocus needs one: a control that is not disabled,
+// a link, an editing host or an element with a tabindex — and rendered.
+bool autofocus_target(Realm::Internals& in, dom::Element const& element)
+{
+    if (!element.is_connected() || &element.root() != in.document)
+        return false;
+    bool const control = element.is_html("input") || element.is_html("textarea") || element.is_html("select") || element.is_html("button");
+    if (control && element.has_attribute("disabled"))
+        return false;
+    if (element.is_html("input")) {
+        if (dom::Attr const* type = element.find_attribute("type"); type && sashfold::ascii_ci_equals(type->value, "hidden"))
+            return false;
+    }
+    bool const focusable = control || (element.is_html("a") && element.has_attribute("href")) || element.has_attribute("tabindex")
+        || element.is_html("iframe") || element.is_html("summary")
+        || (element.has_attribute("contenteditable") && !sashfold::ascii_ci_equals(element.find_attribute("contenteditable")->value, "false"));
+    if (!focusable)
+        return false;
+    // Being rendered: no box for it or an ancestor of display: none.
+    if (!in.hooks.computed_style)
+        return true;
+    for (dom::Node const* at = &element; at && at->is_element(); at = at->parent()) {
+        css::ComputedStyle const* const style = in.hooks.computed_style(static_cast<dom::Element const&>(*at));
+        if (!style || style->display == css::Display::None)
+            return false;
+    }
+    css::ComputedStyle const* const own = in.hooks.computed_style(element);
+    return own && own->visibility == css::Visibility::Visible;
+}
+
+void collect_autofocus(dom::Node const& node, std::vector<dom::Element const*>& out)
+{
+    if (node.is_element() && static_cast<dom::Element const&>(node).has_attribute("autofocus"))
+        out.push_back(static_cast<dom::Element const*>(&node));
+    for (dom::Node const* child : node.children())
+        collect_autofocus(*child, out);
+}
+
+}
+
+void note_autofocus_candidates(Realm::Internals& in, dom::Node const& inserted)
+{
+    if (!in.autofocus_processed && !in.parent_realm && has_autofocus_inside(inserted))
+        in.autofocus_pending = true;
+}
+
+bool flush_autofocus_candidates(Realm::Internals& in)
+{
+    // Only a page's own document: a frame's autofocus is not taken here.
+    if (in.autofocus_processed || in.parent_realm || !in.document)
+        return false;
+    // While the parser is adding to the tree, what it added is looked at
+    // (and the whole tree at the first look: a short page is parsed whole
+    // before its first turn).
+    if ((in.ready_state != "complete" || in.autofocus_tree_seen == 0) && in.document->tree_version() != in.autofocus_tree_seen) {
+        in.autofocus_tree_seen = in.document->tree_version();
+        in.autofocus_pending = true;
+    }
+    if (!in.autofocus_pending)
+        return false;
+    in.autofocus_pending = false;
+    // Something has the focus already (the reader clicked, a script
+    // focused): the candidates go, and so does the chance.
+    if (focused_element(in) != nullptr) {
+        in.autofocus_processed = true;
+        return false;
+    }
+    std::vector<dom::Element const*> candidates;
+    collect_autofocus(*in.document, candidates);
+    for (dom::Element const* candidate : candidates) {
+        if (!in.autofocus_tried.insert(candidate).second)
+            continue;
+        if (!autofocus_target(in, *candidate))
+            continue;
+        in.autofocus_processed = true;
+        in.autofocus_tried.clear();
+        move_focus(in, candidate);
+        return true;
+    }
+    return false;
 }
 
 namespace {

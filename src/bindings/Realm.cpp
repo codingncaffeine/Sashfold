@@ -4242,6 +4242,9 @@ bool Realm::run_pending()
     // And its resize observers, after the layout that measured them.
     if (!in.interpreter.terminated() && update_resize_observations(in))
         ran = true;
+    // An [autofocus] element waiting takes the focus (HTML §6.6.7).
+    if (!in.interpreter.terminated() && flush_autofocus_candidates(in))
+        ran = true;
     // An element shown full screen that has left the document takes full
     // screen with it (Fullscreen §4, the removing steps).
     check_fullscreen_element(in);

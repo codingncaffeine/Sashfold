@@ -1438,6 +1438,14 @@ struct Realm::Internals {
     std::unordered_set<dom::Element const*> started_scripts; // "already started" (§4.12.1)
     html::TreeBuilder* active_parser = nullptr; // set while the parser runs a script
     std::string ready_state = "loading";
+    // Autofocus (HTML §6.6.7): an [autofocus] element may be waiting (the
+    // parser has added to the tree since the last look, or a script
+    // inserted one); once one has been taken, or the reader or a script
+    // focused something first, the document's chance has passed.
+    bool autofocus_pending = false;
+    bool autofocus_processed = false;
+    std::uint64_t autofocus_tree_seen = 0;
+    std::unordered_set<dom::Element const*> autofocus_tried;
     // document.contentType: the MIME type the document arrived as, a frame's
     // from its host's answer, whatever the document is shown as.
     std::string document_content_type = "text/html";
@@ -2056,6 +2064,10 @@ bool control_checked_of(Realm::Internals&, dom::Element const&);
 void set_control_checked_of(Realm::Internals&, dom::Element const&, bool checked);
 // Focus moves: the hook, the events, the fallback.
 void move_focus(Realm::Internals&, dom::Element const* element);
+// Autofocus (HTML §6.6.7): an inserted tree with [autofocus] in it is a
+// candidate; the candidates are flushed at the end of a turn.
+void note_autofocus_candidates(Realm::Internals&, dom::Node const& inserted);
+bool flush_autofocus_candidates(Realm::Internals&);
 dom::Element const* focused_element(Realm::Internals&);
 
 // Helpers shared by the installers.

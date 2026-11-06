@@ -1,0 +1,22 @@
+# autofocus (HTML §6.6.7): the first [autofocus] element that can take
+# the focus takes it as the page loads (a hidden one is passed over), the
+# reader types straight into it, one a script inserts later takes it while
+# nothing has had the focus yet, and a page that focused something itself
+# first keeps that.
+resize 600 300
+open data:text/html,<title>A</title><input id=hidden autofocus style="display:none"><input id=first name=first autofocus><input id=second autofocus><script>first.addEventListener('focus',function(){document.title='focus'})</script>
+assert-focused first
+assert-title focus
+type hi
+assert-value first hi
+# Inserted by a script after the load, with nothing focused before.
+open data:text/html,<title>B</title><p>wait</p><script>setTimeout(function(){var i=document.createElement('input');i.id='late';i.autofocus=true;document.body.appendChild(i)},50)</script>
+advance 100
+assert-focused late
+# A page that focused a field itself keeps it.
+open data:text/html,<title>C</title><input id=own><input id=auto autofocus><script>own.focus()</script>
+assert-focused own
+# Drawn, too, with nothing else on the page to ask for a picture: the
+# field's caret is there at once.
+open data:text/html,<style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}input{font:inherit;width:200px;border:1px solid;padding:4px;outline:none}</style><input autofocus>
+assert-pixel 13 99 #1a1a1a

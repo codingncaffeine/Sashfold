@@ -235,6 +235,10 @@ add_test(NAME shell_notifications
 # Shift, Ctrl+A, and the page's getSelection() following the reader's.
 add_test(NAME shell_contenteditable
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/contenteditable.script)
+# autofocus: the first field that can take the focus takes it at load,
+# a later insertion while nothing has it, never over a page's own focus.
+add_test(NAME shell_autofocus
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/autofocus.script)
 # The caret blinks as the desktop has it: half periods, shown again by a
 # key, at rest after the timeout, none in a window behind another.
 add_test(NAME shell_caret_blink

@@ -34388,6 +34388,7 @@ css/css-display/display-contents-computed-style.html	Serialization of computed s
 css/css-display/display-contents-computed-style.html	display:contents element as inherit parent - explicit inheritance
 css/css-display/display-contents-computed-style.html	display:contents element as inherit parent - implicit inheritance
 css/css-display/display-contents-computed-style.html	display:contents is blockified for root elements
+css/css-display/display-contents-focusable-001.html	element with display:contents is focusable
 css/css-display/display-contents-parsing-001.html	Tests that the 'contents' value for the 'display' property is correctly parsed
 css/css-display/display-contents-svg-anchor-child.html	Loading this page should not cause a crash.
 css/css-display/display-contents-svg-switch-child.html	Loading this page should not cause a crash.
@@ -266005,6 +266006,7 @@ html/webappapis/scripting/event-loops/microtask_after_raf.html	Microtask execute
 html/webappapis/scripting/event-loops/microtask_after_script.html	Microtask immediately after script
 html/webappapis/scripting/event-loops/task_microtask_ordering.html	Basic task and microtask ordering
 html/webappapis/scripting/event-loops/task_microtask_ordering.html	Level 1 bossfight (synthetic click)
+html/webappapis/scripting/event-loops/update-the-rendering-resize-autofocus.html	resize steps happen after autofocus, but before animation callbacks
 html/webappapis/scripting/events/body-onload.html	body.onload should set the window.onload handler
 html/webappapis/scripting/events/compile-event-handler-lexical-scopes-form-owner.html	<div> doesn't have a form owner
 html/webappapis/scripting/events/compile-event-handler-lexical-scopes.html	The EventHandler is not an element's event handler (i.e. Window's event handler) and has no form owner.
@@ -303154,6 +303156,14 @@ shadow-dom/focus/delegatesFocus-tabindex-change.html	Setting tabindex on the sha
 shadow-dom/focus/focus-method-delegatesFocus-nested-browsing-context.html	focus delegate step should not be run when the focus target is a shadow-including inclusive ancestor of the current focus.
 shadow-dom/focus/focus-method-with-delegatesFocus.html	xshadow1 becomes focusable with tabindex.
 shadow-dom/focus/focus-preserved-on-slot-reorder.html	Reordering a slot wrapper in the shadow tree preserves focus on the slotted element
+shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html	:focus must not match a shadow host with {mode:closed, delegatesFocus:false} shadow root contains the focused element assigned to a slot
+shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html	:focus must not match a shadow host with {mode:closed, delegatesFocus:false} shadow root that does not contain the focused element
+shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html	:focus must not match a shadow host with {mode:closed, delegatesFocus:true} shadow root contains the focused element assigned to a slot
+shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html	:focus must not match a shadow host with {mode:closed, delegatesFocus:true} shadow root that does not contain the focused element
+shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html	:focus must not match a shadow host with {mode:open, delegatesFocus:false} shadow root contains the focused element assigned to a slot
+shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html	:focus must not match a shadow host with {mode:open, delegatesFocus:false} shadow root that does not contain the focused element
+shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html	:focus must not match a shadow host with {mode:open, delegatesFocus:true} shadow root contains the focused element assigned to a slot
+shadow-dom/focus/focus-pseudo-matches-on-shadow-host.html	:focus must not match a shadow host with {mode:open, delegatesFocus:true} shadow root that does not contain the focused element
 shadow-dom/focus/focus-selector-delegatesFocus.html	:focus does not apply to host with delegatesFocus=false when slotted element has focus
 shadow-dom/focus/focus-selector-delegatesFocus.html	:focus does not apply to host with delegatesFocus=true when slotted element has focus
 shadow-dom/focus/focus-selector-delegatesFocus.html	:focus should be removed from hosts with delegatesFocus=false when none of the elements in a nested shadow tree with delegatesFocus=false is focused

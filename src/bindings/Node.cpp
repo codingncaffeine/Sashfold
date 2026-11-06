@@ -297,6 +297,7 @@ void insert_one(Realm::Internals& in, dom::Node& parent, dom::Node& node, dom::N
             in.realm.run_inserted_script(*script);
         in.frames_inserted(node);
         custom_elements_inserted(in, node);
+        note_autofocus_candidates(in, node);
     }
     // An <img> put into a <picture> chooses its picture again (HTML
     // §4.8.4.3.5, a relevant mutation).
