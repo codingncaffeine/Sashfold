@@ -19,6 +19,9 @@ namespace sashfold::paint {
 
 namespace {
 
+// Whether the fields' carets are in their shown phase (CaretsShown).
+thread_local bool g_carets_shown = true;
+
 using css::BorderStyle;
 using css::ComputedStyle;
 using layout::Fragment;
@@ -1099,7 +1102,7 @@ void paint_control(Context& context, Fragment const& fragment)
             Color::rgba(0x5b, 0x9c, 0xf6, 0x66));
     // The focus ring is the control's outline now (`:focus-visible
     // { outline: auto }` in the built-in sheet), drawn with every outline.
-    if (control.caret_x)
+    if (control.caret_x && g_carets_shown)
         context.target.fill_rect(snap(*control.caret_x + context.dx, y + control.pad_top + px(4), line,
                                      control.height - control.pad_top - control.pad_bottom - 2 * px(4)),
             ink);
@@ -2130,6 +2133,17 @@ void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x
         paint_background_layers(context, page.root, &whole, owner->style);
     }
     paint_stacking_context(context, page.root, true);
+}
+
+CaretsShown::CaretsShown(bool shown)
+    : m_was(g_carets_shown)
+{
+    g_carets_shown = shown;
+}
+
+CaretsShown::~CaretsShown()
+{
+    g_carets_shown = m_was;
 }
 
 }

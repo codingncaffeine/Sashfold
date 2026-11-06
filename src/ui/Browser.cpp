@@ -20,6 +20,7 @@
 #include "js/ScriptPreparer.h"
 #include "layout/Layout.h"
 #include "paint/Painter.h"
+#include "platform/CaretBlink.h"
 #include "platform/Clipboard.h"
 #include "platform/MemoryWatch.h"
 #include "platform/ScriptThread.h"
@@ -924,6 +925,8 @@ struct Browser::Impl {
         std::function<WallTime()> wall_clock;
         bool window_active = true;
         bool window_visible = true;
+        bool caret_blinks = false;
+        std::optional<platform::CaretBlink> caret_blink_fixed;
         bool devtools_open = false;
         bool find_open = false;
         std::string find_query;
@@ -1056,6 +1059,17 @@ struct Browser::Impl {
     // Whether this window is the one in front: a theme may give the frame
     // of one that is not a color of its own.
     bool window_active = true;
+    // The caret's blink (set_caret_blinks): when the reader last pressed a
+    // key or a button, from which a caret shows steady and then blinks,
+    // and which phase the last picture drew.
+    bool caret_blinks = false;
+    std::optional<double> caret_rest_from; // on script_now()'s clock
+    std::optional<platform::CaretBlink> caret_blink_fixed;
+    std::optional<platform::CaretBlink> caret_blink_now() const
+    {
+        return caret_blink_fixed ? caret_blink_fixed : platform::caret_blink();
+    }
+    bool caret_drawn_shown = true;
     // The toolbar button the left button went down on and is still held
     // over: a theme may color a button that is held apart from one that is
     // pointed at.
@@ -1678,6 +1692,8 @@ struct Browser::Impl {
             page.wall_clock = setup->wall_clock;
             page.window_active = setup->window_active;
             page.window_visible = setup->window_visible;
+            page.caret_blinks = setup->caret_blinks;
+            page.caret_blink_fixed = setup->caret_blink_fixed;
             page.devtools_open = setup->devtools_open;
             page.find_open = setup->find_open;
             page.find_query = setup->find_query;
@@ -7771,6 +7787,92 @@ struct Browser::Impl {
 
     // Milliseconds until a theme's picture is next due a frame; nullopt when
     // none moves.
+    // --- The caret's blink ------------------------------------------------------------
+
+    // A key or a button: the caret shows, steady, from now.
+    void caret_rests()
+    {
+        caret_rest_from = script_now();
+        if (!caret_drawn_shown)
+            dirty = true;
+    }
+
+    // A caret is being drawn by this Browser: the address bar's, the find
+    // bar's or the palette's, or a page's field or editor that has the focus.
+    bool caret_displayed()
+    {
+        if (address_focus || find_focus || palette_open)
+            return true;
+        if (page_threads || pages_in_engines)
+            return false; // the pages' engines blink their own
+        Tab* const tab = active_tab();
+        return tab && (tab_with_focused_control() == tab || editing_focus(*tab).has_value());
+    }
+
+    // The phase now: shown while blinking is off, while the window is not
+    // the one in front (a caret is not drawn at all then — see caret_shown),
+    // and once the blink has rested.
+    bool caret_phase_shown() const
+    {
+        if (!caret_blinks)
+            return true;
+        std::optional<platform::CaretBlink> const blink = caret_blink_now();
+        if (!blink || blink->half_ms <= 0)
+            return true;
+        auto const elapsed = static_cast<long long>(std::max(0.0, script_now() - caret_rest_from.value_or(script_now())));
+        if (blink->timeout_ms > 0 && elapsed >= blink->timeout_ms)
+            return true;
+        return (elapsed / blink->half_ms) % 2 == 0;
+    }
+
+    // Whether a caret is drawn in this picture: not in a window behind
+    // another (as in every browser), else as the blink has it.
+    bool caret_shown()
+    {
+        bool const shown = caret_phase_shown();
+        caret_drawn_shown = shown;
+        return window_active && shown;
+    }
+
+    std::optional<double> next_caret_flip_ms()
+    {
+        if (!caret_blinks || !window_visible || !window_active || !caret_displayed())
+            return std::nullopt;
+        std::optional<platform::CaretBlink> const blink = caret_blink_now();
+        if (!blink || blink->half_ms <= 0)
+            return std::nullopt;
+        auto const elapsed = static_cast<long long>(std::max(0.0, script_now() - caret_rest_from.value_or(script_now())));
+        if (blink->timeout_ms > 0 && elapsed >= blink->timeout_ms)
+            return caret_drawn_shown ? std::nullopt : std::optional<double>(0.0);
+        return static_cast<double>(blink->half_ms - elapsed % blink->half_ms) + 1.0;
+    }
+
+    // The loop woke: a caret whose phase has turned is drawn again.
+    bool advance_caret()
+    {
+        if (!caret_blinks || !caret_displayed())
+            return false;
+        if (caret_phase_shown() == caret_drawn_shown)
+            return false;
+        dirty = true;
+        return true;
+    }
+
+    bool advance_clockwork()
+    {
+        bool const theme_ran = advance_theme_pictures();
+        bool const caret_ran = advance_caret();
+        return theme_ran || caret_ran;
+    }
+
+    std::optional<double> next_clockwork_ms()
+    {
+        std::optional<double> due = next_theme_frame_ms();
+        if (std::optional<double> const flip = next_caret_flip_ms(); flip && (!due || *flip < *due))
+            due = flip;
+        return due;
+    }
+
     std::optional<double> next_theme_frame_ms() const
     {
         if (!window_visible)
@@ -12110,7 +12212,7 @@ struct Browser::Impl {
                 int const to = reach(caret_index + composing.size());
                 frame.fill_rect(Rect { text_area.x + from, text_area.y + text_area.height - 6, to - from, 1 }, address_ink);
             }
-            if (address_focus) {
+            if (address_focus && caret_shown()) {
                 int const caret_x = reach(caret_index + composing.size());
                 frame.fill_rect(Rect { text_area.x + caret_x, text_area.y + 4, 1, text_area.height - 8 }, t.accent);
             }
@@ -12198,7 +12300,7 @@ struct Browser::Impl {
                     int const to = reach(caret_index + composing.size());
                     frame.fill_rect(Rect { box_text.x + from, box_text.y + box_text.height - 6, to - from, 1 }, find_ink);
                 }
-                if (find_focus) {
+                if (find_focus && caret_shown()) {
                     int const caret_x = reach(caret_index + composing.size());
                     frame.fill_rect(Rect { box_text.x + caret_x, box_text.y + 4, 1, box_text.height - 8 }, t.accent);
                 }
@@ -12238,6 +12340,7 @@ struct Browser::Impl {
             }
         } else if (tab && tab->document && !c.content.is_empty()) {
             Bitmap content(c.content.width, c.content.height, t.content_background);
+            paint::CaretsShown const carets(caret_shown());
             paint::paint_page(content, tab->layout, 0, -static_cast<float>(tab->scroll_y),
                 &tab->backgrounds, &tab->scrolls, &active_tab()->painted_pictures, &tab->shown_apart);
             // The find bar's matches, the current one stronger; then the
@@ -12259,7 +12362,7 @@ struct Browser::Impl {
             if (Tab* const front = active_tab(); front == tab) {
                 if (std::optional<EditingFocus> const editing = editing_focus(*front)) {
                     std::optional<bindings::Realm::SelectionPoints> const points = editing->realm->selection();
-                    if (points && points->anchor == points->focus && points->anchor_offset == points->focus_offset) {
+                    if (points && points->anchor == points->focus && points->anchor_offset == points->focus_offset && caret_shown()) {
                         if (std::optional<CaretBox> const box = caret_box(*front, *points->focus, points->focus_offset)) {
                             int const caret_width = std::max(1, static_cast<int>(std::lround(scale)));
                             content.fill_rect(Rect { static_cast<int>(std::lround(box->x)),
@@ -12398,7 +12501,8 @@ struct Browser::Impl {
                     draw_text(frame, ellipsize(query, static_cast<float>(box_text.width), t.font_size), left, baseline, t.font_size,
                         palette_select_all ? t.address_selection_text : t.address_text_focus);
                 int const caret_x = static_cast<int>(text_width_to(query, caret_index, t.font_size) + 0.5f);
-                frame.fill_rect(Rect { box_text.x + caret_x, box_text.y + 4, 1, box_text.height - 8 }, t.accent);
+                if (caret_shown())
+                    frame.fill_rect(Rect { box_text.x + caret_x, box_text.y + 4, 1, box_text.height - 8 }, t.accent);
                 frame.set_clip(std::nullopt);
             }
             std::size_t const first = palette_first_shown();
@@ -12623,6 +12727,8 @@ std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab
         setup->wall_clock = wall_clock;
         setup->window_active = window_active;
         setup->window_visible = window_visible;
+        setup->caret_blinks = caret_blinks;
+        setup->caret_blink_fixed = caret_blink_fixed;
         setup->devtools_open = devtools_open;
         setup->find_open = find_open;
         setup->find_query = find_query;
@@ -12663,6 +12769,8 @@ std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab
     page.wall_clock = wall_clock;
     page.window_active = window_active;
     page.window_visible = window_visible;
+    page.caret_blinks = caret_blinks;
+    page.caret_blink_fixed = caret_blink_fixed;
     page.devtools_open = devtools_open;
     page.find_open = find_open;
     page.find_query = find_query;
@@ -12890,6 +12998,7 @@ int Browser::height() const { return m_impl->height; }
 void Browser::mouse_move(int x, int y) { m_impl->mouse_move(x, y); }
 void Browser::mouse_down(int x, int y, int button, platform::Modifiers modifiers)
 {
+    m_impl->caret_rests();
     m_impl->mouse_down(x, y, button, modifiers);
 }
 void Browser::mouse_up(int, int, int button) { m_impl->mouse_up(button); }
@@ -12929,9 +13038,21 @@ void Browser::scroll_pixels(int x, int y, int dx, int dy)
     m_impl->refresh_hover();
 }
 
-void Browser::key_down(platform::KeyEvent const& key) { m_impl->key_down(key); }
-void Browser::text_input(char32_t code_point) { m_impl->text_input(code_point); }
-void Browser::preedit(std::string const& text) { m_impl->set_preedit(text); }
+void Browser::key_down(platform::KeyEvent const& key)
+{
+    m_impl->caret_rests();
+    m_impl->key_down(key);
+}
+void Browser::text_input(char32_t code_point)
+{
+    m_impl->caret_rests();
+    m_impl->text_input(code_point);
+}
+void Browser::preedit(std::string const& text)
+{
+    m_impl->caret_rests();
+    m_impl->set_preedit(text);
+}
 std::optional<Rect> Browser::text_input_area() const { return m_impl->text_input_area(); }
 
 void Browser::set_window_controls(bool shown)
@@ -12950,6 +13071,14 @@ Browser::WindowRequest Browser::take_window_request()
     WindowRequest const request = m_impl->window_request;
     m_impl->window_request = WindowRequest::None;
     return request;
+}
+
+void Browser::set_caret_blinks(bool blinks, std::optional<platform::CaretBlink> fixed)
+{
+    m_impl->caret_blinks = blinks;
+    m_impl->caret_blink_fixed = fixed;
+    m_impl->tell_pages([blinks, fixed](Browser& page) { page.set_caret_blinks(blinks, fixed); });
+    m_impl->dirty = true;
 }
 
 void Browser::set_window_active(bool active)
@@ -13234,7 +13363,7 @@ bool Browser::run_scripts()
         impl.hear_pages();
         impl.tell_shown();
         impl.tell_room();
-        return impl.advance_theme_pictures();
+        return impl.advance_clockwork();
     }
     if (impl.pages_in_engines) {
         // Every page's timers, each in its engine, in the tabs' order; then
@@ -13244,7 +13373,7 @@ bool Browser::run_scripts()
             if (impl.tabs[i].engine)
                 impl.ask(impl.tabs[i], [&ran](Browser& page) { ran = page.run_scripts() || ran; });
         }
-        if (impl.advance_theme_pictures())
+        if (impl.advance_clockwork())
             ran = true;
         return ran;
     }
@@ -13273,7 +13402,7 @@ bool Browser::run_scripts()
     }
     // The shell's own clockwork rides the same wake: a theme's pictures
     // that move.
-    if (impl.advance_theme_pictures())
+    if (impl.advance_clockwork())
         ran = true;
     return ran;
 }
@@ -13282,7 +13411,7 @@ std::optional<double> Browser::next_timer_ms() const
 {
     std::optional<double> soonest;
     if (m_impl->page_threads)
-        return m_impl->next_theme_frame_ms();
+        return m_impl->next_clockwork_ms();
     if (m_impl->pages_in_engines) {
         // The soonest of the pages' timers, and of the theme's pictures.
         std::optional<double> due;
@@ -13292,7 +13421,7 @@ std::optional<double> Browser::next_timer_ms() const
             if (std::optional<double> const its = tab.engine->browser->next_timer_ms(); its && (!due || *its < *due))
                 due = its;
         }
-        if (std::optional<double> const theme = m_impl->next_theme_frame_ms(); theme && (!due || *theme < *due))
+        if (std::optional<double> const theme = m_impl->next_clockwork_ms(); theme && (!due || *theme < *due))
             due = theme;
         return due;
     }
@@ -13307,7 +13436,7 @@ std::optional<double> Browser::next_timer_ms() const
     std::optional<double> due;
     if (soonest)
         due = std::max(0.0, *soonest - m_impl->script_now());
-    if (std::optional<double> const theme = m_impl->next_theme_frame_ms()) {
+    if (std::optional<double> const theme = m_impl->next_clockwork_ms()) {
         if (!due || *theme < *due)
             due = *theme;
     }

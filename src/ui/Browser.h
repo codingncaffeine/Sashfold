@@ -18,6 +18,7 @@
 #include "net/Http.h"
 #include "net/Url.h"
 #include "net/WebSocket.h"
+#include "platform/CaretBlink.h"
 #include "platform/Input.h"
 #include "platform/Notifier.h"
 #include "ui/Theme.h"
@@ -518,6 +519,11 @@ public:
     void set_window_controls(bool shown);
     bool window_controls() const;
     WindowRequest take_window_request();
+    // Carets blink as the desktop sets it (platform/CaretBlink.h), steady
+    // for a while after each key or click. Off unless a real window turns
+    // it on, so scripted runs and their goldens see a steady caret.
+    // `fixed` stands in for the desktop's setting (a test's own rate).
+    void set_caret_blinks(bool blinks, std::optional<platform::CaretBlink> fixed = std::nullopt);
     // Whether this window is the one in front, as the system says: a theme
     // may give the frame of one that is not a color of its own
     // (chrome-background-inactive). In front until told otherwise.

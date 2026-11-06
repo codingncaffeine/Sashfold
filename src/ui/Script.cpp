@@ -1001,6 +1001,19 @@ struct Runner {
             settle();
         } else if (command == "assert-blocked") {
             expect_equal("assert-blocked", std::to_string(browser.blocked_requests()), argument);
+        } else if (command == "caret-blink") {
+            // `caret-blink on|off [<half ms> <rest ms>]`: carets blink as a
+            // real window's do, on the run's own clock (`advance` moves it),
+            // at the rate given or the desktop's.
+            std::optional<platform::CaretBlink> fixed;
+            if (args.size() >= 3) {
+                auto const half = int_arg(1);
+                auto const rest = int_arg(2);
+                if (!half || !rest)
+                    return fail("caret-blink: on <half ms> <rest ms>");
+                fixed = platform::CaretBlink { *half, *rest };
+            }
+            browser.set_caret_blinks(!args.empty() && args[0] == "on", fixed);
         } else if (command == "advance") {
             // `advance <ms> [<times>]`: the clock moves and the timers due
             // run, `times` over, so a chain of timers each set by the last

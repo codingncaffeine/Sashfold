@@ -37,6 +37,19 @@ struct PaintedPicture {
     Rect rect;
     Rect drawn;
 };
+// While one is held, the carets of the page's fields are drawn or not as
+// it says: the shell blinks them. Per thread, as each page paints on its own.
+class CaretsShown {
+public:
+    explicit CaretsShown(bool shown);
+    ~CaretsShown();
+    CaretsShown(CaretsShown const&) = delete;
+    CaretsShown& operator=(CaretsShown const&) = delete;
+
+private:
+    bool m_was;
+};
+
 void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x = 0,
     float offset_y = 0, layout::BackgroundImages const* backgrounds = nullptr,
     layout::ScrollOffsets const* scrolls = nullptr, std::vector<PaintedPicture>* pictures = nullptr,

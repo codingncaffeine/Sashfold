@@ -1,0 +1,50 @@
+# The caret blinks (gaps plan item 4), as the desktop has it: shown for a
+# half period, hidden for one, shown steady again by each key or click, at
+# rest (shown) once the reader has been still past the timeout, and not
+# drawn at all while the window is behind another. A field's caret and an
+# editor's both. Here at a fixed 500 ms each way, resting after 3 s, on the
+# run's own clock. The field's text starts at 13 px, its line at 89 px; the
+# editor's below it at 13 px and 129 px. Sashfold Mono is 10 px a glyph.
+resize 600 300
+open data:text/html,<title>Blink</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}input{font:inherit;width:200px;border:1px solid;padding:4px;outline:none;display:block;margin-bottom:10px}[contenteditable]{border:1px solid;padding:4px;height:20px;outline:none}</style><input id=f value="ab"><div id=e contenteditable>Hello</div>
+caret-blink on 500 3000
+# The field, after "ab".
+click 100 98
+key End
+assert-pixel 33 99 #1a1a1a
+advance 600
+assert-pixel 33 99 #ffffff
+advance 500
+assert-pixel 33 99 #1a1a1a
+advance 500
+assert-pixel 33 99 #ffffff
+# A key shows it at once, and the blink starts over from there.
+type c
+assert-pixel 43 99 #1a1a1a
+advance 400
+assert-pixel 43 99 #1a1a1a
+advance 200
+assert-pixel 43 99 #ffffff
+# Still for longer than the timeout: shown, and it stays so.
+advance 3000
+assert-pixel 43 99 #1a1a1a
+advance 500
+assert-pixel 43 99 #1a1a1a
+# The editor, after "Hello": the same blink.
+click 200 139
+assert-focused e
+assert-pixel 63 139 #000000
+advance 600
+assert-pixel 63 139 #ffffff
+advance 500
+assert-pixel 63 139 #000000
+# A window behind another draws no caret; in front again, it shows.
+window-active off
+assert-pixel 63 139 #ffffff
+window-active on
+key End
+assert-pixel 63 139 #000000
+# Off: steady whatever the clock does.
+caret-blink off
+advance 600
+assert-pixel 63 139 #000000

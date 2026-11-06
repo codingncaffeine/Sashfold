@@ -19,6 +19,7 @@
 #include "layout/Layout.h"
 #include "net/Http.h"
 #include "paint/Painter.h"
+#include "platform/CaretBlink.h"
 #include "platform/Clipboard.h"
 #include "platform/Confine.h"
 #include "platform/Memory.h"
@@ -2208,6 +2209,10 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         ui::Browser& browser;
         ~NotifierLet() { browser.set_notifier(nullptr); }
     } const notifier_let { browser };
+    // Carets blink as the desktop has them (its setting found in the
+    // background; the defaults until then).
+    platform::start_caret_blink_lookup();
+    browser.set_caret_blinks(true);
     report_theme_pictures(browser);
     browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
