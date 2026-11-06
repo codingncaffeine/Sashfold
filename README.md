@@ -6,11 +6,13 @@
 
 [![CI](https://github.com/codingncaffeine/Sashfold/actions/workflows/ci.yml/badge.svg)](https://github.com/codingncaffeine/Sashfold/actions/workflows/ci.yml)
 
-**A web browser engine written from scratch — every byte — for Windows, Linux, and macOS.** It is early, it is public, and it measures itself on public yardsticks, never vibes.
+**A web browser written from scratch, for Windows, Linux, and macOS.** It is early, it is public, and it measures itself on public yardsticks, never vibes.
 
-## The pledge
+## The bar, and the pledge
 
-Every byte of code that ships in a Sashfold binary is written in this repository. Only the operating system's interfaces, the language runtime and the OS-shipped TLS on Windows and macOS are linked, and [`tools/pledge-check.sh`](tools/pledge-check.sh) enforces that in CI.
+**The bar.** Every feature is to be at least what the shipping browsers offer, and better where it can be. Where Sashfold is short of that today, it is because the work is not done — never because it was decided against.
+
+**The pledge.** Whatever can be written from scratch is: the code that ships in a Sashfold binary is written in this repository, and the binary links only the operating system's interfaces and the language runtime, which [`tools/pledge-check.sh`](tools/pledge-check.sh) enforces in CI. Where a thing cannot be written here — a graphics card's driver, the operating system's own TLS on Windows and macOS — Sashfold uses what the platform provides, as every browser does. The pledge is how Sashfold is built; it is never a reason for a feature to fall short of the bar.
 
 No telemetry, no sponsored tiles, no default-search auction, no account, no cloud AI. The boundary, drawn exactly: [The Pledge](https://github.com/codingncaffeine/Sashfold/wiki/The-Pledge).
 
@@ -23,7 +25,7 @@ No telemetry, no sponsored tiles, no default-search auction, no account, no clou
 - A JavaScript engine with the DOM, events, timers, modules and promises ([Scripting](https://github.com/codingncaffeine/Sashfold/wiki/Scripting)).
 - A shell — tabs, history, containers, themes, devtools, reader mode ([The shell](https://github.com/codingncaffeine/Sashfold/wiki/The-shell)).
 
-What Sashfold cannot do, it does not do: [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). The design is on the wiki too: [Architecture](https://github.com/codingncaffeine/Sashfold/wiki/Architecture), [Why C++](https://github.com/codingncaffeine/Sashfold/wiki/Why-C%2B%2B), [Security defaults](https://github.com/codingncaffeine/Sashfold/wiki/Security-defaults).
+What is still short of the bar is listed, not hidden: [Not written yet](https://github.com/codingncaffeine/Sashfold/wiki/Not-written-yet). The design is on the wiki too: [Architecture](https://github.com/codingncaffeine/Sashfold/wiki/Architecture), [Why C++](https://github.com/codingncaffeine/Sashfold/wiki/Why-C%2B%2B), [Security defaults](https://github.com/codingncaffeine/Sashfold/wiki/Security-defaults).
 
 ## Measured
 

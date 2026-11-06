@@ -13,7 +13,7 @@
 <link rel="icon" type="image/png" href="icon-160.png">
 <link rel="canonical" href="https://sashfold.com/">
 <meta property="og:title" content="Sashfold">
-<meta property="og:description" content="A web browser engine written from scratch. Every byte in one repository, graded in public.">
+<meta property="og:description" content="A web browser written from scratch, in one repository, graded in public.">
 <meta property="og:image" content="https://sashfold.com/banner.jpg">
 <meta property="og:url" content="https://sashfold.com/">
 <meta property="og:type" content="website">
@@ -135,7 +135,7 @@
 <header class="hero">
   <img src="icon-160.png" alt="Sashfold" width="160" height="160">
   <h1>Sashfold</h1>
-  <p class="tagline">A web browser engine written from scratch. <b>Every byte.</b></p>
+  <p class="tagline">A web browser written from scratch. <b>Held to the best of them.</b></p>
   <p class="tagline">HTML, CSS, layout, fonts, networking, image codecs — one repository, three operating systems.</p>
   <nav class="links">
     <a class="primary" href="https://github.com/codingncaffeine/Sashfold">Source on GitHub</a>
@@ -144,13 +144,19 @@
 </header>
 
 <section class="pledge">
-  <p class="line">Every byte of code that ships in a Sashfold binary is written in this repository.</p>
-  <p>No vendored libraries, no dependencies, no “temporary” borrowed code. The boundary is the
-  operating system itself and the language runtime — the things every program on the machine
-  already stands on. On Linux that goes all the way down: no GTK, no Qt, no SDL, not even
-  libwayland — Wayland is a protocol over a socket, and Sashfold speaks it directly, the same
-  way it speaks HTTP. The pledge is enforced by a CI gate that reads the built binary’s import
-  table and fails the build if anything else appears.</p>
+  <p class="line">Every feature at least what the shipping browsers offer — and whatever can be written from scratch, written here.</p>
+  <p>Two rules, in that order. The bar for a feature is the industry’s standard at the least,
+  and better where it can be: where Sashfold is short of it today the work is not done yet, and
+  nothing was decided against. And the code that ships in a Sashfold binary is written in this
+  repository — no vendored libraries, no “temporary” borrowed code. The binary links the
+  operating system and the language runtime, the things every program on the machine already
+  stands on, and a CI gate reads its import table and fails the build if anything else appears.
+  On Linux that goes a long way down: no GTK, no Qt, no SDL, not even libwayland — Wayland, the
+  sound server and the desktop’s bus are protocols over a socket, and Sashfold speaks them
+  directly, the same way it speaks HTTP. Where a thing cannot be written here — a graphics
+  card’s driver, the operating system’s own TLS on Windows and macOS — Sashfold uses what the
+  platform provides, as every browser does. Writing it ourselves is how Sashfold is built; it
+  is never the reason a feature falls short.</p>
 </section>
 
 <h2>What Sashfold will never do</h2>
@@ -161,10 +167,10 @@
   <li>No account requirement</li>
   <li>No cloud AI</li>
   <li>No feature-removal churn</li>
-  <li>No self-updater</li>
+  <li>No silent updates</li>
   <li>No settings outside human-readable files</li>
 </ul>
-<p>Zero dependencies is also a security stance: no supply chain to poison, no vendored CVE lag,
+<p>Writing it here is also a security stance: no supply chain to poison, no vendored CVE lag,
 nothing to audit but the one repository. Every parser is fuzzed from the week it is born.</p>
 
 <h2>Graded in public</h2>
@@ -181,11 +187,12 @@ by baselines in CI that only ratchet upward.</p>
   <div class="stat"><span class="big">100 pages</span><span class="what"><a href="sashfold100/">the Sashfold 100</a> — the live web, rendered nightly on Windows and <a href="sashfold100/linux/">on Linux</a>, every picture published</span></div>
   <div class="stat"><span class="big">3 OSes</span><span class="what">byte-identical rendering, proven in CI</span></div>
 </div>
-<p>The renderer is deterministic by construction — its own font, integer-only rasterization,
-no system text stack — so a page renders to the <em>same bytes</em> on Windows, Linux, and macOS.
+<p>The renderer is deterministic by construction — its own font parser and integer-only
+rasterization in place of each system’s text stack — so a page set in the same fonts renders to
+the <em>same bytes</em> on Windows, Linux, and macOS.
 Reference screenshots are compared byte-for-byte on every commit, and so are screenshots of the browser chrome itself: a script drives the same shell the window uses, headlessly, on all three OSes. A live HTTPS page fetches,
 decompresses, parses, and renders to pixels in about a quarter of a second, through Sashfold’s
-own URL parser, HTTP/1.1 client, and inflate. Every night the engine renders a hundred pages of
+own URL parser, HTTP/1.1 and HTTP/2 client, TLS on Linux, and inflate. Every night the engine renders a hundred pages of
 the live web — drawn from the Tranco list of the most visited domains — and the pictures go up
 unretouched, each with what its load cost: <a href="sashfold100/">the Sashfold 100</a>, rendered by the Windows build
 and, through the engine’s own TLS client, <a href="sashfold100/linux/">by the Linux build</a>.</p>
@@ -204,9 +211,11 @@ and, through the engine’s own TLS client, <a href="sashfold100/linux/">by the 
 </figure>
 
 <h2>Why another engine</h2>
-<p>Because the reading web deserves a fast, private, transparent way to read it — and because
-an engine whose every byte is in one place is an engine anyone can learn from, audit, or embed
-without dragging three hundred megabytes behind it. Sashfold competes with nobody but the spec.</p>
+<p>Because the web deserves a fast, private, transparent browser whose every feature stands
+beside the best of them or ahead — and because an engine written in one place is an engine
+anyone can learn from, audit, or embed without dragging three hundred megabytes behind it.
+What is not there yet is work to do, listed in public; none of it is a line Sashfold has
+drawn.</p>
 
 <footer>
   <p>BSD-2 licensed · <a href="https://github.com/codingncaffeine/Sashfold">github.com/codingncaffeine/Sashfold</a></p>
