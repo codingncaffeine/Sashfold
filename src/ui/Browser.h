@@ -19,11 +19,13 @@
 #include "net/Url.h"
 #include "net/WebSocket.h"
 #include "platform/Input.h"
+#include "platform/Notifier.h"
 #include "ui/Theme.h"
 
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <map>
 #include <memory>
 #include <optional>
 #include <string>
@@ -275,6 +277,14 @@ struct ChromeLayout {
     Rect menu_button; // the main menu, at the toolbar's right end
     Rect new_tab_button;
     Rect address;
+    // The bar a page's question is asked in — may this site show
+    // notifications — under the toolbar of the tab that asked: its
+    // buttons, right to left, close (not now), Block, Allow. Empty unless
+    // the tab in front has a question standing.
+    Rect permission_bar;
+    Rect permission_allow;
+    Rect permission_block;
+    Rect permission_close;
     Rect find_bar; // empty unless the find bar is open
     Rect find_box;
     Rect devtools; // empty unless the devtools panel is open
@@ -382,6 +392,24 @@ public:
     // whether the check is on. The main menu's first row and about:sashfold
     // say it; nothing is downloaded.
     void set_update_notice(std::string newer_version, bool checks);
+    // The desktop's notifier (platform/Notifier.h), which the caller keeps
+    // for longer than the browser. With one, a page of a site the reader
+    // has allowed shows its notifications through it, and a page that asks
+    // has its question put to the reader in a bar under the toolbar.
+    // Without one (as unsaid) every page is answered "denied".
+    void set_notifier(platform::Notifier* notifier);
+    // What the reader has said of each site's notifications, by its
+    // origin: allowed (true) or blocked. The caller gives what the profile
+    // holds and hears, through `changed`, when the reader says something
+    // new — to keep it.
+    void set_notification_sites(std::map<std::string, bool> sites);
+    std::map<std::string, bool> const& notification_sites() const;
+    void set_on_notification_sites_changed(std::function<void()> changed);
+    // The question the tab in front is asking — the site's name as the bar
+    // shows it — or empty; and the reader's answer to it: allowed, blocked,
+    // or neither (the bar is closed, and the page may ask again).
+    std::string notification_question() const;
+    void answer_notification_question(std::optional<bool> allowed);
     // The threads the pages' workers run on (bindings/Workers.h), which the
     // caller keeps for longer than the browser and for no longer than the
     // loader: with them a worker never runs on the window's thread, and what

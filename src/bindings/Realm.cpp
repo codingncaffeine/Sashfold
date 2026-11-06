@@ -4356,6 +4356,7 @@ void Realm::trace_roots(js::Tracer& tracer)
     trace_presenting_media(in, tracer);
     trace_canvases(in, tracer);
     trace_fullscreen(in, tracer);
+    trace_notifications(in, tracer);
     trace_indexeddb(in, tracer);
     for (auto const& [name, member] : in.cross_origin_members) {
         if (member.value)

@@ -6,6 +6,7 @@
 #include "js/Runtime.h"
 #include "media/Vp9Accelerator.h"
 #include "platform/Clipboard.h"
+#include "platform/Notifier.h"
 #include "ui/Theme.h"
 #include "ui/ThemeImport.h"
 
@@ -122,6 +123,53 @@ std::optional<KeyEvent> parse_chord(std::string const& chord)
     return std::nullopt;
 }
 
+// The desktop's notifier as a script has it: what the pages show is kept
+// for the script to read, and the script says what the reader did with it.
+// Nothing reaches a desktop.
+class ScriptedNotifier final : public platform::Notifier {
+public:
+    struct Shown {
+        std::uint64_t id = 0;
+        platform::Notice notice;
+        std::uint64_t replaces = 0;
+        bool gone = false;
+    };
+    std::vector<Shown> shown;
+
+    bool available() const override { return true; }
+    std::uint64_t show(platform::Notice const& notice, std::uint64_t replaces) override
+    {
+        for (Shown& before : shown)
+            before.gone = before.gone || before.id == replaces;
+        shown.push_back(Shown { ++m_last, notice, replaces, false });
+        m_events.push_back(Event { Event::Kind::Shown, m_last });
+        return m_last;
+    }
+    void close(std::uint64_t id) override { say(Event::Kind::Closed, id); }
+    std::vector<Event> take_events() override { return std::exchange(m_events, {}); }
+    bool has_events() const { return !m_events.empty(); }
+
+    // What the reader does to the nth notice shown (from 1): presses it,
+    // or dismisses it. False when there is no such notice showing.
+    bool press(std::size_t n) { return n >= 1 && n <= shown.size() && !shown[n - 1].gone && (m_events.push_back(Event { Event::Kind::Clicked, shown[n - 1].id }), true); }
+    bool dismiss(std::size_t n) { return n >= 1 && n <= shown.size() && say(Event::Kind::Closed, shown[n - 1].id); }
+
+private:
+    bool say(Event::Kind kind, std::uint64_t id)
+    {
+        for (Shown& one : shown) {
+            if (one.id == id && !one.gone) {
+                one.gone = kind == Event::Kind::Closed;
+                m_events.push_back(Event { kind, id });
+                return true;
+            }
+        }
+        return false;
+    }
+    std::uint64_t m_last = 0;
+    std::vector<Event> m_events;
+};
+
 struct Runner {
     Browser& browser;
     std::filesystem::path directory;
@@ -148,6 +196,8 @@ struct Runner {
         out << "FAIL line " << line_number << ": " << what << "\n";
     }
 
+    ScriptedNotifier notifier {}; // the browser's, once `notifier` says so
+
     // Loads, then the scripts they set going, then the loads those queued.
     void settle()
     {
@@ -155,6 +205,12 @@ struct Runner {
             while (browser.has_pending_load())
                 browser.tick();
             browser.run_scripts();
+            // What the notifier has to say is heard at a tick, and the
+            // pages' answers to it run.
+            for (int heard = 0; heard < 4 && notifier.has_events(); ++heard) {
+                browser.tick();
+                browser.run_scripts();
+            }
             if (!browser.has_pending_load())
                 break;
         }
@@ -855,6 +911,57 @@ struct Runner {
             expect_equal("assert-hints", std::to_string(browser.hint_count()), argument);
         } else if (command == "assert-find") {
             expect_equal("assert-find", browser.find_status(), argument);
+        } else if (command == "notifier") {
+            // `notifier`: the desktop has a notification service from here
+            // on — the script's own, which shows nothing anywhere.
+            browser.set_notifier(&notifier);
+            settle();
+        } else if (command == "assert-question") {
+            // `assert-question [<site>]`: the site whose question the bar
+            // under the toolbar asks; with no site, that there is no bar.
+            expect_equal("assert-question", browser.notification_question(), argument);
+            if (browser.chrome_layout().permission_bar.is_empty() != argument.empty())
+                fail("assert-question: the bar is " + std::string(argument.empty() ? "there" : "not there"));
+        } else if (command == "click-question") {
+            // `click-question allow|block|close`: a click on that button
+            // of the question's bar, where it is drawn.
+            ChromeLayout const chrome = browser.chrome_layout();
+            Rect const button = argument == "allow" ? chrome.permission_allow : argument == "block" ? chrome.permission_block : chrome.permission_close;
+            if (button.is_empty() || (argument != "allow" && argument != "block" && argument != "close"))
+                return fail("click-question: needs allow, block or close, and a question showing");
+            click(button.x + button.width / 2, button.y + button.height / 2, 1);
+        } else if (command == "assert-notification-sites") {
+            // `assert-notification-sites <site>=allowed, <site>=blocked`:
+            // everything the reader has said, in the sites' order.
+            std::string said;
+            for (auto const& [site, allowed] : browser.notification_sites())
+                said += (said.empty() ? "" : ", ") + site + (allowed ? "=allowed" : "=blocked");
+            expect_equal("assert-notification-sites", said, argument);
+        } else if (command == "assert-notices") {
+            // `assert-notices <showing> <ever>`: how many notices the
+            // desktop is showing, and how many it was ever asked to.
+            std::size_t showing = 0;
+            for (ScriptedNotifier::Shown const& one : notifier.shown)
+                showing += one.gone ? 0 : 1;
+            expect_equal("assert-notices", std::to_string(showing) + " " + std::to_string(notifier.shown.size()), argument);
+        } else if (command == "assert-notice") {
+            // `assert-notice <n> <title> | <body> | <site>[ | stays][ | silent]`:
+            // the nth notice the desktop was asked to show, from 1.
+            auto const n = int_arg(0);
+            std::size_t const gap = argument.find(' ');
+            if (!n || *n < 1 || static_cast<std::size_t>(*n) > notifier.shown.size() || gap == std::string::npos)
+                return fail("assert-notice: no notice " + argument.substr(0, gap) + " (" + std::to_string(notifier.shown.size()) + " shown)");
+            platform::Notice const& notice = notifier.shown[static_cast<std::size_t>(*n - 1)].notice;
+            expect_equal("assert-notice", notice.title + " | " + notice.body + " | " + notice.site + (notice.stays ? " | stays" : "") + (notice.silent ? " | silent" : ""),
+                trim(argument.substr(gap + 1)));
+        } else if (command == "notice-press" || command == "notice-dismiss") {
+            // `notice-press <n>` / `notice-dismiss <n>`: what the reader
+            // does to the nth notice, on the desktop.
+            auto const n = int_arg(0);
+            bool const done = n && *n >= 1 && (command == "notice-press" ? notifier.press(static_cast<std::size_t>(*n)) : notifier.dismiss(static_cast<std::size_t>(*n)));
+            if (!done)
+                return fail(command + ": no such notice showing");
+            settle();
         } else if (command == "assert-blocked") {
             expect_equal("assert-blocked", std::to_string(browser.blocked_requests()), argument);
         } else if (command == "advance") {
@@ -953,6 +1060,7 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
     else
         out << "FAILED " << std::filesystem::path(path).filename().string() << ": "
             << runner.result.failures << " failure(s) in " << runner.result.commands << " commands\n";
+    browser.set_notifier(nullptr); // the script's notifier ends with it
     return runner.result;
 }
 

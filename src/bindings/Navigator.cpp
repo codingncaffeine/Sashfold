@@ -585,8 +585,9 @@ void install_permissions(Realm::Internals& in, js::Object& navigator)
     }
     js::Object* permissions = define_interface(in, "Permissions", nullptr);
     // query(descriptor): the names the registry and the shipping engines
-    // know; every one is denied here, since nothing here asks the reader
-    // and nothing here has the device.
+    // know. Notifications answer what the reader has said of the site
+    // ("prompt" until asked); every other one is denied, since nothing
+    // here asks the reader for it and nothing here has the device.
     define_promise_operation(in.interpreter, *permissions, "query", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
         Realm::Internals& internals = internals_of(interp);
         js::Interpreter::Roots const roots(interp);
@@ -616,7 +617,13 @@ void install_permissions(Realm::Internals& in, js::Object& navigator)
         js::Heap::NoCollect const no_collect(interp.heap());
         auto* made = interp.heap().allocate<EventTargetObject>(internals.prototype("PermissionStatus"));
         interp.root(js::Value::object(made));
-        made->put(interp.key("__state"), internals.string("denied"), 0);
+        std::string state = "denied";
+        if (*name == "notifications") {
+            state = notification_permission(internals);
+            if (state == "default")
+                state = "prompt";
+        }
+        made->put(interp.key("__state"), internals.string(state), 0);
         made->put(interp.key("__name"), internals.string(*name), 0);
         return resolved_promise(interp, js::Value::object(made));
     });

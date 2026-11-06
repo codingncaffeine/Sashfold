@@ -155,6 +155,16 @@ struct HostPicture {
 // (js-JIT-DESIGN.md §7). What `now` is when a host gives none.
 double coarse_clock_ms();
 
+// A notification a page asks to be shown (bindings/Notifications.cpp): what
+// of it the desktop is told.
+struct NotificationRequest {
+    std::string title;
+    std::string body;
+    std::string tag; // one with the same tag, of the same site, is replaced
+    bool require_interaction = false;
+    bool silent = false;
+};
+
 // What the page's host provides to its scripts. Every hook is optional;
 // a missing one answers with the least surprising nothing (no box, the
 // attribute's value, no navigation).
@@ -309,6 +319,20 @@ struct HostHooks {
     // host puts its chrome away and asks for the whole screen, or brings
     // them back. True when it did. Unset, no element goes full screen.
     std::function<bool(bool enter)> request_fullscreen;
+
+    // Notifications. What the reader has said of this page's site:
+    // "granted", "denied", or "default" — not asked yet, and may be.
+    // Unset, "denied": a host that shows none asks no one.
+    std::function<std::string()> notification_permission;
+    // The page asks to be allowed: the host asks the reader, when and how
+    // it sees fit, and gives the answer to
+    // Realm::notification_permission_answered — "default" when the reader
+    // turned the question away.
+    std::function<void()> ask_notification_permission;
+    // Shows a notification and names it (0: it cannot be shown). What
+    // becomes of it comes back through Realm::notification_event.
+    std::function<std::uint64_t(NotificationRequest const&)> show_notification;
+    std::function<void(std::uint64_t id)> close_notification;
 
     // Dedicated workers (HTML §10.2, Workers.h). With `worker_threads`, each
     // worker a document here starts runs on a thread of its own, and all it
@@ -522,6 +546,14 @@ public:
     // called preventDefault on a cancelable event: the host then skips
     // the default action.
     bool dispatch_event(dom::Node* target, std::string_view type, EventInit init = {});
+    // The reader's answer to HostHooks::ask_notification_permission:
+    // "granted", "denied" or "default". Every requestPermission() waiting
+    // on it is settled with it.
+    void notification_permission_answered(std::string_view state);
+    // What became of a notification HostHooks::show_notification named:
+    // "show" (the desktop has it), "click", "close", or "error" (it could
+    // not be shown). The event of that name fires at the Notification.
+    void notification_event(std::uint64_t id, std::string_view type);
     // The host's window (or what it shows the page in) has another size, in
     // CSS px: innerWidth and the media queries read it from now, and a task
     // fires resize at the window and change at each MediaQueryList whose

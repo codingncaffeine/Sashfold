@@ -1225,6 +1225,16 @@ struct Realm::Internals {
     std::uint64_t document_aborts = 0;
     // The wrapper of the element shown full screen, if one is (Fullscreen.cpp).
     js::Object* fullscreen_wrapper = nullptr;
+    // Notifications.cpp: the requestPermission() calls waiting for the
+    // reader's answer — each one's promise's resolver, and the old callback
+    // where one was given — and the notifications the host is showing, by
+    // the names it gave them.
+    struct NotificationAsk {
+        js::Value resolve;
+        js::Value callback;
+    };
+    std::vector<NotificationAsk> notification_asks;
+    std::map<std::uint64_t, js::Object*> shown_notifications;
     // The document's active view transition (css-view-transitions-1 §9),
     // from startViewTransition until it is skipped (Document.cpp).
     js::Object* active_view_transition = nullptr;
@@ -1944,6 +1954,10 @@ void install_websockets(Realm::Internals&); // WebSockets.cpp: WebSocket
 void install_broadcast_channel(Realm::Internals&);
 // Notifications.cpp: Notification, with the permission denied.
 void install_notifications(Realm::Internals&);
+void trace_notifications(Realm::Internals&, js::Tracer&);
+// What the reader has said of this document's notifications: the host's
+// word for a page's own document in a secure context, "denied" for the rest.
+std::string notification_permission(Realm::Internals&);
 void trace_broadcast_channels(Realm::Internals const&, js::Tracer&);
 // FontFace.cpp: FontFace; the set members of document.fonts (FontFaceSet);
 // the faces in it, which a collection keeps.

@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<title>Notifications</title>
+<body style="margin: 0; background: #ccddee; font: 16px sans-serif">
+<button id="ask" style="position: absolute; left: 20px; top: 20px; width: 160px; height: 40px">Ask</button>
+<button id="show" style="position: absolute; left: 20px; top: 80px; width: 160px; height: 40px">Show</button>
+<button id="again" style="position: absolute; left: 20px; top: 140px; width: 160px; height: 40px">Again</button>
+<button id="close" style="position: absolute; left: 20px; top: 200px; width: 160px; height: 40px">Close</button>
+<script>
+var log = [];
+var last = null;
+function say(what) { log.push(what); document.title = log.join(', '); }
+say(Notification.permission);
+// Asked with no click behind it: the reader is not troubled.
+Notification.requestPermission().then(function (answer) { say('unbidden ' + answer); });
+document.getElementById('ask').addEventListener('click', function () {
+    Notification.requestPermission().then(function (answer) { say('asked ' + answer + ' ' + Notification.permission); });
+});
+function show(title, options) {
+    last = new Notification(title, options);
+    ['show', 'click', 'close', 'error'].forEach(function (type) {
+        last.addEventListener(type, function () { say(type + ' ' + title); });
+    });
+}
+document.getElementById('show').addEventListener('click', function () { show('First', { body: 'Hello <b>there</b>', tag: 'chat' }); });
+document.getElementById('again').addEventListener('click', function () { show('Second', { tag: 'chat', requireInteraction: true, silent: true }); });
+document.getElementById('close').addEventListener('click', function () { last.close(); });
+</script>

@@ -554,6 +554,9 @@ struct Browser::Impl {
         // container, the status and the icon are then a mirror of what the
         // engine last said (hear).
         std::shared_ptr<Engine> engine;
+        // The site whose page here has asked to show notifications, while
+        // the reader has not answered: the question's bar is this tab's.
+        std::string permission_ask;
         bool page_fullscreen = false; // of that mirror: an element of the page is shown full screen
         bool page_modal = false; // a menu of the page's is open, or its link hints
         bool page_menu_open = false;
@@ -902,6 +905,8 @@ struct Browser::Impl {
         std::size_t js_heap_limit = 0;
         std::string newer_version;
         bool update_checks = false;
+        std::map<std::string, bool> notification_sites;
+        bool notifications_available = false;
         bindings::WorkerThreads* worker_threads = nullptr;
         bool video_layers = true;
         std::function<std::shared_ptr<media::VideoPipeline>(std::string& error)> video_opener;
@@ -985,6 +990,10 @@ struct Browser::Impl {
         TabClose,
         Address,
         FindBox,
+        PermissionAllow, // the buttons of a page's question
+        PermissionBlock,
+        PermissionClose,
+        PermissionBar, // the bar itself, off its buttons
         DevtoolsTree,
         DevtoolsStyles,
         Content,
@@ -1073,6 +1082,25 @@ struct Browser::Impl {
     // the main menu's first row and about:sashfold say.
     std::string newer_version;
     bool update_checks = false;
+    // Notifications (the section before the chrome's geometry). The
+    // desktop's notifier, the shell's alone; what the reader has said of
+    // each site, the shell's to keep and each page's copy to read, with
+    // whether the notifier has answered; the notices showing, by the
+    // notifier's names for them; and a page's own names for the ones it
+    // has asked for.
+    platform::Notifier* notifier = nullptr;
+    std::map<std::string, bool> notification_sites;
+    bool notifications_available = false;
+    std::function<void()> on_notification_sites_changed;
+    struct ShownNotice {
+        std::weak_ptr<Engine> engine; // whose page asked, where pages are in engines
+        dom::Document const* document = nullptr; // and where they are not (compared, never read)
+        std::uint64_t page_id = 0;
+        std::string site;
+        std::string tag;
+    };
+    std::map<std::uint64_t, ShownNotice> shown_notices;
+    std::uint64_t notice_ids = 0;
     // Where the pages' workers run, when not on this thread
     // (Browser::set_worker_threads).
     bindings::WorkerThreads* worker_threads = nullptr;
@@ -1626,6 +1654,8 @@ struct Browser::Impl {
             page.js_heap_limit = setup->js_heap_limit;
             page.newer_version = setup->newer_version;
             page.update_checks = setup->update_checks;
+            page.notification_sites = setup->notification_sites;
+            page.notifications_available = setup->notifications_available;
             page.worker_threads = setup->worker_threads;
             page.video_layers = setup->video_layers;
             page.video_opener = setup->video_opener;
@@ -2620,6 +2650,329 @@ struct Browser::Impl {
         dirty = true;
     }
 
+    // --- Notifications ---------------------------------------------------------
+    //
+    // What the reader has said of a site's notifications is the shell's to
+    // keep and each page's to read: a copy, told again whenever it changes.
+    // A page asks; the shell puts the question in a bar under the toolbar
+    // of the tab that asked, for as long as that tab stays on the site; the
+    // answer is kept and told to the page. A notification a page shows goes
+    // to the desktop through the shell — which looks at the site's
+    // permission itself, whatever the page's copy said — and what the
+    // desktop says of it comes back to the page that made it.
+
+    // The site a page's notifications belong to: its origin.
+    static std::string notification_site(net::Url const& url)
+    {
+        return url.scheme == "file" ? std::string("file://") : url.serialize_origin();
+    }
+
+    // The site as the reader is shown it: its host, without the scheme.
+    static std::string site_shown(std::string const& site)
+    {
+        if (site == "file://")
+            return "A file on this computer";
+        std::size_t const scheme_end = site.find("://");
+        return scheme_end == std::string::npos ? site : site.substr(scheme_end + 3);
+    }
+
+    // What the reader has said of `site`, as a page reads it.
+    std::string notification_state(std::string const& site) const
+    {
+        if (!notifications_available)
+            return "denied";
+        auto const found = notification_sites.find(site);
+        if (found == notification_sites.end())
+            return "default";
+        return found->second ? "granted" : "denied";
+    }
+
+    // The question a tab is asking: its page asked, and the tab is still
+    // on that site. Null when it asks none.
+    std::string const* notification_question(Tab const& tab) const
+    {
+        if (tab.permission_ask.empty())
+            return nullptr;
+        HistoryEntry const* const entry = tab.current();
+        if (!entry || notification_site(entry->final_url) != tab.permission_ask)
+            return nullptr;
+        return &tab.permission_ask;
+    }
+
+    // A page asks the reader, for its site.
+    void ask_about_notifications(dom::Document const* document, std::string const& site)
+    {
+        if (engine_self) {
+            ask_shell([site](Impl& shell, std::size_t tab) { shell.show_notification_question(tab, site); });
+            return;
+        }
+        if (Tab const* const owner = tab_of(document))
+            show_notification_question(index_of(*owner), site);
+    }
+
+    void show_notification_question(std::size_t tab, std::string const& site)
+    {
+        if (tab >= tabs.size())
+            return;
+        // Answered since the page read it — in another tab of the site's —
+        // or there is no notifier after all: the page has the answer now.
+        if (!notifications_available || notification_sites.contains(site)) {
+            answer_page(tabs[tab], site, notification_state(site));
+            return;
+        }
+        tabs[tab].permission_ask = site;
+        dirty = true;
+    }
+
+    // The reader's answer to the question tab `tab` asks: allowed, blocked,
+    // or — the bar closed — neither, and the page may ask again.
+    void answer_notification_question(std::size_t tab, std::optional<bool> allowed)
+    {
+        if (tab >= tabs.size() || tabs[tab].permission_ask.empty())
+            return;
+        std::string const site = std::exchange(tabs[tab].permission_ask, {});
+        dirty = true;
+        if (!allowed) {
+            answer_page(tabs[tab], site, "default");
+            return;
+        }
+        notification_sites[site] = *allowed;
+        tell_notification_sites();
+        if (on_notification_sites_changed)
+            on_notification_sites_changed();
+        // Every tab that was asking the same has its answer.
+        answer_page(tabs[tab], site, notification_state(site));
+        for (Tab& other : tabs) {
+            if (other.permission_ask == site) {
+                other.permission_ask.clear();
+                answer_page(other, site, notification_state(site));
+            }
+        }
+    }
+
+    // The reader changes their mind in the menu: a site allowed, blocked,
+    // or — neither — forgotten, so that it may ask again. A site no longer
+    // allowed has its notices taken down.
+    void set_notification_site(std::string const& site, std::optional<bool> allowed)
+    {
+        if (allowed)
+            notification_sites[site] = *allowed;
+        else
+            notification_sites.erase(site);
+        tell_notification_sites();
+        if (on_notification_sites_changed)
+            on_notification_sites_changed();
+        if (notifier && !(allowed && *allowed)) {
+            for (auto const& [id, shown] : shown_notices) {
+                if (shown.site == site)
+                    notifier->close(id);
+            }
+        }
+        dirty = true;
+    }
+
+    // Each page's copy of what the reader has said, told again.
+    void tell_notification_sites()
+    {
+        tell_pages([sites = notification_sites, available = notifications_available](Browser& page) {
+            page.m_impl->notification_sites = sites;
+            page.m_impl->notifications_available = available;
+        });
+    }
+
+    void answer_page(Tab& tab, std::string const& site, std::string const& state)
+    {
+        if (engine_of(tab)) {
+            ask(tab, [site, state](Browser& page) {
+                if (!page.m_impl->tabs.empty())
+                    page.m_impl->notification_answered(page.m_impl->tabs.front(), site, state);
+            });
+            return;
+        }
+        notification_answered(tab, site, state);
+    }
+
+    // The page's side of the answer: the document that asked hears it, if
+    // it is still the one there.
+    void notification_answered(Tab& tab, std::string const& site, std::string const& state)
+    {
+        HistoryEntry const* const entry = tab.current();
+        if (!tab.realm || !entry || notification_site(entry->final_url) != site)
+            return;
+        tab.realm->notification_permission_answered(state);
+        dirty = true;
+    }
+
+    // A page shows a notification: named by the page, shown by the shell.
+    std::uint64_t show_notice(dom::Document const* document, std::string const& site, bindings::NotificationRequest const& request)
+    {
+        if (notification_state(site) != "granted")
+            return 0;
+        std::uint64_t const id = ++notice_ids;
+        if (engine_self) {
+            ask_shell([id, site, request](Impl& shell, std::size_t tab) { shell.show_notice_for(tab, id, site, request); });
+            return id;
+        }
+        Tab const* const owner = tab_of(document);
+        if (!owner)
+            return 0;
+        show_notice_for(index_of(*owner), id, site, request);
+        return id;
+    }
+
+    void show_notice_for(std::size_t tab, std::uint64_t page_id, std::string const& site, bindings::NotificationRequest const& request)
+    {
+        if (tab >= tabs.size())
+            return;
+        // The shell's own word on it: the site is allowed, and it is the
+        // site this tab is on — a page speaks for no other.
+        HistoryEntry const* const entry = tabs[tab].current();
+        auto const allowed = notification_sites.find(site);
+        if (!notifier || !entry || notification_site(entry->final_url) != site || allowed == notification_sites.end() || !allowed->second) {
+            tell_page_of_notice(tabs[tab], page_id, "error");
+            return;
+        }
+        // One with the same tag, of the same site, gives way to it.
+        std::uint64_t replaces = 0;
+        if (!request.tag.empty()) {
+            for (auto const& [id, shown] : shown_notices) {
+                if (shown.site == site && shown.tag == request.tag)
+                    replaces = id;
+            }
+        }
+        platform::Notice notice;
+        notice.title = request.title;
+        notice.body = request.body;
+        notice.site = site_shown(site);
+        notice.stays = request.require_interaction;
+        notice.silent = request.silent;
+        std::uint64_t const id = notifier->show(notice, replaces);
+        if (replaces != 0) {
+            ShownNotice const before = shown_notices[replaces];
+            shown_notices.erase(replaces);
+            if (Tab* const its = tab_of_notice(before))
+                tell_page_of_notice(*its, before.page_id, "close");
+        }
+        ShownNotice shown;
+        shown.engine = tabs[tab].engine;
+        shown.document = tabs[tab].engine ? nullptr : tabs[tab].document.get();
+        shown.page_id = page_id;
+        shown.site = site;
+        shown.tag = request.tag;
+        shown_notices[id] = std::move(shown);
+    }
+
+    Tab* tab_of_notice(ShownNotice const& shown)
+    {
+        std::shared_ptr<Engine> const engine = shown.engine.lock();
+        for (Tab& tab : tabs) {
+            if (engine ? tab.engine == engine : (!tab.engine && shown.document != nullptr && tab.document.get() == shown.document))
+                return &tab;
+        }
+        return nullptr;
+    }
+
+    // What became of a notice, told to the page that made it.
+    void tell_page_of_notice(Tab& tab, std::uint64_t page_id, std::string const& type)
+    {
+        if (engine_of(tab)) {
+            ask(tab, [page_id, type](Browser& page) {
+                if (!page.m_impl->tabs.empty())
+                    page.m_impl->notice_event(page.m_impl->tabs.front(), page_id, type);
+            });
+            return;
+        }
+        notice_event(tab, page_id, type);
+    }
+
+    void notice_event(Tab& tab, std::uint64_t page_id, std::string const& type)
+    {
+        if (!tab.realm)
+            return;
+        tab.realm->notification_event(page_id, type);
+        dirty = true;
+    }
+
+    // A page takes its notification down.
+    void close_notice(dom::Document const* document, std::uint64_t page_id)
+    {
+        if (engine_self) {
+            ask_shell([page_id](Impl& shell, std::size_t tab) { shell.close_notice_for(tab, page_id); });
+            return;
+        }
+        if (Tab const* const owner = tab_of(document))
+            close_notice_for(index_of(*owner), page_id);
+    }
+
+    void close_notice_for(std::size_t tab, std::uint64_t page_id)
+    {
+        if (tab >= tabs.size() || !notifier)
+            return;
+        for (auto const& [id, shown] : shown_notices) {
+            if (shown.page_id == page_id && tab_of_notice(shown) == &tabs[tab]) {
+                notifier->close(id);
+                return;
+            }
+        }
+    }
+
+    // The shell hears the notifier: whether it is there, and what became
+    // of the notices; and tidies the questions and notices of tabs that
+    // have moved on. True when something was heard.
+    bool hear_notifier()
+    {
+        if (engine_self)
+            return false;
+        bool heard = false;
+        bool const available = notifier != nullptr && notifier->available();
+        if (available != notifications_available) {
+            notifications_available = available;
+            tell_notification_sites();
+            heard = true;
+        }
+        for (Tab& tab : tabs) {
+            if (!tab.permission_ask.empty() && !notification_question(tab)) {
+                tab.permission_ask.clear();
+                dirty = true;
+            }
+        }
+        if (!notifier)
+            return heard;
+        for (platform::Notifier::Event const& event : notifier->take_events()) {
+            auto const found = shown_notices.find(event.id);
+            if (found == shown_notices.end())
+                continue;
+            heard = true;
+            ShownNotice const shown = found->second;
+            char const* type = "show";
+            switch (event.kind) {
+            case platform::Notifier::Event::Kind::Shown: type = "show"; break;
+            case platform::Notifier::Event::Kind::Clicked: type = "click"; break;
+            case platform::Notifier::Event::Kind::Closed: type = "close"; break;
+            case platform::Notifier::Event::Kind::Failed: type = "error"; break;
+            }
+            if (event.kind == platform::Notifier::Event::Kind::Closed || event.kind == platform::Notifier::Event::Kind::Failed)
+                shown_notices.erase(found);
+            Tab* const tab = tab_of_notice(shown);
+            if (!tab)
+                continue;
+            // Pressed: its tab comes to the front, and its page hears.
+            if (event.kind == platform::Notifier::Event::Kind::Clicked && tab != active_tab())
+                select_tab(index_of(*tab));
+            tell_page_of_notice(*tab_of_notice(shown), shown.page_id, type);
+        }
+        // A notice whose tab is gone has no one to tell: it is taken down.
+        for (auto it = shown_notices.begin(); it != shown_notices.end();) {
+            if (tab_of_notice(it->second) == nullptr) {
+                notifier->close(it->first);
+                it = shown_notices.erase(it);
+            } else {
+                ++it;
+            }
+        }
+        return heard;
+    }
+
     // --- Chrome geometry -------------------------------------------------------
 
     ChromeLayout layout_chrome() const
@@ -2647,6 +3000,23 @@ struct Browser::Impl {
             // The bar is the toolbar's second row, and takes its height from the content.
             c.bookmarks_bar = Rect { 0, content_top, width, t.bookmarks_bar_height };
             content_top += t.bookmarks_bar_height;
+        }
+        if (Tab const* const front = page_only ? nullptr : active_tab(); front && notification_question(*front)) {
+            // A page's question, under the toolbar and over the find bar:
+            // what is asked at the left, the answers at the right.
+            c.permission_bar = Rect { 0, content_top, width, t.find_height };
+            int const button_height = t.address_height;
+            int const button_y = content_top + (t.find_height - button_height) / 2;
+            auto const button_width = [&](std::string_view label) {
+                return static_cast<int>(text_width(decode_utf8(std::string(label)), t.font_size) + 0.5f) + 4 * t.padding;
+            };
+            int right = width - t.padding;
+            c.permission_close = Rect { right - button_height, button_y, button_height, button_height };
+            right = c.permission_close.x - t.padding;
+            c.permission_block = Rect { right - button_width("Block"), button_y, button_width("Block"), button_height };
+            right = c.permission_block.x - t.padding;
+            c.permission_allow = Rect { right - button_width("Allow"), button_y, button_width("Allow"), button_height };
+            content_top += t.find_height;
         }
         if (!page_only && find_open) {
             // The find bar sits under the toolbar and takes its height from the content.
@@ -4435,7 +4805,21 @@ struct Browser::Impl {
             if (Tab const* const owner = tab_of(document))
                 pending_windows.push_back(PendingWindow { owner->container, target, index_of(*owner), true });
         };
-        hooks.user_activation = [this] { return std::chrono::steady_clock::now() < activation_until; };
+        // The reader's act is this document's (HTML §6.4.2: a new document
+        // starts with none): a click on the page before, the one that led
+        // here, does not let this one open a window or ask a question as it
+        // loads.
+        hooks.user_activation = [this, made = std::chrono::steady_clock::now()] {
+            return std::chrono::steady_clock::now() < activation_until && activation_until - activation_lasts >= made;
+        };
+        // Notifications: the site is the document's, fixed when it was made.
+        std::string const site = notification_site(page_url);
+        hooks.notification_permission = [this, site] { return notification_state(site); };
+        hooks.ask_notification_permission = [this, document, site] { ask_about_notifications(document, site); };
+        hooks.show_notification = [this, document, site](bindings::NotificationRequest const& request) {
+            return show_notice(document, site, request);
+        };
+        hooks.close_notification = [this, document](std::uint64_t id) { close_notice(document, id); };
         // A page's element going full screen: only the page in front, and
         // only its own document (a frame is refused before it asks). The
         // page gets the whole window — the chrome is put away — and the
@@ -6016,6 +6400,17 @@ struct Browser::Impl {
         close_menus();
         remember_closed(index);
         opened_beside = 0;
+        // Its notices have no one left to tell: they are taken down.
+        if (notifier) {
+            for (auto it = shown_notices.begin(); it != shown_notices.end();) {
+                if (tab_of_notice(it->second) == &tabs[index]) {
+                    notifier->close(it->first);
+                    it = shown_notices.erase(it);
+                } else {
+                    ++it;
+                }
+            }
+        }
         if (pages_in_engines) {
             if (tabs[index].page_fullscreen)
                 window_request = Browser::WindowRequest::ExitFullscreen;
@@ -6816,6 +7211,14 @@ struct Browser::Impl {
                 next = Hover::MenuButton;
             else if (c.address.contains(x, y))
                 next = Hover::Address;
+            else if (c.permission_allow.contains(x, y))
+                next = Hover::PermissionAllow;
+            else if (c.permission_block.contains(x, y))
+                next = Hover::PermissionBlock;
+            else if (c.permission_close.contains(x, y))
+                next = Hover::PermissionClose;
+            else if (c.permission_bar.contains(x, y))
+                next = Hover::PermissionBar;
             else if (find_open && c.find_box.contains(x, y))
                 next = Hover::FindBox;
             else if (devtools_open && c.devtools_tree.contains(x, y))
@@ -8135,6 +8538,23 @@ struct Browser::Impl {
             themes.children.push_back({});
             themes.children.push_back(menu_item("More themes\xe2\x80\xa6", {}, [this] { open_themes_page(); }));
             items.push_back(std::move(themes));
+        }
+        // What the reader has said of each site's notifications, to be
+        // changed or taken back: a row a site, there once one has an answer.
+        if (!notification_sites.empty()) {
+            MenuItem notifications = menu_item("Notifications", {}, {});
+            for (auto const& [site, allowed] : notification_sites) {
+                MenuItem row = menu_item(site_shown(site) + (allowed ? ": allowed" : ": blocked"), {}, {});
+                MenuItem allow = menu_item("Allow", {}, [this, site] { set_notification_site(site, true); });
+                allow.checked = allowed;
+                MenuItem block = menu_item("Block", {}, [this, site] { set_notification_site(site, false); });
+                block.checked = !allowed;
+                row.children.push_back(std::move(allow));
+                row.children.push_back(std::move(block));
+                row.children.push_back(menu_item("Ask again", {}, [this, site] { set_notification_site(site, std::nullopt); }));
+                notifications.children.push_back(std::move(row));
+            }
+            items.push_back(std::move(notifications));
         }
         items.push_back(menu_item("Command palette", "Ctrl+Shift+P", [this] { open_palette({}); }));
         items.push_back({});
@@ -9852,6 +10272,10 @@ struct Browser::Impl {
                 blur_address();
                 focus_find(true);
                 break;
+            case Hover::PermissionAllow: answer_notification_question(active, true); break;
+            case Hover::PermissionBlock: answer_notification_question(active, false); break;
+            case Hover::PermissionClose: answer_notification_question(active, std::nullopt); break;
+            case Hover::PermissionBar: break;
             case Hover::DevtoolsTree:
                 if (Tab* const tab = active_tab())
                     inspect_tree_line(*tab, y);
@@ -10025,7 +10449,8 @@ struct Browser::Impl {
 
     // The reader acted: a page may open a window for the next seconds
     // (HTML §6.4.2's transient activation, at the duration browsers keep).
-    void note_activation() { activation_until = std::chrono::steady_clock::now() + std::chrono::seconds(5); }
+    static constexpr std::chrono::seconds activation_lasts { 5 };
+    void note_activation() { activation_until = std::chrono::steady_clock::now() + activation_lasts; }
 
     // The keyboard moves whatever the reader last moved by hand, and the
     // page when that box has run out or there is none.
@@ -10909,6 +11334,50 @@ struct Browser::Impl {
             frame.set_clip(std::nullopt);
         }
 
+        // A page's question: the site and what it asks, and the answers.
+        if (!c.permission_bar.is_empty() && tab) {
+            frame.fill_rect(c.permission_bar, t.chrome_background);
+            frame.fill_rect(Rect { 0, c.permission_bar.bottom() - t.border_width, width, t.border_width }, t.chrome_border);
+            auto const text_button = [&](Rect const& box, std::string_view label, bool primary, bool hovered) {
+                // The answer that grants is the one in the accent; its words
+                // are in whichever of the chrome's two colors reads on it.
+                Color const fill = primary ? t.accent : hovered ? t.button_hover_background : t.address_background;
+                frame.fill_round_box(box, t.address_corner_radius, t.border_width,
+                    primary ? t.accent : hovered ? t.address_border_focus : t.address_border, fill);
+                if (primary && hovered)
+                    frame.fill_round_rect(box, t.address_corner_radius, Color::rgba(0xff, 0xff, 0xff, 0x26));
+                std::u32string const words = decode_utf8(std::string(label));
+                float const words_width = text_width(words, t.font_size);
+                int const accent_light = (2126 * t.accent.r + 7152 * t.accent.g + 722 * t.accent.b) / 10000; // 0 to 255
+                Color const ink = !primary ? t.chrome_text : accent_light > 140 ? Color::rgb(0x10, 0x12, 0x16) : Color::rgb(0xff, 0xff, 0xff);
+                draw_text(frame, words, static_cast<float>(box.x) + (static_cast<float>(box.width) - words_width) / 2,
+                    centered_baseline(box, t.font_size), t.font_size, ink);
+            };
+            text_button(c.permission_allow, "Allow", true, hover == Hover::PermissionAllow);
+            text_button(c.permission_block, "Block", false, hover == Hover::PermissionBlock);
+            paint_button(c.permission_close, Icon::Close, true, hover == Hover::PermissionClose, pressed == Hover::PermissionClose);
+            Rect const label { t.padding * 2, c.permission_bar.y, std::max(0, c.permission_allow.x - 4 * t.padding), t.find_height };
+            if (std::string const* const site = notification_question(*tab); site != nullptr && label.width > 0) {
+                // The site in the chrome's own color, the question after it
+                // muted. In a narrow window the question is said shorter
+                // before the site's name is cut, and the name keeps what the
+                // question leaves: what is asked matters as much as who asks.
+                std::u32string const whole_name = decode_utf8(site_shown(*site));
+                float const room = static_cast<float>(label.width);
+                std::u32string question = decode_utf8(" wants to show notifications");
+                if (text_width(whole_name, t.font_size) + text_width(question, t.font_size) > room)
+                    question = decode_utf8(": notifications?");
+                float const question_width = text_width(question, t.font_size);
+                std::u32string const name = ellipsize(whole_name, std::max(room - question_width, room * 0.4f), t.font_size);
+                float const baseline = centered_baseline(label, t.font_size);
+                draw_text(frame, name, static_cast<float>(label.x), baseline, t.font_size, t.chrome_text);
+                float const name_width = text_width(name, t.font_size);
+                if (room - name_width > 0)
+                    draw_text(frame, ellipsize(question, room - name_width, t.font_size),
+                        static_cast<float>(label.x) + name_width, baseline, t.font_size, t.chrome_text_muted);
+            }
+        }
+
         // Find bar: the query box and the count of matches.
         if (find_open) {
             frame.fill_rect(c.find_bar, t.chrome_background);
@@ -11339,6 +11808,8 @@ std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab
         setup->js_heap_limit = js_heap_limit;
         setup->newer_version = newer_version;
         setup->update_checks = update_checks;
+        setup->notification_sites = notification_sites;
+        setup->notifications_available = notifications_available;
         setup->worker_threads = worker_threads;
         setup->video_layers = video_layers;
         setup->video_opener = video_opener;
@@ -11375,6 +11846,8 @@ std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab
     page.js_heap_limit = js_heap_limit;
     page.newer_version = newer_version;
     page.update_checks = update_checks;
+    page.notification_sites = notification_sites;
+    page.notifications_available = notifications_available;
     page.worker_threads = worker_threads;
     page.video_layers = video_layers;
     page.video_opener = video_opener;
@@ -11534,6 +12007,40 @@ void Browser::set_update_notice(std::string newer_version, bool checks)
     m_impl->newer_version = newer_version;
     m_impl->update_checks = checks;
     m_impl->tell_pages([newer_version, checks](Browser& page) { page.set_update_notice(newer_version, checks); });
+}
+
+void Browser::set_notifier(platform::Notifier* notifier)
+{
+    m_impl->notifier = notifier;
+    m_impl->hear_notifier();
+}
+
+void Browser::set_notification_sites(std::map<std::string, bool> sites)
+{
+    m_impl->notification_sites = std::move(sites);
+    m_impl->tell_notification_sites();
+}
+
+std::map<std::string, bool> const& Browser::notification_sites() const
+{
+    return m_impl->notification_sites;
+}
+
+void Browser::set_on_notification_sites_changed(std::function<void()> changed)
+{
+    m_impl->on_notification_sites_changed = std::move(changed);
+}
+
+std::string Browser::notification_question() const
+{
+    Impl::Tab const* const tab = m_impl->active_tab();
+    std::string const* const site = tab ? m_impl->notification_question(*tab) : nullptr;
+    return site ? Impl::site_shown(*site) : std::string();
+}
+
+void Browser::answer_notification_question(std::optional<bool> allowed)
+{
+    m_impl->answer_notification_question(m_impl->active, allowed);
 }
 
 void Browser::set_worker_threads(bindings::WorkerThreads* threads)
@@ -11782,10 +12289,13 @@ bool Browser::load_ready() const
 
 bool Browser::tick()
 {
+    // What the desktop says of the notices first: a page that hears of one
+    // may have something to do about it in this same step.
+    bool const notices_heard = m_impl->hear_notifier();
     if (m_impl->page_threads) {
         m_impl->hear_pages();
         m_impl->tell_shown();
-        return m_impl->do_page_request();
+        return m_impl->do_page_request() || notices_heard;
     }
     if (m_impl->pages_in_engines) {
         // What a page asked of the shell first, as a window a page asks for
@@ -11909,6 +12419,9 @@ bool Browser::run_scripts()
 {
     Impl& impl = *m_impl;
     bool ran = false;
+    // The window's loop comes here every turn, and the notifier woke it:
+    // what the desktop said of the notices is heard now.
+    impl.hear_notifier();
     if (impl.page_threads) {
         // The pages' timers are their threads' to run: the shell hears what
         // the pages have said, and keeps its own clockwork.

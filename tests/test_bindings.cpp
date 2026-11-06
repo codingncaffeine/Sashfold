@@ -4990,6 +4990,153 @@ void test_notifications_are_denied()
     CHECK(page->console.find("error:") == std::string::npos);
 }
 
+// Notifications with a host that shows them: the permission is the host's
+// word, asking it goes to the host once and waits for the reader's answer,
+// and a notification made with permission is the host's to show, with its
+// events coming back by the name the host gave it.
+void test_notifications_with_a_host()
+{
+    struct Host {
+        std::string state = "default";
+        bool acted = true;
+        int asked = 0;
+        std::vector<bindings::NotificationRequest> shown;
+        std::vector<std::uint64_t> closed;
+        std::uint64_t next = 40;
+    } host;
+    auto const page_with = [&host](std::string const& url) {
+        bindings::HostHooks hooks;
+        hooks.notification_permission = [&host] { return host.state; };
+        hooks.ask_notification_permission = [&host] { ++host.asked; };
+        hooks.user_activation = [&host] { return host.acted; };
+        hooks.show_notification = [&host](bindings::NotificationRequest const& request) {
+            host.shown.push_back(request);
+            return ++host.next;
+        };
+        hooks.close_notification = [&host](std::uint64_t id) { host.closed.push_back(id); };
+        auto page = std::make_unique<Page>("<!DOCTYPE html><body></body>", url, std::move(hooks));
+        page->load();
+        return page;
+    };
+    auto page = page_with("https://example.test/dir/page.html");
+    auto const pump = [&page] {
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    // Not asked yet.
+    CHECK_EQ(page->string("Notification.permission"), "default");
+    page->eval("var out = []; navigator.permissions.query({ name: 'notifications' }).then(function (status) { out.push('query ' + status.state); });");
+    pump();
+    CHECK_EQ(page->string("out.join('|')"), "query prompt");
+    // Asked with no act of the reader's behind it: the reader is not
+    // troubled, the answer is "default", and the console says why.
+    host.acted = false;
+    page->eval("out = []; Notification.requestPermission().then(function (answer) { out.push('unbidden ' + answer); });");
+    pump();
+    CHECK_EQ(host.asked, 0);
+    CHECK_EQ(page->string("out.join('|')"), "unbidden default");
+    CHECK(page->console.find("warn:Notification.requestPermission() was not asked of the reader") != std::string::npos);
+    // Asked at a click: the host is asked once however many times the
+    // page asks, and everyone waits for the answer.
+    host.acted = true;
+    page->eval("out = []; Notification.requestPermission(function (answer) { out.push('callback ' + answer); }).then(function (answer) { out.push('first ' + answer); });"
+               " Notification.requestPermission().then(function (answer) { out.push('second ' + answer); });");
+    pump();
+    CHECK_EQ(host.asked, 1);
+    CHECK_EQ(page->string("out.join('|')"), "");
+    // A notification made while the question stands is not shown.
+    page->eval("var early = new Notification('too soon'); early.onerror = function () { out.push('early error'); };");
+    pump();
+    CHECK_EQ(host.shown.size(), 0u);
+    CHECK_EQ(page->string("out.join('|')"), "early error");
+    // The reader allows it.
+    host.state = "granted";
+    page->realm->notification_permission_answered("granted");
+    pump();
+    CHECK_EQ(page->string("out.join('|')"), "early error|callback granted|first granted|second granted");
+    CHECK_EQ(page->string("Notification.permission"), "granted");
+    // An answer nobody is waiting for is nothing.
+    page->realm->notification_permission_answered("denied");
+    pump();
+    CHECK_EQ(page->string("String(out.length)"), "4");
+    // Known now: asking again answers at once and asks no one.
+    page->eval("out = []; Notification.requestPermission().then(function (answer) { out.push('again ' + answer); });");
+    pump();
+    CHECK_EQ(host.asked, 1);
+    CHECK_EQ(page->string("out.join('|')"), "again granted");
+
+    // Shown by the host, with what the desktop is told of it.
+    page->eval(R"JS(
+        out = [];
+        var n = new Notification('Hello', { body: 'there', tag: 'chat', silent: true, requireInteraction: true });
+        ['show', 'click', 'close', 'error'].forEach(function (type) {
+            n.addEventListener(type, function (e) { out.push(type + ' ' + e.isTrusted + ' ' + (e.target === n) + ' ' + e.cancelable); });
+        });
+    )JS");
+    pump();
+    CHECK_EQ(host.shown.size(), 1u);
+    if (host.shown.size() == 1) {
+        CHECK_EQ(host.shown[0].title, "Hello");
+        CHECK_EQ(host.shown[0].body, "there");
+        CHECK_EQ(host.shown[0].tag, "chat");
+        CHECK(host.shown[0].silent);
+        CHECK(host.shown[0].require_interaction);
+    }
+    CHECK_EQ(page->string("out.join('|')"), ""); // nothing until the host says
+    page->realm->notification_event(41, "show");
+    page->realm->notification_event(41, "click");
+    page->realm->notification_event(99, "click"); // not one of this page's
+    CHECK_EQ(page->string("out.join('|')"), "show true true false|click true true true");
+    // Closed by the page: the host is told, and says when it is gone.
+    page->eval("n.close();");
+    CHECK(host.closed == (std::vector<std::uint64_t> { 41 }));
+    page->realm->notification_event(41, "close");
+    CHECK_EQ(page->string("out.slice(2).join('|')"), "close true true false");
+    // Gone, it hears nothing more and closing it again tells no one.
+    page->realm->notification_event(41, "click");
+    page->eval("n.close();");
+    CHECK_EQ(page->string("String(out.length)"), "3");
+    CHECK_EQ(host.closed.size(), 1u);
+    // One the page holds nowhere is kept while it shows, through a collection.
+    page->eval("out = []; new Notification('kept').onclick = function (e) { out.push('kept ' + e.target.title); };");
+    page->eval("(function () { var junk = []; for (var i = 0; i < 20000; ++i) junk.push({ i: i }); })()");
+    page->realm->notification_event(42, "click");
+    CHECK_EQ(page->string("out.join('|')"), "kept kept");
+    // The desktop refused one: `error`, and it is no longer kept.
+    page->eval("out = []; var refused = new Notification('no'); refused.onerror = function () { out.push('refused error'); }; refused.onclose = function () { out.push('refused close'); };");
+    page->realm->notification_event(43, "error");
+    page->realm->notification_event(43, "close");
+    CHECK_EQ(page->string("out.join('|')"), "refused error");
+    // A host that cannot show it (0): `error`, in a task.
+    host.next = ~std::uint64_t { 0 }; // the next name wraps to 0
+    page->eval("out = []; var unshown = new Notification('x'); unshown.onerror = function () { out.push('unshown error'); }; out.push('made');");
+    pump();
+    CHECK_EQ(page->string("out.join('|')"), "made|unshown error");
+    CHECK(page->console.find("error:") == std::string::npos);
+
+    // The reader said no: denied, nothing asked, nothing shown.
+    host = Host {};
+    host.state = "denied";
+    page = page_with("https://example.test/");
+    page->eval("var out = []; Notification.requestPermission().then(function (answer) { out.push('asked ' + answer); }); new Notification('x').onerror = function () { out.push('error'); };");
+    pump();
+    CHECK_EQ(page->string("Notification.permission + '|' + out.join('|')"), "denied|asked denied|error");
+    CHECK_EQ(host.asked, 0);
+    CHECK_EQ(host.shown.size(), 0u);
+    // A page that is not a secure context is denied whatever the host says,
+    // and so is a frame's document.
+    host.state = "granted";
+    page = page_with("http://example.test/");
+    CHECK_EQ(page->string("Notification.permission"), "denied");
+    page->eval("new Notification('x');");
+    CHECK_EQ(host.shown.size(), 0u);
+    page = page_with("http://localhost:8080/");
+    CHECK_EQ(page->string("Notification.permission"), "granted");
+    page = page_with("https://example.test/");
+    CHECK_EQ(page->string("(function () { var f = document.createElement('iframe'); document.body.appendChild(f);"
+                          " return Notification.permission + '|' + f.contentWindow.Notification.permission; })()"),
+        "granted|denied");
+}
+
 void test_navigator_objects()
 {
     auto page = loaded("<!DOCTYPE html><body></body>");
@@ -6467,6 +6614,7 @@ int main()
     test_interface_receivers();
     test_navigator_objects();
     test_notifications_are_denied();
+    test_notifications_with_a_host();
     test_trusted_types();
     test_scripts_that_must_not_run_again();
     test_mutation_observer();

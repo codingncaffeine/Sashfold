@@ -23,6 +23,7 @@
 #include "platform/Confine.h"
 #include "platform/Memory.h"
 #include "platform/MemoryWatch.h"
+#include "platform/Notifier.h"
 #include "platform/Tls.h"
 #include "platform/Window.h"
 #include "text/Face.h"
@@ -1777,6 +1778,34 @@ private:
     std::thread m_thread;
 };
 
+// What the reader has said of each site's notifications, as the profile
+// keeps it: a line a site, `allowed <origin>` or `blocked <origin>`.
+std::map<std::string, bool> parse_notification_sites(std::string const& text)
+{
+    std::map<std::string, bool> sites;
+    std::istringstream lines(text);
+    std::string line;
+    while (std::getline(lines, line)) {
+        if (!line.empty() && line.back() == '\r')
+            line.pop_back();
+        std::size_t const gap = line.find(' ');
+        if (gap == std::string::npos || gap + 1 >= line.size())
+            continue;
+        std::string const word = line.substr(0, gap);
+        if (word == "allowed" || word == "blocked")
+            sites[line.substr(gap + 1)] = word == "allowed";
+    }
+    return sites;
+}
+
+std::string serialize_notification_sites(std::map<std::string, bool> const& sites)
+{
+    std::string text;
+    for (auto const& [site, allowed] : sites)
+        text += (allowed ? "allowed " : "blocked ") + site + "\n";
+    return text;
+}
+
 // The containers the window offers, from the profile's containers.json:
 // [{"name": "Work", "color": "#f59e0b"}, …], in order. A profile without
 // the file gets one with four containers to start from.
@@ -2166,6 +2195,14 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         wake_pages();
         waker->wake();
     });
+    // The desktop's notifications, for the pages of sites the reader
+    // allows: reached in the background, and gone before the browser is.
+    std::unique_ptr<platform::Notifier> const notifier = platform::open_notifier("Sashfold", [waker] { waker->wake(); });
+    browser.set_notifier(notifier.get());
+    struct NotifierLet {
+        ui::Browser& browser;
+        ~NotifierLet() { browser.set_notifier(nullptr); }
+    } const notifier_let { browser };
     report_theme_pictures(browser);
     browser.set_scale(window->scale());
     browser.set_downloads_directory(downloads);
@@ -2205,6 +2242,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     std::uint64_t saved_bookmarks = 0;
     std::map<std::string, std::uint64_t> saved_cookies; // by container name; "" the default
     std::uint64_t saved_transport_security = 0;
+    std::string saved_notification_sites;
     // The update check: what the profile remembers of it, whether that has
     // changed since it was written, and the question on its way. Only a
     // browser with a profile asks: without one there is nowhere to keep
@@ -2233,6 +2271,11 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         if (std::optional<std::string> const text = read_text_file(profile_path / "hsts.txt"))
             loader.transport_security().load(*text, now);
         saved_transport_security = loader.transport_security().changes();
+        // What the reader has said of each site's notifications.
+        if (std::optional<std::string> const text = read_text_file(profile_path / "notifications.txt")) {
+            browser.set_notification_sites(parse_notification_sites(*text));
+            saved_notification_sites = serialize_notification_sites(browser.notification_sites());
+        }
         // A new profile's day starts now: its first run asks no server the
         // reader did not name.
         if (std::optional<std::string> const text = read_text_file(profile_path / "update.txt"))
@@ -2402,6 +2445,15 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             } else {
                 writer.write(profile_path / "update.txt", ui::serialize_update_state(update_state));
                 update_state_changed = false;
+                last_profile_write = now;
+            }
+        }
+        if (std::string sites = serialize_notification_sites(browser.notification_sites()); sites != saved_notification_sites) {
+            if (throttled) {
+                owed = true;
+            } else {
+                writer.write(profile_path / "notifications.txt", sites);
+                saved_notification_sites = std::move(sites);
                 last_profile_write = now;
             }
         }
