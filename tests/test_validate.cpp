@@ -263,17 +263,33 @@ void test_crl_cache_on_disk()
 }
 
 // Handshakes on several threads: those wanting one list share its one
-// download, and those wanting different lists do not queue behind each
-// other. Each download takes `slow`; the band is one download's time at
-// least and less than two.
+// download (and wait for it: one download's time at least), and those
+// wanting different lists do not queue behind each other — shown without
+// a clock's upper bound, which a loaded machine oversleeps: each of those
+// downloads waits until the other is under way too, so the two are seen
+// at once, or (were they queued) the first gives up waiting and only one
+// ever is.
 void test_crl_cache_concurrency()
 {
     using clock = std::chrono::steady_clock;
     auto const slow = std::chrono::milliseconds(200);
     std::atomic<int> downloads { 0 };
+    std::atomic<int> under_way { 0 };
+    std::atomic<int> most_at_once { 0 };
+    std::atomic<bool> meet { false };
     tls::CrlCache cache([&](std::string const& at) {
         ++downloads;
-        std::this_thread::sleep_for(slow);
+        int const now_under_way = ++under_way;
+        int seen = most_at_once.load();
+        while (now_under_way > seen && !most_at_once.compare_exchange_weak(seen, now_under_way)) { }
+        if (meet) {
+            auto const until = clock::now() + std::chrono::seconds(5);
+            while (most_at_once.load() < 2 && clock::now() < until)
+                std::this_thread::sleep_for(std::chrono::milliseconds(1));
+        } else {
+            std::this_thread::sleep_for(slow);
+        }
+        --under_way;
         return std::vector<std::uint8_t>(at.begin(), at.end());
     });
     {
@@ -292,20 +308,19 @@ void test_crl_cache_concurrency()
         auto const took = clock::now() - started;
         CHECK_EQ(downloads.load(), 1);
         CHECK_EQ(right.load(), 4);
+        CHECK_EQ(most_at_once.load(), 1);
         CHECK(took >= slow);
-        CHECK(took < 2 * slow);
     }
     {
         downloads = 0;
-        auto const started = clock::now();
+        most_at_once = 0;
+        meet = true;
         std::thread a([&] { cache.get("http://crl.sashfold.test/a.crl", now); });
         std::thread b([&] { cache.get("http://crl.sashfold.test/b.crl", now); });
         a.join();
         b.join();
-        auto const took = clock::now() - started;
         CHECK_EQ(downloads.load(), 2);
-        CHECK(took >= slow);
-        CHECK(took < 2 * slow);
+        CHECK_EQ(most_at_once.load(), 2);
     }
     // A download that throws leaves no list marked as on its way: the next
     // handshake that wants it asks again instead of waiting for ever.
