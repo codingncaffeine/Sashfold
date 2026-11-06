@@ -120,6 +120,10 @@ struct ChosenFile {
     std::string relative;
 };
 
+// When a file was last changed, in seconds since the epoch (the same value
+// for the same file time all through a run), or -1 when it cannot be read.
+double file_modified_seconds(std::string const& path);
+
 // Where the selection APIs apply (§4.10.5.4 table): selectionStart, End,
 // Direction, setRangeText and setSelectionRange on text, search, url, tel
 // and password inputs and on a textarea; select() on those and the other

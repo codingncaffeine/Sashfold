@@ -1175,11 +1175,13 @@ struct Layouter {
                 *fragment.control->focus_x += dx;
             fragment.control->caret_top += dy;
             fragment.control->caret_bottom += dy;
-            for (Fragment::ControlBox::Span& span : fragment.control->selected) {
-                span.x0 += dx;
-                span.x1 += dx;
-                span.top += dy;
-                span.bottom += dy;
+            for (auto* spans : { &fragment.control->selected, &fragment.control->misspelled }) {
+                for (Fragment::ControlBox::Span& span : *spans) {
+                    span.x0 += dx;
+                    span.x1 += dx;
+                    span.top += dy;
+                    span.bottom += dy;
+                }
             }
             if (fragment.control->preedit_span) {
                 fragment.control->preedit_span->first += dx;
@@ -2192,6 +2194,7 @@ struct Layouter {
             // Across a turn the selection and the lines are not where
             // they were drawn: a turned field shows neither.
             fragment.control->selected.clear();
+            fragment.control->misspelled.clear();
             fragment.control->lines.clear();
             fragment.control->focus_x.reset();
             turn_box(*fragment.control);
@@ -3053,6 +3056,25 @@ struct Layouter {
         fragment.control = control;
     }
 
+    // The spell checker's marks on one shown line of a text control: each
+    // misspelled word's part of [from, to), under its letters, a little below
+    // the baseline — but not the word the caret is in while it is typed.
+    static void add_misspelled(Fragment::ControlBox& control, ControlSpec const& spec, std::size_t from, std::size_t to,
+        std::vector<float> const& stops, float baseline)
+    {
+        if (!spec.state || spec.placeholder || spec.box.kind == ControlKind::Password || stops.empty())
+            return;
+        for (auto const& [start, end] : spec.state->misspelled) {
+            if (spec.box.focused && spec.full_caret >= start && spec.full_caret <= end)
+                continue;
+            std::size_t const a = std::max(start, from);
+            std::size_t const b = std::min(end, to);
+            if (a >= b || a - from >= stops.size() || b - from >= stops.size())
+                continue;
+            control.misspelled.push_back({ stops[a - from], stops[b - from], baseline + 1, baseline + 4 });
+        }
+    }
+
     // Gives a placed fragment a control's box and the runs of its text.
     void fill_control(Fragment& box, ControlSpec const& spec, ComputedStyle const& style) const
     {
@@ -3139,6 +3161,8 @@ struct Layouter {
                 if (!spec.box.focused) {
                     // Where the line is, without its stops: what a drop onto a
                     // field that has no focus finds its place by.
+                    if (spec.state && !spec.state->misspelled.empty())
+                        add_misspelled(control, spec, value_index(lines[i].first), value_index(lines[i].second), stops_of(shown, text_x), line_top + ascent);
                     control.lines.push_back({ value_index(lines[i].first), value_index(lines[i].second), line_top, line_top + line, {} });
                     continue;
                 }
@@ -3163,6 +3187,7 @@ struct Layouter {
                         control.selected.push_back({ x0, x1, line_top, line_top + line });
                     }
                 }
+                add_misspelled(control, spec, value_index(lines[i].first), value_index(lines[i].second), stops, line_top + ascent);
                 if (spec.caret_visible && i == caret_line)
                     control.focus_x = stops[std::min(caret - lines[i].first, stops.size() - 1)];
                 if (spec.caret_visible && !selecting && i == caret_line) {
@@ -3210,8 +3235,11 @@ struct Layouter {
                     measure(style, spec.shown) });
                 box.runs.back().placeholder = spec.placeholder;
             }
-            if (!spec.box.focused && is_text_kind(spec.box.kind) && !spec.placeholder)
+            if (!spec.box.focused && is_text_kind(spec.box.kind) && !spec.placeholder) {
+                if (spec.state && !spec.state->misspelled.empty())
+                    add_misspelled(control, spec, 0, spec.shown.size(), stops_of(spec.shown, text_x), baseline);
                 control.lines.push_back({ 0, spec.shown.size(), line_top, line_top + line, {} });
+            }
             if (spec.box.focused && is_text_kind(spec.box.kind)) {
                 std::vector<float> stops = stops_of(spec.shown, text_x);
                 std::size_t const from = spec.shown_from;
@@ -3247,6 +3275,7 @@ struct Layouter {
                         }
                         stops = std::move(value_stops);
                     }
+                    add_misspelled(control, spec, from, from + stops.size() - 1, stops, baseline);
                     control.lines.push_back({ from, from + stops.size() - 1, line_top, line_top + line, std::move(stops) });
                 }
             }

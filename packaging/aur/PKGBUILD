@@ -25,6 +25,7 @@ package() {
     install -Dm644 "${staged}/themes/"*.json -t "${pkgdir}/opt/sashfold/themes"
     install -Dm644 "${staged}/blocklists/README.md" -t "${pkgdir}/opt/sashfold/blocklists"
     install -Dm644 "${staged}/assets/icon.png" -t "${pkgdir}/opt/sashfold/assets"
+    install -Dm644 "${staged}/dictionaries/"* -t "${pkgdir}/opt/sashfold/dictionaries"
     install -Dm755 /dev/stdin "${pkgdir}/usr/bin/sashfold" <<'EOF'
 #!/bin/sh
 exec /opt/sashfold/sashfold "$@"

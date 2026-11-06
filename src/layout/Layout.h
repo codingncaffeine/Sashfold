@@ -142,6 +142,8 @@ struct Fragment {
         // focus — what an input method is told even when text is selected
         // and no caret is drawn.
         std::optional<float> focus_x;
+        // Misspelled words as shown: under each, the spell checker's wavy line.
+        std::vector<Span> misspelled;
         // The caret's line, page y (a textarea's caret is one line tall).
         float caret_top = 0;
         float caret_bottom = 0;

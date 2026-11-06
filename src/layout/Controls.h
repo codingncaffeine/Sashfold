@@ -13,6 +13,7 @@
 #include <optional>
 #include <string>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace sashfold::dom {
@@ -72,6 +73,9 @@ struct ControlState {
     std::string coalescing;
     // Up and Down in a textarea keep to the column they started from.
     std::optional<float> goal_x;
+    // The words of a text control's value that are misspelled, [start, end)
+    // in code points, as the spell checker last found them.
+    std::vector<std::pair<std::size_t, std::size_t>> misspelled;
     // A file input's chosen files, and a number that moves each time they
     // change (input.files stays the same object until it does).
     std::vector<dom::forms::ChosenFile> files;

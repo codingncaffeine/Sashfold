@@ -161,14 +161,16 @@ jobs:
       - run: bash tools/pledge-check.sh build/sashfold.exe
       - run: bash tools/egress-check.sh
       # The Windows download, staged as the release ships it: the binary, the
-      # themes, the blocklists folder's note, the license and the README.
+      # themes, the blocklists folder's note, the spelling dictionary, the
+      # license and the README.
       - run: |
           version=$(sed -n 's/^project(sashfold LANGUAGES CXX VERSION \([0-9.]*\))/\1/p' CMakeLists.txt)
           stage="sashfold-$version-windows-x64"
-          mkdir -p "$stage/themes" "$stage/blocklists"
+          mkdir -p "$stage/themes" "$stage/blocklists" "$stage/dictionaries"
           cp build/sashfold.exe LICENSE README.md "$stage/"
           cp themes/*.json "$stage/themes/"
           cp blocklists/README.md "$stage/blocklists/"
+          cp dictionaries/* "$stage/dictionaries/"
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: windows-x64
@@ -199,10 +201,11 @@ jobs:
       - run: |
           version=$(sed -n 's/^project(sashfold LANGUAGES CXX VERSION \([0-9.]*\))/\1/p' CMakeLists.txt)
           stage="sashfold-$version-linux-x64"
-          mkdir -p "$stage/themes" "$stage/blocklists" "$stage/tools" "$stage/assets"
+          mkdir -p "$stage/themes" "$stage/blocklists" "$stage/tools" "$stage/assets" "$stage/dictionaries"
           cp build/sashfold LICENSE README.md "$stage/"
           cp themes/*.json "$stage/themes/"
           cp blocklists/README.md "$stage/blocklists/"
+          cp dictionaries/* "$stage/dictionaries/"
           cp tools/install-desktop-linux.sh "$stage/tools/"
           cp assets/icon.png "$stage/assets/"
           mkdir -p "$stage/packaging/linux"

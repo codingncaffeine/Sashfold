@@ -26,7 +26,7 @@ trap 'rm -rf "$work"' EXIT
 root="$work/sashfold_${version}_amd64"
 mkdir -p "$root/DEBIAN" "$root/opt/sashfold" "$root/usr/bin" "$root/usr/share/applications" "$root/usr/share/doc/sashfold"
 cp "$staged/sashfold" "$root/opt/sashfold/"
-cp -r "$staged/themes" "$staged/blocklists" "$staged/assets" "$root/opt/sashfold/"
+cp -r "$staged/themes" "$staged/blocklists" "$staged/assets" "$staged/dictionaries" "$root/opt/sashfold/"
 rm -rf "$root/opt/sashfold/assets/icons"
 cp "$(dirname "$0")/../linux/sashfold" "$root/usr/bin/sashfold"
 cp "$(dirname "$0")/../linux/sashfold.desktop" "$root/usr/share/applications/"

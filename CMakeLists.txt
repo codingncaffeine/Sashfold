@@ -209,6 +209,7 @@ add_library(sashfold_core STATIC
   src/svg/Raster.cpp
   src/svg/Svg.cpp
   src/text/Cff.cpp
+  src/text/Spell.cpp
   src/text/Face.cpp
   src/text/FontManager.cpp
   src/text/Rasterizer.cpp
@@ -221,6 +222,7 @@ add_library(sashfold_core STATIC
   src/ui/BookmarksPage.cpp
   src/ui/Browser.cpp
   src/ui/FieldEdit.cpp
+  src/ui/SpellService.cpp
   src/ui/Cosmetic.cpp
   src/ui/Downloads.cpp
   src/ui/Forms.cpp

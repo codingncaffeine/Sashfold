@@ -1109,6 +1109,22 @@ void paint_control(Context& context, Fragment const& fragment)
     for (Fragment::ControlBox::Span const& span : control.selected)
         context.target.fill_rect(snap(span.x0 + context.dx, span.top + context.dy, span.x1 - span.x0, span.bottom - span.top),
             Color::rgba(0x5b, 0x9c, 0xf6, 0x66));
+    // Misspelled words: a red wave under each, as every engine marks them
+    // (a period of four device px, two tall).
+    for (Fragment::ControlBox::Span const& span : control.misspelled) {
+        int const x0 = static_cast<int>(std::lround(span.x0 + context.dx));
+        int const x1 = static_cast<int>(std::lround(span.x1 + context.dx));
+        int const top = static_cast<int>(std::lround(span.top + context.dy));
+        int const amplitude = std::max(1, px(1));
+        int const period = 2 * std::max(2, px(2));
+        Color const red = Color::rgb(0xe0, 0x1b, 0x24);
+        for (int wave_x = x0; wave_x < x1; ++wave_x) {
+            int const phase = (wave_x - x0) % period;
+            int const rise = phase < period / 2 ? phase : period - phase;
+            int const wave_y = top + amplitude * 2 - rise * amplitude * 2 / std::max(1, period / 2);
+            context.target.fill_rect(Rect { wave_x, wave_y, 1, line }, red);
+        }
+    }
     // The focus ring is the control's outline now (`:focus-visible
     // { outline: auto }` in the built-in sheet), drawn with every outline.
     if (control.caret_x && g_carets_shown) {

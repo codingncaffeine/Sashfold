@@ -1,6 +1,8 @@
 #include "dom/Forms.h"
 
 #include <algorithm>
+#include <chrono>
+#include <filesystem>
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
@@ -45,6 +47,24 @@ bool takes_readonly(std::string const& type)
 {
     return type == "text" || type == "search" || type == "url" || type == "tel" || type == "email" || type == "password"
         || type == "date" || type == "month" || type == "week" || type == "time" || type == "datetime-local" || type == "number";
+}
+
+double file_modified_seconds(std::string const& path)
+{
+    std::error_code error;
+    auto const stamp = std::filesystem::last_write_time(path, error);
+    if (error)
+        return -1;
+    // The file clock's epoch is not the system clock's everywhere (and not
+    // every library has clock_cast): the two are set side by side once, to
+    // the second, so the same file time is the same number all through a run.
+    static auto const offset = [] {
+        auto const system_now = std::chrono::system_clock::now().time_since_epoch();
+        auto const file_now = std::filesystem::file_time_type::clock::now().time_since_epoch();
+        return std::chrono::duration_cast<std::chrono::seconds>(system_now) - std::chrono::duration_cast<std::chrono::seconds>(file_now);
+    }();
+    auto const seconds = std::chrono::duration_cast<std::chrono::seconds>(stamp.time_since_epoch()) + offset;
+    return static_cast<double>(seconds.count());
 }
 
 TextSelection TextSelection::clamped(std::size_t length) const

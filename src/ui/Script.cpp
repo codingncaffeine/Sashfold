@@ -1,4 +1,5 @@
 #include "ui/Script.h"
+#include "ui/SpellService.h"
 
 #include "core/Ascii.h"
 #include "core/Png.h"
@@ -981,6 +982,24 @@ struct Runner {
             expect_equal("assert-hints", std::to_string(browser.hint_count()), argument);
         } else if (command == "assert-find") {
             expect_equal("assert-find", browser.find_status(), argument);
+        } else if (command == "spell-dictionary") {
+            // `spell-dictionary <aff> <dic>`: spelling checked from here on with
+            // this dictionary (relative to the script), read at once.
+            std::istringstream words(argument);
+            std::string aff;
+            std::string dic;
+            words >> aff >> dic;
+            auto const read = [&](std::string const& name) {
+                std::ifstream file(directory / name, std::ios::binary);
+                return std::string(std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>());
+            };
+            std::unique_ptr<text::SpellDictionary> dictionary = text::SpellDictionary::load(read(aff), read(dic));
+            if (!dictionary)
+                return fail("spell-dictionary: cannot read " + aff + " and " + dic);
+            auto spell = std::make_shared<SpellService>("", std::vector<std::string> {}, "");
+            spell->use_dictionary(std::move(dictionary));
+            browser.set_spell_service(std::move(spell));
+            settle();
         } else if (command == "os-drag-data") {
             // `os-drag-data <format> <text>`: what a drag from another program
             // will offer in that format (a file: URI list's paths relative to
@@ -1251,6 +1270,7 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
             << runner.result.failures << " failure(s) in " << runner.result.commands << " commands\n";
     browser.set_notifier(nullptr); // the script's notifier ends with it
     browser.set_file_chooser(nullptr);
+    browser.set_spell_service(nullptr);
     return runner.result;
 }
 

@@ -34,6 +34,7 @@
 #include "ui/BookmarkSources.h"
 #include "ui/Bookmarks.h"
 #include "ui/Browser.h"
+#include "ui/SpellService.h"
 #include "ui/Cosmetic.h"
 #include "ui/Frames.h"
 #include "ui/InternalPages.h"
@@ -2205,6 +2206,28 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // allows: reached in the background, and gone before the browser is.
     std::unique_ptr<platform::Notifier> const notifier = platform::open_notifier("Sashfold", [waker] { waker->wake(); });
     browser.set_notifier(notifier.get());
+    // Spelling, in the reader's language: the system's Hunspell dictionaries
+    // first, then the one shipped beside the program; read in the background.
+    {
+        std::string language;
+        for (char const* name : { "LC_ALL", "LC_MESSAGES", "LANG" }) {
+            if (char const* const value = std::getenv(name); value && *value && std::string_view(value) != "C" && std::string_view(value) != "POSIX") {
+                language = value;
+                break;
+            }
+        }
+        language = language.substr(0, language.find_first_of(".@"));
+        if (language.empty())
+            language = "en_US";
+        std::vector<std::string> folders = text::system_dictionary_folders();
+        if (!profile.empty())
+            folders.push_back((std::filesystem::path(profile) / "dictionaries").string());
+        if (std::string const shipped = shipped_file_path(program, "dictionaries"); !shipped.empty())
+            folders.push_back(shipped);
+        std::string const own_words = profile.empty() ? std::string() : (std::filesystem::path(profile) / "spelling-words.txt").string();
+        auto spell = std::make_shared<ui::SpellService>(language, std::move(folders), own_words);
+        browser.set_spell_service(std::move(spell));
+    }
     // The desktop's file chooser, for file inputs: opened on a thread of its
     // own, which wakes the loop when it has answered.
     browser.set_file_chooser([waker](platform::FileChoice choice) { return platform::open_file_chooser(std::move(choice), [waker] { waker->wake(); }); });

@@ -1,0 +1,24 @@
+# Spelling in text fields (gaps plan item 4): words the dictionary does not
+# know are marked with a red wave — not the one being typed — and their
+# menu offers its spellings and "Add to dictionary"; a field whose
+# spellcheck is false, or a password, is never marked. The dictionary is
+# a small one of the test's own.
+resize 600 300
+spell-dictionary files/test-spell.aff files/test-spell.dic
+open data:text/html,<title>S</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}textarea,input{font:inherit;width:300px}</style><textarea name=t rows=2>helo wrold</textarea><br><input name=n spellcheck=false value="helo wrold">
+click 30 95
+key ctrl+end
+type .
+assert-value t helo wrold.
+assert-golden goldens/spelling.png
+# The menu of a misspelled word: its spellings first.
+right-click 20 95
+assert-menu hello | Add to dictionary | - | (Cut) | (Copy) | (Paste) | - | Select all | - | Inspect
+menu-click 0 0
+assert-value t hello wrold.
+# A word added is a word: its mark goes.
+right-click 80 95
+assert-menu world | brown | Add to dictionary | - | (Cut) | (Copy) | (Paste) | - | Select all | - | Inspect
+menu-click 0 2
+right-click 80 95
+assert-menu (Cut) | (Copy) | (Paste) | - | Select all | - | Inspect

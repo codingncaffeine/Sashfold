@@ -256,6 +256,10 @@ add_test(NAME shell_editing_frames
 # changes, the composition events, commit, cancel, a key, undo.
 add_test(NAME shell_ime_editing
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/ime-editing.script)
+# Spelling in text fields: misspelled words marked (not the one typed), their
+# menu's spellings and Add to dictionary, spellcheck=false honored.
+add_test(NAME shell_spelling
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/spelling.script)
 # Drags from other programs: files shown as Files while moving and read in
 # drop, a file input given them, text dropped into a field.
 add_test(NAME shell_os_drag

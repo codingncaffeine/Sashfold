@@ -45,6 +45,8 @@ class VideoPipeline; // media/VideoPipeline.h
 
 namespace sashfold::ui {
 
+class SpellService;
+
 // Where documents come from: the shell's loader goes through the fetch
 // choke point with the session's cookie jar and cache; tests inject canned
 // pages. This is also the seam a renderer-process boundary would cut at.
@@ -547,6 +549,10 @@ public:
     // it on, so scripted runs and their goldens see a steady caret.
     // `fixed` stands in for the desktop's setting (a test's own rate).
     void set_caret_blinks(bool blinks, std::optional<platform::CaretBlink> fixed = std::nullopt);
+    // The spell checker (ui/SpellService.h), shared with every page's
+    // engine: misspelled words in text fields marked, suggestions on their
+    // menu. Null: nothing is checked.
+    void set_spell_service(std::shared_ptr<SpellService> spell);
     // Whether this window is the one in front, as the system says: a theme
     // may give the frame of one that is not a color of its own
     // (chrome-background-inactive). In front until told otherwise.

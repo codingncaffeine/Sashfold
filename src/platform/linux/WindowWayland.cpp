@@ -181,7 +181,6 @@ namespace wl_data_offer {
     constexpr std::uint32_t action_none = 0;
     constexpr std::uint32_t action_copy = 1;
     constexpr std::uint32_t action_move = 2;
-    constexpr std::uint32_t action_ask = 4;
 }
 namespace wl_data_source {
     constexpr std::uint16_t offer = 0;

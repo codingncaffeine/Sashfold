@@ -1,5 +1,6 @@
 #include "ui/Browser.h"
 #include "ui/FieldEdit.h"
+#include "ui/SpellService.h"
 #include "ui/Forms.h"
 #include "ui/Frames.h"
 
@@ -928,6 +929,7 @@ struct Browser::Impl {
         bool window_visible = true;
         bool caret_blinks = false;
         std::optional<platform::CaretBlink> caret_blink_fixed;
+        std::shared_ptr<SpellService> spell;
         bool devtools_open = false;
         bool find_open = false;
         std::string find_query;
@@ -1066,6 +1068,8 @@ struct Browser::Impl {
     bool caret_blinks = false;
     std::optional<double> caret_rest_from; // on script_now()'s clock
     std::optional<platform::CaretBlink> caret_blink_fixed;
+    std::shared_ptr<SpellService> spell;
+    bool spell_was_ready = false; // the dictionary had come at the last look
     std::optional<platform::CaretBlink> caret_blink_now() const
     {
         return caret_blink_fixed ? caret_blink_fixed : platform::caret_blink();
@@ -1777,6 +1781,7 @@ struct Browser::Impl {
             page.window_visible = setup->window_visible;
             page.caret_blinks = setup->caret_blinks;
             page.caret_blink_fixed = setup->caret_blink_fixed;
+            page.spell = setup->spell;
             page.devtools_open = setup->devtools_open;
             page.find_open = setup->find_open;
             page.find_query = setup->find_query;
@@ -8658,6 +8663,37 @@ struct Browser::Impl {
                 press_in_text_control(*tab, x, y, false);
             field_drag.reset();
             activate_control(*control);
+            // A misspelled word under the pointer: the dictionary's spellings of
+            // it first, then "Add to dictionary", as every engine offers them.
+            if (spell && spell->ready() && !control->has_attribute("readonly")) {
+                std::optional<std::size_t> const at = field_index_at(*tab, *control, x, y);
+                layout::ControlState const& state = state_of(*tab, *control);
+                for (auto const& [start, end] : state.misspelled) {
+                    if (!at || *at < start || *at > end)
+                        continue;
+                    std::u32string const word = field_text(*tab, *control).substr(start, end - start);
+                    std::vector<std::u32string> const spellings = spell->suggest(word);
+                    for (std::u32string const& spelling : spellings) {
+                        std::size_t const from = start;
+                        std::size_t const to = end;
+                        items.push_back(menu_item(utf8_of(spelling), {}, [this, from, to, spelling] {
+                            if (Tab* const with_control = tab_with_focused_control())
+                                field_edit(*with_control, *with_control->controls.focused, "insertReplacementText", from, to, spelling);
+                        }));
+                    }
+                    if (spellings.empty())
+                        items.push_back(menu_item("No spelling suggestions", {}, [] {}, false));
+                    items.push_back(menu_item("Add to dictionary", {}, [this, word] {
+                        spell->add_word(word);
+                        for (Tab& each : tabs) {
+                            if (each.document && each.controls.focused)
+                                spell_check_control(each, *each.controls.focused);
+                        }
+                    }));
+                    items.push_back({});
+                    break;
+                }
+            }
             std::optional<std::string> const clipboard = read_clipboard();
             bool const locked = control->has_attribute("readonly");
             bool const can_paste = clipboard && !clipboard->empty() && !locked;
@@ -11917,10 +11953,7 @@ struct Browser::Impl {
         std::error_code error;
         std::uintmax_t const size = std::filesystem::file_size(at, error);
         file.size = error ? 0 : static_cast<std::uint64_t>(size);
-        auto const stamp = std::filesystem::last_write_time(at, error);
-        if (!error)
-            file.modified = static_cast<double>(
-                std::chrono::duration_cast<std::chrono::seconds>(std::chrono::clock_cast<std::chrono::system_clock>(stamp).time_since_epoch()).count());
+        file.modified = std::max(0.0, dom::forms::file_modified_seconds(path));
         file.type = platform::type_of_file(file.name);
         return file;
     }
@@ -11973,6 +12006,62 @@ struct Browser::Impl {
         dom::forms::TextSelection all;
         all.end = field_text(tab, control).size();
         set_field_selection(tab, control, all);
+    }
+
+    // Whether a text control's words are checked (HTML §6.8.4): its
+    // spellcheck attribute, or the nearest ancestor's; by default a
+    // textarea's and a text or search field's — not a password's, an
+    // address's or a number's.
+    static bool spell_checked(dom::Element const& control)
+    {
+        for (dom::Node const* node = &control; node; node = node->parent()) {
+            if (!node->is_element())
+                continue;
+            if (dom::Attr const* const given = static_cast<dom::Element const*>(node)->find_attribute("spellcheck")) {
+                std::string value = given->value;
+                for (char& c : value)
+                    c = static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+                if (value == "false")
+                    return false;
+                if (value == "true" || value.empty())
+                    break;
+            }
+        }
+        if (control.is_html("textarea"))
+            return true;
+        if (!control.is_html("input"))
+            return false;
+        std::string const type = dom::forms::input_type(control);
+        return type == "text" || type == "search";
+    }
+
+    // The control's misspelled words found again (its value changed, or it
+    // took the focus, or the dictionary came).
+    void spell_check_control(Tab& tab, dom::Element const& control)
+    {
+        if (!spell || !layout::is_text_kind(layout::control_kind(control)))
+            return;
+        layout::ControlState& state = state_of(tab, control);
+        std::vector<std::pair<std::size_t, std::size_t>> found;
+        if (spell->ready() && spell_checked(control))
+            found = spell->misspelled(field_text(tab, control));
+        if (found != state.misspelled) {
+            state.misspelled = std::move(found);
+            relayout(tab);
+            dirty = true;
+        }
+    }
+
+    // The dictionary came while a field had the focus: its words are checked.
+    void hear_spell()
+    {
+        if (!spell || spell_was_ready || !spell->ready())
+            return;
+        spell_was_ready = true;
+        for (Tab& tab : tabs) {
+            if (tab.document && tab.controls.focused)
+                spell_check_control(tab, *tab.controls.focused);
+        }
     }
 
     // The maxlength the reader's typing stops at, in UTF-16 code units.
@@ -12042,6 +12131,7 @@ struct Browser::Impl {
         state.goal_x.reset();
         state.coalescing = std::string(input_type);
         restyle_value(tab, control);
+        spell_check_control(tab, control);
         relayout(tab);
         dirty = true;
         if (realm) {
@@ -12434,6 +12524,7 @@ struct Browser::Impl {
         field_press = FieldPress { control, now, x, y, count };
         if (tab.controls.focused != control) {
             focus_control(tab, control, false);
+            spell_check_control(tab, *control);
             relayout(tab);
         }
         std::u32string const text = field_text(tab, *control);
@@ -12666,8 +12757,10 @@ struct Browser::Impl {
         // A text control reached by Tab has its whole value selected, as in
         // every engine.
         focus_control(tab, controls[index], true);
-        if (layout::is_text_kind(layout::control_kind(*controls[index])))
+        if (layout::is_text_kind(layout::control_kind(*controls[index]))) {
+            spell_check_control(tab, *controls[index]);
             select_all_in_control(tab);
+        }
     }
 
     // A key while a page control has focus; true when the control took it.
@@ -14609,6 +14702,7 @@ std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab
         setup->window_visible = window_visible;
         setup->caret_blinks = caret_blinks;
         setup->caret_blink_fixed = caret_blink_fixed;
+        setup->spell = spell;
         setup->devtools_open = devtools_open;
         setup->find_open = find_open;
         setup->find_query = find_query;
@@ -14651,6 +14745,7 @@ std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab
     page.window_visible = window_visible;
     page.caret_blinks = caret_blinks;
     page.caret_blink_fixed = caret_blink_fixed;
+    page.spell = spell;
     page.devtools_open = devtools_open;
     page.find_open = find_open;
     page.find_query = find_query;
@@ -14975,6 +15070,14 @@ Browser::WindowRequest Browser::take_window_request()
     return request;
 }
 
+void Browser::set_spell_service(std::shared_ptr<SpellService> spell)
+{
+    m_impl->spell = spell;
+    m_impl->spell_was_ready = false;
+    m_impl->tell_pages([spell](Browser& page) { page.set_spell_service(spell); });
+    m_impl->dirty = true;
+}
+
 void Browser::set_caret_blinks(bool blinks, std::optional<platform::CaretBlink> fixed)
 {
     m_impl->caret_blinks = blinks;
@@ -15128,7 +15231,9 @@ bool Browser::tick()
 {
     // What the desktop says of the notices first: a page that hears of one
     // may have something to do about it in this same step.
-    bool const notices_heard = m_impl->hear_notifier() | m_impl->hear_chooser();
+    m_impl->hear_spell();
+    bool const chooser_heard = m_impl->hear_chooser();
+    bool const notices_heard = m_impl->hear_notifier() || chooser_heard;
     if (m_impl->page_threads) {
         m_impl->hear_pages();
         m_impl->tell_shown();

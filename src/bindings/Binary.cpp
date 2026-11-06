@@ -1,4 +1,5 @@
 #include "bindings/Internal.h"
+#include "dom/Forms.h"
 
 // The page's binary-data interfaces over the engine's typed arrays:
 // TextEncoder and TextDecoder (the Encoding Standard's UTF-8 decoder with
@@ -115,11 +116,8 @@ std::vector<std::uint8_t>& BlobObject::bytes()
         m_on_disk.reset();
         // A snapshot (File API §4.1): the file as it was when chosen; one that
         // changed since reads as nothing, as the engines fail its read.
-        std::error_code error;
-        auto const stamp = std::filesystem::last_write_time(part.path, error);
-        double const now_modified = error ? -1
-            : static_cast<double>(std::chrono::duration_cast<std::chrono::seconds>(std::chrono::clock_cast<std::chrono::system_clock>(stamp).time_since_epoch()).count());
-        if (!error && now_modified == part.modified) {
+        double const now_modified = dom::forms::file_modified_seconds(part.path);
+        if (now_modified >= 0 && now_modified == part.modified) {
             if (std::FILE* const file = std::fopen(part.path.c_str(), "rb")) {
                 if (std::fseek(file, static_cast<long>(part.offset), SEEK_SET) == 0) {
                     m_bytes.resize(part.length);
