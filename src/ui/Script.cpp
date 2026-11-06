@@ -394,6 +394,10 @@ struct Runner {
         } else if (command == "assert-clipboard") {
             // `assert-clipboard <text>`: what the process's clipboard holds.
             expect_equal("assert-clipboard", platform::read_clipboard_text().value_or(""), argument);
+        } else if (command == "assert-clipboard-html") {
+            // `assert-clipboard-html <markup>`: the clipboard's text/html.
+            std::optional<platform::ClipboardContent> const content = platform::read_clipboard();
+            expect_equal("assert-clipboard-html", content ? content->html : std::string(), argument);
         } else if (command == "set-clipboard") {
             platform::write_clipboard_text(argument);
         } else if (command == "move") {

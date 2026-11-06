@@ -235,6 +235,11 @@ add_test(NAME shell_notifications
 # Shift, Ctrl+A, and the page's getSelection() following the reader's.
 add_test(NAME shell_contenteditable
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/contenteditable.script)
+# The clipboard in rich text: markup copied and pasted between editors,
+# Ctrl+Shift+V as text, the page's copy/cut/paste listeners first, and
+# pasted markup cleaned of scripts and handlers.
+add_test(NAME shell_clipboard_editing
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/clipboard-editing.script)
 # An <img>'s load and error events in tasks of their own, a new src heard
 # of again, and `complete` false while a picture is on its way.
 add_test(NAME shell_image_events

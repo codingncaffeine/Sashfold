@@ -1329,6 +1329,9 @@ public:
     {
     }
     std::vector<std::pair<std::string, std::string>> data;
+    // A paste's data is the clipboard's, read but never changed (HTML's
+    // "protected" and "read-only" modes); a copy's is the page's to fill.
+    bool read_only = false;
     std::string drop_effect = "none";
     std::string effect_allowed = "none";
     js::Object* files = nullptr;
@@ -1464,7 +1467,8 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
         std::optional<std::string> data = format ? internals_of(interp).to_utf8(js::argument(args, 1)) : std::nullopt;
         if (!data)
             return std::nullopt;
-        set_data(*self, data_format(std::move(*format)), std::move(*data));
+        if (!self->read_only)
+            set_data(*self, data_format(std::move(*format)), std::move(*data));
         return js::Value::undefined();
     });
     define_operation(interpreter, *transfer, "getData", 1, [](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
@@ -1485,6 +1489,8 @@ void install_table_events(Realm::Internals& in, js::Object& array_prototype)
         DataTransferObject* const self = data_transfer_this(interp, this_value);
         if (self == nullptr)
             return std::nullopt;
+        if (self->read_only)
+            return js::Value::undefined();
         if (js::argument(args, 0).is_undefined()) {
             self->data.clear();
             return js::Value::undefined();
@@ -1959,7 +1965,8 @@ void install_events(Realm::Internals& in)
     });
     event_getter(in, *input_event, "inputType", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.input_type); });
     event_getter(in, *input_event, "isComposing", [](Realm::Internals&, EventObject&) { return js::Value::boolean(false); });
-    event_getter(in, *input_event, "dataTransfer", [](Realm::Internals&, EventObject&) { return js::Value::null(); });
+    // A paste's or a drop's data rides the event (members[0]); typing has none.
+    event_getter(in, *input_event, "dataTransfer", [](Realm::Internals&, EventObject& e) { return e.members.empty() ? js::Value::null() : e.members[0]; });
 
     js::Object* focus_event = define_interface(in, "FocusEvent", ui_event, event_constructor("FocusEvent"), 1);
     event_getter(in, *focus_event, "relatedTarget", [](Realm::Internals&, EventObject& e) { return e.related_target.is_undefined() ? js::Value::null() : e.related_target; });
@@ -2064,6 +2071,21 @@ void install_events(Realm::Internals& in)
     event_getter(in, *message_event, "ports", [](Realm::Internals& internals, EventObject& e) {
         return e.ports.is_nullish() ? js::Value::object(internals.interpreter.new_array()) : e.ports;
     });
+}
+
+js::Object* new_data_transfer(Realm::Internals& in, std::vector<std::pair<std::string, std::string>> data, bool read_only)
+{
+    auto* const transfer = in.interpreter.heap().allocate<DataTransferObject>(in.prototype("DataTransfer"));
+    transfer->data = std::move(data);
+    transfer->read_only = read_only;
+    return transfer;
+}
+
+std::vector<std::pair<std::string, std::string>> data_transfer_data(js::Object const& object)
+{
+    if (auto const* const transfer = dynamic_cast<DataTransferObject const*>(&object))
+        return transfer->data;
+    return {};
 }
 
 }

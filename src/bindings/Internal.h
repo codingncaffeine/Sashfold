@@ -1943,6 +1943,10 @@ js::Value labels_of(Realm::Internals&, dom::Element&);
 // for none.
 js::Value form_named_item(Realm::Internals&, dom::Element& form, std::string_view name);
 js::Object* new_validity_state(Realm::Internals&, NodeWrapper&);
+// A DataTransfer holding the formats given (Events.cpp), and the formats a
+// DataTransfer holds (none for any other object).
+js::Object* new_data_transfer(Realm::Internals&, std::vector<std::pair<std::string, std::string>> data, bool read_only);
+std::vector<std::pair<std::string, std::string>> data_transfer_data(js::Object const&);
 // A media element's src attribute was set, changed or removed: it loads again.
 void media_src_changed(Realm::Internals&, dom::Element&);
 // The video elements' pictures now (Realm::video_frames), and the states

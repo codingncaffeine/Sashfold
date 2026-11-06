@@ -1,6 +1,9 @@
 #include "platform/Clipboard.h"
 
 #include <algorithm>
+#include <cstdio>
+#include <cstring>
+#include <string_view>
 #include <vector>
 
 #define WIN32_LEAN_AND_MEAN
@@ -82,43 +85,113 @@ std::string to_utf8(wchar_t const* text)
     return out;
 }
 
+// The "HTML Format" clipboard format (CF_HTML): the markup in UTF-8 behind
+// a header of byte offsets to the document and to the fragment in it.
+std::string cf_html_of(std::string const& fragment)
+{
+    static constexpr char header[] = "Version:0.9\r\nStartHTML:%010zu\r\nEndHTML:%010zu\r\nStartFragment:%010zu\r\nEndFragment:%010zu\r\n";
+    static constexpr std::string_view before = "<html><body>\r\n<!--StartFragment-->";
+    static constexpr std::string_view after = "<!--EndFragment-->\r\n</body></html>";
+    char probe[160];
+    std::size_t const header_length = static_cast<std::size_t>(std::snprintf(probe, sizeof probe, header, std::size_t {}, std::size_t {}, std::size_t {}, std::size_t {}));
+    std::size_t const start_html = header_length;
+    std::size_t const start_fragment = start_html + before.size();
+    std::size_t const end_fragment = start_fragment + fragment.size();
+    std::size_t const end_html = end_fragment + after.size();
+    char head[160];
+    std::snprintf(head, sizeof head, header, start_html, end_html, start_fragment, end_fragment);
+    return std::string(head) + std::string(before) + fragment + std::string(after);
+}
+
+std::optional<std::string> fragment_of_cf_html(std::string const& data)
+{
+    auto const number_after = [&](std::string_view key) -> std::optional<std::size_t> {
+        std::size_t const at = data.find(key);
+        if (at == std::string::npos)
+            return std::nullopt;
+        std::size_t value = 0;
+        bool any = false;
+        for (std::size_t i = at + key.size(); i < data.size() && data[i] >= '0' && data[i] <= '9'; ++i) {
+            value = value * 10 + static_cast<std::size_t>(data[i] - '0');
+            any = true;
+        }
+        if (!any)
+            return std::nullopt;
+        return value;
+    };
+    std::optional<std::size_t> const start = number_after("StartFragment:");
+    std::optional<std::size_t> const end = number_after("EndFragment:");
+    if (!start || !end || *start > *end || *end > data.size())
+        return std::nullopt;
+    return data.substr(*start, *end - *start);
+}
+
+bool put_global(UINT format, void const* bytes, std::size_t size)
+{
+    HGLOBAL const handle = GlobalAlloc(GMEM_MOVEABLE, size);
+    if (!handle)
+        return false;
+    bool ok = false;
+    if (void* const memory = GlobalLock(handle)) {
+        std::memcpy(memory, bytes, size);
+        GlobalUnlock(handle);
+        ok = SetClipboardData(format, handle) != nullptr;
+    }
+    if (!ok)
+        GlobalFree(handle);
+    return ok;
+}
+
 } // namespace
 
-bool os_write_clipboard_text(std::string const& utf8)
+bool os_write_clipboard(ClipboardContent const& content)
 {
     if (!OpenClipboard(nullptr))
         return false;
     bool ok = false;
     if (EmptyClipboard()) {
-        std::vector<wchar_t> const wide = to_utf16(utf8);
-        HGLOBAL const handle = GlobalAlloc(GMEM_MOVEABLE, wide.size() * sizeof(wchar_t));
-        if (handle) {
-            if (void* const memory = GlobalLock(handle)) {
-                std::copy(wide.begin(), wide.end(), static_cast<wchar_t*>(memory));
-                GlobalUnlock(handle);
-                ok = SetClipboardData(CF_UNICODETEXT, handle) != nullptr;
+        std::vector<wchar_t> const wide = to_utf16(content.text);
+        ok = put_global(CF_UNICODETEXT, wide.data(), wide.size() * sizeof(wchar_t));
+        if (ok && !content.html.empty()) {
+            if (UINT const html_format = RegisterClipboardFormatW(L"HTML Format")) {
+                std::string const data = cf_html_of(content.html);
+                put_global(html_format, data.c_str(), data.size() + 1);
             }
-            if (!ok)
-                GlobalFree(handle);
         }
     }
     CloseClipboard();
     return ok;
 }
 
-std::optional<std::string> os_read_clipboard_text()
+std::optional<ClipboardContent> os_read_clipboard()
 {
-    if (!IsClipboardFormatAvailable(CF_UNICODETEXT) || !OpenClipboard(nullptr))
+    UINT const html_format = RegisterClipboardFormatW(L"HTML Format");
+    bool const has_text = IsClipboardFormatAvailable(CF_UNICODETEXT);
+    bool const has_html = html_format && IsClipboardFormatAvailable(html_format);
+    if ((!has_text && !has_html) || !OpenClipboard(nullptr))
         return std::nullopt;
-    std::optional<std::string> text;
-    if (HANDLE const handle = GetClipboardData(CF_UNICODETEXT)) {
-        if (void const* const memory = GlobalLock(handle)) {
-            text = to_utf8(static_cast<wchar_t const*>(memory));
-            GlobalUnlock(handle);
+    ClipboardContent content;
+    if (has_text) {
+        if (HANDLE const handle = GetClipboardData(CF_UNICODETEXT)) {
+            if (void const* const memory = GlobalLock(handle)) {
+                content.text = to_utf8(static_cast<wchar_t const*>(memory));
+                GlobalUnlock(handle);
+            }
+        }
+    }
+    if (has_html) {
+        if (HANDLE const handle = GetClipboardData(html_format)) {
+            if (void const* const memory = GlobalLock(handle)) {
+                std::size_t const size = GlobalSize(handle);
+                char const* const bytes = static_cast<char const*>(memory);
+                std::string const data(bytes, strnlen(bytes, size));
+                GlobalUnlock(handle);
+                if (std::optional<std::string> fragment = fragment_of_cf_html(data))
+                    content.html = std::move(*fragment);
+            }
         }
     }
     CloseClipboard();
-    return text;
+    return content;
 }
-
 }

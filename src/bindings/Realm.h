@@ -615,6 +615,29 @@ public:
     // it, the change, then input. False when the selection is in no editing
     // host, and the window should do what the key does elsewhere.
     bool edit(std::string_view input_type, std::string const& data = {});
+
+    // The clipboard events (Clipboard API §5): `copy`, `cut` or `paste`
+    // fired at the focused editable element, else at the element the
+    // selection starts in, else at the body, with a clipboardData the page
+    // reads (paste) or fills (copy, cut). Cancelled: the page took the
+    // action as its own, and `items` is what it set (a copy or cut whose
+    // listener set nothing leaves the clipboard as it was).
+    struct ClipboardItems {
+        std::string text;
+        std::string html;
+    };
+    struct ClipboardOutcome {
+        bool cancelled = false;
+        std::optional<ClipboardItems> items;
+    };
+    ClipboardOutcome clipboard_event(std::string_view type, ClipboardItems const* pasted = nullptr);
+    // The document's selection as markup for the clipboard's text/html
+    // (empty when nothing is selected).
+    std::string selection_markup();
+    // A paste into the editing host the selection is in: the markup when
+    // there is some and the host takes it, else the text, as
+    // insertFromPaste with the data on beforeinput's dataTransfer.
+    bool paste_into_editing_host(ClipboardItems const& items);
     // The editing host around a node: its outermost contenteditable element,
     // the body in designMode; null when the node is not editable.
     dom::Element* editing_host(dom::Node& node);

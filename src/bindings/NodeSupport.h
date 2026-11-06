@@ -87,6 +87,8 @@ Native insert_at_range(Realm::Internals&, dom::Range&, dom::Node&);
 // extractContents(): a fragment of what was in the range, the nodes it cut
 // through copied; nullopt when an exception was thrown.
 std::optional<dom::Node*> extract_range_contents(Realm::Internals&, dom::Range&);
+// cloneContents(): a fragment copied out of the range.
+std::optional<dom::Node*> clone_range_contents(Realm::Internals&, dom::Range const&);
 bool range_contains_node(dom::Range const&, dom::Node const&, bool partly);
 // document.createTreeWalker and createNodeIterator (Traversal.cpp): the
 // root, whatToShow and the filter, as the arguments give them.

@@ -433,8 +433,9 @@ public:
     float scale() const override { return static_cast<float>(m_scale); }
     std::optional<WindowPlacement> placement() const override;
 
-    bool write_clipboard(std::string const& utf8);
-    std::optional<std::string> read_clipboard();
+    bool write_clipboard(ClipboardContent const& content);
+    std::optional<ClipboardContent> read_clipboard();
+    std::optional<std::string> receive_offer(std::string const& mime);
 
 private:
     struct Global {
@@ -592,7 +593,7 @@ private:
 
     // Clipboard
     std::uint32_t m_data_source = 0;
-    std::string m_clipboard_text;
+    ClipboardContent m_clipboard;
     bool m_selection_is_ours = false;
     std::uint32_t m_selection_offer = 0;
     std::map<std::uint32_t, std::vector<std::string>> m_offers; // id -> mime types
@@ -607,12 +608,12 @@ WaylandWindow* wayland_window()
     return g_window;
 }
 
-bool wayland_write_clipboard_text(WaylandWindow& window, std::string const& utf8)
+bool wayland_write_clipboard(WaylandWindow& window, ClipboardContent const& content)
 {
-    return window.write_clipboard(utf8);
+    return window.write_clipboard(content);
 }
 
-std::optional<std::string> wayland_read_clipboard_text(WaylandWindow& window)
+std::optional<ClipboardContent> wayland_read_clipboard(WaylandWindow& window)
 {
     return window.read_clipboard();
 }
@@ -1677,7 +1678,7 @@ void WaylandWindow::destroy_offer(std::uint32_t id)
         m_selection_offer = 0;
 }
 
-bool WaylandWindow::write_clipboard(std::string const& utf8)
+bool WaylandWindow::write_clipboard(ClipboardContent const& content)
 {
     if (!m_data_device || m_input_serial == 0 || m_connection->failed())
         return false;
@@ -1695,14 +1696,15 @@ bool WaylandWindow::write_clipboard(std::string const& utf8)
         source,
         [this, source](std::uint16_t opcode, Message& message) {
             if (opcode == wl_data_source::event_send) {
-                message.string(); // the mime type: every one offered is text
+                std::string const mime = message.string();
                 int const fd = message.fd();
                 if (fd < 0)
                     return;
+                std::string const& body = mime == "text/html" ? m_clipboard.html : m_clipboard.text;
                 fcntl(fd, F_SETFL, fcntl(fd, F_GETFL) | O_NONBLOCK);
                 std::size_t written = 0;
-                while (written < m_clipboard_text.size()) {
-                    ssize_t const count = ::write(fd, m_clipboard_text.data() + written, m_clipboard_text.size() - written);
+                while (written < body.size()) {
+                    ssize_t const count = ::write(fd, body.data() + written, body.size() - written);
                     if (count > 0) {
                         written += static_cast<std::size_t>(count);
                         continue;
@@ -1727,6 +1729,13 @@ bool WaylandWindow::write_clipboard(std::string const& utf8)
             }
         },
         { wl_data_source::event_send });
+    // The markup first, as Chrome and Firefox order it: a rich editor
+    // elsewhere takes the first format it knows.
+    if (!content.html.empty()) {
+        Request offer(m_data_source, wl_data_source::offer);
+        offer.string("text/html");
+        send(offer);
+    }
     for (char const* mime : { "text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT", "STRING" }) {
         Request offer(m_data_source, wl_data_source::offer);
         offer.string(mime);
@@ -1735,27 +1744,46 @@ bool WaylandWindow::write_clipboard(std::string const& utf8)
     Request set_selection(m_data_device, wl_data_device::set_selection);
     set_selection.object(m_data_source).uint(m_input_serial);
     send(set_selection);
-    m_clipboard_text = utf8;
+    m_clipboard = content;
     m_selection_is_ours = true;
     return m_connection->flush();
 }
 
-std::optional<std::string> WaylandWindow::read_clipboard()
+std::optional<ClipboardContent> WaylandWindow::read_clipboard()
 {
     if (m_selection_is_ours)
-        return m_clipboard_text;
+        return m_clipboard;
     if (!m_selection_offer || m_connection->failed())
         return std::nullopt;
-    std::vector<std::string> const& mimes = m_offers[m_selection_offer];
+    std::vector<std::string> const mimes = m_offers[m_selection_offer];
+    auto const offered = [&](std::string_view wanted) { return std::find(mimes.begin(), mimes.end(), wanted) != mimes.end(); };
     std::string chosen;
     for (char const* wanted : { "text/plain;charset=utf-8", "UTF8_STRING", "text/plain", "TEXT", "STRING" }) {
-        if (std::find(mimes.begin(), mimes.end(), wanted) != mimes.end()) {
+        if (offered(wanted)) {
             chosen = wanted;
             break;
         }
     }
-    if (chosen.empty())
+    ClipboardContent content;
+    if (offered("text/html")) {
+        if (std::optional<std::string> html = receive_offer("text/html"))
+            content.html = std::move(*html);
+    }
+    if (!chosen.empty()) {
+        std::optional<std::string> text = receive_offer(chosen);
+        if (!text && content.html.empty())
+            return std::nullopt;
+        if (text)
+            content.text = std::move(*text);
+    } else if (content.html.empty()) {
         return std::nullopt;
+    }
+    return content;
+}
+
+// One format of the selection's offer, read through a pipe from its owner.
+std::optional<std::string> WaylandWindow::receive_offer(std::string const& chosen)
+{
     int pipe_fds[2];
     if (pipe2(pipe_fds, O_CLOEXEC) != 0)
         return std::nullopt;

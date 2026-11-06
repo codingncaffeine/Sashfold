@@ -9,18 +9,18 @@
 
 namespace sashfold::platform {
 
-bool os_write_clipboard_text(std::string const& utf8)
+bool os_write_clipboard(ClipboardContent const& content)
 {
     WaylandWindow* const window = wayland_window();
-    return window && wayland_write_clipboard_text(*window, utf8);
+    return window && wayland_write_clipboard(*window, content);
 }
 
-std::optional<std::string> os_read_clipboard_text()
+std::optional<ClipboardContent> os_read_clipboard()
 {
     WaylandWindow* const window = wayland_window();
     if (!window)
         return std::nullopt;
-    return wayland_read_clipboard_text(*window);
+    return wayland_read_clipboard(*window);
 }
 
 }

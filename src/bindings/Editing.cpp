@@ -1468,7 +1468,56 @@ Command command_for(std::string_view input_type)
 }
 
 // The change an edit makes: false when there was nothing it could do.
-bool perform(Realm::Internals& in, Current const& current, Command command, std::string const& data)
+// Markup pasted from elsewhere, made safe to keep as Chrome and Firefox
+// make it: no scripts, styles, frames, plug-ins or document parts, no
+// event handler attributes, no javascript: addresses, no comments.
+void sanitize_pasted(Realm::Internals& in, std::vector<dom::Node*>& nodes)
+{
+    static constexpr std::string_view dropped[] = { "script", "style", "meta", "link", "title", "base", "head", "iframe", "frame", "frameset",
+        "object", "embed", "applet", "noscript", "template", "svg", "math" };
+    auto const drop = [](dom::Node const& node) {
+        if (node.type() == dom::NodeType::Comment)
+            return true;
+        if (!node.is_element())
+            return false;
+        auto const& element = static_cast<dom::Element const&>(node);
+        return std::any_of(std::begin(dropped), std::end(dropped), [&](std::string_view name) { return element.is_html(name); });
+    };
+    auto const clean = [&](dom::Element& element) {
+        std::vector<std::string> doomed;
+        for (auto const& attribute : element.attributes()) {
+            std::string const name = lowered_ascii(attribute.local_name);
+            bool bad = name.starts_with("on");
+            if (name == "href" || name == "src" || name == "action" || name == "formaction" || name == "xlink:href") {
+                std::string value;
+                for (char const c : attribute.value) {
+                    if (static_cast<unsigned char>(c) > 0x20)
+                        value += static_cast<char>(c >= 'A' && c <= 'Z' ? c + 32 : c);
+                }
+                bad = bad || value.starts_with("javascript:") || value.starts_with("vbscript:");
+            }
+            if (bad)
+                doomed.push_back(attribute.local_name);
+        }
+        for (std::string const& name : doomed)
+            remove_attribute(in, element, name);
+    };
+    std::erase_if(nodes, [&](dom::Node* node) { return drop(*node); });
+    for (dom::Node* node : nodes) {
+        std::vector<dom::Node*> all { node };
+        collect_descendants(*node, all);
+        for (dom::Node* inner : all) {
+            if (inner != node && inner->parent() && drop(*inner)) {
+                remove_node(in, *inner);
+                continue;
+            }
+            if (inner->is_element())
+                clean(static_cast<dom::Element&>(*inner));
+        }
+    }
+}
+
+bool perform(Realm::Internals& in, Current const& current, Command command, std::string const& data, bool pasted = false)
 {
     dom::Element& host = *current.host;
     dom::Range& range = *current.range;
@@ -1521,7 +1570,9 @@ bool perform(Realm::Internals& in, Current const& current, Command command, std:
             break;
         }
         dom::Element* const context = element_of(*caret.node);
-        std::vector<dom::Node*> const parsed = parse_markup(in, context ? *context : host, data);
+        std::vector<dom::Node*> parsed = parse_markup(in, context ? *context : host, data);
+        if (pasted)
+            sanitize_pasted(in, parsed);
         if (caret.node->is_text()) {
             if (caret.offset == 0)
                 caret = { caret.node->parent(), caret.node->index() };
@@ -1825,6 +1876,142 @@ bool Realm::edit(std::string_view input_type, std::string const& data)
     if (!history)
         record_edit(in, *host, input_type, std::move(markup_before), std::move(caret_before));
     EventObject* const after = input_event(in, "input", input_type, event_data(command, data));
+    in.dispatch(*after, in.wrap(*host));
+    return true;
+}
+
+// --- The clipboard events -----------------------------------------------------------
+
+Realm::ClipboardOutcome Realm::clipboard_event(std::string_view type, ClipboardItems const* pasted)
+{
+    Internals& in = *m_internals;
+    Internals::Entry const entry(in);
+    js::Interpreter::Roots const roots(in.interpreter);
+    if (!in.document)
+        return {};
+    // The target (Clipboard API §5.2 "fire a clipboard event"): the focused
+    // element when it is editable, else where the selection starts, else
+    // the body.
+    dom::Node* target = nullptr;
+    if (dom::Element* const focused = const_cast<dom::Element*>(focused_element(in));
+        focused && (focused->is_html("input") || focused->is_html("textarea") || editing_host_of(in, *focused)))
+        target = focused;
+    dom::Range* range = nullptr;
+    bool backward = false;
+    if (!target && selection_range(in, range, backward)) {
+        dom::Node* start = range->start_node;
+        if (!start->is_element())
+            start = start->parent();
+        target = start;
+    }
+    if (!target || &target->root() != in.document)
+        target = body_element(*in.document);
+    if (!target)
+        target = in.document;
+    std::vector<std::pair<std::string, std::string>> data;
+    if (pasted) {
+        if (!pasted->text.empty())
+            data.emplace_back("text/plain", pasted->text);
+        if (!pasted->html.empty())
+            data.emplace_back("text/html", pasted->html);
+    }
+    js::Object* const transfer = new_data_transfer(in, std::move(data), pasted != nullptr);
+    in.interpreter.root(js::Value::object(transfer));
+    EventObject* const event = in.new_event("ClipboardEvent", type, true, true);
+    in.interpreter.root(js::Value::object(event));
+    event->is_trusted = true;
+    event->composed = true;
+    event->members.push_back(js::Value::object(transfer));
+    ClipboardOutcome outcome;
+    outcome.cancelled = !in.dispatch(*event, in.wrap(*target));
+    if (outcome.cancelled && !pasted) {
+        std::vector<std::pair<std::string, std::string>> const set = data_transfer_data(*transfer);
+        if (!set.empty()) {
+            ClipboardItems items;
+            for (auto const& [format, value] : set) {
+                if (format == "text/plain")
+                    items.text = value;
+                else if (format == "text/html")
+                    items.html = value;
+            }
+            outcome.items = std::move(items);
+        }
+    }
+    return outcome;
+}
+
+std::string Realm::selection_markup()
+{
+    Internals& in = *m_internals;
+    Internals::Entry const entry(in);
+    js::Interpreter::Roots const roots(in.interpreter);
+    dom::Range* range = nullptr;
+    bool backward = false;
+    if (!selection_range(in, range, backward) || collapsed(*range))
+        return {};
+    js::Heap::NoCollect const no_collect(in.interpreter.heap());
+    std::optional<dom::Node*> const fragment = clone_range_contents(in, *range);
+    if (!fragment)
+        return {};
+    std::string markup = html::serialize_children(**fragment);
+    // The inline formatting the selection sits inside goes with it (a word
+    // copied out of a bold link pastes bold and linked), as in Chrome.
+    dom::Node* common = range->start_node;
+    while (common && !is_inclusive_ancestor(*common, *range->end_node))
+        common = common->parent();
+    for (dom::Node* at = common; at && at->is_element(); at = at->parent()) {
+        auto* const element = static_cast<dom::Element*>(at);
+        if (is_block(*element) || element->is_html("body") || element->is_html("html"))
+            break;
+        std::string const outer = html::serialize_node(*element);
+        std::string const inner = html::serialize_children(*element);
+        std::size_t const open_end = outer.find('>');
+        std::size_t const close_start = outer.rfind("</");
+        if (open_end == std::string::npos || close_start == std::string::npos || close_start <= open_end || inner.size() > outer.size())
+            break;
+        markup = outer.substr(0, open_end + 1) + markup + outer.substr(close_start);
+    }
+    return markup;
+}
+
+bool Realm::paste_into_editing_host(ClipboardItems const& items)
+{
+    Internals& in = *m_internals;
+    Internals::Entry const entry(in);
+    js::Interpreter::Roots const roots(in.interpreter);
+    std::optional<Current> current = current_selection(in);
+    if (!current)
+        return false;
+    dom::Element* const host = current->host;
+    in.interpreter.root(js::Value::object(in.wrap(*host)));
+    bool const rich = !items.html.empty() && !plaintext_only(*host);
+    if (!rich && items.text.empty())
+        return true;
+    std::vector<std::pair<std::string, std::string>> data;
+    if (!items.text.empty())
+        data.emplace_back("text/plain", items.text);
+    if (!items.html.empty())
+        data.emplace_back("text/html", items.html);
+    js::Object* const transfer = new_data_transfer(in, data, true);
+    in.interpreter.root(js::Value::object(transfer));
+    // beforeinput for a paste carries the data on dataTransfer, its data
+    // null (Input Events §5.1), and the page may take it as its own.
+    EventObject* const before = input_event(in, "beforeinput", "insertFromPaste", std::nullopt);
+    before->members.push_back(js::Value::object(transfer));
+    before->target_ranges = target_ranges(in, *current, Command::InsertText);
+    if (!in.dispatch(*before, in.wrap(*host)))
+        return true;
+    current = current_selection(in);
+    if (!current || current->host != host)
+        return true;
+    std::string markup_before = html::serialize_children(*host);
+    std::vector<std::uint32_t> caret_before = caret_path(in, *host);
+    bool const done = rich ? perform(in, *current, Command::InsertHtml, items.html, true) : perform(in, *current, Command::InsertText, items.text);
+    if (!done)
+        return true;
+    record_edit(in, *host, "insertFromPaste", std::move(markup_before), std::move(caret_before));
+    EventObject* const after = input_event(in, "input", "insertFromPaste", std::nullopt);
+    after->members.push_back(js::Value::object(new_data_transfer(in, std::move(data), true)));
     in.dispatch(*after, in.wrap(*host));
     return true;
 }

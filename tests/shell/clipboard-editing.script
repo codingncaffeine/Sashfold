@@ -1,0 +1,65 @@
+# The clipboard in rich text (gaps plan item 4): a copy out of one editor
+# carries its markup, a paste into another keeps the bold and the link, and
+# Ctrl+Shift+V pastes the text alone. The page hears copy, cut and paste
+# first: a listener that cancels a copy puts its own clipboardData on the
+# clipboard, one that cancels a paste keeps it out, and markup a page put
+# there loses its scripts and handlers on the way in. The buttons under the
+# editors set what the page's listeners do; the title shows editor B's
+# markup and what the page heard. The content area starts 76 px down;
+# editor A's line is at 89-109 px, editor B's at 129-149.
+resize 600 300
+open data:text/html,<title>Clip</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}[contenteditable]{border:1px solid;padding:4px;height:20px;margin-bottom:10px}</style><div id=a contenteditable><b>bold</b> and <a href="https://example.com/">link</a></div><div id=b contenteditable></div><button onclick="mode='own'">Own</button> <button onclick="mode='evil'">Evil</button> <button onclick="mode='nopaste'">Stop</button> <button onclick="mode='';log=[];b.innerHTML='';show()">Reset</button><script>var log=[],mode='';function show(){document.title=b.innerHTML+' / '+log.join(',')}function note(s){log.push(s);show()}document.addEventListener('copy',function(e){note('copy@'+e.target.id);if(mode==='own'){e.clipboardData.setData('text/plain','own words');e.preventDefault()}if(mode==='evil'){e.clipboardData.setData('text/plain','evil');e.clipboardData.setData('text/html','<img src="x.png" onerror="boom()"><script>boom()</'+'script><i>kept</i><a href="javascript:boom()">j</a>');e.preventDefault()}});document.addEventListener('cut',function(e){note('cut')});document.addEventListener('paste',function(e){note('paste:'+e.clipboardData.types.join('+'));if(mode==='nopaste')e.preventDefault()});b.addEventListener('beforeinput',function(e){note('bi:'+e.inputType+':'+(e.data===null)+':'+(e.dataTransfer?e.dataTransfer.getData('text/plain'):'none'))});b.addEventListener('input',function(e){note('in')})</script>
+assert-title Clip
+# Everything in A, copied: the page hears it at the editor, and the
+# clipboard holds the text and the markup.
+click 200 99
+assert-focused a
+key ctrl+a
+key ctrl+c
+assert-title  / copy@a
+assert-clipboard bold and link
+assert-clipboard-html <b>bold</b> and <a href="https://example.com/">link</a>
+# Into B: the markup comes too, and beforeinput carries it on dataTransfer.
+click 200 139
+assert-focused b
+key ctrl+v
+assert-title <b>bold</b> and <a href="https://example.com/">link</a> / copy@a,paste:text/plain+text/html,bi:insertFromPaste:true:bold and link,in
+# Undone, then the text alone.
+key ctrl+z
+click-text Reset
+click 200 139
+key ctrl+shift+v
+assert-title bold and link / paste:text/plain+text/html,bi:insertFromPaste:true:bold and link,in
+# A paste the page cancels changes nothing.
+click-text Reset
+click-text Stop
+click 200 139
+key ctrl+v
+assert-title  / paste:text/plain+text/html
+# A copy the page takes as its own: its words are what is on the clipboard.
+click-text Reset
+click-text Own
+click 200 99
+key ctrl+a
+key ctrl+c
+assert-clipboard own words
+assert-clipboard-html 
+# Markup a page put on the clipboard pastes without its script, its
+# handler or its javascript: address.
+click-text Reset
+click-text Evil
+click 200 99
+key ctrl+a
+key ctrl+c
+click-text Reset
+click 200 139
+key ctrl+v
+assert-title <img src="x.png"><i>kept</i><a>j</a> / paste:text/plain+text/html,bi:insertFromPaste:true:evil,in
+# Cut takes the selection out of A, and the page hears it first.
+click-text Reset
+click 200 99
+key ctrl+a
+key ctrl+x
+assert-title  / cut
+assert-no-text bold and
+assert-clipboard bold and link

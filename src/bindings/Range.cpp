@@ -962,6 +962,11 @@ Native delete_range_contents(Realm::Internals& in, dom::Range& range)
     return delete_contents(in, range);
 }
 
+std::optional<dom::Node*> clone_range_contents(Realm::Internals& in, dom::Range const& range)
+{
+    return clone_contents(in, range);
+}
+
 std::optional<dom::Node*> extract_range_contents(Realm::Internals& in, dom::Range& range)
 {
     return extract(in, range);

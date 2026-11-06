@@ -7363,25 +7363,70 @@ struct Browser::Impl {
     // is on it when what the reader does may ask for it — the press that
     // opens the page's menu, a paste — and hands what it copies to the
     // shell to put there.
-    std::optional<std::string> clipboard_told;
-    std::optional<std::string> clipboard_for_page() const
+    // (Its text and its markup both: a copy from a page carries text/html.)
+    std::optional<platform::ClipboardContent> clipboard_told;
+    std::optional<platform::ClipboardContent> clipboard_for_page() const
     {
-        return page_threads ? platform::read_clipboard_text() : std::nullopt;
+        return page_threads ? platform::read_clipboard() : std::nullopt;
     }
-    std::optional<std::string> read_clipboard() const
+    std::optional<platform::ClipboardContent> read_clipboard_content() const
     {
         if (engine_self && engine_self->threaded)
             return clipboard_told;
-        return platform::read_clipboard_text();
+        return platform::read_clipboard();
+    }
+    std::optional<std::string> read_clipboard() const
+    {
+        std::optional<platform::ClipboardContent> content = read_clipboard_content();
+        if (!content)
+            return std::nullopt;
+        return std::move(content->text);
+    }
+    void write_clipboard_content(platform::ClipboardContent const& content)
+    {
+        if (engine_self && engine_self->threaded) {
+            clipboard_told = content;
+            ask_shell([content](Impl&, std::size_t) { platform::write_clipboard(content); });
+            return;
+        }
+        platform::write_clipboard(content);
     }
     void write_clipboard(std::string const& text)
     {
-        if (engine_self && engine_self->threaded) {
-            clipboard_told = text;
-            ask_shell([text](Impl&, std::size_t) { platform::write_clipboard_text(text); });
-            return;
+        write_clipboard_content(platform::ClipboardContent { text, {} });
+    }
+
+    // The page hears `copy`, `cut` or `paste` first (Clipboard API §5): a
+    // listener that cancels it takes the action as its own, and what it
+    // put in clipboardData is what the clipboard holds. True when the page
+    // took it.
+    bool page_took_clipboard(Tab& tab, std::string_view type, platform::ClipboardContent const* pasted = nullptr)
+    {
+        if (!tab.realm)
+            return false;
+        script_started = std::chrono::steady_clock::now();
+        bindings::Realm::ClipboardItems items;
+        if (pasted)
+            items = { pasted->text, pasted->html };
+        bindings::Realm::ClipboardOutcome const outcome = tab.realm->clipboard_event(type, pasted ? &items : nullptr);
+        if (outcome.items)
+            write_clipboard_content(platform::ClipboardContent { outcome.items->text, outcome.items->html });
+        if (outcome.cancelled) {
+            ensure_fresh(tab);
+            dirty = true;
         }
-        platform::write_clipboard_text(text);
+        return outcome.cancelled;
+    }
+
+    // What the page's selection copies as: its text, and its markup.
+    platform::ClipboardContent page_selection_content(Tab& tab)
+    {
+        platform::ClipboardContent content { selected_text(tab), {} };
+        if (tab.realm && !content.text.empty()) {
+            push_selection(tab);
+            content.html = tab.realm->selection_markup();
+        }
+        return content;
     }
 
     // A key the page is to hear, and then its engine's own handling of it.
@@ -8378,6 +8423,28 @@ struct Browser::Impl {
                 if (Tab* const with_control = tab_with_focused_control())
                     select_all_in_control(*with_control);
             }, has_value));
+            specific = true;
+        } else if (editing_focus(*tab)) {
+            // A rich editor's menu: what its keys do, as every browser offers.
+            bool const has_selection = !selected_text(*tab).empty();
+            std::optional<platform::ClipboardContent> const clipboard = read_clipboard_content();
+            bool const can_paste = clipboard && (!clipboard->text.empty() || !clipboard->html.empty());
+            auto const chord = [this](char32_t letter, bool shift) {
+                KeyEvent key;
+                key.key = Key::Letter;
+                key.letter = letter;
+                key.ctrl = true;
+                key.shift = shift;
+                if (Tab* const active_one = active_tab())
+                    editing_key(*active_one, key);
+            };
+            items.push_back({});
+            items.push_back(menu_item("Cut", "Ctrl+X", [chord] { chord(U'X', false); }, has_selection));
+            items.push_back(menu_item("Copy", "Ctrl+C", [this] { copy_selection(); }, has_selection));
+            items.push_back(menu_item("Paste", "Ctrl+V", [chord] { chord(U'V', false); }, can_paste));
+            items.push_back(menu_item("Paste as plain text", "Ctrl+Shift+V", [chord] { chord(U'V', true); }, can_paste && !clipboard->text.empty()));
+            items.push_back({});
+            items.push_back(menu_item("Select all", "Ctrl+A", [chord] { chord(U'A', false); }));
             specific = true;
         } else if (!selected_text(*tab).empty()) {
             items.push_back({});
@@ -9580,17 +9647,25 @@ struct Browser::Impl {
             case U'Z': return run_edit(key.shift ? "historyRedo" : "historyUndo");
             case U'Y': return run_edit("historyRedo");
             case U'X': {
-                std::string const text = selected_text(tab);
-                if (text.empty())
+                if (page_took_clipboard(tab, "cut"))
                     return true;
-                write_clipboard(text);
+                platform::ClipboardContent const content = page_selection_content(tab);
+                if (content.text.empty())
+                    return true;
+                write_clipboard_content(content);
                 return run_edit("deleteByCut");
             }
             case U'V': {
-                std::optional<std::string> const text = read_clipboard();
-                if (!text || text->empty())
+                std::optional<platform::ClipboardContent> const content = read_clipboard_content();
+                if (!content || (content->text.empty() && content->html.empty()))
                     return true;
-                return run_edit("insertFromPaste", *text);
+                if (page_took_clipboard(tab, "paste", &*content))
+                    return true;
+                script_started = std::chrono::steady_clock::now();
+                // Ctrl+Shift+V pastes the text alone, as in every browser.
+                realm.paste_into_editing_host({ content->text, key.shift ? std::string() : content->html });
+                edited(tab);
+                return true;
             }
             default: return false;
             }
@@ -9640,16 +9715,20 @@ struct Browser::Impl {
             return;
         }
         if (Tab* const with_control = tab_with_focused_control(); with_control && !editing_focus(*with_control)) {
+            if (page_took_clipboard(*with_control, "copy"))
+                return;
             if (std::optional<std::string> const value = selected_in_control(*with_control); value && !value->empty())
                 write_clipboard(*value);
             return;
         }
-        Tab const* const tab = active_tab();
+        Tab* const tab = active_tab();
         if (!tab)
             return;
-        std::string const text = selected_text(*tab);
-        if (!text.empty())
-            write_clipboard(text);
+        if (page_took_clipboard(*tab, "copy"))
+            return;
+        platform::ClipboardContent const content = page_selection_content(*tab);
+        if (!content.text.empty())
+            write_clipboard_content(content);
     }
 
     // The clipboard's text typed into whatever has focus.
@@ -9665,11 +9744,28 @@ struct Browser::Impl {
             }
             return;
         }
-        std::optional<std::string> const text = read_clipboard();
-        if (!text || text->empty())
+        std::optional<platform::ClipboardContent> const content = read_clipboard_content();
+        if (!content || (content->text.empty() && content->html.empty()))
             return;
-        bool const into_control = !address_focus && tab_with_focused_control() != nullptr;
+        if (!address_focus) {
+            // Into a rich editor: what the reader's Ctrl+V does, by the menu.
+            if (Tab* const tab = active_tab(); tab && editing_focus(*tab)) {
+                if (page_took_clipboard(*tab, "paste", &*content))
+                    return;
+                script_started = std::chrono::steady_clock::now();
+                tab->realm->paste_into_editing_host({ content->text, content->html });
+                edited(*tab);
+                return;
+            }
+        }
+        std::string const* const text = &content->text;
+        if (text->empty())
+            return;
+        Tab* const with_control = address_focus ? nullptr : tab_with_focused_control();
+        bool const into_control = with_control != nullptr;
         if (!address_focus && !into_control)
+            return;
+        if (into_control && page_took_clipboard(*with_control, "paste", &*content))
             return;
         for (char32_t const c : decode_utf8(*text)) {
             if (c >= 0x20 && c != 0x7F)
@@ -10468,6 +10564,8 @@ struct Browser::Impl {
     {
         Tab* const tab = tab_with_focused_control();
         if (!tab || tab->controls.focused->has_attribute("readonly"))
+            return;
+        if (page_took_clipboard(*tab, "cut"))
             return;
         std::optional<std::string> const value = selected_in_control(*tab);
         if (!value || value->empty())
@@ -11335,8 +11433,18 @@ struct Browser::Impl {
                     select_all_text(*tab);
                 }
                 return;
-            case U'C': copy_selection(); return;
-            case U'V': paste(); return;
+            // Ctrl+C and Ctrl+V are keys the page hears too (editors watch
+            // them), and Ctrl+Shift+V is a paste of the text alone: a page in
+            // an engine of its own gets the key itself.
+            case U'C':
+            case U'V':
+                if (pages_in_engines && !address_focus && !find_focus && !palette_open)
+                    key_to_page(key);
+                else if (key.letter == U'C')
+                    copy_selection();
+                else
+                    paste();
+                return;
             case U'F': open_find(); return;
             case U'9': select_tab(tabs.size() - 1); return;
             default:
