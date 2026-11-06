@@ -219,6 +219,9 @@ struct HostHooks {
     // box (display: none, or nothing laid out yet). The host lays the page
     // out first when the tree has changed since.
     std::function<std::optional<LayoutBox>(dom::Element const&)> layout_box;
+    // The boxes of part of a Text node's data, UTF-16 offsets from and to,
+    // as laid out (find_text_boxes): none when it is not drawn.
+    std::function<std::vector<LayoutBox>(dom::Node const&, std::uint32_t, std::uint32_t)> text_boxes;
     // The element's computed style, for getComputedStyle; null when unknown.
     std::function<css::ComputedStyle const*(dom::Element const&)> computed_style;
     // The element uppermost at a point of the viewport, in CSS px from its
@@ -606,6 +609,15 @@ public:
     void set_selection(dom::Node& anchor, std::uint32_t anchor_offset, dom::Node& focus, std::uint32_t focus_offset);
     void clear_selection();
     std::uint64_t selection_version() const;
+    // A reader's edit of rich text (Editing.cpp), named by its inputType
+    // ("insertText", "deleteContentBackward", "insertParagraph", ...):
+    // beforeinput at the editing host the selection is in, which may cancel
+    // it, the change, then input. False when the selection is in no editing
+    // host, and the window should do what the key does elsewhere.
+    bool edit(std::string_view input_type, std::string const& data = {});
+    // The editing host around a node: its outermost contenteditable element,
+    // the body in designMode; null when the node is not editable.
+    dom::Element* editing_host(dom::Node& node);
     // The host navigates this window to `target` as the document would
     // navigate itself — a click on one of its links, one of its forms
     // submitted: a page hands it to its host, a frame schedules it on the

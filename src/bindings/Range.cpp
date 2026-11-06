@@ -509,6 +509,49 @@ std::string range_text(dom::Range const& range)
     return js::utf8_from_utf16(text);
 }
 
+// The boxes a range covers (CSSOM View §6.4 getClientRects): the border
+// boxes of the elements it holds whole whose parents it does not, and the
+// part of each Text node it reaches into — a collapsed range in text too —
+// in the viewport's coordinates.
+std::vector<LayoutBox> range_boxes(Realm::Internals& in, dom::Range const& range)
+{
+    std::vector<LayoutBox> boxes;
+    if (is_released(range) || !in.hooks.text_boxes)
+        return boxes;
+    auto const add_text = [&](dom::Node const& node, std::uint32_t from, std::uint32_t to) {
+        for (LayoutBox const& box : in.hooks.text_boxes(node, from, to))
+            boxes.push_back(box);
+    };
+    dom::Node& start = *range.start_node;
+    dom::Node& end = *range.end_node;
+    if (start.is_text())
+        add_text(start, range.start_offset, &start == &end ? range.end_offset : node_length(start));
+    if (&start != &end || !start.is_text()) {
+        std::vector<dom::Node*> descendants;
+        collect_descendants(*common_ancestor(range), descendants);
+        for (dom::Node const* node : descendants) {
+            if (node == &start || node == &end || !is_contained(*node, range))
+                continue;
+            if (node->is_text()) {
+                add_text(*node, 0, node_length(*node));
+            } else if (node->is_element() && !(node->parent() && is_contained(*node->parent(), range))) {
+                if (std::optional<LayoutBox> const box = in.hooks.layout_box ? in.hooks.layout_box(static_cast<dom::Element const&>(*node)) : std::nullopt)
+                    boxes.push_back(*box);
+            }
+        }
+        if (end.is_text() && &end != &start)
+            add_text(end, 0, range.end_offset);
+    }
+    if (in.hooks.scroll_position) {
+        std::pair<int, int> const scroll = in.hooks.scroll_position(*in.document);
+        for (LayoutBox& box : boxes) {
+            box.x -= static_cast<float>(scroll.first);
+            box.y -= static_cast<float>(scroll.second);
+        }
+    }
+    return boxes;
+}
+
 template<typename Read>
 Native read_range(js::Interpreter& interpreter, js::Value const& this_value, Read const& read)
 {
@@ -819,6 +862,38 @@ void install_ranges(Realm::Internals& in)
     range_method(in, *range, "toString", 0, false, [](Realm::Internals& internals, dom::Range& r, Args) -> Native {
         return internals.string(range_text(r));
     });
+    range_method(in, *range, "getClientRects", 0, false, [](Realm::Internals& internals, dom::Range& r, Args) -> Native {
+        js::Interpreter::Roots const roots(internals.interpreter);
+        js::ArrayObject* const rects = internals.interpreter.new_array();
+        internals.interpreter.root(js::Value::object(rects));
+        for (LayoutBox const& box : range_boxes(internals, r))
+            rects->push(make_rect(internals, box));
+        return js::Value::object(rects);
+    });
+    // The union of those boxes, the empty ones left out unless all are;
+    // all zero for none.
+    range_method(in, *range, "getBoundingClientRect", 0, false, [](Realm::Internals& internals, dom::Range& r, Args) -> Native {
+        std::vector<LayoutBox> const boxes = range_boxes(internals, r);
+        if (boxes.empty())
+            return make_rect(internals, 0, 0, 0, 0);
+        bool const any_area = std::any_of(boxes.begin(), boxes.end(), [](LayoutBox const& b) { return b.width > 0 && b.height > 0; });
+        std::optional<LayoutBox> bound;
+        for (LayoutBox const& box : boxes) {
+            if (any_area && (box.width <= 0 || box.height <= 0))
+                continue;
+            if (!bound) {
+                bound = box;
+                continue;
+            }
+            float const right = std::max(bound->x + bound->width, box.x + box.width);
+            float const bottom = std::max(bound->y + bound->height, box.y + box.height);
+            bound->x = std::min(bound->x, box.x);
+            bound->y = std::min(bound->y, box.y);
+            bound->width = right - bound->x;
+            bound->height = bottom - bound->y;
+        }
+        return make_rect(internals, *bound);
+    });
     // createContextualFragment (DOM Parsing §7): the markup parsed in the
     // start's element, a body for none or for html; its scripts are not
     // started, so they run once inserted.
@@ -885,6 +960,11 @@ std::string text_in_range(dom::Range const& range)
 Native delete_range_contents(Realm::Internals& in, dom::Range& range)
 {
     return delete_contents(in, range);
+}
+
+std::optional<dom::Node*> extract_range_contents(Realm::Internals& in, dom::Range& range)
+{
+    return extract(in, range);
 }
 
 Native insert_at_range(Realm::Internals& in, dom::Range& range, dom::Node& node)

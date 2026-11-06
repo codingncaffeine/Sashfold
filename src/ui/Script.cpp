@@ -630,7 +630,11 @@ struct Runner {
             expect_equal("assert-box-scroll", std::to_string(at_x) + " " + std::to_string(at_y),
                 std::to_string(*dx) + " " + std::to_string(*dy));
         } else if (command == "type") {
-            for (char32_t const c : decode_utf8(argument))
+            // `type "<text>"`: in quotes, the spaces at its ends are typed too.
+            std::string const text = argument.size() >= 2 && argument.front() == '"' && argument.back() == '"'
+                ? argument.substr(1, argument.size() - 2)
+                : argument;
+            for (char32_t const c : decode_utf8(text))
                 browser.text_input(c);
         } else if (command == "key") {
             std::optional<KeyEvent> const key = parse_chord(argument);

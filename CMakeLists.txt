@@ -99,6 +99,7 @@ add_library(sashfold_core STATIC
   src/bindings/Performance.cpp
   src/bindings/Range.cpp
   src/bindings/Selection.cpp
+  src/bindings/Editing.cpp
   src/bindings/Reflect.cpp
   src/bindings/ShadowDom.cpp
   src/bindings/Traversal.cpp

@@ -1936,7 +1936,27 @@ void install_events(Realm::Internals& in)
         keyboard_event->put(interpreter.key(name), js::Value::number(value), js::Enumerable);
 
     js::Object* input_event = define_interface(in, "InputEvent", ui_event, event_constructor("InputEvent"), 1);
-    event_getter(in, *input_event, "data", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.data); });
+    event_getter(in, *input_event, "data", [](Realm::Internals& internals, EventObject& e) {
+        return e.data_null ? js::Value::null() : internals.string(e.data);
+    });
+    // getTargetRanges(): the StaticRanges a beforeinput is about to change,
+    // a new array each time; none once the event is dispatched.
+    define_operation(interpreter, *input_event, "getTargetRanges", 0, [](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+        std::optional<EventObject*> const input = this_event(interp, this_value);
+        if (!input)
+            return std::nullopt;
+        js::ArrayObject* const array = interp.new_array();
+        if ((*input)->target_ranges.is_object() && (*input)->dispatching) {
+            js::Value const kept = (*input)->target_ranges;
+            std::optional<js::Value> const length = interp.get(kept, "length");
+            std::optional<double> const count = length ? interp.to_number(*length) : std::nullopt;
+            for (int i = 0; count && i < static_cast<int>(*count); ++i) {
+                if (std::optional<js::Value> const item = interp.get(kept, std::to_string(i)))
+                    array->push(*item);
+            }
+        }
+        return js::Value::object(array);
+    });
     event_getter(in, *input_event, "inputType", [](Realm::Internals& internals, EventObject& e) { return internals.string(e.input_type); });
     event_getter(in, *input_event, "isComposing", [](Realm::Internals&, EventObject&) { return js::Value::boolean(false); });
     event_getter(in, *input_event, "dataTransfer", [](Realm::Internals&, EventObject&) { return js::Value::null(); });

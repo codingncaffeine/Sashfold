@@ -25,6 +25,11 @@ namespace sashfold::bindings {
 // display: contents element, which has no box whatever its runs say.
 std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Element const& element,
     css::StyleMap const& styles);
+// The boxes of the part of a Text node's data from `from` to `to` (UTF-16
+// code units) as laid out: one for each run that draws some of it, as wide
+// as that part of the run, as tall as its font's ascent and descent — what
+// Range.getClientRects() gives for text.
+std::vector<LayoutBox> find_text_boxes(layout::Fragment const& root, dom::Node const& text, std::uint32_t from, std::uint32_t to);
 // The element's own fragment in a laid-out tree, or null.
 layout::Fragment const* find_element_fragment(layout::Fragment const& root, dom::Element const& element);
 // What element_scroll answers for a box (in its own px): a box that scrolls,
@@ -62,6 +67,7 @@ public:
     void keep_page_fonts(bool keep) { m_keep_page_fonts = keep; }
 
     std::optional<LayoutBox> box(dom::Element const& element);
+    std::vector<LayoutBox> text_boxes(dom::Node const& text, std::uint32_t from, std::uint32_t to);
     css::ComputedStyle const* style(dom::Element const& element);
     // The element uppermost at a page point (elementFromPoint).
     dom::Element const* element_at(float x, float y);

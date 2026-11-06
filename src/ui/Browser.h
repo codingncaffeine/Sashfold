@@ -782,7 +782,7 @@ public:
     // The current value of the first control with this name.
     std::optional<std::string> control_value(std::string const& name) const;
     // The focused control's name, or "" when focus is elsewhere.
-    std::string focused_control_name() const;
+    std::string focused_control_name() const; // its name, else its id
 
     // --- Selection (tests and --script) -------------------------------------
     // The selected page text, lines separated by newlines; "" when none.

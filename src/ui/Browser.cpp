@@ -667,6 +667,10 @@ struct Browser::Impl {
         float laid_out_scale = 0;
         std::vector<layout::TextRun const*> runs; // the layout's runs in tree order
         std::optional<Selection> selection; // positions into `runs`; dropped with the layout
+        // The document's selection version this tab's selection was last
+        // made from or given to (Realm::selection_version), so that a
+        // script's change to it is drawn.
+        std::uint64_t selection_seen = 0;
         std::vector<Match> matches; // the find bar's query in this tab, refreshed with the layout
         std::size_t current_match = 0;
         dom::Node const* inspected = nullptr; // devtools: the node under inspection
@@ -1159,6 +1163,7 @@ struct Browser::Impl {
     // may open a window on.
     std::chrono::steady_clock::time_point activation_until {};
     bool selecting = false; // the left button went down on page text and is still held
+    bool editing_drag = false; // ... in an editing host: the drag selects in the document too
     // The scrollbar thumb the left button took hold of, and where along it.
     struct BarDrag {
         dom::Element const* box = nullptr;
@@ -4752,6 +4757,23 @@ struct Browser::Impl {
                     *edge = static_cast<float>(to_css_px(*edge));
             }
             return box;
+        };
+        hooks.text_boxes = [this, document](dom::Node const& text, std::uint32_t from, std::uint32_t to) -> std::vector<bindings::LayoutBox> {
+            Tab* const owner = tab_of(document);
+            if (!owner)
+                return {};
+            ensure_fresh(*owner);
+            FrameView const* const view = view_of(*owner, frame_holding_in(owner->frames, text.document()));
+            std::vector<bindings::LayoutBox> boxes = bindings::find_text_boxes(view ? view->layout.root : owner->layout.root, text, from, to);
+            if (scale != 1) {
+                for (bindings::LayoutBox& box : boxes) {
+                    box.x = static_cast<float>(to_css_px(box.x));
+                    box.y = static_cast<float>(to_css_px(box.y));
+                    box.width = static_cast<float>(to_css_px(box.width));
+                    box.height = static_cast<float>(to_css_px(box.height));
+                }
+            }
+            return boxes;
         };
         hooks.computed_style = [this, document](dom::Element const& element) -> css::ComputedStyle const* {
             Tab* const owner = tab_of(document);
@@ -8814,6 +8836,8 @@ struct Browser::Impl {
         if (!position)
             return;
         tab.selection = Selection { *position, *position };
+        if (!in_frame)
+            push_selection(tab);
         if (in_frame) {
             FrameStep const& step = chain.back();
             tab.selection_frame = step.container;
@@ -8877,6 +8901,7 @@ struct Browser::Impl {
         if (std::optional<TextPosition> const focus = position_at(tab->runs, px, py);
             focus && !(*focus == tab->selection->focus)) {
             tab->selection->focus = *focus;
+            push_selection(*tab);
             dirty = true;
         }
     }
@@ -8889,6 +8914,7 @@ struct Browser::Impl {
         }
         if (button == 1) {
             selecting = false;
+            editing_drag = false;
             bar_drag.reset();
             if (pressed != Hover::None) {
                 pressed = Hover::None;
@@ -8987,6 +9013,579 @@ struct Browser::Impl {
         return true;
     }
 
+    // --- Rich text editing -------------------------------------------------------------
+    //
+    // An editing host with the focus (contenteditable, designMode) is edited
+    // through the document's own selection, which is the truth: the reader's
+    // keys become edits the page hears (Realm::edit), the caret is drawn
+    // where that selection's focus is, and the run-based selection the
+    // window paints and copies from is made from it. ⛔ The page's document
+    // only: an editor inside a frame is not edited yet.
+
+    struct EditingFocus {
+        bindings::Realm* realm = nullptr;
+        dom::Element* host = nullptr;
+    };
+
+    // The chords a page never hears, as in every browser: the window's own
+    // tabs and windows.
+    static bool reserved_chord(KeyEvent const& key)
+    {
+        if (key.key == Key::Tab || key.key == Key::PageUp || key.key == Key::PageDown)
+            return true;
+        if (key.key != Key::Letter)
+            return false;
+        char32_t const letter = key.letter >= U'a' && key.letter <= U'z' ? key.letter - 32 : key.letter;
+        return letter == U'T' || letter == U'W' || letter == U'N' || (key.shift && letter == U'Q');
+    }
+
+    std::optional<EditingFocus> editing_focus(Tab& tab)
+    {
+        if (!tab.controls.focused || !tab.realm || &tab.controls.focused->document() != tab.document.get())
+            return std::nullopt;
+        auto& focused = const_cast<dom::Element&>(*tab.controls.focused);
+        dom::Element* const host = tab.realm->editing_host(focused);
+        if (host != &focused)
+            return std::nullopt;
+        return EditingFocus { tab.realm.get(), host };
+    }
+
+    // A node's data counted both ways: UTF-16 code units (the DOM's
+    // offsets) and code points (a run's characters).
+    static std::uint32_t code_points_in(std::string const& utf8, std::uint32_t units)
+    {
+        std::uint32_t seen = 0;
+        std::uint32_t points = 0;
+        for (std::size_t i = 0; i < utf8.size() && seen < units; ++i) {
+            auto const byte = static_cast<unsigned char>(utf8[i]);
+            if ((byte & 0xC0) == 0x80)
+                continue;
+            seen += byte >= 0xF0 ? 2 : 1;
+            ++points;
+        }
+        return points;
+    }
+    static std::uint32_t units_in(std::string const& utf8, std::uint32_t points)
+    {
+        std::uint32_t seen = 0;
+        std::uint32_t units = 0;
+        for (std::size_t i = 0; i < utf8.size() && seen < points; ++i) {
+            auto const byte = static_cast<unsigned char>(utf8[i]);
+            if ((byte & 0xC0) == 0x80)
+                continue;
+            units += byte >= 0xF0 ? 2 : 1;
+            ++seen;
+        }
+        return units;
+    }
+    static std::string const& data_of(dom::Node const& node)
+    {
+        return static_cast<dom::Text const&>(node).data;
+    }
+
+    // The place in the document a position in the page's text is.
+    static std::optional<std::pair<dom::Node*, std::uint32_t>> dom_point_of(std::vector<layout::TextRun const*> const& runs,
+        TextPosition position)
+    {
+        if (position.run >= runs.size())
+            return std::nullopt;
+        layout::TextRun const& run = *runs[position.run];
+        if (!run.source || !run.source->is_text()) {
+            // Text no node holds (a marker, generated content): the next
+            // run that has one, at its start.
+            for (std::size_t i = position.run + 1; i < runs.size(); ++i) {
+                if (runs[i]->source && runs[i]->source->is_text() && !runs[i]->source_reversed)
+                    return std::pair { const_cast<dom::Node*>(runs[i]->source),
+                        units_in(data_of(*runs[i]->source), runs[i]->source_from) };
+            }
+            return std::nullopt;
+        }
+        std::uint32_t const length = static_cast<std::uint32_t>(run.text.size());
+        std::uint32_t const offset = std::min<std::uint32_t>(static_cast<std::uint32_t>(position.offset), length);
+        std::uint32_t const point = run.source_reversed ? run.source_from + (length - offset) : run.source_from + offset;
+        return std::pair { const_cast<dom::Node*>(run.source), units_in(data_of(*run.source), point) };
+    }
+
+    // The position in the page's text a place in the document is: in the run
+    // drawn from that character of the node; for a place between nodes, the
+    // start of the first run after it, or the end of the last before it.
+    static std::optional<TextPosition> text_position_of(std::vector<layout::TextRun const*> const& runs, dom::Node const& node,
+        std::uint32_t offset)
+    {
+        if (node.is_text()) {
+            std::uint32_t const point = code_points_in(data_of(node), offset);
+            std::optional<TextPosition> best;
+            for (std::size_t i = 0; i < runs.size(); ++i) {
+                layout::TextRun const& run = *runs[i];
+                if (run.source != &node)
+                    continue;
+                std::uint32_t const length = static_cast<std::uint32_t>(run.text.size());
+                if (point < run.source_from) {
+                    if (!best)
+                        best = TextPosition { i, run.source_reversed ? length : 0 };
+                    break;
+                }
+                std::uint32_t const into = std::min(point - run.source_from, length);
+                best = TextPosition { i, run.source_reversed ? length - into : into };
+                if (point < run.source_from + length)
+                    break;
+            }
+            if (best)
+                return best;
+            // A node drawn nowhere (all of it collapsed away): as the place
+            // before it.
+            if (!node.parent())
+                return std::nullopt;
+            return text_position_of(runs, *node.parent(), node.index());
+        }
+        // Between nodes: the first run whose node is at or after the place.
+        std::vector<dom::Node*> const& children = node.children();
+        dom::Node const* const after = offset < children.size() ? children[offset] : nullptr;
+        auto const is_at_or_after = [&](dom::Node const& source) {
+            if (after) {
+                for (dom::Node const* at = &source; at; at = at->parent()) {
+                    if (at == after)
+                        return true;
+                }
+                // After `after` in tree order: an ancestor chain that meets
+                // the node's children past it.
+                for (dom::Node const* at = &source; at && at->parent(); at = at->parent()) {
+                    if (at->parent() == &node)
+                        return at->index() >= offset;
+                }
+                return false;
+            }
+            for (dom::Node const* at = &source; at && at->parent(); at = at->parent()) {
+                if (at->parent() == &node)
+                    return false;
+            }
+            return false;
+        };
+        std::optional<TextPosition> before;
+        bool inside = false;
+        for (std::size_t i = 0; i < runs.size(); ++i) {
+            layout::TextRun const& run = *runs[i];
+            if (!run.source)
+                continue;
+            bool within = false;
+            for (dom::Node const* at = run.source; at; at = at->parent()) {
+                if (at == &node) {
+                    within = true;
+                    break;
+                }
+            }
+            if (!within) {
+                if (inside)
+                    break;
+                continue;
+            }
+            inside = true;
+            if (is_at_or_after(*run.source))
+                return TextPosition { i, run.source_reversed ? run.text.size() : 0 };
+            before = TextPosition { i, run.source_reversed ? 0 : run.text.size() };
+        }
+        return before;
+    }
+
+    static float resolved(css::LengthPercent const& length, float basis)
+    {
+        switch (length.kind) {
+        case css::LengthPercent::Kind::Px: return length.value;
+        case css::LengthPercent::Kind::Percent: return length.value / 100 * basis;
+        case css::LengthPercent::Kind::Calc: return length.value + length.percent / 100 * basis;
+        default: return 0;
+        }
+    }
+
+    // Where the caret stands for a place in the document, in page
+    // coordinates: beside the character of the run it is in, or — on a line
+    // with no text, an empty paragraph or the line a <br> began — at the
+    // start of that line in its block.
+    struct CaretBox {
+        float x = 0;
+        float top = 0;
+        float height = 0;
+        Color color;
+    };
+
+    std::optional<CaretBox> caret_box(Tab& tab, dom::Node& node, std::uint32_t offset)
+    {
+        std::vector<layout::TextRun const*> const& runs = tab.runs;
+        bool after_break = false;
+        if (!node.is_text() && offset > 0 && offset <= node.children().size()) {
+            dom::Node const* const before = node.children()[offset - 1];
+            after_break = before->is_element() && static_cast<dom::Element const*>(before)->is_html("br");
+        }
+        std::optional<TextPosition> position = after_break ? std::nullopt : text_position_of(runs, node, offset);
+        // A place before a node of the same block only: a run found in
+        // another block is not where an empty line's caret goes.
+        if (position && !node.is_text()) {
+            dom::Node const* const source = runs[position->run]->source;
+            dom::Node const* block = &node;
+            while (block && block->is_element() && !fragment_for(tab.layout.root, static_cast<dom::Element const*>(block)))
+                block = block->parent();
+            bool same = false;
+            for (dom::Node const* at = source; at; at = at->parent()) {
+                if (at == &node) {
+                    same = true;
+                    break;
+                }
+            }
+            if (!same)
+                position.reset();
+        }
+        if (position) {
+            layout::TextRun const& run = *runs[position->run];
+            text::FaceMetrics const metrics = run_metrics(run);
+            float const x = run.x + prefix_width(run, position->offset);
+            return CaretBox { x, run.baseline_y - metrics.ascent, metrics.ascent + metrics.descent, run.style->color };
+        }
+        // No text at the place: the line's start in the nearest box.
+        dom::Element const* box_element = node.is_element() ? static_cast<dom::Element const*>(&node) : nullptr;
+        if (!box_element && node.parent() && node.parent()->is_element())
+            box_element = static_cast<dom::Element const*>(node.parent());
+        layout::Fragment const* box = nullptr;
+        for (dom::Element const* at = box_element; at && !box; at = at->parent() && at->parent()->is_element() ? static_cast<dom::Element const*>(at->parent()) : nullptr)
+            box = fragment_for(tab.layout.root, at);
+        if (!box || !box->style)
+            return std::nullopt;
+        css::ComputedStyle const& style = *box->style;
+        float const size = style.font_size;
+        float const line = size * 1.2f;
+        float x = box->x + style.border_left.width + resolved(style.padding_left, box->width);
+        float top = box->y + style.border_top.width + resolved(style.padding_top, box->width);
+        if (after_break) {
+            // The line after a <br>: below the last text before it in the box.
+            dom::Node const* const br = node.children()[offset - 1];
+            float bottom = -1;
+            for (layout::TextRun const* run : runs) {
+                if (!run->source)
+                    continue;
+                bool within = false;
+                for (dom::Node const* at = run->source; at; at = at->parent()) {
+                    if (at == box_element) {
+                        within = true;
+                        break;
+                    }
+                }
+                if (!within)
+                    continue;
+                // Only text before the <br>.
+                dom::Node const* top_child = run->source;
+                while (top_child && top_child->parent() != br->parent())
+                    top_child = top_child->parent();
+                if (!top_child || top_child->index() > br->index())
+                    continue;
+                text::FaceMetrics const metrics = run_metrics(*run);
+                bottom = std::max(bottom, run->baseline_y + metrics.descent);
+            }
+            // Each <br> before this one with no text after it adds a line.
+            int empty_lines = 0;
+            for (std::uint32_t i = offset; i-- > 0;) {
+                dom::Node const* const child = node.children()[i];
+                if (child->is_element() && static_cast<dom::Element const*>(child)->is_html("br"))
+                    ++empty_lines;
+                else if (!child->is_text() || !data_of(*child).empty())
+                    break;
+            }
+            if (bottom >= 0)
+                top = bottom + static_cast<float>(empty_lines - 1) * line;
+            else
+                top += static_cast<float>(empty_lines) * line;
+        }
+        return CaretBox { x, top + (line - size * 1.15f) / 2, size * 1.15f, style.color };
+    }
+
+    // The document's selection made the window's: the run positions of its
+    // anchor and focus, when both are drawn.
+    void pull_selection(Tab& tab)
+    {
+        if (!tab.realm || tab.selection_frame)
+            return;
+        std::uint64_t const version = tab.realm->selection_version();
+        bool const editing = editing_focus(tab).has_value();
+        if (!editing && version == tab.selection_seen)
+            return;
+        tab.selection_seen = version;
+        std::optional<bindings::Realm::SelectionPoints> points = tab.realm->selection();
+        if (std::optional<EditingFocus> const focused = editing_focus(tab)) {
+            // A host given the focus with the selection elsewhere: the caret
+            // at the start of its text (HTML §6.6.3's focusing steps).
+            bool inside = false;
+            for (dom::Node const* at = points ? points->focus : nullptr; at; at = at->parent()) {
+                if (at == focused->host) {
+                    inside = true;
+                    break;
+                }
+            }
+            if (!inside) {
+                dom::Node* first = focused->host;
+                while (!first->children().empty() && !first->is_text())
+                    first = first->children().front();
+                if (!first->is_text())
+                    first = focused->host;
+                focused->realm->set_selection(*first, 0, *first, 0);
+                tab.selection_seen = focused->realm->selection_version();
+                points = focused->realm->selection();
+            }
+        }
+        if (!points) {
+            if (editing)
+                tab.selection.reset();
+            return;
+        }
+        std::optional<TextPosition> const anchor = text_position_of(tab.runs, *points->anchor, points->anchor_offset);
+        std::optional<TextPosition> const focus = text_position_of(tab.runs, *points->focus, points->focus_offset);
+        if (anchor && focus && !(points->anchor == points->focus && points->anchor_offset == points->focus_offset))
+            tab.selection = Selection { *anchor, *focus };
+        else if (editing || (anchor && focus))
+            tab.selection.reset();
+    }
+
+    // The window's selection given to the document, so that the page's
+    // getSelection() is what the reader selected.
+    void push_selection(Tab& tab)
+    {
+        if (!tab.realm || tab.selection_frame || !tab.selection)
+            return;
+        std::optional<std::pair<dom::Node*, std::uint32_t>> const anchor = dom_point_of(tab.runs, tab.selection->anchor);
+        std::optional<std::pair<dom::Node*, std::uint32_t>> const focus = dom_point_of(tab.runs, tab.selection->focus);
+        if (!anchor || !focus)
+            return;
+        script_started = std::chrono::steady_clock::now();
+        tab.realm->set_selection(*anchor->first, anchor->second, *focus->first, focus->second);
+        tab.selection_seen = tab.realm->selection_version();
+    }
+
+    // A press in an editing host: the host takes the focus and the caret
+    // goes to the place under the pointer (Shift: the selection reaches it).
+    // A drag from there selects, as on any text.
+    bool press_in_editing_host(Tab& tab, dom::Element const& target, int x, int y, bool shift)
+    {
+        if (!tab.realm || &target.document() != tab.document.get())
+            return false;
+        dom::Element* const host = tab.realm->editing_host(const_cast<dom::Element&>(target));
+        if (!host)
+            return false;
+        bool const was_focused = tab.controls.focused == host;
+        focus_control(tab, host, false);
+        std::optional<std::pair<float, float>> const point = page_point(x, y);
+        // The runs of the host alone, so that a press in its padding lands
+        // on its own text.
+        std::vector<layout::TextRun const*> host_runs;
+        std::vector<std::size_t> indexes;
+        for (std::size_t i = 0; i < tab.runs.size(); ++i) {
+            for (dom::Node const* at = tab.runs[i]->source; at; at = at->parent()) {
+                if (at == host) {
+                    host_runs.push_back(tab.runs[i]);
+                    indexes.push_back(i);
+                    break;
+                }
+            }
+        }
+        std::optional<std::pair<dom::Node*, std::uint32_t>> place;
+        if (point && !host_runs.empty()) {
+            if (std::optional<TextPosition> const local = position_at(host_runs, point->first, point->second))
+                place = dom_point_of(tab.runs, TextPosition { indexes[local->run], local->offset });
+        }
+        if (!place)
+            place = std::pair<dom::Node*, std::uint32_t> { host, 0 };
+        std::optional<bindings::Realm::SelectionPoints> const now = tab.realm->selection();
+        script_started = std::chrono::steady_clock::now();
+        if (shift && was_focused && now)
+            tab.realm->set_selection(*now->anchor, now->anchor_offset, *place->first, place->second);
+        else
+            tab.realm->set_selection(*place->first, place->second, *place->first, place->second);
+        ensure_fresh(tab);
+        tab.selection_seen = tab.realm->selection_version();
+        tab.selection.reset();
+        pull_selection(tab);
+        // A drag goes on from here as a selection of the page's text does.
+        TextPosition const start = tab.selection ? tab.selection->anchor : TextPosition {};
+        if (std::optional<std::pair<float, float>> const at = page_point(x, y)) {
+            if (std::optional<TextPosition> const p = position_at(tab.runs, at->first, at->second)) {
+                tab.selection = Selection { shift && tab.selection ? start : *p, *p };
+                editing_drag = true;
+                selecting = true;
+            }
+        }
+        if (tab.selection && tab.selection->anchor == tab.selection->focus)
+            tab.selection.reset();
+        dirty = true;
+        return true;
+    }
+
+    // Moves the caret (or with Shift the selection's focus) by a key, over
+    // the page's text as it is laid out.
+    bool move_in_editing_host(Tab& tab, EditingFocus const& editing, KeyEvent const& key)
+    {
+        std::optional<bindings::Realm::SelectionPoints> const points = editing.realm->selection();
+        if (!points)
+            return false;
+        std::optional<TextPosition> const anchor = text_position_of(tab.runs, *points->anchor, points->anchor_offset);
+        std::optional<TextPosition> focus = text_position_of(tab.runs, *points->focus, points->focus_offset);
+        if (!focus || tab.runs.empty())
+            return true;
+        bool const collapsed = points->anchor == points->focus && points->anchor_offset == points->focus_offset;
+        std::optional<TextPosition> next;
+        auto const word_step = [&](TextPosition at, int direction) {
+            // Past the spaces, then the letters, as Ctrl with an arrow does.
+            auto const char_at = [&](TextPosition p) -> std::optional<char32_t> {
+                layout::TextRun const& run = *tab.runs[p.run];
+                if (direction > 0)
+                    return p.offset < run.text.size() ? std::optional<char32_t>(run.text[p.offset]) : std::nullopt;
+                return p.offset > 0 ? std::optional<char32_t>(run.text[p.offset - 1]) : std::nullopt;
+            };
+            auto const letter = [](char32_t c) { return c != U' ' && c != 0xA0 && c != U'\t' && !(c < 0x80 && std::ispunct(static_cast<int>(c))); };
+            for (int guard = 0; guard < 4096; ++guard) {
+                std::optional<char32_t> const c = char_at(at);
+                if (c && letter(*c))
+                    break;
+                TextPosition const moved = step(tab, at, direction);
+                if (moved == at)
+                    return at;
+                at = moved;
+            }
+            for (int guard = 0; guard < 4096; ++guard) {
+                std::optional<char32_t> const c = char_at(at);
+                if (!c || !letter(*c))
+                    break;
+                TextPosition const moved = step(tab, at, direction);
+                if (moved == at)
+                    break;
+                at = moved;
+            }
+            return at;
+        };
+        switch (key.key) {
+        case Key::Left:
+        case Key::Right: {
+            int const direction = key.key == Key::Left ? -1 : +1;
+            if (!collapsed && !key.shift && anchor) {
+                // A selection collapses to its side first.
+                bool const focus_first = *focus < *anchor;
+                next = (direction < 0) == focus_first ? *focus : *anchor;
+            } else {
+                next = key.ctrl ? word_step(*focus, direction) : step(tab, *focus, direction);
+            }
+            break;
+        }
+        case Key::Up: next = line_step(tab, *focus, -1); break;
+        case Key::Down: next = line_step(tab, *focus, +1); break;
+        case Key::Home: next = key.ctrl ? TextPosition { 0, 0 } : line_end(tab, *focus, false); break;
+        case Key::End: next = key.ctrl ? TextPosition { tab.runs.size() - 1, tab.runs.back()->text.size() } : line_end(tab, *focus, true); break;
+        default: return false;
+        }
+        if (!next)
+            return true;
+        std::optional<std::pair<dom::Node*, std::uint32_t>> const place = dom_point_of(tab.runs, *next);
+        if (!place)
+            return true;
+        // The caret stays in its host.
+        bool inside = false;
+        for (dom::Node const* at = place->first; at; at = at->parent()) {
+            if (at == editing.host) {
+                inside = true;
+                break;
+            }
+        }
+        if (!inside)
+            return true;
+        script_started = std::chrono::steady_clock::now();
+        if (key.shift)
+            editing.realm->set_selection(*points->anchor, points->anchor_offset, *place->first, place->second);
+        else
+            editing.realm->set_selection(*place->first, place->second, *place->first, place->second);
+        pull_selection(tab);
+        dirty = true;
+        return true;
+    }
+
+    // An edit made and shown: the page's listeners have run, its layout is
+    // made again and the selection drawn from the document's.
+    void edited(Tab& tab)
+    {
+        ensure_fresh(tab);
+        tab.selection.reset();
+        pull_selection(tab);
+        dirty = true;
+    }
+
+    // A key while an editing host has the focus; true when it took it.
+    bool editing_key(Tab& tab, KeyEvent const& key)
+    {
+        std::optional<EditingFocus> const editing = editing_focus(tab);
+        if (!editing || key.alt)
+            return false;
+        bindings::Realm& realm = *editing->realm;
+        auto const run_edit = [&](std::string_view input_type, std::string const& data = {}) {
+            script_started = std::chrono::steady_clock::now();
+            realm.edit(input_type, data);
+            edited(tab);
+            return true;
+        };
+        if (key.ctrl && key.key == Key::Letter) {
+            switch (key.letter) {
+            case U'A': {
+                script_started = std::chrono::steady_clock::now();
+                realm.set_selection(*editing->host, 0, *editing->host, static_cast<std::uint32_t>(editing->host->children().size()));
+                pull_selection(tab);
+                dirty = true;
+                return true;
+            }
+            case U'B': return run_edit("formatBold");
+            case U'I': return run_edit("formatItalic");
+            case U'Z': return run_edit(key.shift ? "historyRedo" : "historyUndo");
+            case U'Y': return run_edit("historyRedo");
+            case U'X': {
+                std::string const text = selected_text(tab);
+                if (text.empty())
+                    return true;
+                write_clipboard(text);
+                return run_edit("deleteByCut");
+            }
+            case U'V': {
+                std::optional<std::string> const text = read_clipboard();
+                if (!text || text->empty())
+                    return true;
+                return run_edit("insertFromPaste", *text);
+            }
+            default: return false;
+            }
+        }
+        switch (key.key) {
+        case Key::Backspace: return run_edit(key.ctrl ? "deleteWordBackward" : "deleteContentBackward");
+        case Key::Delete: return run_edit(key.ctrl ? "deleteWordForward" : "deleteContentForward");
+        case Key::Enter: return run_edit(key.shift ? "insertLineBreak" : "insertParagraph");
+        case Key::Left:
+        case Key::Right:
+        case Key::Up:
+        case Key::Down:
+        case Key::Home:
+        case Key::End: return move_in_editing_host(tab, *editing, key);
+        // A letter, a digit or a space arrives as text (type_into_editing_host);
+        // its key is kept from the page's own handling — link hints, scrolling.
+        case Key::Space:
+        case Key::Letter:
+        case Key::Escape: return true;
+        default: return false;
+        }
+    }
+
+    // A character typed while an editing host has the focus.
+    bool type_into_editing_host(char32_t code_point)
+    {
+        Tab* const tab = active_tab();
+        if (!tab || !editing_focus(*tab))
+            return false;
+        std::string utf8;
+        append_utf8(utf8, code_point);
+        script_started = std::chrono::steady_clock::now();
+        tab->realm->edit("insertText", utf8);
+        edited(*tab);
+        return true;
+    }
+
     void copy_selection()
     {
         if (address_focus) {
@@ -8998,7 +9597,7 @@ struct Browser::Impl {
             ask_front([](Browser& shell) { shell.m_impl->copy_selection(); });
             return;
         }
-        if (Tab* const with_control = tab_with_focused_control()) {
+        if (Tab* const with_control = tab_with_focused_control(); with_control && !editing_focus(*with_control)) {
             if (std::optional<std::string> const value = selected_in_control(*with_control); value && !value->empty())
                 write_clipboard(*value);
             return;
@@ -10357,6 +10956,13 @@ struct Browser::Impl {
                         }
                     }
                 }
+                // A press in an editing host puts the caret there.
+                if (Tab* const tab = active_tab(); tab && tab->document) {
+                    std::optional<std::pair<float, float>> const point = page_point(x, y);
+                    dom::Element const* const target = point ? target_at(tab->layout.root, point->first, point->second, tab->styles) : nullptr;
+                    if (target && press_in_editing_host(*tab, *target, x, y, modifiers.shift))
+                        break;
+                }
                 // What a press does on its own: the focus leaves a control
                 // pressed outside of, and a drag on plain text starts a
                 // selection. A control's activation and a link's following
@@ -10612,7 +11218,7 @@ struct Browser::Impl {
             key_to_page(key);
             return;
         }
-        if (!key.ctrl && !key.alt && !address_focus && !find_focus) {
+        if ((!key.ctrl || !reserved_chord(key)) && !key.alt && !address_focus && !find_focus) {
             if (Tab* const tab = active_tab(); tab && tab->realm && tab->document) {
                 dom::Element const* const target = tab->controls.focused;
                 script_started = std::chrono::steady_clock::now();
@@ -10625,6 +11231,11 @@ struct Browser::Impl {
                     return;
                 }
             }
+        }
+        // An editing host with the focus takes the keys that edit and move.
+        if (!pages_in_engines && !address_focus && !find_focus && !palette_open) {
+            if (Tab* const tab = active_tab(); tab && editing_key(*tab, key))
+                return;
         }
         if (key.key == Key::Menu || (key.key == Key::F10 && key.shift)) {
             open_menu_by_keyboard();
@@ -10648,6 +11259,8 @@ struct Browser::Impl {
             case U'B':
                 if (key.shift)
                     toggle_bookmarks_bar();
+                else if (pages_in_engines && !address_focus && !find_focus)
+                    key_to_page(key);
                 return;
             case U'O':
                 if (key.shift)
@@ -10687,6 +11300,8 @@ struct Browser::Impl {
             default:
                 if (key.letter >= U'1' && key.letter <= U'8')
                     select_tab(static_cast<std::size_t>(key.letter - U'1'));
+                else if (pages_in_engines && !address_focus && !find_focus)
+                    key_to_page(key); // none of the window's: the page's (Ctrl+B in an editor)
                 return;
             }
         }
@@ -10991,6 +11606,8 @@ struct Browser::Impl {
             return;
         }
         if (!address_focus) {
+            if (type_into_editing_host(code_point))
+                return;
             type_into_control(code_point);
             // The control's page hears what was typed.
             if (Tab* const tab = tab_with_focused_control(); tab && tab->realm) {
@@ -11472,9 +12089,26 @@ struct Browser::Impl {
                         m == tab->current_match ? t.find_current : t.find_highlight);
                 }
             }
+            if (Tab* const front = active_tab(); front == tab)
+                pull_selection(*front);
             if (tab->selection && !tab->selection_frame) { // a frame's is in the frame's picture
                 auto const [start, end] = ordered(*tab->selection);
                 paint_bands(content, *tab, start, end, t.selection);
+            }
+            // The caret in an editing host with the focus.
+            if (Tab* const front = active_tab(); front == tab) {
+                if (std::optional<EditingFocus> const editing = editing_focus(*front)) {
+                    std::optional<bindings::Realm::SelectionPoints> const points = editing->realm->selection();
+                    if (points && points->anchor == points->focus && points->anchor_offset == points->focus_offset) {
+                        if (std::optional<CaretBox> const box = caret_box(*front, *points->focus, points->focus_offset)) {
+                            int const caret_width = std::max(1, static_cast<int>(std::lround(scale)));
+                            content.fill_rect(Rect { static_cast<int>(std::lround(box->x)),
+                                                  static_cast<int>(std::lround(box->top - static_cast<float>(tab->scroll_y))), caret_width,
+                                                  std::max(1, static_cast<int>(std::lround(box->height))) },
+                                box->color);
+                        }
+                    }
+                }
             }
             if (hints_active) {
                 // The labels still possible, each at its link's top-left.
@@ -13014,7 +13648,11 @@ std::string Browser::focused_control_name() const
     Impl::Tab const* const tab = m_impl->active_tab();
     if (!tab || !tab->controls.focused)
         return "";
-    dom::Attr const* const name = tab->controls.focused->find_attribute("name");
+    // A control by its name; an element that has none (an editing host)
+    // by its id.
+    dom::Attr const* name = tab->controls.focused->find_attribute("name");
+    if (!name)
+        name = tab->controls.focused->find_attribute("id");
     return name ? name->value : "";
 }
 

@@ -199,6 +199,85 @@ ElementScroll scroll_of_box(layout::Fragment const& box, layout::ScrollOffsets c
     return at;
 }
 
+namespace {
+
+// A run's advance over its first `count` characters, in its own faces.
+float run_prefix(layout::TextRun const& run, std::size_t count)
+{
+    std::u32string_view const prefix = std::u32string_view(run.text).substr(0, std::min(count, run.text.size()));
+    float const size = run.style ? run.style->font_size : 16;
+    if (run.fonts)
+        return run.fonts->measure(prefix, size);
+    return static_cast<float>(prefix.size()) * size * 0.6f;
+}
+
+void collect_text_boxes(layout::Fragment const& fragment, dom::Node const& text, std::uint32_t from, std::uint32_t to,
+    std::vector<LayoutBox>& out)
+{
+    for (layout::TextRun const& run : fragment.runs) {
+        if (run.source != &text || run.text.empty())
+            continue;
+        std::uint32_t const length = static_cast<std::uint32_t>(run.text.size());
+        std::uint32_t const start = std::max(from, run.source_from);
+        std::uint32_t const end = std::min(to, run.source_from + length);
+        // A collapsed range touching the run is a caret's place in it.
+        bool const caret = from == to && from >= run.source_from && from <= run.source_from + length;
+        if (start >= end && !caret)
+            continue;
+        std::uint32_t a = (caret ? from : start) - run.source_from;
+        std::uint32_t b = (caret ? from : end) - run.source_from;
+        if (run.source_reversed) {
+            std::uint32_t const drawn_a = length - b;
+            b = length - a;
+            a = drawn_a;
+        }
+        float const size = run.style ? run.style->font_size : 16;
+        float ascent = size * 0.8f;
+        float descent = size * 0.2f;
+        if (run.fonts) {
+            text::FaceMetrics const metrics = run.fonts->primary().metrics(size);
+            ascent = metrics.ascent;
+            descent = metrics.descent;
+        }
+        float const left = run.x + run_prefix(run, a);
+        float const right = run.x + run_prefix(run, b);
+        LayoutBox box;
+        box.x = left;
+        box.y = run.baseline_y - ascent;
+        box.width = right - left;
+        box.height = ascent + descent;
+        out.push_back(box);
+    }
+    for (layout::Fragment const& child : fragment.children)
+        collect_text_boxes(child, text, from, to, out);
+}
+
+std::uint32_t code_points_before(std::string const& utf8, std::uint32_t units)
+{
+    std::uint32_t seen = 0;
+    std::uint32_t points = 0;
+    for (std::size_t i = 0; i < utf8.size() && seen < units; ++i) {
+        auto const byte = static_cast<unsigned char>(utf8[i]);
+        if ((byte & 0xC0) == 0x80)
+            continue;
+        seen += byte >= 0xF0 ? 2 : 1;
+        ++points;
+    }
+    return points;
+}
+
+}
+
+std::vector<LayoutBox> find_text_boxes(layout::Fragment const& root, dom::Node const& text, std::uint32_t from, std::uint32_t to)
+{
+    std::vector<LayoutBox> boxes;
+    if (!text.is_text())
+        return boxes;
+    std::string const& data = static_cast<dom::Text const&>(text).data;
+    collect_text_boxes(root, text, code_points_before(data, from), code_points_before(data, to), boxes);
+    return boxes;
+}
+
 std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Element const& element,
     css::StyleMap const& styles)
 {
@@ -269,6 +348,7 @@ void LayoutOracle::set_viewport(float width, float height)
 void LayoutOracle::install(HostHooks& hooks)
 {
     hooks.layout_box = [this](dom::Element const& element) { return box(element); };
+    hooks.text_boxes = [this](dom::Node const& text, std::uint32_t from, std::uint32_t to) { return text_boxes(text, from, to); };
     hooks.computed_style = [this](dom::Element const& element) { return style(element); };
     hooks.element_from_point = [this](float x, float y) { return element_at(x, y); };
     hooks.with_fonts = [this](std::function<void()> const& use) { with_fonts(use); };
@@ -409,6 +489,12 @@ std::optional<LayoutBox> LayoutOracle::box(dom::Element const& element)
 {
     ensure();
     return find_element_box(m_layout.root, element, m_styles);
+}
+
+std::vector<LayoutBox> LayoutOracle::text_boxes(dom::Node const& text, std::uint32_t from, std::uint32_t to)
+{
+    ensure();
+    return find_text_boxes(m_layout.root, text, from, to);
 }
 
 css::ComputedStyle const* LayoutOracle::style(dom::Element const& element)

@@ -1074,9 +1074,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         return rejected_promise(internals.interpreter,
             dom_exception_value(internals, "NotAllowedError", "A frame of another site is not given the page's cookies."));
     });
-    document_method(in, *document, "execCommand", 1, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(false); });
-    document_method(in, *document, "queryCommandSupported", 1, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(false); });
-    document_method(in, *document, "queryCommandEnabled", 1, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(false); });
+    install_editing(in, *document);
     document_promise_method(in, *document, "exitFullscreen", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
         return exit_fullscreen_promise(internals);
     });

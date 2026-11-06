@@ -176,6 +176,7 @@ void EventObject::trace(js::Tracer& tracer)
     tracer.visit(source_value);
     tracer.visit(ports);
     tracer.visit(promise_value);
+    tracer.visit(target_ranges);
     for (js::Value const& member : members)
         tracer.visit(member);
 }
@@ -4116,10 +4117,11 @@ bool Realm::dispatch_input_event(dom::Node& target, std::string_view type, Input
     Internals::HostEntry const host(in.agent);
     js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
     js::Interpreter::Roots const roots(in.interpreter);
-    EventObject* event = in.new_event(type == "input" ? "InputEvent" : "Event", type, true, type == "beforeinput");
+    bool const input = type == "input" || type == "beforeinput";
+    EventObject* event = in.new_event(input ? "InputEvent" : "Event", type, true, type == "beforeinput");
     in.interpreter.root(js::Value::object(event));
     event->is_trusted = true;
-    event->composed = type == "input";
+    event->composed = input;
     event->data = init.data;
     event->input_type = init.input_type;
     return in.dispatch(*event, in.wrap(target));

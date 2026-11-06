@@ -1,0 +1,70 @@
+# Typing into rich text (gaps plan item 4): a click puts the caret in the
+# editing host, keys become edits the page hears (beforeinput, then input),
+# Enter splits a paragraph, Backspace joins them again, the arrows move the
+# caret and Shift selects. The page writes its host's markup into its title
+# after each input, which is what the asserts read. The content area starts
+# 76 px down; the host's text starts at 8 + 1 + 4 = 13 px in and its first
+# line at 76 + 8 + 1 + 4 = 89 px; Sashfold Mono at 16px is 10 px a glyph.
+resize 600 300
+open data:text/html,<title>Edit</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}[contenteditable]{border:1px solid;padding:4px;min-height:60px}</style><div id=e contenteditable>Hello</div><script>var before=[];e.addEventListener('beforeinput',function(v){before.push(v.inputType);if(v.data==='!')v.preventDefault()});e.addEventListener('input',function(){document.title=e.innerHTML+' / '+before.join(',')})</script>
+assert-title Edit
+# After "Hello": a click past the end of the line.
+click 200 99
+assert-focused e
+type " world"
+assert-title Hello world / insertText,insertText,insertText,insertText,insertText,insertText
+# A cancelled beforeinput changes nothing.
+type !
+assert-title Hello world / insertText,insertText,insertText,insertText,insertText,insertText
+key Enter
+type two
+assert-title Hello world<div>two</div> / insertText,insertText,insertText,insertText,insertText,insertText,insertText,insertParagraph,insertText,insertText,insertText
+assert-golden goldens/contenteditable-two-lines.png 0 76 600 224
+# Backspace through "two", then once more: the lines are one again.
+key Backspace
+key Backspace
+key Backspace
+key Backspace
+assert-text Hello world
+key Left
+key Left
+key Left
+key Left
+key Left
+type ,
+key Home
+type >
+key End
+key shift+Left
+key shift+Left
+key Backspace
+assert-title &gt;Hello ,wor / insertText,insertText,insertText,insertText,insertText,insertText,insertText,insertParagraph,insertText,insertText,insertText,deleteContentBackward,deleteContentBackward,deleteContentBackward,deleteContentBackward,insertText,insertText,deleteContentBackward
+# Two new paragraphs: the caret on the second, empty line.
+key Enter
+key Enter
+assert-golden goldens/contenteditable-empty-line.png 0 76 600 224
+type x
+assert-title &gt;Hello ,wor<div><br></div><div>x</div> / insertText,insertText,insertText,insertText,insertText,insertText,insertText,insertParagraph,insertText,insertText,insertText,deleteContentBackward,deleteContentBackward,deleteContentBackward,deleteContentBackward,insertText,insertText,deleteContentBackward,insertParagraph,insertParagraph,insertText
+# Ctrl+A then typing replaces everything; the page's own getSelection()
+# follows the caret.
+key ctrl+a
+type y
+assert-title y / insertText,insertText,insertText,insertText,insertText,insertText,insertText,insertParagraph,insertText,insertText,insertText,deleteContentBackward,deleteContentBackward,deleteContentBackward,deleteContentBackward,insertText,insertText,deleteContentBackward,insertParagraph,insertParagraph,insertText,insertText
+# Ctrl+Z puts it back, caret and all; Ctrl+Y makes the edit again. Typing
+# runs together into one step.
+key ctrl+z
+assert-text >Hello ,wor
+key ctrl+y
+assert-no-text >Hello
+type zz
+key ctrl+z
+assert-text y
+assert-no-text yzz
+key ctrl+z
+assert-text >Hello ,wor
+# A click outside leaves the editor; plain text selected with the mouse is
+# the page's selection too.
+open data:text/html,<title>Sel</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}</style><p>Plain words here</p><button onclick="document.title=getSelection().toString()+'|'+getSelection().type">Read</button>
+drag 13 100 63 100
+click-text Read
+assert-title Plain|Range

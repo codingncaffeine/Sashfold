@@ -230,6 +230,11 @@ add_test(NAME shell_fullscreen
 # a notice shown, replaced, pressed, closed and dismissed.
 add_test(NAME shell_notifications
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/notifications.script)
+# Typing into rich text: the caret placed by a click, keys made edits the
+# page hears and may cancel, paragraphs split and joined, the arrows,
+# Shift, Ctrl+A, and the page's getSelection() following the reader's.
+add_test(NAME shell_contenteditable
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/contenteditable.script)
 # An <img>'s load and error events in tasks of their own, a new src heard
 # of again, and `complete` false while a picture is on its way.
 add_test(NAME shell_image_events

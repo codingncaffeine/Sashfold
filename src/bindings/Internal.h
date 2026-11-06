@@ -235,9 +235,13 @@ public:
     std::string code;
     int key_code = 0;
     bool repeat = false;
-    // InputEvent.
+    // InputEvent: data is null for an edit with none (a deletion, a new
+    // paragraph); getTargetRanges() hands out copies of target_ranges, an
+    // array of StaticRanges, or an empty array when it is undefined.
     std::string data;
     std::string input_type;
+    bool data_null = false;
+    js::Value target_ranges;
     // WheelEvent.
     double delta_x = 0;
     double delta_y = 0;
@@ -1383,6 +1387,18 @@ struct Realm::Internals {
     // a selectionchange is queued already.
     std::uint64_t selection_version = 0;
     bool selectionchange_queued = false;
+    // The history of the reader's edits (Editing.cpp): a host's markup
+    // before and after each step and where the caret stood, newest last.
+    struct EditStep {
+        dom::Element* host = nullptr;
+        std::string before;
+        std::string after;
+        std::vector<std::uint32_t> caret_before;
+        std::vector<std::uint32_t> caret_after;
+        bool typing = false; // more typing joins this step
+    };
+    std::vector<EditStep> undo_steps;
+    std::vector<EditStep> redo_steps;
 
     // Queues a task on the agent's event loop, as this realm's.
     void post_task(std::function<void()> task);
@@ -1715,6 +1731,8 @@ void install_selection(Realm::Internals&); // Selection.cpp: Selection
 js::Value selection_of(Realm::Internals&);
 void note_selection_changed(Realm::Internals&);
 bool selection_range(Realm::Internals&, dom::Range*& range, bool& backward);
+// Editing.cpp: execCommand and the queryCommand family on Document.
+void install_editing(Realm::Internals&, js::Object& document_prototype);
 void install_traversal(Realm::Internals&); // Traversal.cpp: NodeFilter, TreeWalker, NodeIterator
 void install_workers(Realm::Internals&); // Workers.cpp: Worker, for a window's realm
 void install_media(Realm::Internals&); // Media.cpp: HTMLMediaElement, TimeRanges, MediaError, MediaSource, SourceBuffer
