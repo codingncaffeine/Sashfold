@@ -39,6 +39,7 @@
 #include "ui/PageImages.h"
 #include "ui/Script.h"
 #include "ui/UpdateCheck.h"
+#include "ui/UpdatePackage.h"
 #include "ui/ShellLoader.h"
 #include "ui/Theme.h"
 #include "ui/ThemeImport.h"
@@ -303,6 +304,10 @@ std::size_t js_heap_limit = 0;
 // The daily question whether a newer release exists (ui/UpdateCheck.h):
 // off with --no-update-check or SASHFOLD_UPDATE_CHECK=0.
 bool update_check_wanted = true;
+// Whether this program is one that replaces itself with a newer release
+// (ui/UpdatePackage.h), found out before its writes are kept to its own
+// folders; and the folder it runs from.
+bool replaces_itself = false;
 
 // Every turn of the window's loop that did anything says on stderr what it
 // cost and where (--trace-frames, or SASHFOLD_TRACE_FRAMES in the
@@ -2250,6 +2255,13 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     bool const update_checks = update_check_wanted && !profile_path.empty();
     ui::UpdateState update_state;
     bool update_state_changed = false;
+    // A build that replaces itself fetches the newer release it is told of
+    // and keeps it, checked, for its next start: once a run for a version,
+    // whatever came of it.
+    std::string const release_waits_in = ui::staging_folder(profile);
+    std::shared_ptr<net::FetchTicket> release_ticket;
+    std::string release_asked_for;
+    std::string release_waiting;
     std::shared_ptr<net::FetchTicket> update_ticket;
     auto const newer_release = [&update_state] {
         return ui::is_newer_release(update_state.latest, SASHFOLD_VERSION) ? update_state.latest : std::string();
@@ -2284,7 +2296,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             update_state.checked = now;
             update_state_changed = true;
         }
-        browser.set_update_notice(update_checks ? newer_release() : std::string(), update_checks);
+        browser.set_update_notice(update_checks ? newer_release() : std::string(), update_checks, false, replaces_itself);
         if (std::optional<std::string> const text = read_text_file(profile_path / "storage.json"))
             browser.restore_storage(*text);
         saved_storage = browser.storage_changes();
@@ -2808,7 +2820,22 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                     latest && *latest != update_state.latest) {
                     update_state.latest = *latest;
                     update_state_changed = true;
-                    browser.set_update_notice(newer_release(), true);
+                    browser.set_update_notice(newer_release(), true, false, replaces_itself);
+                }
+            }
+            if (replaces_itself) {
+                if (std::string const newer = newer_release(); !release_ticket && !newer.empty() && newer != release_asked_for) {
+                    release_asked_for = newer;
+                    release_ticket = loader.fetch_release(newer, SASHFOLD_VERSION, release_waits_in);
+                } else if (release_ticket && release_ticket->done()) {
+                    net::FetchResult const kept = release_ticket->take();
+                    release_ticket.reset();
+                    if (kept.response) {
+                        release_waiting = release_asked_for;
+                        browser.set_update_notice(release_waiting, true, true, true);
+                    } else {
+                        std::cerr << "sashfold: release " << release_asked_for << " was not fetched: " << kept.error << "\n";
+                    }
                 }
             }
         }
@@ -2872,8 +2899,55 @@ int run_window(std::string const& start_url, std::string const& theme_path,
 
 } // namespace
 
+#if defined(SASHFOLD_SELF_UPDATE) && defined(__linux__)
+#include <unistd.h> // execv: the one place a program is started, before the right to is given up
+
+// Before anything else a start does: a release the last run fetched, checked
+// and kept is checked again — from the bytes on disk, which the profile's
+// folder cannot vouch for — and put in place of this program, which then
+// hands the start to the new one. Only a run that opens the window on a
+// profile does it; a tool's run changes nothing of the reader's.
+void install_waiting_release(int argc, char** argv)
+{
+    static constexpr std::string_view not_a_window[] = { "--script", "--render", "--fetch", "--dump-dom", "--font-sampler",
+        "--font-info", "--bench", "--import-theme", "--smoke", "--font-list", "--no-update-check", "-h", "--help" };
+    std::string profile;
+    for (int i = 1; i < argc; ++i) {
+        std::string_view const arg = argv[i];
+        if (arg == "--profile" && i + 1 < argc)
+            profile = argv[++i];
+        else if (std::ranges::find(not_a_window, arg) != std::end(not_a_window))
+            return;
+    }
+    if (char const* const asked = std::getenv("SASHFOLD_UPDATE_CHECK"); asked != nullptr && asked[0] == '0')
+        return;
+    if (profile.empty())
+        profile = default_profile_directory();
+    std::string const waits_in = ui::staging_folder(profile);
+    if (!ui::staged_version(waits_in))
+        return;
+    std::error_code error;
+    std::filesystem::path const program = std::filesystem::canonical("/proc/self/exe", error);
+    if (error || !ui::can_replace_itself(program.parent_path().string()))
+        return;
+    ui::StagedOutcome const outcome = ui::apply_staged_release(waits_in, program.parent_path().string(), SASHFOLD_VERSION);
+    if (outcome.what == ui::StagedOutcome::What::Refused) {
+        std::cerr << "sashfold: release " << outcome.version << " was not installed: " << outcome.why << "\n";
+    } else if (outcome.what == ui::StagedOutcome::What::Installed) {
+        std::cerr << "sashfold: updated to " << outcome.version << " (the program before it is kept beside it, as "
+                  << program.filename().string() << ".previous)\n";
+        // The new program takes the start over, with what this one was
+        // given. Should it not start, this one goes on as it is.
+        execv(program.c_str(), argv);
+    }
+}
+#endif
+
 int main(int argc, char** argv)
 {
+#if defined(SASHFOLD_SELF_UPDATE) && defined(__linux__)
+    install_waiting_release(argc, argv);
+#endif
     trace_seconds(); // the trace clock's origin is the start of the process
     // Before anything runs script on this thread: the room a page's
     // recursion has is the room V8 gives it, and every realm made here
@@ -3198,6 +3272,13 @@ int main(int argc, char** argv)
     // machine's memory with nothing said.
     std::string const window_profile = profile.value_or(default_profile_directory());
     std::string const window_downloads = downloads.value_or(default_downloads_directory());
+    // Asked before the writes are kept in: whether this program's own
+    // folder is one it may write a newer release into, at its next start.
+    {
+        std::error_code error;
+        std::filesystem::path const program = std::filesystem::canonical(std::filesystem::absolute(argv[0], error), error);
+        replaces_itself = !error && ui::can_replace_itself(program.parent_path().string());
+    }
     keep_folder(window_profile);
     keep_folder(window_downloads);
     keep_folder(frames_dir);

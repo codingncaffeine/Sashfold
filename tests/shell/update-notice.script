@@ -33,6 +33,29 @@ assert-text What changed, and where to get it
 assert-text downloaded or replaced on its own.
 assert-golden goldens/update-notice-about.png
 
+# A build that replaces itself, told of one it has yet to fetch: the page
+# says what will happen, and not that nothing is fetched.
+newer-release 0.9.9 installs
+main-menu
+assert-menu Sashfold 0.9.9 is out | - | New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
+main-menu
+reload
+assert-text Sashfold 0.9.9 is out.
+assert-text fetched
+assert-text This build replaces itself
+assert-no-text downloaded or replaced on its own.
+
+# Fetched, checked and kept for the next start: the row and the page say
+# that instead.
+newer-release 0.9.9 waits
+main-menu
+assert-menu Sashfold 0.9.9 installs at the next start | - | New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
+main-menu
+reload
+assert-text Sashfold 0.9.9 is ready.
+assert-text fetched
+assert-no-text downloaded or replaced on its own.
+
 # And it goes when there is none any more (the build caught up).
 newer-release
 reload

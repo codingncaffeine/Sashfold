@@ -60,8 +60,12 @@ std::string blocked_page(std::string_view url, std::string_view list, std::strin
 
 // `newer_version` is the release the update check was told of when it is
 // later than this build, else empty; `update_checks` whether the check is
-// on (ui/UpdateCheck.h).
-std::string about_sashfold_page(std::string_view newer_version = {}, bool update_checks = false);
+// on (ui/UpdateCheck.h); `update_waits` whether that release has been
+// fetched and checked and takes this build's place at the next start
+// (ui/UpdatePackage.h); `update_installs` whether this build is one that
+// replaces itself with a newer release at all.
+std::string about_sashfold_page(std::string_view newer_version = {}, bool update_checks = false, bool update_waits = false,
+    bool update_installs = false);
 
 // The raw bytes of a document as escaped, preformatted text.
 std::string source_page(std::string_view url, std::vector<std::uint8_t> const& bytes);

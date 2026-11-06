@@ -542,7 +542,13 @@ struct Runner {
             // have been told (ui/UpdateCheck.h) — that release is out, or,
             // with no version, that none later than this build is. A script
             // reaches no server, so it says the answer itself.
-            browser.set_update_notice(argument, true);
+            // `newer-release <version> waits`: and it has been fetched and
+            // checked, and installs at the next start.
+            // `newer-release <version> installs`: this build replaces
+            // itself, and that release is still on its way.
+            bool const waits = args.size() == 2 && args[1] == "waits";
+            bool const installs = waits || (args.size() == 2 && args[1] == "installs");
+            browser.set_update_notice(args.empty() ? std::string() : args[0], true, waits, installs);
         } else if (command == "import-theme") {
             // `import-theme <path>`: a Firefox or Chrome theme — its folder,
             // its .xpi, its .crx, named relative to the script — converted

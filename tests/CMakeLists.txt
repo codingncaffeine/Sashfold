@@ -94,6 +94,11 @@ sashfold_test(test_cookies)
 sashfold_test(test_hsts)
 sashfold_test(test_confine)
 sashfold_test(test_dbus)
+# The release check and its unpacking; the folder holds archives as GNU tar
+# writes them.
+add_executable(test_update_package test_update_package.cpp)
+target_link_libraries(test_update_package PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_update_package COMMAND test_update_package ${CMAKE_CURRENT_SOURCE_DIR}/update)
 sashfold_test(test_cache)
 sashfold_test(test_connections)
 sashfold_test(test_downloads)

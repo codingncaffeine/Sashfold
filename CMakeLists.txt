@@ -232,6 +232,7 @@ add_library(sashfold_core STATIC
   src/ui/ThemeGallery.cpp
   src/ui/ThemeImport.cpp
   src/ui/UpdateCheck.cpp
+  src/ui/UpdatePackage.cpp
   src/html/DocumentBase.cpp
   src/html/Encoding.cpp
   src/html/InputStream.cpp
@@ -352,6 +353,12 @@ elseif(SASHFOLD_PORTABLE)
   # a distribution with an older libstdc++ than the one it was built against;
   # libc stays the system's, so the floor is the glibc of the build machine.
   target_link_options(sashfold PRIVATE -static-libstdc++ -static-libgcc)
+endif()
+if(SASHFOLD_PORTABLE AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+  # The build the downloads are made of replaces itself with a newer release
+  # (ui/UpdatePackage.h). Every other build — a distribution's package, a
+  # build tree — is left to whoever made it.
+  target_compile_definitions(sashfold_core PUBLIC SASHFOLD_SELF_UPDATE=1)
 endif()
 if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # The binary's own functions by name in its dynamic symbol table, so that

@@ -391,7 +391,12 @@ public:
     // was told of when that is later than this build — else empty — and
     // whether the check is on. The main menu's first row and about:sashfold
     // say it; nothing is downloaded.
-    void set_update_notice(std::string newer_version, bool checks);
+    // `waits`: that release has been fetched, checked against the release
+    // key and kept for the next start, which puts it in place
+    // (ui/UpdatePackage.h) — the row and the page then say that.
+    // `installs`: this build is one that replaces itself with a newer
+    // release, so the page says how and no longer that nothing is fetched.
+    void set_update_notice(std::string newer_version, bool checks, bool waits = false, bool installs = false);
     // The desktop's notifier (platform/Notifier.h), which the caller keeps
     // for longer than the browser. With one, a page of a site the reader
     // has allowed shows its notifications through it, and a page that asks

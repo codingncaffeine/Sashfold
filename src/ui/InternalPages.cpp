@@ -99,11 +99,21 @@ std::string certificate_error_page(std::string_view host, std::string_view url)
     return wrap("Connection not secure", body);
 }
 
-std::string about_sashfold_page(std::string_view newer_version, bool update_checks)
+std::string about_sashfold_page(std::string_view newer_version, bool update_checks, bool update_waits, bool update_installs)
 {
     std::string body = "<h1>Sashfold</h1>";
     body += "<p>Version " + std::string(version_string) + "</p>";
-    if (!newer_version.empty()) {
+    if (!newer_version.empty() && update_waits) {
+        std::string const address = release_page_address(newer_version);
+        body += "<div class=box><p><b>Sashfold " + html_escape(newer_version) + " is ready.</b> It has been fetched and checked "
+            "against the release key built into this build, and takes this one's place the next time Sashfold starts. <a href=\""
+            + html_escape(address) + "\">What changed</a>.</p></div>";
+    } else if (!newer_version.empty() && update_installs) {
+        std::string const address = release_page_address(newer_version);
+        body += "<div class=box><p><b>Sashfold " + html_escape(newer_version) + " is out.</b> It is being fetched; once it has been "
+            "checked against the release key built into this build it takes this one's place the next time Sashfold starts. <a href=\""
+            + html_escape(address) + "\">What changed</a>.</p></div>";
+    } else if (!newer_version.empty()) {
         std::string const address = release_page_address(newer_version);
         body += "<div class=box><p><b>Sashfold " + html_escape(newer_version) + " is out.</b> <a href=\"" + html_escape(address)
             + "\">What changed, and where to get it</a>. Nothing is downloaded or replaced on its own.</p></div>";
@@ -120,6 +130,10 @@ std::string about_sashfold_page(std::string_view newer_version, bool update_chec
           "cookies — and says so here and in the menu. Starting it with <code>--no-update-check</code> turns "
           "that off.</p>"
         : "<p>The daily check for a newer version is off.</p>";
+    if (update_checks && update_installs)
+        body += "<p>This build replaces itself: a newer release is fetched from the releases page, checked against a "
+                "key built into Sashfold, and put in place the next time it starts — the menu says so first, and the "
+                "program it replaces is kept beside the new one. The same switch turns that off.</p>";
     body += "<h2>Where things stand</h2>";
     body += "<p>Pages load over HTTP and HTTPS through the engine's own fetch pipeline, with a "
             "cookie jar that blocks third-party cookies by default and a session cache. Themes "

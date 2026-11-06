@@ -905,6 +905,8 @@ struct Browser::Impl {
         std::size_t js_heap_limit = 0;
         std::string newer_version;
         bool update_checks = false;
+        bool update_waits = false;
+        bool update_installs = false;
         std::map<std::string, bool> notification_sites;
         bool notifications_available = false;
         bindings::WorkerThreads* worker_threads = nullptr;
@@ -1082,6 +1084,8 @@ struct Browser::Impl {
     // the main menu's first row and about:sashfold say.
     std::string newer_version;
     bool update_checks = false;
+    bool update_waits = false; // that release is fetched, checked, and installs at the next start
+    bool update_installs = false; // this build replaces itself with a newer release
     // Notifications (the section before the chrome's geometry). The
     // desktop's notifier, the shell's alone; what the reader has said of
     // each site, the shell's to keep and each page's copy to read, with
@@ -1654,6 +1658,8 @@ struct Browser::Impl {
             page.js_heap_limit = setup->js_heap_limit;
             page.newer_version = setup->newer_version;
             page.update_checks = setup->update_checks;
+            page.update_waits = setup->update_waits;
+            page.update_installs = setup->update_installs;
             page.notification_sites = setup->notification_sites;
             page.notifications_available = setup->notifications_available;
             page.worker_threads = setup->worker_threads;
@@ -5738,7 +5744,7 @@ struct Browser::Impl {
         entry.navigation_started = script_now();
 
         if (load.url.scheme == "about" && load.url.serialize_path() == "sashfold") {
-            set_document(entry, about_sashfold_page(newer_version, update_checks));
+            set_document(entry, about_sashfold_page(newer_version, update_checks, update_waits, update_installs));
             entry.internal = true;
             entry.status = 200;
         } else if (is_about_newtab(load.url)) {
@@ -8489,7 +8495,7 @@ struct Browser::Impl {
         // set off from the rest. It opens the release's page; nothing is
         // downloaded.
         if (!newer_version.empty()) {
-            items.push_back(menu_item("Sashfold " + newer_version + " is out", {}, [this] {
+            items.push_back(menu_item("Sashfold " + newer_version + (update_waits ? " installs at the next start" : " is out"), {}, [this] {
                 if (std::optional<net::Url> const page = net::parse_url(release_page_address(newer_version)))
                     open_in_new_tab(*page);
             }));
@@ -11808,6 +11814,8 @@ std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab
         setup->js_heap_limit = js_heap_limit;
         setup->newer_version = newer_version;
         setup->update_checks = update_checks;
+        setup->update_waits = update_waits;
+        setup->update_installs = update_installs;
         setup->notification_sites = notification_sites;
         setup->notifications_available = notifications_available;
         setup->worker_threads = worker_threads;
@@ -11846,6 +11854,8 @@ std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab
     page.js_heap_limit = js_heap_limit;
     page.newer_version = newer_version;
     page.update_checks = update_checks;
+    page.update_waits = update_waits;
+    page.update_installs = update_installs;
     page.notification_sites = notification_sites;
     page.notifications_available = notifications_available;
     page.worker_threads = worker_threads;
@@ -12002,11 +12012,13 @@ void Browser::set_js_heap_limit(std::size_t bytes)
     m_impl->tell_pages([bytes](Browser& page) { page.set_js_heap_limit(bytes); });
 }
 
-void Browser::set_update_notice(std::string newer_version, bool checks)
+void Browser::set_update_notice(std::string newer_version, bool checks, bool waits, bool installs)
 {
     m_impl->newer_version = newer_version;
     m_impl->update_checks = checks;
-    m_impl->tell_pages([newer_version, checks](Browser& page) { page.set_update_notice(newer_version, checks); });
+    m_impl->update_waits = waits && !newer_version.empty();
+    m_impl->update_installs = installs;
+    m_impl->tell_pages([newer_version, checks, waits, installs](Browser& page) { page.set_update_notice(newer_version, checks, waits, installs); });
 }
 
 void Browser::set_notifier(platform::Notifier* notifier)

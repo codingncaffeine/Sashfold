@@ -111,6 +111,14 @@ public:
     // to a few seconds and a small body. The lists are not asked: it is no
     // page's request.
     std::shared_ptr<net::FetchTicket> ask_plainly(net::Url const& url);
+    // A release fetched, checked and kept for the next start
+    // (ui/UpdatePackage.h), all of it on a thread of the pool's: its list of
+    // checksums, the signature and the archive for this build, with no
+    // cookies and no referrer; the check against the release key; and, when
+    // it passes, the three kept in `folder`. The ticket's answer has a
+    // response when the release now waits there, and why it does not
+    // otherwise.
+    std::shared_ptr<net::FetchTicket> fetch_release(std::string version, std::string running, std::string folder);
     // The hosts that asked to be reached over HTTPS only (net/Hsts.h): one
     // list for the profile, as the cache and the connections are one.
     net::TransportSecurity& transport_security() { return m_transport_security; }

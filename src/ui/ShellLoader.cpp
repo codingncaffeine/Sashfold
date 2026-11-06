@@ -1,5 +1,7 @@
 #include "ui/ShellLoader.h"
 
+#include "ui/UpdatePackage.h"
+
 #include "core/Ascii.h"
 #include "core/TraceClock.h"
 #include "net/Connections.h"
@@ -327,6 +329,57 @@ std::shared_ptr<net::FetchTicket> ShellLoader::ask_plainly(net::Url const& url)
         if (net_tracing())
             std::cerr << "net: " << trace_stamp() << "asked " << url.serialize().substr(0, 200) << "\n";
         return net::fetch(url, options);
+    });
+}
+
+std::shared_ptr<net::FetchTicket> ShellLoader::fetch_release(std::string version, std::string running, std::string folder)
+{
+    return m_fetches.submit([this, version = std::move(version), running = std::move(running), folder = std::move(folder)] {
+        auto const refused = [](std::string why) { return net::FetchResult(std::nullopt, std::move(why)); };
+        std::string const archive_name = release_archive_name(version);
+        if (archive_name.empty())
+            return refused("this build has no download that replaces it");
+        // SASHFOLD_RELEASES_FROM=<address>/: where the three files are
+        // fetched from in place of the project's releases — for a test,
+        // which is held to the release key like any other source.
+        char const* const elsewhere = std::getenv("SASHFOLD_RELEASES_FROM");
+        auto const get = [&](std::string const& name, std::size_t most) -> std::optional<std::vector<std::uint8_t>> {
+            std::optional<net::Url> const url
+                = net::parse_url(elsewhere != nullptr && *elsewhere ? std::string(elsewhere) + name : release_file_address(version, name));
+            if (!url)
+                return std::nullopt;
+            net::FetchOptions options;
+            options.pool = &m_pool;
+            options.transport_security = &m_transport_security;
+            options.receive_timeout_ms = 30000;
+            options.max_body = most;
+            if (net_tracing())
+                std::cerr << "net: " << trace_stamp() << "release file " << url->serialize().substr(0, 200) << "\n";
+            net::FetchResult result = net::fetch(*url, options);
+            if (!result.response || result.response->status != 200)
+                return std::nullopt;
+            return std::move(result.response->body);
+        };
+        // The small ones first: without a list that is signed there is no
+        // reason to fetch megabytes.
+        std::optional<std::vector<std::uint8_t>> const checksums = get("SHA256SUMS", 1024u * 1024u);
+        std::optional<std::vector<std::uint8_t>> const signature = checksums ? get("SHA256SUMS.sig", 1024u) : std::nullopt;
+        if (!checksums || !signature)
+            return refused("release " + version + " has no signed list of checksums to fetch");
+        if (std::string why = release_refusal(version, running, *checksums, *signature, {}); why.find("not signed") != std::string::npos
+            || why.find("not later") != std::string::npos)
+            return refused(std::move(why));
+        std::optional<std::vector<std::uint8_t>> const archive = get(archive_name, 256u * 1024u * 1024u);
+        if (!archive)
+            return refused(archive_name + " could not be fetched");
+        if (std::string why = release_refusal(version, running, *checksums, *signature, *archive); !why.empty())
+            return refused(std::move(why));
+        std::string why;
+        if (!stage_release(folder, version, *checksums, *signature, *archive, &why))
+            return refused(std::move(why));
+        net::FetchResponse kept;
+        kept.status = 200;
+        return net::FetchResult(std::move(kept), {});
     });
 }
 
