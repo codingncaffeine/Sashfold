@@ -1,0 +1,47 @@
+# A page's drag that leaves the window goes on as the desktop's (gaps plan
+# item 4): what it carries — the drag data store's formats — and what its
+# effectAllowed lets be done are handed over; the place it stood hears
+# dragleave, and the source hears dragend when the program it was let go
+# over says what it did. A move out of an editor takes the text from its
+# place (deleteByDrag), as a move in the page does; a copy leaves it.
+resize 600 300
+open data:text/html,<title>Out</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}div{height:30px;margin-bottom:10px;border:1px solid}</style><div id=src draggable=true>Drag me</div><div id=zone>Drop here</div><script>var log=[];function n(s){log.push(s);document.title=log.join(',')}src.addEventListener('dragstart',function(e){n('start');e.dataTransfer.setData('text/plain','payload');e.dataTransfer.setData('text/uri-list','https://example.com/')});src.addEventListener('dragend',function(e){n('end:'+e.dataTransfer.dropEffect)});zone.addEventListener('dragenter',function(e){n('enter');e.preventDefault()});zone.addEventListener('dragleave',function(){n('leave')})</script>
+assert-drag-out none
+press 40 99
+move 44 103
+move 60 139
+move 60 400
+assert-drag-out text/plain+text/uri-list copy
+assert-title start,enter,leave
+# Let go over another program, which copied it.
+drag-out-end copy
+assert-title start,enter,leave,end:copy
+release
+assert-title start,enter,leave,end:copy
+# Text selected in an editor, dragged out and moved: it leaves the editor.
+open data:text/html,<title>Ed</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}[contenteditable]{border:1px solid;padding:4px;height:20px;outline:none}</style><div id=a contenteditable>one two three</div><script>a.addEventListener('beforeinput',function(e){document.title=e.inputType});a.addEventListener('input',function(){document.title+=':'+a.textContent})</script>
+drag 53 99 83 99
+assert-selection two
+press 70 99
+move 74 99
+move 74 -40
+assert-drag-out text/plain+text/html copy+move
+drag-out-end move
+assert-title deleteByDrag:one three
+release
+# Refused everywhere: nothing done, nothing taken out.
+open data:text/html,<title>Ed</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}[contenteditable]{border:1px solid;padding:4px;height:20px;outline:none}</style><div id=a contenteditable>one two three</div><script>var ends=[];a.addEventListener('dragend',function(e){ends.push('end:'+e.dataTransfer.dropEffect+':'+a.textContent);document.title=ends.join(',')})</script>
+drag 53 99 83 99
+press 70 99
+move 74 99
+move 700 99
+drag-out-end none
+assert-title end:none:one two three
+release
+# Handed over and never taken up (the desktop said nothing): the button
+# coming up in the window ends it, with nothing done.
+press 70 99
+move 74 99
+move 700 99
+release
+assert-title end:none:one two three,end:none:one two three

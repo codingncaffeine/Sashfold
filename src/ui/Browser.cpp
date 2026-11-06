@@ -1284,6 +1284,22 @@ struct Browser::Impl {
         dom::Element const* drop_file_input = nullptr;
     };
     std::optional<DragOperation> drag_op;
+    // A page's drag handed to the desktop when it left the window: the
+    // source's side, kept for its dragend (and, when the drop moved the text,
+    // for taking it out of its place).
+    struct OutDrag {
+        bindings::Realm* realm = nullptr;
+        bindings::MouseInit init;
+        dom::Element const* field = nullptr;
+        std::pair<std::size_t, std::size_t> field_range;
+        std::optional<bindings::Realm::SelectionPoints> dragged;
+        bool from_selection = false;
+    };
+    std::optional<OutDrag> out_drag;
+    // The shell's: how to hand a drag to the window, and whether one is out
+    // there now (a drag of ours over our own window is not taken back in).
+    Browser::DragOutStarter drag_out_starter;
+    bool drag_out_open = false;
     // The shell's side of a drag from another program: how to read what it
     // carries and how to tell its window what a drop would do, and the
     // formats it offers under the names pages know them by.
@@ -9535,12 +9551,23 @@ struct Browser::Impl {
     void mouse_move(int x, int y)
     {
         update_hover(x, y);
+        // Out of the window with the button held: a page's drag under way
+        // goes on as the desktop's (Wayland and Windows keep a held button's
+        // pointer the window's, wherever it goes).
+        bool const outside = x < 0 || y < 0 || x >= width || y >= height;
         if (pages_in_engines) {
             // A thumb or a selection being dragged is the page's.
             if ((page_buttons & 2) != 0) {
                 auto const [px, py] = to_page(x, y);
-                ask_front([px, py](Browser& shell) { shell.mouse_move(px, py); });
+                if (outside && drag_out_starter)
+                    ask_front([](Browser& page) { page.m_impl->drag_left_window(); });
+                else
+                    ask_front([px, py](Browser& shell) { shell.mouse_move(px, py); });
             }
+            return;
+        }
+        if (outside && drag_op && !drag_op->external && drag_out_starter) {
+            drag_left_window();
             return;
         }
         if (bar_drag) {
@@ -9612,6 +9639,11 @@ struct Browser::Impl {
 
     void mouse_up(int button)
     {
+        // The button came up here: no desktop drag holds the pointer (while
+        // one does, it is the compositor's), so one handed over and never
+        // taken up — refused, or lost — ends with nothing done.
+        if (drag_out_open && button == 1)
+            drag_out_ended("none");
         if (pages_in_engines && (page_buttons & (1 << button)) != 0) {
             page_buttons &= ~(1 << button);
             ask_front([button](Browser& shell) { shell.mouse_up(0, 0, button); });
@@ -10825,6 +10857,14 @@ struct Browser::Impl {
     // read from its list of them now, so the page sees "Files" as it moves.
     void os_drag_enter(int x, int y, std::vector<std::string> const& offered, Browser::DragReader read, Browser::DragAnswer answer)
     {
+        // Our own drag, out on the desktop, passing back over the window:
+        // not a drag from another program (the page that began it is waiting
+        // for its end).
+        if (drag_out_open) {
+            if (answer)
+                answer(platform::Window::DragAction::None, {});
+            return;
+        }
         OsDrag drag;
         drag.read = std::move(read);
         drag.answer = std::move(answer);
@@ -11099,6 +11139,96 @@ struct Browser::Impl {
             realm->drag_event(*source, "dragend", op.init, operation);
         realm->drag_finished();
         last_drop_operation = operation;
+        if (std::optional<EditingFocus> const editing = editing_focus(*tab))
+            edited(*tab);
+        else
+            ensure_fresh(*tab);
+        dirty = true;
+    }
+
+    // The page's drag has left the window: dragleave where it stood, and it
+    // is the desktop's from here (its formats from the drag data store, its
+    // effects from effectAllowed), until drag_out_finished.
+    void drag_left_window()
+    {
+        if (!drag_op || drag_op->external)
+            return;
+        DragOperation op = std::move(*drag_op);
+        drag_op.reset();
+        Tab* const tab = active_tab();
+        bindings::Realm* const realm = op.realm;
+        if (!tab || !realm_alive(*tab, realm) || !realm->dragging())
+            return;
+        script_started = std::chrono::steady_clock::now();
+        if (op.current && op.current->is_connected())
+            realm->drag_event(*op.current, "dragleave", op.init);
+        platform::Window::DragOut out;
+        out.data = realm->drag_data();
+        std::string const allowed = realm->drag_effect_allowed();
+        bool const editable_source = op.field != nullptr || (op.from_selection && op.dragged && op.dragged->anchor
+            && realm->editing_host(*op.dragged->anchor) != nullptr);
+        out.copy = allowed == "uninitialized" || allowed == "all" || allowed.starts_with("copy");
+        out.move = allowed == "move" || allowed == "all" || allowed == "copyMove" || allowed == "linkMove"
+            || (allowed == "uninitialized" && editable_source);
+        out_drag = OutDrag { realm, op.init, op.field, op.field_range, op.dragged, op.from_selection };
+        ensure_fresh(*tab);
+        dirty = true;
+        if (engine_self)
+            ask_shell([out](Impl& shell, std::size_t) { shell.start_drag_out(out); });
+        else
+            start_drag_out(out);
+    }
+
+    // The shell hands it to the window; a window that cannot take it ends it
+    // at once, with nothing done.
+    void start_drag_out(platform::Window::DragOut const& out)
+    {
+        if (drag_out_starter && !out.data.empty() && drag_out_starter(out)) {
+            drag_out_open = true;
+            return;
+        }
+        drag_out_ended("none");
+    }
+
+    // The desktop's word on it (DragOutEnded): told to the page whose drag
+    // it was.
+    void drag_out_ended(std::string const& effect)
+    {
+        drag_out_open = false;
+        if (pages_in_engines) {
+            ask_front([effect](Browser& page) { page.m_impl->drag_out_finished(effect); });
+            return;
+        }
+        drag_out_finished(effect);
+    }
+
+    // The source's dragend with what was done; a move takes the text out of
+    // the field or the editor it came from (deleteByDrag), as a drop in the
+    // page would.
+    void drag_out_finished(std::string const& effect)
+    {
+        if (!out_drag)
+            return;
+        OutDrag out = std::move(*out_drag);
+        out_drag.reset();
+        Tab* const tab = active_tab();
+        bindings::Realm* const realm = out.realm;
+        if (!tab || !realm_alive(*tab, realm) || !realm->dragging())
+            return;
+        script_started = std::chrono::steady_clock::now();
+        if (effect == "move") {
+            if (out.field && out.field->is_connected()) {
+                field_edit(*tab, *out.field, "deleteByDrag", out.field_range.first, out.field_range.second, {});
+            } else if (out.from_selection && out.dragged && out.dragged->anchor && out.dragged->focus
+                && out.dragged->anchor->is_connected() && out.dragged->focus->is_connected()) {
+                realm->set_selection(*out.dragged->anchor, out.dragged->anchor_offset, *out.dragged->focus, out.dragged->focus_offset);
+                realm->edit("deleteByDrag");
+            }
+        }
+        if (dom::Element* const source = realm->drag_source(); source && source->is_connected())
+            realm->drag_event(*source, "dragend", out.init, effect);
+        realm->drag_finished();
+        last_drop_operation = effect;
         if (std::optional<EditingFocus> const editing = editing_focus(*tab))
             edited(*tab);
         else
@@ -15615,6 +15745,8 @@ void Browser::drag_enter(int x, int y, std::vector<std::string> const& formats, 
 {
     m_impl->os_drag_enter(x, y, formats, std::move(read), std::move(answer));
 }
+void Browser::set_drag_out(DragOutStarter start) { m_impl->drag_out_starter = std::move(start); }
+void Browser::drag_out_ended(std::string const& effect) { m_impl->drag_out_ended(effect); }
 void Browser::drag_move(int x, int y) { m_impl->os_drag_move(x, y); }
 void Browser::drag_leave() { m_impl->os_drag_leave(); }
 bool Browser::drag_drop(int x, int y) { return m_impl->os_drag_drop(x, y); }

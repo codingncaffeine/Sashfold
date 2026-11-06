@@ -222,6 +222,9 @@ struct Runner {
 
     ScriptedNotifier notifier {}; // the browser's, once `notifier` says so
     std::vector<std::string> raised {}; // the tokens the window was raised with, in order
+    // What the last drag handed to the desktop carried and allowed (`none`
+    // while none was).
+    std::shared_ptr<std::string> drag_out = std::make_shared<std::string>("none");
     std::shared_ptr<ChooserAnswer> chooser = std::make_shared<ChooserAnswer>();
     // A drag from another program as a script plays it: the formats it offers
     // with their data, and what the window was last told a drop would do.
@@ -1151,6 +1154,16 @@ struct Runner {
             // `assert-misspelled <word> <word>…`: what the rich editor with
             // the focus has marked, in order (nothing: none).
             expect_equal("assert-misspelled", browser.editor_misspellings(), argument);
+        } else if (command == "assert-drag-out") {
+            // `assert-drag-out <format>+<format> <copy|move|copy+move>`, or
+            // `none`: what the last drag that left the window carried, and
+            // what it let be done.
+            expect_equal("assert-drag-out", *drag_out, argument);
+        } else if (command == "drag-out-end") {
+            // `drag-out-end copy|move|none`: what the program it was let go
+            // over did with it.
+            browser.drag_out_ended(argument);
+            settle();
         } else if (command == "assert-question-focus") {
             // `assert-question-focus allow|block|close|none`: the answer of
             // the question's bar the keyboard is on.
@@ -1290,6 +1303,15 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
         return runner.result;
     }
     browser.set_clock([&runner] { return runner.clock_ms; });
+    // A drag that leaves the window goes to the script's desktop, which keeps
+    // what it was offered; the script says how it ends (drag-out-end).
+    browser.set_drag_out([offered = runner.drag_out](platform::Window::DragOut const& drag) {
+        std::string formats;
+        for (auto const& [format, value] : drag.data)
+            formats += (formats.empty() ? "" : "+") + format;
+        *offered = formats + " " + (drag.copy && drag.move ? "copy+move" : drag.move ? "move" : drag.copy ? "copy" : "nothing");
+        return true;
+    });
     browser.set_file_chooser([answer = runner.chooser](platform::FileChoice choice) -> std::unique_ptr<platform::FileChooser> {
         ++answer->opened;
         answer->last = std::move(choice);
@@ -1318,6 +1340,7 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
     browser.set_notifier(nullptr); // the script's notifier ends with it
     browser.set_on_raise_window(nullptr);
     browser.set_file_chooser(nullptr);
+    browser.set_drag_out(nullptr);
     browser.set_spell_service(nullptr);
     return runner.result;
 }

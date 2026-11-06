@@ -1,4 +1,5 @@
 #include "platform/Window.h"
+#include "platform/win32/ClipboardWin32.h"
 
 // The Win32 window: RegisterClass/CreateWindow, a PeekMessage
 // pump translated into WindowEvents, MsgWaitForMultipleObjectsEx to sleep,
@@ -15,12 +16,15 @@
 #include <windows.h>
 #include <ole2.h>
 #include <shellapi.h>
+#include <shlobj.h>
 
 #include <algorithm>
+#include <atomic>
 #include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstring>
 #include <deque>
 #include <optional>
 #include <string>
@@ -128,6 +132,130 @@ KeyEvent key_event_from(WPARAM virtual_key)
 }
 
 } // namespace
+
+// A drag of the page's out to another program (OLE's DoDragDrop): what it
+// carries as clipboard formats — text as CF_UNICODETEXT, markup as "HTML
+// Format", a link as UniformResourceLocatorW — each handed over as a global
+// block when the target asks; and the source's answers, which follow the
+// left button and Escape. Each a COM object freed by its own Release.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
+class DragData final : public IDataObject {
+public:
+    struct Format {
+        UINT id = 0;
+        std::vector<std::uint8_t> bytes;
+    };
+    explicit DragData(std::vector<Format> formats)
+        : m_formats(std::move(formats))
+    {
+    }
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override
+    {
+        if (id == IID_IUnknown || id == IID_IDataObject) {
+            *out = static_cast<IDataObject*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++m_references; }
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        ULONG const left = --m_references;
+        if (left == 0)
+            delete this;
+        return left;
+    }
+    HRESULT STDMETHODCALLTYPE GetData(FORMATETC* wanted, STGMEDIUM* medium) override
+    {
+        Format const* const format = find(wanted);
+        if (!format)
+            return DV_E_FORMATETC;
+        HGLOBAL const block = GlobalAlloc(GMEM_MOVEABLE, format->bytes.size());
+        if (!block)
+            return E_OUTOFMEMORY;
+        if (void* const memory = GlobalLock(block)) {
+            std::memcpy(memory, format->bytes.data(), format->bytes.size());
+            GlobalUnlock(block);
+        }
+        medium->tymed = TYMED_HGLOBAL;
+        medium->hGlobal = block;
+        medium->pUnkForRelease = nullptr;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GetDataHere(FORMATETC*, STGMEDIUM*) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE QueryGetData(FORMATETC* wanted) override { return find(wanted) ? S_OK : DV_E_FORMATETC; }
+    HRESULT STDMETHODCALLTYPE GetCanonicalFormatEtc(FORMATETC*, FORMATETC* out) override
+    {
+        if (out)
+            out->ptd = nullptr;
+        return DATA_S_SAMEFORMATETC;
+    }
+    HRESULT STDMETHODCALLTYPE SetData(FORMATETC*, STGMEDIUM*, BOOL) override { return E_NOTIMPL; }
+    HRESULT STDMETHODCALLTYPE EnumFormatEtc(DWORD direction, IEnumFORMATETC** out) override
+    {
+        if (direction != DATADIR_GET)
+            return E_NOTIMPL;
+        std::vector<FORMATETC> list;
+        for (Format const& format : m_formats)
+            list.push_back(FORMATETC { static_cast<CLIPFORMAT>(format.id), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL });
+        return SHCreateStdEnumFmtEtc(static_cast<UINT>(list.size()), list.data(), out);
+    }
+    HRESULT STDMETHODCALLTYPE DAdvise(FORMATETC*, DWORD, IAdviseSink*, DWORD*) override { return OLE_E_ADVISENOTSUPPORTED; }
+    HRESULT STDMETHODCALLTYPE DUnadvise(DWORD) override { return OLE_E_ADVISENOTSUPPORTED; }
+    HRESULT STDMETHODCALLTYPE EnumDAdvise(IEnumSTATDATA**) override { return OLE_E_ADVISENOTSUPPORTED; }
+
+private:
+    Format const* find(FORMATETC const* wanted) const
+    {
+        if (!wanted || !(wanted->tymed & TYMED_HGLOBAL) || wanted->dwAspect != DVASPECT_CONTENT)
+            return nullptr;
+        for (Format const& format : m_formats) {
+            if (format.id == wanted->cfFormat)
+                return &format;
+        }
+        return nullptr;
+    }
+    std::atomic<ULONG> m_references { 1 };
+    std::vector<Format> m_formats;
+};
+
+class DragSource final : public IDropSource {
+public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID id, void** out) override
+    {
+        if (id == IID_IUnknown || id == IID_IDropSource) {
+            *out = static_cast<IDropSource*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *out = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return ++m_references; }
+    ULONG STDMETHODCALLTYPE Release() override
+    {
+        ULONG const left = --m_references;
+        if (left == 0)
+            delete this;
+        return left;
+    }
+    HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escape, DWORD keys) override
+    {
+        if (escape)
+            return DRAGDROP_S_CANCEL;
+        if (!(keys & MK_LBUTTON))
+            return DRAGDROP_S_DROP;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GiveFeedback(DWORD) override { return DRAGDROP_S_USEDEFAULTCURSORS; }
+
+private:
+    std::atomic<ULONG> m_references { 1 };
+};
+#pragma GCC diagnostic pop
 
 class WindowWin32;
 
@@ -355,6 +483,53 @@ public:
     // Brought back from the taskbar and to the front. Windows lets a
     // program take the foreground while the shell has handed it the right
     // (a toast pressed does); otherwise it only flashes the taskbar button.
+    // The page's drag to another program: OLE's own loop, which keeps this
+    // window's messages going while the reader drags, and says at the end
+    // what was done.
+    bool start_drag(DragOut const& drag) override
+    {
+        if (!m_ole || drag.data.empty())
+            return false;
+        std::vector<DragData::Format> formats;
+        for (auto const& [format, value] : drag.data) {
+            if (format == "text/plain") {
+                std::wstring const wide = to_wide(value);
+                DragData::Format text { CF_UNICODETEXT, {} };
+                auto const* const bytes = reinterpret_cast<std::uint8_t const*>(wide.c_str());
+                text.bytes.assign(bytes, bytes + (wide.size() + 1) * sizeof(wchar_t));
+                formats.push_back(std::move(text));
+            } else if (format == "text/html") {
+                if (UINT const id = RegisterClipboardFormatW(L"HTML Format")) {
+                    std::string const data = windows_cf_html(value);
+                    formats.push_back({ id, std::vector<std::uint8_t>(data.begin(), data.end()) });
+                    formats.back().bytes.push_back(0);
+                }
+            } else if (format == "text/uri-list") {
+                // The first address of the list, as a link dragged from Chrome carries it.
+                std::string const first = value.substr(0, value.find_first_of("\r\n"));
+                if (UINT const id = RegisterClipboardFormatW(L"UniformResourceLocatorW"); id && !first.empty()) {
+                    std::wstring const wide = to_wide(first);
+                    auto const* const bytes = reinterpret_cast<std::uint8_t const*>(wide.c_str());
+                    formats.push_back({ id, std::vector<std::uint8_t>(bytes, bytes + (wide.size() + 1) * sizeof(wchar_t)) });
+                }
+            }
+        }
+        if (formats.empty())
+            return false;
+        auto* const data = new DragData(std::move(formats));
+        auto* const source = new DragSource();
+        DWORD const allowed = (drag.copy ? DROPEFFECT_COPY : 0) | (drag.move ? DROPEFFECT_MOVE : 0);
+        DWORD effect = DROPEFFECT_NONE;
+        HRESULT const result = DoDragDrop(data, source, allowed, &effect);
+        data->Release();
+        source->Release();
+        WindowEvent ended;
+        ended.kind = WindowEvent::Kind::DragOutEnded;
+        ended.drag_result = result != DRAGDROP_S_DROP ? "none" : (effect & DROPEFFECT_MOVE) ? "move" : (effect & DROPEFFECT_COPY) ? "copy" : "none";
+        push(ended);
+        return true;
+    }
+
     void activate(std::string const&) override
     {
         if (!m_hwnd)
@@ -639,6 +814,7 @@ private:
     }
 
     DropTarget* m_drop_target = nullptr;
+    bool m_ole = false; // OLE is on this thread: drags in and out
     IDataObject* m_dragged = nullptr; // held between DragEnter and DragLeave or Drop
     std::vector<std::pair<std::string, std::string>> m_dropped; // a drop's formats, read in Drop
     DWORD m_drag_effect = DROPEFFECT_NONE;
@@ -724,6 +900,7 @@ std::unique_ptr<Window> WindowWin32::open(std::string const& title, WindowPlacem
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window.get()));
     // Drags from other programs: OLE on this thread, the window a drop target.
     if (SUCCEEDED(OleInitialize(nullptr))) {
+        window->m_ole = true;
         window->m_drop_target = new DropTarget(*window);
         if (FAILED(RegisterDragDrop(hwnd, window->m_drop_target))) {
             window->m_drop_target->Release();

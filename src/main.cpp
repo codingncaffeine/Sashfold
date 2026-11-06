@@ -2216,6 +2216,8 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     browser.set_notifier(notifier.get());
     // A notice pressed brings the window forward with the desktop's leave.
     browser.set_on_raise_window([&window](std::string const& token) { window->activate(token); });
+    // A page's drag that leaves the window is handed to the desktop.
+    browser.set_drag_out([&window](platform::Window::DragOut const& drag) { return window->start_drag(drag); });
     // Spelling, in the reader's language: the system's Hunspell dictionaries
     // first, then the one shipped beside the program; read in the background.
     {
@@ -2609,6 +2611,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 window->finish_drag(false);
                 break;
             case Kind::DragDrop: window->finish_drag(browser.drag_drop(event.x, event.y)); break;
+            case Kind::DragOutEnded: browser.drag_out_ended(event.drag_result); break;
             case Kind::None: break;
             }
         }

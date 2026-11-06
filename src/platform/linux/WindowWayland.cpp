@@ -164,6 +164,7 @@ namespace wl_data_device_manager {
     constexpr std::uint16_t get_data_device = 1;
 }
 namespace wl_data_device {
+    constexpr std::uint16_t start_drag = 0;
     constexpr std::uint16_t set_selection = 1;
     constexpr std::uint16_t event_data_offer = 0;
     constexpr std::uint16_t event_enter = 1;
@@ -186,8 +187,12 @@ namespace wl_data_offer {
 namespace wl_data_source {
     constexpr std::uint16_t offer = 0;
     constexpr std::uint16_t destroy = 1;
+    constexpr std::uint16_t set_actions = 2;
     constexpr std::uint16_t event_send = 1;
     constexpr std::uint16_t event_cancelled = 2;
+    constexpr std::uint16_t event_dnd_drop_performed = 3;
+    constexpr std::uint16_t event_dnd_finished = 4;
+    constexpr std::uint16_t event_action = 5;
 }
 namespace xdg_wm_base {
     constexpr std::uint16_t get_xdg_surface = 2;
@@ -461,6 +466,7 @@ public:
     bool write_clipboard(ClipboardContent const& content);
     std::optional<ClipboardContent> read_clipboard();
     bool start_clipboard_read(std::shared_ptr<ClipboardRead> const& read, std::function<void()> wake);
+    bool start_drag(DragOut const& drag) override;
     bool clipboard_offers_content();
     std::optional<std::string> receive_offer(std::string const& mime);
 
@@ -2029,6 +2035,92 @@ bool WaylandWindow::start_clipboard_read(std::shared_ptr<ClipboardRead> const& r
         return true;
     }
     std::thread(read_pipes_for, read, std::move(wake), std::move(pipes)).detach();
+    return true;
+}
+
+// The page's drag handed to the compositor (wl_data_device.start_drag, from
+// the press that began it): a source offering the drag's formats under the
+// names other programs read, each written through the pipe a reader opens,
+// on a thread of its own; the end — dropped and finished, or cancelled —
+// is a DragOutEnded event with the action the reader's target chose.
+bool WaylandWindow::start_drag(DragOut const& drag)
+{
+    if (!m_data_device || !m_data_device_manager || m_input_serial == 0 || !m_surface || m_connection->failed() || drag.data.empty())
+        return false;
+    std::uint32_t const source = m_connection->allocate_id();
+    Request create(m_data_device_manager, wl_data_device_manager::create_data_source);
+    create.new_id(source);
+    send(create);
+    // What each offered name is written from.
+    auto offered = std::make_shared<std::vector<std::pair<std::string, std::string>>>();
+    for (auto const& [format, value] : drag.data) {
+        if (format == "text/plain") {
+            for (char const* mime : { "text/plain;charset=utf-8", "text/plain", "UTF8_STRING", "TEXT", "STRING" })
+                offered->emplace_back(mime, value);
+        } else {
+            offered->emplace_back(format, value);
+        }
+    }
+    auto action = std::make_shared<std::uint32_t>(0);
+    m_connection->listen(
+        source,
+        [this, source, offered, action](std::uint16_t opcode, Message& message) {
+            if (opcode == wl_data_source::event_send) {
+                std::string const mime = message.string();
+                int const fd = message.fd();
+                if (fd < 0)
+                    return;
+                std::string body;
+                for (auto const& [name, value] : *offered) {
+                    if (name == mime)
+                        body = value;
+                }
+                std::thread([fd, body = std::move(body)] {
+                    std::size_t written = 0;
+                    while (written < body.size()) {
+                        ssize_t const count = ::write(fd, body.data() + written, body.size() - written);
+                        if (count < 0 && errno == EINTR)
+                            continue;
+                        if (count <= 0)
+                            break;
+                        written += static_cast<std::size_t>(count);
+                    }
+                    ::close(fd);
+                }).detach();
+                return;
+            }
+            if (opcode == wl_data_source::event_action) {
+                *action = message.uint();
+                return;
+            }
+            if (opcode != wl_data_source::event_cancelled && opcode != wl_data_source::event_dnd_finished)
+                return;
+            WindowEvent ended;
+            ended.kind = WindowEvent::Kind::DragOutEnded;
+            ended.drag_result = opcode == wl_data_source::event_cancelled ? "none"
+                : *action == wl_data_offer::action_move                  ? "move"
+                : *action == wl_data_offer::action_copy                  ? "copy"
+                                                                         : "none";
+            push(ended);
+            Request destroy(source, wl_data_source::destroy);
+            send(destroy);
+            m_connection->forget(source);
+            m_connection->flush();
+        },
+        { wl_data_source::event_send });
+    for (auto const& [name, value] : *offered) {
+        Request offer(source, wl_data_source::offer);
+        offer.string(name);
+        send(offer);
+    }
+    Request actions(source, wl_data_source::set_actions);
+    actions.uint((drag.copy ? wl_data_offer::action_copy : 0u) | (drag.move ? wl_data_offer::action_move : 0u));
+    send(actions);
+    Request start(m_data_device, wl_data_device::start_drag);
+    start.object(source).object(m_surface).object(0).uint(m_input_serial);
+    send(start);
+    m_connection->flush();
+    debug("drag out: %zu formats", offered->size());
     return true;
 }
 

@@ -267,6 +267,9 @@ add_test(NAME shell_spelling_editor
 # drop, a file input given them, text dropped into a field.
 add_test(NAME shell_os_drag
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/os-drag.script)
+# A page's drag that leaves the window: handed to the desktop, and ended there.
+add_test(NAME shell_drag_out
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/drag-out.script)
 # A picture pasted from another program: a file of the paste's clipboardData.
 add_test(NAME shell_paste_picture
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/paste-picture.script)

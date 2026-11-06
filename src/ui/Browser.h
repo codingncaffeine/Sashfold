@@ -522,6 +522,13 @@ public:
     void drag_move(int x, int y);
     void drag_leave();
     bool drag_drop(int x, int y);
+    // A page's drag that leaves the window goes on as the desktop's, to any
+    // program: `start` hands it over (the window's start_drag; false when it
+    // cannot), and drag_out_ended says what that program did with it —
+    // "copy", "move" or "none" (the window's DragOutEnded).
+    using DragOutStarter = std::function<bool(platform::Window::DragOut const&)>;
+    void set_drag_out(DragOutStarter start);
+    void drag_out_ended(std::string const& effect);
     // 1 left, 2 middle, 3 right; with the keys held as it went down — Ctrl
     // with a click on a link opens it in a new tab, Shift with a right
     // click shows the shell's menu whatever the page says.

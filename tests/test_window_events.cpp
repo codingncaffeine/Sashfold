@@ -58,6 +58,7 @@ std::string said(std::vector<WindowEvent> const& events)
         case Kind::DragMove: out += "G"; break;
         case Kind::DragLeave: out += "L"; break;
         case Kind::DragDrop: out += "Q"; break;
+        case Kind::DragOutEnded: out += "F"; break;
         case Kind::None: out += "-"; break;
         }
         out += std::to_string(event.x) + "," + std::to_string(event.y);

@@ -1,4 +1,5 @@
 #include "platform/Clipboard.h"
+#include "platform/win32/ClipboardWin32.h"
 
 #include "core/Bitmap.h"
 #include "core/Png.h"
@@ -226,6 +227,11 @@ std::vector<std::uint8_t> global_bytes(HANDLE handle)
 }
 
 } // namespace
+
+std::string windows_cf_html(std::string const& fragment)
+{
+    return cf_html_of(fragment);
+}
 
 bool os_write_clipboard(ClipboardContent const& content)
 {

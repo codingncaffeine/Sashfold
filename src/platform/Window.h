@@ -13,6 +13,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <utility>
 #include <vector>
 
 namespace sashfold::platform {
@@ -42,6 +43,9 @@ struct WindowEvent {
         DragMove,
         DragLeave,
         DragDrop,
+        // A drag of the page's that left the window for another program
+        // (start_drag) is over: what that program did with it (drag_result).
+        DragOutEnded,
     };
     Kind kind = Kind::None;
     int x = 0; // mouse position, client pixels
@@ -70,6 +74,8 @@ struct WindowEvent {
     bool active = true;
     // DragEnter: the formats (MIME types) the drag offers.
     std::vector<std::string> drag_formats;
+    // DragOutEnded: "copy", "move", or "none" (refused, or let go nowhere).
+    std::string drag_result;
     // Visible: whether any of the window can be seen — not minimized, not
     // wholly covered, not on another desktop — as far as the system says. A
     // window is taken to be until an event says not.
@@ -180,6 +186,17 @@ public:
     // of its own, which a compositor may answer by only marking it as
     // wanting attention — focus is not a program's to take on its own word.
     virtual void activate(std::string const& token) { static_cast<void>(token); }
+    // A drag of the page's out of the window, to whatever program the reader
+    // lets it go over: the data it carries by format (a page's names:
+    // text/plain, text/html, text/uri-list), and what it lets be done with
+    // it. Its end comes as a DragOutEnded event. False where the window
+    // cannot hand one over (then the page's drag ends as cancelled).
+    struct DragOut {
+        std::vector<std::pair<std::string, std::string>> data;
+        bool copy = true;
+        bool move = false;
+    };
+    virtual bool start_drag(DragOut const& drag) { static_cast<void>(drag); return false; }
     // A drag over the window from elsewhere: what a drop here would do —
     // nothing (refused), a copy, a move or a link — and the format it would
     // be taken in. Said again whenever it changes.
