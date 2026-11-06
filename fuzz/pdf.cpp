@@ -3,7 +3,7 @@
 // streams, the security handler), then every page's resources and content
 // streams resolved and decoded and the page drawn small; and the raw bytes
 // alone through each filter, the CCITT fax decoder in each of its modes,
-// the Type 1 font reader and the CMap parser.
+// the JPEG 2000 decoder, the Type 1 font reader and the CMap parser.
 // No crash, no hang, no sanitizer finding.
 
 #include "pdf/CMap.h"
@@ -33,6 +33,7 @@ extern "C" int LLVMFuzzerTestOneInput(std::uint8_t const* data, std::size_t size
             (void)sashfold::pdf::decode_ccitt(input, params, 97, 64);
         }
     }
+    (void)sashfold::pdf::decode_jpx(input, 1u << 20);
     if (auto const type1 = sashfold::pdf::Type1Font::parse(input)) {
         for (auto const& name : type1->encoding()) {
             if (!name.empty())

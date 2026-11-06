@@ -867,6 +867,46 @@ void test_ccitt(std::string const& fixtures)
     CHECK(junk && junk->size() == 8);
 }
 
+// JPEG 2000 made by OpenJPEG (tools/pdf-make-jpx-tests.py --fixtures),
+// against OpenJPEG's own decoding: lossless 5/3 exactly, lossy 9/7 within
+// a level (its floating point rounds a little differently), and one with
+// tiles, RPCL, precincts, SOP/EPH and every code-block mode but
+// terminate-all. The full set (29 variants, a 2480 x 3508 page) is
+// checked by the same tool against opj_decompress: all within 1.
+void test_jpx(std::string const& fixtures)
+{
+    struct Case {
+        char const* file;
+        int width, height, components, tolerance;
+    };
+    for (Case const& c : { Case { "jpx-lossless.jp2", 45, 31, 3, 0 }, Case { "jpx-lossy.j2k", 40, 33, 1, 1 },
+             Case { "jpx-modes.jp2", 52, 37, 3, 0 } }) {
+        std::string const name(c.file);
+        Bytes const data = read_file(fixtures + "/jpx/" + name);
+        Bytes const truth = read_file(fixtures + "/jpx/" + name.substr(0, name.rfind('.')) + ".raw");
+        std::optional<pdf::CodecPicture> const picture = pdf::decode_jpx(data, 1u << 24);
+        CHECK(picture.has_value());
+        if (!picture)
+            continue;
+        CHECK_EQ(picture->width, c.width);
+        CHECK_EQ(picture->height, c.height);
+        CHECK_EQ(picture->components, c.components);
+        CHECK(picture->samples.size() == truth.size());
+        int worst = 0;
+        for (std::size_t i = 0; i < std::min(truth.size(), picture->samples.size()); ++i)
+            worst = std::max(worst, std::abs(static_cast<int>(picture->samples[i]) - static_cast<int>(truth[i])));
+        CHECK(worst <= c.tolerance);
+    }
+    // Cut short: what arrived is shown, nothing past the data is read.
+    Bytes const whole = read_file(fixtures + "/jpx/jpx-lossless.jp2");
+    Bytes const half(whole.begin(), whole.begin() + static_cast<std::ptrdiff_t>(whole.size() / 2));
+    std::optional<pdf::CodecPicture> const cut = pdf::decode_jpx(half, 1u << 24);
+    CHECK(cut && cut->width == 45);
+    // Larger than allowed: declined.
+    CHECK(!pdf::decode_jpx(whole, 100));
+    CHECK(!pdf::decode_jpx(bytes("not a picture"), 1u << 24));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -881,6 +921,7 @@ int main(int argc, char** argv)
     if (argc > 1) {
         test_encrypted(argv[1]);
         test_ccitt(argv[1]);
+        test_jpx(argv[1]);
     }
     else
         CHECK(!"the fixtures folder is the first argument");

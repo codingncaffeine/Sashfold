@@ -219,6 +219,9 @@ add_library(sashfold_core STATIC
   src/pdf/Image.cpp
   src/pdf/Ccitt.cpp
   src/pdf/ImageCodecs.cpp
+  src/pdf/Jpx.cpp
+  src/pdf/JpxTier1.cpp
+  src/pdf/Mq.cpp
   src/pdf/Object.cpp
   src/pdf/Parser.cpp
   src/pdf/Render.cpp
