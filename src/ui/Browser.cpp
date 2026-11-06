@@ -1,4 +1,5 @@
 #include "ui/Browser.h"
+#include "ui/FieldEdit.h"
 #include "ui/Forms.h"
 #include "ui/Frames.h"
 
@@ -1191,8 +1192,30 @@ struct Browser::Impl {
         int y = 0;
         bindings::MouseInit init;
         std::optional<bindings::Realm::SelectionPoints> dragged;
+        // A field's selected text dragged: the field and the part of its value.
+        dom::Element const* field = nullptr;
+        std::pair<std::size_t, std::size_t> field_range;
     };
     std::optional<DragCandidate> drag_candidate;
+    // The last press in a text field (to count a double or triple press),
+    // and the selection a held press is making there: the unit it began on
+    // ([start, end), what a word or line press took) and the end held still.
+    struct FieldPress {
+        dom::Element const* control = nullptr;
+        std::chrono::steady_clock::time_point at;
+        int x = 0;
+        int y = 0;
+        int count = 1;
+    };
+    std::optional<FieldPress> field_press;
+    struct FieldDrag {
+        dom::Element const* control = nullptr;
+        std::size_t start = 0;
+        std::size_t end = 0;
+        int count = 1;
+        std::size_t anchor = 0;
+    };
+    std::optional<FieldDrag> field_drag;
     struct DragOperation {
         bindings::Realm* realm = nullptr;
         dom::Element* immediate = nullptr;
@@ -1204,6 +1227,12 @@ struct Browser::Impl {
         dom::Element* drop_host = nullptr;
         std::optional<std::pair<dom::Node*, std::uint32_t>> drop_point;
         bindings::MouseInit init;
+        // The text field a drop would go into, and where in its value; the
+        // field the drag came from, and the part of its value.
+        dom::Element const* drop_field = nullptr;
+        std::size_t drop_index = 0;
+        dom::Element const* field = nullptr;
+        std::pair<std::size_t, std::size_t> field_range;
     };
     std::optional<DragOperation> drag_op;
     // The scrollbar thumb the left button took hold of, and where along it.
@@ -4998,9 +5027,31 @@ struct Browser::Impl {
         };
         hooks.set_control_value = [this, document](dom::Element const& element, std::string_view value) {
             if (Tab* const owner = tab_of(document)) {
+                // A value set by script: the reader's history of edits is
+                // let go, as every engine lets it go (the selection is the
+                // realm's to move).
                 layout::ControlState& state = state_of(*owner, element);
                 state.value = std::string(value);
-                state.caret = decode_utf8(*state.value).size();
+                state.undo.clear();
+                state.redo.clear();
+                state.coalescing.clear();
+            }
+        };
+        hooks.control_selection = [this, document](dom::Element const& element) -> std::optional<dom::forms::TextSelection> {
+            Tab* const owner = tab_of(document);
+            if (!owner)
+                return std::nullopt;
+            auto const it = owner->controls.states.find(&element);
+            if (it == owner->controls.states.end())
+                return std::nullopt;
+            return it->second.selection;
+        };
+        hooks.set_control_selection = [this, document](dom::Element const& element, dom::forms::TextSelection const& selection) {
+            if (Tab* const owner = tab_of(document)) {
+                layout::ControlState& state = state_of(*owner, element);
+                state.selection = selection;
+                state.coalescing.clear();
+                state.goal_x.reset();
             }
         };
         hooks.control_checked = [this, document](dom::Element const& element) -> std::optional<bool> {
@@ -5018,9 +5069,10 @@ struct Browser::Impl {
         };
         hooks.focus = [this, document](dom::Element const* element) {
             if (Tab* const owner = tab_of(document)) {
+                // element.focus(): the selection the control had stays
+                // (Blink's restore-on-focus), the caret at the start of one
+                // nothing has selected in.
                 owner->controls.focused = element;
-                if (element)
-                    caret_to_end(*owner, *element);
             }
         };
         hooks.focused = [this, document]() -> dom::Element const* {
@@ -8549,17 +8601,18 @@ struct Browser::Impl {
         bool const field = control && layout::is_text_kind(layout::control_kind(*control))
             && !control->has_attribute("disabled");
         if (field) {
-            // A right click puts the caret in the field, as a left one does —
-            // but a value that is selected stays so: the menu is about it.
-            bool const was_selected = tab->controls.focused == control && state_of(*tab, *control).all_selected;
+            // A right click in a field it does not have the focus puts the
+            // caret there, as a left one does; in the focused one the
+            // selection stays: the menu is about it.
+            if (tab->controls.focused != control)
+                press_in_text_control(*tab, x, y, false);
+            field_drag.reset();
             activate_control(*control);
-            if (was_selected)
-                select_all_in_control(*tab);
             std::optional<std::string> const clipboard = read_clipboard();
             bool const locked = control->has_attribute("readonly");
             bool const can_paste = clipboard && !clipboard->empty() && !locked;
-            // What there is to cut or copy is a value selected whole (a
-            // password's never); a field has no smaller selection yet.
+            // What there is to cut or copy is the selected text (a
+            // password's never).
             std::optional<std::string> const chosen = selected_in_control(*tab);
             bool const can_copy = chosen && !chosen->empty();
             bool const has_value = !layout::control_value(*control, &tab->controls).empty();
@@ -9093,6 +9146,11 @@ struct Browser::Impl {
             drag_moved(x, y);
             return;
         }
+        if (field_drag) {
+            if (Tab* const tab = active_tab(); tab && tab->document)
+                drag_in_text_control(*tab, x, y);
+            return;
+        }
         if (drag_candidate) {
             int const threshold = static_cast<int>(std::lround(4 * scale));
             if (std::abs(x - drag_candidate->x) >= threshold || std::abs(y - drag_candidate->y) >= threshold) {
@@ -9157,7 +9215,14 @@ struct Browser::Impl {
             // A press in the selection that did not become a drag does now
             // what a press does: the caret, or the selection let go.
             bool const in_selection = drag_candidate->kind == "selection";
+            bool const in_field = drag_candidate->field != nullptr;
             drag_candidate.reset();
+            if (in_field && !pages_in_engines) {
+                if (Tab* const tab = active_tab(); tab && tab->document) {
+                    press_in_text_control(*tab, mouse_x, mouse_y, false);
+                    field_drag.reset();
+                }
+            } else
             if (in_selection && !pages_in_engines) {
                 if (Tab* const tab = active_tab(); tab && tab->document) {
                     std::optional<PageHit> const hit = page_hit(mouse_x, mouse_y);
@@ -9165,6 +9230,11 @@ struct Browser::Impl {
                         clear_selection(*tab);
                 }
             }
+        }
+        if (button == 1 && field_drag) {
+            if (Tab* const tab = active_tab(); tab && tab->document)
+                end_text_control_drag(*tab);
+            field_drag.reset();
         }
         if (button == 1) {
             selecting = false;
@@ -10012,6 +10082,22 @@ struct Browser::Impl {
         candidate.y = y;
         candidate.init = hit->init;
         candidate.init.buttons = 1;
+        // In a focused field's selected text: that text (a password's never
+        // leaves its field).
+        if (dom::Element const* const control = tab.controls.focused;
+            control && layout::is_text_kind(layout::control_kind(*control)) && layout::control_kind(*control) != layout::ControlKind::Password
+            && control_at(x, y) == control && on_field_selection(tab, *control, x, y)) {
+            dom::forms::TextSelection const selection = field_selection(tab, *control);
+            std::u32string const text = field_text(tab, *control);
+            std::string const part = utf8_of(text.substr(selection.start, selection.end - selection.start));
+            candidate.kind = "selection";
+            candidate.source = const_cast<dom::Element*>(control);
+            candidate.data.emplace_back("text/plain", part);
+            candidate.label = part;
+            candidate.field = control;
+            candidate.field_range = { selection.start, selection.end };
+            return candidate;
+        }
         // In the selection: the selected text and its markup.
         if (tab.selection && !(tab.selection->anchor == tab.selection->focus)) {
             std::optional<std::pair<float, float>> const point = page_point(x, y);
@@ -10141,12 +10227,15 @@ struct Browser::Impl {
         editing_drag = false;
         if (candidate.kind != "selection")
             clear_selection(*tab);
+        field_drag.reset();
         DragOperation operation;
         operation.realm = candidate.realm;
         operation.label = candidate.label;
         operation.dragged = candidate.dragged;
         operation.from_selection = candidate.kind == "selection";
         operation.init = candidate.init;
+        operation.field = candidate.field;
+        operation.field_range = candidate.field_range;
         drag_op = std::move(operation);
         ensure_fresh(*tab);
         dirty = true;
@@ -10182,7 +10271,7 @@ struct Browser::Impl {
             dom::Element* next = nullptr;
             if (immediate) {
                 bool const taken = !realm->drag_event(*immediate, "dragenter", init);
-                if (taken || realm->editing_host(*immediate))
+                if (taken || realm->editing_host(*immediate) || droppable_field(*immediate))
                     next = immediate;
                 else if (dom::Element* const body = body_of(immediate->document())) {
                     if (body != op.current)
@@ -10200,6 +10289,7 @@ struct Browser::Impl {
         op.operation = "none";
         op.drop_host = nullptr;
         op.drop_point.reset();
+        op.drop_field = nullptr;
         if (op.current && op.current->is_connected()) {
             bool const taken = !realm->drag_event(*op.current, "dragover", init);
             std::string const allowed = realm->drag_effect_allowed();
@@ -10210,6 +10300,23 @@ struct Browser::Impl {
             if (taken) {
                 std::string const effect = realm->drag_drop_effect();
                 op.operation = effect != "none" && allows(effect) ? effect : "none";
+            } else if (dom::Element const* const field = hit && hit->realm == realm ? droppable_field(*op.current) : nullptr) {
+                // A text field takes text by default, as an editor does: moved
+                // when it is a selection's from this document, else copied.
+                bool has_text = false;
+                for (auto const& [format, value] : realm->drag_data())
+                    has_text = has_text || format == "text/plain";
+                if (has_text) {
+                    std::string const wanted = op.from_selection && allows("move") ? "move" : "copy";
+                    op.operation = allows(wanted) ? wanted : allows("copy") ? "copy" : "none";
+                    if (op.operation != "none") {
+                        op.drop_field = field;
+                        op.drop_index = field_index_at(*tab, *field, x, y).value_or(field_text(*tab, *field).size());
+                        // Not into the dragged text itself.
+                        if (op.field == field && op.drop_index > op.field_range.first && op.drop_index < op.field_range.second)
+                            op.operation = "none", op.drop_field = nullptr;
+                    }
+                }
             } else if (dom::Element* const host = hit && hit->realm == realm ? realm->editing_host(*op.current) : nullptr) {
                 // An editor takes text by default: moved within the
                 // document it came from, copied otherwise.
@@ -10262,6 +10369,50 @@ struct Browser::Impl {
         return dom_point_of(*runs, TextPosition { indexes[local->run], local->offset });
     }
 
+    // A text field a drop may go into: one that can be typed in.
+    static dom::Element const* droppable_field(dom::Element const& element)
+    {
+        if (!layout::is_control(element) || !layout::is_text_kind(layout::control_kind(element)) || element.has_attribute("disabled")
+            || element.has_attribute("readonly"))
+            return nullptr;
+        return &element;
+    }
+
+    // A drop into a text field (HTML §6.11.5's default action, Input Events):
+    // when the text moves, it leaves its place first (deleteByDrag, in the
+    // field or the editor it came from), then it goes in at the drop point
+    // (insertFromDrop), selected, with the focus.
+    void drop_into_field(Tab& tab, DragOperation const& op, std::vector<std::pair<std::string, std::string>> const& data, bool move)
+    {
+        std::string text;
+        for (auto const& [format, value] : data) {
+            if (format == "text/plain") {
+                text = value;
+                break;
+            }
+        }
+        if (text.empty())
+            return;
+        dom::Element const& field = *op.drop_field;
+        std::size_t at = op.drop_index;
+        if (move && op.field && op.field->is_connected()) {
+            if (field_edit(tab, *op.field, "deleteByDrag", op.field_range.first, op.field_range.second, {}) && op.field == &field
+                && at >= op.field_range.second)
+                at -= op.field_range.second - op.field_range.first;
+        } else if (move && op.dragged && op.realm && op.dragged->anchor && op.dragged->focus) {
+            op.realm->set_selection(*op.dragged->anchor, op.dragged->anchor_offset, *op.dragged->focus, op.dragged->focus_offset);
+            op.realm->edit("deleteByDrag");
+        }
+        focus_control(tab, &field, false);
+        dom::forms::TextSelection drop_at;
+        drop_at.start = drop_at.end = at;
+        state_of(tab, field).selection = drop_at;
+        std::u32string inserted = decode_utf8(text);
+        if (layout::control_kind(field) != layout::ControlKind::TextArea)
+            std::replace_if(inserted.begin(), inserted.end(), [](char32_t c) { return c == U'\n' || c == U'\r'; }, U' ');
+        field_edit(tab, field, "insertFromDrop", at, at, std::move(inserted), true);
+    }
+
     // The button came up with something dragged: drop where the drag
     // stands (the page's, else into an editor by default), then dragend.
     void finish_drag()
@@ -10280,6 +10431,8 @@ struct Browser::Impl {
                 // The page took the drop as its own; what it said it did stands.
                 std::string const effect = realm->drag_drop_effect();
                 operation = effect;
+            } else if (op.drop_field && op.drop_field->is_connected()) {
+                drop_into_field(*tab, op, data, operation == "move" && op.from_selection);
             } else if (op.drop_host && op.drop_point && op.drop_point->first->is_connected()) {
                 // Into the editor: the caret at the drop point, the text in
                 // (the dragged selection out of its place first, when moved).
@@ -10471,6 +10624,12 @@ struct Browser::Impl {
             return;
         if (into_control && page_took_clipboard(*with_control, "paste", &*content))
             return;
+        if (into_control) {
+            dom::Element const& control = *with_control->controls.focused;
+            if (layout::is_text_kind(layout::control_kind(control)))
+                field_insert(*with_control, control, decode_utf8(*text), "insertFromPaste");
+            return;
+        }
         for (char32_t const c : decode_utf8(*text)) {
             if (c >= 0x20 && c != 0x7F)
                 text_input(c);
@@ -11258,31 +11417,493 @@ struct Browser::Impl {
         return out;
     }
 
-    // Puts the caret at the end of a text control's value.
+    // Puts the caret at the end of a text control's value (a script's
+    // "focus" verb, as typing would find it).
     void caret_to_end(Tab& tab, dom::Element const& control)
     {
         if (layout::is_text_kind(layout::control_kind(control))) {
-            layout::ControlState& state = state_of(tab, control);
-            state.caret = decode_utf8(layout::control_value(control, &tab.controls)).size();
-            state.all_selected = false;
+            std::size_t const length = field_text(tab, control).size();
+            dom::forms::TextSelection end;
+            end.start = end.end = length;
+            state_of(tab, control).selection = end;
         }
     }
 
-    // Ctrl+A in a field: the whole of its value selected, when it has one.
+    // --- Text fields: the selection, typing, the clipboard ----------------------------
+
+    // A text control's value as the reader edits it, in code points.
+    std::u32string field_text(Tab& tab, dom::Element const& control)
+    {
+        return decode_utf8(layout::control_value(control, &tab.controls));
+    }
+
+    dom::forms::TextSelection field_selection(Tab& tab, dom::Element const& control)
+    {
+        std::size_t const length = field_text(tab, control).size();
+        auto const it = tab.controls.states.find(&control);
+        return it == tab.controls.states.end() ? dom::forms::TextSelection {}.clamped(length) : it->second.selection_in(length);
+    }
+
+    // A selection the reader made (a key, the pointer): kept, the page told —
+    // selectionchange, and select when text is selected and `tell_select` —
+    // and the control laid out again.
+    void set_field_selection(Tab& tab, dom::Element const& control, dom::forms::TextSelection selection, bool tell_select = true,
+        bool keep_goal = false)
+    {
+        std::size_t const length = field_text(tab, control).size();
+        layout::ControlState& state = state_of(tab, control);
+        dom::forms::TextSelection const before = state.selection_in(length);
+        selection = selection.clamped(length);
+        state.selection = selection;
+        if (!keep_goal)
+            state.goal_x.reset();
+        if (before.same_range(selection))
+            return;
+        state.coalescing.clear(); // typing after a move is a step of its own
+        if (tab.realm) {
+            script_started = std::chrono::steady_clock::now();
+            realm_for(tab, control)->text_control_selection_changed(const_cast<dom::Element&>(control), tell_select && !selection.collapsed());
+        }
+        relayout(tab);
+        dirty = true;
+    }
+
+    // Ctrl+A in a field: the whole of its value selected.
     void select_all_in_control(Tab& tab)
     {
         dom::Element const& control = *tab.controls.focused;
         if (!layout::is_text_kind(layout::control_kind(control)))
             return;
-        layout::ControlState& state = state_of(tab, control);
-        std::size_t const length = decode_utf8(layout::control_value(control, &tab.controls)).size();
-        state.all_selected = length > 0;
-        state.caret = length;
-        relayout(tab);
-        dirty = true;
+        dom::forms::TextSelection all;
+        all.end = field_text(tab, control).size();
+        set_field_selection(tab, control, all);
     }
 
-    // A field's selected value: copied, then gone as Delete takes it.
+    // The maxlength the reader's typing stops at, in UTF-16 code units.
+    static std::optional<std::size_t> max_length_of(dom::Element const& control)
+    {
+        dom::Attr const* const limit = control.find_attribute("maxlength");
+        if (!limit)
+            return std::nullopt;
+        char* end = nullptr;
+        long const value = std::strtol(limit->value.c_str(), &end, 10);
+        if (end == limit->value.c_str() || value < 0)
+            return std::nullopt;
+        return static_cast<std::size_t>(value);
+    }
+
+    // An edit of a text control by the reader (Input Events §4): beforeinput
+    // at the control, which the page may cancel; [start, end) replaced by
+    // `with` — an insertion cut to the maxlength — and the caret after it,
+    // or what was put in selected; then input. False when nothing changed.
+    bool field_edit(Tab& tab, dom::Element const& control, std::string_view input_type, std::size_t start, std::size_t end,
+        std::u32string with, bool select_inserted = false)
+    {
+        if (control.has_attribute("disabled") || control.has_attribute("readonly"))
+            return false;
+        std::u32string text = field_text(tab, control);
+        start = std::min(start, text.size());
+        end = std::clamp(end, start, text.size());
+        if (!with.empty())
+            with = std::u32string(field_edit::within_max_length(text, start, end, with, max_length_of(control)));
+        if (start == end && with.empty())
+            return false;
+        bindings::Realm* const realm = tab.realm ? realm_for(tab, control) : nullptr;
+        bindings::InputInit init;
+        init.input_type = std::string(input_type);
+        if (input_type.starts_with("insert"))
+            init.data = utf8_of(with);
+        dom::Element& target = const_cast<dom::Element&>(control);
+        if (realm) {
+            script_started = std::chrono::steady_clock::now();
+            bool const proceed = realm->dispatch_input_event(target, "beforeinput", init);
+            ensure_fresh(tab);
+            if (!proceed || !tab.document) {
+                dirty = true;
+                return false;
+            }
+            // The page may have moved the value under the edit: it is made
+            // to the value as it stands, held within it.
+            text = field_text(tab, control);
+            start = std::min(start, text.size());
+            end = std::clamp(end, start, text.size());
+        }
+        layout::ControlState& state = state_of(tab, control);
+        // A run of typing, or of deleting backward, is one step to undo.
+        bool const joins = (input_type == "insertText" || input_type == "deleteContentBackward") && state.coalescing == input_type;
+        if (!joins) {
+            state.undo.push_back({ utf8_of(text), state.selection_in(text.size()) });
+            if (state.undo.size() > 100)
+                state.undo.erase(state.undo.begin());
+        }
+        state.redo.clear();
+        field_edit::Edit const edit = field_edit::replace(text, start, end, with);
+        state.value = utf8_of(edit.text);
+        dom::forms::TextSelection after;
+        after.start = select_inserted ? start : edit.caret;
+        after.end = edit.caret;
+        state.selection = after;
+        state.goal_x.reset();
+        state.coalescing = std::string(input_type);
+        restyle_value(tab, control);
+        relayout(tab);
+        dirty = true;
+        if (realm) {
+            script_started = std::chrono::steady_clock::now();
+            realm->dispatch_input_event(target, "input", init);
+            realm->text_control_selection_changed(target, false);
+            ensure_fresh(tab);
+        }
+        return true;
+    }
+
+    // Ctrl+Z and Ctrl+Y in a text control: the value and selection before
+    // the last edit (historyUndo), or after the one undone (historyRedo).
+    void field_history(Tab& tab, dom::Element const& control, bool undo)
+    {
+        if (control.has_attribute("disabled") || control.has_attribute("readonly"))
+            return;
+        layout::ControlState& state = state_of(tab, control);
+        std::vector<layout::ControlState::Step>& from = undo ? state.undo : state.redo;
+        if (from.empty())
+            return;
+        bindings::Realm* const realm = tab.realm ? realm_for(tab, control) : nullptr;
+        bindings::InputInit init;
+        init.input_type = undo ? "historyUndo" : "historyRedo";
+        dom::Element& target = const_cast<dom::Element&>(control);
+        if (realm) {
+            script_started = std::chrono::steady_clock::now();
+            bool const proceed = realm->dispatch_input_event(target, "beforeinput", init);
+            ensure_fresh(tab);
+            if (!proceed || !tab.document) {
+                dirty = true;
+                return;
+            }
+        }
+        layout::ControlState& now = state_of(tab, control);
+        std::vector<layout::ControlState::Step>& source = undo ? now.undo : now.redo;
+        if (source.empty())
+            return;
+        layout::ControlState::Step const step = source.back();
+        source.pop_back();
+        std::u32string const text = field_text(tab, control);
+        (undo ? now.redo : now.undo).push_back({ utf8_of(text), now.selection_in(text.size()) });
+        now.value = step.value;
+        now.selection = step.selection;
+        now.coalescing.clear();
+        now.goal_x.reset();
+        restyle_value(tab, control);
+        relayout(tab);
+        dirty = true;
+        if (realm) {
+            script_started = std::chrono::steady_clock::now();
+            realm->dispatch_input_event(target, "input", init);
+            realm->text_control_selection_changed(target, false);
+            ensure_fresh(tab);
+        }
+    }
+
+    // The focused text control's box as laid out, and where its layout's
+    // coordinates are in the window (the frame it is in moved by where that
+    // frame's document stands).
+    struct FieldBox {
+        layout::Fragment const* fragment = nullptr;
+        float ox = 0;
+        float oy = 0;
+    };
+    std::optional<FieldBox> field_box(Tab& tab, dom::Element const& control)
+    {
+        std::vector<FrameStep> const chain = frames_to(tab, frame_holding_in(tab.frames, control.document()));
+        layout::Fragment const& root = chain.empty() ? tab.layout.root : chain.back().view->layout.root;
+        auto const [ox, oy] = origin_of(chain);
+        layout::Fragment const* const box = fragment_for(root, &control);
+        if (!box || !box->control)
+            return std::nullopt;
+        return FieldBox { box, static_cast<float>(ox), static_cast<float>(oy) };
+    }
+
+    // The window point in a field's layout coordinates.
+    std::pair<float, float> field_point(Tab& tab, FieldBox const& box, int x, int y)
+    {
+        ChromeLayout const c = layout_chrome();
+        return { static_cast<float>(x - c.content.x) - box.ox, static_cast<float>(y - c.content.y + tab.scroll_y) - box.oy };
+    }
+
+    // The boundary of a shown line nearest a layout x.
+    static std::size_t nearest_stop(layout::Fragment::ControlBox::TextLine const& line, float x)
+    {
+        std::size_t best = 0;
+        float distance = std::numeric_limits<float>::max();
+        for (std::size_t i = 0; i < line.stops.size(); ++i) {
+            float const d = std::abs(line.stops[i] - x);
+            if (d < distance) {
+                distance = d;
+                best = i;
+            }
+        }
+        return line.from + best;
+    }
+
+    // Where in a focused field's value a window point falls: the line under
+    // it (the first or last shown when it is above or below them), the
+    // boundary nearest it there.
+    std::optional<std::size_t> field_index_at(Tab& tab, dom::Element const& control, int x, int y)
+    {
+        std::optional<FieldBox> const box = field_box(tab, control);
+        if (!box)
+            return std::nullopt;
+        std::vector<layout::Fragment::ControlBox::TextLine> const& lines = box->fragment->control->lines;
+        if (lines.empty())
+            return 0;
+        auto const [px, py] = field_point(tab, *box, x, y);
+        layout::Fragment::ControlBox::TextLine const* line = &lines.back();
+        for (auto const& candidate : lines) {
+            if (py < candidate.bottom) {
+                line = &candidate;
+                break;
+            }
+        }
+        if (!line->stops.empty())
+            return nearest_stop(*line, px);
+        // A field without the focus has its lines but no stops: its text run
+        // on the line is measured instead.
+        for (layout::TextRun const& run : box->fragment->runs) {
+            if (run.baseline_y < line->top || run.baseline_y > line->bottom + 1)
+                continue;
+            std::size_t best = 0;
+            float distance = std::abs(run.x - px);
+            for (std::size_t i = 1; i <= run.text.size(); ++i) {
+                float const d = std::abs(run.x + prefix_width(run, i) - px);
+                if (d < distance) {
+                    distance = d;
+                    best = i;
+                }
+            }
+            return line->from + best;
+        }
+        return line->from;
+    }
+
+    // Where a caret at a value index of a field stands, in the window: its
+    // x and the top and height of its line (stops where it has them, its
+    // run measured where not).
+    std::optional<Rect> field_caret_rect(Tab& tab, dom::Element const& control, std::size_t at)
+    {
+        std::optional<FieldBox> const box = field_box(tab, control);
+        if (!box)
+            return std::nullopt;
+        layout::Fragment::ControlBox const& c = *box->fragment->control;
+        layout::Fragment::ControlBox::TextLine const* line = line_holding(c, at);
+        if (!line && !c.lines.empty() && at >= c.lines.back().to)
+            line = &c.lines.back();
+        float x = 0;
+        float top = c.y;
+        float tall = c.height;
+        if (line) {
+            top = line->top;
+            tall = line->bottom - line->top;
+            if (!line->stops.empty()) {
+                x = line->stops[std::min(at - line->from, line->stops.size() - 1)];
+            } else {
+                x = c.x + 4;
+                for (layout::TextRun const& run : box->fragment->runs) {
+                    if (run.baseline_y >= line->top && run.baseline_y <= line->bottom + 1) {
+                        x = run.x + prefix_width(run, std::min(at - line->from, run.text.size()));
+                        break;
+                    }
+                }
+            }
+        } else {
+            x = c.x + 4;
+        }
+        ChromeLayout const chrome = layout_chrome();
+        return Rect { chrome.content.x + static_cast<int>(std::lround(x + box->ox)),
+            chrome.content.y + static_cast<int>(std::lround(top + box->oy)) - tab.scroll_y, 1, std::max(1, static_cast<int>(std::lround(tall))) };
+    }
+
+    // Whether a window point is on a focused field's selected text.
+    bool on_field_selection(Tab& tab, dom::Element const& control, int x, int y)
+    {
+        std::optional<FieldBox> const box = field_box(tab, control);
+        if (!box)
+            return false;
+        auto const [px, py] = field_point(tab, *box, x, y);
+        for (layout::Fragment::ControlBox::Span const& span : box->fragment->control->selected) {
+            if (px >= span.x0 && px < span.x1 && py >= span.top && py < span.bottom)
+                return true;
+        }
+        return false;
+    }
+
+    // The shown line a value index is on (an index at a soft wrap belongs
+    // to the line it starts), or null when it is scrolled out of view.
+    static layout::Fragment::ControlBox::TextLine const* line_holding(layout::Fragment::ControlBox const& box, std::size_t at)
+    {
+        for (std::size_t i = 0; i < box.lines.size(); ++i) {
+            auto const& line = box.lines[i];
+            bool const last = i + 1 == box.lines.size() || box.lines[i + 1].from > line.to;
+            if (at >= line.from && (at < line.to || (at == line.to && (last || box.lines[i + 1].from != at))))
+                return &line;
+        }
+        return nullptr;
+    }
+
+    // A textarea's caret moved a line up or down, at the column it started
+    // from; past the first line it goes to the start, past the last to the
+    // end. A line scrolled out of view is scrolled into it first.
+    std::size_t field_line_move(Tab& tab, dom::Element const& control, std::size_t at, bool up)
+    {
+        std::u32string const text = field_text(tab, control);
+        for (int attempt = 0; attempt < 2; ++attempt) {
+            std::optional<FieldBox> const box = field_box(tab, control);
+            if (!box)
+                return at;
+            layout::Fragment::ControlBox const& c = *box->fragment->control;
+            layout::Fragment::ControlBox::TextLine const* const line = line_holding(c, at);
+            if (!line)
+                return at;
+            std::size_t const index = static_cast<std::size_t>(line - c.lines.data());
+            layout::ControlState& state = state_of(tab, control);
+            float const x = state.goal_x ? *state.goal_x : line->stops[std::min(at - line->from, line->stops.size() - 1)];
+            state.goal_x = x;
+            if (up && index > 0)
+                return nearest_stop(c.lines[index - 1], x);
+            if (!up && index + 1 < c.lines.size())
+                return nearest_stop(c.lines[index + 1], x);
+            // The line beyond is out of view, or there is none.
+            std::size_t const first = state.first_shown;
+            if (up && first == 0)
+                return 0;
+            if (!up && first + c.lines.size() >= c.line_count)
+                return text.size();
+            state.first_shown = up ? first - 1 : first + 1;
+            relayout(tab);
+        }
+        return at;
+    }
+
+    // Home and End in a textarea: the shown line's start and end.
+    std::size_t field_line_edge(Tab& tab, dom::Element const& control, std::size_t at, bool end)
+    {
+        if (std::optional<FieldBox> const box = field_box(tab, control)) {
+            if (layout::Fragment::ControlBox::TextLine const* const line = line_holding(*box->fragment->control, at))
+                return end ? line->to : line->from;
+        }
+        std::pair<std::size_t, std::size_t> const hard = field_edit::line_at(field_text(tab, control), at);
+        return end ? hard.second : hard.first;
+    }
+
+    // A key in a focused text control: the caret and selection moved, text
+    // deleted, a line break put in, the history stepped. True when it was
+    // the control's.
+    bool field_key(Tab& tab, dom::Element const& control, KeyEvent const& key)
+    {
+        using layout::ControlKind;
+        ControlKind const kind = layout::control_kind(control);
+        if (!layout::is_text_kind(kind) || key.alt)
+            return false;
+        bool const textarea = kind == ControlKind::TextArea;
+        std::u32string const text = field_text(tab, control);
+        dom::forms::TextSelection const selection = field_selection(tab, control);
+        std::size_t const focus = selection.focus();
+        // A password's words are not shown: a word move goes to its ends.
+        bool const words = key.ctrl && kind != ControlKind::Password;
+        auto const move = [&](std::size_t to, bool keep_goal = false) {
+            set_field_selection(tab, control, field_edit::moved(selection, to, key.shift), true, keep_goal);
+            return true;
+        };
+        if (key.ctrl && key.key == Key::Letter) {
+            switch (key.letter) {
+            case U'A': select_all_in_control(tab); return true;
+            case U'Z': field_history(tab, control, !key.shift); return true;
+            case U'Y': field_history(tab, control, false); return true;
+            default: return false;
+            }
+        }
+        switch (key.key) {
+        case Key::Left:
+            if (!key.shift && !selection.collapsed())
+                return move(selection.start);
+            return move(words ? field_edit::previous_word_start(text, focus)
+                    : key.ctrl ? 0
+                               : field_edit::previous_character(text, focus));
+        case Key::Right:
+            if (!key.shift && !selection.collapsed())
+                return move(selection.end);
+            return move(words ? field_edit::next_word_end(text, focus)
+                    : key.ctrl ? text.size()
+                               : field_edit::next_character(text, focus));
+        case Key::Home: return move(key.ctrl || !textarea ? 0 : field_line_edge(tab, control, focus, false));
+        case Key::End: return move(key.ctrl || !textarea ? text.size() : field_line_edge(tab, control, focus, true));
+        case Key::Up:
+        case Key::Down:
+            if (!textarea)
+                return move(key.key == Key::Up ? 0 : text.size());
+            return move(field_line_move(tab, control, focus, key.key == Key::Up), true);
+        case Key::Backspace: {
+            if (!selection.collapsed()) {
+                field_edit(tab, control, "deleteContentBackward", selection.start, selection.end, {});
+                return true;
+            }
+            std::size_t const from = words ? field_edit::previous_word_start(text, focus) : key.ctrl ? 0 : field_edit::previous_character(text, focus);
+            field_edit(tab, control, words || key.ctrl ? "deleteWordBackward" : "deleteContentBackward", from, focus, {});
+            return true;
+        }
+        case Key::Delete: {
+            if (!selection.collapsed()) {
+                field_edit(tab, control, "deleteContentForward", selection.start, selection.end, {});
+                return true;
+            }
+            std::size_t const to = words ? field_edit::next_word_end(text, focus) : key.ctrl ? text.size() : field_edit::next_character(text, focus);
+            field_edit(tab, control, words || key.ctrl ? "deleteWordForward" : "deleteContentForward", focus, to, {});
+            return true;
+        }
+        case Key::Enter:
+            if (!textarea)
+                return false; // the form's implicit submission
+            field_edit(tab, control, "insertLineBreak", selection.start, selection.end, U"\n");
+            return true;
+        default: return false;
+        }
+    }
+
+    // Text put into a field by the reader — typed, pasted, dropped: in place
+    // of the selection. A single-line field takes line breaks as spaces, as
+    // a paste into one does in every engine.
+    bool field_insert(Tab& tab, dom::Element const& control, std::u32string text, std::string_view input_type)
+    {
+        if (layout::control_kind(control) != layout::ControlKind::TextArea) {
+            std::u32string flat;
+            for (std::size_t i = 0; i < text.size(); ++i) {
+                if (text[i] == U'\r' && i + 1 < text.size() && text[i + 1] == U'\n')
+                    continue;
+                flat += text[i] == U'\n' || text[i] == U'\r' ? U' ' : text[i];
+            }
+            text = std::move(flat);
+        } else {
+            std::erase(text, U'\r');
+        }
+        dom::forms::TextSelection const selection = field_selection(tab, control);
+        return field_edit(tab, control, input_type, selection.start, selection.end, std::move(text));
+    }
+
+    // A field's selected text — not a password's: what Ctrl+C and Ctrl+X take.
+    std::optional<std::string> selected_in_control(Tab& tab)
+    {
+        if (!tab.controls.focused)
+            return std::nullopt;
+        dom::Element const& control = *tab.controls.focused;
+        layout::ControlKind const kind = layout::control_kind(control);
+        if (!layout::is_text_kind(kind) || kind == layout::ControlKind::Password)
+            return std::nullopt;
+        dom::forms::TextSelection const selection = field_selection(tab, control);
+        if (selection.collapsed())
+            return std::nullopt;
+        std::u32string const text = field_text(tab, control);
+        return utf8_of(text.substr(selection.start, selection.end - selection.start));
+    }
+
+    // A field's selected text: copied, then taken out (deleteByCut).
     void cut_in_control()
     {
         Tab* const tab = tab_with_focused_control();
@@ -11294,22 +11915,97 @@ struct Browser::Impl {
         if (!value || value->empty())
             return;
         write_clipboard(*value);
-        KeyEvent gone;
-        gone.key = Key::Delete;
-        edit_control(gone);
+        dom::Element const& control = *tab->controls.focused;
+        dom::forms::TextSelection const selection = field_selection(*tab, control);
+        field_edit(*tab, control, "deleteByCut", selection.start, selection.end, {});
     }
 
-    // The value of the focused field when the whole of it is selected — not
-    // a password's: what Ctrl+C and Ctrl+X take.
-    std::optional<std::string> selected_in_control(Tab& tab)
+    // A press in a text control (the first button): the focus, and the caret
+    // where the pointer is — with Shift the selection taken to it; a second
+    // press in a short while selects the word there, a third the line (a
+    // textarea's) or all of it. A drag then takes the selection along until
+    // the release.
+    bool press_in_text_control(Tab& tab, int x, int y, bool shift)
     {
-        if (!tab.controls.focused)
-            return std::nullopt;
-        dom::Element const& control = *tab.controls.focused;
-        layout::ControlKind const kind = layout::control_kind(control);
-        if (!layout::is_text_kind(kind) || kind == layout::ControlKind::Password || !state_of(tab, control).all_selected)
-            return std::nullopt;
-        return layout::control_value(control, &tab.controls);
+        dom::Element const* const control = control_at(x, y);
+        if (!control || !layout::is_text_kind(layout::control_kind(*control)) || control->has_attribute("disabled"))
+            return false;
+        auto const now = std::chrono::steady_clock::now();
+        int const slop = static_cast<int>(std::lround(4 * scale));
+        bool const again = field_press && field_press->control == control && now - field_press->at < std::chrono::milliseconds(500)
+            && std::abs(x - field_press->x) <= slop && std::abs(y - field_press->y) <= slop;
+        int const count = again ? std::min(field_press->count + 1, 3) : 1;
+        field_press = FieldPress { control, now, x, y, count };
+        if (tab.controls.focused != control) {
+            focus_control(tab, control, false);
+            relayout(tab);
+        }
+        std::u32string const text = field_text(tab, *control);
+        std::size_t const at = field_index_at(tab, *control, x, y).value_or(text.size());
+        bool const password = layout::control_kind(*control) == layout::ControlKind::Password;
+        std::pair<std::size_t, std::size_t> unit { at, at };
+        if (count == 2)
+            unit = password ? std::make_pair(std::size_t { 0 }, text.size()) : field_edit::word_at(text, at);
+        else if (count == 3)
+            unit = layout::control_kind(*control) == layout::ControlKind::TextArea ? field_edit::line_at(text, at)
+                                                                                   : std::make_pair(std::size_t { 0 }, text.size());
+        dom::forms::TextSelection selection;
+        if (shift && count == 1) {
+            selection = field_edit::moved(field_selection(tab, *control), at, true);
+        } else {
+            selection.start = unit.first;
+            selection.end = unit.second;
+        }
+        field_drag = FieldDrag { control, unit.first, unit.second, count, shift ? field_selection(tab, *control).anchor() : unit.first };
+        if (shift && count == 1)
+            field_drag->anchor = selection.anchor();
+        set_field_selection(tab, *control, selection, false);
+        return true;
+    }
+
+    // The pointer moved with the button held after a press in a field: the
+    // selection from where it began to where the pointer is, by the unit the
+    // press chose (letters, words, lines).
+    void drag_in_text_control(Tab& tab, int x, int y)
+    {
+        dom::Element const& control = *field_drag->control;
+        if (tab.controls.focused != &control)
+            return;
+        std::optional<std::size_t> const at = field_index_at(tab, control, x, y);
+        if (!at)
+            return;
+        std::u32string const text = field_text(tab, control);
+        std::size_t to = *at;
+        std::size_t anchor = field_drag->anchor;
+        if (field_drag->count >= 2) {
+            std::pair<std::size_t, std::size_t> const unit = field_drag->count == 2 ? field_edit::word_at(text, *at) : field_edit::line_at(text, *at);
+            if (*at < field_drag->start) {
+                to = unit.first;
+                anchor = field_drag->end;
+            } else {
+                to = std::max(unit.second, field_drag->end);
+                anchor = field_drag->start;
+            }
+        }
+        dom::forms::TextSelection selection;
+        selection.start = std::min(anchor, to);
+        selection.end = std::max(anchor, to);
+        selection.direction = to < anchor ? dom::forms::TextSelection::Direction::Backward : dom::forms::TextSelection::Direction::Forward;
+        set_field_selection(tab, control, selection, false);
+    }
+
+    // The release after a press in a field: select told, now the selection
+    // is made.
+    void end_text_control_drag(Tab& tab)
+    {
+        dom::Element const* const control = field_drag->control;
+        field_drag.reset();
+        if (tab.controls.focused != control || !tab.realm)
+            return;
+        if (!field_selection(tab, *control).collapsed()) {
+            script_started = std::chrono::steady_clock::now();
+            realm_for(tab, *control)->text_control_selection_changed(const_cast<dom::Element&>(*control), true);
+        }
     }
 
     void blur_control()
@@ -11434,8 +12130,8 @@ struct Browser::Impl {
         if (!tab || !tab->document || control.has_attribute("disabled"))
             return;
         using layout::ControlKind;
+        // A text control's caret was put where it was pressed.
         focus_control(*tab, &control, false);
-        caret_to_end(*tab, control);
         switch (layout::control_kind(control)) {
         case ControlKind::Checkbox:
             state_of(*tab, control).checked = !layout::control_checked(control, &tab->controls);
@@ -11468,8 +12164,11 @@ struct Browser::Impl {
                 break;
             }
         }
+        // A text control reached by Tab has its whole value selected, as in
+        // every engine.
         focus_control(tab, controls[index], true);
-        caret_to_end(tab, *controls[index]);
+        if (layout::is_text_kind(layout::control_kind(*controls[index])))
+            select_all_in_control(tab);
     }
 
     // A key while a page control has focus; true when the control took it.
@@ -11488,76 +12187,12 @@ struct Browser::Impl {
         } else if (key.key == Key::Escape) {
             focus_control(*tab, nullptr, false);
         } else if (layout::is_text_kind(kind)) {
-            bool const locked = control.has_attribute("readonly");
-            std::u32string value = decode_utf8(layout::control_value(control, &tab->controls));
-            std::size_t position = std::min(state.caret, value.size());
-            // A selected value: Backspace and Delete empty the field, an
-            // arrow lets go of the selection at that end of it.
-            bool const whole = state.all_selected;
-            if (key.key != Key::Enter)
-                state.all_selected = false;
-            if (whole && (key.key == Key::Backspace || key.key == Key::Delete)) {
-                if (!locked) {
-                    value.clear();
-                    position = 0;
-                }
-                state.value = utf8_of(value);
-                restyle_value(*tab, control);
-                state.caret = position;
-                relayout(*tab);
-                dirty = true;
+            if (key.key == Key::Enter && kind != ControlKind::TextArea) {
+                submit(*tab, control);
                 return true;
             }
-            switch (key.key) {
-            case Key::Left:
-                if (whole)
-                    position = 0;
-                else if (position > 0)
-                    --position;
-                break;
-            case Key::Right:
-                if (whole)
-                    position = value.size();
-                else if (position < value.size())
-                    ++position;
-                break;
-            case Key::Home:
-                position = 0;
-                break;
-            case Key::End:
-                position = value.size();
-                break;
-            case Key::Backspace:
-                if (position > 0 && !locked) {
-                    value.erase(position - 1, 1);
-                    --position;
-                }
-                break;
-            case Key::Delete:
-                if (position < value.size() && !locked)
-                    value.erase(position, 1);
-                break;
-            case Key::Enter:
-                if (kind == ControlKind::TextArea) {
-                    if (!locked) {
-                        value.insert(position, 1, U'\n');
-                        ++position;
-                    }
-                } else {
-                    submit(*tab, control);
-                    return true;
-                }
-                break;
-            default:
-                changed = false;
-                break;
-            }
-            if (changed) {
-                state.value = utf8_of(value);
-                restyle_value(*tab, control);
-                state.caret = position;
-            }
-            changed = true; // a focused field keeps every key from the page
+            field_key(*tab, control, key);
+            return true; // a focused field keeps every key from the page
         } else {
             switch (kind) {
             case ControlKind::Checkbox:
@@ -11610,7 +12245,8 @@ struct Browser::Impl {
         return true;
     }
 
-    // A typed character into the focused text control.
+    // A typed character into the focused text control, in place of its
+    // selection (insertText, with beforeinput and input).
     void type_into_control(char32_t code_point)
     {
         Tab* const tab = tab_with_focused_control();
@@ -11620,21 +12256,7 @@ struct Browser::Impl {
         if (!layout::is_text_kind(layout::control_kind(control)) || control.has_attribute("disabled")
             || control.has_attribute("readonly"))
             return;
-        layout::ControlState& state = state_of(*tab, control);
-        std::u32string value = decode_utf8(layout::control_value(control, &tab->controls));
-        // What is typed takes a selected value's place.
-        if (state.all_selected) {
-            value.clear();
-            state.caret = 0;
-            state.all_selected = false;
-        }
-        std::size_t const position = std::min(state.caret, value.size());
-        value.insert(position, 1, code_point);
-        state.value = utf8_of(value);
-        restyle_value(*tab, control);
-        state.caret = position + 1;
-        relayout(*tab);
-        dirty = true;
+        field_insert(*tab, control, std::u32string(1, code_point), "insertText");
     }
 
     void mouse_down(int x, int y, int button, platform::Modifiers const& modifiers)
@@ -11841,6 +12463,10 @@ struct Browser::Impl {
                     if (target && press_in_editing_host(*tab, *target, x, y, modifiers.shift))
                         break;
                 }
+                // A press in a text field: the caret there, a word or the
+                // line with a second or third, a selection with a drag.
+                if (Tab* const tab = active_tab(); tab && tab->document && press_in_text_control(*tab, x, y, modifiers.shift))
+                    break;
                 // What a press does on its own: the focus leaves a control
                 // pressed outside of, and a drag on plain text starts a
                 // selection. A control's activation and a link's following
@@ -12193,6 +12819,9 @@ struct Browser::Impl {
             default:
                 if (key.letter >= U'1' && key.letter <= U'8')
                     select_tab(static_cast<std::size_t>(key.letter - U'1'));
+                else if (Tab* const with_control = !pages_in_engines && !address_focus && !find_focus ? tab_with_focused_control() : nullptr;
+                         with_control && (key.letter == U'Z' || key.letter == U'Y'))
+                    field_key(*with_control, *with_control->controls.focused, key);
                 else if (pages_in_engines && !address_focus && !find_focus)
                     key_to_page(key); // none of the window's: the page's (Ctrl+B in an editor)
                 return;
@@ -12526,9 +13155,9 @@ struct Browser::Impl {
         layout::Fragment const& root = chain.empty() ? tab->layout.root : chain.back().view->layout.root;
         auto const [ox, oy] = origin_of(chain);
         layout::Fragment const* const box = fragment_for(root, tab->controls.focused);
-        if (!box || !box->control || !box->control->caret_x)
+        if (!box || !box->control || !box->control->focus_x)
             return std::nullopt;
-        return Rect { c.content.x + static_cast<int>(std::lround(*box->control->caret_x + ox)),
+        return Rect { c.content.x + static_cast<int>(std::lround(*box->control->focus_x + ox)),
             c.content.y + static_cast<int>(std::lround(box->control->y + oy)) - tab->scroll_y, 1,
             std::max(1, static_cast<int>(std::lround(box->control->height))) };
     }
@@ -12573,17 +13202,7 @@ struct Browser::Impl {
         if (!address_focus) {
             if (type_into_editing_host(code_point))
                 return;
-            type_into_control(code_point);
-            // The control's page hears what was typed.
-            if (Tab* const tab = tab_with_focused_control(); tab && tab->realm) {
-                bindings::InputInit init;
-                append_utf8(init.data, code_point);
-                dom::Element& control = const_cast<dom::Element&>(*tab->controls.focused);
-                script_started = std::chrono::steady_clock::now();
-                realm_for(*tab, control)->dispatch_input_event(control, "input", init);
-                ensure_fresh(*tab);
-                dirty = true;
-            }
+            type_into_control(code_point); // beforeinput and input with it
             return;
         }
         if (select_all) {
@@ -13093,6 +13712,13 @@ struct Browser::Impl {
             // is dragged, beside the pointer.
             if (drag_op && active_tab() == tab) {
                 ChromeLayout const chrome = layout_chrome();
+                if (drag_op->drop_field) {
+                    if (std::optional<Rect> const drop_caret = const_cast<Impl*>(this)->field_caret_rect(const_cast<Tab&>(*tab), *drag_op->drop_field, drag_op->drop_index)) {
+                        int const caret_width = std::max(2, static_cast<int>(std::lround(2 * scale)));
+                        content.fill_rect(Rect { drop_caret->x - chrome.content.x, drop_caret->y - chrome.content.y, caret_width, drop_caret->height },
+                            Color::rgb(0x1a, 0x1a, 0x1a));
+                    }
+                }
                 if (drag_op->drop_point && drag_op->drop_host) {
                     dom::Element const* const container = &drag_op->drop_host->document() == tab->document.get()
                         ? nullptr

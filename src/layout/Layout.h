@@ -138,6 +138,28 @@ struct Fragment {
             float bottom = 0;
         };
         std::vector<Span> selected;
+        // Where the selection's focus is, page x, while the control has the
+        // focus — what an input method is told even when text is selected
+        // and no caret is drawn.
+        std::optional<float> focus_x;
+        // The caret's line, page y (a textarea's caret is one line tall).
+        float caret_top = 0;
+        float caret_bottom = 0;
+        // A focused text control's lines as shown, for the window's hit
+        // tests and caret moves: where each starts and ends in the value
+        // (code points), its box, and the page x of every boundary between
+        // its characters (one more than it has).
+        struct TextLine {
+            std::size_t from = 0;
+            std::size_t to = 0;
+            float top = 0;
+            float bottom = 0;
+            std::vector<float> stops;
+        };
+        std::vector<TextLine> lines;
+        // How many lines a textarea has in all, and how many fit.
+        std::size_t line_count = 0;
+        std::size_t rows_shown = 0;
     };
     std::optional<ControlBox> control;
 

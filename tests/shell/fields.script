@@ -1,0 +1,76 @@
+# Text fields as a reader edits them (gaps plan item 4, HTML §4.10.18.6,
+# Input Events): a press puts the caret where it lands, Shift and the
+# arrows select, what is typed takes the selection's place, a double press
+# selects a word, a drag selects, Ctrl+Z undoes a step, the clipboard takes
+# the selected part. The page hears beforeinput and input with the
+# standard input types, select, and sees selectionStart/End follow.
+# Sashfold Mono at 16 px is 10 px a letter; the field's text starts at
+# x 12, its line is about y 95 (content starts 76 px down).
+resize 600 300
+open data:text/html,<title>F</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}input{font:inherit;width:300px}textarea{font:inherit;width:100px}</style><input id=f name=f value="hello big world"><br><textarea id=t name=t rows=3>one two three four five six seven</textarea><p id=o></p><script>var log=[];function show(){o.textContent='['+f.value+'|'+t.value+']'}f.addEventListener('input',show);t.addEventListener('input',show);t.addEventListener('beforeinput',function(e){if(e.inputType.indexOf('Drop')>0)n('t:'+e.inputType+'['+e.data+']')});function n(s){log.push(s);document.title=log.join(',')}f.addEventListener('beforeinput',function(e){n(e.inputType+'['+(e.data||'')+']')});f.addEventListener('select',function(){n('select:'+f.selectionStart+'-'+f.selectionEnd)})</script>
+assert-title F
+click 42 95
+assert-focused f
+type X
+assert-value f helXlo big world
+key shift+right
+key shift+right
+type Y
+assert-value f helXY big world
+assert-title insertText[X],select:4-5,select:4-6,insertText[Y]
+# A double press selects the word under it; the page hears select.
+click 77 95
+click 77 95
+key ctrl+c
+assert-clipboard big
+assert-title insertText[X],select:4-5,select:4-6,insertText[Y],select:6-9
+# Undo goes back a step at a time: the Y typed over "lo", then the X.
+key ctrl+z
+assert-value f helXlo big world
+key ctrl+z
+assert-value f hello big world
+key ctrl+y
+assert-value f helXlo big world
+# A drag from the start over five letters selects them.
+press 13 95
+move 40 95
+move 62 95
+release
+key ctrl+x
+assert-clipboard helXl
+assert-value f o big world
+# Ctrl+Backspace takes the word before the caret; Home and End.
+key end
+key ctrl+backspace
+type Z
+assert-value f o big Z
+key home
+key delete
+key delete
+key ctrl+right
+type W
+assert-value f bigW Z
+# A textarea wraps its text at its width (nine letters here: "one two ",
+# "three ", "four five ", "six seven") and moves by lines: Down twice from
+# the start and End reach the end of "four five ", where a letter goes.
+click 30 128
+key ctrl+home
+key down
+key down
+key end
+type !
+assert-value t one two three four five !six seven
+assert-golden goldens/fields-textarea.png
+# The word "bigW" selected by a double press and dragged out of the
+# field onto the textarea's first shown line ("three "): it moves there —
+# deleteByDrag in the field, insertFromDrop at the drop point — and is
+# selected where it landed.
+click 25 95
+click 25 95
+press 25 95
+move 30 100
+move 13 122
+release
+assert-text [ Z|one two bigWthree four five !six seven]
+key ctrl+c
+assert-clipboard bigW

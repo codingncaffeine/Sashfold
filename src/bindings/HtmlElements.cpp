@@ -642,6 +642,29 @@ void set_text_selection(Realm::Internals& in, dom::Element const& e, std::u32str
     schedule_control_selectionchange(in, e);
 }
 
+} // namespace
+
+void Realm::text_control_selection_changed(dom::Element& control, bool selected)
+{
+    Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
+    schedule_control_selectionchange(in, control);
+    if (!selected)
+        return;
+    auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(in.wrap(control)));
+    in.post_task([&in, held] {
+        Realm::Internals::Entry const entry(in);
+        js::Interpreter::Roots const task_roots(in.interpreter);
+        EventObject* const event = in.new_event("Event", "select", true, false);
+        in.interpreter.root(js::Value::object(event));
+        event->is_trusted = true;
+        in.dispatch(*event, held->value().as_object());
+    });
+}
+
+namespace {
+
 dom::forms::TextSelection::Direction direction_named(std::string_view name)
 {
     using Direction = dom::forms::TextSelection::Direction;

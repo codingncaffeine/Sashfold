@@ -1278,8 +1278,77 @@ void emit_properties(std::string const& path, std::string const& data_dir)
     out << "\n};\n\n}\n";
 }
 
+// --- WordBreakProperty.txt (UAX #29 word boundaries) -------------------------
+
+constexpr char const* word_break_class_names[] = { "Other", "CR", "LF", "Newline", "Extend", "ZWJ", "Regional_Indicator", "Format",
+    "Katakana", "Hebrew_Letter", "ALetter", "Single_Quote", "Double_Quote", "MidNumLet", "MidLetter", "MidNum", "Numeric",
+    "ExtendNumLet", "WSegSpace" };
+
+std::uint8_t word_break_class_index(std::string const& name)
+{
+    for (std::size_t i = 0; i < std::size(word_break_class_names); ++i) {
+        if (name == word_break_class_names[i])
+            return static_cast<std::uint8_t>(i);
+    }
+    std::cerr << "unknown Word_Break value " << name << "\n";
+    std::exit(1);
+}
+
+void emit_word_break(std::string const& path, std::vector<std::uint8_t> const& classes, std::vector<std::uint8_t> const& pictographic)
+{
+    // A run of code points with one class and the same Extended_Pictographic
+    // flag (WB3c) is one entry; Other with no flag is the default, left out.
+    struct Run {
+        char32_t first;
+        char32_t last;
+        std::uint8_t klass;
+        std::uint8_t flags;
+    };
+    std::vector<Run> runs;
+    for (char32_t c = 0; c < classes.size(); ++c) {
+        std::uint8_t const flags = pictographic[c] ? 1 : 0;
+        if (classes[c] == 0 && flags == 0)
+            continue;
+        if (!runs.empty() && runs.back().last + 1 == c && runs.back().klass == classes[c] && runs.back().flags == flags)
+            runs.back().last = c;
+        else
+            runs.push_back({ c, c, classes[c], flags });
+    }
+    std::ofstream out(path);
+    out << generated_banner(
+        "The Word_Break property of every code point (UAX #29 §4.1), read from\n"
+        "// WordBreakProperty.txt, beside Extended_Pictographic from emoji-data.txt,\n"
+        "// which WB3c reads. Other with no flag is the default and is left out of\n"
+        "// the table; the runs are sorted and disjoint, for binary search.");
+    out << "namespace sashfold {\n\n";
+    out << "enum class WordBreakClass : std::uint8_t {\n";
+    for (char const* const name : word_break_class_names)
+        out << "    " << name << ",\n";
+    out << "};\n\n";
+    out << "inline constexpr std::uint8_t word_break_pictographic = 1;\n\n";
+    out << "struct WordBreakRange {\n    char32_t first;\n    char32_t last;\n    WordBreakClass klass;\n    std::uint8_t flags;\n};\n\n";
+    out << "inline constexpr WordBreakRange word_break_ranges[] = {\n";
+    for (Run const& run : runs) {
+        out << "    { " << hex(run.first) << ", " << hex(run.last) << ", WordBreakClass::" << word_break_class_names[run.klass] << ", "
+            << static_cast<unsigned>(run.flags) << " },\n";
+    }
+    out << "};\n\n";
+    out << "}\n";
+    std::cout << "wrote " << path << " (" << runs.size() << " ranges)\n";
+}
+
 int main(int argc, char** argv)
 {
+    // --word-break <data-dir> <repo-root>: the word-break table alone, from
+    // WordBreakProperty.txt and emoji-data.txt.
+    if (argc == 4 && std::string_view(argv[1]) == "--word-break") {
+        std::string const data_dir = argv[2];
+        std::vector<std::uint8_t> const classes = load_property(
+            data_dir + "/WordBreakProperty.txt", [](std::string const& name, char32_t) { return word_break_class_index(name); });
+        std::vector<std::uint8_t> const pictographic = load_emoji_property(data_dir + "/emoji-data.txt", "Extended_Pictographic");
+        emit_word_break(std::string(argv[3]) + "/src/core/WordBreakData.h", classes, pictographic);
+        return 0;
+    }
     if (argc != 3 && argc != 4) {
         std::cerr << "usage: gen-unicode <data-dir> <repo-root> [<properties-data-dir>]\n";
         return 2;

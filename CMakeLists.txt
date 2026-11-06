@@ -120,6 +120,7 @@ add_library(sashfold_core STATIC
   src/core/AnimatedImage.cpp
   src/core/Bitmap.cpp
   src/core/LineBreak.cpp
+  src/core/WordBreak.cpp
   src/core/Bmp.cpp
   src/core/Gif.cpp
   src/core/Brotli.cpp
@@ -218,6 +219,7 @@ add_library(sashfold_core STATIC
   src/ui/BookmarkSources.cpp
   src/ui/BookmarksPage.cpp
   src/ui/Browser.cpp
+  src/ui/FieldEdit.cpp
   src/ui/Cosmetic.cpp
   src/ui/Downloads.cpp
   src/ui/Forms.cpp

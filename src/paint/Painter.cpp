@@ -1102,10 +1102,18 @@ void paint_control(Context& context, Fragment const& fragment)
             Color::rgba(0x5b, 0x9c, 0xf6, 0x66));
     // The focus ring is the control's outline now (`:focus-visible
     // { outline: auto }` in the built-in sheet), drawn with every outline.
-    if (control.caret_x && g_carets_shown)
-        context.target.fill_rect(snap(*control.caret_x + context.dx, y + control.pad_top + px(4), line,
-                                     control.height - control.pad_top - control.pad_bottom - 2 * px(4)),
-            ink);
+    if (control.caret_x && g_carets_shown) {
+        // A textarea's caret is as tall as its line; a field's stands clear
+        // of its edges.
+        if (control.kind == ControlKind::TextArea && control.caret_bottom > control.caret_top)
+            context.target.fill_rect(snap(*control.caret_x + context.dx, control.caret_top + context.dy, line,
+                                         control.caret_bottom - control.caret_top),
+                ink);
+        else
+            context.target.fill_rect(snap(*control.caret_x + context.dx, y + control.pad_top + px(4), line,
+                                         control.height - control.pad_top - control.pad_bottom - 2 * px(4)),
+                ink);
+    }
     if (control.preedit_span && control.preedit_span->second > control.preedit_span->first) {
         // The composing text is underlined, as every editor shows it.
         context.target.fill_rect(snap(control.preedit_span->first + context.dx, y + control.height - px(5),

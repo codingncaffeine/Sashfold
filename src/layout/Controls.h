@@ -6,6 +6,8 @@
 // else from the markup's defaults. Layout draws from this, and the shell's
 // submission reads the same answers.
 
+#include "dom/Forms.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -51,11 +53,30 @@ bool is_text_kind(ControlKind kind);
 struct ControlState {
     std::optional<std::string> value; // UTF-8; nullopt = the markup's default
     std::optional<bool> checked;
-    std::size_t caret = 0; // code points from the start of the value
-    // The whole value is selected (Ctrl+A): what is typed or pasted next
-    // takes its place, Backspace and Delete empty the field, and any other
-    // move of the caret lets go of it.
-    bool all_selected = false;
+    // The selection in the value (code points), the caret at its focus;
+    // nothing recorded is the caret at the start (HTML §4.10.18.6).
+    std::optional<dom::forms::TextSelection> selection;
+    // Where the control's text is scrolled to: a field's first code point
+    // shown, a textarea's first line. Layout moves it to keep the caret in
+    // view, and keeps it from one layout to the next.
+    mutable std::size_t first_shown = 0;
+    // The reader's edits, to undo and redo (Ctrl+Z, Ctrl+Y): the value and
+    // selection before each; a run of typing is one step, which `coalescing`
+    // names while it goes on. A value set by script lets the history go.
+    struct Step {
+        std::string value;
+        dom::forms::TextSelection selection;
+    };
+    std::vector<Step> undo;
+    std::vector<Step> redo;
+    std::string coalescing;
+    // Up and Down in a textarea keep to the column they started from.
+    std::optional<float> goal_x;
+
+    dom::forms::TextSelection selection_in(std::size_t length) const
+    {
+        return selection.value_or(dom::forms::TextSelection {}).clamped(length);
+    }
 };
 
 struct ControlStates {

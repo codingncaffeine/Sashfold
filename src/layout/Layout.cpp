@@ -1171,6 +1171,26 @@ struct Layouter {
             fragment.control->y += dy;
             if (fragment.control->caret_x)
                 *fragment.control->caret_x += dx;
+            if (fragment.control->focus_x)
+                *fragment.control->focus_x += dx;
+            fragment.control->caret_top += dy;
+            fragment.control->caret_bottom += dy;
+            for (Fragment::ControlBox::Span& span : fragment.control->selected) {
+                span.x0 += dx;
+                span.x1 += dx;
+                span.top += dy;
+                span.bottom += dy;
+            }
+            if (fragment.control->preedit_span) {
+                fragment.control->preedit_span->first += dx;
+                fragment.control->preedit_span->second += dx;
+            }
+            for (Fragment::ControlBox::TextLine& text_line : fragment.control->lines) {
+                text_line.top += dy;
+                text_line.bottom += dy;
+                for (float& stop : text_line.stops)
+                    stop += dx;
+            }
         }
         for (Fragment& child : fragment.children)
             shift_fragment(child, dx, dy);
@@ -2169,6 +2189,11 @@ struct Layouter {
         if (fragment.control) {
             if (fragment.control->caret_x)
                 *fragment.control->caret_x = page_y(t, *fragment.control->caret_x, 0);
+            // Across a turn the selection and the lines are not where
+            // they were drawn: a turned field shows neither.
+            fragment.control->selected.clear();
+            fragment.control->lines.clear();
+            fragment.control->focus_x.reset();
             turn_box(*fragment.control);
         }
         // A baseline is a coordinate on the block axis, and the two frames'
@@ -2693,12 +2718,16 @@ struct Layouter {
         std::u32string shown; // the text drawn inside, cut to what fits
         std::u32string full; // the whole of it, and the caret within that
         std::size_t full_caret = 0;
+        std::size_t full_anchor = 0; // the selection's other end
+        std::size_t shown_from = 0; // where in `full` a field's `shown` starts
+        std::size_t first_hint = 0; // where it was scrolled to before (ControlState::first_shown)
+        ControlState const* state = nullptr;
         std::u32string composing; // an input method's text, not yet part of the value
         std::size_t caret = 0; // an index into `shown`
         bool caret_visible = false;
         bool centered = false; // buttons center their caption
         bool placeholder = false; // `shown` is the field's placeholder, not a value
-        bool all_selected = false; // the whole value is selected
+        bool show_selection = false; // focused, editable text: the selection is drawn
         // The author's padding, inside the border box like the control's own
         // edges: what the text stands in from.
         float pad_left = 0;
@@ -2799,9 +2828,17 @@ struct Layouter {
                 spec.size.height += spec.pad_top + spec.pad_bottom;
         }
 
-        spec.all_selected = state && state->all_selected && spec.box.focused && is_text_kind(kind) && !spec.placeholder;
+        spec.show_selection = spec.box.focused && is_text_kind(kind) && !spec.placeholder;
         spec.full = std::move(text);
-        spec.full_caret = state ? std::min(state->caret, spec.full.size()) : spec.full.size();
+        spec.state = state;
+        {
+            dom::forms::TextSelection const selection = spec.placeholder || !state
+                ? dom::forms::TextSelection {}
+                : state->selection_in(spec.full.size());
+            spec.full_caret = selection.focus();
+            spec.full_anchor = selection.anchor();
+            spec.first_hint = state ? state->first_shown : 0;
+        }
         // An input method's composing text sits at the caret: part of what
         // is shown, none of the value, and the caret moves past it.
         if (composing_here && is_text_kind(kind) && !spec.box.disabled)
@@ -2818,37 +2855,150 @@ struct Layouter {
     void fit_control_text(ControlSpec& spec, ComputedStyle const& style) const
     {
         ControlKind const kind = spec.box.kind;
-        std::u32string text = spec.full;
+        std::u32string_view const text = spec.full;
         // The room for text: the edges, plus the arrow of a select or the
         // caret's own pixel or two in a field.
         float const inner = std::max(0.0f,
             spec.size.width - spec.pad_left - spec.pad_right
                 - (kind == ControlKind::Select ? 26.0f : spec.centered ? 2.0f : 8.0f));
-        std::size_t dropped = 0;
+        std::size_t first = 0;
+        std::size_t last = text.size();
         if (kind != ControlKind::TextArea) {
-            // A field that is not being typed into shows its value from the
-            // start, as a caption is shown; one that is keeps its caret in view.
-            if (spec.centered || spec.placeholder || !spec.box.focused) {
-                while (!text.empty() && measure(style, text) > inner)
-                    text.pop_back();
-            } else {
-                while (!text.empty() && measure(style, text) > inner) {
-                    text.erase(0, 1);
-                    ++dropped;
+            float const composing = spec.composing.empty() ? 0.0f : measure(style, spec.composing);
+            auto const width = [&](std::size_t from, std::size_t to) {
+                return measure(style, text.substr(from, to - from)) + composing;
+            };
+            if (spec.box.focused && !spec.centered && !spec.placeholder) {
+                // A field being typed into is scrolled as little as keeps its
+                // caret in view, from where it was (as every engine scrolls
+                // one): the fewest first characters left out that let the
+                // text up to the caret fit, and room at the end given back.
+                std::size_t const caret = std::min(spec.full_caret, text.size());
+                first = std::min(spec.first_hint, caret);
+                if (width(first, caret) > inner) {
+                    std::size_t low = first;
+                    std::size_t high = caret;
+                    while (low < high) {
+                        std::size_t const middle = low + (high - low) / 2;
+                        if (width(middle, caret) > inner)
+                            low = middle + 1;
+                        else
+                            high = middle;
+                    }
+                    first = low;
+                } else if (first > 0 && width(first, text.size()) < inner) {
+                    std::size_t low = 0;
+                    std::size_t high = first;
+                    while (low < high) {
+                        std::size_t const middle = low + (high - low) / 2;
+                        if (width(middle, text.size()) > inner)
+                            low = middle + 1;
+                        else
+                            high = middle;
+                    }
+                    first = low;
                 }
+                if (spec.state)
+                    spec.state->first_shown = first;
+                // What is past the caret is shown as far as it fits.
+                std::size_t low = caret;
+                std::size_t high = text.size();
+                while (low < high) {
+                    std::size_t const middle = low + (high - low + 1) / 2;
+                    if (width(first, middle) > inner)
+                        high = middle - 1;
+                    else
+                        low = middle;
+                }
+                last = std::max(low, caret);
+            } else {
+                // A field not being typed into shows its value from the start,
+                // as a caption is shown.
+                std::size_t low = 0;
+                std::size_t high = text.size();
+                while (low < high) {
+                    std::size_t const middle = low + (high - low + 1) / 2;
+                    if (width(0, middle) - composing > inner)
+                        high = middle - 1;
+                    else
+                        low = middle;
+                }
+                last = low;
             }
         }
-        spec.shown = std::move(text);
-        spec.caret = spec.placeholder ? 0 : std::min(spec.full_caret > dropped ? spec.full_caret - dropped : 0, spec.shown.size());
+        spec.shown = std::u32string(text.substr(first, last - first));
+        spec.shown_from = first;
+        spec.caret = spec.placeholder ? 0 : std::min(spec.full_caret > first ? spec.full_caret - first : 0, spec.shown.size());
         spec.caret_visible = spec.box.focused && is_text_kind(kind) && !spec.box.disabled;
         spec.preedit_from = 0;
         spec.preedit_length = 0;
-        if (!spec.composing.empty()) {
+        if (!spec.composing.empty() && kind != ControlKind::TextArea) {
             spec.shown.insert(spec.caret, spec.composing);
             spec.preedit_from = spec.caret;
             spec.preedit_length = spec.composing.size();
             spec.caret += spec.composing.size();
         }
+    }
+
+    // A textarea's text broken into the lines it shows (§4.10.11: soft
+    // wrapping, as `overflow-wrap: break-word` has it): each hard line at
+    // the last break opportunity that fits, and within a word that is
+    // wider than the box. Spaces at a line's end hang. [from, to) in code
+    // points of `text`; a line's `to` leaves out its line feed.
+    std::vector<std::pair<std::size_t, std::size_t>> wrap_textarea(std::u32string_view text, ComputedStyle const& style,
+        float inner) const
+    {
+        std::vector<std::pair<std::size_t, std::size_t>> lines;
+        std::size_t start = 0;
+        while (true) {
+            std::size_t const end = std::min(text.find(U'\n', start), text.size());
+            std::u32string_view const hard = text.substr(start, end - start);
+            if (hard.empty() || inner <= 0 || measure(style, hard) <= inner) {
+                lines.push_back({ start, end });
+            } else {
+                std::vector<LineBreak> const breaks = line_break_opportunities(hard);
+                std::size_t from = 0;
+                while (from < hard.size()) {
+                    // The longest run from `from` that fits, ending at a break
+                    // (its trailing spaces hang), else as many letters as fit.
+                    auto const fits = [&](std::size_t to) {
+                        std::size_t visible = to;
+                        while (visible > from && (hard[visible - 1] == U' ' || hard[visible - 1] == U'\t'))
+                            --visible;
+                        return measure(style, hard.substr(from, visible - from)) <= inner;
+                    };
+                    std::size_t chosen = 0;
+                    if (fits(hard.size())) {
+                        chosen = hard.size();
+                    } else {
+                        for (std::size_t to = hard.size(); to > from; --to) {
+                            if (to < hard.size() && breaks[to] == LineBreak::Allowed && fits(to)) {
+                                chosen = to;
+                                break;
+                            }
+                        }
+                    }
+                    if (chosen <= from) {
+                        std::size_t low = from + 1;
+                        std::size_t high = hard.size();
+                        while (low < high) {
+                            std::size_t const middle = low + (high - low + 1) / 2;
+                            if (measure(style, hard.substr(from, middle - from)) <= inner)
+                                low = middle;
+                            else
+                                high = middle - 1;
+                        }
+                        chosen = low;
+                    }
+                    lines.push_back({ start + from, start + chosen });
+                    from = chosen;
+                }
+            }
+            if (end >= text.size())
+                break;
+            start = end + 1;
+        }
+        return lines;
     }
 
     // A <button>'s box once its contents are laid out (HTML §15.5.2, button
@@ -2911,29 +3061,105 @@ struct Layouter {
             control.pad_top = spec.pad_top;
             control.pad_bottom = spec.pad_bottom;
         }
+        auto const stops_of = [&](std::u32string_view text, float x) {
+            std::vector<float> stops;
+            stops.reserve(text.size() + 1);
+            for (std::size_t i = 0; i <= text.size(); ++i)
+                stops.push_back(x + (i == 0 ? 0.0f : measure(style, text.substr(0, i))));
+            return stops;
+        };
+        std::size_t const sel_start = std::min(spec.full_caret, spec.full_anchor);
+        std::size_t const sel_end = std::max(spec.full_caret, spec.full_anchor);
+        bool const selecting = spec.show_selection && sel_start < sel_end;
         if (spec.box.kind == ControlKind::TextArea) {
-            // One run per line, as many as fit; the caret sits at the end.
+            // The soft-wrapped lines, as many as fit from the first one shown:
+            // that one moved only as far as keeps a focused caret in view.
             float const text_x = box.x + inset_left + spec.pad_left;
-            float baseline = box.y + inset_top + spec.pad_top + ascent;
-            std::size_t start = 0;
-            while (baseline - ascent + line <= box.y + box.height - inset_bottom - spec.pad_bottom) {
-                std::size_t const end = spec.shown.find(U'\n', start);
-                std::u32string const text
-                    = spec.shown.substr(start, end == std::u32string::npos ? std::u32string::npos : end - start);
-                if (!text.empty()) {
-                    box.runs.push_back(TextRun { text_x, baseline, text, &style, box.element, stack,
-                        measure(style, text) });
+            float const inner = std::max(0.0f, box.width - inset_left - spec.pad_left - spec.pad_right - (own_frame ? style.border_right.width : 4.0f) - 2.0f);
+            float const top = box.y + inset_top + spec.pad_top;
+            float const room = box.y + box.height - inset_bottom - spec.pad_bottom - top;
+            std::size_t const rows = std::max<std::size_t>(1, static_cast<std::size_t>(std::floor(room / std::max(1.0f, line))));
+            // The composing text is drawn where the caret is, part of the line.
+            std::u32string text = spec.full;
+            std::size_t const composing = spec.composing.size();
+            if (composing > 0)
+                text.insert(std::min(spec.full_caret, text.size()), spec.composing);
+            std::vector<std::pair<std::size_t, std::size_t>> const lines = wrap_textarea(text, style, inner);
+            std::size_t const caret = std::min(spec.full_caret + composing, text.size());
+            std::size_t caret_line = 0;
+            for (std::size_t i = 0; i < lines.size(); ++i) {
+                if (lines[i].first <= caret)
+                    caret_line = i;
+            }
+            std::size_t first = std::min(spec.first_hint, lines.empty() ? 0 : lines.size() - 1);
+            if (spec.box.focused && !spec.placeholder) {
+                if (caret_line < first)
+                    first = caret_line;
+                else if (caret_line >= first + rows)
+                    first = caret_line + 1 - rows;
+            }
+            if (spec.state)
+                spec.state->first_shown = first;
+            control.line_count = lines.size();
+            control.rows_shown = rows;
+            // A value index of the shown text, past the composing text.
+            auto const value_index = [&](std::size_t at) {
+                std::size_t const caret_at = std::min(spec.full_caret, spec.full.size());
+                if (composing == 0 || at <= caret_at)
+                    return at;
+                return at < caret_at + composing ? caret_at : at - composing;
+            };
+            for (std::size_t i = first; i < lines.size() && i < first + rows; ++i) {
+                float const line_top = top + static_cast<float>(i - first) * line;
+                float const baseline = line_top + ascent;
+                std::u32string_view const shown = std::u32string_view(text).substr(lines[i].first, lines[i].second - lines[i].first);
+                if (!shown.empty()) {
+                    box.runs.push_back(TextRun { text_x, baseline, std::u32string(shown), &style, box.element, stack, measure(style, shown) });
                     box.runs.back().placeholder = spec.placeholder;
-                    if (spec.all_selected)
-                        control.selected.push_back({ text_x, text_x + box.runs.back().width, baseline - ascent, baseline - ascent + line });
                 }
-                if (end == std::u32string::npos) {
-                    if (spec.caret_visible)
-                        control.caret_x = spec.placeholder ? text_x : text_x + measure(style, text);
-                    break;
+                if (spec.placeholder)
+                    continue;
+                if (!spec.box.focused) {
+                    // Where the line is, without its stops: what a drop onto a
+                    // field that has no focus finds its place by.
+                    control.lines.push_back({ value_index(lines[i].first), value_index(lines[i].second), line_top, line_top + line, {} });
+                    continue;
                 }
-                start = end + 1;
-                baseline += line;
+                std::vector<float> stops = stops_of(shown, text_x);
+                if (composing > 0 && i == caret_line) {
+                    std::size_t const from = std::min(spec.full_caret, text.size()) - lines[i].first;
+                    if (from <= shown.size())
+                        control.preedit_span = std::pair<float, float> { stops[from], stops[std::min(from + composing, shown.size())] };
+                }
+                if (selecting) {
+                    std::size_t const a = std::max(value_index(lines[i].first), sel_start);
+                    std::size_t const b = std::min(value_index(lines[i].second), sel_end);
+                    // A selection that goes on past the line's end shows a
+                    // little of itself there, as every engine marks the
+                    // line break it takes in.
+                    bool const past = sel_end > value_index(lines[i].second) && i + 1 < lines.size();
+                    if (a < b || (past && a <= b)) {
+                        float const x0 = stops[std::min(a - std::min(a, value_index(lines[i].first)), stops.size() - 1)];
+                        float x1 = stops[std::min(b - std::min(b, value_index(lines[i].first)), stops.size() - 1)];
+                        if (past)
+                            x1 += measure(style, U" ");
+                        control.selected.push_back({ x0, x1, line_top, line_top + line });
+                    }
+                }
+                if (spec.caret_visible && i == caret_line)
+                    control.focus_x = stops[std::min(caret - lines[i].first, stops.size() - 1)];
+                if (spec.caret_visible && !selecting && i == caret_line) {
+                    control.caret_x = stops[std::min(caret - lines[i].first, stops.size() - 1)];
+                    control.caret_top = line_top;
+                    control.caret_bottom = line_top + line;
+                }
+                control.lines.push_back({ value_index(lines[i].first), value_index(lines[i].second), line_top, line_top + line, std::move(stops) });
+            }
+            if (spec.caret_visible && spec.placeholder) {
+                control.focus_x = text_x;
+                control.caret_x = text_x;
+                control.caret_top = top;
+                control.caret_bottom = top + line;
             }
         } else {
             // A caption is centered in the room the padding leaves; a field's
@@ -2942,16 +3168,52 @@ struct Layouter {
                 ? box.x + spec.pad_left + (box.width - spec.pad_left - spec.pad_right - measure(style, spec.shown)) / 2.0f
                 : box.x + inset_left + spec.pad_left;
             float const baseline = box.y + spec.pad_top + (box.height - spec.pad_top - spec.pad_bottom - line) / 2.0f + ascent;
+            float const line_top = baseline - ascent;
             if (!spec.shown.empty()) {
                 box.runs.push_back(TextRun { text_x, baseline, spec.shown, &style, box.element, stack,
                     measure(style, spec.shown) });
                 box.runs.back().placeholder = spec.placeholder;
-                if (spec.all_selected)
-                    control.selected.push_back({ text_x, text_x + box.runs.back().width, baseline - ascent, baseline - ascent + line });
             }
-            if (spec.caret_visible)
-                control.caret_x = text_x
-                    + measure(style, std::u32string_view(spec.shown).substr(0, spec.caret));
+            if (!spec.box.focused && is_text_kind(spec.box.kind) && !spec.placeholder)
+                control.lines.push_back({ 0, spec.shown.size(), line_top, line_top + line, {} });
+            if (spec.box.focused && is_text_kind(spec.box.kind)) {
+                std::vector<float> stops = stops_of(spec.shown, text_x);
+                std::size_t const from = spec.shown_from;
+                std::size_t const composing = spec.preedit_length;
+                // Stops past the composing text are the value's.
+                auto const stop_at = [&](std::size_t value_at) {
+                    std::size_t at = value_at - std::min(value_at, from);
+                    if (composing > 0 && at > spec.preedit_from)
+                        at += composing;
+                    return stops[std::min(at, stops.size() - 1)];
+                };
+                if (selecting && !spec.placeholder) {
+                    std::size_t const a = std::max(sel_start, from);
+                    std::size_t const b = std::min(sel_end, from + spec.shown.size() - composing);
+                    if (a < b)
+                        control.selected.push_back({ stop_at(a), stop_at(b), line_top, line_top + line });
+                }
+                if (spec.caret_visible)
+                    control.focus_x = text_x + measure(style, std::u32string_view(spec.shown).substr(0, spec.caret));
+                if (spec.caret_visible && !selecting) {
+                    control.caret_x = text_x + measure(style, std::u32string_view(spec.shown).substr(0, spec.caret));
+                    control.caret_top = line_top;
+                    control.caret_bottom = line_top + line;
+                }
+                if (!spec.placeholder) {
+                    if (composing > 0) {
+                        // The value's stops alone: the composing text is
+                        // between two of them.
+                        std::vector<float> value_stops;
+                        for (std::size_t i = 0; i < stops.size(); ++i) {
+                            if (i <= spec.preedit_from || i > spec.preedit_from + composing)
+                                value_stops.push_back(stops[i]);
+                        }
+                        stops = std::move(value_stops);
+                    }
+                    control.lines.push_back({ from, from + stops.size() - 1, line_top, line_top + line, std::move(stops) });
+                }
+            }
             if (spec.preedit_length > 0) {
                 std::u32string_view const shown(spec.shown);
                 control.preedit_span = std::pair<float, float> {

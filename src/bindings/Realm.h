@@ -604,6 +604,11 @@ public:
     PointerRelease pointer_released(dom::Element* target, MouseInit const&);
     bool dispatch_key_event(dom::Node* target, std::string_view type, KeyInit const&);
     bool dispatch_input_event(dom::Node& target, std::string_view type, InputInit const& init = {});
+    // The reader changed a text control's selection (the window's caret
+    // keys, a drag, a double click): selectionchange at the control, and
+    // select when text is selected now (HTML §4.10.18.6, "when the user
+    // changes the element's selection").
+    void text_control_selection_changed(dom::Element& control, bool selected);
     // The document's selection (Selection.cpp): its anchor and focus, none
     // when it has no range; set by the window between two points (each in
     // this document, an offset past a node's length clamped); taken away.

@@ -311,7 +311,7 @@ b</textarea></body></html>)HTML";
         layout::ControlStates states;
         states.focused = by_id(*document, "q");
         states.states[states.focused].value = "hi";
-        states.states[states.focused].caret = 1;
+        states.states[states.focused].selection = dom::forms::TextSelection { 1, 1 };
         layout::LayoutResult const live = layout::layout_document(*document, styles, 800, nullptr, &states);
         layout::Fragment const* focused = find_box(live.root, "q");
         if (CHECK(focused && focused->control)) {
@@ -320,6 +320,24 @@ b</textarea></body></html>)HTML";
             CHECK(focused->control->caret_x.has_value());
             if (focused->control->caret_x)
                 CHECK(near(*focused->control->caret_x, focused->x + 4 + 13.333f * 0.625f)); // after "h"
+            // One shown line, with a stop at each boundary of its text: what
+            // the window hit-tests a press against.
+            if (CHECK_EQ(focused->control->lines.size(), std::size_t { 1 })) {
+                CHECK_EQ(focused->control->lines[0].stops.size(), std::size_t { 3 });
+                CHECK(near(focused->control->lines[0].stops[1], focused->x + 4 + 13.333f * 0.625f));
+            }
+        }
+        // Part of the value selected: its color behind that part alone, and
+        // no caret while text is selected.
+        states.states[states.focused].selection = dom::forms::TextSelection { 1, 2 };
+        layout::LayoutResult const part = layout::layout_document(*document, styles, 800, nullptr, &states);
+        layout::Fragment const* selected = find_box(part.root, "q");
+        if (CHECK(selected && selected->control)) {
+            CHECK(!selected->control->caret_x.has_value());
+            if (CHECK_EQ(selected->control->selected.size(), std::size_t { 1 })) {
+                CHECK(near(selected->control->selected[0].x0, selected->x + 4 + 13.333f * 0.625f));
+                CHECK(near(selected->control->selected[0].x1, selected->x + 4 + 2 * 13.333f * 0.625f));
+            }
         }
     }
 

@@ -55,6 +55,8 @@ fetch "$base/ucd/LineBreak.txt" LineBreak.txt "# LineBreak"
 fetch "$base/ucd/EastAsianWidth.txt" EastAsianWidth.txt "# EastAsianWidth"
 fetch "$base/ucd/emoji/emoji-data.txt" emoji-data.txt "# emoji-data"
 fetch "$base/ucd/auxiliary/LineBreakTest.txt" LineBreakTest.txt "# LineBreakTest"
+fetch "$base/ucd/auxiliary/WordBreakProperty.txt" WordBreakProperty.txt "# WordBreakProperty"
+fetch "$base/ucd/auxiliary/WordBreakTest.txt" WordBreakTest.txt "# WordBreakTest"
 
 # The files the regular expression properties (\p{...}) are made from, in
 # p17/: they follow the release the engines and test262 use, which is newer

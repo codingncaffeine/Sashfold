@@ -88,6 +88,13 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/ucd/LineBreakTest.txt)
 else()
   add_test(NAME test_line_break COMMAND test_line_break)
 endif()
+add_executable(test_word_break test_word_break.cpp)
+target_link_libraries(test_word_break PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+if(EXISTS ${CMAKE_SOURCE_DIR}/ucd/WordBreakTest.txt)
+  add_test(NAME test_word_break COMMAND test_word_break ${CMAKE_SOURCE_DIR}/ucd/WordBreakTest.txt)
+else()
+  add_test(NAME test_word_break COMMAND test_word_break)
+endif()
 sashfold_test(test_unicode)
 sashfold_test(test_data_url)
 sashfold_test(test_cookies)
@@ -249,6 +256,12 @@ add_test(NAME shell_editing_frames
 # changes, the composition events, commit, cancel, a key, undo.
 add_test(NAME shell_ime_editing
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/ime-editing.script)
+# Text fields as a reader edits them: the caret where a press lands,
+# Shift and the arrows, a double press, a drag, typing over a selection,
+# undo, the clipboard's part of the value, word deletes, a textarea's
+# wrapped lines; the page hears beforeinput, input and select.
+add_test(NAME shell_fields
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/fields.script)
 # autofocus: the first field that can take the focus takes it at load,
 # a later insertion while nothing has it, never over a page's own focus.
 add_test(NAME shell_autofocus
