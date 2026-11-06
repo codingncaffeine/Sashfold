@@ -3117,7 +3117,8 @@ struct Layouter {
             float const inner = std::max(0.0f, box.width - inset_left - spec.pad_left - spec.pad_right - (own_frame ? style.border_right.width : 4.0f));
             float const top = box.y + inset_top + spec.pad_top;
             float const room = box.y + box.height - inset_bottom - spec.pad_bottom - top;
-            std::size_t const rows = std::max<std::size_t>(1, static_cast<std::size_t>(std::floor(room / std::max(1.0f, line))));
+            // (A box with no room at all — padding past its height — still shows one.)
+            std::size_t const rows = std::max<std::size_t>(1, static_cast<std::size_t>(std::max(0.0f, std::floor(room / std::max(1.0f, line)))));
             // The composing text is drawn where the caret is, part of the line.
             std::u32string text = spec.full;
             std::size_t const composing = spec.composing.size();
