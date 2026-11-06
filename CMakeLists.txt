@@ -211,6 +211,7 @@ add_library(sashfold_core STATIC
   src/pdf/ColorSpace.cpp
   src/pdf/Document.cpp
   src/pdf/Encoding.cpp
+  src/pdf/Extract.cpp
   src/pdf/EncodingData.cpp
   src/pdf/Filters.cpp
   src/pdf/Font.cpp
@@ -250,6 +251,8 @@ add_library(sashfold_core STATIC
   src/ui/Frames.cpp
   src/ui/PageCompositor.cpp
   src/ui/PageImages.cpp
+  src/ui/PdfViewer.cpp
+  src/ui/PdfViewerPage.cpp
   src/ui/PictureDecodes.cpp
   src/ui/Reader.cpp
   src/ui/Script.cpp

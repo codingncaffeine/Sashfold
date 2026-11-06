@@ -1,5 +1,7 @@
 #include "ui/PageImages.h"
 
+#include "ui/PdfViewer.h"
+
 #include "core/Bmp.h"
 #include "core/Gif.h"
 #include "core/Jpeg.h"
@@ -19,6 +21,9 @@ namespace {
 
 constexpr std::size_t max_background_images = 64;
 constexpr std::size_t max_image_bytes = 8u * 1024u * 1024u;
+// A PDF viewer's page picture comes uncompressed from the browser itself,
+// up to the viewer's 2^24 pixels.
+constexpr std::size_t max_pdf_page_bytes = 72u * 1024u * 1024u;
 // What a page's decoded pictures may come to; past it the rest are left to
 // their alt text rather than the machine's memory.
 constexpr std::size_t max_page_decoded_bytes = 256u * 1024u * 1024u;
@@ -119,7 +124,7 @@ struct Collector {
         if (fetch && decoded_bytes < max_page_decoded_bytes) {
             ++fetched;
             if (std::optional<std::vector<std::uint8_t>> bytes = fetch(url);
-                bytes && bytes->size() <= max_image_bytes) {
+                bytes && bytes->size() <= (url.scheme == k_pdf_scheme ? max_pdf_page_bytes : max_image_bytes)) {
                 image = decode_fetched(*bytes, key, pass.decodes, &drawn_at);
                 if (image)
                     decoded_bytes += static_cast<std::size_t>(image->width()) * static_cast<std::size_t>(image->height()) * 4u;

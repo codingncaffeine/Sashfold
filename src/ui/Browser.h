@@ -239,6 +239,8 @@ public:
     virtual net::Blocklists const* content_lists() const { return nullptr; }
 };
 
+struct PdfHandle; // ui/PdfViewer.h
+
 struct HistoryEntry {
     net::Url url; // as navigated
     net::Url final_url; // where it landed: the base for relative links
@@ -269,6 +271,9 @@ struct HistoryEntry {
     // clock: the time origin of the realm its document is first shown in.
     // Spent by that showing: Back and Forward begin anew.
     double navigation_started = 0;
+    // A PDF shown in the viewer: the document the viewer page asks about,
+    // kept while the entry is (Back returns to it without a fetch).
+    std::shared_ptr<PdfHandle> pdf;
 };
 
 // One open menu as the chrome lays it out: its box, and a row for every

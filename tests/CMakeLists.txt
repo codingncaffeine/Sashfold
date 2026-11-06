@@ -263,6 +263,10 @@ add_test(NAME shell_spelling
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/spelling.script)
 add_test(NAME shell_spelling_editor
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/spelling-editor.script)
+# A PDF in a tab: the viewer's pages drawn, title and count, find through
+# its text layer, the page field, a link inside the document, zoom keys.
+add_test(NAME shell_pdf_viewer
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pdf-viewer.script)
 # The keys a page hears: letters, digits, punctuation (key, code, keyCode).
 add_test(NAME shell_key_events
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/key-events.script)

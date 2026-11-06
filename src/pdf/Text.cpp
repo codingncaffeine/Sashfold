@@ -156,6 +156,21 @@ void Renderer::show_text(std::string const& bytes, Dict const& resources)
                 append(shapes, outline->transformed(matrix(placed)));
             }
         }
+        if (m_options.text_sink && m_hidden == 0) {
+            // The glyph's box for a text layer: its advance by the font's height, through the matrix.
+            TextGlyph shown;
+            canvas::Transform const box = trm;
+            double const advance = font->vertical() ? 1.0 : glyph.width;
+            double const top = font->vertical() ? 0.0 : font->ascent();
+            double const bottom = font->vertical() ? glyph.vertical_advance : font->descent();
+            double const left = font->vertical() ? -0.5 : 0.0;
+            double const right = font->vertical() ? 0.5 : advance;
+            shown.quad = { box.apply(left, bottom), box.apply(right, bottom), box.apply(right, top), box.apply(left, top) };
+            shown.text = font->text(glyph);
+            shown.font_size = size * std::hypot(trm.c, trm.d) / std::max(1e-9, std::abs(size));
+            shown.word_space = glyph.word_space;
+            m_options.text_sink(shown);
+        }
         // The pen moves on.
         double const spacing = ts.char_spacing + (glyph.word_space ? ts.word_spacing : 0);
         if (font->vertical()) {

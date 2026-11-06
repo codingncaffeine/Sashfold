@@ -1,5 +1,6 @@
 #include "ui/ShellLoader.h"
 
+#include "ui/PdfViewer.h"
 #include "ui/UpdatePackage.h"
 
 #include "core/Ascii.h"
@@ -533,6 +534,8 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& requested, net::U
     std::string const& referrer, net::ResourceKind kind, net::RequestGuard const& guard, std::string_view container)
 {
     net::Url const url = guard.upgrade_insecure ? net::upgraded_insecure(requested) : requested;
+    if (std::optional<net::FetchResult> pdf = serve_pdf_resource(url, first_party, "GET", {}))
+        return std::move(*pdf);
     if (std::optional<std::string> refused = refusal(url, &first_party, kind, guard, false))
         return { std::nullopt, std::move(*refused) };
     if (url.scheme == "file") {
@@ -574,6 +577,9 @@ net::FetchResult ShellLoader::load_subresource(net::Url const& requested, net::U
 net::FetchResult ShellLoader::fetch_subresource(net::Url const& url, net::Url const& first_party, std::string const& referrer,
     net::ResourceKind kind, net::RequestGuard const& guard, std::string const& container)
 {
+    // The PDF viewer's own scheme: answered here, on this thread, for its own page only.
+    if (std::optional<net::FetchResult> pdf = serve_pdf_resource(url, first_party, "GET", {}))
+        return std::move(*pdf);
     net::FetchOptions options;
     options.cookie_jar = &cookies(container);
     options.first_party = &first_party;
@@ -599,9 +605,10 @@ std::shared_ptr<net::FetchTicket> ShellLoader::prefetch(net::Url const& url, net
     std::string const& referrer, net::ResourceKind kind, std::string_view container,
     std::function<void(net::FetchResult const&)> arrived)
 {
-    // Only what goes over the network is worth a thread, and only what the
-    // lists let through is asked for at all.
-    if (url.scheme != "http" && url.scheme != "https")
+    // Only what goes over the network is worth a thread — and a PDF viewer's
+    // page, which is drawn — and only what the lists let through is asked
+    // for at all.
+    if (url.scheme != "http" && url.scheme != "https" && url.scheme != k_pdf_scheme)
         return nullptr;
     if (refusal(url, &first_party, kind, net::RequestGuard {}, false))
         return nullptr;
@@ -714,6 +721,8 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
 {
     net::ResourceKind const kind = request.destination == "script" ? net::ResourceKind::Script : net::ResourceKind::Xhr;
     net::Url const url = guard.upgrade_insecure ? net::upgraded_insecure(requested) : requested;
+    if (std::optional<net::FetchResult> pdf = serve_pdf_resource(url, first_party, request.method, request.body))
+        return std::move(*pdf);
     if (std::optional<std::string> refused = refusal(url, &first_party, kind, guard, false))
         return { std::nullopt, std::move(*refused) };
     if (url.scheme == "file") {

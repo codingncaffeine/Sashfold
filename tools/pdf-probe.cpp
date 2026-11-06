@@ -3,6 +3,7 @@
 //   pdf_probe [--password P] file.pdf                 the summary, pdfinfo's field names
 //   pdf_probe [--password P] --object N file.pdf      object N, written back out
 //   pdf_probe [--password P] --content P file.pdf     page P's (1-based) content, decoded
+//   pdf_probe [--password P] --text P file.pdf        page P's text runs, a line each, then its links
 //   pdf_probe [--password P] --fonts P file.pdf       page P's fonts: kind, embedded or substituted,
 //       and how many of the codes 32-255 (simple) find a glyph
 //   pdf_probe [--password P] --render P --dpi D --out page.png [--compare ref.png] file.pdf
@@ -16,6 +17,7 @@
 
 #include "core/Png.h"
 #include "pdf/Document.h"
+#include "pdf/Extract.h"
 #include "pdf/Font.h"
 #include "pdf/Render.h"
 
@@ -104,6 +106,7 @@ int main(int argc, char** argv)
     int content_page = -1;
     int render_page_number = -1;
     int fonts_page = -1;
+    int text_page = -1;
     double dpi = 72;
     std::string out_path;
     std::vector<std::string> compare_paths;
@@ -115,6 +118,8 @@ int main(int argc, char** argv)
             object_num = std::atoi(argv[++i]);
         else if (arg == "--content" && i + 1 < argc)
             content_page = std::atoi(argv[++i]);
+        else if (arg == "--text" && i + 1 < argc)
+            text_page = std::atoi(argv[++i]);
         else if (arg == "--fonts" && i + 1 < argc)
             fonts_page = std::atoi(argv[++i]);
         else if (arg == "--render" && i + 1 < argc)
@@ -152,6 +157,22 @@ int main(int argc, char** argv)
         if (pdf::Stream const* stream = object.as_stream()) {
             std::vector<std::uint8_t> const data = doc->decode(*stream);
             std::cout << "decoded " << data.size() << " bytes\n";
+        }
+        return 0;
+    }
+    if (text_page >= 1) {
+        if (static_cast<std::size_t>(text_page) > doc->page_count())
+            return 1;
+        std::size_t const index = static_cast<std::size_t>(text_page - 1);
+        for (pdf::TextRun const& run : pdf::page_text(*doc, index))
+            std::cout << run.text << (run.ends_line ? "\n" : " ");
+        for (pdf::Link const& link : pdf::page_links(*doc, index)) {
+            std::cout << "link [" << link.x0 << " " << link.y0 << " " << link.x1 << " " << link.y1 << "] ";
+            if (link.destination)
+                std::cout << "page " << (link.destination->page + 1) << (link.destination->y ? " y " + std::to_string(*link.destination->y) : "");
+            else
+                std::cout << link.url;
+            std::cout << "\n";
         }
         return 0;
     }

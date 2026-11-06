@@ -34,6 +34,7 @@
 #include "text/SashfoldMono.h"
 #include "ui/PageCompositor.h"
 #include "ui/PageImages.h"
+#include "ui/PdfViewer.h"
 #include "ui/Cosmetic.h"
 #include "ui/BookmarkSources.h"
 #include "ui/Bookmarks.h"
@@ -6219,6 +6220,24 @@ struct Browser::Impl {
         if (load.tab >= tabs.size())
             return false;
         Tab& tab = tabs[load.tab];
+        if (load.url.scheme == k_pdf_scheme) {
+            // The viewer's download button: its document saved as it came,
+            // the viewer left where it is. Only that document's own viewer
+            // may ask.
+            HistoryEntry const* const from = tab.current();
+            std::shared_ptr<PdfHandle> const handle = find_pdf(load.url.host);
+            if (handle && from && from->pdf == handle && load.url.serialize_path() == "/file") {
+                if (downloads_directory.empty()) {
+                    tab.status = "Not saved, no downloads folder: " + handle->file_name;
+                } else {
+                    DownloadResult const saved = save_download(downloads_directory, handle->file_name, handle->bytes, handle->url, "");
+                    tab.status = saved.error.empty() ? "Downloaded " + saved.file_name + " (" + std::to_string(handle->bytes.size()) + " bytes)"
+                                                     : "Download failed: " + saved.error;
+                }
+            }
+            dirty = true;
+            return true;
+        }
         // A load on its way for this tab is let go of: this one takes its place.
         tab.navigating.reset();
         HistoryEntry const* const from = tab.current();
@@ -6355,10 +6374,22 @@ struct Browser::Impl {
         }
         std::string const* const disposition = net::find_header(response.headers, "content-disposition");
         bool const attachment = disposition && starts_with_ci(trim(*disposition), "attachment");
-        if (attachment || !is_renderable_content_type(entry.content_type))
+        if (!attachment && is_pdf_response(entry.content_type, response.body)) {
+            // A PDF opens in the viewer, as in every browser; one served as
+            // an attachment is still a download. The viewer is the
+            // reader's page, not the site's: the response's policies are
+            // not its.
+            std::string const name = download_file_name(disposition, response.final_url);
+            entry.pdf = open_pdf(std::move(response.body), response.final_url, name);
+            set_document(entry, pdf_viewer_page(*entry.pdf));
+            entry.title = pdf_title(*entry.pdf);
+            entry.csp_headers.clear();
+            entry.csp_report_only_headers.clear();
+        } else if (attachment || !is_renderable_content_type(entry.content_type)) {
             download_status = receive_download(entry, response, disposition, referrer);
-        else
+        } else {
             entry.bytes = std::move(response.body);
+        }
         if (theme_adopted) {
             // A theme, and it is on: the page the reader chose it
             // from stays where it is — nothing was navigated to,

@@ -597,6 +597,12 @@ void Renderer::begin_marked(Object const& tag, Object const& properties, Dict co
 
 void Renderer::end_path()
 {
+    if (!m_options.draw) {
+        // Text alone: clips make no difference to what the text is.
+        m_pending_clip.reset();
+        m_path = canvas::PathBuilder {};
+        return;
+    }
     if (m_pending_clip && !m_path.path.segments.empty()) {
         m_state.clip = canvas::intersect_clip(*m_surface, m_state.clip, m_path.path, *m_pending_clip);
     } else if (m_pending_clip) {
@@ -610,7 +616,7 @@ void Renderer::end_path()
 
 void Renderer::fill_path(svg::FillRule rule)
 {
-    if (m_hidden > 0 || m_path.path.segments.empty())
+    if (m_hidden > 0 || m_path.path.segments.empty() || !m_options.draw)
         return;
     svg::Mask const coverage = canvas::fill_coverage(*m_surface, m_path.path, rule);
     paint_coverage(coverage, m_state.fill, m_state.fill_alpha);
@@ -618,7 +624,7 @@ void Renderer::fill_path(svg::FillRule rule)
 
 void Renderer::stroke_path()
 {
-    if (m_hidden > 0 || m_path.path.segments.empty())
+    if (m_hidden > 0 || m_path.path.segments.empty() || !m_options.draw)
         return;
     svg::StrokeStyle pen;
     double const scale = m_state.ctm.scale_factor();
@@ -765,7 +771,7 @@ void Renderer::paint_pattern(svg::Mask const& coverage, PaintColor const& color,
 
 void Renderer::shade(std::string const& name, Dict const& resources)
 {
-    if (m_hidden > 0)
+    if (m_hidden > 0 || !m_options.draw)
         return;
     Dict const& shadings = m_doc.resolve(resources.get("Shading")).as_dict();
     std::shared_ptr<Shading const> const shading = parse_shading(m_doc, shadings.get(name), &resources);
@@ -836,6 +842,8 @@ void Renderer::set_extgstate(Dict const& gs, Dict const& resources)
             if (auto const blend = blend_of(m_doc, value))
                 m_state.blend = *blend;
         } else if (key == "SMask") {
+            if (!m_options.draw)
+                continue;
             if (value.is_name("None") || !value.is_dict())
                 m_state.soft_mask.reset();
             else
@@ -950,7 +958,7 @@ void Renderer::draw_form(Stream const& form, Dict const& resources, Ref ref)
         return;
     Dict const& group = m_doc.resolve(form.dict.get("Group")).as_dict();
     bool const transparency = group.get("S").is_name("Transparency");
-    bool const needs_layer = transparency
+    bool const needs_layer = transparency && m_options.draw
         && (m_state.fill_alpha < 1 || m_state.blend != canvas::Composite::SourceOver || m_state.soft_mask);
     if (needs_layer) {
         // A transparency group: drawn apart, then composited as one with the
@@ -987,7 +995,7 @@ void Renderer::draw_form(Stream const& form, Dict const& resources, Ref ref)
     m_state.ctm = m_state.ctm.multiply(matrix_of(m_doc, form.dict.get("Matrix")));
     m_base = m_state.ctm;
     Array const& bbox = m_doc.resolve(form.dict.get("BBox")).as_array();
-    if (bbox.size() == 4) {
+    if (bbox.size() == 4 && m_options.draw) {
         double const x0 = m_doc.resolve(bbox[0]).as_number();
         double const y0 = m_doc.resolve(bbox[1]).as_number();
         canvas::PathBuilder box;
@@ -1009,7 +1017,7 @@ void Renderer::draw_form(Stream const& form, Dict const& resources, Ref ref)
 
 void Renderer::draw_image(Dict const& dict, ImageBytes const& bytes, Dict const& resources)
 {
-    if (m_hidden > 0)
+    if (m_hidden > 0 || !m_options.draw)
         return;
     if (dict.has("OC") && !content_visible(dict.get("OC")))
         return;
@@ -1143,6 +1151,40 @@ void Renderer::inline_image(Lexer& lexer, Dict const& resources)
     }
     bytes.bytes = std::move(raw);
     draw_image(dict, bytes, resources);
+}
+
+std::vector<TextGlyph> page_glyphs(Document const& doc, std::size_t index, double scale)
+{
+    std::vector<TextGlyph> glyphs;
+    if (index >= doc.page_count())
+        return glyphs;
+    RenderOptions options;
+    options.scale = scale;
+    options.draw = false;
+    options.text_sink = [&](TextGlyph const& glyph) {
+        if (glyphs.size() < 1'000'000)
+            glyphs.push_back(glyph);
+    };
+    Page const& page = doc.page(index);
+    canvas::Surface surface(1, 1); // nothing is painted
+    Renderer renderer(doc, surface, options);
+    renderer.set_initial_ctm(page_to_device(page, scale));
+    Dict const& resources = doc.resolve(page.resources).as_dict();
+    Object const contents = doc.resolve(page.dict->get("Contents"));
+    std::vector<std::uint8_t> content;
+    if (Stream const* stream = contents.as_stream()) {
+        content = doc.decode(*stream);
+    } else {
+        for (Object const& part : contents.as_array()) {
+            if (Stream const* part_stream = doc.resolve(part).as_stream()) {
+                std::vector<std::uint8_t> const bytes = doc.decode(*part_stream);
+                content.insert(content.end(), bytes.begin(), bytes.end());
+                content.push_back('\n');
+            }
+        }
+    }
+    renderer.run(content, resources);
+    return glyphs;
 }
 
 std::optional<Bitmap> render_page(Document const& doc, std::size_t index, RenderOptions const& options)

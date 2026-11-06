@@ -1,0 +1,68 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Outlines 9 0 R /PageMode /UseOutlines >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R 4 0 R] /Count 2 /MediaBox [0 0 612 792] /Resources << /Font << /F1 7 0 R >> >> >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /Contents 5 0 R >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /Contents 6 0 R /Annots [8 0 R] >>
+endobj
+5 0 obj
+<< /Length 173 >>
+stream
+0.85 0.1 0.1 rg 72 600 200 100 re f
+BT /F1 24 Tf 72 540 Td (Sashfold PDF viewer first page) Tj ET
+BT /F1 14 Tf 72 500 Td (The quick brown fox jumps over the lazy dog.) Tj ET
+endstream
+endobj
+6 0 obj
+<< /Length 144 >>
+stream
+0.1 0.4 0.85 rg 72 600 200 100 re f
+BT /F1 24 Tf 72 540 Td (Second page with a link) Tj ET
+BT /F1 14 Tf 72 500 Td (Back to the first page) Tj ET
+endstream
+endobj
+7 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+8 0 obj
+<< /Type /Annot /Subtype /Link /Rect [72 495 230 515] /Border [0 0 0] /Dest [3 0 R /XYZ 0 792 0] >>
+endobj
+9 0 obj
+<< /Type /Outlines /First 10 0 R /Last 11 0 R /Count 2 >>
+endobj
+10 0 obj
+<< /Title (First page) /Parent 9 0 R /Next 11 0 R /Dest [3 0 R /Fit] >>
+endobj
+11 0 obj
+<< /Title (Second page) /Parent 9 0 R /Prev 10 0 R /Dest [4 0 R /Fit] >>
+endobj
+12 0 obj
+<< /Title (Viewer Test Document) /Producer (tests/shell) >>
+endobj
+xref
+0 13
+0000000000 65535 f 
+0000000015 00000 n 
+0000000103 00000 n 
+0000000229 00000 n 
+0000000292 00000 n 
+0000000371 00000 n 
+0000000595 00000 n 
+0000000790 00000 n 
+0000000887 00000 n 
+0000001002 00000 n 
+0000001075 00000 n 
+0000001163 00000 n 
+0000001252 00000 n 
+trailer
+<< /Size 13 /Root 1 0 R /Info 12 0 R >>
+startxref
+1328
+%%EOF

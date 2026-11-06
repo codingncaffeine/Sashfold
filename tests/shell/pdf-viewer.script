@@ -1,0 +1,46 @@
+# A PDF opened in a tab: the viewer shows its pages drawn (page 1's red
+# box, page 2's blue one), its title and page count, finds words through
+# the text layer, jumps by the page field, follows a link inside the
+# document, and zooms with Ctrl++ / Ctrl+0.
+resize 900 700
+open pdf-viewer.pdf
+advance 500 4
+assert-title Viewer Test Document
+assert-text / 2
+assert-text Sashfold PDF viewer first page
+# Page 1 drawn: the red box, the white page around it, the gray behind it.
+assert-pixel 280 320 #d91a1a
+assert-pixel 120 600 #ffffff
+assert-pixel 30 600 #525659
+# Find in page reads the text layer.
+key ctrl+f
+type quick brown
+assert-find 1 of 1
+key Escape
+# The page field: 2 + Enter scrolls page 2 to the top.
+click 528 99
+type 2
+key Enter
+advance 500 4
+assert-value page 2
+assert-pixel 280 320 #1a66d9
+# The link on page 2 goes back to page 1.
+click-text Back to the first page
+advance 500 4
+assert-value page 1
+assert-pixel 280 320 #d91a1a
+# Zoom in one step, then back to automatic.
+key ctrl+equal
+advance 500 4
+assert-value zoom 1.5
+key ctrl+0
+advance 500 4
+assert-value zoom auto
+assert-pixel 280 320 #d91a1a
+# #zoom=400 from the address: the page wider than the window starts at its
+# left edge (it scrolls, not cut off), its picture drawn though over 8 MB.
+open pdf-viewer.pdf#zoom=400
+advance 500 6
+assert-value zoom 4
+assert-pixel 450 600 #d91a1a
+assert-pixel 200 600 #ffffff

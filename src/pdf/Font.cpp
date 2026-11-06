@@ -180,6 +180,31 @@ std::shared_ptr<Font const> Font::load(Document const& doc, Object const& font_o
         font->load_composite(doc, dict);
     else
         font->load_simple(doc, dict);
+    // Ascent and descent for text boxes: the descriptor's (the descendant's for Type 0).
+    Dict descriptor = doc.resolve(dict.get("FontDescriptor")).as_dict();
+    if (subtype == "Type0") {
+        Array const& descendants = doc.resolve(dict.get("DescendantFonts")).as_array();
+        if (!descendants.empty())
+            descriptor = doc.resolve(doc.resolve(descendants[0]).as_dict().get("FontDescriptor")).as_dict();
+    }
+    double const ascent = doc.resolve(descriptor.get("Ascent")).as_number(0);
+    double const descent = doc.resolve(descriptor.get("Descent")).as_number(0);
+    if (ascent > 0 && ascent < 3000)
+        font->m_ascent = ascent / 1000;
+    if (descent < 0 && descent > -3000)
+        font->m_descent = descent / 1000;
+    if (font->m_kind == Kind::Type3) {
+        // A Type 3 font's box through its matrix.
+        Array const& box = doc.resolve(dict.get("FontBBox")).as_array();
+        if (box.size() == 4) {
+            double const top = doc.resolve(box[3]).as_number(0) * font->m_type3_matrix.d;
+            double const bottom = doc.resolve(box[1]).as_number(0) * font->m_type3_matrix.d;
+            if (top > bottom) {
+                font->m_ascent = top;
+                font->m_descent = bottom;
+            }
+        }
+    }
     return font;
 }
 

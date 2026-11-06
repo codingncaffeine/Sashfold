@@ -76,6 +76,10 @@ public:
     Dict const& type3_resources() const { return m_type3_resources; }
 
     bool substituted() const { return m_substituted; }
+    // How far the font reaches above and below its baseline, per unit of
+    // font size (the descriptor's Ascent and Descent; descent negative).
+    double ascent() const { return m_ascent; }
+    double descent() const { return m_descent; }
     std::string const& base_font() const { return m_base_font; }
 
 private:
@@ -99,6 +103,8 @@ private:
     std::array<bool, 256> m_has_width {};
     std::array<std::int32_t, 256> m_code_glyphs {}; // -1: none decided at load
     double m_missing_width = 0;
+    double m_ascent = 0.8;
+    double m_descent = -0.2;
     bool m_symbolic = false;
 
     // Composite fonts.
