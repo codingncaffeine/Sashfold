@@ -457,6 +457,15 @@ int main()
         while ((browser.page_title() != "Greek" || server.asked("/greek.ttf") == 0) && ms_since(clicked) < 5000)
             browser.tick();
         CHECK_EQ(browser.page_title(), std::string("Greek"));
+        // Waited for by what is checked: with pages on threads of their own
+        // the shell's "nothing pending" is the page's last word, which a slow
+        // machine may give before the page has asked for the piece at all
+        // (macOS CI 42248948818) — so the piece's arrival and the layout in
+        // it are what the wait ends on.
+        auto const asked = std::chrono::steady_clock::now();
+        while ((browser.profile().relayouts < layouts_before_click + 2 || text::FontManager::instance().page_fonts_waiting() != 1u)
+            && ms_since(asked) < 5000)
+            browser.tick();
         load_fully(browser);
         CHECK(browser.profile().relayouts >= layouts_before_click + 2); // in what it had, then in the piece
         CHECK_EQ(server.asked("/greek.ttf"), std::size_t { 1 });
