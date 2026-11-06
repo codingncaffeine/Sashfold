@@ -25,6 +25,8 @@
 
 namespace sashfold::pdf {
 
+class Font;
+
 struct Box {
     double x0 = 0;
     double y0 = 0;
@@ -91,6 +93,10 @@ public:
     // Strings in an object fetched from the file, decrypted with its number.
     std::string decrypt_string(Ref owner, std::string const& data) const;
 
+    // A font dictionary (or a reference to one) loaded once per reference
+    // and shared by every render (defined in Font.cpp).
+    std::shared_ptr<Font const> font(Object const& font) const;
+
     struct Entry {
         enum class Type : std::uint8_t { Free, Offset, Compressed };
         Type type = Type::Free;
@@ -138,6 +144,8 @@ private:
     mutable std::mutex m_mutex;
     mutable std::map<int, Object> m_cache;
     mutable std::map<int, std::shared_ptr<ObjectStream const>> m_object_streams;
+    mutable std::mutex m_font_mutex;
+    mutable std::map<Ref, std::shared_ptr<Font const>> m_fonts;
 };
 
 }

@@ -122,6 +122,9 @@ private:
     canvas::Transform m_line_matrix;
     bool m_in_text = false;
     canvas::PathBuilder m_text_clip; // glyph outlines for clipping render modes
+    bool m_text_clipping = false; // a clipping mode showed text in this object
+    int m_type3_depth = 0; // Type 3 glyphs being run
+    bool m_ignore_color = false; // a d1 glyph: its color operators are ignored
     // Marked content: a count of open sequences that hide what they hold.
     std::vector<bool> m_marked;
     int m_hidden = 0;

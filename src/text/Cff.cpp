@@ -130,6 +130,60 @@ std::vector<double> const* dict_get(std::vector<DictEntry> const& dict, int op)
     return nullptr;
 }
 
+// The standard strings (CFF Appendix A): the names string ids 0-390 stand
+// for, before a font's own String INDEX.
+constexpr std::array<char const*, 391> k_standard_strings = {
+    ".notdef", "space", "exclam", "quotedbl", "numbersign", "dollar", "percent", "ampersand",
+    "quoteright", "parenleft", "parenright", "asterisk", "plus", "comma", "hyphen", "period",
+    "slash", "zero", "one", "two", "three", "four", "five", "six",
+    "seven", "eight", "nine", "colon", "semicolon", "less", "equal", "greater",
+    "question", "at", "A", "B", "C", "D", "E", "F",
+    "G", "H", "I", "J", "K", "L", "M", "N",
+    "O", "P", "Q", "R", "S", "T", "U", "V",
+    "W", "X", "Y", "Z", "bracketleft", "backslash", "bracketright", "asciicircum",
+    "underscore", "quoteleft", "a", "b", "c", "d", "e", "f",
+    "g", "h", "i", "j", "k", "l", "m", "n",
+    "o", "p", "q", "r", "s", "t", "u", "v",
+    "w", "x", "y", "z", "braceleft", "bar", "braceright", "asciitilde",
+    "exclamdown", "cent", "sterling", "fraction", "yen", "florin", "section", "currency",
+    "quotesingle", "quotedblleft", "guillemotleft", "guilsinglleft", "guilsinglright", "fi", "fl", "endash",
+    "dagger", "daggerdbl", "periodcentered", "paragraph", "bullet", "quotesinglbase", "quotedblbase", "quotedblright",
+    "guillemotright", "ellipsis", "perthousand", "questiondown", "grave", "acute", "circumflex", "tilde",
+    "macron", "breve", "dotaccent", "dieresis", "ring", "cedilla", "hungarumlaut", "ogonek",
+    "caron", "emdash", "AE", "ordfeminine", "Lslash", "Oslash", "OE", "ordmasculine",
+    "ae", "dotlessi", "lslash", "oslash", "oe", "germandbls", "onesuperior", "logicalnot",
+    "mu", "trademark", "Eth", "onehalf", "plusminus", "Thorn", "onequarter", "divide",
+    "brokenbar", "degree", "thorn", "threequarters", "twosuperior", "registered", "minus", "eth",
+    "multiply", "threesuperior", "copyright", "Aacute", "Acircumflex", "Adieresis", "Agrave", "Aring",
+    "Atilde", "Ccedilla", "Eacute", "Ecircumflex", "Edieresis", "Egrave", "Iacute", "Icircumflex",
+    "Idieresis", "Igrave", "Ntilde", "Oacute", "Ocircumflex", "Odieresis", "Ograve", "Otilde",
+    "Scaron", "Uacute", "Ucircumflex", "Udieresis", "Ugrave", "Yacute", "Ydieresis", "Zcaron",
+    "aacute", "acircumflex", "adieresis", "agrave", "aring", "atilde", "ccedilla", "eacute",
+    "ecircumflex", "edieresis", "egrave", "iacute", "icircumflex", "idieresis", "igrave", "ntilde",
+    "oacute", "ocircumflex", "odieresis", "ograve", "otilde", "scaron", "uacute", "ucircumflex",
+    "udieresis", "ugrave", "yacute", "ydieresis", "zcaron", "exclamsmall", "Hungarumlautsmall", "dollaroldstyle",
+    "dollarsuperior", "ampersandsmall", "Acutesmall", "parenleftsuperior", "parenrightsuperior", "twodotenleader", "onedotenleader", "zerooldstyle",
+    "oneoldstyle", "twooldstyle", "threeoldstyle", "fouroldstyle", "fiveoldstyle", "sixoldstyle", "sevenoldstyle", "eightoldstyle",
+    "nineoldstyle", "commasuperior", "threequartersemdash", "periodsuperior", "questionsmall", "asuperior", "bsuperior", "centsuperior",
+    "dsuperior", "esuperior", "isuperior", "lsuperior", "msuperior", "nsuperior", "osuperior", "rsuperior",
+    "ssuperior", "tsuperior", "ff", "ffi", "ffl", "parenleftinferior", "parenrightinferior", "Circumflexsmall",
+    "hyphensuperior", "Gravesmall", "Asmall", "Bsmall", "Csmall", "Dsmall", "Esmall", "Fsmall",
+    "Gsmall", "Hsmall", "Ismall", "Jsmall", "Ksmall", "Lsmall", "Msmall", "Nsmall",
+    "Osmall", "Psmall", "Qsmall", "Rsmall", "Ssmall", "Tsmall", "Usmall", "Vsmall",
+    "Wsmall", "Xsmall", "Ysmall", "Zsmall", "colonmonetary", "onefitted", "rupiah", "Tildesmall",
+    "exclamdownsmall", "centoldstyle", "Lslashsmall", "Scaronsmall", "Zcaronsmall", "Dieresissmall", "Brevesmall", "Caronsmall",
+    "Dotaccentsmall", "Macronsmall", "figuredash", "hypheninferior", "Ogoneksmall", "Ringsmall", "Cedillasmall", "questiondownsmall",
+    "oneeighth", "threeeighths", "fiveeighths", "seveneighths", "onethird", "twothirds", "zerosuperior", "foursuperior",
+    "fivesuperior", "sixsuperior", "sevensuperior", "eightsuperior", "ninesuperior", "zeroinferior", "oneinferior", "twoinferior",
+    "threeinferior", "fourinferior", "fiveinferior", "sixinferior", "seveninferior", "eightinferior", "nineinferior", "centinferior",
+    "dollarinferior", "periodinferior", "commainferior", "Agravesmall", "Aacutesmall", "Acircumflexsmall", "Atildesmall", "Adieresissmall",
+    "Aringsmall", "AEsmall", "Ccedillasmall", "Egravesmall", "Eacutesmall", "Ecircumflexsmall", "Edieresissmall", "Igravesmall",
+    "Iacutesmall", "Icircumflexsmall", "Idieresissmall", "Ethsmall", "Ntildesmall", "Ogravesmall", "Oacutesmall", "Ocircumflexsmall",
+    "Otildesmall", "Odieresissmall", "OEsmall", "Oslashsmall", "Ugravesmall", "Uacutesmall", "Ucircumflexsmall", "Udieresissmall",
+    "Yacutesmall", "Thornsmall", "Ydieresissmall", "001.000", "001.001", "001.002", "001.003", "Black",
+    "Bold", "Book", "Light", "Medium", "Regular", "Roman", "Semibold",
+};
+
 // The Standard Encoding (CFF Appendix B): a code's standard string id, 0
 // where the code has no name. What endchar's accent composition speaks in.
 std::uint16_t standard_encoding_sid(std::uint8_t code)
@@ -800,6 +854,9 @@ std::optional<CffFont> CffFont::parse(std::vector<std::uint8_t> const& bytes, st
     if (font.m_charstrings.count == 0 || font.m_charstrings.count > 65535)
         return std::nullopt;
     font.m_glyph_count = static_cast<std::uint16_t>(font.m_charstrings.count);
+    font.m_strings = strings;
+    if (std::vector<double> const* const encoding = dict_get(dict, 16); encoding && !encoding->empty() && (*encoding)[0] >= 0)
+        font.m_encoding_offset = static_cast<std::size_t>((*encoding)[0]);
     if (std::vector<double> const* const matrix = dict_get(dict, 1207); matrix && matrix->size() == 6) {
         double const scale = (*matrix)[0];
         if (std::isfinite(scale) && scale > 0)
@@ -940,6 +997,104 @@ void CffFont::load_charset(std::vector<std::uint8_t> const& bytes) const
     // The way back, for the accents: the first glyph of each name.
     for (std::size_t g = 1; g < m_sid_of_glyph.size(); ++g)
         m_gid_of_sid.emplace(m_sid_of_glyph[g], static_cast<std::uint16_t>(g));
+}
+
+char const* CffFont::standard_string(int sid)
+{
+    return sid >= 0 && sid < 391 ? k_standard_strings[static_cast<std::size_t>(sid)] : nullptr;
+}
+
+void CffFont::load_names(std::vector<std::uint8_t> const& bytes)
+{
+    load_charset(bytes);
+    // The built-in encoding: Standard (0), Expert (1, read as Standard),
+    // or a table of codes in format 0 or 1, with supplements.
+    m_encoding.fill(0);
+    if (m_cid)
+        return;
+    std::size_t const offset = m_encoding_offset;
+    if (offset <= 1) {
+        for (int code = 0; code < 256; ++code) {
+            std::uint16_t const sid = standard_encoding_sid(static_cast<std::uint8_t>(code));
+            if (sid == 0)
+                continue;
+            auto const it = m_gid_of_sid.find(sid);
+            if (it != m_gid_of_sid.end())
+                m_encoding[static_cast<std::size_t>(code)] = it->second;
+        }
+        return;
+    }
+    Reader const reader { bytes, m_end };
+    std::size_t pos = m_offset + offset;
+    if (!reader.has(pos, 2))
+        return;
+    std::uint8_t const format = reader.u8(pos);
+    ++pos;
+    if ((format & 0x7F) == 0) {
+        std::size_t const count = reader.u8(pos++);
+        for (std::size_t i = 0; i < count && reader.has(pos, 1); ++i, ++pos) {
+            if (i + 1 < m_glyph_count)
+                m_encoding[reader.u8(pos)] = static_cast<std::uint16_t>(i + 1);
+        }
+    } else if ((format & 0x7F) == 1) {
+        std::size_t const ranges = reader.u8(pos++);
+        std::size_t glyph = 1;
+        for (std::size_t r = 0; r < ranges && reader.has(pos, 2); ++r, pos += 2) {
+            std::size_t const first = reader.u8(pos);
+            std::size_t const left = reader.u8(pos + 1);
+            for (std::size_t k = 0; k <= left && glyph < m_glyph_count; ++k, ++glyph) {
+                if (first + k < 256)
+                    m_encoding[first + k] = static_cast<std::uint16_t>(glyph);
+            }
+        }
+    }
+    if (format & 0x80) {
+        // Supplements: further codes for glyphs named by string id.
+        std::size_t const count = reader.u8(pos++);
+        for (std::size_t i = 0; i < count && reader.has(pos, 3); ++i, pos += 3) {
+            std::uint8_t const code = reader.u8(pos);
+            auto const it = m_gid_of_sid.find(reader.u16(pos + 1));
+            if (it != m_gid_of_sid.end())
+                m_encoding[code] = it->second;
+        }
+    }
+    // The names of the glyphs, for lookups by name.
+    m_names.clear();
+    for (std::size_t g = 0; g < m_sid_of_glyph.size(); ++g) {
+        std::string name = glyph_name_of_sid(bytes, m_sid_of_glyph[g]);
+        if (!name.empty())
+            m_names.emplace(std::move(name), static_cast<std::uint16_t>(g));
+    }
+}
+
+std::string CffFont::glyph_name_of_sid(std::vector<std::uint8_t> const& bytes, std::uint16_t sid) const
+{
+    if (sid < 391)
+        return k_standard_strings[sid];
+    Span span;
+    if (!index_item(bytes, m_strings, static_cast<std::size_t>(sid - 391), span) || span.length > 256)
+        return {};
+    return std::string(reinterpret_cast<char const*>(bytes.data() + span.offset), span.length);
+}
+
+std::optional<std::uint16_t> CffFont::glyph_by_name(std::string_view name) const
+{
+    auto const it = m_names.find(std::string(name));
+    if (it == m_names.end())
+        return std::nullopt;
+    return it->second;
+}
+
+std::optional<std::uint16_t> CffFont::glyph_by_cid(std::uint16_t cid) const
+{
+    if (!m_cid)
+        return cid < m_glyph_count ? std::optional<std::uint16_t>(cid) : std::nullopt;
+    if (cid == 0)
+        return std::uint16_t { 0 };
+    auto const it = m_gid_of_sid.find(cid);
+    if (it == m_gid_of_sid.end())
+        return std::nullopt;
+    return it->second;
 }
 
 std::uint16_t CffFont::glyph_of_standard_code(std::vector<std::uint8_t> const& bytes, std::uint8_t code) const

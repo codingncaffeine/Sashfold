@@ -1,17 +1,20 @@
 // libFuzzer harness for the PDF reader's file layer: hostile bytes opened
 // as a document (cross-reference tables and streams, the rebuild, object
 // streams, the security handler), then every page's resources and content
-// streams resolved and decoded and the page drawn small, and each filter run
-// on the raw bytes alone.
+// streams resolved and decoded and the page drawn small; and the raw bytes
+// alone through each filter, the Type 1 font reader and the CMap parser.
 // No crash, no hang, no sanitizer finding.
 
+#include "pdf/CMap.h"
 #include "pdf/Document.h"
 #include "pdf/Filters.h"
 #include "pdf/Render.h"
+#include "pdf/Type1.h"
 
 #include <algorithm>
 #include <cstddef>
 #include <cstdint>
+#include <string>
 #include <vector>
 
 extern "C" int LLVMFuzzerTestOneInput(std::uint8_t const* data, std::size_t size)
@@ -20,6 +23,22 @@ extern "C" int LLVMFuzzerTestOneInput(std::uint8_t const* data, std::size_t size
     sashfold::pdf::Dict const none;
     for (char const* filter : { "FlateDecode", "LZWDecode", "ASCIIHexDecode", "ASCII85Decode", "RunLengthDecode" })
         (void)sashfold::pdf::apply_filter(filter, input, none, 1u << 20);
+    if (auto const type1 = sashfold::pdf::Type1Font::parse(input)) {
+        for (auto const& name : type1->encoding()) {
+            if (!name.empty())
+                (void)type1->glyph(name);
+        }
+    }
+    if (auto const cmap = sashfold::pdf::CMap::parse(input)) {
+        std::string const text(input.begin(), input.end());
+        std::size_t at = 0;
+        std::uint32_t code = 0;
+        int length = 0;
+        for (int i = 0; i < 64 && cmap->next_code(text, at, code, length); ++i) {
+            (void)cmap->cid(code, length);
+            (void)cmap->unicode(code, length);
+        }
+    }
     sashfold::pdf::Document::Status status {};
     auto const doc = sashfold::pdf::Document::open(input, "", status);
     if (!doc)

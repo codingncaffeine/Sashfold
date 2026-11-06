@@ -659,5 +659,6 @@ set_tests_properties(test_http2 PROPERTIES TIMEOUT 180)
 
 add_executable(test_pdf test_pdf.cpp)
 target_link_libraries(test_pdf PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_dependencies(test_pdf sashfold_test_sans)
 add_test(NAME test_pdf
-  COMMAND test_pdf ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/pdf)
+  COMMAND test_pdf ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/pdf ${SASHFOLD_TEST_SANS})

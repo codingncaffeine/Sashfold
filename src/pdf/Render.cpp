@@ -274,6 +274,10 @@ void Renderer::run(std::vector<std::uint8_t> const& content, Dict const& resourc
 
 void Renderer::op(std::string const& name, std::vector<Object>& operands, Dict const& resources)
 {
+    if (m_ignore_color && !name.empty() && name.size() <= 3
+        && (name == "g" || name == "G" || name == "rg" || name == "RG" || name == "k" || name == "K" || name == "cs" || name == "CS"
+            || name == "sc" || name == "SC" || name == "scn" || name == "SCN"))
+        return;
     auto const num = [&](std::size_t i) { return i < operands.size() ? operands[i].as_number(0) : 0.0; };
     std::size_t const n = operands.size();
     char const c0 = name.empty() ? 0 : name[0];
@@ -531,8 +535,12 @@ void Renderer::op(std::string const& name, std::vector<Object>& operands, Dict c
         }
         if (name == "MP" || name == "DP" || name == "BX" || name == "EX")
             return;
-        if (name == "d0" || name == "d1")
-            return; // Type 3 glyph metrics: read where the glyph is run (Text.cpp)
+        if (name == "d0" || name == "d1") {
+            // A Type 3 glyph's metrics; d1 makes it a shape painted with the caller's color.
+            if (name == "d1" && m_type3_depth > 0)
+                m_ignore_color = true;
+            return;
+        }
         if (name == "ID" || name == "EI")
             return;
         if (name[0] == 'T') {
@@ -614,9 +622,11 @@ void Renderer::stroke_path()
         return;
     svg::StrokeStyle pen;
     double const scale = m_state.ctm.scale_factor();
-    // A zero width is the thinnest line the device can draw: one pixel.
+    // No stroke is thinner than one device pixel — a zero width is the
+    // thinnest line the device can draw, and a hairline stays a line at any
+    // zoom, as pdf.js, PDFium and poppler draw them.
     double width = m_state.line_width;
-    if (width == 0 && scale > 0)
+    if (scale > 0 && width * scale < 1)
         width = 1 / scale;
     pen.width = static_cast<float>(width);
     pen.cap = m_state.cap;

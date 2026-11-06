@@ -3,6 +3,8 @@
 //   pdf_probe [--password P] file.pdf                 the summary, pdfinfo's field names
 //   pdf_probe [--password P] --object N file.pdf      object N, written back out
 //   pdf_probe [--password P] --content P file.pdf     page P's (1-based) content, decoded
+//   pdf_probe [--password P] --fonts P file.pdf       page P's fonts: kind, embedded or substituted,
+//       and how many of the codes 32-255 (simple) find a glyph
 //   pdf_probe [--password P] --render P --dpi D --out page.png [--compare ref.png] file.pdf
 //       page P drawn at D dots per inch (72 = one pixel per point); with
 //       --compare (repeatable), how far it is from other pictures of the page
@@ -14,6 +16,7 @@
 
 #include "core/Png.h"
 #include "pdf/Document.h"
+#include "pdf/Font.h"
 #include "pdf/Render.h"
 
 #include <chrono>
@@ -100,6 +103,7 @@ int main(int argc, char** argv)
     int object_num = -1;
     int content_page = -1;
     int render_page_number = -1;
+    int fonts_page = -1;
     double dpi = 72;
     std::string out_path;
     std::vector<std::string> compare_paths;
@@ -111,6 +115,8 @@ int main(int argc, char** argv)
             object_num = std::atoi(argv[++i]);
         else if (arg == "--content" && i + 1 < argc)
             content_page = std::atoi(argv[++i]);
+        else if (arg == "--fonts" && i + 1 < argc)
+            fonts_page = std::atoi(argv[++i]);
         else if (arg == "--render" && i + 1 < argc)
             render_page_number = std::atoi(argv[++i]);
         else if (arg == "--dpi" && i + 1 < argc)
@@ -146,6 +152,38 @@ int main(int argc, char** argv)
         if (pdf::Stream const* stream = object.as_stream()) {
             std::vector<std::uint8_t> const data = doc->decode(*stream);
             std::cout << "decoded " << data.size() << " bytes\n";
+        }
+        return 0;
+    }
+    if (fonts_page >= 1) {
+        if (static_cast<std::size_t>(fonts_page) > doc->page_count())
+            return 1;
+        pdf::Dict const resources = doc->resolve(doc->page(static_cast<std::size_t>(fonts_page - 1)).resources).as_dict();
+        pdf::Dict const fonts = doc->resolve(resources.get("Font")).as_dict();
+        char const* const kinds[] = { "simple", "type3", "composite" };
+        for (auto const& [name, entry] : fonts.entries()) {
+            std::shared_ptr<pdf::Font const> const font = doc->font(entry);
+            if (!font)
+                continue;
+            int found = 0;
+            int tried = 0;
+            if (font->kind() == pdf::Font::Kind::Simple) {
+                for (int code = 32; code < 256; ++code) {
+                    std::string const one(1, static_cast<char>(code));
+                    std::size_t at = 0;
+                    pdf::ShownGlyph glyph;
+                    if (!font->next(one, at, glyph))
+                        continue;
+                    ++tried;
+                    if (font->outline(glyph))
+                        ++found;
+                }
+            }
+            std::cout << "/" << name << " " << font->base_font() << " " << kinds[static_cast<int>(font->kind())]
+                      << (font->substituted() ? " substituted" : " embedded") << (font->vertical() ? " vertical" : "");
+            if (tried > 0)
+                std::cout << " glyphs " << found << "/" << tried;
+            std::cout << "\n";
         }
         return 0;
     }
@@ -192,8 +230,47 @@ int main(int argc, char** argv)
                 }
             }
             double const pixels = static_cast<double>(w) * h;
-            std::printf("vs %s %dx%d: mean %.3f, off %.3f%%\n", compare_path.substr(compare_path.rfind('.', compare_path.size() - 5) + 1).c_str(),
-                reference->width(), reference->height(), sum / (pixels * 3), 100.0 * static_cast<double>(off) / pixels);
+            // The same after a 3x3 box blur of both: edges drawn a little
+            // differently (anti-aliasing, hinting) fade, while a glyph or a
+            // shape missing or misplaced stays.
+            auto const blurred_gray = [&](Bitmap const& b) {
+                std::vector<int> gray(static_cast<std::size_t>(w) * static_cast<std::size_t>(h));
+                for (int y = 0; y < h; ++y) {
+                    for (int x = 0; x < w; ++x) {
+                        Color const c = b.pixel(x, y);
+                        gray[static_cast<std::size_t>(y) * static_cast<std::size_t>(w) + static_cast<std::size_t>(x)] = (c.r * 3 + c.g * 6 + c.b) / 10;
+                    }
+                }
+                std::vector<int> out(gray.size());
+                for (int y = 0; y < h; ++y) {
+                    for (int x = 0; x < w; ++x) {
+                        int total = 0;
+                        int n = 0;
+                        for (int dy = -1; dy <= 1; ++dy) {
+                            for (int dx = -1; dx <= 1; ++dx) {
+                                int const sx = x + dx;
+                                int const sy = y + dy;
+                                if (sx < 0 || sy < 0 || sx >= w || sy >= h)
+                                    continue;
+                                total += gray[static_cast<std::size_t>(sy) * static_cast<std::size_t>(w) + static_cast<std::size_t>(sx)];
+                                ++n;
+                            }
+                        }
+                        out[static_cast<std::size_t>(y) * static_cast<std::size_t>(w) + static_cast<std::size_t>(x)] = total / n;
+                    }
+                }
+                return out;
+            };
+            std::vector<int> const ours_blur = blurred_gray(*picture);
+            std::vector<int> const theirs_blur = blurred_gray(*reference);
+            std::size_t shape_off = 0;
+            for (std::size_t k = 0; k < ours_blur.size(); ++k) {
+                if (std::abs(ours_blur[k] - theirs_blur[k]) > 48)
+                    ++shape_off;
+            }
+            std::printf("vs %s %dx%d: mean %.3f, off %.3f%%, shape %.3f%%\n", compare_path.substr(compare_path.rfind('.', compare_path.size() - 5) + 1).c_str(),
+                reference->width(), reference->height(), sum / (pixels * 3), 100.0 * static_cast<double>(off) / pixels,
+                100.0 * static_cast<double>(shape_off) / pixels);
         }
         return 0;
     }

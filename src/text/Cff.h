@@ -16,9 +16,12 @@
 
 #include "text/TrueType.h"
 
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <optional>
+#include <string>
+#include <string_view>
 #include <unordered_map>
 #include <vector>
 
@@ -40,6 +43,18 @@ public:
     // The glyph's contours in charstring units; false for a malformed
     // charstring. An empty outline is a valid result: a space.
     bool outline(std::vector<std::uint8_t> const& bytes, std::uint16_t glyph, GlyphOutline& out) const;
+
+    // For a font embedded in a PDF, which names its glyphs by code, name
+    // or CID: reads the charset, the glyph names and the built-in
+    // encoding once — call it before the font is shared between threads.
+    void load_names(std::vector<std::uint8_t> const& bytes);
+    std::optional<std::uint16_t> glyph_by_name(std::string_view name) const;
+    // A CID-keyed font's glyph for a CID (any other font: the CID is the glyph).
+    std::optional<std::uint16_t> glyph_by_cid(std::uint16_t cid) const;
+    // The built-in encoding after load_names: a glyph per code, 0 for none.
+    std::array<std::uint16_t, 256> const& encoding() const { return m_encoding; }
+    std::size_t glyph_names_known() const { return m_names.size(); }
+    static char const* standard_string(int sid);
 
 private:
     struct Span {
@@ -65,6 +80,7 @@ private:
         Private& out) const;
     std::uint16_t glyph_of_standard_code(std::vector<std::uint8_t> const& bytes, std::uint8_t code) const;
     void load_charset(std::vector<std::uint8_t> const& bytes) const;
+    std::string glyph_name_of_sid(std::vector<std::uint8_t> const& bytes, std::uint16_t sid) const;
     Private const& private_for(std::uint16_t glyph) const;
 
     friend struct Type2;
@@ -77,6 +93,10 @@ private:
     std::vector<Private> m_fd_privates; // CID: one per font dict
     std::vector<std::uint8_t> m_fd_select; // CID: the font dict of each glyph
     std::size_t m_charset = 0; // 0: the ISOAdobe charset, glyph i has SID i
+    Index m_strings; // the String INDEX: names past the standard strings
+    std::size_t m_encoding_offset = 0; // 0 Standard, 1 Expert, else where the table is
+    std::array<std::uint16_t, 256> m_encoding {};
+    std::unordered_map<std::string, std::uint16_t> m_names;
     mutable std::vector<std::uint16_t> m_sid_of_glyph; // loaded on the first accent
     mutable std::unordered_map<std::uint16_t, std::uint16_t> m_gid_of_sid;
     mutable bool m_charset_loaded = false;

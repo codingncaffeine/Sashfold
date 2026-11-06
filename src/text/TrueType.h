@@ -107,6 +107,15 @@ public:
 
     // 0 (.notdef) when the font has no glyph for the code point.
     std::uint16_t glyph_index(char32_t code_point) const;
+    // One cmap subtable's glyph for a code, as a PDF reader looks a simple
+    // font's codes up (§9.6.5.4: the (3,1), (1,0) and (3,0) subtables by
+    // name): nullopt when the font has no such subtable, 0 when it maps
+    // nothing there.
+    std::optional<std::uint16_t> subtable_glyph(std::uint16_t platform, std::uint16_t encoding, char32_t code) const;
+    // The glyph names of the 'post' table (formats 1 and 2) by glyph
+    // index; a standard Macintosh name is asked of `standard_name`.
+    // Empty when the table has no names.
+    std::vector<std::string> glyph_names(char const* (*standard_name)(int)) const;
     // How many code points the cmap maps to some glyph — the coverage a
     // fallback chain ranks by.
     std::size_t mapped_code_points() const;
@@ -204,7 +213,13 @@ private:
 
     std::vector<std::uint8_t> m_bytes;
     Table m_head, m_hhea, m_hmtx, m_maxp, m_loca, m_glyf, m_cmap, m_name, m_os2, m_cff_table, m_kern,
-        m_gpos, m_cblc, m_cbdt, m_sbix, m_colr, m_cpal;
+        m_gpos, m_cblc, m_cbdt, m_sbix, m_colr, m_cpal, m_post;
+    struct Subtable {
+        std::uint16_t platform = 0;
+        std::uint16_t encoding = 0;
+        std::vector<Run> runs; // sorted by first
+    };
+    std::vector<Subtable> m_subtables;
     std::vector<Strike> m_strikes; // sorted by ppem
     // COLR version 0: the base glyph records (sorted by glyph) and the
     // layer records they index, as offsets into the table; CPAL's first

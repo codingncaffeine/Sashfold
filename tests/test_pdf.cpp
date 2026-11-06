@@ -5,7 +5,12 @@
 #include "pdf/Document.h"
 #include "pdf/Filters.h"
 #include "pdf/Parser.h"
+#include "pdf/CMap.h"
+#include "pdf/Encoding.h"
+#include "pdf/Font.h"
 #include "pdf/Render.h"
+#include "pdf/Type1.h"
+#include "text/TrueType.h"
 
 #include <atomic>
 #include <cstdint>
@@ -545,6 +550,267 @@ void test_render()
     CHECK(!render(page_pdf(busy), 1, &cancel));
 }
 
+// Type 1 charstring numbers, encoded here apart from the reader's decoder.
+void put_type1_number(Bytes& out, int v)
+{
+    if (v >= -107 && v <= 107) {
+        out.push_back(static_cast<std::uint8_t>(v + 139));
+    } else if (v >= 108 && v <= 1131) {
+        out.push_back(static_cast<std::uint8_t>((v - 108) / 256 + 247));
+        out.push_back(static_cast<std::uint8_t>((v - 108) % 256));
+    } else if (v >= -1131 && v <= -108) {
+        out.push_back(static_cast<std::uint8_t>((-v - 108) / 256 + 251));
+        out.push_back(static_cast<std::uint8_t>((-v - 108) % 256));
+    } else {
+        out.push_back(255);
+        for (int k = 3; k >= 0; --k)
+            out.push_back(static_cast<std::uint8_t>(static_cast<std::uint32_t>(v) >> (8 * k)));
+    }
+}
+
+// The Type 1 encryption (the inverse of what the reader decrypts), with `lead` bytes before.
+Bytes type1_encrypt(Bytes const& plain, std::uint16_t key, std::size_t lead)
+{
+    Bytes in(lead, 0x2A);
+    in.insert(in.end(), plain.begin(), plain.end());
+    Bytes out;
+    std::uint16_t r = key;
+    for (std::uint8_t const p : in) {
+        std::uint8_t const c = static_cast<std::uint8_t>(p ^ (r >> 8));
+        r = static_cast<std::uint16_t>((c + r) * 52845u + 22719u);
+        out.push_back(c);
+    }
+    return out;
+}
+
+// A Type 1 font of one glyph, "A": a box from (100, 0) to (500, 700), drawn
+// partly through a subroutine, 600 units wide.
+std::pair<Bytes, std::size_t> make_type1_font()
+{
+    std::string const clear = "%!PS-AdobeFont-1.0: SashfoldTestType1 001.000\n/FontMatrix [0.001 0 0 0.001 0 0] readonly def\n"
+                              "/Encoding StandardEncoding def\ncurrentfile eexec\n";
+    Bytes glyph;
+    put_type1_number(glyph, 0);
+    put_type1_number(glyph, 600);
+    glyph.push_back(13); // hsbw
+    put_type1_number(glyph, 100);
+    put_type1_number(glyph, 0);
+    glyph.push_back(21); // rmoveto
+    put_type1_number(glyph, 0);
+    glyph.push_back(10); // callsubr 0: rlineto 400 0, return
+    put_type1_number(glyph, 0);
+    put_type1_number(glyph, 700);
+    glyph.push_back(5);
+    put_type1_number(glyph, -400);
+    put_type1_number(glyph, 0);
+    glyph.push_back(5);
+    glyph.push_back(9); // closepath
+    glyph.push_back(14); // endchar
+    Bytes subr;
+    put_type1_number(subr, 400);
+    put_type1_number(subr, 0);
+    subr.push_back(5);
+    subr.push_back(11); // return
+    Bytes notdef;
+    put_type1_number(notdef, 0);
+    put_type1_number(notdef, 250);
+    notdef.push_back(13);
+    notdef.push_back(14);
+    Bytes const glyph_e = type1_encrypt(glyph, 4330, 4);
+    Bytes const subr_e = type1_encrypt(subr, 4330, 4);
+    Bytes const notdef_e = type1_encrypt(notdef, 4330, 4);
+    Bytes priv = bytes("dup /Private 8 dict dup begin /lenIV 4 def\n/Subrs 1 array\ndup 0 " + std::to_string(subr_e.size()) + " RD ");
+    priv.insert(priv.end(), subr_e.begin(), subr_e.end());
+    std::string const mid = " NP\nnoaccess def\n2 index /CharStrings 2 dict dup begin\n/.notdef " + std::to_string(notdef_e.size()) + " RD ";
+    priv.insert(priv.end(), mid.begin(), mid.end());
+    priv.insert(priv.end(), notdef_e.begin(), notdef_e.end());
+    std::string const a = " ND\n/A " + std::to_string(glyph_e.size()) + " RD ";
+    priv.insert(priv.end(), a.begin(), a.end());
+    priv.insert(priv.end(), glyph_e.begin(), glyph_e.end());
+    std::string const tail = " ND\nend\nend\n";
+    priv.insert(priv.end(), tail.begin(), tail.end());
+    Bytes file = bytes(clear);
+    std::size_t const length1 = file.size();
+    Bytes const encrypted = type1_encrypt(priv, 55665, 4);
+    file.insert(file.end(), encrypted.begin(), encrypted.end());
+    return { file, length1 };
+}
+
+// A Type 3 font whose glyph "a" (code 97) is a 1000-unit square, 1000 wide.
+std::map<int, std::string> type3_objects()
+{
+    return {
+        { 5, "<< /Type /Font /Subtype /Type3 /FontBBox [0 0 1000 1000] /FontMatrix [0.001 0 0 0.001 0 0] /CharProcs << /sq 6 0 R >> "
+             "/Encoding << /Differences [97 /sq] >> /FirstChar 97 /LastChar 97 /Widths [1000] /Resources << >> >>" },
+        { 6, "<< /Length 37 >>\nstream\n1000 0 0 0 1000 1000 d1 0 0 1000 1000 re f\nendstream" },
+    };
+}
+
+void test_text(std::string const& test_font_path)
+{
+    // Glyph names to text.
+    CHECK(pdf::glyph_name_unicode("A") == U"A");
+    CHECK(pdf::glyph_name_unicode("Euro") == U"€");
+    CHECK(pdf::glyph_name_unicode("uni00410042") == U"AB");
+    CHECK(pdf::glyph_name_unicode("u1F600") == U"\U0001F600");
+    CHECK(pdf::glyph_name_unicode("afii10017") == U"А");
+    CHECK(pdf::glyph_name_unicode("afii10071") == U"ё");
+    CHECK(pdf::glyph_name_unicode("f_i") == U"fi");
+    CHECK(pdf::glyph_name_unicode("a.sc") == U"a");
+    CHECK(pdf::glyph_name_unicode("no-such-name").empty());
+    CHECK(std::string(pdf::base_encoding(pdf::BaseEncoding::WinAnsi)[0x80]) == "Euro");
+    CHECK(std::string(pdf::base_encoding(pdf::BaseEncoding::Standard)[0x27]) == "quoteright");
+    CHECK(std::string(pdf::base_encoding(pdf::BaseEncoding::MacRoman)[0xDB]) == "currency");
+    CHECK(std::string(pdf::mac_glyph_name(257)) == "dcroat");
+
+    // CMaps: mixed one- and two-byte codes; CID ranges; ToUnicode ranges with arrays and surrogates.
+    auto const cmap = pdf::CMap::parse(bytes("begincmap\n2 begincodespacerange <00> <80> <8140> <9FFC> endcodespacerange\n"
+                                            "1 begincidrange <8140> <817E> 633 endcidrange\n1 begincidchar <41> 34 endcidchar\nendcmap"));
+    CHECK(cmap != nullptr);
+    if (cmap) {
+        std::string const text("\x41\x81\x42", 3);
+        std::size_t at = 0;
+        std::uint32_t code = 0;
+        int length = 0;
+        CHECK(cmap->next_code(text, at, code, length) && code == 0x41 && length == 1 && cmap->cid(code, length) == 34);
+        CHECK(cmap->next_code(text, at, code, length) && code == 0x8142 && length == 2 && cmap->cid(code, length) == 635);
+        CHECK(!cmap->next_code(text, at, code, length));
+    }
+    auto const to_unicode = pdf::CMap::parse(bytes("1 begincodespacerange <0000> <FFFF> endcodespacerange\n"
+                                                  "2 beginbfrange <0010> <0012> <0041> <0020> <0021> [<0066 0066> <D83D DE00>] endbfrange\n"
+                                                  "1 beginbfchar <0030> <00E9> endbfchar"));
+    CHECK(to_unicode && to_unicode->unicode(0x11, 2) == U"B" && to_unicode->unicode(0x20, 2) == U"ff"
+        && to_unicode->unicode(0x21, 2) == U"\U0001F600" && to_unicode->unicode(0x30, 2) == U"é" && to_unicode->unicode(0x40, 2).empty());
+    CHECK(pdf::CMap::predefined("Identity-H") && pdf::CMap::predefined("Identity-H")->is_identity());
+    CHECK(!pdf::CMap::predefined("../../etc/passwd"));
+
+    // A Type 3 font: glyphs placed by the text matrix, moved by their widths, Tc, Tw, TJ and Tz.
+    std::map<int, std::string> t3 = type3_objects();
+    auto picture = render(page_pdf("BT /T 10 Tf 10 10 Td (aa) Tj ET", "<< /Font << /T 5 0 R >> >>", t3));
+    CHECK(near(picture, 15, 85, 0, 0, 0)); // the first square: x 10-20, y 10-20 of the page
+    CHECK(near(picture, 25, 85, 0, 0, 0)); // the second, one width on
+    CHECK(near(picture, 35, 85, 255, 255, 255));
+    picture = render(page_pdf("BT /T 10 Tf 10 10 Td 5 Tc [(a) -500 (a)] TJ ET", "<< /Font << /T 5 0 R >> >>", t3));
+    CHECK(near(picture, 27, 85, 255, 255, 255)); // 10 + 10 width + 5 Tc + 5 from TJ: the second starts at 30
+    CHECK(near(picture, 33, 85, 0, 0, 0));
+    picture = render(page_pdf("BT /T 10 Tf 50 Tz 10 10 Td (aa) Tj ET", "<< /Font << /T 5 0 R >> >>", t3));
+    CHECK(near(picture, 12, 85, 0, 0, 0)); // squeezed to half width: x 10-15, 15-20
+    CHECK(near(picture, 22, 85, 255, 255, 255));
+    picture = render(page_pdf("BT /T 10 Tf 10 10 Td 20 Ts (a) Tj ET", "<< /Font << /T 5 0 R >> >>", t3));
+    CHECK(near(picture, 15, 65, 0, 0, 0)); // raised 20
+    CHECK(near(picture, 15, 85, 255, 255, 255));
+    // A d1 glyph paints with the fill color, not its own.
+    picture = render(page_pdf("BT 1 0 0 rg /T 10 Tf 10 10 Td (a) Tj ET", "<< /Font << /T 5 0 R >> >>", t3));
+    CHECK(near(picture, 15, 85, 255, 0, 0));
+
+    // A Type 1 font, embedded: the glyph through eexec, the charstring decryption, a subroutine.
+    auto const [type1_file, length1] = make_type1_font();
+    std::optional<pdf::Type1Font> const type1 = pdf::Type1Font::parse(type1_file, length1, type1_file.size() - length1);
+    CHECK(type1 && type1->has_glyph("A") && type1->standard_encoding());
+    if (type1) {
+        double advance = 0;
+        std::optional<svg::Path> const path = type1->glyph("A", &advance);
+        CHECK(path && advance == 600);
+        if (path) {
+            // One contour (flatten leaves a lone point after a close, which encloses nothing).
+            std::vector<svg::Polyline> lines;
+            for (svg::Polyline& line : svg::flatten(*path)) {
+                if (line.points.size() >= 3)
+                    lines.push_back(std::move(line));
+            }
+            CHECK(lines.size() == 1 && lines[0].points.size() >= 4);
+            if (!lines.empty()) {
+                float x_max = 0;
+                float y_max = 0;
+                for (svg::Point const& point : lines[0].points) {
+                    x_max = std::max(x_max, point.x);
+                    y_max = std::max(y_max, point.y);
+                }
+                CHECK(x_max == 500 && y_max == 700);
+            }
+        }
+    }
+    std::string font_stream(type1_file.begin(), type1_file.end());
+    picture = render(page_pdf("BT /F 100 Tf 0 10 Td (A) Tj ET", "<< /Font << /F 5 0 R >> >>",
+        { { 5, "<< /Type /Font /Subtype /Type1 /BaseFont /SashfoldTestType1 /FirstChar 65 /LastChar 65 /Widths [600] /FontDescriptor 6 0 R >>" },
+            { 6, "<< /Type /FontDescriptor /FontName /SashfoldTestType1 /Flags 32 /FontFile 7 0 R >>" },
+            { 7, "<< /Length " + std::to_string(font_stream.size()) + " /Length1 " + std::to_string(length1) + " /Length2 "
+                     + std::to_string(font_stream.size() - length1) + " /Length3 0 >>\nstream\n" + font_stream + "\nendstream" } }));
+    CHECK(near(picture, 30, 50, 0, 0, 0)); // the box: x 10-50, y 10-80 of the page
+    CHECK(near(picture, 5, 50, 255, 255, 255));
+    CHECK(near(picture, 55, 50, 255, 255, 255));
+    // Invisible text draws nothing; a clipping mode keeps what follows inside the glyphs.
+    picture = render(page_pdf("BT 3 Tr /F 100 Tf 0 10 Td (A) Tj ET", "<< /Font << /F 5 0 R >> >>",
+        { { 5, "<< /Type /Font /Subtype /Type1 /BaseFont /SashfoldTestType1 /FirstChar 65 /LastChar 65 /Widths [600] /FontDescriptor 6 0 R >>" },
+            { 6, "<< /Type /FontDescriptor /FontName /SashfoldTestType1 /Flags 32 /FontFile 7 0 R >>" },
+            { 7, "<< /Length " + std::to_string(font_stream.size()) + " /Length1 " + std::to_string(length1) + " /Length2 "
+                     + std::to_string(font_stream.size() - length1) + " /Length3 0 >>\nstream\n" + font_stream + "\nendstream" } }));
+    CHECK(near(picture, 30, 50, 255, 255, 255));
+    picture = render(page_pdf("BT 7 Tr /F 100 Tf 0 10 Td (A) Tj ET 0 0 1 rg 0 0 100 100 re f", "<< /Font << /F 5 0 R >> >>",
+        { { 5, "<< /Type /Font /Subtype /Type1 /BaseFont /SashfoldTestType1 /FirstChar 65 /LastChar 65 /Widths [600] /FontDescriptor 6 0 R >>" },
+            { 6, "<< /Type /FontDescriptor /FontName /SashfoldTestType1 /Flags 32 /FontFile 7 0 R >>" },
+            { 7, "<< /Length " + std::to_string(font_stream.size()) + " /Length1 " + std::to_string(length1) + " /Length2 "
+                     + std::to_string(font_stream.size() - length1) + " /Length3 0 >>\nstream\n" + font_stream + "\nendstream" } }));
+    CHECK(near(picture, 30, 50, 0, 0, 255));
+    CHECK(near(picture, 70, 50, 255, 255, 255));
+
+    // TrueType, embedded, as a simple font (WinAnsi) and as a CID font (Identity-H): the same glyph, the text it stands for.
+    // (The test face has the small letters only.)
+    std::ifstream file(test_font_path, std::ios::binary);
+    std::string const ttf((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+    CHECK(!ttf.empty());
+    std::optional<text::TrueTypeFont> const parsed = text::TrueTypeFont::parse(Bytes(ttf.begin(), ttf.end()));
+    CHECK(parsed.has_value());
+    if (ttf.empty() || !parsed)
+        return;
+    std::uint16_t const gid = parsed->glyph_index(U'm');
+    CHECK(gid != 0);
+    std::string const ttf_object = "<< /Length " + std::to_string(ttf.size()) + " >>\nstream\n" + ttf + "\nendstream";
+    std::map<int, std::string> simple = {
+        { 5, "<< /Type /Font /Subtype /TrueType /BaseFont /SashfoldTestSans /Encoding /WinAnsiEncoding /FirstChar 109 /LastChar 109 /Widths [700] /FontDescriptor 6 0 R >>" },
+        { 6, "<< /Type /FontDescriptor /FontName /SashfoldTestSans /Flags 32 /FontFile2 7 0 R >>" },
+        { 7, ttf_object },
+    };
+    picture = render(page_pdf("BT /F 80 Tf 10 20 Td (m) Tj ET", "<< /Font << /F 5 0 R >> >>", simple));
+    int dark = 0;
+    for (int y = 0; picture && y < 100; ++y) {
+        for (int x = 0; x < 100; ++x)
+            dark += picture->pixel(x, y).r < 100 ? 1 : 0;
+    }
+    CHECK(dark > 200);
+    char gid_bytes[3];
+    std::snprintf(gid_bytes, sizeof gid_bytes, "%c%c", static_cast<char>(gid >> 8), static_cast<char>(gid & 0xFF));
+    std::map<int, std::string> composite = {
+        { 5, "<< /Type /Font /Subtype /Type0 /BaseFont /SashfoldTestSans /Encoding /Identity-H /DescendantFonts [8 0 R] /ToUnicode 9 0 R >>" },
+        { 6, "<< /Type /FontDescriptor /FontName /SashfoldTestSans /Flags 32 /FontFile2 7 0 R >>" },
+        { 7, ttf_object },
+        { 8, "<< /Type /Font /Subtype /CIDFontType2 /BaseFont /SashfoldTestSans /CIDSystemInfo << /Registry (Adobe) /Ordering (Identity) /Supplement 0 >> "
+             "/FontDescriptor 6 0 R /W [" + std::to_string(gid) + " [700]] /CIDToGIDMap /Identity >>" },
+        { 9, "<< /Length 99 >>\nstream\n1 begincodespacerange <0000> <FFFF> endcodespacerange 1 beginbfchar <" + [&] {
+                char hex[8];
+                std::snprintf(hex, sizeof hex, "%04X", gid);
+                return std::string(hex);
+            }() + "> <006D> endbfchar\nendstream" },
+    };
+    std::string const content = std::string("BT /F 80 Tf 10 20 Td <") + [&] {
+        char hex[8];
+        std::snprintf(hex, sizeof hex, "%04X", gid);
+        return std::string(hex);
+    }() + "> Tj ET";
+    auto const same = render(page_pdf(content, "<< /Font << /F 5 0 R >> >>", composite));
+    CHECK(same && picture && same->pixels() == picture->pixels());
+    pdf::Document::Status status {};
+    auto const doc = open(page_pdf(content, "<< /Font << /F 5 0 R >> >>", composite), status);
+    if (doc) {
+        auto const font = doc->font(doc->resolve(doc->page(0).resources).as_dict().get("Font").as_dict().get("F"));
+        pdf::ShownGlyph glyph;
+        std::size_t at = 0;
+        CHECK(font && font->next(std::string(gid_bytes, 2), at, glyph) && glyph.cid == gid && glyph.width == 0.7);
+        CHECK(font && font->text(glyph) == U"m");
+        CHECK(font && !font->substituted());
+    }
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -560,5 +826,9 @@ int main(int argc, char** argv)
         test_encrypted(argv[1]);
     else
         CHECK(!"the fixtures folder is the first argument");
+    if (argc > 2)
+        test_text(argv[2]);
+    else
+        CHECK(!"the test font is the second argument");
     return test::report("test_pdf");
 }

@@ -42,6 +42,7 @@ constexpr std::uint32_t tag_cbdt = make_tag('C', 'B', 'D', 'T');
 constexpr std::uint32_t tag_sbix = make_tag('s', 'b', 'i', 'x');
 constexpr std::uint32_t tag_colr = make_tag('C', 'O', 'L', 'R');
 constexpr std::uint32_t tag_cpal = make_tag('C', 'P', 'A', 'L');
+constexpr std::uint32_t tag_post = make_tag('p', 'o', 's', 't');
 constexpr std::uint32_t tag_png = make_tag('p', 'n', 'g', ' ');
 
 // Nothing a font can say moves an offset past this: keeps every table
@@ -477,6 +478,7 @@ bool TrueTypeFont::load_directory(std::uint32_t offset)
         case tag_sbix: m_sbix = table; break;
         case tag_colr: m_colr = table; break;
         case tag_cpal: m_cpal = table; break;
+        case tag_post: m_post = table; break;
         default: break;
         }
     }
@@ -549,6 +551,20 @@ bool TrueTypeFont::load_cmap()
     std::stable_sort(candidates.begin(), candidates.end(),
         [](Candidate const& a, Candidate const& b) { return a.score > b.score; });
 
+    // Every subtable kept apart as well, for lookups by platform and encoding.
+    for (std::size_t i = 0; i < record_count; ++i) {
+        std::size_t const record = base + 4 + i * 8;
+        std::uint32_t const offset = reader.u32(record + 4);
+        if (offset >= m_cmap.length)
+            continue;
+        Subtable subtable;
+        subtable.platform = reader.u16(record);
+        subtable.encoding = reader.u16(record + 2);
+        if (!load_cmap_subtable(base + offset, subtable.runs))
+            continue;
+        std::stable_sort(subtable.runs.begin(), subtable.runs.end(), [](Run const& a, Run const& b) { return a.first < b.first; });
+        m_subtables.push_back(std::move(subtable));
+    }
     for (Candidate const& candidate : candidates) {
         std::vector<Run> runs;
         if (candidate.offset >= end || !load_cmap_subtable(candidate.offset, runs) || runs.empty())
@@ -782,6 +798,69 @@ std::uint16_t TrueTypeFont::glyph_index(char32_t code_point) const
         return 0;
     std::uint32_t const glyph = run.glyph + (code_point - run.first);
     return glyph < m_glyph_count ? static_cast<std::uint16_t>(glyph) : 0;
+}
+
+std::optional<std::uint16_t> TrueTypeFont::subtable_glyph(std::uint16_t platform, std::uint16_t encoding, char32_t code) const
+{
+    for (Subtable const& subtable : m_subtables) {
+        if (subtable.platform != platform || subtable.encoding != encoding)
+            continue;
+        auto const it = std::upper_bound(subtable.runs.begin(), subtable.runs.end(), code,
+            [](char32_t c, Run const& run) { return c < run.first; });
+        if (it == subtable.runs.begin())
+            return std::uint16_t { 0 };
+        Run const& run = *(it - 1);
+        if (code > run.last)
+            return std::uint16_t { 0 };
+        std::uint32_t const glyph = run.glyph + (code - run.first);
+        return glyph < m_glyph_count ? static_cast<std::uint16_t>(glyph) : std::uint16_t { 0 };
+    }
+    return std::nullopt;
+}
+
+std::vector<std::string> TrueTypeFont::glyph_names(char const* (*standard_name)(int)) const
+{
+    Reader const reader { m_bytes };
+    std::vector<std::string> names;
+    if (!m_post.present() || m_post.length < 32)
+        return names;
+    std::size_t const base = m_post.offset;
+    std::uint32_t const format = reader.u32(base);
+    if (format == 0x00010000) {
+        for (int i = 0; i < 258 && i < m_glyph_count; ++i) {
+            char const* name = standard_name(i);
+            names.emplace_back(name ? name : "");
+        }
+        return names;
+    }
+    if (format != 0x00020000 || m_post.length < 34)
+        return names;
+    std::size_t const count = std::min<std::size_t>(reader.u16(base + 32), m_glyph_count);
+    std::size_t const indices = base + 34;
+    std::size_t const end = base + m_post.length;
+    if (indices + count * 2 > end)
+        return names;
+    // The Pascal strings after the index array, in order.
+    std::vector<std::string> custom;
+    for (std::size_t at = indices + reader.u16(base + 32) * 2u; at < end && custom.size() < 65536;) {
+        std::size_t const n = reader.u8(at);
+        if (at + 1 + n > end)
+            break;
+        custom.emplace_back(reinterpret_cast<char const*>(m_bytes.data() + at + 1), n);
+        at += 1 + n;
+    }
+    for (std::size_t g = 0; g < count; ++g) {
+        std::uint16_t const index = reader.u16(indices + g * 2);
+        if (index < 258) {
+            char const* name = standard_name(index);
+            names.emplace_back(name ? name : "");
+        } else if (static_cast<std::size_t>(index - 258) < custom.size()) {
+            names.push_back(custom[index - 258]);
+        } else {
+            names.emplace_back();
+        }
+    }
+    return names;
 }
 
 std::size_t TrueTypeFont::mapped_code_points() const
