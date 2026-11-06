@@ -1083,6 +1083,11 @@ struct ComputedStyle {
     // back. The values SVG adds for its own shapes all mean the pointer is
     // heard, as `auto` does on a box.
     bool pointer_events = true;
+    // interactivity (CSS UI 4; HTML's `inert` is `[inert] { interactivity:
+    // inert }` in the UA sheet): an inert box is out of the reader's reach —
+    // not under the pointer, not focused, not found by find in page, not
+    // selected. Inherited.
+    bool inert = false;
 
     // Transforms: the translation parts of `transform` and `translate`,
     // percentages of the box's own size, applied after layout without

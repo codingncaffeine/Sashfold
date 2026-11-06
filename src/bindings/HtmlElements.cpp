@@ -1409,6 +1409,11 @@ void install_html_or_svg_element(Realm::Internals& in, js::Object& proto, bool w
         });
     element_getter(in, proto, "dataset", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_dataset(internals, e); });
     element_method(in, proto, "focus", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+        // An inert element is no focusable area (HTML §6.6.2): focus() does nothing.
+        if (internals.hooks.computed_style) {
+            if (css::ComputedStyle const* const style = internals.hooks.computed_style(e); style && style->inert)
+                return js::Value::undefined();
+        }
         move_focus(internals, &e);
         return js::Value::undefined();
     });

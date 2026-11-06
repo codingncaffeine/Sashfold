@@ -1879,12 +1879,13 @@ bool holds(float left, float top, float width, float height, Probe at)
 }
 
 // Whether the pointer is heard by what a style dresses: not while it is
-// hidden, which paints nothing, and not with `pointer-events: none`. A box
+// hidden, which paints nothing, not with `pointer-events: none`, and not
+// when it is inert (what is behind it answers, as Chrome does). A box
 // at no opacity at all is still heard, as it is in every engine — a page
 // lays a transparent control over the picture of one it drew itself.
 bool hears_pointer(ComputedStyle const* style)
 {
-    return style && !style->hidden() && style->pointer_events;
+    return style && !style->hidden() && style->pointer_events && !style->inert;
 }
 
 // What a box that clips holds is out of reach outside its padding box, on

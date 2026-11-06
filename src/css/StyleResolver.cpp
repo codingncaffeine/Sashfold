@@ -163,6 +163,7 @@ fieldset, figcaption, figure, footer, form, header, hgroup, hr, legend, listing,
 main, menu, nav, ol, p, plaintext, pre, search, section, summary, ul, xmp,
 h1, h2, h3, h4, h5, h6, dir { display: block }
 [hidden] { display: none }
+[inert] { interactivity: inert }
 table { display: table; border-collapse: separate; border-spacing: 2px; border-color: gray }
 caption { display: table-caption }
 tbody { display: table-row-group; vertical-align: middle }
@@ -4294,7 +4295,7 @@ struct Resolver {
         &ComputedStyle::font_synthesis_style, &ComputedStyle::font_synthesis_small_caps,
         &ComputedStyle::font_synthesis_position, &ComputedStyle::text_transform, &ComputedStyle::text_shadow, &ComputedStyle::list_style_type,
         &ComputedStyle::list_style_position, &ComputedStyle::quotes, &ComputedStyle::custom, &ComputedStyle::visibility,
-        &ComputedStyle::pointer_events, &ComputedStyle::border_collapse, &ComputedStyle::border_spacing_horizontal,
+        &ComputedStyle::pointer_events, &ComputedStyle::inert, &ComputedStyle::border_collapse, &ComputedStyle::border_spacing_horizontal,
         &ComputedStyle::border_spacing_vertical, &ComputedStyle::caption_side, &ComputedStyle::empty_cells,
         &ComputedStyle::fill, &ComputedStyle::stroke, &ComputedStyle::fill_opacity, &ComputedStyle::stroke_opacity,
         &ComputedStyle::stroke_width, &ComputedStyle::fill_rule, &ComputedStyle::stroke_linecap,
@@ -4510,6 +4511,7 @@ struct Resolver {
             { "z-index", false, [](S& to, S const& from) { to.z_index = from.z_index; }, 0 },
             { "visibility", true, [](S& to, S const& from) { to.visibility = from.visibility; }, 0 },
             { "pointer-events", true, [](S& to, S const& from) { to.pointer_events = from.pointer_events; }, 0 },
+            { "interactivity", true, [](S& to, S const& from) { to.inert = from.inert; }, 0 },
             { "opacity", false, [](S& to, S const& from) { to.opacity = from.opacity; }, 0 },
             // SVG's painting properties.
             { "fill", true, [](S& to, S const& from) { to.fill = from.fill; }, 0 },
@@ -6363,6 +6365,16 @@ struct Resolver {
                         style.pointer_events = true;
                 }
             }
+            return;
+        }
+        if (name == "interactivity") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            if (ascii_ci_equals(keyword, "inert"))
+                style.inert = true;
+            else if (ascii_ci_equals(keyword, "auto"))
+                style.inert = false;
             return;
         }
         if (name == "visibility") {

@@ -9542,7 +9542,8 @@ struct Browser::Impl {
         float above_bottom = 0;
         for (std::size_t i = 0; i < runs.size(); ++i) {
             layout::TextRun const& run = *runs[i];
-            if (run.text.empty())
+            // Inert text cannot be selected: a press or a drag finds the text around it.
+            if (run.text.empty() || (run.style && run.style->inert))
                 continue;
             text::FaceMetrics const metrics = run_metrics(run);
             float const top = run.baseline_y - metrics.ascent;
@@ -12191,7 +12192,13 @@ struct Browser::Impl {
             std::vector<std::size_t> starts;
             for (std::size_t i = line_start; i < line_end; ++i) {
                 starts.push_back(line.size());
-                line += folded(tab.runs[i]->text);
+                // Inert text is not found (HTML §6.3): kept as filler no
+                // query matches, so the places after it stay where they are.
+                layout::TextRun const& run = *tab.runs[i];
+                if (run.style && run.style->inert)
+                    line += std::u32string(run.text.size(), U'\uFFFF');
+                else
+                    line += folded(run.text);
             }
             auto const locate = [&](std::size_t index) {
                 std::size_t run = 0;
@@ -13616,7 +13623,12 @@ struct Browser::Impl {
     // Moves focus to the next (or previous) control in tree order.
     void focus_neighbor(Tab& tab, bool backwards)
     {
-        std::vector<dom::Element const*> const controls = focusable_controls(*tab.document);
+        // Inert controls are not in the order (HTML §6.6.3).
+        std::vector<dom::Element const*> controls = focusable_controls(*tab.document);
+        std::erase_if(controls, [&](dom::Element const* control) {
+            auto const style = tab.styles.find(control);
+            return style != tab.styles.end() && style->second.inert;
+        });
         if (controls.empty())
             return;
         std::size_t index = 0;

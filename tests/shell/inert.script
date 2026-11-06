@@ -1,0 +1,21 @@
+# inert (HTML §6.3, as `[inert] { interactivity: inert }`): what is inert is
+# out of the reader's reach — its computed interactivity says so, focus()
+# does nothing, a click goes to what is behind, Tab passes it by, find in
+# page does not find its words — and what is not inert is as before. It
+# once did nothing at all (the attribute was only reflected).
+resize 800 400
+open data:text/html,<title>-</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}button{display:block;width:200px;height:30px}</style><div id=wrap onclick="log('wrap')"><div inert id=lid><p>hidden word</p><button id=a onclick="log('a')">A</button></div></div><p>plain word</p><input id=f name=f><button id=b name=b onclick="log('b')">B</button><script>var got=[];function log(s){got.push(s);document.title=got.join(',')}var lid=document.getElementById('lid');log(getComputedStyle(lid).interactivity+'/'+getComputedStyle(document.getElementById('b')).interactivity);document.getElementById('a').focus();log('focus:'+(document.activeElement===document.body))</script>
+assert-title inert/auto,focus:true
+# A click on the inert button reaches the element behind it, not the button.
+click 100 140
+assert-title inert/auto,focus:true,wrap
+# Find in page: one "word" (the plain one), not two.
+key ctrl+f
+type word
+assert-find 1 of 1
+key Escape
+# Tab passes the inert button by: back from the field (A is first in tree
+# order) it goes round to B.
+focus f
+key shift+tab
+assert-focused b

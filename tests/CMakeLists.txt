@@ -271,6 +271,9 @@ add_test(NAME shell_pdf_viewer
 # A PDF in an iframe, an embed and an object: the viewer in each, drawn.
 add_test(NAME shell_pdf_frames
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pdf-frames.script)
+# inert: out of the pointer's, focus's, find's and selection's reach.
+add_test(NAME shell_inert
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/inert.script)
 # The keys a page hears: letters, digits, punctuation (key, code, keyCode).
 add_test(NAME shell_key_events
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/key-events.script)

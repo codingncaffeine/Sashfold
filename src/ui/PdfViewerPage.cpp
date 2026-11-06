@@ -88,7 +88,7 @@ body.side-open #pages { padding-left: 216px; }
   <button id="toggle-side" title="Thumbnails and outline" aria-label="Thumbnails and outline">
     <svg viewBox="0 0 24 24"><path d="M3 18h18v-2H3v2zm0-5h18v-2H3v2zm0-7v2h18V6H3z"/></svg>
   </button>
-  <div class="title">@@TITLE@@</div>
+  <div class="title" inert>@@TITLE@@</div>
   <div class="group">
     <input id="page" name="page" value="1" inputmode="numeric" autocomplete="off" aria-label="Page number"><span id="count">/ 0</span>
   </div>

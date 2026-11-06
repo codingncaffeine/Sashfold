@@ -1143,6 +1143,8 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         return style.transformed ? "matrix(1, 0, 0, 1, " + js::number_to_utf8(static_cast<double>(style.translate_x.value)) + ", " + js::number_to_utf8(static_cast<double>(style.translate_y.value)) + ")" : "none";
     if (name == "pointer-events")
         return style.pointer_events ? "auto" : "none";
+    if (name == "interactivity")
+        return style.inert ? "inert" : "auto";
     if (name == "cursor")
         return "auto";
     if (name == "content")
@@ -1188,7 +1190,7 @@ constexpr std::string_view computed_longhands[] = { "align-content", "align-item
     "font-synthesis-small-caps", "font-synthesis-style", "font-synthesis-weight", "font-weight", "grid-auto-columns",
     "grid-auto-flow", "grid-auto-rows", "grid-column-end", "grid-column-start", "grid-row-end", "grid-row-start",
     "grid-template-areas", "grid-template-columns", "grid-template-rows", "height", "hyphenate-character", "hyphens",
-    "justify-content", "justify-items", "justify-self", "left", "letter-spacing", "line-break", "line-height", "margin-bottom",
+    "interactivity", "justify-content", "justify-items", "justify-self", "left", "letter-spacing", "line-break", "line-height", "margin-bottom",
     "margin-left", "margin-right", "margin-top", "max-height", "max-width", "min-height", "min-width", "object-fit",
     "object-position", "opacity", "order", "outline-color", "outline-offset", "outline-style", "outline-width", "overflow-wrap",
     "overflow-x", "overflow-y", "padding-bottom", "padding-left", "padding-right", "padding-top", "pointer-events", "position",

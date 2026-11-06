@@ -17,6 +17,11 @@ key ctrl+f
 type quick brown
 assert-find 1 of 1
 key Escape
+# Only the document is searched: the toolbar's title is inert.
+key ctrl+f
+type Test Document
+assert-find No matches
+key Escape
 # The page field: 2 + Enter scrolls page 2 to the top.
 click 528 99
 type 2
