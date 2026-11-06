@@ -221,6 +221,7 @@ add_library(sashfold_core STATIC
   src/ui/BookmarkSources.cpp
   src/ui/BookmarksPage.cpp
   src/ui/Browser.cpp
+  src/ui/BuiltinChooser.cpp
   src/ui/FieldEdit.cpp
   src/ui/SpellService.cpp
   src/ui/Cosmetic.cpp

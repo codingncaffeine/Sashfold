@@ -1,4 +1,6 @@
 #include "ui/Browser.h"
+#include "ui/ChromeText.h"
+#include "ui/BuiltinChooser.h"
 #include "ui/FieldEdit.h"
 #include "ui/SpellService.h"
 #include "ui/Forms.h"
@@ -450,6 +452,14 @@ std::string_view bytes_view(std::vector<std::uint8_t> const& bytes)
 }
 
 } // namespace
+
+float chrome_text_width(std::u32string_view text, float size) { return text_width(text, size); }
+void chrome_draw_text(Bitmap& target, std::u32string_view text, float x, float baseline, float size, Color color, bool bold)
+{
+    draw_text(target, text, x, baseline, size, color, bold);
+}
+float chrome_centered_baseline(Rect const& rect, float size) { return centered_baseline(rect, size); }
+std::u32string chrome_ellipsize(std::u32string text, float max_width, float size) { return ellipsize(std::move(text), max_width, size); }
 
 struct Browser::Impl {
     // A place in the page's text: a run in tree order and a code point
@@ -1141,8 +1151,47 @@ struct Browser::Impl {
         std::size_t tab = 0;
         dom::Element const* control = nullptr;
         std::unique_ptr<platform::FileChooser> chooser;
+        platform::FileChoice choice;
     };
     std::optional<OpenChooser> open_chooser;
+    // The chooser the window draws itself, where the desktop has none (it is
+    // open_chooser's, while it is open); and the folder it was last left in,
+    // where the next one opens.
+    BuiltinChooser* builtin_chooser = nullptr;
+    std::string builtin_chooser_folder;
+    std::unique_ptr<BuiltinChooser> make_builtin_chooser(platform::FileChoice choice)
+    {
+        {
+            std::lock_guard const lock(wake_sink->mutex);
+            wake_sink->wake = wake_window;
+        }
+        std::string start = builtin_chooser_folder;
+        auto made = std::make_unique<BuiltinChooser>(std::move(choice), std::move(start), [sink = wake_sink] {
+            std::lock_guard const lock(sink->mutex);
+            if (sink->wake)
+                sink->wake();
+        });
+        builtin_chooser = made.get();
+        dirty = true;
+        return made;
+    }
+    ChooserLook chooser_look() const
+    {
+        Theme const& t = theme;
+        ChooserLook look;
+        look.background = t.popup_background;
+        look.border = t.popup_border;
+        look.text = t.popup_text;
+        look.muted = t.popup_text_muted;
+        look.disabled = t.popup_disabled_text;
+        look.highlight = t.popup_highlight;
+        look.highlight_text = t.popup_highlight_text;
+        look.accent = t.accent;
+        look.field_background = t.address_background;
+        look.font_size = t.font_size / std::max(0.5f, scale);
+        look.scale = scale;
+        return look;
+    }
     std::map<std::string, bool> notification_sites;
     bool notifications_available = false;
     std::function<void()> on_notification_sites_changed;
@@ -9550,6 +9599,12 @@ struct Browser::Impl {
 
     void mouse_move(int x, int y)
     {
+        if (builtin_chooser) {
+            builtin_chooser->layout(layout_chrome().content, chooser_look());
+            builtin_chooser->mouse_move(x, y);
+            dirty = true;
+            return;
+        }
         update_hover(x, y);
         // Out of the window with the button held: a page's drag under way
         // goes on as the desktop's (Wayland and Windows keep a held button's
@@ -12325,11 +12380,13 @@ struct Browser::Impl {
 
     void open_file_chooser(std::size_t tab, dom::Element const* control, platform::FileChoice choice)
     {
-        if (open_chooser || !file_chooser || tab >= tabs.size())
+        if (open_chooser || tab >= tabs.size())
             return;
-        open_chooser = OpenChooser { tab, control, file_chooser(std::move(choice)) };
-        if (!open_chooser->chooser)
-            open_chooser.reset();
+        // The desktop's chooser; where there is none written, the window's own.
+        std::unique_ptr<platform::FileChooser> chooser = file_chooser ? file_chooser(choice) : nullptr;
+        if (!chooser)
+            chooser = make_builtin_chooser(choice);
+        open_chooser = OpenChooser { tab, control, std::move(chooser), std::move(choice) };
     }
 
     // The shell hears the chooser: the files go to the input's page (its
@@ -12338,21 +12395,29 @@ struct Browser::Impl {
     {
         if (!open_chooser)
             return false;
+        bool heard = false;
+        if (builtin_chooser && builtin_chooser->poll()) {
+            dirty = true;
+            heard = true;
+        }
         std::optional<std::vector<std::string>> paths = open_chooser->chooser->take_result();
-        if (!paths && open_chooser->chooser->unavailable())
-            paths = std::vector<std::string> {}; // no chooser on this desktop: as if cancelled
+        if (!paths && open_chooser->chooser->unavailable()) {
+            // No chooser on this desktop (no portal): the window's own.
+            open_chooser->chooser = make_builtin_chooser(open_chooser->choice);
+            return true;
+        }
         if (!paths)
-            return false;
+            return heard;
         std::size_t const tab = open_chooser->tab;
         dom::Element const* const control = open_chooser->control;
-        bool const unavailable = open_chooser->chooser->unavailable();
+        if (builtin_chooser) {
+            builtin_chooser_folder = builtin_chooser->folder();
+            builtin_chooser = nullptr;
+            dirty = true;
+        }
         open_chooser.reset();
         if (tab >= tabs.size())
             return true;
-        if (unavailable) {
-            tabs[tab].status = "This desktop has no file chooser to show (xdg-desktop-portal)";
-            dirty = true;
-        }
         if (Engine* const engine = tabs[tab].engine.get(); engine) {
             ask(tabs[tab], [control, chosen = std::move(*paths)](Browser& page) { page.m_impl->files_chosen(control, chosen); });
         } else {
@@ -13552,6 +13617,12 @@ struct Browser::Impl {
 
     void mouse_down(int x, int y, int button, platform::Modifiers const& modifiers)
     {
+        if (builtin_chooser) {
+            builtin_chooser->layout(layout_chrome().content, chooser_look());
+            builtin_chooser->mouse_down(x, y, button, modifiers);
+            dirty = true;
+            return;
+        }
         update_hover(x, y);
         // A press on a link opens a connection to its origin while the button
         // is still down, as Chromium and Firefox do: the navigation the
@@ -13965,6 +14036,12 @@ struct Browser::Impl {
 
     void key_down(KeyEvent const& key)
     {
+        if (builtin_chooser) {
+            builtin_chooser->layout(layout_chrome().content, chooser_look());
+            builtin_chooser->key(key);
+            dirty = true;
+            return;
+        }
         // Escape lets go of a drag: nothing is dropped.
         if (drag_op && key.key == Key::Escape && !pages_in_engines) {
             cancel_drag();
@@ -14475,6 +14552,12 @@ struct Browser::Impl {
 
     void text_input(char32_t code_point)
     {
+        if (builtin_chooser && code_point >= 0x20 && code_point != 0x7F) {
+            builtin_chooser->layout(layout_chrome().content, chooser_look());
+            builtin_chooser->text(code_point);
+            dirty = true;
+            return;
+        }
         if (code_point < 0x20 || code_point == 0x7F || hints_active)
             return; // a hint's letters are keys, not text
         // Text while a rich editor composes: the method's commit, one code
@@ -15249,6 +15332,11 @@ struct Browser::Impl {
         }
 
         paint_menus(c);
+        // The window's own file chooser, over everything (it is modal).
+        if (builtin_chooser) {
+            builtin_chooser->layout(c.content, chooser_look());
+            builtin_chooser->paint(frame);
+        }
 
         dirty = false;
         header_dirty = false;
@@ -15638,6 +15726,23 @@ bool Browser::file_chooser_open() const
     return m_impl->open_chooser.has_value();
 }
 
+std::optional<std::string> Browser::builtin_chooser_shows() const
+{
+    if (!m_impl->builtin_chooser)
+        return std::nullopt;
+    return m_impl->builtin_chooser->folder() + " | " + m_impl->builtin_chooser->rows_text();
+}
+
+bool Browser::builtin_chooser_reading() const
+{
+    return m_impl->builtin_chooser && m_impl->builtin_chooser->reading();
+}
+
+void Browser::set_builtin_chooser_folder(std::string folder)
+{
+    m_impl->builtin_chooser_folder = std::move(folder);
+}
+
 bool Browser::notices_coming() const
 {
     return !m_impl->waiting_notices.empty();
@@ -15759,6 +15864,12 @@ void Browser::mouse_up(int, int, int button) { m_impl->mouse_up(button); }
 
 void Browser::wheel(int x, int y, int notches)
 {
+    if (m_impl->builtin_chooser) {
+        m_impl->builtin_chooser->layout(m_impl->layout_chrome().content, m_impl->chooser_look());
+        m_impl->builtin_chooser->wheel(x, y, notches);
+        m_impl->dirty = true;
+        return;
+    }
     m_impl->update_hover(x, y);
     if (!m_impl->menus.empty())
         return; // an open menu holds the pointer: nothing under it moves
@@ -15994,7 +16105,8 @@ bool Browser::tick()
     // What the desktop says of the notices first: a page that hears of one
     // may have something to do about it in this same step.
     m_impl->hear_spell();
-    bool const chooser_heard = m_impl->hear_chooser() | m_impl->hear_clipboard();
+    bool const clipboard_heard = m_impl->hear_clipboard();
+    bool const chooser_heard = m_impl->hear_chooser() || clipboard_heard;
     bool const notices_heard = m_impl->hear_notifier() || chooser_heard;
     if (m_impl->page_threads) {
         m_impl->hear_pages();

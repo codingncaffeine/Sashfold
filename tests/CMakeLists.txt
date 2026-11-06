@@ -265,6 +265,9 @@ add_test(NAME shell_spelling_editor
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/spelling-editor.script)
 # Drags from other programs: files shown as Files while moving and read in
 # drop, a file input given them, text dropped into a field.
+# The window's own file chooser, where the desktop has none.
+add_test(NAME shell_own_chooser
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/own-chooser.script)
 add_test(NAME shell_os_drag
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/os-drag.script)
 # A page's drag that leaves the window: handed to the desktop, and ended there.

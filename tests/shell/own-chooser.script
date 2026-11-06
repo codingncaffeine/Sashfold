@@ -1,0 +1,52 @@
+# The window's own file chooser, where the desktop has none (no portal):
+# opened by the file input, its folder read on a thread; folders first, then
+# the files the accept attribute takes, by name; the hidden ones only at
+# Ctrl+H; a double click or Enter goes into a folder, Backspace goes up;
+# Ctrl adds a file where the input takes several; Open gives the input its
+# files, Escape gives none (cancel).
+resize 800 600
+desktop-chooser none
+chooser-folder chooser
+open data:text/html,<title>C</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}</style><input type=file id=g accept="image/png" multiple><script>var log=[];function n(s){log.push(s);document.title=log.join(',')}g.addEventListener('change',function(){n('change:'+Array.prototype.map.call(g.files,function(f){return f.name+'/'+f.size}).join('+'))});g.addEventListener('cancel',function(){n('cancel')})</script>
+assert-own-chooser none
+click 40 86
+assert-own-chooser chooser | docs/ photo.png Zebra.png
+# Every file, by the filter button: the page's filter, then all; the hidden
+# ones at Ctrl+H.
+click 60 550
+assert-own-chooser chooser | docs/ notes.txt photo.png Zebra.png
+key ctrl+h
+assert-own-chooser chooser | docs/ .hidden notes.txt photo.png Zebra.png
+key ctrl+h
+click 60 550
+key down
+assert-own-chooser chooser | [docs/] photo.png Zebra.png
+key enter
+assert-own-chooser chooser/docs | (nothing)
+key backspace
+assert-own-chooser chooser | docs/ photo.png Zebra.png
+# Escape: cancelled.
+key escape
+assert-own-chooser none
+assert-title cancel
+# Two pictures chosen by the keyboard, then Open (Enter with two chosen).
+click 40 86
+key down
+key down
+key shift+down
+assert-own-chooser chooser | docs/ [photo.png] [Zebra.png]
+key enter
+assert-own-chooser none
+assert-title cancel,change:photo.png/6+Zebra.png/6
+# A double click goes into a folder; Cancel gives nothing.
+click 40 86
+click 300 215
+click 300 215
+assert-own-chooser chooser/docs | (nothing)
+click 600 550
+assert-own-chooser none
+assert-title cancel,change:photo.png/6+Zebra.png/6,cancel
+# The next opens where the last was left.
+click 40 86
+assert-own-chooser chooser/docs | (nothing)
+key escape

@@ -438,6 +438,14 @@ public:
     // Whether a notice is waiting for its picture to come (for scripts,
     // which wait for it as the reader would).
     bool notices_coming() const;
+    // The window's own file chooser, where the desktop has none (for
+    // scripts): what it shows — its folder, then " | " and its rows (a
+    // folder's name ends with "/", a chosen row is in [brackets]) — or
+    // nothing while none is open; whether it is still reading a folder; and
+    // the folder the next one opens in.
+    std::optional<std::string> builtin_chooser_shows() const;
+    bool builtin_chooser_reading() const;
+    void set_builtin_chooser_folder(std::string folder);
     // What the reader has said of each site's notifications, by its
     // origin: allowed (true) or blocked. The caller gives what the profile
     // holds and hears, through `changed`, when the reader says something

@@ -180,6 +180,7 @@ struct ChooserAnswer {
     std::optional<std::vector<std::string>> paths;
     int opened = 0;
     platform::FileChoice last;
+    bool unavailable = false; // a desktop with no chooser: the window shows its own
 };
 class ScriptedChooser final : public platform::FileChooser {
 public:
@@ -188,7 +189,7 @@ public:
     {
     }
     std::optional<std::vector<std::string>> take_result() override { return std::exchange(m_answer->paths, std::nullopt); }
-    bool unavailable() const override { return false; }
+    bool unavailable() const override { return m_answer->unavailable; }
 
 private:
     std::shared_ptr<ChooserAnswer> m_answer;
@@ -238,6 +239,12 @@ struct Runner {
             while (browser.has_pending_load())
                 browser.tick();
             browser.run_scripts();
+            // The window's own chooser reads folders on a thread: waited for.
+            for (int waited = 0; waited < 2500 && browser.builtin_chooser_reading(); ++waited) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                browser.tick();
+                browser.run_scripts();
+            }
             // A notice's picture comes on the loader's threads: waited for
             // (a few seconds at most), as the reader waits for the notice.
             for (int waited = 0; waited < 2500 && browser.notices_coming(); ++waited) {
@@ -1087,6 +1094,24 @@ struct Runner {
             // `assert-drag-answer none|copy|move|link|taken|refused`: what the
             // window was last told of the drag from another program.
             expect_equal("assert-drag-answer", *os_drag_answer, argument);
+        } else if (command == "desktop-chooser") {
+            // `desktop-chooser none|yes`: whether the desktop has a chooser
+            // to show; with none the window draws its own, opened in
+            // `chooser-folder` (relative to the script).
+            chooser->unavailable = argument == "none";
+        } else if (command == "chooser-folder") {
+            browser.set_builtin_chooser_folder(resolve(argument).lexically_normal().string());
+        } else if (command == "assert-own-chooser") {
+            // `assert-own-chooser <folder> | <rows>`: what the window's own
+            // chooser shows (its folder relative to the script), or `none`.
+            std::optional<std::string> shown = browser.builtin_chooser_shows();
+            if (shown) {
+                std::string const base = std::filesystem::path(directory).lexically_normal().string();
+                std::string const folder = shown->substr(0, shown->find(" | "));
+                std::string relative = std::filesystem::path(folder).lexically_relative(base).generic_string();
+                *shown = relative + shown->substr(shown->find(" | "));
+            }
+            expect_equal("assert-own-chooser", shown ? *shown : std::string("none"), argument);
         } else if (command == "choose-files") {
             // `choose-files [<path>...]`: the open file chooser answers with
             // these files (relative to the script), or with none: cancelled.
