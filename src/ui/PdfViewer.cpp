@@ -230,7 +230,8 @@ bool is_pdf_response(std::string const& content_type, std::vector<std::uint8_t> 
     return generic && bytes.size() >= 5 && bytes[0] == '%' && bytes[1] == 'P' && bytes[2] == 'D' && bytes[3] == 'F' && bytes[4] == '-';
 }
 
-std::shared_ptr<PdfHandle> open_pdf(std::vector<std::uint8_t> bytes, net::Url const& url, std::string file_name)
+std::shared_ptr<PdfHandle> open_pdf(std::vector<std::uint8_t> bytes, net::Url const& url, std::string file_name,
+    std::optional<net::Url> embedder)
 {
     auto handle = std::make_shared<PdfHandle>();
     std::array<std::uint8_t, 16> token {};
@@ -242,6 +243,10 @@ std::shared_ptr<PdfHandle> open_pdf(std::vector<std::uint8_t> bytes, net::Url co
     }
     handle->url = url;
     handle->url.fragment.reset();
+    if (embedder) {
+        handle->embedder = std::move(embedder);
+        handle->embedder->fragment.reset();
+    }
     handle->file_name = std::move(file_name);
     handle->bytes = std::move(bytes);
     pdf::Document::Status status {};
@@ -310,7 +315,9 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
     std::shared_ptr<PdfHandle> const handle = find_pdf(url.host);
     net::Url viewer = first_party;
     viewer.fragment.reset();
-    if (!handle || viewer.serialize() != handle->url.serialize())
+    if (!handle
+        || (viewer.serialize() != handle->url.serialize()
+            && (!handle->embedder || viewer.serialize() != handle->embedder->serialize())))
         return net::FetchResult { std::nullopt, "no such document for this page" };
     std::vector<std::string> const& path = url.path;
     std::shared_ptr<pdf::Document const> document;

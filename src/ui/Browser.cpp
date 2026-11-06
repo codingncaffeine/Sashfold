@@ -3911,7 +3911,8 @@ struct Browser::Impl {
         HistoryEntry const* const entry = tab.current();
         net::Url const page_url = entry ? entry->final_url : net::Url {};
         std::string const container = tab.container;
-        return [this, page_url, container](net::Url const& url, net::Url const& from, net::ResourceKind kind,
+        auto const frame_pdfs = entry ? entry->frame_pdfs : nullptr;
+        return [this, page_url, container, frame_pdfs](net::Url const& url, net::Url const& from, net::ResourceKind kind,
                    net::RequestGuard const& guard) -> std::optional<FrameResponse> {
             net::FetchResult result
                 = loader.load_subresource(url, page_url, referrer_for(&from, url), kind, guard, container);
@@ -3919,6 +3920,40 @@ struct Browser::Impl {
             if (!result.response || (!document && result.response->status != 200))
                 return std::nullopt;
             std::string const* const type = net::find_header(result.response->headers, "content-type");
+            if (document && frame_pdfs && result.response->status == 200
+                && is_pdf_response(type ? *type : std::string(), result.response->body)) {
+                // A PDF in a frame, an embed or an object opens in the
+                // viewer there, as in every browser, the page it is in
+                // allowed to ask for it. The response's framing rules still
+                // stand (frame-ancestors, X-Frame-Options); its other
+                // policies are the site's, not the viewer's.
+                std::string const* const disposition = net::find_header(result.response->headers, "content-disposition");
+                std::shared_ptr<PdfHandle> const pdf = open_pdf(std::move(result.response->body), result.response->final_url,
+                    download_file_name(disposition, result.response->final_url), page_url);
+                frame_pdfs->push_back(pdf);
+                std::string const viewer = pdf_viewer_page(*pdf);
+                std::vector<net::Header> headers;
+                for (net::Header const& header : result.response->headers) {
+                    bool const policy = ascii_ci_equals(header.name, "content-security-policy");
+                    if (!policy && !ascii_ci_equals(header.name, "content-security-policy-report-only")) {
+                        headers.push_back(header);
+                        continue;
+                    }
+                    if (!policy)
+                        continue;
+                    // Only the frame-ancestors directive of an enforced policy.
+                    std::size_t start = 0;
+                    while (start <= header.value.size()) {
+                        std::size_t const end = std::min(header.value.find(';', start), header.value.size());
+                        std::string const directive = trim(header.value.substr(start, end - start));
+                        if (starts_with_ci(directive, "frame-ancestors"))
+                            headers.push_back(net::Header { header.name, directive });
+                        start = end + 1;
+                    }
+                }
+                return FrameResponse { std::vector<std::uint8_t>(viewer.begin(), viewer.end()), "text/html; charset=utf-8",
+                    result.response->final_url, std::move(headers), 200 };
+            }
             return FrameResponse { std::move(result.response->body), type ? *type : "", result.response->final_url,
                 std::move(result.response->headers), result.response->status };
         };

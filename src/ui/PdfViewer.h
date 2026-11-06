@@ -27,6 +27,9 @@ namespace sashfold::ui {
 struct PdfHandle {
     std::string id; // 32 hex digits
     net::Url url; // the PDF's own address: the viewer page's
+    // In a frame, an embed or an object: the top-level page, the first
+    // party the frame's requests are made for.
+    std::optional<net::Url> embedder;
     std::string file_name;
     std::vector<std::uint8_t> bytes;
     mutable std::mutex mutex; // over what follows: an unlock replaces the document
@@ -40,15 +43,18 @@ struct PdfHandle {
 bool is_pdf_response(std::string const& content_type, std::vector<std::uint8_t> const& bytes);
 
 // Opens and registers a document; the handle keeps it registered.
-std::shared_ptr<PdfHandle> open_pdf(std::vector<std::uint8_t> bytes, net::Url const& url, std::string file_name);
+// `embedder`: the top-level page, for a document shown in one of its frames.
+std::shared_ptr<PdfHandle> open_pdf(std::vector<std::uint8_t> bytes, net::Url const& url, std::string file_name,
+    std::optional<net::Url> embedder = std::nullopt);
 std::shared_ptr<PdfHandle> find_pdf(std::string const& id);
 
 // The viewer page for a document, and its title (the document's, else the file's name).
 std::string pdf_viewer_page(PdfHandle const& handle);
 std::string pdf_title(PdfHandle const& handle);
 
-// Answers an address of the viewer's scheme for a page at `first_party`;
-// nullopt when the address is not of the scheme. Thread-safe.
+// Answers an address of the viewer's scheme for a page at `first_party`
+// (the PDF's own, or the page embedding it); nullopt when the address is
+// not of the scheme. Thread-safe.
 std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url const& first_party, std::string const& method,
     std::vector<std::uint8_t> const& body);
 

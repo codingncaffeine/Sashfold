@@ -274,6 +274,10 @@ struct HistoryEntry {
     // A PDF shown in the viewer: the document the viewer page asks about,
     // kept while the entry is (Back returns to it without a fetch).
     std::shared_ptr<PdfHandle> pdf;
+    // The PDFs the page's frames, embeds and objects show, kept while the
+    // entry is: their viewers ask for them for as long as the page lives.
+    std::shared_ptr<std::vector<std::shared_ptr<PdfHandle>>> frame_pdfs
+        = std::make_shared<std::vector<std::shared_ptr<PdfHandle>>>();
 };
 
 // One open menu as the chrome lays it out: its box, and a row for every

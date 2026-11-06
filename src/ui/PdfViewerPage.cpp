@@ -34,6 +34,8 @@ body { background: var(--backdrop); color: var(--ink); font: 13px system-ui, "No
 #bar { position: fixed; top: 0; left: 0; right: 0; height: 48px; background: var(--bar); display: flex; align-items: center;
   padding: 0 8px; box-shadow: 0 1px 4px rgba(0, 0, 0, 0.45); z-index: 10; }
 #bar .title { flex: 1; min-width: 0; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; font-size: 14px; padding: 0 8px; }
+/* A narrow viewer (a frame, an embed) gives the title's room to the controls, as Chrome's does. */
+@media (max-width: 560px) { #bar .title { visibility: hidden; } }
 #bar .group { display: flex; align-items: center; padding: 0 6px; }
 #bar .sep { width: 1px; height: 20px; background: rgba(255, 255, 255, 0.2); margin: 0 6px; }
 button { background: transparent; border: 0; color: var(--ink); width: 36px; height: 36px; border-radius: 18px; padding: 0;

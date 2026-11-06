@@ -1,0 +1,11 @@
+# A PDF in an iframe, an embed and an object (pdf-frames.html): each shows
+# the viewer with the document's first page drawn — which takes the frame's
+# own intersection observers and its page's leave to ask for the PDF.
+resize 900 1000
+open pdf-frames.html
+advance 500 6
+assert-title PDF frames
+assert-pixel 130 230 #d91a1a
+assert-pixel 130 535 #d91a1a
+assert-pixel 130 840 #d91a1a
+assert-pixel 600 500 #0000ff
