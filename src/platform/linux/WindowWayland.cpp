@@ -190,7 +190,6 @@ namespace wl_data_source {
     constexpr std::uint16_t set_actions = 2;
     constexpr std::uint16_t event_send = 1;
     constexpr std::uint16_t event_cancelled = 2;
-    constexpr std::uint16_t event_dnd_drop_performed = 3;
     constexpr std::uint16_t event_dnd_finished = 4;
     constexpr std::uint16_t event_action = 5;
 }
