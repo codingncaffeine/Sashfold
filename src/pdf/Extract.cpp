@@ -123,8 +123,8 @@ std::vector<TextRun> page_text(Document const& doc, std::size_t index)
         }
         if (!open) {
             run = TextRun {};
-            run.x = bl.x;
-            run.y = bl.y;
+            run.x = static_cast<double>(bl.x);
+            run.y = static_cast<double>(bl.y);
             run.height = height;
             run.angle = std::atan2(uy, ux);
             dir_x = ux;
@@ -133,8 +133,8 @@ std::vector<TextRun> page_text(Document const& doc, std::size_t index)
         }
         run.height = std::max(run.height, height);
         text += glyph.text;
-        end_x = br.x;
-        end_y = br.y;
+        end_x = static_cast<double>(br.x);
+        end_y = static_cast<double>(br.y);
     }
     flush(true);
     return runs;
@@ -222,10 +222,10 @@ std::vector<Link> page_links(Document const& doc, std::size_t index)
         svg::Point const a = to_device.apply(doc.resolve(rect[0]).as_number(), doc.resolve(rect[1]).as_number());
         svg::Point const b = to_device.apply(doc.resolve(rect[2]).as_number(), doc.resolve(rect[3]).as_number());
         Link link;
-        link.x0 = std::min(a.x, b.x);
-        link.y0 = std::min(a.y, b.y);
-        link.x1 = std::max(a.x, b.x);
-        link.y1 = std::max(a.y, b.y);
+        link.x0 = static_cast<double>(std::min(a.x, b.x));
+        link.y0 = static_cast<double>(std::min(a.y, b.y));
+        link.x1 = static_cast<double>(std::max(a.x, b.x));
+        link.y1 = static_cast<double>(std::max(a.y, b.y));
         Dict const action = doc.resolve(annotation.get("A")).as_dict();
         std::string const kind = doc.resolve(action.get("S")).as_name();
         if (kind == "URI") {
