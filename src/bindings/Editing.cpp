@@ -966,6 +966,21 @@ bool justify(Realm::Internals& in, Current const& current, std::string_view alig
     Point const caret { current.range->start_node, current.range->start_offset };
     Point const focus { current.range->end_node, current.range->end_offset };
     for (dom::Element* block : blocks_in(current)) {
+        // A block that already shows the alignment is left as it is.
+        if (css::ComputedStyle const* const style = in.hooks.computed_style ? in.hooks.computed_style(*block) : nullptr) {
+            bool const rtl = style->direction == css::Direction::Rtl;
+            std::string_view shown;
+            switch (style->text_align) {
+            case css::TextAlign::Center: shown = "center"; break;
+            case css::TextAlign::Justify: shown = "justify"; break;
+            case css::TextAlign::Right: shown = "right"; break;
+            case css::TextAlign::Left: shown = "left"; break;
+            case css::TextAlign::End: shown = rtl ? "left" : "right"; break;
+            default: shown = rtl ? "right" : "left"; break;
+            }
+            if (shown == align)
+                continue;
+        }
         if (block == current.host)
             block = wrap_host_run(in, *current.host, *current.range->start_node, "div");
         set_style_declaration(in, *block, "text-align", std::string(align));
@@ -977,10 +992,16 @@ bool justify(Realm::Internals& in, Current const& current, std::string_view alig
 
 // The alignment of the block the selection starts in, as queryCommandValue
 // tells it: left, right, center or justify.
+std::string alignment_of_block(Realm::Internals& in, dom::Element& block);
+
 std::string alignment_of(Realm::Internals& in, Current const& current)
 {
-    dom::Element* const block = block_of(*current.range->start_node, *current.host);
-    css::ComputedStyle const* const style = in.hooks.computed_style ? in.hooks.computed_style(*block) : nullptr;
+    return alignment_of_block(in, *block_of(*current.range->start_node, *current.host));
+}
+
+std::string alignment_of_block(Realm::Internals& in, dom::Element& block)
+{
+    css::ComputedStyle const* const style = in.hooks.computed_style ? in.hooks.computed_style(block) : nullptr;
     if (!style)
         return "left";
     bool const rtl = style->direction == css::Direction::Rtl;
@@ -998,6 +1019,16 @@ std::string alignment_of(Realm::Internals& in, Current const& current)
 // in a <blockquote> taken out of it, the blockquote split around it.
 bool indent(Realm::Internals& in, Current const& current)
 {
+    // A caret straight in the host between two blocks is in no paragraph.
+    if (collapsed(*current.range) && current.range->start_node == current.host) {
+        auto const& children = current.host->children();
+        std::uint32_t const at = current.range->start_offset;
+        auto const inline_at = [&](std::uint32_t index) {
+            return index < children.size() && !is_block(*children[index]);
+        };
+        if (!inline_at(at) && (at == 0 || !inline_at(at - 1)))
+            return true;
+    }
     std::vector<dom::Element*> blocks = blocks_in(current);
     Point const caret { current.range->start_node, current.range->start_offset };
     Point const focus { current.range->end_node, current.range->end_offset };
@@ -1115,8 +1146,111 @@ std::optional<int> legacy_font_size(std::string const& value)
     return std::clamp(size, 1, 7);
 }
 
+// fontSize takes a valid floating-point number, a leading '+' allowed
+// (the editing spec): "2em", "20pt" and "1." are refused.
+bool valid_font_size_number(std::string_view value)
+{
+    if (!value.empty() && value.front() == '+')
+        value.remove_prefix(1);
+    std::size_t at = 0;
+    if (at < value.size() && value[at] == '-')
+        ++at;
+    auto const digits = [&] {
+        std::size_t const from = at;
+        while (at < value.size() && value[at] >= '0' && value[at] <= '9')
+            ++at;
+        return at > from;
+    };
+    bool const whole = digits();
+    if (at < value.size() && value[at] == '.') {
+        ++at;
+        if (!digits())
+            return false;
+    } else if (!whole) {
+        return false;
+    }
+    if (at < value.size() && (value[at] == 'e' || value[at] == 'E')) {
+        ++at;
+        if (at < value.size() && (value[at] == '+' || value[at] == '-'))
+            ++at;
+        if (!digits())
+            return false;
+    }
+    return at == value.size();
+}
+
+// The editing spec's "effective command value" test: does every piece of
+// text the selection takes in already show the value? Then setting it
+// changes nothing, as in every browser.
+bool already_effective(Realm::Internals& in, Current const& current, std::string const& command, std::string const& value)
+{
+    if (!in.hooks.computed_style)
+        return false;
+    std::optional<Color> wanted_color;
+    if (command == "forecolor" || command == "hilitecolor" || command == "backcolor") {
+        wanted_color = css::parse_color_text(value);
+        if (!wanted_color)
+            return false;
+    }
+    std::vector<dom::Node*> all;
+    collect_descendants(*current.host, all);
+    for (dom::Node* node : all) {
+        if (!node->is_text() || static_cast<dom::Text*>(node)->data.empty() || !range_contains_node(*current.range, *node, true))
+            continue;
+        dom::Element* element = node->parent() && node->parent()->is_element() ? static_cast<dom::Element*>(node->parent()) : nullptr;
+        if (!element)
+            return false;
+        css::ComputedStyle const* style = in.hooks.computed_style(*element);
+        if (!style)
+            return false;
+        if (command == "forecolor") {
+            if (!(style->color == *wanted_color))
+                return false;
+        } else if (command == "hilitecolor" || command == "backcolor") {
+            // The first background that is not transparent, up to the host
+            // (backColor) or the document (hiliteColor reads inline ones).
+            Color shown = Color::rgba(0, 0, 0, 0);
+            for (dom::Node* at = element; at && at->is_element(); at = at->parent()) {
+                css::ComputedStyle const* const there = in.hooks.computed_style(*static_cast<dom::Element*>(at));
+                if (there && there->background_color.a != 0) {
+                    shown = there->background_color;
+                    break;
+                }
+            }
+            if (!(shown == *wanted_color))
+                return false;
+        } else if (command == "fontname") {
+            if (!style->font_family || style->font_family->empty())
+                return false;
+            std::string family = lowered_ascii(style->font_family->front());
+            std::string asked = lowered_ascii(value);
+            if (family != asked)
+                return false;
+        } else if (command == "fontsize") {
+            std::optional<int> const size = legacy_font_size(value);
+            // The engine's keyword sizes (CSS Fonts' ratios of medium).
+            static constexpr float factors[] = { 3.0f / 4.0f, 8.0f / 9.0f, 1.0f, 6.0f / 5.0f, 3.0f / 2.0f, 2.0f, 3.0f };
+            if (!size || std::abs(style->font_size - 16.0f * factors[*size - 1]) > 0.05f)
+                return false;
+        } else {
+            return false;
+        }
+    }
+    // A selection that takes in no text at all has nothing to change.
+    return true;
+}
+
 bool style_text(Realm::Internals& in, Current const& current, std::string const& command, std::string const& value)
 {
+    if (command == "fontsize" && !valid_font_size_number(value))
+        return false;
+    // A caret alone changes no markup (the value waits for typed text in
+    // the browsers that keep one), and text already showing the value is
+    // left as it is.
+    if (collapsed(*current.range))
+        return true;
+    if (already_effective(in, current, command, value))
+        return true;
     bool const css = in.style_with_css;
     dom::Element* wrapper = nullptr;
     if (command == "forecolor") {
@@ -1165,21 +1299,27 @@ bool create_link(Realm::Internals& in, Current const& current, std::string const
         set_attribute(in, *link, "href", url);
         return true;
     }
-    if (collapsed(range)) {
-        // Nothing selected: the address itself, linked, at the caret.
-        Point const at = text_point(in, { range.start_node, range.start_offset });
-        dom::Element* const link = make_element(in, "a");
-        set_attribute(in, *link, "href", url);
-        dom::Text* const text = in.document->create<dom::Text>();
-        text->data = url;
-        pre_insert(in, *link, *text, nullptr);
-        dom::Node* node = at.node;
-        if (at.offset > 0 && at.offset < boundary_length(*node))
-            split_text(in, static_cast<dom::Text&>(*node), at.offset);
-        dom::Node* const before = at.offset == 0 ? node : next_sibling_of(*node);
-        pre_insert(in, *node->parent(), *link, before);
-        place_caret(in, { link->parent(), link->index() + 1 });
+    // Nothing selected: nothing to link (the editing spec and Firefox;
+    // the WPT expectations hold the markup unchanged).
+    if (collapsed(range))
         return true;
+    // Links the selection reaches take the new address; text already all
+    // inside links needs no new one.
+    {
+        std::vector<dom::Node*> all;
+        collect_descendants(*current.host, all);
+        bool every_text_linked = true;
+        for (dom::Node* node : all) {
+            if (node->is_element() && static_cast<dom::Element*>(node)->is_html("a") && static_cast<dom::Element*>(node)->has_attribute("href")
+                && range_contains_node(range, *node, true)) {
+                set_attribute(in, *static_cast<dom::Element*>(node), "href", url);
+            }
+            if (node->is_text() && !static_cast<dom::Text*>(node)->data.empty() && range_contains_node(range, *node, true)
+                && !formatting_ancestor(*node, *current.host, { "a" }))
+                every_text_linked = false;
+        }
+        if (every_text_linked)
+            return true;
     }
     dom::Element* const link = make_element(in, "a");
     set_attribute(in, *link, "href", url);
@@ -1193,6 +1333,17 @@ bool unwrap_in_selection(Realm::Internals& in, Current const& current, std::init
     dom::Range& range = *current.range;
     Point const caret { range.start_node, range.start_offset };
     Point const focus { range.end_node, range.end_offset };
+    {
+        // A selection that takes in no text changes nothing.
+        std::vector<dom::Node*> all;
+        collect_descendants(*current.host, all);
+        if (std::none_of(all.begin(), all.end(), [&](dom::Node* node) {
+                return node->is_text() && !static_cast<dom::Text*>(node)->data.empty() && range_contains_node(range, *node, true);
+            }))
+            return true;
+    }
+    // Only a link is unlinked: an <a> without an address is an anchor.
+    auto const wanted = [](dom::Element const& element) { return !element.is_html("a") || element.has_attribute("href"); };
     std::vector<dom::Element*> found;
     for (dom::Node* end : { range.start_node, range.end_node }) {
         for (dom::Node* at = end; at && at != current.host; at = at->parent()) {
@@ -1200,7 +1351,7 @@ bool unwrap_in_selection(Realm::Internals& in, Current const& current, std::init
                 continue;
             auto* const element = static_cast<dom::Element*>(at);
             for (std::string_view const name : names) {
-                if (element->is_html(name) && std::find(found.begin(), found.end(), element) == found.end())
+                if (element->is_html(name) && wanted(*element) && std::find(found.begin(), found.end(), element) == found.end())
                     found.push_back(element);
             }
         }
@@ -1212,13 +1363,19 @@ bool unwrap_in_selection(Realm::Internals& in, Current const& current, std::init
             continue;
         auto* const element = static_cast<dom::Element*>(node);
         for (std::string_view const name : names) {
-            if (element->is_html(name) && std::find(found.begin(), found.end(), element) == found.end())
+            if (element->is_html(name) && wanted(*element) && std::find(found.begin(), found.end(), element) == found.end())
                 found.push_back(element);
         }
     }
     if (found.empty())
         return false;
     for (dom::Element* element : found) {
+        // A link that is also something else (a named anchor, a styled
+        // element) keeps being that: only its address goes.
+        if (element->is_html("a") && element->attributes().size() > 1) {
+            remove_attribute(in, *element, "href");
+            continue;
+        }
         dom::Node* const parent = element->parent();
         if (!parent)
             continue;
@@ -1491,6 +1648,17 @@ constexpr ExecCommand exec_commands[] = {
     { "insertimage", "" },
 };
 
+// The commands a plaintext-only host still takes (lowered names).
+bool plaintext_command(std::string_view lower)
+{
+    for (std::string_view const name : { "inserttext", "insertparagraph", "insertlinebreak", "delete", "forwarddelete", "selectall",
+             "undo", "redo", "copy", "cut", "paste", "stylewithcss", "defaultparagraphseparator" }) {
+        if (lower == name)
+            return true;
+    }
+    return false;
+}
+
 ExecCommand const* exec_command(std::string const& name)
 {
     std::string const lower = lowered(name);
@@ -1686,19 +1854,24 @@ void install_editing(Realm::Internals& in, js::Object& document)
         if (!command || &d != internals.document)
             return js::Value::boolean(false);
         std::string const lower = lowered(*name);
-        if (lower == "defaultparagraphseparator") {
+        js::Interpreter::Roots const roots(internals.interpreter);
+        std::optional<Current> const current = current_selection(internals);
+        // The document-wide flags are set only while the selection is in
+        // an editing host, as in Chrome: a page that sets them at load,
+        // before anything is editable, is refused and keeps the defaults.
+        if (lower == "defaultparagraphseparator" || lower == "stylewithcss") {
+            if (!current)
+                return js::Value::boolean(false);
+            if (lower == "stylewithcss") {
+                internals.style_with_css = lowered(*value) != "false";
+                return js::Value::boolean(true);
+            }
             std::string const separator = lowered(*value);
             if (separator != "p" && separator != "div")
                 return js::Value::boolean(false);
             internals.default_paragraph_separator = separator;
             return js::Value::boolean(true);
         }
-        if (lower == "stylewithcss") {
-            internals.style_with_css = lowered(*value) != "false";
-            return js::Value::boolean(true);
-        }
-        js::Interpreter::Roots const roots(internals.interpreter);
-        std::optional<Current> const current = current_selection(internals);
         if (lower == "selectall") {
             if (current)
                 internals.realm.set_selection(*current->host, 0, *current->host, static_cast<std::uint32_t>(current->host->children().size()));
@@ -1739,11 +1912,11 @@ void install_editing(Realm::Internals& in, js::Object& document)
         else if (lower == "createlink")
             done = !plaintext_only(*host) && create_link(internals, *current, *value);
         else if (lower == "unlink")
-            done = unwrap_in_selection(internals, *current, { "a" });
+            done = !plaintext_only(*host) && unwrap_in_selection(internals, *current, { "a" });
         else if (lower == "removeformat")
-            done = unwrap_in_selection(internals, *current,
-                { "b", "strong", "i", "em", "u", "s", "strike", "del", "ins", "sub", "sup", "font", "span", "small", "big", "mark", "tt",
-                    "code", "kbd", "samp", "var", "dfn", "abbr", "acronym", "cite", "q", "blink", "nobr" });
+            done = !plaintext_only(*host) && unwrap_in_selection(internals, *current,
+                { "b", "strong", "i", "em", "u", "s", "strike", "ins", "sub", "sup", "font", "span", "small", "big", "mark", "tt",
+                    "code", "kbd", "samp", "var", "dfn", "abbr", "acronym", "cite", "q", "blink", "nobr", "bdi", "bdo" });
         else if (lower == "forecolor" || lower == "hilitecolor" || lower == "backcolor" || lower == "fontname" || lower == "fontsize")
             done = !plaintext_only(*host) && style_text(internals, *current, lower, *value);
         else if (lower == "inserthorizontalrule")
@@ -1780,7 +1953,7 @@ void install_editing(Realm::Internals& in, js::Object& document)
         if (!command)
             return js::Value::boolean(false);
         std::string const lower = lowered(*name);
-        if (lower == "selectall" || lower == "defaultparagraphseparator" || lower == "stylewithcss")
+        if (lower == "selectall")
             return js::Value::boolean(true);
         if (lower == "copy" || lower == "cut" || lower == "paste")
             return js::Value::boolean(false);
@@ -1789,7 +1962,14 @@ void install_editing(Realm::Internals& in, js::Object& document)
             auto const& steps = lower == "undo" ? internals.undo_steps : internals.redo_steps;
             return js::Value::boolean(current && std::any_of(steps.begin(), steps.end(), [&](auto const& step) { return step.host == current->host; }));
         }
-        return js::Value::boolean(current_selection(internals).has_value());
+        std::optional<Current> const current = current_selection(internals);
+        if (!current)
+            return js::Value::boolean(false);
+        // A plaintext-only host takes text, paragraphs and deletions; every
+        // command that would add markup is disabled there.
+        if (plaintext_only(*current->host) && !plaintext_command(lower))
+            return js::Value::boolean(false);
+        return js::Value::boolean(true);
     });
     document_method(in, document, "queryCommandState", 1, [](Realm::Internals& internals, dom::Document&, Args args) -> Native {
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
@@ -1799,8 +1979,15 @@ void install_editing(Realm::Internals& in, js::Object& document)
         if (lower == "stylewithcss")
             return js::Value::boolean(internals.style_with_css);
         std::optional<Current> const current = current_selection(internals);
-        if (current && lower.starts_with("justify"))
-            return js::Value::boolean(alignment_of(internals, *current) == alignment_name(lower));
+        if (current && lower.starts_with("justify")) {
+            // True only when every block the selection reaches is aligned so.
+            std::string_view const wanted = alignment_name(lower);
+            for (dom::Element* block : blocks_in(*current)) {
+                if (alignment_of_block(internals, *block) != wanted)
+                    return js::Value::boolean(false);
+            }
+            return js::Value::boolean(true);
+        }
         InlineStyle const* const style = inline_style(lower);
         if (!current || !style)
             return js::Value::boolean(false);
