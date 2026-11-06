@@ -2,12 +2,14 @@
 // as a document (cross-reference tables and streams, the rebuild, object
 // streams, the security handler), then every page's resources and content
 // streams resolved and decoded and the page drawn small; and the raw bytes
-// alone through each filter, the Type 1 font reader and the CMap parser.
+// alone through each filter, the CCITT fax decoder in each of its modes,
+// the Type 1 font reader and the CMap parser.
 // No crash, no hang, no sanitizer finding.
 
 #include "pdf/CMap.h"
 #include "pdf/Document.h"
 #include "pdf/Filters.h"
+#include "pdf/ImageCodecs.h"
 #include "pdf/Render.h"
 #include "pdf/Type1.h"
 
@@ -23,6 +25,14 @@ extern "C" int LLVMFuzzerTestOneInput(std::uint8_t const* data, std::size_t size
     sashfold::pdf::Dict const none;
     for (char const* filter : { "FlateDecode", "LZWDecode", "ASCIIHexDecode", "ASCII85Decode", "RunLengthDecode" })
         (void)sashfold::pdf::apply_filter(filter, input, none, 1u << 20);
+    for (int k : { 0, 4, -1 }) {
+        for (bool aligned : { false, true }) {
+            sashfold::pdf::Dict params;
+            params.set("K", sashfold::pdf::Object(static_cast<std::int64_t>(k)));
+            params.set("EncodedByteAlign", sashfold::pdf::Object(aligned));
+            (void)sashfold::pdf::decode_ccitt(input, params, 97, 64);
+        }
+    }
     if (auto const type1 = sashfold::pdf::Type1Font::parse(input)) {
         for (auto const& name : type1->encoding()) {
             if (!name.empty())

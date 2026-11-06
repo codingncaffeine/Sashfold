@@ -8,6 +8,7 @@
 #include "pdf/CMap.h"
 #include "pdf/Encoding.h"
 #include "pdf/Font.h"
+#include "pdf/ImageCodecs.h"
 #include "pdf/Render.h"
 #include "pdf/Type1.h"
 #include "text/TrueType.h"
@@ -811,6 +812,61 @@ void test_text(std::string const& test_font_path)
     }
 }
 
+// CCITT fax pictures made by libtiff (tools/pdf-make-ccitt-tests.py
+// --fixtures): a 61 x 23 picture of noise and long runs in each coding,
+// decoded to the rows the encoder was given. The full pictures (text,
+// runs past 2560, 3001 wide) are checked against their originals by
+// the same tool and pdf-render-corpus.sh: all exact.
+void test_ccitt(std::string const& fixtures)
+{
+    // Rows of 61 samples: 7 bytes and 5 bits, the last byte's spare 3 bits
+    // no sample's.
+    auto const same = [](Bytes const& a, Bytes const& b, bool inverted) {
+        if (a.size() != b.size())
+            return false;
+        for (std::size_t i = 0; i < a.size(); ++i) {
+            std::uint8_t const used = (i % 8 == 7) ? 0xF8 : 0xFF;
+            std::uint8_t const expected = inverted ? static_cast<std::uint8_t>(~b[i]) : b[i];
+            if ((a[i] & used) != (expected & used))
+                return false;
+        }
+        return true;
+    };
+    struct Variant {
+        char const* name;
+        int k;
+        bool aligned;
+    };
+    for (Variant const& variant : { Variant { "g3-1d", 0, false }, Variant { "g3-2d", 4, false }, Variant { "g4", -1, false },
+             Variant { "mh", 0, true } }) {
+        std::string const base = fixtures + "/ccitt/ccitt-" + variant.name;
+        Bytes const data = read_file(base + ".bin");
+        Bytes const rows = read_file(base + ".rows");
+        CHECK(!data.empty() && rows.size() == 8 * 23);
+        pdf::Dict params;
+        params.set("K", pdf::Object(static_cast<std::int64_t>(variant.k)));
+        params.set("Columns", pdf::Object(static_cast<std::int64_t>(61)));
+        params.set("Rows", pdf::Object(static_cast<std::int64_t>(23)));
+        params.set("EncodedByteAlign", pdf::Object(variant.aligned));
+        std::optional<Bytes> const decoded = pdf::decode_ccitt(data, params, 61, 23);
+        CHECK(decoded && same(*decoded, rows, false));
+        // BlackIs1: the same rows, each sample the other way.
+        params.set("BlackIs1", pdf::Object(true));
+        std::optional<Bytes> const inverted = pdf::decode_ccitt(data, params, 61, 23);
+        CHECK(inverted && same(*inverted, rows, true));
+        // Cut short: the rows decoded stand, the rest are white.
+        Bytes const half(data.begin(), data.begin() + static_cast<std::ptrdiff_t>(data.size() / 2));
+        params.set("BlackIs1", pdf::Object(false));
+        std::optional<Bytes> const cut = pdf::decode_ccitt(half, params, 61, 23);
+        CHECK(cut && cut->size() == rows.size() && (*cut)[0] == rows[0] && cut->back() == 0xFF);
+    }
+    // Not fax data at all: a white picture, not a failure.
+    pdf::Dict params;
+    params.set("K", pdf::Object(static_cast<std::int64_t>(-1)));
+    std::optional<Bytes> const junk = pdf::decode_ccitt(bytes("\xff\xff\xff\xff"), params, 16, 4);
+    CHECK(junk && junk->size() == 8);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -822,8 +878,10 @@ int main(int argc, char** argv)
     test_damaged_files();
     test_streams_and_updates();
     test_render();
-    if (argc > 1)
+    if (argc > 1) {
         test_encrypted(argv[1]);
+        test_ccitt(argv[1]);
+    }
     else
         CHECK(!"the fixtures folder is the first argument");
     if (argc > 2)
