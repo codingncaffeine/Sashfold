@@ -135,6 +135,10 @@ class WindowWin32;
 // files, a page's text from another browser) over it is the window's drag
 // events; what it carries is read while OLE holds it out, and a drop's
 // formats are read before Drop returns, since the object goes with it.
+// A COM object is freed by its own Release, never through its interface's
+// destructor, which COM declares non-virtual on purpose.
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wnon-virtual-dtor"
 class DropTarget final : public IDropTarget {
 public:
     explicit DropTarget(WindowWin32& window)
@@ -168,6 +172,7 @@ private:
     WindowWin32& m_window;
     ULONG m_references = 1;
 };
+#pragma GCC diagnostic pop
 
 namespace {
 
