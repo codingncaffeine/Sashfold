@@ -31,3 +31,13 @@ assert-find 1 of 4
 key Escape
 assert-find
 assert-golden goldens/find-closed.png
+
+# A match in letter-spaced text: the band covers the letters as drawn, the
+# spacing after each one included (it once stopped two thirds of the way).
+open data:text/html,<title>Spaced</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:30px;line-height:40px}</style><p style="letter-spacing:10px">Ghostscript plain</p>
+key ctrl+f
+type Ghostscript
+assert-find 1 of 1
+assert-pixel 318 150 #ffad33
+assert-pixel 330 150 #ffffff
+key Escape

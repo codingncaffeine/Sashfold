@@ -185,7 +185,16 @@ float prefix_width(layout::TextRun const& run, std::size_t count)
     std::u32string_view const prefix = text.substr(0, std::min(count, text.size()));
     float const size = run.style->font_size;
     // A run with no faces of its own is the built-in face's, not the chrome's.
-    return run.fonts ? run.fonts->measure(prefix, size) : text::SashfoldMono::measure(prefix, size);
+    float width = run.fonts ? run.fonts->measure(prefix, size) : text::SashfoldMono::measure(prefix, size);
+    // And the spacing the layout and the painter step after each letter and
+    // word separator: a find band or a selection covers the drawn letters.
+    css::ComputedStyle const& style = *run.style;
+    if (style.letter_spacing != 0 || style.word_spacing != 0) {
+        width += style.letter_spacing * static_cast<float>(prefix.size());
+        if (style.word_spacing != 0)
+            width += style.word_spacing * static_cast<float>(std::count(prefix.begin(), prefix.end(), U' '));
+    }
+    return width;
 }
 
 // A string of the chrome's, glyph by glyph: each from the first face of the
