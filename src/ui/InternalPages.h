@@ -58,7 +58,10 @@ std::string certificate_error_page(std::string_view host, std::string_view url);
 // through; a filter list's `$document` rule is reported the same way.
 std::string blocked_page(std::string_view url, std::string_view list, std::string_view rule, bool nefarious);
 
-std::string about_sashfold_page();
+// `newer_version` is the release the update check was told of when it is
+// later than this build, else empty; `update_checks` whether the check is
+// on (ui/UpdateCheck.h).
+std::string about_sashfold_page(std::string_view newer_version = {}, bool update_checks = false);
 
 // The raw bytes of a document as escaped, preformatted text.
 std::string source_page(std::string_view url, std::vector<std::uint8_t> const& bytes);

@@ -105,6 +105,12 @@ public:
     // made on first use; and the names of the containers that have one.
     net::CookieJar& cookies(std::string_view container = {});
     std::vector<std::string> container_names() const;
+    // A question of the browser's own, asked on a thread of the pool's and
+    // answered through the ticket: a GET with no cookies and no referrer
+    // whose redirect is not followed (the answer may be the redirect), held
+    // to a few seconds and a small body. The lists are not asked: it is no
+    // page's request.
+    std::shared_ptr<net::FetchTicket> ask_plainly(net::Url const& url);
     // The hosts that asked to be reached over HTTPS only (net/Hsts.h): one
     // list for the profile, as the cache and the connections are one.
     net::TransportSecurity& transport_security() { return m_transport_security; }

@@ -178,6 +178,7 @@ target_link_libraries(test_theme_gallery PRIVATE sashfold_core sashfold_warnings
 add_test(NAME test_theme_gallery COMMAND test_theme_gallery ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/themes)
 sashfold_test(test_touch)
 sashfold_test(test_bookmarks)
+sashfold_test(test_update_check)
 sashfold_test(test_bookmark_sources)
 sashfold_test(test_window_events)
 sashfold_test(test_window_placement)
@@ -298,6 +299,8 @@ add_test(NAME shell_indexeddb
 add_test(NAME shell_palette
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/palette.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+add_test(NAME shell_update_notice
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/update-notice.script)
 add_test(NAME shell_menus
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/menus.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

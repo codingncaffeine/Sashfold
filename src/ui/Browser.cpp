@@ -40,6 +40,7 @@
 #include "ui/SourceSet.h"
 #include "ui/ThemeGallery.h"
 #include "ui/ThemeImport.h"
+#include "ui/UpdateCheck.h"
 
 #include <iostream>
 #include <algorithm>
@@ -899,6 +900,8 @@ struct Browser::Impl {
         std::string user_themes_directory;
         std::string theme_gallery_api;
         std::size_t js_heap_limit = 0;
+        std::string newer_version;
+        bool update_checks = false;
         bindings::WorkerThreads* worker_threads = nullptr;
         bool video_layers = true;
         std::function<std::shared_ptr<media::VideoPipeline>(std::string& error)> video_opener;
@@ -1065,6 +1068,11 @@ struct Browser::Impl {
     // The ceiling on each page's script heap, in bytes; 0 is none. A page
     // opened from now on has it (Browser::set_js_heap_limit).
     std::size_t js_heap_limit = 0;
+    // The release the update check was told of, when it is later than this
+    // build, and whether the check is on (Browser::set_update_notice): what
+    // the main menu's first row and about:sashfold say.
+    std::string newer_version;
+    bool update_checks = false;
     // Where the pages' workers run, when not on this thread
     // (Browser::set_worker_threads).
     bindings::WorkerThreads* worker_threads = nullptr;
@@ -1616,6 +1624,8 @@ struct Browser::Impl {
             page.user_themes_directory = setup->user_themes_directory;
             page.theme_gallery_api = setup->theme_gallery_api;
             page.js_heap_limit = setup->js_heap_limit;
+            page.newer_version = setup->newer_version;
+            page.update_checks = setup->update_checks;
             page.worker_threads = setup->worker_threads;
             page.video_layers = setup->video_layers;
             page.video_opener = setup->video_opener;
@@ -5344,7 +5354,7 @@ struct Browser::Impl {
         entry.navigation_started = script_now();
 
         if (load.url.scheme == "about" && load.url.serialize_path() == "sashfold") {
-            set_document(entry, about_sashfold_page());
+            set_document(entry, about_sashfold_page(newer_version, update_checks));
             entry.internal = true;
             entry.status = 200;
         } else if (is_about_newtab(load.url)) {
@@ -8072,6 +8082,16 @@ struct Browser::Impl {
     {
         ChromeLayout const c = layout_chrome();
         std::vector<MenuItem> items;
+        // A newer release, when the daily check was told of one: first, and
+        // set off from the rest. It opens the release's page; nothing is
+        // downloaded.
+        if (!newer_version.empty()) {
+            items.push_back(menu_item("Sashfold " + newer_version + " is out", {}, [this] {
+                if (std::optional<net::Url> const page = net::parse_url(release_page_address(newer_version)))
+                    open_in_new_tab(*page);
+            }));
+            items.push_back(MenuItem {});
+        }
         items.push_back(menu_item("New tab", "Ctrl+T", [this] { new_tab(); }));
         if (!containers.empty()) {
             MenuItem in_container = menu_item("New container tab", {}, {});
@@ -11317,6 +11337,8 @@ std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab
         setup->user_themes_directory = user_themes_directory;
         setup->theme_gallery_api = theme_gallery_api;
         setup->js_heap_limit = js_heap_limit;
+        setup->newer_version = newer_version;
+        setup->update_checks = update_checks;
         setup->worker_threads = worker_threads;
         setup->video_layers = video_layers;
         setup->video_opener = video_opener;
@@ -11351,6 +11373,8 @@ std::shared_ptr<Browser::Impl::Engine> Browser::Impl::make_engine(Tab const& tab
     page.user_themes_directory = user_themes_directory;
     page.theme_gallery_api = theme_gallery_api;
     page.js_heap_limit = js_heap_limit;
+    page.newer_version = newer_version;
+    page.update_checks = update_checks;
     page.worker_threads = worker_threads;
     page.video_layers = video_layers;
     page.video_opener = video_opener;
@@ -11503,6 +11527,13 @@ void Browser::set_js_heap_limit(std::size_t bytes)
 {
     m_impl->js_heap_limit = bytes;
     m_impl->tell_pages([bytes](Browser& page) { page.set_js_heap_limit(bytes); });
+}
+
+void Browser::set_update_notice(std::string newer_version, bool checks)
+{
+    m_impl->newer_version = newer_version;
+    m_impl->update_checks = checks;
+    m_impl->tell_pages([newer_version, checks](Browser& page) { page.set_update_notice(newer_version, checks); });
 }
 
 void Browser::set_worker_threads(bindings::WorkerThreads* threads)

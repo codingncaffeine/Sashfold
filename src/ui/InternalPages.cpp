@@ -1,5 +1,7 @@
 #include "ui/InternalPages.h"
 
+#include "ui/UpdateCheck.h"
+
 namespace sashfold::ui {
 
 namespace {
@@ -97,17 +99,27 @@ std::string certificate_error_page(std::string_view host, std::string_view url)
     return wrap("Connection not secure", body);
 }
 
-std::string about_sashfold_page()
+std::string about_sashfold_page(std::string_view newer_version, bool update_checks)
 {
     std::string body = "<h1>Sashfold</h1>";
     body += "<p>Version " + std::string(version_string) + "</p>";
+    if (!newer_version.empty()) {
+        std::string const address = release_page_address(newer_version);
+        body += "<div class=box><p><b>Sashfold " + html_escape(newer_version) + " is out.</b> <a href=\"" + html_escape(address)
+            + "\">What changed, and where to get it</a>. Nothing is downloaded or replaced on its own.</p></div>";
+    }
     body += "<div class=box><p>A web browser engine written from scratch, every byte, for "
             "Windows, Linux, and macOS. HTML, CSS, layout, text, fonts, images, networking, "
             "TLS on Linux, and the JavaScript engine are all written in this repository; the "
             "operating system's own interfaces and the language runtime are the only things "
             "beneath it.</p>";
     body += "<p>No telemetry. No sponsored tiles. No default-search auction. No account. No cloud "
-            "AI. No self-updater.</p></div>";
+            "AI. No silent updates.</p></div>";
+    body += update_checks
+        ? "<p>Once a day Sashfold asks its releases page whether a newer version exists — one request, no "
+          "cookies — and says so here and in the menu. Starting it with <code>--no-update-check</code> turns "
+          "that off.</p>"
+        : "<p>The daily check for a newer version is off.</p>";
     body += "<h2>Where things stand</h2>";
     body += "<p>Pages load over HTTP and HTTPS through the engine's own fetch pipeline, with a "
             "cookie jar that blocks third-party cookies by default and a session cache. Themes "

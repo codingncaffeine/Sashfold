@@ -315,6 +315,21 @@ std::function<std::optional<std::string>(net::Url&)> ShellLoader::hop_refusal(ne
     };
 }
 
+std::shared_ptr<net::FetchTicket> ShellLoader::ask_plainly(net::Url const& url)
+{
+    return m_fetches.submit([this, url] {
+        net::FetchOptions options;
+        options.pool = &m_pool;
+        options.transport_security = &m_transport_security;
+        options.follow_redirects = false;
+        options.receive_timeout_ms = 15000;
+        options.max_body = 64u * 1024u;
+        if (net_tracing())
+            std::cerr << "net: " << trace_stamp() << "asked " << url.serialize().substr(0, 200) << "\n";
+        return net::fetch(url, options);
+    });
+}
+
 net::CookieJar& ShellLoader::cookies(std::string_view container)
 {
     if (container.empty())

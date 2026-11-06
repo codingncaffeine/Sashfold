@@ -481,6 +481,12 @@ struct Runner {
             if (argument != "on" && argument != "off")
                 return fail("window-active: on or off");
             browser.set_window_active(argument == "on");
+        } else if (command == "newer-release") {
+            // `newer-release [<version>]`: what the daily update check would
+            // have been told (ui/UpdateCheck.h) — that release is out, or,
+            // with no version, that none later than this build is. A script
+            // reaches no server, so it says the answer itself.
+            browser.set_update_notice(argument, true);
         } else if (command == "import-theme") {
             // `import-theme <path>`: a Firefox or Chrome theme — its folder,
             // its .xpi, its .crx, named relative to the script — converted

@@ -377,6 +377,11 @@ public:
     // page stays as it is, and every other tab goes on. For the pages opened
     // from now on.
     void set_js_heap_limit(std::size_t bytes);
+    // What the daily update check knows (ui/UpdateCheck.h): the release it
+    // was told of when that is later than this build — else empty — and
+    // whether the check is on. The main menu's first row and about:sashfold
+    // say it; nothing is downloaded.
+    void set_update_notice(std::string newer_version, bool checks);
     // The threads the pages' workers run on (bindings/Workers.h), which the
     // caller keeps for longer than the browser and for no longer than the
     // loader: with them a worker never runs on the window's thread, and what

@@ -37,6 +37,7 @@
 #include "ui/InternalPages.h"
 #include "ui/PageImages.h"
 #include "ui/Script.h"
+#include "ui/UpdateCheck.h"
 #include "ui/ShellLoader.h"
 #include "ui/Theme.h"
 #include "ui/ThemeImport.h"
@@ -70,7 +71,7 @@ namespace {
 
 int usage(char const* program)
 {
-    std::cerr << "usage: " << program << " [url] [--theme <file.json>] [--blocklists <dir>] [--downloads <dir>] [--profile <dir>]\n"
+    std::cerr << "usage: " << program << " [url] [--theme <file.json>] [--blocklists <dir>] [--downloads <dir>] [--profile <dir>] [--no-update-check]\n"
               << "                 [--exit-after ms] [--timings out.json] [--width N] [--height N]   (a headless run under a compositor with no screen; the window's size)\n"
               << "                 [--js-heap-limit MB] [--memory-ceiling MB]   (a page's script heap; the whole process; 0: none)\n"
               << "                 [--trace-frames]   (every turn of the window's loop that did anything, on stderr: what it cost, and where)\n"
@@ -298,6 +299,9 @@ std::string render_blocklists_path;
 // memory (platform::js_heap_limit_for), or what --js-heap-limit says; 0 is
 // none. Every shell a mode makes is given it.
 std::size_t js_heap_limit = 0;
+// The daily question whether a newer release exists (ui/UpdateCheck.h):
+// off with --no-update-check or SASHFOLD_UPDATE_CHECK=0.
+bool update_check_wanted = true;
 
 // Every turn of the window's loop that did anything says on stderr what it
 // cost and where (--trace-frames, or SASHFOLD_TRACE_FRAMES in the
@@ -2201,6 +2205,17 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     std::uint64_t saved_bookmarks = 0;
     std::map<std::string, std::uint64_t> saved_cookies; // by container name; "" the default
     std::uint64_t saved_transport_security = 0;
+    // The update check: what the profile remembers of it, whether that has
+    // changed since it was written, and the question on its way. Only a
+    // browser with a profile asks: without one there is nowhere to keep
+    // when it last did.
+    bool const update_checks = update_check_wanted && !profile_path.empty();
+    ui::UpdateState update_state;
+    bool update_state_changed = false;
+    std::shared_ptr<net::FetchTicket> update_ticket;
+    auto const newer_release = [&update_state] {
+        return ui::is_newer_release(update_state.latest, SASHFOLD_VERSION) ? update_state.latest : std::string();
+    };
     bool restored = false;
     if (!profile_path.empty()) {
         browser.set_containers(load_containers(profile_path / "containers.json"));
@@ -2218,6 +2233,15 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         if (std::optional<std::string> const text = read_text_file(profile_path / "hsts.txt"))
             loader.transport_security().load(*text, now);
         saved_transport_security = loader.transport_security().changes();
+        // A new profile's day starts now: its first run asks no server the
+        // reader did not name.
+        if (std::optional<std::string> const text = read_text_file(profile_path / "update.txt"))
+            update_state = ui::parse_update_state(*text);
+        if (update_state.checked == 0) {
+            update_state.checked = now;
+            update_state_changed = true;
+        }
+        browser.set_update_notice(update_checks ? newer_release() : std::string(), update_checks);
         if (std::optional<std::string> const text = read_text_file(profile_path / "storage.json"))
             browser.restore_storage(*text);
         saved_storage = browser.storage_changes();
@@ -2369,6 +2393,15 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 std::uint64_t const changes = jar.changes();
                 writer.write(cookie_file(profile_path, name), jar.serialize());
                 saved_cookies[name] = changes;
+                last_profile_write = now;
+            }
+        }
+        if (update_state_changed) {
+            if (throttled) {
+                owed = true;
+            } else {
+                writer.write(profile_path / "update.txt", ui::serialize_update_state(update_state));
+                update_state_changed = false;
                 last_profile_write = now;
             }
         }
@@ -2705,6 +2738,28 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 }
             }
         }
+        // Once a day: which release is the latest? The answer is the
+        // redirect to that release's page, taken when the pool has it.
+        if (update_checks) {
+            if (!update_ticket && ui::update_check_due(update_state, unix_seconds_now())) {
+                if (std::optional<net::Url> const address = net::parse_url(ui::latest_release_address))
+                    update_ticket = loader.ask_plainly(*address);
+                // Asked now whatever comes of it: a question that fails is
+                // put again tomorrow, not at every turn of this loop.
+                update_state.checked = unix_seconds_now();
+                update_state_changed = true;
+            } else if (update_ticket && update_ticket->done()) {
+                net::FetchResult const answer = update_ticket->take();
+                update_ticket.reset();
+                std::string const* const location = answer.response ? net::find_header(answer.response->headers, "location") : nullptr;
+                if (std::optional<std::string> const latest = location ? ui::release_named_by(*location) : std::nullopt;
+                    latest && *latest != update_state.latest) {
+                    update_state.latest = *latest;
+                    update_state_changed = true;
+                    browser.set_update_notice(newer_release(), true);
+                }
+            }
+        }
         bool const profile_owed = save_profile(false);
         if (!browser.load_ready()) {
             // Sleep until input, the theme check, the next page timer, or
@@ -2788,6 +2843,8 @@ int main(int argc, char** argv)
     std::string blocklists_path = default_blocklists_path(argv[0]);
     std::optional<std::string> downloads;
     std::optional<std::string> profile;
+    if (char const* const asked = std::getenv("SASHFOLD_UPDATE_CHECK"); asked != nullptr && asked[0] == '0')
+        update_check_wanted = false;
     std::string font_path;
     // Files named on the command line, installed as if the machine had them:
     // what lets a render be taken in the same font world a test scores in.
@@ -2840,6 +2897,8 @@ int main(int argc, char** argv)
             if (!value_after(i, directory))
                 return usage(argv[0]);
             profile = directory;
+        } else if (arg == "--no-update-check") {
+            update_check_wanted = false;
         } else if (arg == "--script" || arg == "--render" || arg == "--fetch" || arg == "--dump-dom"
             || arg == "--font-sampler" || arg == "--font-info" || arg == "--bench" || arg == "--import-theme") {
             mode = arg;
