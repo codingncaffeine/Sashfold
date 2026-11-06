@@ -73,6 +73,7 @@ public:
         std::uint64_t asked = 0;
         std::uint64_t read = 0;
         std::uint64_t generated = 0;
+        std::uint64_t executions = 0; // the times exec() was asked for a match
     };
     static Census census();
 

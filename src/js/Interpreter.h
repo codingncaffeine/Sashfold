@@ -68,6 +68,9 @@ struct Intrinsics {
     Object* error_prototypes[7] = {}; // by ErrorType
     Object* date_prototype = nullptr;
     Object* regexp_prototype = nullptr;
+    // %RegExp.prototype.exec% as the realm began with it: what a regexp's
+    // own steps compare `exec` with before taking a shorter way round.
+    Object* regexp_exec = nullptr;
     Object* arguments_prototype = nullptr; // Object.prototype; kept for clarity
 
     Function* object_constructor = nullptr;

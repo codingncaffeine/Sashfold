@@ -678,9 +678,48 @@ std::optional<Value> regexp_symbol_split(Interpreter& in, Value const& this_valu
         array->set_element(0, Value::string(*string));
         return Value::object(array);
     }
+    // The steps try the splitter at one position after another, an exec()
+    // apiece: for a long text with few separators, as many calls as there
+    // are characters. Where nothing a script wrote can be watching — the
+    // splitter is the realm's own RegExp's and nothing else's, `exec` is
+    // the one the realm began with, and this regexp is the same pattern
+    // without the sticky flag — where the next match starts is found by
+    // this regexp scanning forward, and the steps go on from there: the
+    // positions passed over are exactly those where the splitter would
+    // have answered null. (Decided here and not where the splitter was
+    // made: reading the limit can run a script that recompiles this regexp
+    // into another pattern, which the splitter then is not.)
+    Regex const* scanner = nullptr;
+    if (constructor->is_object() && constructor->as_object() == in.intrinsics().regexp_constructor
+        && (*rx)->class_id() == Object::Class::RegExp && splitter.class_id() == Object::Class::RegExp
+        && splitter.prototype() == in.intrinsics().regexp_prototype && !splitter.get_own_property(in.key("exec"))) {
+        std::optional<PropertyDescriptor> const exec = in.intrinsics().regexp_prototype->get_own_property(in.key("exec"));
+        Regex const& mine = static_cast<RegExpObject&>(**rx).regex();
+        Regex const& its = static_cast<RegExpObject&>(splitter).regex();
+        RegexFlags made_sticky = mine.flags();
+        made_sticky.sticky = true;
+        if (exec && exec->value && exec->value->is_object() && exec->value->as_object() == in.intrinsics().regexp_exec
+            && in.intrinsics().regexp_exec != nullptr && !mine.flags().sticky
+            && made_sticky.to_string() == its.flags().to_string()
+            && static_cast<RegExpObject&>(**rx).source()->view() == static_cast<RegExpObject&>(splitter).source()->view())
+            scanner = &mine;
+    }
     std::size_t p = 0;
     std::size_t q = p;
     while (q < size) {
+        if (scanner != nullptr) {
+            bool exhausted = false;
+            std::optional<Regex::Match> const next = scanner->exec(text, q, &exhausted);
+            if (exhausted) {
+                scanner = nullptr; // the steps say so themselves, where they would have
+            } else if (!next) {
+                break;
+            } else {
+                q = next->groups[0]->first;
+                if (q >= size)
+                    break;
+            }
+        }
         if (!in.set(splitter, PropertyKey::atom(in.atoms().last_index), Value::number(static_cast<double>(q)), true))
             return std::nullopt;
         std::optional<Value> const z = regexp_exec(in, splitter, *string);
@@ -861,6 +900,8 @@ void install_regexp_library(Interpreter& in)
             return std::nullopt;
         return regexp_builtin_exec(interp, **regexp, *string);
     });
+    if (std::optional<PropertyDescriptor> const exec = prototype.get_own_property(in.key("exec")); exec && exec->value && exec->value->is_object())
+        i.regexp_exec = exec->value->as_object();
     define_method(in, prototype, "test", 1, [](Interpreter& interp, Value const& this_value, Args args) -> std::optional<Value> {
         std::optional<Object*> const regexp = this_object(interp, this_value, "test");
         if (!regexp)

@@ -2408,6 +2408,7 @@ void RealmRecord::trace(Tracer& tracer)
         tracer.visit(prototype);
     tracer.visit(i.date_prototype);
     tracer.visit(i.regexp_prototype);
+    tracer.visit(i.regexp_exec);
     tracer.visit(i.arguments_prototype);
     tracer.visit(i.object_constructor);
     tracer.visit(i.function_constructor);

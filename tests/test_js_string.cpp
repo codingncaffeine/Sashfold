@@ -1,6 +1,7 @@
 #include "JsTest.h"
 
 #include "js/Interpreter.h"
+#include "js/Regex.h"
 
 #include <string>
 
@@ -95,6 +96,36 @@ void test_replace_and_match()
     CHECK_JS_TRUE(in, "'a1b22c'.split(/\\d+/).join() === 'a,b,c' && 'a1b'.split(/(\\d)/).join() === 'a,1,b' && 'abc'.split(/(?:)/).join() === 'a,b,c' && ''.split(/x/).length === 1 && ''.split(/(?:)/).length === 0 && 'a,b,c'.split(/,/, 2).join() === 'a,b'");
     CHECK_JS_TRUE(in, "(function () { var o = { [Symbol.replace](s, r) { return s + '|' + r; } }; return 'str'.replace(o, 'rep') === 'str|rep'; })()");
     CHECK_JS_TRUE(in, "(function () { var o = { [Symbol.split](s, l) { return [s, l]; } }; return 'str'.split(o, 3)[1] === 3; })()");
+    // A split by a regexp costs a search per separator, not one per
+    // character: 20,000 characters with a separator every thousand.
+    {
+        CHECK_JS_TRUE(in, "globalThis.long = ('x'.repeat(999) + ';').repeat(20); long.length === 20000");
+        std::uint64_t const before = js::Regex::census().executions;
+        CHECK_JS_TRUE(in, "(function () { var parts = long.split(/;/); return parts.length === 21 && parts[0].length === 999 && parts[20] === ''; })()");
+        std::uint64_t const searches = js::Regex::census().executions - before;
+        CHECK(searches > 0);
+        CHECK(searches < 200);
+        // No separator at all: one search says so.
+        std::uint64_t const before_none = js::Regex::census().executions;
+        CHECK_JS_TRUE(in, "long.split(/#/).length === 1 && long.split(/#/)[0] === long");
+        CHECK(js::Regex::census().executions - before_none < 10);
+    }
+    // The shorter way gives what the steps give: captures, a limit, empty
+    // matches, a match at either end, lookbehind across the last cut, the
+    // flags, pairs that must not be cut in half.
+    CHECK_JS_TRUE(in, "'a1b22c333'.split(/(\\d)(\\d)?/).join('|') === 'a|1||b|2|2|c|3|3||3||' && ';a;;b;'.split(/;/).join('|') === '|a||b|' && 'a;b;c;d'.split(/;/, 3).join('|') === 'a|b|c'");
+    CHECK_JS_TRUE(in, "'abcd'.split(/(?:)/).join('|') === 'a|b|c|d' && 'abcd'.split(/x*/).join('|') === 'a|b|c|d' && 'axxbxc'.split(/x*/).join('|') === 'a|b|c' && 'ab'.split(/(?<=a)/).join('|') === 'a|b' && 'a;b'.split(/(?<=;)|(?=;)/).join('|') === 'a|;|b'");
+    CHECK_JS_TRUE(in, "'aXbxc'.split(/x/i).join('|') === 'a|b|c' && 'a\\nb'.split(/^/m).join('|') === 'a\\n|b' && 'a;b'.split(/;/g).join('|') === 'a|b' && 'a;b;c'.split(/;/y).join('|') === 'a|b|c' && '\\ud83d\\ude00'.split(/(?:)/u).length === 1 && '\\ud83d\\ude00'.split(/(?:)/).length === 2");
+    // And is not taken where a script could tell: an exec of the regexp's
+    // own, of its class's, or put on the prototype, is called at every
+    // position as the steps say.
+    CHECK_JS_TRUE(in, "(function () { var calls = 0; var r = /;/; r.exec = function (s) { ++calls; return RegExp.prototype.exec.call(this, s); }; var parts = 'a;b'.split(r); return parts.join('|') === 'a|b' && calls === 0; })()");
+    CHECK_JS_TRUE(in, "(function () { var calls = 0; class R extends RegExp { exec(s) { ++calls; return super.exec(s); } } var parts = 'ab;cd'.split(new R(';')); return parts.join('|') === 'ab|cd' && calls === 5; })()");
+    CHECK_JS_TRUE(in, "(function () { var calls = 0; var real = RegExp.prototype.exec; RegExp.prototype.exec = function (s) { ++calls; return real.call(this, s); }; try { return 'ab;cd'.split(/;/).join('|') === 'ab|cd' && calls === 5; } finally { RegExp.prototype.exec = real; } })()");
+    CHECK_JS_TRUE(in, "(function () { var real = RegExp.prototype.exec; RegExp.prototype.exec = real; var before = 'ab;cd'.split(/;/).join('|'); return before === 'ab|cd'; })()");
+    // Nor where reading the limit made this regexp another pattern: the
+    // split is by the pattern it had when it was asked.
+    CHECK_JS_TRUE(in, "(function () { var r = /a/; var limit = { valueOf() { r.compile('b'); return -1; } }; return r[Symbol.split]('abba', limit).join('|') === '|bb|'; })()");
     CHECK_JS_TRUE(in, "(function () { var o = { [Symbol.search]() { return 42; } }; return 'str'.search(o) === 42; })()");
     CHECK_JS_TRUE(in, "(function () { var o = { [Symbol.match]() { return 'matched'; } }; return 'str'.match(o) === 'matched'; })()");
     CHECK_JS_THROWS(in, "String.prototype.replace.call(null, 'a', 'b')", "TypeError");

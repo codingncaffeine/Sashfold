@@ -2502,6 +2502,7 @@ std::optional<Regex::Match> Regex::exec(std::u16string_view input, std::size_t s
 {
     if (budget_exhausted)
         *budget_exhausted = false;
+    ++t_census.executions;
     RegexProgram const* const compiled = program();
     if (compiled == nullptr || start > input.size())
         return std::nullopt;
