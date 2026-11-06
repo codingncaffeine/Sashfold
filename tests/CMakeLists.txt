@@ -47,7 +47,14 @@ sashfold_test(test_css_tokenizer)
 sashfold_test(test_css_parser)
 sashfold_test(test_css_selectors)
 sashfold_test(test_style_resolver)
-sashfold_test(test_incremental_restyle)
+# Its cases are each a page checked whole after every one of hundreds of
+# changes: most of a minute on one thread, so they run as parts side by side
+# (the program alone, with no argument, runs them all).
+add_executable(test_incremental_restyle test_incremental_restyle.cpp)
+target_link_libraries(test_incremental_restyle PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+foreach(part RANGE 1 6)
+  add_test(NAME test_incremental_restyle_${part} COMMAND test_incremental_restyle ${part} 6)
+endforeach()
 sashfold_test(test_animations)
 sashfold_test(test_stylesheets)
 sashfold_test(test_source_set)
@@ -507,7 +514,10 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/wpt/dom)
       ${CMAKE_CURRENT_SOURCE_DIR}/wpt/harness-passing.txt
       --revision ${CMAKE_CURRENT_SOURCE_DIR}/wpt/REVISION)
   # Its media tests load the GPU video drivers too (lsan-suppressions.txt).
-  set_tests_properties(wpt_testharness PROPERTIES TIMEOUT 1800
+  # It runs many tests at once on threads of its own, and some of them have
+  # deadlines in real time: ctest is told, so that `ctest -j` does not start
+  # as many other tests beside it as if it were one thread.
+  set_tests_properties(wpt_testharness PROPERTIES TIMEOUT 1800 PROCESSORS 4
     ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt")
 endif()
 

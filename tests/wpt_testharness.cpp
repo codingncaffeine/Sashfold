@@ -30,6 +30,10 @@
 #include <thread>
 #include <vector>
 
+#if defined(__linux__)
+#include <sched.h>
+#endif
+
 // Scores the engine on the Web Platform Tests' testharness.js tests. Every
 // test under the listed directories that loads /resources/testharness.js —
 // a page, or a .any.js or .window.js script the suite's server would wrap
@@ -1144,7 +1148,16 @@ int main(int argc, char** argv)
     int max_printed = 20;
     if (char const* env = std::getenv("SASHFOLD_PRINT_FAILURES"))
         max_printed = std::atoi(env);
-    int jobs = static_cast<int>(std::max(1u, std::thread::hardware_concurrency() / 2));
+    // Half the processors this run may use — not half the machine's: a run
+    // kept to eight of thirty-two (taskset, a container's quota) that
+    // started sixteen tests at once ran each at half speed, and the tests
+    // with a deadline in real time lost to it.
+    unsigned processors = std::thread::hardware_concurrency();
+#if defined(__linux__)
+    if (cpu_set_t allowed; sched_getaffinity(0, sizeof allowed, &allowed) == 0)
+        processors = static_cast<unsigned>(CPU_COUNT(&allowed));
+#endif
+    int jobs = static_cast<int>(std::max(1u, processors / 2));
     long hang_seconds = 90L * deadline_multiplier; // past the long deadline
     int messages = 0;
     int files_ranked = 0;

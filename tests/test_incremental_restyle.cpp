@@ -8,6 +8,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <functional>
 #include <iostream>
 #include <memory>
 #include <optional>
@@ -1311,25 +1312,56 @@ void anchor_reaches_its_subjects()
     CHECK(step.outcome.computed < held + ancestors); // not the anchor's whole subtree
 }
 
-int main()
+// With no argument, every case. With `<part> <parts>` (part counted from
+// 1), the cases that fall to that part: each case stands alone — a page of
+// its own, checked whole after every change — and together they take most
+// of a minute on one thread, so ctest runs the parts side by side.
+int main(int argc, char** argv)
 {
+    std::size_t part = 0;
+    std::size_t parts = 1;
+    if (argc == 3) {
+        part = static_cast<std::size_t>(std::atoi(argv[1]));
+        parts = static_cast<std::size_t>(std::atoi(argv[2]));
+        if (part < 1 || part > parts) {
+            std::cerr << "usage: " << argv[0] << " [<part> <parts>]\n";
+            return 2;
+        }
+        --part;
+    } else if (argc != 1) {
+        std::cerr << "usage: " << argv[0] << " [<part> <parts>]\n";
+        return 2;
+    }
     text::FontManager::instance().set_system_fonts(false);
-    bounds();
-    nth_of_at_the_root();
-    anchor_reaches_its_subjects();
-    reaches();
-    random_mutations(page_sheet, 0x1234abcdu);
-    random_mutations(argument_sheet, 0x9e3779b9u);
-    random_mutations(has_sheet, 0x51ed27f3u);
-    random_mutations(has_sibling_sheet, 0x3c6ef372u);
-    random_mutations(has_every_sibling_sheet, 0x3c6ef372u, 1);
-    random_mutations(state_sheet, 0x2545f491u);
-    random_mutations(first_letter_sheet, 0x6a09e667u);
-    first_letters_handed_down();
-    focus_moves_up();
-    shadow_trees(0x7f4a7c15u);
-    shadow_trees(0x2c1b3c6du);
-    shadow_trees(0x297a2d39u);
+    std::function<void()> const cases[] = {
+        [] {
+            bounds();
+            nth_of_at_the_root();
+            anchor_reaches_its_subjects();
+            reaches();
+            first_letters_handed_down();
+            focus_moves_up();
+        },
+        [] { random_mutations(page_sheet, 0x1234abcdu); },
+        [] { random_mutations(argument_sheet, 0x9e3779b9u); },
+        [] { random_mutations(has_sheet, 0x51ed27f3u); },
+        [] { random_mutations(has_sibling_sheet, 0x3c6ef372u); },
+        [] { random_mutations(has_every_sibling_sheet, 0x3c6ef372u, 1); },
+        [] { random_mutations(state_sheet, 0x2545f491u); },
+        [] { random_mutations(first_letter_sheet, 0x6a09e667u); },
+        [] { shadow_trees(0x7f4a7c15u); },
+        [] { shadow_trees(0x2c1b3c6du); },
+        [] { shadow_trees(0x297a2d39u); },
+    };
+    std::size_t ran = 0;
+    for (std::size_t i = 0; i < std::size(cases); ++i) {
+        if (i % parts != part)
+            continue;
+        cases[i]();
+        ++ran;
+    }
+    // A part with nothing in it is a mistake in how the parts were cut.
+    CHECK(ran > 0);
     // SASHFOLD_RESTYLE_SEEDS=n: n more pages of components, each from a
     // seed of its own — the instrument for a path three seeds never take.
     if (char const* const more = std::getenv("SASHFOLD_RESTYLE_SEEDS")) {
