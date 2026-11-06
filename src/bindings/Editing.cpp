@@ -18,6 +18,7 @@
 #include "core/Unicode.h"
 #include "dom/Dom.h"
 #include "dom/Forms.h"
+#include "css/StyleResolver.h"
 #include "html/Serializer.h"
 
 #include <algorithm>
@@ -34,6 +35,13 @@ struct Point {
     dom::Node* node = nullptr;
     std::uint32_t offset = 0;
 };
+
+std::string lowered_ascii(std::string text)
+{
+    for (char& c : text)
+        c = static_cast<char>(c >= 'A' && c <= 'Z' ? c + 32 : c);
+    return text;
+}
 
 constexpr char16_t no_break_space = 0x00A0;
 
@@ -593,7 +601,7 @@ Point insert_paragraph(Realm::Internals& in, Point at, dom::Element& host)
         dom::Node* const list = block->parent();
         if (block == list->children().back() && list->parent()) {
             remove_node(in, *block);
-            dom::Element* const paragraph = make_element(in, "div");
+            dom::Element* const paragraph = make_element(in, in.default_paragraph_separator);
             pre_insert(in, *list->parent(), *paragraph, next_sibling_of(*list));
             keep_line(in, *paragraph);
             if (list->children().empty())
@@ -621,7 +629,7 @@ Point insert_paragraph(Realm::Internals& in, Point at, dom::Element& host)
         js::Object* const range_object = make_live_range(in, *at.node, at.offset, host, run_end);
         dom::Range* const tail = live_range_of(js::Value::object(range_object));
         std::optional<dom::Node*> const fragment = extract_range_contents(in, *tail);
-        dom::Element* const paragraph = make_element(in, "div");
+        dom::Element* const paragraph = make_element(in, in.default_paragraph_separator);
         if (fragment)
             pre_insert(in, *paragraph, **fragment, nullptr);
         // Where the run was cut: the extracted range collapsed there.
@@ -664,7 +672,7 @@ Point insert_paragraph(Realm::Internals& in, Point at, dom::Element& host)
     }();
     dom::Element* next = nullptr;
     if (is_heading(*block) && tail_empty) {
-        next = make_element(in, "div");
+        next = make_element(in, in.default_paragraph_separator);
     } else {
         next = in.document->create<dom::Element>(block->namespace_uri(), block->local_name());
         // The copy keeps the block's attributes but its id, which one element alone may have.
@@ -836,7 +844,7 @@ bool toggle_list(Realm::Internals& in, Current const& current, std::string_view 
     if (block->is_html("li") && block->parent() && block->parent()->is_element()
         && static_cast<dom::Element*>(block->parent())->is_html(kind)) {
         dom::Node* const list = block->parent();
-        dom::Element* const paragraph = make_element(in, "div");
+        dom::Element* const paragraph = make_element(in, in.default_paragraph_separator);
         std::vector<dom::Node*> const children = block->children();
         for (dom::Node* child : children)
             pre_insert(in, *paragraph, *child, nullptr);
@@ -865,6 +873,400 @@ bool toggle_list(Realm::Internals& in, Current const& current, std::string_view 
     }
     keep_line(in, *item);
     restore_caret(in, caret, *item);
+    return true;
+}
+
+// --- Alignment, indentation, links, colors and fonts ----------------------------
+
+// The blocks a selection reaches into, in document order: each block that
+// holds a leaf inside it, and the start's block at least.
+std::vector<dom::Element*> blocks_in(Current const& current)
+{
+    dom::Range const& range = *current.range;
+    dom::Element& host = *current.host;
+    std::vector<dom::Element*> blocks { block_of(*range.start_node, host) };
+    std::vector<dom::Node*> all;
+    collect_descendants(host, all);
+    for (dom::Node* node : all) {
+        bool const leaf = (node->is_text() && !character_data(*node).empty()) || is_atomic(*node);
+        if (!leaf)
+            continue;
+        if (compare_points(*node, 0, *range.end_node, range.end_offset) >= 0 && !(node == range.end_node))
+            continue;
+        if (compare_points(*node, boundary_length(*node), *range.start_node, range.start_offset) <= 0 && node != range.start_node)
+            continue;
+        dom::Element* const block = block_of(*node, host);
+        if (std::find(blocks.begin(), blocks.end(), block) == blocks.end())
+            blocks.push_back(block);
+    }
+    return blocks;
+}
+
+// The run of inline nodes straight in the host around a node, wrapped in a
+// new element of the name: what alignment and indentation take as the
+// paragraph when the text has no block of its own.
+dom::Element* wrap_host_run(Realm::Internals& in, dom::Element& host, dom::Node& inside, std::string_view name)
+{
+    dom::Node* top = &inside;
+    while (top->parent() && top->parent() != &host)
+        top = top->parent();
+    std::uint32_t from = top == &host ? 0 : top->index();
+    std::uint32_t to = top == &host ? 0 : from + 1;
+    while (from > 0 && !is_block(*host.children()[from - 1]))
+        --from;
+    while (to < host.children().size() && !is_block(*host.children()[to]))
+        ++to;
+    dom::Element* const wrapper = make_element(in, name);
+    std::vector<dom::Node*> const run(host.children().begin() + from, host.children().begin() + to);
+    dom::Node* const before = to < host.children().size() ? host.children()[to] : nullptr;
+    pre_insert(in, host, *wrapper, before);
+    for (dom::Node* node : run)
+        pre_insert(in, *wrapper, *node, nullptr);
+    keep_line(in, *wrapper);
+    return wrapper;
+}
+
+// Sets one declaration of an element's style attribute, the rest kept.
+void set_style_declaration(Realm::Internals& in, dom::Element& element, std::string_view property, std::string const& value)
+{
+    std::string kept;
+    if (dom::Attr const* const style = element.find_attribute("style")) {
+        std::size_t from = 0;
+        std::string const& text = style->value;
+        while (from < text.size()) {
+            std::size_t const end = std::min(text.find(';', from), text.size());
+            std::string declaration = text.substr(from, end - from);
+            std::size_t const colon = declaration.find(':');
+            std::string name = colon == std::string::npos ? declaration : declaration.substr(0, colon);
+            std::erase_if(name, [](char c) { return c == ' ' || c == '\t'; });
+            if (!name.empty() && lowered_ascii(name) != property) {
+                while (!declaration.empty() && declaration.front() == ' ')
+                    declaration.erase(0, 1);
+                kept += declaration + "; ";
+            }
+            from = end + 1;
+        }
+    }
+    set_attribute(in, element, "style", kept + std::string(property) + ":" + value);
+}
+
+std::string_view alignment_name(std::string_view command)
+{
+    if (command == "justifycenter")
+        return "center";
+    if (command == "justifyright")
+        return "right";
+    if (command == "justifyfull")
+        return "justify";
+    return "left";
+}
+
+bool justify(Realm::Internals& in, Current const& current, std::string_view align)
+{
+    Point const caret { current.range->start_node, current.range->start_offset };
+    Point const focus { current.range->end_node, current.range->end_offset };
+    for (dom::Element* block : blocks_in(current)) {
+        if (block == current.host)
+            block = wrap_host_run(in, *current.host, *current.range->start_node, "div");
+        set_style_declaration(in, *block, "text-align", std::string(align));
+    }
+    if (caret.node->parent() && focus.node->parent())
+        in.realm.set_selection(*caret.node, caret.offset, *focus.node, focus.offset);
+    return true;
+}
+
+// The alignment of the block the selection starts in, as queryCommandValue
+// tells it: left, right, center or justify.
+std::string alignment_of(Realm::Internals& in, Current const& current)
+{
+    dom::Element* const block = block_of(*current.range->start_node, *current.host);
+    css::ComputedStyle const* const style = in.hooks.computed_style ? in.hooks.computed_style(*block) : nullptr;
+    if (!style)
+        return "left";
+    bool const rtl = style->direction == css::Direction::Rtl;
+    switch (style->text_align) {
+    case css::TextAlign::Center: return "center";
+    case css::TextAlign::Justify: return "justify";
+    case css::TextAlign::Right: return "right";
+    case css::TextAlign::Left: return "left";
+    case css::TextAlign::End: return rtl ? "left" : "right";
+    default: return rtl ? "right" : "left";
+    }
+}
+
+// Indent: the blocks wrapped in a <blockquote> together. Outdent: a block
+// in a <blockquote> taken out of it, the blockquote split around it.
+bool indent(Realm::Internals& in, Current const& current)
+{
+    std::vector<dom::Element*> blocks = blocks_in(current);
+    Point const caret { current.range->start_node, current.range->start_offset };
+    Point const focus { current.range->end_node, current.range->end_offset };
+    if (blocks.size() == 1 && blocks.front() == current.host) {
+        wrap_host_run(in, *current.host, *current.range->start_node, "blockquote");
+    } else {
+        dom::Element* const quote = make_element(in, "blockquote");
+        dom::Element* const first = blocks.front() == current.host ? wrap_host_run(in, *current.host, *current.range->start_node, in.default_paragraph_separator) : blocks.front();
+        pre_insert(in, *first->parent(), *quote, first);
+        for (dom::Element* block : blocks) {
+            if (block == current.host)
+                continue;
+            pre_insert(in, *quote, block == blocks.front() ? *first : *block, nullptr);
+        }
+        if (blocks.front() == current.host)
+            pre_insert(in, *quote, *first, quote->children().empty() ? nullptr : quote->children().front());
+    }
+    if (caret.node->parent() && focus.node->parent())
+        in.realm.set_selection(*caret.node, caret.offset, *focus.node, focus.offset);
+    return true;
+}
+
+bool outdent(Realm::Internals& in, Current const& current)
+{
+    Point const caret { current.range->start_node, current.range->start_offset };
+    Point const focus { current.range->end_node, current.range->end_offset };
+    bool done = false;
+    for (dom::Element* block : blocks_in(current)) {
+        dom::Node* quote = block;
+        while (quote && quote != current.host && !(quote->is_element() && (static_cast<dom::Element*>(quote)->is_html("blockquote"))))
+            quote = quote->parent();
+        if (!quote || quote == current.host || !quote->parent() || !is_inclusive_ancestor(*current.host, *quote)
+            || !is_inclusive_ancestor(*quote, *block) || quote == block)
+            continue;
+        // The child of the blockquote holding the block comes out after the
+        // part of the blockquote before it; what follows goes into a copy.
+        dom::Node* child = block;
+        while (child->parent() != quote)
+            child = child->parent();
+        dom::Node* const parent = quote->parent();
+        std::vector<dom::Node*> const after(quote->children().begin() + child->index() + 1, quote->children().end());
+        if (!after.empty()) {
+            dom::Element* const rest = make_element(in, "blockquote");
+            pre_insert(in, *parent, *rest, next_sibling_of(*quote));
+            for (dom::Node* node : after)
+                pre_insert(in, *rest, *node, nullptr);
+        }
+        pre_insert(in, *parent, *child, next_sibling_of(*quote));
+        if (quote->children().empty())
+            remove_node(in, *quote);
+        done = true;
+    }
+    if (done && caret.node->parent() && focus.node->parent())
+        in.realm.set_selection(*caret.node, caret.offset, *focus.node, focus.offset);
+    return done;
+}
+
+// The selection's contents wrapped in a new element, the selection kept on
+// what is inside it.
+dom::Element* wrap_selection(Realm::Internals& in, Current const& current, dom::Element* wrapper)
+{
+    dom::Range& range = *current.range;
+    if (collapsed(range))
+        return nullptr;
+    js::Interpreter::Roots const roots(in.interpreter);
+    js::Heap::NoCollect const no_collect(in.interpreter.heap());
+    std::optional<dom::Node*> const fragment = extract_range_contents(in, range);
+    if (!fragment)
+        return nullptr;
+    pre_insert(in, *wrapper, **fragment, nullptr);
+    insert_at_range(in, range, *wrapper);
+    std::vector<dom::Node*> const& children = wrapper->children();
+    if (!children.empty() && children.front()->is_text() && children.back()->is_text())
+        in.realm.set_selection(*children.front(), 0, *children.back(), boundary_length(*children.back()));
+    else
+        in.realm.set_selection(*wrapper, 0, *wrapper, static_cast<std::uint32_t>(children.size()));
+    return wrapper;
+}
+
+std::string two_hex(int value)
+{
+    static constexpr char digits[] = "0123456789abcdef";
+    return { digits[(value >> 4) & 15], digits[value & 15] };
+}
+
+// A color as the commands write it: rgb() in a style, #rrggbb in <font>.
+std::optional<std::pair<std::string, std::string>> color_forms(std::string const& value)
+{
+    std::optional<Color> const color = css::parse_color_text(value);
+    if (!color)
+        return std::nullopt;
+    std::string const css_form = color->a == 255
+        ? "rgb(" + std::to_string(color->r) + ", " + std::to_string(color->g) + ", " + std::to_string(color->b) + ")"
+        : "rgba(" + std::to_string(color->r) + ", " + std::to_string(color->g) + ", " + std::to_string(color->b) + ", "
+            + std::to_string(static_cast<double>(color->a) / 255).substr(0, 4) + ")";
+    return std::pair { css_form, "#" + two_hex(color->r) + two_hex(color->g) + two_hex(color->b) };
+}
+
+// fontSize's value, a legacy font size (HTML §15.3.4): an integer, or one
+// signed relative to 3, held to 1 to 7.
+std::optional<int> legacy_font_size(std::string const& value)
+{
+    std::size_t at = 0;
+    while (at < value.size() && (value[at] == ' ' || value[at] == '\t' || value[at] == '\n'))
+        ++at;
+    int sign = 0;
+    if (at < value.size() && (value[at] == '+' || value[at] == '-'))
+        sign = value[at++] == '+' ? 1 : -1;
+    if (at >= value.size() || value[at] < '0' || value[at] > '9')
+        return std::nullopt;
+    int number = 0;
+    while (at < value.size() && value[at] >= '0' && value[at] <= '9' && number < 100)
+        number = number * 10 + (value[at++] - '0');
+    int const size = sign == 0 ? number : 3 + sign * number;
+    return std::clamp(size, 1, 7);
+}
+
+bool style_text(Realm::Internals& in, Current const& current, std::string const& command, std::string const& value)
+{
+    bool const css = in.style_with_css;
+    dom::Element* wrapper = nullptr;
+    if (command == "forecolor") {
+        std::optional<std::pair<std::string, std::string>> const forms = color_forms(value);
+        if (!forms)
+            return false;
+        wrapper = make_element(in, css ? "span" : "font");
+        if (css)
+            set_attribute(in, *wrapper, "style", "color:" + forms->first);
+        else
+            set_attribute(in, *wrapper, "color", forms->second);
+    } else if (command == "hilitecolor" || command == "backcolor") {
+        std::optional<std::pair<std::string, std::string>> const forms = color_forms(value);
+        if (!forms)
+            return false;
+        wrapper = make_element(in, "span");
+        set_attribute(in, *wrapper, "style", "background-color:" + forms->first);
+    } else if (command == "fontname") {
+        wrapper = make_element(in, css ? "span" : "font");
+        if (css)
+            set_attribute(in, *wrapper, "style", "font-family:" + value);
+        else
+            set_attribute(in, *wrapper, "face", value);
+    } else if (command == "fontsize") {
+        std::optional<int> const size = legacy_font_size(value);
+        if (!size)
+            return false;
+        static constexpr std::string_view keywords[] = { "x-small", "small", "medium", "large", "x-large", "xx-large", "xxx-large" };
+        wrapper = make_element(in, css ? "span" : "font");
+        if (css)
+            set_attribute(in, *wrapper, "style", "font-size:" + std::string(keywords[*size - 1]));
+        else
+            set_attribute(in, *wrapper, "size", std::to_string(*size));
+    } else {
+        return false;
+    }
+    return wrap_selection(in, current, wrapper) != nullptr;
+}
+
+bool create_link(Realm::Internals& in, Current const& current, std::string const& url)
+{
+    if (url.empty())
+        return false;
+    dom::Range& range = *current.range;
+    if (dom::Element* const link = formatting_ancestor(*range.start_node, *current.host, { "a" }); link && link == formatting_ancestor(*range.end_node, *current.host, { "a" })) {
+        set_attribute(in, *link, "href", url);
+        return true;
+    }
+    if (collapsed(range)) {
+        // Nothing selected: the address itself, linked, at the caret.
+        Point const at = text_point(in, { range.start_node, range.start_offset });
+        dom::Element* const link = make_element(in, "a");
+        set_attribute(in, *link, "href", url);
+        dom::Text* const text = in.document->create<dom::Text>();
+        text->data = url;
+        pre_insert(in, *link, *text, nullptr);
+        dom::Node* node = at.node;
+        if (at.offset > 0 && at.offset < boundary_length(*node))
+            split_text(in, static_cast<dom::Text&>(*node), at.offset);
+        dom::Node* const before = at.offset == 0 ? node : next_sibling_of(*node);
+        pre_insert(in, *node->parent(), *link, before);
+        place_caret(in, { link->parent(), link->index() + 1 });
+        return true;
+    }
+    dom::Element* const link = make_element(in, "a");
+    set_attribute(in, *link, "href", url);
+    return wrap_selection(in, current, link) != nullptr;
+}
+
+// unlink and removeFormat: the elements of the names around and inside the
+// selection unwrapped, their children left where they were.
+bool unwrap_in_selection(Realm::Internals& in, Current const& current, std::initializer_list<std::string_view> names)
+{
+    dom::Range& range = *current.range;
+    Point const caret { range.start_node, range.start_offset };
+    Point const focus { range.end_node, range.end_offset };
+    std::vector<dom::Element*> found;
+    for (dom::Node* end : { range.start_node, range.end_node }) {
+        for (dom::Node* at = end; at && at != current.host; at = at->parent()) {
+            if (!at->is_element())
+                continue;
+            auto* const element = static_cast<dom::Element*>(at);
+            for (std::string_view const name : names) {
+                if (element->is_html(name) && std::find(found.begin(), found.end(), element) == found.end())
+                    found.push_back(element);
+            }
+        }
+    }
+    std::vector<dom::Node*> all;
+    collect_descendants(*current.host, all);
+    for (dom::Node* node : all) {
+        if (!node->is_element() || !range_contains_node(range, *node, true))
+            continue;
+        auto* const element = static_cast<dom::Element*>(node);
+        for (std::string_view const name : names) {
+            if (element->is_html(name) && std::find(found.begin(), found.end(), element) == found.end())
+                found.push_back(element);
+        }
+    }
+    if (found.empty())
+        return false;
+    for (dom::Element* element : found) {
+        dom::Node* const parent = element->parent();
+        if (!parent)
+            continue;
+        std::vector<dom::Node*> const children = element->children();
+        for (dom::Node* child : children)
+            pre_insert(in, *parent, *child, element);
+        remove_node(in, *element);
+    }
+    if (caret.node->parent() && focus.node->parent())
+        in.realm.set_selection(*caret.node, caret.offset, *focus.node, focus.offset);
+    return true;
+}
+
+// insertHorizontalRule: an <hr> at the caret; in a paragraph, the
+// paragraph split around it.
+bool insert_rule(Realm::Internals& in, Current const& current)
+{
+    dom::Element& host = *current.host;
+    Point at { current.range->start_node, current.range->start_offset };
+    if (!collapsed(*current.range))
+        at = delete_range(in, *current.range, host);
+    dom::Element* const block = block_of(*at.node, host);
+    dom::Element* const rule = make_element(in, "hr");
+    if (block != &host && !block->is_html("li") && !block->is_html("td") && !block->is_html("th")) {
+        Point const next = insert_paragraph(in, at, host);
+        dom::Element* const second = block_of(*next.node, host);
+        pre_insert(in, *second->parent(), *rule, second);
+        // A part the split left empty is not kept.
+        for (dom::Element* part : { block, second }) {
+            if (!block_has_content(*part) && part->parent())
+                remove_node(in, *part);
+        }
+    } else {
+        if (at.node->is_text()) {
+            std::uint32_t const length = boundary_length(*at.node);
+            if (at.offset == 0)
+                at = { at.node->parent(), at.node->index() };
+            else if (at.offset >= length)
+                at = { at.node->parent(), at.node->index() + 1 };
+            else {
+                split_text(in, static_cast<dom::Text&>(*at.node), at.offset);
+                at = { at.node->parent(), at.node->index() + 1 };
+            }
+        }
+        dom::Node* const before = at.offset < at.node->children().size() ? at.node->children()[at.offset] : nullptr;
+        pre_insert(in, *at.node, *rule, before);
+    }
+    place_caret(in, { rule->parent(), rule->index() + 1 });
     return true;
 }
 
@@ -1071,6 +1473,22 @@ constexpr ExecCommand exec_commands[] = {
     { "paste", "insertFromPaste" },
     { "styleWithCSS", "" },
     { "defaultparagraphseparator", "" },
+    { "justifycenter", "formatJustifyCenter" },
+    { "justifyleft", "formatJustifyLeft" },
+    { "justifyright", "formatJustifyRight" },
+    { "justifyfull", "formatJustifyFull" },
+    { "indent", "formatIndent" },
+    { "outdent", "formatOutdent" },
+    { "createlink", "insertLink" },
+    { "unlink", "" },
+    { "removeformat", "formatRemove" },
+    { "forecolor", "formatFontColor" },
+    { "hilitecolor", "formatBackColor" },
+    { "backcolor", "formatBackColor" },
+    { "fontname", "formatFontName" },
+    { "fontsize", "formatFontSize" },
+    { "inserthorizontalrule", "" },
+    { "insertimage", "" },
 };
 
 ExecCommand const* exec_command(std::string const& name)
@@ -1268,8 +1686,17 @@ void install_editing(Realm::Internals& in, js::Object& document)
         if (!command || &d != internals.document)
             return js::Value::boolean(false);
         std::string const lower = lowered(*name);
-        if (lower == "defaultparagraphseparator" || lower == "stylewithcss")
+        if (lower == "defaultparagraphseparator") {
+            std::string const separator = lowered(*value);
+            if (separator != "p" && separator != "div")
+                return js::Value::boolean(false);
+            internals.default_paragraph_separator = separator;
             return js::Value::boolean(true);
+        }
+        if (lower == "stylewithcss") {
+            internals.style_with_css = lowered(*value) != "false";
+            return js::Value::boolean(true);
+        }
         js::Interpreter::Roots const roots(internals.interpreter);
         std::optional<Current> const current = current_selection(internals);
         if (lower == "selectall") {
@@ -1303,7 +1730,32 @@ void install_editing(Realm::Internals& in, js::Object& document)
             done = !plaintext_only(*host) && format_block(internals, *current, *value);
         else if (lower == "insertorderedlist" || lower == "insertunorderedlist")
             done = !plaintext_only(*host) && toggle_list(internals, *current, lower == "insertorderedlist" ? "ol" : "ul");
-        else {
+        else if (lower.starts_with("justify"))
+            done = !plaintext_only(*host) && justify(internals, *current, alignment_name(lower));
+        else if (lower == "indent")
+            done = !plaintext_only(*host) && indent(internals, *current);
+        else if (lower == "outdent")
+            done = !plaintext_only(*host) && outdent(internals, *current);
+        else if (lower == "createlink")
+            done = !plaintext_only(*host) && create_link(internals, *current, *value);
+        else if (lower == "unlink")
+            done = unwrap_in_selection(internals, *current, { "a" });
+        else if (lower == "removeformat")
+            done = unwrap_in_selection(internals, *current,
+                { "b", "strong", "i", "em", "u", "s", "strike", "del", "ins", "sub", "sup", "font", "span", "small", "big", "mark", "tt",
+                    "code", "kbd", "samp", "var", "dfn", "abbr", "acronym", "cite", "q", "blink", "nobr" });
+        else if (lower == "forecolor" || lower == "hilitecolor" || lower == "backcolor" || lower == "fontname" || lower == "fontsize")
+            done = !plaintext_only(*host) && style_text(internals, *current, lower, *value);
+        else if (lower == "inserthorizontalrule")
+            done = !plaintext_only(*host) && insert_rule(internals, *current);
+        else if (lower == "insertimage") {
+            if (!plaintext_only(*host) && !value->empty()) {
+                std::string markup = "<img src=\"";
+                for (char const c : *value)
+                    markup += c == '"' ? std::string("&quot;") : c == '&' ? std::string("&amp;") : std::string(1, c);
+                done = perform(internals, *current, Command::InsertHtml, markup + "\">");
+            }
+        } else {
             Command const kind = command_for(command->input_type);
             done = perform(internals, *current, kind, *value);
         }
@@ -1343,8 +1795,13 @@ void install_editing(Realm::Internals& in, js::Object& document)
         std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
         if (!name)
             return std::nullopt;
+        std::string const lower = lowered(*name);
+        if (lower == "stylewithcss")
+            return js::Value::boolean(internals.style_with_css);
         std::optional<Current> const current = current_selection(internals);
-        InlineStyle const* const style = inline_style(lowered(*name));
+        if (current && lower.starts_with("justify"))
+            return js::Value::boolean(alignment_of(internals, *current) == alignment_name(lower));
+        InlineStyle const* const style = inline_style(lower);
         if (!current || !style)
             return js::Value::boolean(false);
         return js::Value::boolean(formatting_ancestor(*current->range->start_node, *current->host, style->names) != nullptr);
@@ -1358,7 +1815,12 @@ void install_editing(Realm::Internals& in, js::Object& document)
             return std::nullopt;
         std::string const lower = lowered(*name);
         if (lower == "defaultparagraphseparator")
-            return internals.string("div");
+            return internals.string(internals.default_paragraph_separator);
+        if (lower.starts_with("justify")) {
+            if (std::optional<Current> const current = current_selection(internals))
+                return internals.string(alignment_of(internals, *current));
+            return internals.string("left");
+        }
         if (lower == "formatblock") {
             if (std::optional<Current> const current = current_selection(internals)) {
                 dom::Element* const block = block_of(*current->range->start_node, *current->host);

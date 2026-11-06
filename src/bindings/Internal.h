@@ -1399,6 +1399,11 @@ struct Realm::Internals {
     };
     std::vector<EditStep> undo_steps;
     std::vector<EditStep> redo_steps;
+    // execCommand's settings: the element a new paragraph is ("div" or
+    // "p"), and whether styles are written as CSS (<span style>) or as the
+    // old elements (<font>, <b>).
+    std::string default_paragraph_separator = "div";
+    bool style_with_css = false;
 
     // Queues a task on the agent's event loop, as this realm's.
     void post_task(std::function<void()> task);
