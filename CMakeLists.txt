@@ -207,11 +207,18 @@ add_library(sashfold_core STATIC
   src/platform/Touch.cpp
   src/platform/Window.cpp
   src/storage/IndexedDb.cpp
+  src/pdf/ColorSpace.cpp
   src/pdf/Document.cpp
   src/pdf/Filters.cpp
+  src/pdf/Function.cpp
+  src/pdf/Image.cpp
+  src/pdf/ImageCodecs.cpp
   src/pdf/Object.cpp
   src/pdf/Parser.cpp
+  src/pdf/Render.cpp
   src/pdf/Security.cpp
+  src/pdf/Shading.cpp
+  src/pdf/Text.cpp
   src/svg/Raster.cpp
   src/svg/Svg.cpp
   src/text/Cff.cpp

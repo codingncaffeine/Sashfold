@@ -65,28 +65,28 @@ double Object::as_number(double fallback) const
     return fallback;
 }
 
-std::string const& Object::as_string() const
+std::string const& Object::as_string() const&
 {
     if (auto const* s = std::get_if<String>(&value))
         return s->bytes;
     return k_empty_string;
 }
 
-std::string const& Object::as_name() const
+std::string const& Object::as_name() const&
 {
     if (auto const* n = std::get_if<Name>(&value))
         return n->text;
     return k_empty_string;
 }
 
-Array const& Object::as_array() const
+Array const& Object::as_array() const&
 {
     if (auto const* a = std::get_if<std::shared_ptr<Array const>>(&value))
         return **a;
     return k_empty_array;
 }
 
-Dict const& Object::as_dict() const
+Dict const& Object::as_dict() const&
 {
     if (auto const* d = std::get_if<std::shared_ptr<Dict const>>(&value))
         return **d;

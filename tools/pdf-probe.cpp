@@ -3,12 +3,21 @@
 //   pdf_probe [--password P] file.pdf                 the summary, pdfinfo's field names
 //   pdf_probe [--password P] --object N file.pdf      object N, written back out
 //   pdf_probe [--password P] --content P file.pdf     page P's (1-based) content, decoded
+//   pdf_probe [--password P] --render P --dpi D --out page.png [--compare ref.png] file.pdf
+//       page P drawn at D dots per inch (72 = one pixel per point); with
+//       --compare (repeatable), how far it is from other pictures of the page
+//       (poppler's and Ghostscript's at the same dpi): the mean channel
+//       difference and the share of pixels off by more than 32 in any channel
 //
 // The summary's lines are named as pdfinfo names them (Pages, Title,
 // Encrypted, "Page    N size") so tools/pdf-corpus.sh can compare the two.
 
+#include "core/Png.h"
 #include "pdf/Document.h"
+#include "pdf/Render.h"
 
+#include <chrono>
+#include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <fstream>
@@ -90,6 +99,10 @@ int main(int argc, char** argv)
     std::string path;
     int object_num = -1;
     int content_page = -1;
+    int render_page_number = -1;
+    double dpi = 72;
+    std::string out_path;
+    std::vector<std::string> compare_paths;
     for (int i = 1; i < argc; ++i) {
         std::string const arg = argv[i];
         if (arg == "--password" && i + 1 < argc)
@@ -98,6 +111,14 @@ int main(int argc, char** argv)
             object_num = std::atoi(argv[++i]);
         else if (arg == "--content" && i + 1 < argc)
             content_page = std::atoi(argv[++i]);
+        else if (arg == "--render" && i + 1 < argc)
+            render_page_number = std::atoi(argv[++i]);
+        else if (arg == "--dpi" && i + 1 < argc)
+            dpi = std::atof(argv[++i]);
+        else if (arg == "--out" && i + 1 < argc)
+            out_path = argv[++i];
+        else if (arg == "--compare" && i + 1 < argc)
+            compare_paths.push_back(argv[++i]);
         else
             path = arg;
     }
@@ -125,6 +146,54 @@ int main(int argc, char** argv)
         if (pdf::Stream const* stream = object.as_stream()) {
             std::vector<std::uint8_t> const data = doc->decode(*stream);
             std::cout << "decoded " << data.size() << " bytes\n";
+        }
+        return 0;
+    }
+    if (render_page_number >= 1) {
+        if (static_cast<std::size_t>(render_page_number) > doc->page_count())
+            return 1;
+        pdf::RenderOptions options;
+        options.scale = dpi / 72.0;
+        auto const start = std::chrono::steady_clock::now();
+        std::optional<Bitmap> const picture = pdf::render_page(*doc, static_cast<std::size_t>(render_page_number - 1), options);
+        double const ms = std::chrono::duration<double, std::milli>(std::chrono::steady_clock::now() - start).count();
+        if (!picture) {
+            std::cout << "render failed\n";
+            return 1;
+        }
+        if (!out_path.empty() && !write_png(out_path, *picture)) {
+            std::cerr << "cannot write " << out_path << "\n";
+            return 2;
+        }
+        std::cout << "rendered " << picture->width() << "x" << picture->height() << " in " << ms << " ms\n";
+        for (std::string const& compare_path : compare_paths) {
+            std::ifstream ref_file(compare_path, std::ios::binary);
+            std::vector<std::uint8_t> const ref_bytes((std::istreambuf_iterator<char>(ref_file)), std::istreambuf_iterator<char>());
+            std::optional<Bitmap> const reference = decode_png(ref_bytes);
+            if (!reference) {
+                std::cerr << "cannot read " << compare_path << "\n";
+                return 2;
+            }
+            // Sizes may differ by a pixel (rounding of the page box): the overlap is compared.
+            int const w = std::min(reference->width(), picture->width());
+            int const h = std::min(reference->height(), picture->height());
+            double sum = 0;
+            std::size_t off = 0;
+            for (int y = 0; y < h; ++y) {
+                for (int x = 0; x < w; ++x) {
+                    Color const a = picture->pixel(x, y);
+                    Color const b = reference->pixel(x, y);
+                    int const dr = std::abs(a.r - b.r);
+                    int const dg = std::abs(a.g - b.g);
+                    int const db = std::abs(a.b - b.b);
+                    sum += dr + dg + db;
+                    if (dr > 32 || dg > 32 || db > 32)
+                        ++off;
+                }
+            }
+            double const pixels = static_cast<double>(w) * h;
+            std::printf("vs %s %dx%d: mean %.3f, off %.3f%%\n", compare_path.substr(compare_path.rfind('.', compare_path.size() - 5) + 1).c_str(),
+                reference->width(), reference->height(), sum / (pixels * 3), 100.0 * static_cast<double>(off) / pixels);
         }
         return 0;
     }

@@ -5,9 +5,12 @@
 #include "pdf/Document.h"
 #include "pdf/Filters.h"
 #include "pdf/Parser.h"
+#include "pdf/Render.h"
 
+#include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iterator>
 #include <map>
@@ -413,6 +416,135 @@ void test_encrypted(std::string const& fixtures)
     }
 }
 
+// A one-page file of the given content stream and page resources, 100 x 100 points.
+std::string page_pdf(std::string const& content, std::string const& resources = "<< >>", std::map<int, std::string> extra = {},
+    std::string const& page_extra = {}, std::string const& catalog_extra = {})
+{
+    std::map<int, std::string> objects = {
+        { 1, "<< /Type /Catalog /Pages 2 0 R " + catalog_extra + " >>" },
+        { 2, "<< /Type /Pages /Kids [3 0 R] /Count 1 >>" },
+        { 3, "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 100 100] /Resources " + resources + " /Contents 4 0 R " + page_extra + " >>" },
+        { 4, "<< /Length " + std::to_string(content.size()) + " >>\nstream\n" + content + "\nendstream" },
+    };
+    for (auto const& [num, body] : extra)
+        objects[num] = body;
+    return build_pdf(objects);
+}
+
+std::optional<Bitmap> render(std::string const& file, double scale = 1, std::atomic<bool> const* cancel = nullptr)
+{
+    pdf::Document::Status status {};
+    auto const doc = open(file, status);
+    if (!doc)
+        return std::nullopt;
+    pdf::RenderOptions options;
+    options.scale = scale;
+    options.cancel = cancel;
+    return pdf::render_page(*doc, 0, options);
+}
+
+// Within `tolerance` of the color, every channel; (x, y) in device pixels from the top left.
+bool near(std::optional<Bitmap> const& picture, int x, int y, int r, int g, int b, int tolerance = 3)
+{
+    if (!picture || !picture->contains(x, y))
+        return false;
+    Color const c = picture->pixel(x, y);
+    bool const ok = std::abs(c.r - r) <= tolerance && std::abs(c.g - g) <= tolerance && std::abs(c.b - b) <= tolerance;
+    if (!ok)
+        std::fprintf(stderr, "      pixel (%d, %d) is %d %d %d, wanted %d %d %d\n", x, y, c.r, c.g, c.b, r, g, b);
+    return ok;
+}
+
+void test_render()
+{
+    // Fills, the y axis turned over (PDF's origin is the bottom left), and paper around.
+    auto picture = render(page_pdf("1 0 0 rg 10 60 30 30 re f"));
+    CHECK(picture && picture->width() == 100 && picture->height() == 100);
+    CHECK(near(picture, 25, 25, 255, 0, 0));
+    CHECK(near(picture, 25, 75, 255, 255, 255));
+    // CMYK through the press corners: full black ink is not pure black.
+    picture = render(page_pdf("0 0 0 1 k 0 0 100 100 re f"));
+    CHECK(near(picture, 50, 50, 35, 31, 32));
+    // A clip, and the even-odd rule leaving a ring's hole.
+    picture = render(page_pdf("20 20 60 60 re W n 0 0 1 rg 0 0 100 100 re f"));
+    CHECK(near(picture, 50, 50, 0, 0, 255));
+    CHECK(near(picture, 10, 10, 255, 255, 255));
+    picture = render(page_pdf("0 g 10 10 80 80 re 30 30 40 40 re f*"));
+    CHECK(near(picture, 15, 50, 0, 0, 0));
+    CHECK(near(picture, 50, 50, 255, 255, 255));
+    // A stroke of width 0 is one device pixel, never nothing.
+    picture = render(page_pdf("0 w 0 G 0 50.5 m 100 50.5 l S"), 1);
+    CHECK(picture && picture->pixel(50, 49).r < 128);
+    // Constant alpha over white.
+    picture = render(page_pdf("/A gs 0 0 0 rg 0 0 100 100 re f", "<< /ExtGState << /A << /ca 0.5 >> >> >>"));
+    CHECK(near(picture, 50, 50, 128, 128, 128, 2));
+    // An axial shading: its ends' colors at its ends, extended past them.
+    picture = render(page_pdf("/S sh",
+        "<< /Shading << /S << /ShadingType 2 /ColorSpace /DeviceRGB /Coords [20 0 80 0] /Extend [true false] "
+        "/Function << /FunctionType 2 /Domain [0 1] /C0 [1 0 0] /C1 [0 0 1] /N 1 >> >> >> >>"));
+    CHECK(near(picture, 5, 50, 255, 0, 0));
+    CHECK(near(picture, 79, 50, 0, 0, 255, 8));
+    CHECK(near(picture, 95, 50, 255, 255, 255)); // not extended at its end
+    // A tiling pattern's cells start at the page's origin, wherever the shape is.
+    picture = render(page_pdf("/Pattern cs /T scn 0 0 100 100 re f", "<< /Pattern << /T 5 0 R >> >>",
+        { { 5, "<< /PatternType 1 /PaintType 1 /TilingType 1 /BBox [0 0 20 20] /XStep 20 /YStep 20 /Resources << >> /Length 23 >>\n"
+               "stream\n1 0 0 rg 0 0 10 10 re f\nendstream" } }));
+    CHECK(near(picture, 5, 95, 255, 0, 0)); // page (5, 5)
+    CHECK(near(picture, 15, 95, 255, 255, 255)); // page (15, 5)
+    CHECK(near(picture, 25, 75, 255, 0, 0)); // page (25, 25)
+    // A 2 x 2 RGB image placed over the page: its first row is the top.
+    picture = render(page_pdf("q 100 0 0 100 0 0 cm /I Do Q", "<< /XObject << /I 5 0 R >> >>",
+        { { 5, std::string("<< /Type /XObject /Subtype /Image /Width 2 /Height 2 /ColorSpace /DeviceRGB /BitsPerComponent 8 /Length 12 >>\n"
+                           "stream\n")
+                   + std::string("\xFF\x00\x00\x00\xFF\x00\x00\x00\xFF\xFF\xFF\xFF", 12) + "\nendstream" } }));
+    CHECK(near(picture, 20, 20, 255, 0, 0));
+    CHECK(near(picture, 80, 20, 0, 255, 0));
+    CHECK(near(picture, 20, 80, 0, 0, 255));
+    // A stencil mask paints the fill color where its samples are 0.
+    picture = render(page_pdf("0 1 0 rg q 100 0 0 100 0 0 cm /M Do Q", "<< /XObject << /M 5 0 R >> >>",
+        { { 5, std::string("<< /Type /XObject /Subtype /Image /Width 2 /Height 1 /ImageMask true /Length 1 >>\nstream\n") + std::string("\x40", 1)
+                   + "\nendstream" } }));
+    CHECK(near(picture, 25, 50, 0, 255, 0));
+    CHECK(near(picture, 75, 50, 255, 255, 255));
+    // A luminosity soft mask: black hides, white shows.
+    picture = render(page_pdf("/SM gs 1 0 0 rg 0 0 100 100 re f", "<< /ExtGState << /SM << /SMask << /S /Luminosity /G 5 0 R >> >> >> >>",
+        { { 5, "<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Group << /S /Transparency /CS /DeviceGray >> /Resources << >> /Length 21 >>\n"
+               "stream\n1 g 50 0 50 100 re f\nendstream" } }));
+    CHECK(near(picture, 25, 50, 255, 255, 255));
+    CHECK(near(picture, 75, 50, 255, 0, 0));
+    // Optional content: a group the default configuration turns off draws nothing, by marked content and on an XObject.
+    std::string const oc_catalog = "/OCProperties << /OCGs [5 0 R] /D << /OFF [5 0 R] >> >>";
+    picture = render(page_pdf("/OC /L BDC 1 0 0 rg 0 0 100 100 re f EMC /X Do 0 0 1 rg 0 0 10 10 re f",
+        "<< /Properties << /L 5 0 R >> /XObject << /X 6 0 R >> >>",
+        { { 5, "<< /Type /OCG /Name (off) >>" },
+            { 6, "<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /OC 5 0 R /Length 18 >>\nstream\n0 g 0 0 100 100 re f\nendstream" } },
+        {}, oc_catalog));
+    CHECK(near(picture, 50, 50, 255, 255, 255));
+    CHECK(near(picture, 5, 95, 0, 0, 255)); // what follows the hidden sequence still draws
+    // A page turned 90 degrees: its top left corner is the picture's top right.
+    std::string rotated = page_pdf("1 0 0 rg 0 30 20 20 re f", "<< >>", {}, "/Rotate 90");
+    rotated.replace(rotated.find("/MediaBox [0 0 100 100]"), 23, "/MediaBox [0 0 100 50] ");
+    picture = render(rotated);
+    CHECK(picture && picture->width() == 50 && picture->height() == 100);
+    CHECK(near(picture, 40, 10, 255, 0, 0));
+    CHECK(near(picture, 10, 10, 255, 255, 255));
+    // A form that draws itself ends; scale 2 doubles the picture.
+    picture = render(page_pdf("/F Do 0 g 0 0 10 10 re f", "<< /XObject << /F 5 0 R >> >>",
+        { { 5, "<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Resources << /XObject << /F 5 0 R >> >> /Length 6 >>\nstream\n/F Do \nendstream" } }),
+        2);
+    CHECK(picture && picture->width() == 200 && near(picture, 10, 190, 0, 0, 0));
+    // A form with more Q than q cannot undo its caller's saved state (found by the fuzzer).
+    picture = render(page_pdf("q 0 0 1 rg /F Do Q 0 0 50 50 re f", "<< /XObject << /F 5 0 R >> >>",
+        { { 5, "<< /Type /XObject /Subtype /Form /BBox [0 0 100 100] /Length 25 >>\nstream\nQ Q Q 1 0 0 rg 0 0 1 1 re f\nendstream" } }));
+    CHECK(near(picture, 25, 75, 0, 0, 0)); // the fill after the form is the black of the page, its q undone
+    // Cancelled before it starts: no picture.
+    std::atomic<bool> cancel { true };
+    std::string busy;
+    for (int i = 0; i < 2000; ++i)
+        busy += "0 0 1 1 re f ";
+    CHECK(!render(page_pdf(busy), 1, &cancel));
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -423,6 +555,7 @@ int main(int argc, char** argv)
     test_classic_file();
     test_damaged_files();
     test_streams_and_updates();
+    test_render();
     if (argc > 1)
         test_encrypted(argv[1]);
     else

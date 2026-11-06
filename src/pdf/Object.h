@@ -78,12 +78,24 @@ struct Object {
     bool as_bool(bool fallback = false) const { return is_bool() ? std::get<bool>(value) : fallback; }
     std::int64_t as_int(std::int64_t fallback = 0) const;
     double as_number(double fallback = 0) const;
-    std::string const& as_string() const; // empty for anything else
-    std::string const& as_name() const; // empty for anything else
-    Array const& as_array() const; // empty for anything else
-    Dict const& as_dict() const; // a stream's dictionary too; empty for anything else
+    // References into the object. Called on a temporary (what resolve()
+    // returns) they hand back a copy instead, so `Dict const& d =
+    // doc.resolve(x).as_dict();` holds what it names, not what was freed.
+    std::string const& as_string() const&; // empty for anything else
+    std::string const& as_name() const&; // empty for anything else
+    Array const& as_array() const&; // empty for anything else
+    Dict const& as_dict() const&; // a stream's dictionary too; empty for anything else
+    std::string as_string() && { return as_string_ref(); }
+    std::string as_name() && { return as_name_ref(); }
+    Array as_array() && { return as_array_ref(); }
+    Dict as_dict() &&;
     Stream const* as_stream() const;
     Ref as_ref() const { return is_ref() ? std::get<Ref>(value) : Ref {}; }
+
+private:
+    std::string const& as_string_ref() const { return as_string(); }
+    std::string const& as_name_ref() const { return as_name(); }
+    Array const& as_array_ref() const { return as_array(); }
 };
 
 // Keys in the order written; the last of a repeated key stands, as in
@@ -114,6 +126,11 @@ struct Stream {
     Ref owner;
     std::vector<std::uint8_t> raw() const;
 };
+
+inline Dict Object::as_dict() &&
+{
+    return static_cast<Object const&>(*this).as_dict();
+}
 
 inline Object Object::dict(Dict d)
 {
