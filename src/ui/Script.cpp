@@ -124,6 +124,23 @@ std::optional<KeyEvent> parse_chord(std::string const& chord)
             - (is_ascii_alpha(static_cast<unsigned char>(name[0])) ? 0x20 : 0);
         return event;
     }
+    // Punctuation: by name for those the chord's own syntax takes ('+'),
+    // and as itself otherwise (ctrl+[, ctrl+-).
+    static constexpr std::pair<char const*, char32_t> punctuation[] = {
+        { "plus", U'+' }, { "equal", U'=' }, { "minus", U'-' },
+    };
+    for (auto const& [text, c] : punctuation) {
+        if (name == text) {
+            event.key = Key::Letter;
+            event.letter = c;
+            return event;
+        }
+    }
+    if (name.size() == 1 && name[0] > 0x20 && name[0] < 0x7F) {
+        event.key = Key::Letter;
+        event.letter = static_cast<char32_t>(name[0]);
+        return event;
+    }
     return std::nullopt;
 }
 

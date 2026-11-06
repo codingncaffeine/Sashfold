@@ -263,6 +263,9 @@ add_test(NAME shell_spelling
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/spelling.script)
 add_test(NAME shell_spelling_editor
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/spelling-editor.script)
+# The keys a page hears: letters, digits, punctuation (key, code, keyCode).
+add_test(NAME shell_key_events
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/key-events.script)
 # Drags from other programs: files shown as Files while moving and read in
 # drop, a file input given them, text dropped into a field.
 # The window's own file chooser, where the desktop has none.

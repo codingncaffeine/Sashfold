@@ -26,12 +26,18 @@ enum class Key {
     F10,
     F12,
     Menu, // the key that asks for a context menu
-    Letter, // a letter or digit key; KeyEvent::letter holds it, uppercase
+    Letter, // a character key; KeyEvent::letter holds it
 };
 
 struct KeyEvent {
     Key key = Key::None;
-    char32_t letter = 0; // 'A'..'Z' or '0'..'9' when key == Key::Letter
+    // When key == Key::Letter: 'A'..'Z', '0'..'9', or the ASCII punctuation
+    // the key gives with no modifier held ('=' for the key that gives '+'
+    // with Shift) — the key a chord names, whatever the layout's level.
+    char32_t letter = 0;
+    // The character the key gives with the modifiers held, where the window
+    // knows it ('+' for Shift and the '=' key on a US layout); 0 otherwise.
+    char32_t produced = 0;
     bool ctrl = false;
     bool shift = false;
     bool alt = false;

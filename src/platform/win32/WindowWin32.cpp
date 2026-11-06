@@ -149,6 +149,12 @@ KeyEvent key_event_from(WPARAM virtual_key)
         if ((virtual_key >= 'A' && virtual_key <= 'Z') || (virtual_key >= '0' && virtual_key <= '9')) {
             event.key = Key::Letter;
             event.letter = static_cast<char32_t>(virtual_key);
+        } else if (UINT const unshifted = MapVirtualKeyW(static_cast<UINT>(virtual_key), MAPVK_VK_TO_CHAR) & 0x7FFFu;
+                   unshifted > 0x20 && unshifted < 0x7F) {
+            // A punctuation key (VK_OEM_*): the character it gives unshifted
+            // in this layout ('=' for VK_OEM_PLUS on a US keyboard).
+            event.key = Key::Letter;
+            event.letter = static_cast<char32_t>(unshifted);
         }
         break;
     }

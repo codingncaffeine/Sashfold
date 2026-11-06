@@ -5875,6 +5875,39 @@ struct Browser::Impl {
             if (upper >= U'0' && upper <= U'9') {
                 init.key = std::string(1, static_cast<char>(upper));
                 init.code = "Digit" + init.key;
+            } else if (upper < U'A' || upper > U'Z') {
+                // A punctuation key: its code by where it sits on a US
+                // keyboard (UI Events KeyboardEvent code), its key the
+                // character it gives — Shift's on that keyboard — and the
+                // keyCode every browser gives it.
+                struct Punctuation {
+                    char32_t plain;
+                    char shifted;
+                    char const* code;
+                    int key_code;
+                };
+                static constexpr Punctuation table[] = {
+                    { U'-', '_', "Minus", 189 }, { U'=', '+', "Equal", 187 }, { U'[', '{', "BracketLeft", 219 },
+                    { U']', '}', "BracketRight", 221 }, { U'\\', '|', "Backslash", 220 }, { U';', ':', "Semicolon", 186 },
+                    { U'\'', '"', "Quote", 222 }, { U',', '<', "Comma", 188 }, { U'.', '>', "Period", 190 },
+                    { U'/', '?', "Slash", 191 }, { U'`', '~', "Backquote", 192 },
+                };
+                init.key = std::string(1, static_cast<char>(upper));
+                init.key_code = static_cast<int>(upper);
+                for (Punctuation const& row : table) {
+                    if (row.plain == upper) {
+                        if (key.shift)
+                            init.key = std::string(1, row.shifted);
+                        init.code = row.code;
+                        init.key_code = row.key_code;
+                    }
+                }
+                // What the layout really gave, where the window says.
+                if (key.produced >= 0x20 && key.produced != 0x7F) {
+                    init.key.clear();
+                    append_utf8(init.key, key.produced);
+                }
+                break;
             } else {
                 init.key = std::string(1, static_cast<char>(key.shift ? upper : upper - U'A' + U'a'));
                 init.code = "Key" + std::string(1, static_cast<char>(upper));

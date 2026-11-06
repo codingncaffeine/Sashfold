@@ -381,7 +381,9 @@ char32_t shortcut_letter(std::uint32_t keysym)
 {
     if (keysym >= 'a' && keysym <= 'z')
         return static_cast<char32_t>(keysym - 'a' + 'A');
-    if ((keysym >= 'A' && keysym <= 'Z') || (keysym >= '0' && keysym <= '9'))
+    // The rest of printable ASCII (the punctuation keys: '=', '-', '[', '/'):
+    // Latin-1 keysyms are their code points.
+    if (keysym > 0x20 && keysym < 0x7F)
         return static_cast<char32_t>(keysym);
     return 0;
 }
@@ -1682,6 +1684,7 @@ void WaylandWindow::emit_key(std::uint32_t keycode)
         if (letter != 0) {
             key_event.key.key = Key::Letter;
             key_event.key.letter = letter;
+            key_event.key.produced = xkb::keysym_code_point(keysym);
         }
     }
     bool produced = false;

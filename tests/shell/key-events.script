@@ -1,0 +1,15 @@
+# The keys a page hears: a letter, a digit, and the punctuation keys (which
+# once reached no page at all) with their UI Events key, code and the
+# keyCode every browser gives — plain, with Shift, and in a Ctrl chord the
+# window does not keep (Ctrl+= for a page's own zoom).
+resize 600 300
+open data:text/html,<title>-</title><script>var log=[];addEventListener('keydown',function(e){log.push((e.ctrlKey?'^':'')+(e.shiftKey?'S':'')+e.key+'/'+e.code+'/'+e.keyCode);document.title=log.join(' ')})</script>
+key a
+key 7
+key equal
+key shift+equal
+key ctrl+equal
+key ctrl+minus
+key /
+key [
+assert-title a/KeyA/65 7/Digit7/55 =/Equal/187 S+/Equal/187 ^=/Equal/187 ^-/Minus/189 //Slash/191 [/BracketLeft/219

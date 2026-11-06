@@ -2688,10 +2688,12 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                     if (rest == name)
                         key.key = named_key;
                 }
-                if (key.key == platform::Key::None && rest.size() == 1
-                    && ((rest[0] >= 'a' && rest[0] <= 'z') || (rest[0] >= '0' && rest[0] <= '9'))) {
+                if (rest == "equal" || rest == "minus" || rest == "plus")
+                    rest = rest == "equal" ? "=" : rest == "minus" ? "-" : "+";
+                if (key.key == platform::Key::None && rest.size() == 1 && rest[0] > ' ' && rest[0] < 0x7F) {
+                    // A letter, a digit or a punctuation key, as the window gives them.
                     key.key = platform::Key::Letter;
-                    key.letter = static_cast<char32_t>(rest[0] >= 'a' ? rest[0] - 'a' + 'A' : rest[0]);
+                    key.letter = static_cast<char32_t>(rest[0] >= 'a' && rest[0] <= 'z' ? rest[0] - 'a' + 'A' : rest[0]);
                 }
                 if (key.key != platform::Key::None)
                     browser.key_down(key);
