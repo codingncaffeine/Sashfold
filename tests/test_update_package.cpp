@@ -282,7 +282,7 @@ void test_unpacking()
     Bytes cut_gzip = gzip_of(tar);
     cut_gzip.resize(cut_gzip.size() - 9);
     Refused const refused[] = {
-        { bytes_of("PK\x03\x04 not gzip at all"), "not a gzip stream" },
+        { bytes_of("PK\x03\x04 a zip cut"), "cut short" }, // read as the zip it begins as
         { cut_gzip, "not a gzip stream" },
         { gzip_of(bytes_of("gzip, but of no tar file: " + std::string(600, 'z'))), "checksum is wrong" },
         { gzip_of(Bytes(tar.begin(), tar.begin() + 512 + 512)), "cut short" }, // no end blocks
@@ -550,7 +550,7 @@ void test_from_one_run_to_the_next()
     CHECK(!fs::exists(waiting));
     // Only the build the downloads are made of replaces itself, and only
     // in a folder it can write: a build tree's program, and a test's, does not.
-#if defined(SASHFOLD_SELF_UPDATE) && defined(__linux__)
+#if defined(SASHFOLD_SELF_UPDATE) && (defined(__linux__) || defined(_WIN32))
     CHECK(ui::can_replace_itself(install));
     CHECK(!ui::can_replace_itself((root / "no-such-folder").string()));
     CHECK(!fs::exists(fs::path(install) / ".sashfold-update-probe"));
@@ -558,6 +558,199 @@ void test_from_one_run_to_the_next()
     CHECK(!ui::can_replace_itself(install));
 #endif
     fs::remove_all(root, error);
+}
+
+namespace {
+
+// --- A zip file, written by the test (APPNOTE.TXT) -------------------------------
+
+struct ZipEntry {
+    std::string name;
+    std::string data;
+    std::uint32_t unix_mode = 0100644; // 0: made on Windows, no mode
+    bool deflate = false;
+    bool spoil_crc = false;
+    bool encrypted = false;
+};
+
+void put16(Bytes& out, std::uint32_t value)
+{
+    out.push_back(static_cast<std::uint8_t>(value & 0xff));
+    out.push_back(static_cast<std::uint8_t>((value >> 8) & 0xff));
+}
+
+void put32(Bytes& out, std::uint32_t value)
+{
+    put16(out, value & 0xffff);
+    put16(out, value >> 16);
+}
+
+Bytes zip_of(std::vector<ZipEntry> const& entries)
+{
+    Bytes out;
+    Bytes directory;
+    for (ZipEntry const& entry : entries) {
+        Bytes const raw = bytes_of(entry.data);
+        Bytes packed = raw;
+        if (entry.deflate) {
+            // zlib's stream less its two-byte header and Adler-32: raw DEFLATE.
+            Bytes const z = zlib_compress(raw);
+            packed.assign(z.begin() + 2, z.end() - 4);
+        }
+        std::uint32_t const crc = crc32_of(raw) + (entry.spoil_crc ? 1 : 0);
+        std::uint32_t const flags = entry.encrypted ? 1 : 0;
+        std::uint32_t const method = entry.deflate ? 8 : 0;
+        std::uint32_t const local_at = static_cast<std::uint32_t>(out.size());
+        put32(out, 0x04034b50);
+        put16(out, 20);
+        put16(out, flags);
+        put16(out, method);
+        put32(out, 0); // time and date
+        put32(out, crc);
+        put32(out, static_cast<std::uint32_t>(packed.size()));
+        put32(out, static_cast<std::uint32_t>(raw.size()));
+        put16(out, static_cast<std::uint32_t>(entry.name.size()));
+        put16(out, 0);
+        out.insert(out.end(), entry.name.begin(), entry.name.end());
+        out.insert(out.end(), packed.begin(), packed.end());
+        put32(directory, 0x02014b50);
+        put16(directory, entry.unix_mode != 0 ? (3u << 8) | 20 : 20);
+        put16(directory, 20);
+        put16(directory, flags);
+        put16(directory, method);
+        put32(directory, 0);
+        put32(directory, crc);
+        put32(directory, static_cast<std::uint32_t>(packed.size()));
+        put32(directory, static_cast<std::uint32_t>(raw.size()));
+        put16(directory, static_cast<std::uint32_t>(entry.name.size()));
+        put16(directory, 0);
+        put16(directory, 0);
+        put16(directory, 0);
+        put16(directory, 0);
+        put32(directory, entry.unix_mode << 16);
+        put32(directory, local_at);
+        directory.insert(directory.end(), entry.name.begin(), entry.name.end());
+    }
+    std::uint32_t const directory_at = static_cast<std::uint32_t>(out.size());
+    out.insert(out.end(), directory.begin(), directory.end());
+    put32(out, 0x06054b50);
+    put16(out, 0);
+    put16(out, 0);
+    put16(out, static_cast<std::uint32_t>(entries.size()));
+    put16(out, static_cast<std::uint32_t>(entries.size()));
+    put32(out, static_cast<std::uint32_t>(directory.size()));
+    put32(out, directory_at);
+    put16(out, 0);
+    return out;
+}
+
+// Windows' download is a zip: unpacked as the tarball is, stored and
+// deflated files alike, each checked against its CRC-32, with the same
+// refusals — and one made on Windows, with no modes, has its programs by
+// their names.
+void test_zip_archives()
+{
+    std::string const folder = "sashfold-0.2.1-windows-x64";
+    std::string why;
+    std::string const big(70000, 'x');
+    Bytes const good = zip_of({
+        { folder + "/", "", 040755 },
+        { folder + "/sashfold.exe", "MZ the program", 0100755, true },
+        { folder + "/themes/default.json", big, 0100644, true },
+        { folder + "/LICENSE", "words" },
+    });
+    std::optional<std::vector<ui::ReleaseEntry>> entries = ui::unpack_release(good, folder, &why);
+    CHECK_EQ(why, std::string());
+    CHECK(entries && entries->size() == 3);
+    if (entries && entries->size() == 3) {
+        CHECK_EQ((*entries)[0].path, std::string("sashfold.exe"));
+        CHECK_EQ(std::string((*entries)[0].bytes.begin(), (*entries)[0].bytes.end()), std::string("MZ the program"));
+        CHECK((*entries)[0].executable);
+        CHECK_EQ((*entries)[1].path, std::string("themes/default.json"));
+        CHECK((*entries)[1].bytes.size() == big.size());
+        CHECK(!(*entries)[1].executable);
+        CHECK_EQ((*entries)[2].path, std::string("LICENSE"));
+    }
+    // Made on Windows: no modes; the .exe is the program.
+    entries = ui::unpack_release(zip_of({ { folder + "/sashfold.exe", "MZ", 0 }, { folder + "/README.md", "r", 0 } }), folder, &why);
+    CHECK(entries && entries->size() == 2 && (*entries)[0].executable && !(*entries)[1].executable);
+    // Refused, each with why.
+    auto const refused = [&](std::vector<ZipEntry> const& list, std::string_view says) {
+        std::string reason;
+        bool const refused_it = !ui::unpack_release(zip_of(list), folder, &reason).has_value();
+        CHECK(refused_it);
+        if (reason.find(says) == std::string::npos)
+            CHECK_EQ(reason, std::string(says));
+    };
+    refused({ { folder + "/sashfold.exe", "MZ", 0100755, false, true } }, "CRC-32");
+    refused({ { folder + "/sashfold.exe", "MZ", 0100755, true, true } }, "CRC-32");
+    refused({ { folder + "/../escaped", "x" } }, "does not stay");
+    refused({ { "elsewhere/sashfold.exe", "x" } }, "outside");
+    refused({ { folder + "/link", "target", 0120777 } }, "neither a file nor a folder");
+    refused({ { folder + "/secret", "x", 0100644, false, false, true } }, "encrypted");
+    refused({ { folder, "not a folder" } }, "top entry");
+    refused({}, "no file under");
+    // Cut short: the end record is gone.
+    Bytes cut = good;
+    cut.resize(cut.size() - 10);
+    CHECK(!ui::unpack_release(cut, folder, &why).has_value());
+    // A tarball still reads as one.
+    CHECK(ui::unpack_release(gzip_of(tar_of({ { "sashfold-0.2.1-linux-x64/sashfold", "p", '0', 0755 } })), "sashfold-0.2.1-linux-x64", &why).has_value());
+}
+
+// A new build on trial, what failed here, and the program before it put back.
+void test_trials_and_going_back()
+{
+    namespace fs = std::filesystem;
+    std::error_code error;
+    fs::path const root = fs::absolute("update-trial-scratch", error);
+    fs::remove_all(root, error);
+    fs::create_directories(root / "install", error);
+    fs::create_directories(root / "profile", error);
+    std::string const profile = (root / "profile").string();
+
+    std::string const file = ui::trial_file(profile);
+    CHECK_EQ(file, (root / "profile" / "update-trial").string());
+    CHECK(!ui::read_trial(file).has_value());
+    CHECK(ui::begin_trial(file, { "9.9.9", "0.2.0", 4242 }));
+    std::optional<ui::Trial> const trial = ui::read_trial(file);
+    CHECK(trial.has_value());
+    if (trial) {
+        CHECK_EQ(trial->version, std::string("9.9.9"));
+        CHECK_EQ(trial->previous, std::string("0.2.0"));
+        CHECK_EQ(trial->watcher, 4242u);
+    }
+    CHECK(!ui::begin_trial(file, { "not a version", "0.2.0", 1 }));
+    ui::end_trial(file);
+    CHECK(!fs::exists(file));
+    ui::end_trial(file); // twice is nothing
+    // A trial file a page could have written to say anything is read for
+    // its version alone, and a broken one is none.
+    std::ofstream(file, std::ios::binary) << "garbage\n";
+    CHECK(!ui::read_trial(file).has_value());
+    ui::end_trial(file);
+
+    CHECK(ui::refused_releases(profile).empty());
+    ui::refuse_release(profile, "9.9.9");
+    ui::refuse_release(profile, "9.9.9");
+    ui::refuse_release(profile, "nonsense");
+    ui::refuse_release(profile, "10.0.0");
+    CHECK(ui::refused_releases(profile) == (std::vector<std::string> { "9.9.9", "10.0.0" }));
+
+    std::string const program = (root / "install" / "sashfold").string();
+    std::string why;
+    CHECK(!ui::restore_previous(program, &why)); // nothing to go back to
+    CHECK(!why.empty());
+    std::ofstream(program, std::ios::binary) << "the new program that does not start";
+    std::ofstream(program + ".previous", std::ios::binary) << "the program before it";
+    CHECK(ui::restore_previous(program, &why));
+    CHECK_EQ(read_file(program), std::string("the program before it"));
+#ifndef _WIN32
+    CHECK((fs::status(program, error).permissions() & fs::perms::owner_exec) != fs::perms::none);
+#endif
+    fs::remove_all(root, error);
+}
+
 }
 
 int main(int argc, char** argv)
@@ -569,5 +762,7 @@ int main(int argc, char** argv)
         test_archives_as_tar_writes_them(argv[1]);
     test_installing();
     test_from_one_run_to_the_next();
+    test_zip_archives();
+    test_trials_and_going_back();
     return sashfold::test::report("update_package");
 }

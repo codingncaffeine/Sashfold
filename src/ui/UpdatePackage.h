@@ -64,10 +64,13 @@ struct ReleaseEntry {
     std::vector<std::uint8_t> bytes;
     bool executable = false;
 };
-// The files of a .tar.gz whose every entry lies under `folder`. Nothing,
-// with why, when it is not such an archive: not gzip, not tar, an entry
-// outside the folder or reaching out of it (`..`, an absolute path), or
-// anything that is not a plain file or a folder (a link, a device).
+// The files of a release archive — a .tar.gz (Linux's download) or a .zip
+// (Windows'), told apart by their first bytes — whose every entry lies
+// under `folder`. Nothing, with why, when it is not such an archive: not
+// gzip and tar or zip, a file whose CRC-32 is not its own, an entry outside
+// the folder or reaching out of it (`..`, an absolute path), or anything
+// that is not a plain file or a folder (a link, a device, an encrypted or
+// ZIP64 entry).
 std::optional<std::vector<ReleaseEntry>> unpack_release(std::span<std::uint8_t const> archive, std::string_view folder,
     std::string* why_not = nullptr);
 
@@ -119,5 +122,38 @@ StagedOutcome apply_staged_release(std::string const& folder, std::string const&
 // build tree are left to whoever made them), in a folder this user can
 // write.
 bool can_replace_itself(std::string const& install);
+
+// --- A new build's first start ----------------------------------------------
+//
+// A release put in place is on trial until it has shown it starts: the
+// program before it starts it and waits, and if it dies before it has had
+// its window up for a while, puts itself back, remembers the version as
+// one that failed here so that it is not fetched again, and goes on. The
+// new program says it has started by ending the trial; a start that finds
+// a trial no one is watching (the machine went down in the middle of it)
+// takes it as failed. Chrome and Firefox keep no such watch: a build that
+// cannot start there leaves the reader with no browser.
+
+// The file a trial is kept in: `update-trial` in the profile.
+std::string trial_file(std::string const& profile);
+struct Trial {
+    std::string version; // on trial
+    std::string previous; // the version it replaced
+    std::uint64_t watcher = 0; // the process that watches it; 0 none
+};
+bool begin_trial(std::string const& file, Trial const& trial);
+std::optional<Trial> read_trial(std::string const& file);
+void end_trial(std::string const& file);
+// How long the new program must have had its window up to have started.
+inline constexpr int trial_seconds = 10;
+
+// The versions that failed their first start here, from the profile; one
+// that has is not fetched again (a later one is).
+std::vector<std::string> refused_releases(std::string const& profile);
+void refuse_release(std::string const& profile, std::string_view version);
+
+// Puts `<program>.previous` back in the program's place: false, with why,
+// when there is none or it cannot be put there.
+bool restore_previous(std::string const& program, std::string* why_not = nullptr);
 
 }

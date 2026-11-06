@@ -1677,6 +1677,14 @@ int bench(std::string const& input, int runs, int viewport_width, int viewport_h
 // configuration directory ($XDG_CONFIG_HOME, else ~/.config, on Linux and
 // macOS; %APPDATA% on Windows) plus the program's name, made when
 // missing. Empty when neither a home nor the folder can be had.
+// The trial this run is, when it is a new build's first start (install_waiting_release, below): ended
+// once its window has been up a while, or at a clean exit.
+std::string update_trial_to_end()
+{
+    char const* const named = std::getenv("SASHFOLD_UPDATE_TRIAL");
+    return named ? std::string(named) : std::string();
+}
+
 std::string default_profile_directory()
 {
     std::filesystem::path root;
@@ -2296,8 +2304,11 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     std::string release_asked_for;
     std::string release_waiting;
     std::shared_ptr<net::FetchTicket> update_ticket;
-    auto const newer_release = [&update_state] {
-        return ui::is_newer_release(update_state.latest, SASHFOLD_VERSION) ? update_state.latest : std::string();
+    // A version that failed its first start here is not offered again.
+    std::vector<std::string> const refused_releases = ui::refused_releases(profile);
+    auto const newer_release = [&update_state, &refused_releases] {
+        bool const refused = std::ranges::find(refused_releases, update_state.latest) != refused_releases.end();
+        return !refused && ui::is_newer_release(update_state.latest, SASHFOLD_VERSION) ? update_state.latest : std::string();
     };
     bool restored = false;
     if (!profile_path.empty()) {
@@ -2384,6 +2395,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     using wall_ms = std::chrono::duration<double, std::milli>;
     auto const started = clock::now();
     double first_present_ms = 0;
+    std::string update_trial = update_trial_to_end();
     double loaded_ms = 0;
     std::vector<double> present_ms;
     ui::Profile const base_profile = browser.profile();
@@ -2795,6 +2807,12 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                           << presented << " ms]\n";
             }
         }
+        // A new build's first start: it has, once its window has been up
+        // a while with the start page on it.
+        if (!update_trial.empty() && !present_ms.empty() && clock::now() - started >= std::chrono::seconds(ui::trial_seconds)) {
+            ui::end_trial(update_trial);
+            update_trial.clear();
+        }
         if (first_present_ms == 0 && !browser.has_pending_load() && !present_ms.empty()) {
             // The start page is on the frame, and nothing is left to load:
             // one moment today, two once pictures arrive after the page.
@@ -2944,14 +2962,159 @@ int run_window(std::string const& start_url, std::string const& theme_path,
 
 } // namespace
 
-#if defined(SASHFOLD_SELF_UPDATE) && defined(__linux__)
-#include <unistd.h> // execv: the one place a program is started, before the right to is given up
+#if defined(SASHFOLD_SELF_UPDATE) && (defined(__linux__) || defined(_WIN32))
+#if defined(_WIN32)
+#include <windows.h>
+#else
+#include <csignal>
+#include <sys/wait.h>
+#include <unistd.h> // fork and execv: the one place a program is started, before the right to is given up
+#endif
+
+namespace {
+
+// This program, by its true path.
+std::filesystem::path own_program()
+{
+    std::error_code error;
+#if defined(_WIN32)
+    std::wstring path(32768, L'\0');
+    DWORD const length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+    if (length == 0 || length >= path.size())
+        return {};
+    path.resize(length);
+    return std::filesystem::path(path);
+#else
+    std::filesystem::path program = std::filesystem::canonical("/proc/self/exe", error);
+    return error ? std::filesystem::path() : program;
+#endif
+}
+
+std::uint64_t own_process_id()
+{
+#if defined(_WIN32)
+    return GetCurrentProcessId();
+#else
+    return static_cast<std::uint64_t>(getpid());
+#endif
+}
+
+// Whether the process that watches a trial is still there (and so the
+// trial is its to settle, not this start's).
+bool still_running(std::uint64_t id)
+{
+    if (id == 0 || id == own_process_id())
+        return false;
+#if defined(_WIN32)
+    HANDLE const process = OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(id));
+    if (!process)
+        return false;
+    bool const running = WaitForSingleObject(process, 0) == WAIT_TIMEOUT;
+    CloseHandle(process);
+    return running;
+#else
+    return kill(static_cast<pid_t>(id), 0) == 0 || errno == EPERM;
+#endif
+}
+
+// The program in `program` started with what this one was given; with
+// `trial` named, that run is the trial of the build in it. Its exit code,
+// once it has ended (`wait`), or whether it started at all.
+#if defined(_WIN32)
+int start_program(std::filesystem::path const& program, std::string const& trial, bool wait)
+{
+    std::wstring const name = L"SASHFOLD_UPDATE_TRIAL";
+    SetEnvironmentVariableW(name.c_str(), trial.empty() ? nullptr : std::filesystem::path(trial).wstring().c_str());
+    std::wstring command = GetCommandLineW();
+    STARTUPINFOW startup {};
+    startup.cb = sizeof startup;
+    PROCESS_INFORMATION started {};
+    if (!CreateProcessW(program.wstring().c_str(), command.data(), nullptr, nullptr, FALSE, 0, nullptr, nullptr, &startup, &started))
+        return -1;
+    CloseHandle(started.hThread);
+    DWORD code = 0;
+    if (wait) {
+        WaitForSingleObject(started.hProcess, INFINITE);
+        GetExitCodeProcess(started.hProcess, &code);
+    }
+    CloseHandle(started.hProcess);
+    return static_cast<int>(code);
+}
+#endif
+
+// The build that was just put in place starts, watched: should it end
+// before it has said it started, the program before it is put back, the
+// version is remembered as one that failed here, and the previous program
+// takes the start. Returns only when nothing could be started at all.
+[[noreturn]] void watch_first_start(std::filesystem::path const& program, char** argv, std::string const& profile,
+    std::string const& version)
+{
+#if defined(_WIN32)
+    static_cast<void>(argv); // Windows starts it from the command line as it was typed
+#endif
+    std::string const trial = ui::trial_file(profile);
+    ui::begin_trial(trial, { version, SASHFOLD_VERSION, own_process_id() });
+    bool failed = false;
+    int code = 0;
+#if defined(_WIN32)
+    code = start_program(program, trial, true);
+    // Ended unasked before its window had been up a while: anything but a
+    // clean exit, a console's Ctrl+C (STATUS_CONTROL_C_EXIT) excepted.
+    failed = ui::read_trial(trial).has_value() && code != 0 && static_cast<DWORD>(code) != 0xC000013Au;
+#else
+    pid_t const child = fork();
+    if (child == 0) {
+        setenv("SASHFOLD_UPDATE_TRIAL", trial.c_str(), 1);
+        execv(program.c_str(), argv);
+        _exit(127);
+    }
+    if (child > 0) {
+        // The terminal's Ctrl+C is the new program's to hear, not this watcher's.
+        std::signal(SIGINT, SIG_IGN);
+        std::signal(SIGQUIT, SIG_IGN);
+        int status = 0;
+        while (waitpid(child, &status, 0) < 0 && errno == EINTR) { }
+        bool const asked_to_end = WIFSIGNALED(status)
+            && (WTERMSIG(status) == SIGINT || WTERMSIG(status) == SIGTERM || WTERMSIG(status) == SIGHUP || WTERMSIG(status) == SIGKILL);
+        code = WIFEXITED(status) ? WEXITSTATUS(status) : 128 + (WIFSIGNALED(status) ? WTERMSIG(status) : 0);
+        failed = ui::read_trial(trial).has_value() && !asked_to_end && code != 0;
+    } else {
+        failed = false; // no child: the new program starts unwatched, below
+    }
+    if (child < 0) {
+        ui::end_trial(trial);
+        execv(program.c_str(), argv);
+        std::exit(127);
+    }
+#endif
+    ui::end_trial(trial);
+    if (!failed)
+        std::exit(code);
+    std::string why;
+    if (!ui::restore_previous(program.string(), &why)) {
+        std::cerr << "sashfold: " << version << " did not start, and " << SASHFOLD_VERSION << " could not be put back: " << why << "\n";
+        std::exit(code);
+    }
+    ui::refuse_release(profile, version);
+    std::cerr << "sashfold: " << version << " did not start (exit " << code << "); went back to " << SASHFOLD_VERSION
+              << ", and " << version << " will not be fetched again\n";
+#if defined(_WIN32)
+    std::exit(start_program(program, {}, false) < 0 ? code : 0);
+#else
+    execv(program.c_str(), argv);
+    std::exit(code);
+#endif
+}
+
+}
 
 // Before anything else a start does: a release the last run fetched, checked
 // and kept is checked again — from the bytes on disk, which the profile's
 // folder cannot vouch for — and put in place of this program, which then
-// hands the start to the new one. Only a run that opens the window on a
-// profile does it; a tool's run changes nothing of the reader's.
+// starts the new one and watches its first start (above). A trial a start
+// finds that no one watches — the machine went down in it — is taken as
+// failed. Only a run that opens the window on a profile does any of it; a
+// tool's run changes nothing of the reader's.
 void install_waiting_release(int argc, char** argv)
 {
     static constexpr std::string_view not_a_window[] = { "--script", "--render", "--fetch", "--dump-dom", "--font-sampler",
@@ -2968,12 +3131,35 @@ void install_waiting_release(int argc, char** argv)
         return;
     if (profile.empty())
         profile = default_profile_directory();
-    std::string const waits_in = ui::staging_folder(profile);
-    if (!ui::staged_version(waits_in))
+    std::filesystem::path const program = own_program();
+    if (program.empty() || !ui::can_replace_itself(program.parent_path().string()))
         return;
     std::error_code error;
-    std::filesystem::path const program = std::filesystem::canonical("/proc/self/exe", error);
-    if (error || !ui::can_replace_itself(program.parent_path().string()))
+#if defined(_WIN32)
+    // The program a release moved aside last time, free to go now.
+    std::filesystem::remove(program.string() + ".replaced", error);
+#endif
+    // A trial no one is watching, of this very build: it never said it
+    // started. (This start is that build's again, so it may well start this
+    // time — but the reader has been left once already.)
+    std::string const trial_path = ui::trial_file(profile);
+    if (std::getenv("SASHFOLD_UPDATE_TRIAL") == nullptr) {
+        if (std::optional<ui::Trial> const trial = ui::read_trial(trial_path); trial && !still_running(trial->watcher)) {
+            ui::end_trial(trial_path);
+            std::string why;
+            if (trial->version == SASHFOLD_VERSION && ui::restore_previous(program.string(), &why)) {
+                ui::refuse_release(profile, trial->version);
+                std::cerr << "sashfold: " << trial->version << " did not start last time; went back to " << trial->previous << "\n";
+#if defined(_WIN32)
+                std::exit(start_program(program, {}, false) < 0 ? 1 : 0);
+#else
+                execv(program.c_str(), argv);
+#endif
+            }
+        }
+    }
+    std::string const waits_in = ui::staging_folder(profile);
+    if (!ui::staged_version(waits_in))
         return;
     ui::StagedOutcome const outcome = ui::apply_staged_release(waits_in, program.parent_path().string(), SASHFOLD_VERSION);
     if (outcome.what == ui::StagedOutcome::What::Refused) {
@@ -2981,16 +3167,14 @@ void install_waiting_release(int argc, char** argv)
     } else if (outcome.what == ui::StagedOutcome::What::Installed) {
         std::cerr << "sashfold: updated to " << outcome.version << " (the program before it is kept beside it, as "
                   << program.filename().string() << ".previous)\n";
-        // The new program takes the start over, with what this one was
-        // given. Should it not start, this one goes on as it is.
-        execv(program.c_str(), argv);
+        watch_first_start(program, argv, profile, outcome.version);
     }
 }
 #endif
 
 int main(int argc, char** argv)
 {
-#if defined(SASHFOLD_SELF_UPDATE) && defined(__linux__)
+#if defined(SASHFOLD_SELF_UPDATE) && (defined(__linux__) || defined(_WIN32))
     install_waiting_release(argc, argv);
 #endif
     trace_seconds(); // the trace clock's origin is the start of the process
@@ -3339,6 +3523,8 @@ int main(int argc, char** argv)
     int const result = run_window(start_url, theme_path, blocklists_path,
         window_downloads, window_profile, argv[0],
         exit_after_ms, timings_path, frames_dir, frame_every_ms, width, height);
+    if (result == 0)
+        ui::end_trial(update_trial_to_end()); // a clean exit is a start that worked
     platform::MemoryWatch::stop();
     return result;
 }

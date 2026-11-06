@@ -365,7 +365,7 @@ elseif(SASHFOLD_PORTABLE)
   # libc stays the system's, so the floor is the glibc of the build machine.
   target_link_options(sashfold PRIVATE -static-libstdc++ -static-libgcc)
 endif()
-if(SASHFOLD_PORTABLE AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+if(SASHFOLD_PORTABLE AND (CMAKE_SYSTEM_NAME STREQUAL "Linux" OR WIN32))
   # The build the downloads are made of replaces itself with a newer release
   # (ui/UpdatePackage.h). Every other build — a distribution's package, a
   # build tree — is left to whoever made it.

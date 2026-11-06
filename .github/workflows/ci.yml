@@ -148,7 +148,8 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ninja
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      # The build the Windows download is made of: one that replaces itself.
+      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSASHFOLD_PORTABLE=ON
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
       # A test that failed here, run again under gdb: where it died. The

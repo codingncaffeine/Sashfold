@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <cstdlib>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
@@ -166,6 +167,136 @@ std::string release_refusal(std::string_view version, std::string_view running, 
     return "the release does not list " + name;
 }
 
+namespace {
+
+std::uint32_t le16(std::span<std::uint8_t const> bytes, std::size_t at)
+{
+    return static_cast<std::uint32_t>(bytes[at]) | static_cast<std::uint32_t>(bytes[at + 1]) << 8;
+}
+
+std::uint32_t le32(std::span<std::uint8_t const> bytes, std::size_t at)
+{
+    return le16(bytes, at) | le16(bytes, at + 2) << 16;
+}
+
+// A file's place under the release's folder: its path below it, or why
+// it is not under it. Folders' own entries are told apart by `folder_entry`.
+std::optional<std::string> path_under(std::string name, std::string_view folder, std::string* why_not)
+{
+    while (name.size() > 1 && name.back() == '/')
+        name.pop_back();
+    if (name.starts_with("./"))
+        name.erase(0, 2);
+    if (!stays_inside(name)) {
+        said(why_not, "the archive holds a path that does not stay in its folder: " + name);
+        return std::nullopt;
+    }
+    if (name == folder)
+        return std::string();
+    if (!name.starts_with(std::string(folder) + "/")) {
+        said(why_not, "the archive holds a path outside " + std::string(folder) + ": " + name);
+        return std::nullopt;
+    }
+    return name.substr(folder.size() + 1);
+}
+
+// APPNOTE.TXT (PKWARE's .ZIP File Format Specification): the central
+// directory, found from its end record, names each entry and where its local
+// header is; each file is stored or deflated, and its CRC-32 is checked.
+std::optional<std::vector<ReleaseEntry>> unpack_zip(std::span<std::uint8_t const> bytes, std::string_view folder, std::string* why_not)
+{
+    auto const refuse = [why_not](std::string reason) -> std::optional<std::vector<ReleaseEntry>> {
+        said(why_not, std::move(reason));
+        return std::nullopt;
+    };
+    // The end record: 22 bytes, then a comment of at most 65,535.
+    if (bytes.size() < 22)
+        return refuse("the archive is cut short");
+    std::size_t end = bytes.size() - 22;
+    std::size_t const lowest = bytes.size() > 22 + 65535 ? bytes.size() - 22 - 65535 : 0;
+    while (le32(bytes, end) != 0x06054b50) {
+        if (end == lowest)
+            return refuse("the archive is not a zip file: it has no end record");
+        --end;
+    }
+    std::uint32_t const count = le16(bytes, end + 10);
+    std::uint32_t const directory_size = le32(bytes, end + 12);
+    std::uint32_t const directory_at = le32(bytes, end + 16);
+    if (count == 0xffff || directory_at == 0xffffffffu)
+        return refuse("the archive is a ZIP64 file, which no release is");
+    if (static_cast<std::uint64_t>(directory_at) + directory_size > end)
+        return refuse("the archive's directory lies outside it");
+    std::vector<ReleaseEntry> entries;
+    std::uint64_t total = 0;
+    std::size_t at = directory_at;
+    for (std::uint32_t index = 0; index < count; ++index) {
+        if (at + 46 > end || le32(bytes, at) != 0x02014b50)
+            return refuse("the archive's directory is not what its end record says");
+        std::uint32_t const made_by = le16(bytes, at + 4) >> 8; // 3: Unix
+        std::uint32_t const flags = le16(bytes, at + 8);
+        std::uint32_t const method = le16(bytes, at + 10);
+        std::uint32_t const crc = le32(bytes, at + 16);
+        std::uint32_t const packed = le32(bytes, at + 20);
+        std::uint32_t const size = le32(bytes, at + 24);
+        std::uint32_t const name_length = le16(bytes, at + 28);
+        std::uint32_t const extra_length = le16(bytes, at + 30);
+        std::uint32_t const comment_length = le16(bytes, at + 32);
+        std::uint32_t const attributes = le32(bytes, at + 38);
+        std::uint32_t const local_at = le32(bytes, at + 42);
+        if (at + 46 + name_length > end)
+            return refuse("the archive's directory is cut short");
+        std::string const name(reinterpret_cast<char const*>(bytes.data() + at + 46), name_length);
+        at += 46 + name_length + extra_length + comment_length;
+        if (flags & 1)
+            return refuse("the archive holds an encrypted file: " + name);
+        std::uint32_t const unix_mode = made_by == 3 ? attributes >> 16 : 0;
+        bool const is_folder = name.ends_with("/") || (unix_mode & 0170000) == 0040000;
+        if (unix_mode != 0 && !is_folder && (unix_mode & 0170000) != 0100000)
+            return refuse("the archive holds something that is neither a file nor a folder: " + name);
+        std::optional<std::string> const path = path_under(name, folder, why_not);
+        if (!path)
+            return std::nullopt;
+        if (path->empty()) {
+            if (!is_folder)
+                return refuse("the archive's top entry is not a folder");
+            continue;
+        }
+        if (is_folder)
+            continue;
+        if (method != 0 && method != 8)
+            return refuse("the archive holds a file packed in a way no release is: " + name);
+        if (local_at + 30u > bytes.size() || le32(bytes, local_at) != 0x04034b50)
+            return refuse("the archive's file is not where its directory says: " + name);
+        std::size_t const data_at = local_at + 30u + le16(bytes, local_at + 26) + le16(bytes, local_at + 28);
+        if (data_at + packed > bytes.size())
+            return refuse("the archive is cut short");
+        total += size;
+        if (total > 512u * 1024u * 1024u)
+            return refuse("the archive unpacks to more than any release");
+        std::vector<std::uint8_t> packed_bytes(bytes.begin() + static_cast<std::ptrdiff_t>(data_at),
+            bytes.begin() + static_cast<std::ptrdiff_t>(data_at + packed));
+        ReleaseEntry entry;
+        entry.path = *path;
+        if (method == 0) {
+            entry.bytes = std::move(packed_bytes);
+        } else if (std::optional<std::vector<std::uint8_t>> inflated = inflate(packed_bytes, size)) {
+            entry.bytes = std::move(*inflated);
+        } else {
+            return refuse("the archive's file does not inflate: " + name);
+        }
+        if (entry.bytes.size() != size || crc32_of(entry.bytes) != crc)
+            return refuse("the archive's file is not the one it lists (its CRC-32 differs): " + name);
+        // A Unix zip says so in the mode; for Windows a program is its name.
+        entry.executable = unix_mode != 0 ? (unix_mode & 0100) != 0 : entry.path.ends_with(".exe");
+        entries.push_back(std::move(entry));
+    }
+    if (entries.empty())
+        return refuse("the archive holds no file under " + std::string(folder));
+    return entries;
+}
+
+}
+
 std::optional<std::vector<ReleaseEntry>> unpack_release(std::span<std::uint8_t const> archive, std::string_view folder, std::string* why_not)
 {
     auto const refuse = [why_not](std::string reason) {
@@ -174,6 +305,9 @@ std::optional<std::vector<ReleaseEntry>> unpack_release(std::span<std::uint8_t c
     };
     if (folder.empty() || !stays_inside(folder) || folder.find('/') != std::string_view::npos)
         return refuse("no folder is named for the release");
+    // A zip begins with a file's local header — or, holding none, its end record.
+    if (archive.size() >= 4 && archive[0] == 'P' && archive[1] == 'K' && ((archive[2] == 3 && archive[3] == 4) || (archive[2] == 5 && archive[3] == 6)))
+        return unpack_zip(archive, folder, why_not);
     std::optional<std::vector<std::uint8_t>> const tar
         = gzip_decompress(std::vector<std::uint8_t>(archive.begin(), archive.end()), 512u * 1024u * 1024u);
     if (!tar)
@@ -385,7 +519,7 @@ StagedOutcome apply_staged_release(std::string const& folder, std::string const&
 
 bool can_replace_itself(std::string const& install)
 {
-#if defined(SASHFOLD_SELF_UPDATE) && defined(__linux__)
+#if defined(SASHFOLD_SELF_UPDATE) && (defined(__linux__) || defined(_WIN32))
     if (install.empty() || release_archive_name("0.0.0").empty())
         return false;
     // Writable by this user: a package manager's copy is root's.
@@ -424,6 +558,17 @@ bool install_release(std::string const& directory, std::vector<ReleaseEntry> con
             entry.executable ? fs::perms::owner_all | fs::perms::group_read | fs::perms::group_exec | fs::perms::others_read | fs::perms::others_exec
                              : fs::perms::owner_read | fs::perms::owner_write | fs::perms::group_read | fs::perms::others_read,
             error);
+#if defined(_WIN32)
+        // A program that is running cannot be written over on Windows, but
+        // it can be moved aside: it runs on from there, and the next start
+        // clears it away (UpdatePackage's start, below).
+        if (fs::exists(target, error)) {
+            fs::path const aside = target.string() + ".replaced";
+            fs::remove(aside, error);
+            fs::rename(target, aside, error);
+            error.clear();
+        }
+#endif
         fs::rename(beside, target, error);
         if (error) {
             fs::remove(beside, error);
@@ -431,6 +576,102 @@ bool install_release(std::string const& directory, std::vector<ReleaseEntry> con
         }
     }
     return true;
+}
+
+std::string trial_file(std::string const& profile)
+{
+    return profile.empty() ? std::string() : (std::filesystem::path(profile) / "update-trial").string();
+}
+
+bool begin_trial(std::string const& file, Trial const& trial)
+{
+    if (file.empty() || !parse_release_version(trial.version))
+        return false;
+    std::string const text = "version " + trial.version + "\nprevious " + trial.previous + "\nwatcher " + std::to_string(trial.watcher) + "\n";
+    return write_whole(file, std::span<std::uint8_t const>(reinterpret_cast<std::uint8_t const*>(text.data()), text.size()));
+}
+
+std::optional<Trial> read_trial(std::string const& file)
+{
+    if (file.empty())
+        return std::nullopt;
+    std::optional<std::vector<std::uint8_t>> const bytes = read_whole(file, 4096);
+    if (!bytes)
+        return std::nullopt;
+    Trial trial;
+    std::string_view text(reinterpret_cast<char const*>(bytes->data()), bytes->size());
+    while (!text.empty()) {
+        std::size_t const end = text.find('\n');
+        std::string_view const line = text.substr(0, end);
+        text = end == std::string_view::npos ? std::string_view() : text.substr(end + 1);
+        std::size_t const space = line.find(' ');
+        if (space == std::string_view::npos)
+            continue;
+        std::string_view const key = line.substr(0, space);
+        std::string_view const value = line.substr(space + 1);
+        if (key == "version")
+            trial.version = std::string(value);
+        else if (key == "previous")
+            trial.previous = std::string(value);
+        else if (key == "watcher")
+            trial.watcher = std::strtoull(std::string(value).c_str(), nullptr, 10);
+    }
+    if (!parse_release_version(trial.version))
+        return std::nullopt;
+    return trial;
+}
+
+void end_trial(std::string const& file)
+{
+    std::error_code error;
+    if (!file.empty())
+        std::filesystem::remove(file, error);
+}
+
+std::vector<std::string> refused_releases(std::string const& profile)
+{
+    std::vector<std::string> refused;
+    if (profile.empty())
+        return refused;
+    std::optional<std::vector<std::uint8_t>> const bytes = read_whole(std::filesystem::path(profile) / "update-refused", 64u * 1024u);
+    if (!bytes)
+        return refused;
+    std::string_view text(reinterpret_cast<char const*>(bytes->data()), bytes->size());
+    while (!text.empty()) {
+        std::size_t const end = text.find('\n');
+        std::string_view line = text.substr(0, end);
+        text = end == std::string_view::npos ? std::string_view() : text.substr(end + 1);
+        if (!line.empty() && line.back() == '\r')
+            line.remove_suffix(1);
+        if (parse_release_version(line))
+            refused.emplace_back(line);
+    }
+    return refused;
+}
+
+void refuse_release(std::string const& profile, std::string_view version)
+{
+    if (profile.empty() || !parse_release_version(version))
+        return;
+    std::vector<std::string> refused = refused_releases(profile);
+    if (std::find(refused.begin(), refused.end(), version) != refused.end())
+        return;
+    std::ofstream file(std::filesystem::path(profile) / "update-refused", std::ios::binary | std::ios::app);
+    file << version << "\n";
+}
+
+bool restore_previous(std::string const& program, std::string* why_not)
+{
+    namespace fs = std::filesystem;
+    fs::path const path(program);
+    std::optional<std::vector<std::uint8_t>> bytes = read_whole(path.string() + ".previous", largest_archive);
+    if (!bytes || bytes->empty())
+        return said(why_not, "there is no " + path.filename().string() + ".previous to go back to");
+    ReleaseEntry entry;
+    entry.path = path.filename().string();
+    entry.bytes = std::move(*bytes);
+    entry.executable = true;
+    return install_release(path.parent_path().string(), { std::move(entry) }, why_not);
 }
 
 }
