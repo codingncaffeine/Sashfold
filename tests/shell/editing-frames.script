@@ -1,0 +1,56 @@
+# Editors inside frames (gaps plan item 4), as TinyMCE, CKEditor 4 and the
+# classic WordPress editor are made: a contenteditable in an iframe and a
+# designMode document. A click puts the caret in the frame's document, keys
+# edit it there, the caret is drawn over the frame, Shift and the arrows
+# select in it, Ctrl+C/Ctrl+V move markup between the frames, and an input
+# method composes in it. Each frame posts its markup to the page, which
+# shows both in its title. Frame one's text line is at 93-113 px, frame
+# two's paragraph at 195-215; their text starts at 17 px.
+resize 600 400
+open data:text/html,<title>F</title><style>body{margin:8px}iframe{width:400px;height:80px;border:1px solid;display:block;margin-bottom:10px}</style><iframe srcdoc="<style>body{margin:8px;font-family:'Sashfold Mono';font-size:16px;line-height:20px}</style><div id=e contenteditable>Hello</div><script>e.addEventListener('input',function(){parent.postMessage('1'+e.innerHTML,'*')})</script>"></iframe><iframe srcdoc="<style>body{margin:8px;font-family:'Sashfold Mono';font-size:16px;line-height:20px}</style><p>Design</p><script>document.designMode='on';document.addEventListener('input',function(){var p=document.querySelector('p');parent.postMessage('2'+p.outerHTML+(p.nextElementSibling&&p.nextElementSibling.tagName!='SCRIPT'?p.nextElementSibling.outerHTML:''),'*')})</script>"></iframe><script>var one='Hello',two='<p>Design</p>';onmessage=function(m){if(m.data[0]==='1')one=m.data.slice(1);else two=m.data.slice(1);document.title=one+' | '+two}</script>
+# The contenteditable in frame one.
+click 200 103
+type " world"
+advance 20
+assert-title Hello world | <p>Design</p>
+key Enter
+type two
+key Backspace
+advance 20
+assert-title Hello world<div>tw</div> | <p>Design</p>
+# Its caret, over the frame, after "tw" on the second line.
+assert-pixel 37 120 #000000
+# The arrows and Shift select in the frame's document: "tw" replaced.
+key shift+Left
+key shift+Left
+type 2
+advance 20
+assert-title Hello world<div>2</div> | <p>Design</p>
+# The designMode document in frame two, after "Design".
+click 200 205
+type X
+advance 20
+assert-title Hello world<div>2</div> | <p>DesignX</p>
+assert-pixel 87 196 #000000
+assert-pixel 37 120 #ffffff
+# Markup copied out of frame one, pasted into frame two: its block after
+# the paragraph, which it does not go inside.
+click 200 103
+key ctrl+a
+key ctrl+c
+assert-clipboard-html Hello world<div>2</div>
+click 200 205
+key End
+key ctrl+v
+advance 20
+assert-title Hello world<div>2</div> | <p>DesignXHello world</p><div>2</div>
+# An input method composing in frame one's editor.
+click 200 103
+key ctrl+End
+preedit ni
+advance 20
+assert-title Hello world<div>2ni</div> | <p>DesignXHello world</p><div>2</div>
+commit 日
+preedit
+advance 20
+assert-title Hello world<div>2日</div> | <p>DesignXHello world</p><div>2</div>

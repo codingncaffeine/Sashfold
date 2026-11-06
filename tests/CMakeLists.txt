@@ -235,6 +235,11 @@ add_test(NAME shell_notifications
 # Shift, Ctrl+A, and the page's getSelection() following the reader's.
 add_test(NAME shell_contenteditable
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/contenteditable.script)
+# Editors inside frames (an iframe's contenteditable, a designMode
+# document): the caret, typing, selecting, the clipboard between frames,
+# an input method.
+add_test(NAME shell_editing_frames
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/editing-frames.script)
 # An input method composing in a rich editor: the text in the DOM as it
 # changes, the composition events, commit, cancel, a key, undo.
 add_test(NAME shell_ime_editing

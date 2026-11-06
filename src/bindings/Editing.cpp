@@ -1583,6 +1583,50 @@ bool perform(Realm::Internals& in, Current const& current, Command command, std:
                 caret = { caret.node->parent(), caret.node->index() + 1 };
             }
         }
+        // Blocks put where only phrasing may be (a paragraph, a heading)
+        // split it, as in every browser: what comes before the first block
+        // joins it, the blocks follow it, and what was after the caret goes
+        // on in a copy of it after them.
+        dom::Element* const block = block_of(*caret.node, host);
+        bool const phrasing_only = block != &host && (block->is_html("p") || is_heading(*block));
+        auto const first_block = std::find_if(parsed.begin(), parsed.end(), [](dom::Node* node) { return is_block(*node); });
+        if (phrasing_only && first_block != parsed.end() && block->parent()) {
+            js::Interpreter::Roots const roots(in.interpreter);
+            js::Heap::NoCollect const no_collect(in.interpreter.heap());
+            js::Object* const range_object = make_live_range(in, *caret.node, caret.offset, *block, static_cast<std::uint32_t>(block->children().size()));
+            dom::Range* const tail = live_range_of(js::Value::object(range_object));
+            std::optional<dom::Node*> const rest = extract_range_contents(in, *tail);
+            for (auto it = parsed.begin(); it != first_block; ++it)
+                pre_insert(in, *block, **it, nullptr);
+            dom::Node* const parent = block->parent();
+            dom::Node* const after = next_sibling_of(*block);
+            dom::Node* last = nullptr;
+            for (auto it = first_block; it != parsed.end(); ++it) {
+                pre_insert(in, *parent, **it, after);
+                last = *it;
+            }
+            bool const rest_has_content = rest && [&] {
+                std::vector<dom::Node*> parts;
+                collect_descendants(**rest, parts);
+                return std::any_of(parts.begin(), parts.end(), [](dom::Node* node) {
+                    return (node->is_text() && !character_data(*node).empty()) || (is_atomic(*node) && !is_br(*node));
+                });
+            }();
+            if (rest_has_content) {
+                dom::Element* const copy = in.document->create<dom::Element>(block->namespace_uri(), block->local_name());
+                for (dom::Attr const& attribute : block->attributes()) {
+                    if (attribute.local_name != "id")
+                        set_attribute(in, *copy, attribute.local_name, attribute.value);
+                }
+                pre_insert(in, *copy, **rest, nullptr);
+                pre_insert(in, *parent, *copy, after);
+            }
+            // A paragraph the paste began at the start of, empty now, goes.
+            if (!block_has_content(*block))
+                remove_node(in, *block);
+            caret = last ? Point { last->parent(), last->index() + 1 } : Point { parent, 0 };
+            break;
+        }
         for (dom::Node* node : parsed) {
             dom::Node* const before = caret.offset < caret.node->children().size() ? caret.node->children()[caret.offset] : nullptr;
             pre_insert(in, *caret.node, *node, before);

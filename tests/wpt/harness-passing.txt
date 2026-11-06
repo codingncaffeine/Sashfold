@@ -137742,6 +137742,7 @@ editing/run/inserthorizontalrule.html	[["stylewithcss","true"],["inserthorizonta
 editing/run/inserthorizontalrule.html	[["stylewithcss","true"],["inserthorizontalrule",""]] "foo{<b>bar</b>}baz": execCommand("inserthorizontalrule", false, "") return value
 editing/run/inserthorizontalrule.html	[["stylewithcss","true"],["inserthorizontalrule",""]] "foo{<b>bar</b>}baz": execCommand("stylewithcss", false, "true") return value
 editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<hr>"]] "<p>f[o]o" checks for modifications to non-editable content
+editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<hr>"]] "<p>f[o]o" compare innerHTML
 editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<hr>"]] "<p>f[o]o" queryCommandIndeterm("defaultparagraphseparator") after
 editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<hr>"]] "<p>f[o]o" queryCommandIndeterm("defaultparagraphseparator") before
 editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<hr>"]] "<p>f[o]o" queryCommandIndeterm("inserthtml") after
@@ -137832,6 +137833,7 @@ editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","
 editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<p>abc"]] "<ol>{<li>foo</li>}<li>bar</ol>": execCommand("defaultparagraphseparator", false, "div") return value
 editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<p>abc"]] "<ol>{<li>foo</li>}<li>bar</ol>": execCommand("inserthtml", false, "<p>abc") return value
 editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<p>abc"]] "<p>foo[bar]baz" checks for modifications to non-editable content
+editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<p>abc"]] "<p>foo[bar]baz" compare innerHTML
 editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<p>abc"]] "<p>foo[bar]baz" queryCommandIndeterm("defaultparagraphseparator") after
 editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<p>abc"]] "<p>foo[bar]baz" queryCommandIndeterm("defaultparagraphseparator") before
 editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<p>abc"]] "<p>foo[bar]baz" queryCommandIndeterm("inserthtml") after
@@ -137847,6 +137849,7 @@ editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","
 editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<p>abc"]] "<p>foo[bar]baz": execCommand("defaultparagraphseparator", false, "div") return value
 editing/run/inserthtml.html	[["defaultparagraphseparator","div"],["inserthtml","<p>abc"]] "<p>foo[bar]baz": execCommand("inserthtml", false, "<p>abc") return value
 editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<hr>"]] "<p>f[o]o" checks for modifications to non-editable content
+editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<hr>"]] "<p>f[o]o" compare innerHTML
 editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<hr>"]] "<p>f[o]o" queryCommandIndeterm("defaultparagraphseparator") after
 editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<hr>"]] "<p>f[o]o" queryCommandIndeterm("defaultparagraphseparator") before
 editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<hr>"]] "<p>f[o]o" queryCommandIndeterm("inserthtml") after
@@ -137937,6 +137940,7 @@ editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<p
 editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<p>abc"]] "<ol>{<li>foo</li>}<li>bar</ol>": execCommand("defaultparagraphseparator", false, "p") return value
 editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<p>abc"]] "<ol>{<li>foo</li>}<li>bar</ol>": execCommand("inserthtml", false, "<p>abc") return value
 editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<p>abc"]] "<p>foo[bar]baz" checks for modifications to non-editable content
+editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<p>abc"]] "<p>foo[bar]baz" compare innerHTML
 editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<p>abc"]] "<p>foo[bar]baz" queryCommandIndeterm("defaultparagraphseparator") after
 editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<p>abc"]] "<p>foo[bar]baz" queryCommandIndeterm("defaultparagraphseparator") before
 editing/run/inserthtml.html	[["defaultparagraphseparator","p"],["inserthtml","<p>abc"]] "<p>foo[bar]baz" queryCommandIndeterm("inserthtml") after
@@ -138146,6 +138150,7 @@ editing/run/inserthtml.html	[["inserthtml","<dt>abc</dt>"]] "f[o]o" queryCommand
 editing/run/inserthtml.html	[["inserthtml","<dt>abc</dt>"]] "f[o]o" queryCommandValue("inserthtml") before
 editing/run/inserthtml.html	[["inserthtml","<dt>abc</dt>"]] "f[o]o": execCommand("inserthtml", false, "<dt>abc</dt>") return value
 editing/run/inserthtml.html	[["inserthtml","<h2>abc</h2>"]] "<h1>f[o]o</h1>" checks for modifications to non-editable content
+editing/run/inserthtml.html	[["inserthtml","<h2>abc</h2>"]] "<h1>f[o]o</h1>" compare innerHTML
 editing/run/inserthtml.html	[["inserthtml","<h2>abc</h2>"]] "<h1>f[o]o</h1>" queryCommandIndeterm("inserthtml") after
 editing/run/inserthtml.html	[["inserthtml","<h2>abc</h2>"]] "<h1>f[o]o</h1>" queryCommandIndeterm("inserthtml") before
 editing/run/inserthtml.html	[["inserthtml","<h2>abc</h2>"]] "<h1>f[o]o</h1>" queryCommandState("inserthtml") after
