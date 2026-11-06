@@ -1589,8 +1589,14 @@ void install_svg_elements(Realm::Internals& in, js::Object& svg_element)
         return js::Value::null();
     });
     // No animation timeline runs: paused never, the time ever zero.
-    for (std::string_view const name : { "pauseAnimations", "unpauseAnimations", "setCurrentTime", "unsuspendRedraw", "unsuspendRedrawAll", "forceRedraw", "deselectAll" })
+    for (std::string_view const name : { "pauseAnimations", "unpauseAnimations", "setCurrentTime", "unsuspendRedraw", "unsuspendRedrawAll", "forceRedraw" })
         element_method(in, *svg, name, 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::undefined(); });
+    // deselectAll(): the document's selection emptied, wherever it was.
+    element_method(in, *svg, "deselectAll", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
+        if (&e.document() == internals.document)
+            internals.realm.clear_selection();
+        return js::Value::undefined();
+    });
     element_method(in, *svg, "animationsPaused", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::boolean(false); });
     element_method(in, *svg, "getCurrentTime", 0, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::number(0); });
     element_method(in, *svg, "suspendRedraw", 1, [](Realm::Internals&, dom::Element&, Args) -> Native { return js::Value::number(0); });

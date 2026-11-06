@@ -9497,17 +9497,59 @@ struct Browser::Impl {
         else
             editing.realm->set_selection(*place->first, place->second, *place->first, place->second);
         pull_selection(tab);
+        reveal_caret(tab, editing);
         dirty = true;
         return true;
     }
 
+    // The caret kept in sight as it moves: every box that scrolls around it
+    // — the editor's own, when it is one — and then the page, moved the
+    // least that shows it, as every browser does while one types.
+    void reveal_caret(Tab& tab, EditingFocus const& editing)
+    {
+        std::optional<bindings::Realm::SelectionPoints> const points = editing.realm->selection();
+        if (!points)
+            return;
+        auto const caret_rect = [&]() -> std::optional<Rect> {
+            std::optional<CaretBox> const box = caret_box(tab, *points->focus, points->focus_offset);
+            if (!box)
+                return std::nullopt;
+            return Rect { static_cast<int>(box->x), static_cast<int>(box->top), 1, static_cast<int>(box->height) + 1 };
+        };
+        if (!caret_rect())
+            return;
+        if (layout::Fragment const* const host_box = fragment_for(tab.layout.root, editing.host)) {
+            std::vector<layout::Fragment const*> chain;
+            if (scroll_chain(tab.layout.root, host_box, nullptr, chain)) {
+                if (layout::is_scroll_container(*host_box))
+                    chain.push_back(host_box);
+                if (!chain.empty()) {
+                    reveal_within_boxes(tab, chain, [&] { return caret_rect().value_or(Rect {}); });
+                    ensure_fresh(tab);
+                }
+            }
+        }
+        std::optional<Rect> const at = caret_rect();
+        if (!at || !reader_scrolls(tab.layout))
+            return;
+        ChromeLayout const c = layout_chrome();
+        int const margin = std::min(c.content.height / 8, static_cast<int>(at->height));
+        if (at->y < tab.scroll_y)
+            set_scroll(tab, at->y - margin);
+        else if (at->bottom() > tab.scroll_y + c.content.height)
+            set_scroll(tab, at->bottom() - c.content.height + margin);
+    }
+
     // An edit made and shown: the page's listeners have run, its layout is
-    // made again and the selection drawn from the document's.
+    // made again, the selection drawn from the document's and the caret
+    // brought into sight.
     void edited(Tab& tab)
     {
         ensure_fresh(tab);
         tab.selection.reset();
         pull_selection(tab);
+        if (std::optional<EditingFocus> const editing = editing_focus(tab))
+            reveal_caret(tab, *editing);
         dirty = true;
     }
 
@@ -11566,6 +11608,16 @@ struct Browser::Impl {
         Tab* const tab = tab_with_focused_control();
         if (!tab)
             return std::nullopt;
+        // An editing host's caret, where the document's selection has it.
+        if (std::optional<EditingFocus> const editing = editing_focus(*tab)) {
+            std::optional<bindings::Realm::SelectionPoints> const points = editing->realm->selection();
+            std::optional<CaretBox> const box = points ? caret_box(*tab, *points->focus, points->focus_offset) : std::nullopt;
+            if (!box)
+                return std::nullopt;
+            return Rect { c.content.x + static_cast<int>(std::lround(box->x)),
+                c.content.y + static_cast<int>(std::lround(box->top)) - tab->scroll_y, 1,
+                std::max(1, static_cast<int>(std::lround(box->height))) };
+        }
         // The control's box, in the page or in the frame it is in, moved by
         // where that frame's document sits on the page.
         std::vector<FrameStep> const chain
