@@ -17,6 +17,7 @@
 #include <ole2.h>
 #include <shellapi.h>
 #include <shlobj.h>
+#include <imm.h>
 
 #include <algorithm>
 #include <atomic>
@@ -65,6 +66,29 @@ std::wstring to_wide(std::string const& utf8)
     MultiByteToWideChar(CP_UTF8, 0, utf8.data(), static_cast<int>(utf8.size()), wide.data(),
         count);
     return wide;
+}
+
+std::string from_wide(std::wstring const& wide)
+{
+    if (wide.empty())
+        return {};
+    int const count = WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), nullptr, 0, nullptr, nullptr);
+    if (count <= 0)
+        return {};
+    std::string utf8(static_cast<std::size_t>(count), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, wide.data(), static_cast<int>(wide.size()), utf8.data(), count, nullptr, nullptr);
+    return utf8;
+}
+
+// A composition string of the input method's (GCS_COMPSTR, GCS_RESULTSTR).
+std::wstring composition_string(HIMC context, DWORD which)
+{
+    LONG const bytes = ImmGetCompositionStringW(context, which, nullptr, 0);
+    if (bytes <= 0)
+        return {};
+    std::wstring text(static_cast<std::size_t>(bytes) / sizeof(wchar_t), L'\0');
+    ImmGetCompositionStringW(context, which, text.data(), static_cast<DWORD>(bytes));
+    return text;
 }
 
 int low_signed(LPARAM value)
@@ -483,6 +507,20 @@ public:
     // Brought back from the taskbar and to the front. Windows lets a
     // program take the foreground while the shell has handed it the right
     // (a toast pressed does); otherwise it only flashes the taskbar button.
+    // A field with the focus has the input method; anywhere else it is off,
+    // as Chrome turns it off where nothing can be typed.
+    void set_text_input(std::optional<Rect> const& caret) override
+    {
+        bool const was = m_text_input.has_value();
+        m_text_input = caret;
+        if (!m_hwnd)
+            return;
+        if (caret.has_value() != was)
+            ImmAssociateContextEx(m_hwnd, nullptr, caret ? IACE_DEFAULT : 0);
+        if (caret)
+            place_input_method();
+    }
+
     // The page's drag to another program: OLE's own loop, which keeps this
     // window's messages going while the reader drags, and says at the end
     // what was done.
@@ -759,6 +797,42 @@ private:
         }
         case WM_SYSCHAR:
             return 0; // no Alt-menu beeps
+        // An input method composing (IMM32): drawn by the page in its own
+        // run, so the system's composition window is not shown; what it
+        // composes is a Preedit, what it settles on one Commit — never the
+        // characters one by one (DefWindowProc would turn the result into
+        // WM_CHARs).
+        case WM_IME_STARTCOMPOSITION:
+            place_input_method();
+            return 0;
+        case WM_IME_COMPOSITION: {
+            HIMC const context = ImmGetContext(m_hwnd);
+            if (!context)
+                break;
+            if (lparam & GCS_RESULTSTR) {
+                WindowEvent committed;
+                committed.kind = WindowEvent::Kind::Commit;
+                committed.commit = from_wide(composition_string(context, GCS_RESULTSTR));
+                if (!committed.commit.empty())
+                    push(committed);
+            }
+            WindowEvent composing;
+            composing.kind = WindowEvent::Kind::Preedit;
+            if (lparam & GCS_COMPSTR)
+                composing.preedit = from_wide(composition_string(context, GCS_COMPSTR));
+            push(composing);
+            ImmReleaseContext(m_hwnd, context);
+            return 0;
+        }
+        case WM_IME_ENDCOMPOSITION: {
+            WindowEvent composing;
+            composing.kind = WindowEvent::Kind::Preedit;
+            push(composing);
+            return 0;
+        }
+        case WM_IME_SETCONTEXT:
+            // The composition window is ours to draw; the candidates stay the system's.
+            return DefWindowProcW(m_hwnd, message, wparam, lparam & ~static_cast<LPARAM>(ISC_SHOWUICOMPOSITIONWINDOW));
         case WM_CHAR: {
             wchar_t const unit = static_cast<wchar_t>(wparam);
             char32_t code_point = 0;
@@ -830,6 +904,32 @@ private:
     Cursor m_cursor = Cursor::Arrow;
     int m_wheel_remainder = 0;
     wchar_t m_high_surrogate = 0;
+    // Where text is typed (set_text_input), for the input method's windows;
+    // nothing while no field has the focus.
+    std::optional<Rect> m_text_input;
+
+    // The candidates beside the caret, below it unless the screen says
+    // otherwise, as every program places them.
+    void place_input_method()
+    {
+        if (!m_text_input)
+            return;
+        HIMC const context = ImmGetContext(m_hwnd);
+        if (!context)
+            return;
+        COMPOSITIONFORM composition {};
+        composition.dwStyle = CFS_POINT;
+        composition.ptCurrentPos = POINT { m_text_input->x, m_text_input->y };
+        ImmSetCompositionWindow(context, &composition);
+        CANDIDATEFORM candidates {};
+        candidates.dwIndex = 0;
+        candidates.dwStyle = CFS_EXCLUDE;
+        candidates.ptCurrentPos = POINT { m_text_input->x, m_text_input->y + m_text_input->height };
+        candidates.rcArea = RECT { m_text_input->x, m_text_input->y, m_text_input->x + std::max(1, m_text_input->width),
+            m_text_input->y + m_text_input->height };
+        ImmSetCandidateWindow(context, &candidates);
+        ImmReleaseContext(m_hwnd, context);
+    }
 };
 
 std::unique_ptr<Window> WindowWin32::open(std::string const& title, WindowPlacement const& placement)
@@ -899,6 +999,8 @@ std::unique_ptr<Window> WindowWin32::open(std::string const& title, WindowPlacem
     }
     SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(window.get()));
     // Drags from other programs: OLE on this thread, the window a drop target.
+    // The input method is off until a field takes the focus (set_text_input).
+    ImmAssociateContextEx(hwnd, nullptr, 0);
     if (SUCCEEDED(OleInitialize(nullptr))) {
         window->m_ole = true;
         window->m_drop_target = new DropTarget(*window);

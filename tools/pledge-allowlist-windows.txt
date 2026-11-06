@@ -6,7 +6,8 @@
 # and shell32 with the file chooser (the common item dialog) and drops from
 # other programs (OLE drag and drop, CF_HDROP), advapi32 with notifications
 # (the browser's name for its toasts, registered for the user; the toasts
-# themselves are reached through combase.dll at run time, not imported).
+# themselves are reached through combase.dll at run time, not imported),
+# imm32 with input methods (IMM32: composing, the candidates' place).
 kernel32.dll
 msvcrt.dll
 ws2_32.dll
@@ -17,3 +18,4 @@ bcrypt.dll
 ole32.dll
 shell32.dll
 advapi32.dll
+imm32.dll
