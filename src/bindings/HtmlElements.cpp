@@ -122,7 +122,10 @@ BlobObject* file_object_for(Realm::Internals& in, dom::forms::ChosenFile const& 
     object->name = file.name;
     object->type = file.type;
     object->last_modified = file.modified * 1000.0;
-    object->back_by_file(file.path, 0, file.size, file.modified);
+    if (file.bytes)
+        object->bytes() = *file.bytes;
+    else
+        object->back_by_file(file.path, 0, file.size, file.modified);
     return object;
 }
 

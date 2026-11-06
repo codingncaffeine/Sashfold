@@ -659,6 +659,7 @@ public:
     struct ClipboardItems {
         std::string text;
         std::string html;
+        std::vector<std::uint8_t> png = {}; // a picture: clipboardData's file "image.png"
     };
     struct ClipboardOutcome {
         bool cancelled = false;

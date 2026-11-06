@@ -17,6 +17,7 @@
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
+#include <iterator>
 #include <ostream>
 #include <sstream>
 #include <thread>
@@ -436,6 +437,14 @@ struct Runner {
             expect_equal("assert-clipboard-html", content ? content->html : std::string(), argument);
         } else if (command == "set-clipboard") {
             platform::write_clipboard_text(argument);
+        } else if (command == "set-clipboard-picture") {
+            // `set-clipboard-picture <png>`: a picture on the clipboard, as
+            // a screenshot puts one there (no text with it).
+            std::ifstream file(resolve(argument), std::ios::binary);
+            std::vector<std::uint8_t> const bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            if (bytes.empty())
+                return fail("set-clipboard-picture: cannot read " + argument);
+            platform::write_clipboard(platform::ClipboardContent { {}, {}, bytes });
         } else if (command == "move") {
             // `move <x> <y>`: the pointer goes there, and the page hears it
             // (the boundary and move events) before the next step.

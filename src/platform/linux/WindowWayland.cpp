@@ -30,6 +30,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 #include <fcntl.h>
@@ -459,6 +460,8 @@ public:
 
     bool write_clipboard(ClipboardContent const& content);
     std::optional<ClipboardContent> read_clipboard();
+    bool start_clipboard_read(std::shared_ptr<ClipboardRead> const& read, std::function<void()> wake);
+    bool clipboard_offers_content();
     std::optional<std::string> receive_offer(std::string const& mime);
 
 private:
@@ -647,6 +650,16 @@ WaylandWindow* wayland_window()
 bool wayland_write_clipboard(WaylandWindow& window, ClipboardContent const& content)
 {
     return window.write_clipboard(content);
+}
+
+bool wayland_start_clipboard_read(WaylandWindow& window, std::shared_ptr<ClipboardRead> const& read, std::function<void()> wake)
+{
+    return window.start_clipboard_read(read, std::move(wake));
+}
+
+bool wayland_clipboard_offers_content(WaylandWindow& window)
+{
+    return window.clipboard_offers_content();
 }
 
 std::optional<ClipboardContent> wayland_read_clipboard(WaylandWindow& window)
@@ -1902,6 +1915,132 @@ std::optional<ClipboardContent> WaylandWindow::read_clipboard()
         return std::nullopt;
     }
     return content;
+}
+
+// The text format an offer is read in: the first of these it offers.
+namespace {
+
+std::string text_format_of(std::vector<std::string> const& mimes)
+{
+    for (char const* wanted : { "text/plain;charset=utf-8", "UTF8_STRING", "text/plain", "TEXT", "STRING" }) {
+        if (std::find(mimes.begin(), mimes.end(), wanted) != mimes.end())
+            return wanted;
+    }
+    return {};
+}
+
+// The pipes a read's formats come through, read together on a thread of
+// their own until each has ended or the time is up; then the answer.
+void read_pipes_for(std::shared_ptr<ClipboardRead> read, std::function<void()> wake, std::vector<std::pair<std::string, int>> pipes)
+{
+    std::vector<std::string> bodies(pipes.size());
+    std::vector<bool> open(pipes.size(), true);
+    auto const deadline = std::chrono::steady_clock::now() + std::chrono::seconds(3);
+    for (;;) {
+        std::vector<pollfd> waiting;
+        std::vector<std::size_t> which;
+        for (std::size_t i = 0; i < pipes.size(); ++i) {
+            if (open[i]) {
+                waiting.push_back(pollfd { pipes[i].second, POLLIN, 0 });
+                which.push_back(i);
+            }
+        }
+        auto const now = std::chrono::steady_clock::now();
+        if (waiting.empty() || now >= deadline)
+            break;
+        int const remaining = static_cast<int>(std::chrono::duration_cast<std::chrono::milliseconds>(deadline - now).count());
+        int const ready = ::poll(waiting.data(), static_cast<nfds_t>(waiting.size()), remaining);
+        if (ready < 0 && errno == EINTR)
+            continue;
+        if (ready <= 0)
+            break;
+        for (std::size_t k = 0; k < waiting.size(); ++k) {
+            if (waiting[k].revents == 0)
+                continue;
+            std::size_t const i = which[k];
+            char chunk[65536];
+            ssize_t const count = ::read(pipes[i].second, chunk, sizeof chunk);
+            if (count < 0 && errno == EINTR)
+                continue;
+            if (count <= 0 || bodies[i].size() + static_cast<std::size_t>(count) > largest_clipboard_picture) {
+                open[i] = false;
+                continue;
+            }
+            bodies[i].append(chunk, static_cast<std::size_t>(count));
+        }
+    }
+    ClipboardContent content;
+    bool any = false;
+    for (std::size_t i = 0; i < pipes.size(); ++i) {
+        ::close(pipes[i].second);
+        std::string const& mime = pipes[i].first;
+        if (bodies[i].empty())
+            continue;
+        any = true;
+        if (mime == "text/html")
+            content.html = std::move(bodies[i]);
+        else if (mime == "image/png")
+            content.png.assign(bodies[i].begin(), bodies[i].end());
+        else
+            content.text = std::move(bodies[i]);
+    }
+    read->finish(any ? std::optional<ClipboardContent>(std::move(content)) : std::nullopt);
+    if (wake)
+        wake();
+}
+
+}
+
+// The selection read without waiting: each format asked for through a pipe
+// now, the pipes read on a thread, the answer handed over when they end.
+bool WaylandWindow::start_clipboard_read(std::shared_ptr<ClipboardRead> const& read, std::function<void()> wake)
+{
+    if (m_selection_is_ours) {
+        read->finish(m_clipboard);
+        return true;
+    }
+    if (!m_selection_offer || m_connection->failed()) {
+        read->finish(std::nullopt);
+        return true;
+    }
+    std::vector<std::string> const mimes = m_offers[m_selection_offer];
+    auto const offered = [&](std::string_view wanted) { return std::find(mimes.begin(), mimes.end(), wanted) != mimes.end(); };
+    std::vector<std::string> formats;
+    if (std::string const text = text_format_of(mimes); !text.empty())
+        formats.push_back(text);
+    if (offered("text/html"))
+        formats.push_back("text/html");
+    if (offered("image/png"))
+        formats.push_back("image/png");
+    std::vector<std::pair<std::string, int>> pipes;
+    for (std::string const& format : formats) {
+        int ends[2];
+        if (pipe2(ends, O_CLOEXEC) != 0)
+            continue;
+        Request receive(m_selection_offer, wl_data_offer::receive);
+        receive.string(format).fd(ends[1]);
+        send(receive);
+        ::close(ends[1]);
+        pipes.emplace_back(format, ends[0]);
+    }
+    m_connection->flush();
+    if (pipes.empty()) {
+        read->finish(std::nullopt);
+        return true;
+    }
+    std::thread(read_pipes_for, read, std::move(wake), std::move(pipes)).detach();
+    return true;
+}
+
+bool WaylandWindow::clipboard_offers_content()
+{
+    if (m_selection_is_ours)
+        return !m_clipboard.text.empty() || !m_clipboard.html.empty() || !m_clipboard.png.empty();
+    if (!m_selection_offer)
+        return false;
+    std::vector<std::string> const& mimes = m_offers[m_selection_offer];
+    return !text_format_of(mimes).empty() || std::find(mimes.begin(), mimes.end(), "text/html") != mimes.end()
+        || std::find(mimes.begin(), mimes.end(), "image/png") != mimes.end();
 }
 
 void WaylandWindow::answer_drag(DragAction action, std::string const& format)

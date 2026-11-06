@@ -10,6 +10,7 @@
 #include "dom/Dom.h"
 
 #include <cstdint>
+#include <memory>
 #include <vector>
 #include <optional>
 #include <string>
@@ -118,6 +119,9 @@ struct ChosenFile {
     double modified = 0; // seconds since the epoch
     std::string type;
     std::string relative;
+    // A file that is not on disk (a picture pasted from the clipboard): its
+    // bytes, and no path.
+    std::shared_ptr<std::vector<std::uint8_t> const> bytes = {};
 };
 
 // When a file was last changed, in seconds since the epoch (the same value

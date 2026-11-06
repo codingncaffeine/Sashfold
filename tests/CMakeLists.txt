@@ -264,6 +264,9 @@ add_test(NAME shell_spelling
 # drop, a file input given them, text dropped into a field.
 add_test(NAME shell_os_drag
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/os-drag.script)
+# A picture pasted from another program: a file of the paste's clipboardData.
+add_test(NAME shell_paste_picture
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/paste-picture.script)
 # File inputs: the chooser opened by a press or a script's click() in a
 # gesture, the files as Files with input and change, cancel, the value,
 # the accept filters, the control drawn with what was chosen.

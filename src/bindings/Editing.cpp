@@ -23,6 +23,7 @@
 
 #include <algorithm>
 #include <optional>
+#include <chrono>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -1961,6 +1962,16 @@ Realm::ClipboardOutcome Realm::clipboard_event(std::string_view type, ClipboardI
     }
     js::Object* const transfer = new_data_transfer(in, std::move(data), pasted != nullptr);
     in.interpreter.root(js::Value::object(transfer));
+    // A pasted picture is a file of the paste's, named as Chrome names it.
+    if (pasted && !pasted->png.empty()) {
+        dom::forms::ChosenFile picture;
+        picture.name = "image.png";
+        picture.type = "image/png";
+        picture.size = pasted->png.size();
+        picture.modified = std::chrono::duration<double>(std::chrono::system_clock::now().time_since_epoch()).count();
+        picture.bytes = std::make_shared<std::vector<std::uint8_t> const>(pasted->png);
+        set_data_transfer_files(in, *transfer, { std::move(picture) });
+    }
     EventObject* const event = in.new_event("ClipboardEvent", type, true, true);
     in.interpreter.root(js::Value::object(event));
     event->is_trusted = true;

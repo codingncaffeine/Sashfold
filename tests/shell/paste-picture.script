@@ -1,0 +1,16 @@
+# A picture pasted from another program (a screenshot): the page's paste
+# event carries it as a file of clipboardData, "image.png", as in Chrome —
+# its item a file of type image/png, getAsFile its File — into a rich editor
+# and into a text field alike; text pasted after it is still text.
+resize 600 300
+open data:text/html,<title>P</title><style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}div{height:40px;border:1px solid}</style><div id=e contenteditable>edit here</div><input id=t><script>var log=[];function n(s){log.push(s);document.title=log.join(',')}function heard(where){return function(e){var d=e.clipboardData,i=d.items[0],f=d.files[0];n(where+':'+d.items.length+':'+(i&&i.kind)+':'+(i&&i.type)+':'+(f?f.name+'/'+f.size+'/'+f.type+'/'+(i.getAsFile()===f):'none')+':'+d.types.join('+'))}}e.addEventListener('paste',heard('editor'));t.addEventListener('paste',heard('field'))</script>
+set-clipboard-picture files/dot.png
+click 40 99
+key ctrl+v
+assert-title editor:1:file:image/png:image.png/6/image/png/true:Files
+click 40 145
+key ctrl+v
+assert-title editor:1:file:image/png:image.png/6/image/png/true:Files,field:1:file:image/png:image.png/6/image/png/true:Files
+set-clipboard words
+key ctrl+v
+assert-title editor:1:file:image/png:image.png/6/image/png/true:Files,field:1:file:image/png:image.png/6/image/png/true:Files,field:1:string:text/plain:none:text/plain

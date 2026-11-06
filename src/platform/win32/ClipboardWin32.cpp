@@ -1,6 +1,10 @@
 #include "platform/Clipboard.h"
 
+#include "core/Bitmap.h"
+#include "core/Png.h"
+
 #include <algorithm>
+#include <thread>
 #include <cstdio>
 #include <cstring>
 #include <string_view>
@@ -142,6 +146,85 @@ bool put_global(UINT format, void const* bytes, std::size_t size)
     return ok;
 }
 
+// A device-independent bitmap (CF_DIB: a BITMAPINFOHEADER and the rows) as
+// PNG: 24- and 32-bit rows, bottom-up or top-down, with the channel masks a
+// BI_BITFIELDS header carries. A 32-bit picture whose alpha is all zero is
+// opaque (most programs leave it so).
+std::vector<std::uint8_t> png_of_dib(std::uint8_t const* bytes, std::size_t size)
+{
+    if (size < sizeof(BITMAPINFOHEADER))
+        return {};
+    BITMAPINFOHEADER header;
+    std::memcpy(&header, bytes, sizeof header);
+    int const width = header.biWidth;
+    bool const top_down = header.biHeight < 0;
+    int const height = top_down ? -header.biHeight : header.biHeight;
+    int const bits = header.biBitCount;
+    if (width <= 0 || height <= 0 || width > 32768 || height > 32768 || (bits != 24 && bits != 32)
+        || (header.biCompression != BI_RGB && header.biCompression != BI_BITFIELDS))
+        return {};
+    std::size_t offset = header.biSize;
+    std::uint32_t masks[3] = { 0x00ff0000, 0x0000ff00, 0x000000ff };
+    if (header.biCompression == BI_BITFIELDS && header.biSize == sizeof(BITMAPINFOHEADER)) {
+        if (size < offset + 12)
+            return {};
+        std::memcpy(masks, bytes + offset, 12);
+        offset += 12;
+    }
+    std::size_t const row = (static_cast<std::size_t>(width) * static_cast<std::size_t>(bits) / 8 + 3) / 4 * 4;
+    if (size < offset + row * static_cast<std::size_t>(height))
+        return {};
+    auto const shift_of = [](std::uint32_t mask) {
+        int shift = 0;
+        while (mask != 0 && (mask & 1) == 0) {
+            mask >>= 1;
+            ++shift;
+        }
+        return shift;
+    };
+    int const shifts[3] = { shift_of(masks[0]), shift_of(masks[1]), shift_of(masks[2]) };
+    std::vector<std::uint8_t> pixels(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * 4);
+    bool any_alpha = false;
+    for (int y = 0; y < height; ++y) {
+        std::uint8_t const* const source = bytes + offset + row * static_cast<std::size_t>(top_down ? y : height - 1 - y);
+        std::uint8_t* const target = pixels.data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(width) * 4;
+        for (int x = 0; x < width; ++x) {
+            std::uint8_t* const out = target + static_cast<std::size_t>(x) * 4;
+            if (bits == 24) {
+                std::uint8_t const* const in = source + static_cast<std::size_t>(x) * 3;
+                out[0] = in[2];
+                out[1] = in[1];
+                out[2] = in[0];
+                out[3] = 255;
+            } else {
+                std::uint32_t value;
+                std::memcpy(&value, source + static_cast<std::size_t>(x) * 4, 4);
+                for (int c = 0; c < 3; ++c)
+                    out[c] = static_cast<std::uint8_t>((value & masks[c]) >> shifts[c]);
+                out[3] = static_cast<std::uint8_t>(value >> 24);
+                any_alpha = any_alpha || out[3] != 0;
+            }
+        }
+    }
+    if (bits == 32 && !any_alpha) {
+        for (std::size_t i = 3; i < pixels.size(); i += 4)
+            pixels[i] = 255;
+    }
+    return encode_png(Bitmap(width, height, std::move(pixels)));
+}
+
+std::vector<std::uint8_t> global_bytes(HANDLE handle)
+{
+    std::vector<std::uint8_t> bytes;
+    if (void const* const memory = GlobalLock(handle)) {
+        std::size_t const size = GlobalSize(handle);
+        if (size <= largest_clipboard_picture)
+            bytes.assign(static_cast<std::uint8_t const*>(memory), static_cast<std::uint8_t const*>(memory) + size);
+        GlobalUnlock(handle);
+    }
+    return bytes;
+}
+
 } // namespace
 
 bool os_write_clipboard(ClipboardContent const& content)
@@ -166,9 +249,12 @@ bool os_write_clipboard(ClipboardContent const& content)
 std::optional<ClipboardContent> os_read_clipboard()
 {
     UINT const html_format = RegisterClipboardFormatW(L"HTML Format");
+    UINT const png_format = RegisterClipboardFormatW(L"PNG");
     bool const has_text = IsClipboardFormatAvailable(CF_UNICODETEXT);
     bool const has_html = html_format && IsClipboardFormatAvailable(html_format);
-    if ((!has_text && !has_html) || !OpenClipboard(nullptr))
+    bool const has_png = png_format && IsClipboardFormatAvailable(png_format);
+    bool const has_dib = IsClipboardFormatAvailable(CF_DIB);
+    if ((!has_text && !has_html && !has_png && !has_dib) || !OpenClipboard(nullptr))
         return std::nullopt;
     ClipboardContent content;
     if (has_text) {
@@ -191,7 +277,39 @@ std::optional<ClipboardContent> os_read_clipboard()
             }
         }
     }
+    // A picture: as PNG where the program put one (browsers, editors), else
+    // from the bitmap every program can put (a screenshot).
+    if (has_png) {
+        if (HANDLE const handle = GetClipboardData(png_format))
+            content.png = global_bytes(handle);
+    }
+    if (content.png.empty() && has_dib) {
+        if (HANDLE const handle = GetClipboardData(CF_DIB)) {
+            std::vector<std::uint8_t> const dib = global_bytes(handle);
+            content.png = png_of_dib(dib.data(), dib.size());
+        }
+    }
     CloseClipboard();
     return content;
+}
+
+// Read on a thread of its own: a program that renders its clipboard late
+// (Windows asks it at the read) never holds the window's thread.
+bool os_start_clipboard_read(std::shared_ptr<ClipboardRead> const& read, std::function<void()> wake)
+{
+    std::thread([read, wake = std::move(wake)] {
+        read->finish(os_read_clipboard());
+        if (wake)
+            wake();
+    }).detach();
+    return true;
+}
+
+std::optional<bool> os_clipboard_offers_content()
+{
+    UINT const html_format = RegisterClipboardFormatW(L"HTML Format");
+    UINT const png_format = RegisterClipboardFormatW(L"PNG");
+    return IsClipboardFormatAvailable(CF_UNICODETEXT) || (html_format && IsClipboardFormatAvailable(html_format))
+        || (png_format && IsClipboardFormatAvailable(png_format)) || IsClipboardFormatAvailable(CF_DIB);
 }
 }

@@ -2128,11 +2128,29 @@ struct Browser::Impl {
         leaving.clear();
     }
 
-    ~Impl() { end_engines(); }
+    ~Impl()
+    {
+        // A clipboard read still out finds no one to wake.
+        {
+            std::lock_guard const lock(wake_sink->mutex);
+            wake_sink->wake = nullptr;
+        }
+        end_engines();
+    }
 
     // The same for the tab in front, with the page's place in the window:
     // the job is given the window point (0, 0) of the page's own.
     void ask_front(std::function<void(Browser&)> const& job)
+    {
+        // Behind a clipboard read that is out, in the order asked: a key
+        // after Ctrl+V is the page's after the paste.
+        if (!deferred.empty()) {
+            deferred.push_back({ nullptr, [this, job](std::optional<platform::ClipboardContent>) { ask_front_now(job); } });
+            return;
+        }
+        ask_front_now(job);
+    }
+    void ask_front_now(std::function<void(Browser&)> const& job)
     {
         if (Tab* const tab = active_tab())
             ask(*tab, job);
@@ -7674,8 +7692,8 @@ struct Browser::Impl {
         if (button == 3 && page_threads) {
             // The page's menu may offer to paste: what there is to paste
             // comes with the press.
-            ask_front([px, py, button, modifiers, clip = clipboard_for_page()](Browser& shell) {
-                shell.m_impl->clipboard_told = clip;
+            ask_front([px, py, button, modifiers, offered = platform::clipboard_offers_content()](Browser& shell) {
+                shell.m_impl->clipboard_offered = offered;
                 shell.mouse_down(px, py, button, modifiers);
             });
             return;
@@ -7689,10 +7707,84 @@ struct Browser::Impl {
     // opens the page's menu, a paste — and hands what it copies to the
     // shell to put there.
     // (Its text and its markup both: a copy from a page carries text/html.)
+    // (Set with the paste that hands it over, and taken by it: `fresh`.)
     std::optional<platform::ClipboardContent> clipboard_told;
-    std::optional<platform::ClipboardContent> clipboard_for_page() const
+    bool clipboard_fresh = false;
+    // Whether there was anything to paste, told with a press that opens a
+    // menu (which offers Paste by it, and reads only if it is chosen).
+    bool clipboard_offered = false;
+    bool clipboard_has_something() const
     {
-        return page_threads ? platform::read_clipboard() : std::nullopt;
+        if (engine_self && engine_self->threaded)
+            return clipboard_offered;
+        return platform::clipboard_offers_content();
+    }
+
+    // The clipboard, read without the window's thread waiting for the
+    // program that holds it (platform::start_clipboard_read): what is to be
+    // done with it waits in `deferred`, and so does everything asked of the
+    // page in front after it, so that nothing overtakes the paste.
+    struct WakeSink {
+        std::mutex mutex;
+        std::function<void()> wake;
+    };
+    std::shared_ptr<WakeSink> wake_sink = std::make_shared<WakeSink>();
+    struct Deferred {
+        std::shared_ptr<platform::ClipboardRead> read;
+        std::function<void(std::optional<platform::ClipboardContent>)> then;
+    };
+    std::deque<Deferred> deferred;
+    void with_clipboard(std::function<void(std::optional<platform::ClipboardContent>)> then)
+    {
+        {
+            std::lock_guard const lock(wake_sink->mutex);
+            wake_sink->wake = wake_window;
+        }
+        std::shared_ptr<platform::ClipboardRead> read = platform::start_clipboard_read([sink = wake_sink] {
+            std::lock_guard const lock(sink->mutex);
+            if (sink->wake)
+                sink->wake();
+        });
+        deferred.push_back({ std::move(read), std::move(then) });
+        hear_clipboard();
+    }
+    // What waited on a read that has come, in order. True when any ran.
+    bool hear_clipboard()
+    {
+        bool ran = false;
+        while (!deferred.empty() && (!deferred.front().read || deferred.front().read->done())) {
+            Deferred next = std::move(deferred.front());
+            deferred.pop_front();
+            next.then(next.read ? next.read->take() : std::nullopt);
+            ran = true;
+        }
+        return ran;
+    }
+    void key_into_page(std::size_t tab, KeyEvent const& key)
+    {
+        with_clipboard([this, tab, key](std::optional<platform::ClipboardContent> clip) {
+            if (tab >= tabs.size())
+                return;
+            ask(tabs[tab], [clip, key](Browser& page) {
+                page.m_impl->clipboard_told = clip;
+                page.m_impl->clipboard_fresh = true;
+                page.key_down(key);
+            });
+        });
+    }
+    // A paste the page's engine asks for (its menu's Paste, its own Ctrl+V
+    // when nothing was told): read here, handed to that page.
+    void paste_into_page(std::size_t tab)
+    {
+        with_clipboard([this, tab](std::optional<platform::ClipboardContent> clip) {
+            if (tab >= tabs.size())
+                return;
+            ask(tabs[tab], [clip](Browser& page) {
+                page.m_impl->clipboard_told = clip;
+                page.m_impl->clipboard_fresh = true;
+                page.m_impl->paste();
+            });
+        });
     }
     std::optional<platform::ClipboardContent> read_clipboard_content() const
     {
@@ -7718,7 +7810,7 @@ struct Browser::Impl {
     }
     void write_clipboard(std::string const& text)
     {
-        write_clipboard_content(platform::ClipboardContent { text, {} });
+        write_clipboard_content(platform::ClipboardContent { text, {}, {} });
     }
 
     // The page hears `copy`, `cut` or `paste` first (Clipboard API §5): a
@@ -7735,10 +7827,10 @@ struct Browser::Impl {
         script_started = std::chrono::steady_clock::now();
         bindings::Realm::ClipboardItems items;
         if (pasted)
-            items = { pasted->text, pasted->html };
+            items = { pasted->text, pasted->html, pasted->png };
         bindings::Realm::ClipboardOutcome const outcome = realm->clipboard_event(type, pasted ? &items : nullptr);
         if (outcome.items)
-            write_clipboard_content(platform::ClipboardContent { outcome.items->text, outcome.items->html });
+            write_clipboard_content(platform::ClipboardContent { outcome.items->text, outcome.items->html, {} });
         if (outcome.cancelled) {
             ensure_fresh(tab);
             dirty = true;
@@ -7767,8 +7859,20 @@ struct Browser::Impl {
         bool const may_paste = key.key == Key::Menu || (key.key == Key::F10 && key.shift)
             || (key.ctrl && key.key == Key::Letter && key.letter == U'V');
         if (may_paste && page_threads) {
-            ask_front([key, clip = clipboard_for_page()](Browser& shell) {
-                shell.m_impl->clipboard_told = clip;
+            if (key.key == Key::Letter) {
+                // Ctrl+V: what is on the clipboard, read first, comes with it.
+                with_clipboard([this, key](std::optional<platform::ClipboardContent> clip) {
+                    ask_front_now([key, clip](Browser& shell) {
+                        shell.m_impl->clipboard_told = clip;
+                        shell.m_impl->clipboard_fresh = true;
+                        shell.key_down(key);
+                    });
+                });
+                return;
+            }
+            // A menu's key: whether there is anything to paste.
+            ask_front([key, offered = platform::clipboard_offers_content()](Browser& shell) {
+                shell.m_impl->clipboard_offered = offered;
                 shell.key_down(key);
             });
             return;
@@ -8854,9 +8958,8 @@ struct Browser::Impl {
                     break;
                 }
             }
-            std::optional<std::string> const clipboard = read_clipboard();
             bool const locked = control->has_attribute("readonly");
-            bool const can_paste = clipboard && !clipboard->empty() && !locked;
+            bool const can_paste = clipboard_has_something() && !locked;
             // What there is to cut or copy is the selected text (a
             // password's never).
             std::optional<std::string> const chosen = selected_in_control(*tab);
@@ -8875,8 +8978,7 @@ struct Browser::Impl {
         } else if (editing_focus(*tab)) {
             // A rich editor's menu: what its keys do, as every browser offers.
             bool const has_selection = !selected_text(*tab).empty();
-            std::optional<platform::ClipboardContent> const clipboard = read_clipboard_content();
-            bool const can_paste = clipboard && (!clipboard->text.empty() || !clipboard->html.empty());
+            bool const can_paste = clipboard_has_something();
             auto const chord = [this](char32_t letter, bool shift) {
                 KeyEvent key;
                 key.key = Key::Letter;
@@ -8890,7 +8992,7 @@ struct Browser::Impl {
             items.push_back(menu_item("Cut", "Ctrl+X", [chord] { chord(U'X', false); }, has_selection));
             items.push_back(menu_item("Copy", "Ctrl+C", [this] { copy_selection(); }, has_selection));
             items.push_back(menu_item("Paste", "Ctrl+V", [chord] { chord(U'V', false); }, can_paste));
-            items.push_back(menu_item("Paste as plain text", "Ctrl+Shift+V", [chord] { chord(U'V', true); }, can_paste && !clipboard->text.empty()));
+            items.push_back(menu_item("Paste as plain text", "Ctrl+Shift+V", [chord] { chord(U'V', true); }, can_paste));
             items.push_back({});
             items.push_back(menu_item("Select all", "Ctrl+A", [chord] { chord(U'A', false); }));
             specific = true;
@@ -10993,8 +11095,15 @@ struct Browser::Impl {
                 return run_edit("deleteByCut");
             }
             case U'V': {
+                // In an engine of its own thread with nothing told (its menu's
+                // Paste): the shell reads, and sends the key back with it.
+                if (engine_self && engine_self->threaded && !clipboard_fresh) {
+                    ask_shell([key](Impl& shell, std::size_t at) { shell.key_into_page(at, key); });
+                    return true;
+                }
                 std::optional<platform::ClipboardContent> const content = read_clipboard_content();
-                if (!content || (content->text.empty() && content->html.empty()))
+                clipboard_fresh = false;
+                if (!content || (content->text.empty() && content->html.empty() && content->png.empty()))
                     return true;
                 if (page_took_clipboard(tab, "paste", &*content))
                     return true;
@@ -11075,15 +11184,44 @@ struct Browser::Impl {
         if (pages_in_engines && !address_focus) {
             // Into the page's field, by the page's engine.
             if (!find_focus && !palette_open) {
-                ask_front([clip = clipboard_for_page()](Browser& shell) {
-                    shell.m_impl->clipboard_told = clip;
-                    shell.m_impl->paste();
-                });
+                if (page_threads) {
+                    with_clipboard([this](std::optional<platform::ClipboardContent> clip) {
+                        ask_front_now([clip](Browser& shell) {
+                            shell.m_impl->clipboard_told = clip;
+                            shell.m_impl->clipboard_fresh = true;
+                            shell.m_impl->paste();
+                        });
+                    });
+                } else {
+                    ask_front([](Browser& shell) { shell.m_impl->paste(); });
+                }
             }
             return;
         }
+        // A page's engine of its own thread: the shell reads, and hands it
+        // what it read.
+        if (engine_self && engine_self->threaded && !std::exchange(clipboard_fresh, false)) {
+            ask_shell([](Impl& shell, std::size_t tab) { shell.paste_into_page(tab); });
+            return;
+        }
+        // The window's own fields (the address, find, the palette), in a
+        // window whose pages have threads: read without waiting, then typed.
+        if (page_threads && !engine_self) {
+            with_clipboard([this](std::optional<platform::ClipboardContent> clip) {
+                if (clip)
+                    paste_content(*clip);
+            });
+            return;
+        }
         std::optional<platform::ClipboardContent> const content = read_clipboard_content();
-        if (!content || (content->text.empty() && content->html.empty()))
+        if (content)
+            paste_content(*content);
+    }
+
+    void paste_content(platform::ClipboardContent const& pasted)
+    {
+        std::optional<platform::ClipboardContent> const content = pasted;
+        if (content->text.empty() && content->html.empty() && content->png.empty())
             return;
         if (!address_focus) {
             // Into a rich editor: what the reader's Ctrl+V does, by the menu.
@@ -11098,13 +11236,15 @@ struct Browser::Impl {
             }
         }
         std::string const* const text = &content->text;
-        if (text->empty())
-            return;
         Tab* const with_control = address_focus ? nullptr : tab_with_focused_control();
         bool const into_control = with_control != nullptr;
         if (!address_focus && !into_control)
             return;
+        // The field's page hears the paste whatever it holds (a picture
+        // alone, too), and may take it.
         if (into_control && page_took_clipboard(*with_control, "paste", &*content))
+            return;
+        if (text->empty())
             return;
         if (into_control) {
             dom::Element const& control = *with_control->controls.focused;
@@ -15436,7 +15576,7 @@ bool Browser::tick()
     // What the desktop says of the notices first: a page that hears of one
     // may have something to do about it in this same step.
     m_impl->hear_spell();
-    bool const chooser_heard = m_impl->hear_chooser();
+    bool const chooser_heard = m_impl->hear_chooser() | m_impl->hear_clipboard();
     bool const notices_heard = m_impl->hear_notifier() || chooser_heard;
     if (m_impl->page_threads) {
         m_impl->hear_pages();
@@ -15569,6 +15709,7 @@ bool Browser::run_scripts()
     // what the desktop said of the notices is heard now, and the chooser.
     impl.hear_notifier();
     impl.hear_chooser();
+    impl.hear_clipboard();
     if (impl.page_threads) {
         // The pages' timers are their threads' to run: the shell hears what
         // the pages have said, and keeps its own clockwork.

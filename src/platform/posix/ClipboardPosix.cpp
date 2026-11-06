@@ -16,4 +16,14 @@ std::optional<ClipboardContent> os_read_clipboard()
     return std::nullopt;
 }
 
+bool os_start_clipboard_read(std::shared_ptr<ClipboardRead> const&, std::function<void()>)
+{
+    return false;
+}
+
+std::optional<bool> os_clipboard_offers_content()
+{
+    return std::nullopt;
+}
+
 }

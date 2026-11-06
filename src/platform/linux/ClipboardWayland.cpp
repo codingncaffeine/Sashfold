@@ -23,4 +23,18 @@ std::optional<ClipboardContent> os_read_clipboard()
     return wayland_read_clipboard(*window);
 }
 
+bool os_start_clipboard_read(std::shared_ptr<ClipboardRead> const& read, std::function<void()> wake)
+{
+    WaylandWindow* const window = wayland_window();
+    return window && wayland_start_clipboard_read(*window, read, std::move(wake));
+}
+
+std::optional<bool> os_clipboard_offers_content()
+{
+    WaylandWindow* const window = wayland_window();
+    if (!window)
+        return std::nullopt;
+    return wayland_clipboard_offers_content(*window);
+}
+
 }
