@@ -841,4 +841,67 @@ void install_ranges(Realm::Internals& in)
     });
 }
 
+
+// --- For the selection and editing (Selection.cpp, Editing.cpp) ------------------
+
+dom::Range* live_range_of(js::Value const& value)
+{
+    if (!value.is_object())
+        return nullptr;
+    auto* const range = dynamic_cast<RangeObject*>(value.as_object());
+    return range && range->live() ? &range->range() : nullptr;
+}
+
+js::Object* make_live_range(Realm::Internals& in, dom::Node& start, std::uint32_t start_offset, dom::Node& end, std::uint32_t end_offset)
+{
+    auto* range = in.interpreter.heap().allocate<RangeObject>(in.prototype("Range"), true);
+    dom::set_range(range->range(), &start, start_offset, &end, end_offset);
+    return range;
+}
+
+js::Object* make_static_range(Realm::Internals& in, dom::Node& start, std::uint32_t start_offset, dom::Node& end, std::uint32_t end_offset)
+{
+    auto* range = in.interpreter.heap().allocate<RangeObject>(in.prototype("StaticRange"), false);
+    dom::set_range(range->range(), &start, start_offset, &end, end_offset);
+    return range;
+}
+
+int compare_points(dom::Node const& a, std::uint32_t a_offset, dom::Node const& b, std::uint32_t b_offset)
+{
+    Position const position = position_of(a, a_offset, b, b_offset);
+    return position == Position::Before ? -1 : position == Position::Equal ? 0 : 1;
+}
+
+std::uint32_t boundary_length(dom::Node const& node)
+{
+    return node_length(node);
+}
+
+std::string text_in_range(dom::Range const& range)
+{
+    return range_text(range);
+}
+
+Native delete_range_contents(Realm::Internals& in, dom::Range& range)
+{
+    return delete_contents(in, range);
+}
+
+Native insert_at_range(Realm::Internals& in, dom::Range& range, dom::Node& node)
+{
+    return insert_node(in, range, node);
+}
+
+bool range_contains_node(dom::Range const& range, dom::Node const& node, bool partly)
+{
+    if (is_released(range) || &node.root() != root_of(range))
+        return false;
+    if (!partly)
+        return is_contained(node, range);
+    // Partly: some of it inside — the range's start before the node's end
+    // and its end after the node's start.
+    return position_of(*range.start_node, range.start_offset, node, node_length(node)) == Position::Before
+        && position_of(*range.end_node, range.end_offset, node, 0) == Position::After;
+}
+
 }

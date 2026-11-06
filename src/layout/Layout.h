@@ -21,6 +21,7 @@
 namespace sashfold::dom {
 class Document;
 class Element;
+class Node;
 }
 
 namespace sashfold::text {
@@ -55,6 +56,16 @@ struct TextRun {
     // the page (0 for a run no line made): what a line clamp finds its last
     // kept line by, wherever later steps moved the run.
     std::uint32_t line = 0;
+    // The text node the run's characters were taken from, and where in its
+    // data (in code points) the first of them was: what turns a point on
+    // the page into a place in the document — a caret, a selection, an edit.
+    // Character i of the run is code point source_from + i of the node's
+    // data, counted from the run's far end when `source_reversed` (a run
+    // drawn right to left). Null for text no node holds: generated content,
+    // a list marker, a field's value.
+    dom::Node const* source = nullptr;
+    std::uint32_t source_from = 0;
+    bool source_reversed = false;
 };
 
 struct Fragment {

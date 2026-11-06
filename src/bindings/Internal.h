@@ -1379,6 +1379,10 @@ struct Realm::Internals {
     // document.designMode (HTML §7.7.2): kept as the page sets it; nothing
     // here edits a page yet, so it changes nothing but what is read back.
     bool design_mode = false;
+    // The selection (Selection.cpp): moved on by every change, and whether
+    // a selectionchange is queued already.
+    std::uint64_t selection_version = 0;
+    bool selectionchange_queued = false;
 
     // Queues a task on the agent's event loop, as this realm's.
     void post_task(std::function<void()> task);
@@ -1704,6 +1708,13 @@ void install_svg_anchor(Realm::Internals&, js::Object& graphics_element);
 std::string_view svg_interface_for(std::string_view local_name);
 std::optional<LayoutBox> svg_client_box(Realm::Internals&, dom::Element const&);
 void install_ranges(Realm::Internals&); // Range.cpp: AbstractRange, Range, StaticRange
+void install_selection(Realm::Internals&); // Selection.cpp: Selection
+// The window's Selection object, made at first ask; a change made to the
+// selection's range from outside Selection.cpp (an edit); the selection's
+// range and which way it was made, false when it has none.
+js::Value selection_of(Realm::Internals&);
+void note_selection_changed(Realm::Internals&);
+bool selection_range(Realm::Internals&, dom::Range*& range, bool& backward);
 void install_traversal(Realm::Internals&); // Traversal.cpp: NodeFilter, TreeWalker, NodeIterator
 void install_workers(Realm::Internals&); // Workers.cpp: Worker, for a window's realm
 void install_media(Realm::Internals&); // Media.cpp: HTMLMediaElement, TimeRanges, MediaError, MediaSource, SourceBuffer

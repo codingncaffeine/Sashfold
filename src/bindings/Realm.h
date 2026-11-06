@@ -592,6 +592,20 @@ public:
     PointerRelease pointer_released(dom::Element* target, MouseInit const&);
     bool dispatch_key_event(dom::Node* target, std::string_view type, KeyInit const&);
     bool dispatch_input_event(dom::Node& target, std::string_view type, InputInit const& init = {});
+    // The document's selection (Selection.cpp): its anchor and focus, none
+    // when it has no range; set by the window between two points (each in
+    // this document, an offset past a node's length clamped); taken away.
+    // Every change queues a selectionchange; the version moves with each.
+    struct SelectionPoints {
+        dom::Node* anchor = nullptr;
+        std::uint32_t anchor_offset = 0;
+        dom::Node* focus = nullptr;
+        std::uint32_t focus_offset = 0;
+    };
+    std::optional<SelectionPoints> selection() const;
+    void set_selection(dom::Node& anchor, std::uint32_t anchor_offset, dom::Node& focus, std::uint32_t focus_offset);
+    void clear_selection();
+    std::uint64_t selection_version() const;
     // The host navigates this window to `target` as the document would
     // navigate itself — a click on one of its links, one of its forms
     // submitted: a page hands it to its host, a frame schedules it on the

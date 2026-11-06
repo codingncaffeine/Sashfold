@@ -1782,6 +1782,7 @@ constexpr InterfaceGroup interface_groups[] = {
     // A worker's realm has the groups above and then its own scope.
     { "workers", install_workers, true },
     // A window's alone from here on.
+    { "selection", install_selection, true },
     { "notifications", install_notifications, true },
     { "media", install_media, true },
     { "geometry", install_geometry, true },

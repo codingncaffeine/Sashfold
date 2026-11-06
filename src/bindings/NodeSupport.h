@@ -70,6 +70,21 @@ void set_data(Realm::Internals&, dom::Node&, std::u16string_view units);
 dom::Text* split_text(Realm::Internals&, dom::Text&, std::size_t offset);
 // A new live range at (container, 0) (Range.cpp).
 js::Value new_range(Realm::Internals&, dom::Node& container);
+// What the selection and the editing commands share with Range.cpp: a live
+// Range object's boundaries (null for anything else), new Range and
+// StaticRange objects, the order of two boundary points in one tree (-1, 0,
+// 1), a node's length, the text in a range, deleteContents() and insertNode()
+// (undefined, or the thrown exception), and whether a node is inside a range —
+// wholly, or with `partly` in any part.
+dom::Range* live_range_of(js::Value const&);
+js::Object* make_live_range(Realm::Internals&, dom::Node& start, std::uint32_t start_offset, dom::Node& end, std::uint32_t end_offset);
+js::Object* make_static_range(Realm::Internals&, dom::Node& start, std::uint32_t start_offset, dom::Node& end, std::uint32_t end_offset);
+int compare_points(dom::Node const& a, std::uint32_t a_offset, dom::Node const& b, std::uint32_t b_offset);
+std::uint32_t boundary_length(dom::Node const&);
+std::string text_in_range(dom::Range const&);
+Native delete_range_contents(Realm::Internals&, dom::Range&);
+Native insert_at_range(Realm::Internals&, dom::Range&, dom::Node&);
+bool range_contains_node(dom::Range const&, dom::Node const&, bool partly);
 // document.createTreeWalker and createNodeIterator (Traversal.cpp): the
 // root, whatToShow and the filter, as the arguments give them.
 Native new_tree_walker(Realm::Internals&, Args);

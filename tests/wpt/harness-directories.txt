@@ -155,3 +155,9 @@ resize-observer
 webmessaging/broadcastchannel
 # Added 2026-10-11 with FontFace and the set document.fonts keeps.
 css/css-font-loading
+
+# The Selection API, and editing: contenteditable, execCommand, input events
+# (gaps plan item 4).
+selection
+editing
+input-events

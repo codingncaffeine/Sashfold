@@ -1100,9 +1100,10 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     });
     install_view_transition(in);
     document_method(in, *document, "exitPointerLock", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::undefined(); });
-    document_method(in, *document, "getSelection", 0, [](Realm::Internals& internals, dom::Document&, Args) -> Native {
-        return internals.interpreter.get(js::Value::object(internals.interpreter.global()), "getSelection").and_then(
-            [&](js::Value const& getter) -> Native { return internals.interpreter.call(getter, js::Value::object(internals.interpreter.global()), {}); });
+    // The window's selection, the same object getSelection() hands out; null
+    // for a document no window shows (Selection API §5).
+    document_method(in, *document, "getSelection", 0, [](Realm::Internals& internals, dom::Document& d, Args) -> Native {
+        return &d == internals.document ? selection_of(internals) : js::Value::null();
     });
 
     // document.write while the parser runs: the text goes at the insertion

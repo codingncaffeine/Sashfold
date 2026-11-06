@@ -200,6 +200,10 @@ struct InlineItem {
     // opportunities inside it before it is laid out, so every piece after
     // the first carries true.
     bool break_before = true;
+    // A word's or a space's text node, and the code point of its data the
+    // item's first character came from (TextRun::source).
+    dom::Node const* source = nullptr;
+    std::uint32_t source_from = 0;
 };
 
 // What an item spells to the line breaker: its text; U+FFFC for an atomic
@@ -414,6 +418,7 @@ std::vector<InlineItem> wrap_opportunities(std::vector<InlineItem> const& items,
                     continue;
                 InlineItem piece = item;
                 piece.text = item.text.substr(from, to - from);
+                piece.source_from = item.source_from + static_cast<std::uint32_t>(from);
                 piece.break_before = from == 0 ? before : true;
                 out.push_back(std::move(piece));
                 if (!levels.empty())
@@ -2258,8 +2263,10 @@ struct Layouter {
         return out;
     }
 
+    // `source`: the text node `text` is the data of, which every item made
+    // of it remembers (InlineItem::source).
     void append_text(std::u32string_view text, ComputedStyle const* style,
-        std::vector<InlineItem>& items, dom::Element const* element) const
+        std::vector<InlineItem>& items, dom::Element const* element, dom::Node const* source = nullptr) const
     {
         std::u32string const changed = style->text_transform == css::TextTransform::None
             ? std::u32string()
@@ -2272,13 +2279,24 @@ struct Layouter {
         bool const preserve_newlines = preserve_spaces || mode == WhiteSpace::PreLine;
 
         std::u32string word;
+        std::uint32_t word_from = 0;
+        std::uint32_t at = 0; // the code point of the node's data being read
         auto const flush_word = [&] {
             if (!word.empty()) {
                 items.push_back(InlineItem { InlineItem::Kind::Word, std::move(word), style, element });
+                items.back().source = source;
+                items.back().source_from = word_from;
                 word = {};
             }
         };
-        for (char32_t const c : text) {
+        auto const add = [&](char32_t c) {
+            if (word.empty())
+                word_from = at;
+            word.push_back(c);
+        };
+        for (std::size_t index = 0; index < text.size(); ++index) {
+            char32_t const c = text[index];
+            at = static_cast<std::uint32_t>(index);
             // Invisible by definition: no glyph, no advance — and, but for
             // the few the line breaker or the bidi algorithm reads, no say
             // in where a line ends or which way its text reads.
@@ -2295,10 +2313,10 @@ struct Layouter {
                 // Spaces are content. A tab stays itself in the text for the
                 // bidi algorithm and is drawn as 8 spaces (see drawn_text).
                 if (c == U'\t') {
-                    word.push_back(c);
+                    add(c);
                     continue;
                 }
-                word.push_back(is_space || is_newline ? U' ' : c);
+                add(is_space || is_newline ? U' ' : c);
                 continue;
             }
             if (is_space || is_newline) {
@@ -2312,11 +2330,14 @@ struct Layouter {
                         || items[back - 1].kind == InlineItem::Kind::BoxStart
                         || items[back - 1].kind == InlineItem::Kind::BoxEnd))
                     --back;
-                if (back == 0 || items[back - 1].kind != InlineItem::Kind::Space)
+                if (back == 0 || items[back - 1].kind != InlineItem::Kind::Space) {
                     items.push_back(InlineItem { InlineItem::Kind::Space, U" ", style, element });
+                    items.back().source = source;
+                    items.back().source_from = at;
+                }
                 continue;
             }
-            word.push_back(c);
+            add(c);
         }
         flush_word();
     }
@@ -2492,6 +2513,7 @@ struct Layouter {
             return true;
         }
         items[last].text.erase(0, cut);
+        items[last].source_from += static_cast<std::uint32_t>(cut);
         items.insert(items.begin() + static_cast<std::ptrdiff_t>(last), std::move(head));
         return true;
     }
@@ -2591,7 +2613,7 @@ struct Layouter {
             if (child->is_text()) {
                 std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                 if (!text.empty())
-                    append_text(text, text_style(*child, inherited), items, owner);
+                    append_text(text, text_style(*child, inherited), items, owner, child);
                 continue;
             }
             if (!child->is_element())
@@ -3143,6 +3165,7 @@ struct Layouter {
                     ++to;
                 InlineItem piece = items[i];
                 piece.text = items[i].text.substr(from, to - from);
+                piece.source_from = items[i].source_from + static_cast<std::uint32_t>(from);
                 split.push_back(std::move(piece));
                 split_levels.push_back(marks[from]);
                 from = to;
@@ -3233,6 +3256,9 @@ struct Layouter {
             // The word ended with a soft hyphen that may hyphenate: a line
             // ending right after it ends with the hyphen, in its style.
             bool soft_hyphen = false;
+            // Where the text came from (TextRun::source).
+            dom::Node const* source = nullptr;
+            std::uint32_t source_from = 0;
         };
 
         // An inline box's run along one line: what to paint it as, and where
@@ -3817,6 +3843,9 @@ struct Layouter {
                     }
                     out.runs.push_back(TextRun { x, own_baseline, std::move(placed.text), placed.style,
                         placed.element, &fonts_for(*placed.style), width, frame_mode });
+                    out.runs.back().source = placed.source;
+                    out.runs.back().source_from = placed.source_from;
+                    out.runs.back().source_reversed = (placed.level & 1) != 0;
                 }
                 entry_left[i] = x;
                 x += width;
@@ -4408,6 +4437,8 @@ struct Layouter {
                 float const width = measure(*item.style, item.text);
                 Placed placed(item.text, item.style, true, width, item.element);
                 placed.aligned = item.aligned;
+                placed.source = item.source;
+                placed.source_from = item.source_from;
                 place(std::move(placed));
                 line_width += width;
                 continue;
@@ -4447,6 +4478,8 @@ struct Layouter {
                 continue;
             }
             std::u32string word = drawn_text(item.text);
+            // How far into the item's text the slices placed so far reached.
+            std::uint32_t consumed = 0;
             // Measured as it is drawn: a run reading right-to-left is drawn
             // with its characters in the other order and its brackets
             // mirrored (rules L2 and L4, at flush_line), so its kerning
@@ -4506,9 +4539,12 @@ struct Layouter {
                     float const hyphenated_width = measure(*item.style, hyphenated) + hyphen_width;
                     Placed slice(hyphenated + hyphen, item.style, false, hyphenated_width, item.element);
                     slice.aligned = item.aligned;
+                    slice.source = item.source;
+                    slice.source_from = item.source_from + consumed;
                     place(std::move(slice));
                     line_width += hyphenated_width;
                     flush_line();
+                    consumed += static_cast<std::uint32_t>(chosen + 1);
                     remaining.erase(0, chosen + 1);
                     word = drawn_text(remaining);
                     width = measure(*item.style, word);
@@ -4558,9 +4594,12 @@ struct Layouter {
                     }
                     Placed slice(word.substr(0, fit), item.style, false, fit_width, item.element);
                     slice.aligned = item.aligned;
+                    slice.source = item.source;
+                    slice.source_from = item.source_from + consumed;
                     place(std::move(slice));
                     line_width += fit_width;
                     flush_line();
+                    consumed += static_cast<std::uint32_t>(fit);
                     word = word.substr(fit);
                     width = measure(*item.style, word);
                     head = trailing_spaces_from(word, mode);
@@ -4571,6 +4610,8 @@ struct Layouter {
             Placed placed(std::move(word), item.style, false, width, item.element);
             placed.aligned = item.aligned;
             placed.hang = hang;
+            placed.source = item.source;
+            placed.source_from = item.source_from + consumed;
             placed.soft_hyphen = hyphenates_after(item);
             place(std::move(placed));
             line_width += width;
@@ -5545,7 +5586,7 @@ struct Layouter {
             if (child->is_text()) {
                 std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                 if (!text.empty())
-                    append_text(text, text_style(*child, &parent_style), pending_inline, parent_element);
+                    append_text(text, text_style(*child, &parent_style), pending_inline, parent_element, child);
                 continue;
             }
             if (!child->is_element())
@@ -6201,7 +6242,7 @@ struct Layouter {
                 if (child->is_text()) {
                     std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                     if (!text.empty())
-                        append_text(text, text_style(*child, &parent_style), pending, parent_element);
+                        append_text(text, text_style(*child, &parent_style), pending, parent_element, child);
                     continue;
                 }
                 if (!child->is_element())
@@ -6616,7 +6657,7 @@ struct Layouter {
                 if (child->is_text()) {
                     std::u32string const text = decode_utf8(static_cast<dom::Text const*>(child)->data);
                     if (!text.empty())
-                        append_text(text, &parent_style, pending, &parent);
+                        append_text(text, &parent_style, pending, &parent, child);
                     continue;
                 }
                 if (!child->is_element())

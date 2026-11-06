@@ -1258,20 +1258,7 @@ void install_window(Realm::Internals& in)
     static constexpr std::string_view media_query_list_event_types[] = { "change" };
     define_event_handlers(in, *media_query_list, media_query_list_event_types);
     define_operation(interpreter, *global, "getSelection", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-        Realm::Internals& internals = internals_of(interp);
-        js::Heap::NoCollect const no_collect(interp.heap());
-        js::Object* selection = object_with(internals, { { "anchorNode", js::Value::null() }, { "anchorOffset", js::Value::number(0) },
-            { "focusNode", js::Value::null() }, { "focusOffset", js::Value::number(0) }, { "isCollapsed", js::Value::boolean(true) },
-            { "rangeCount", js::Value::number(0) }, { "type", internals.string("None") } });
-        define_operation(interp, *selection, "toString", 0, [](js::Interpreter& i, js::Value const&, Args) -> Native { return internals_of(i).string(""); });
-        for (std::string_view const name : { "removeAllRanges", "empty", "addRange", "collapse", "collapseToStart", "collapseToEnd", "selectAllChildren",
-                 "deleteFromDocument", "extend", "setBaseAndExtent", "modify" })
-            define_operation(interp, *selection, name, 0, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::undefined(); });
-        define_operation(interp, *selection, "containsNode", 1, [](js::Interpreter&, js::Value const&, Args) -> Native { return js::Value::boolean(false); });
-        define_operation(interp, *selection, "getRangeAt", 1, [](js::Interpreter& i, js::Value const&, Args) -> Native {
-            return internals_of(i).throw_dom_exception("IndexSizeError", "0 is not a valid index.");
-        });
-        return js::Value::object(selection);
+        return selection_of(internals_of(interp));
     });
 
     // Location (HTML §7.10): every member is the object's own and
