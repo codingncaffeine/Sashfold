@@ -470,6 +470,8 @@ std::filesystem::path database_directory()
 
 struct DatabaseIndex {
     std::unordered_map<std::string, std::string> by_lower_name;
+    // A link the system has no file for: the zone whose file it reads.
+    std::unordered_map<std::string, std::string> link_target;
     std::vector<std::string> primary;
 };
 
@@ -499,6 +501,27 @@ DatabaseIndex build_index()
             continue;
         index.by_lower_name.emplace(lower_ascii(name), name);
     }
+    // The links the system left out (Debian's tzdata-legacy, say): known by
+    // their own names, read from the zone they name — through a chain of
+    // links, should one name another.
+    for (TimeZoneLink const& link : time_zone_links()) {
+        std::string const alias = link.alias;
+        if (index.by_lower_name.contains(lower_ascii(alias)))
+            continue;
+        std::string target = link.target;
+        for (int hop = 0; hop < 8 && !index.by_lower_name.contains(lower_ascii(target)); ++hop) {
+            auto const next = std::find_if(time_zone_links().begin(), time_zone_links().end(),
+                [&](TimeZoneLink const& other) { return target == other.alias; });
+            if (next == time_zone_links().end())
+                break;
+            target = next->target;
+        }
+        auto const found = index.by_lower_name.find(lower_ascii(target));
+        if (found == index.by_lower_name.end())
+            continue;
+        index.link_target.emplace(alias, found->second);
+        index.by_lower_name.emplace(lower_ascii(alias), alias);
+    }
     // tzdata.zi, the database in zic's input form, tells a Zone from a
     // Link: its "Z" lines name the primary zones.
     std::ifstream zi(root / "tzdata.zi");
@@ -524,7 +547,9 @@ DatabaseIndex const& database_index()
 
 std::shared_ptr<TimeZoneData const> read_zone_file(std::string const& name)
 {
-    std::ifstream file(database_directory() / name, std::ios::binary);
+    DatabaseIndex const& index = database_index();
+    auto const linked = index.link_target.find(name);
+    std::ifstream file(database_directory() / (linked != index.link_target.end() ? linked->second : name), std::ios::binary);
     if (!file)
         return nullptr;
     std::vector<unsigned char> bytes;

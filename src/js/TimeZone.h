@@ -85,6 +85,15 @@ std::optional<std::string> time_zone_database_name(std::string_view requested);
 // zone the reader understands.
 std::shared_ptr<TimeZoneData const> time_zone_database_load(std::string const& name);
 
+// The IANA database's links, carried in the engine as browsers carry them
+// (tools/gen-tz-links.py): a system may install the zones without the old
+// names, which ECMA-402 still accepts.
+struct TimeZoneLink {
+    char const* alias;
+    char const* target;
+};
+std::span<TimeZoneLink const> time_zone_links();
+
 // The database's primary zones (its Zone lines, not its Links), for
 // Intl.supportedValuesOf; empty when the platform does not say.
 std::vector<std::string> time_zone_database_primary_names();

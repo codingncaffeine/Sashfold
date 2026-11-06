@@ -307,6 +307,7 @@ add_library(sashfold_core STATIC
   src/js/RuntimeTypedArray.cpp
   src/js/Strings.cpp
   src/js/TimeZone.cpp
+  src/js/TimeZoneLinks.cpp
   src/js/Vm.cpp
   src/js/jit/AssemblerA64.cpp
   src/js/jit/AssemblerX64.cpp
