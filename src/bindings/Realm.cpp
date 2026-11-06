@@ -1775,13 +1775,14 @@ constexpr InterfaceGroup interface_groups[] = {
     { "xhr", install_xhr, true },
     { "websockets", install_websockets, true },
     { "broadcast_channel", install_broadcast_channel, true },
-    { "notifications", install_notifications, true },
     { "font_face", install_font_face, true },
     { "tasks", install_tasks, false },
     { "origin", install_origin, true },
     { "trusted_types", install_trusted_types, true },
     // A worker's realm has the groups above and then its own scope.
     { "workers", install_workers, true },
+    // A window's alone from here on.
+    { "notifications", install_notifications, true },
     { "media", install_media, true },
     { "geometry", install_geometry, true },
     { "svg", install_svg, true },
@@ -1802,6 +1803,12 @@ constexpr InterfaceGroup interface_groups[] = {
 };
 constexpr std::size_t group_count = std::size(interface_groups);
 constexpr std::size_t groups_of_a_worker = 15;
+// A worker has the first fifteen, through "origin". The count is a place in
+// the table: a group put in above it moves the last of them out of the
+// worker (Notification, put in there on 2026-11-05, cost workers their
+// Origin), so the place is held to its name.
+static_assert(std::string_view(interface_groups[groups_of_a_worker - 1].name) == "origin",
+    "a group was added among a worker's: put it below them, or move the count with it");
 
 // A group in a realm: installed (or never put off), waiting to be asked
 // for, or being installed now.
