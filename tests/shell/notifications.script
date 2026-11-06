@@ -24,7 +24,8 @@ assert-notices 0 0
 click-text Ask
 assert-question A file on this computer
 assert-title default, unbidden default, error First
-assert-golden goldens/notifications-question.png
+# Below the address bar only: a file page's address is the machine's own path.
+assert-golden goldens/notifications-question.png 0 76 800 524
 # Closed, the question is gone, nothing is kept, and the page may ask again.
 click-question close
 assert-question

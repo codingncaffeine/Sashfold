@@ -735,8 +735,31 @@ struct Runner {
             if (!write_file(resolve(argument), std::vector<std::uint8_t>(text.begin(), text.end())))
                 fail(command + ": cannot write " + argument);
         } else if (command == "assert-golden") {
-            std::filesystem::path const golden = resolve(argument);
-            std::vector<std::uint8_t> const actual = encode_png(browser.frame());
+            // `assert-golden <file> [x y width height]`: the window's picture,
+            // or only that part of it — for a page whose address bar holds
+            // the machine's own path (a file:// page), which no golden can.
+            std::istringstream words(argument);
+            std::string name;
+            words >> name;
+            int x = 0, y = 0, w = 0, h = 0;
+            bool const cropped = static_cast<bool>(words >> x >> y >> w >> h);
+            std::filesystem::path const golden = resolve(name);
+            Bitmap const& whole = browser.frame();
+            std::vector<std::uint8_t> actual;
+            if (cropped) {
+                if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > whole.width() || y + h > whole.height())
+                    return fail("assert-golden: the part " + argument + " is not inside the window");
+                std::vector<std::uint8_t> part(static_cast<std::size_t>(w) * static_cast<std::size_t>(h) * 4);
+                for (int row = 0; row < h; ++row) {
+                    auto const from = whole.pixels().begin()
+                        + (static_cast<std::ptrdiff_t>(y + row) * whole.width() + x) * 4;
+                    std::copy(from, from + static_cast<std::ptrdiff_t>(w) * 4,
+                        part.begin() + static_cast<std::ptrdiff_t>(row) * w * 4);
+                }
+                actual = encode_png(Bitmap(w, h, std::move(part)));
+            } else {
+                actual = encode_png(whole);
+            }
             if (update_goldens) {
                 if (write_file(golden, actual))
                     out << "blessed " << golden.string() << " (" << actual.size() << " bytes)\n";
