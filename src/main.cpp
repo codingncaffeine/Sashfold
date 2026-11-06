@@ -3075,8 +3075,54 @@ int main(int argc, char** argv)
     if (mode == "--script")
         return run_script_mode(input, update_goldens, width ? width : 1024, height ? height : 720,
             theme_path, blocklists_path, downloads.value_or(""));
-    if (mode == "--render")
+    // The runs that load pages from the network — the window and --render —
+    // keep their writes to the folders they were given (platform/Confine.h):
+    // from here on nothing else the user owns can be changed. The folders
+    // are made first; a name can only be kept writable once it is there.
+    std::vector<std::string> writable;
+    auto const keep_folder = [&writable](std::filesystem::path const& folder) {
+        if (folder.empty())
+            return;
+        std::error_code error;
+        std::filesystem::path const whole = std::filesystem::absolute(folder, error);
+        std::filesystem::create_directories(whole, error);
+        if (std::filesystem::is_directory(whole, error))
+            writable.push_back(whole.string());
+    };
+    // A file a run was told to write is made beside whatever else is in
+    // its folder, so the folder is what is kept.
+    auto const keep_folder_of = [&keep_folder](std::string const& file) {
+        if (file.empty())
+            return;
+        std::error_code error;
+        keep_folder(std::filesystem::absolute(file, error).parent_path());
+    };
+    auto const keep_writes = [&] {
+        // The instruments named in the environment write where they say.
+        for (char const* const name : { "SASHFOLD_JIT_DUMP", "SASHFOLD_EVAL_TRACE_DIR", "SASHFOLD_NET_TRACE_DIR" }) {
+            if (char const* const folder = std::getenv(name); folder != nullptr && *folder)
+                keep_folder(folder);
+        }
+        if (char const* const file = std::getenv("SASHFOLD_MISS_CENSUS"); file != nullptr && *file)
+            keep_folder_of(file);
+        // The window's debug log keeps a keymap it could not read there.
+        if (std::getenv("SASHFOLD_WAYLAND_DEBUG") != nullptr) {
+            if (char const* const runtime = std::getenv("XDG_RUNTIME_DIR"); runtime != nullptr && *runtime)
+                keep_folder(runtime);
+        }
+        if (char const* const confine = std::getenv("SASHFOLD_CONFINE"); confine != nullptr && confine[0] == '0')
+            return;
+        std::string why_not;
+        if (!platform::keep_writes_to(writable, &why_not) && std::getenv("SASHFOLD_CONFINE") != nullptr)
+            std::cerr << "confine: writes are not kept to the run's folders: " << why_not << "\n";
+    };
+    if (mode == "--render") {
+        keep_folder_of(output);
+        for (std::string const* const file : { &extras.report, &extras.gaps, &extras.thumbnail, &extras.live_dom })
+            keep_folder_of(*file);
+        keep_writes();
         return render_page(input, output, width ? width : 800, height ? height : 720, extras);
+    }
     if (mode == "--bench")
         return bench(input, runs, width ? width : 1100, height ? height : 800, extras.report, theme_path, blocklists_path,
             downloads.value_or(""));
@@ -3098,11 +3144,22 @@ int main(int argc, char** argv)
     // The window runs under the memory watch: one process holds every tab,
     // and a runaway must end here, saying where it was, and not at the
     // machine's memory with nothing said.
+    std::string const window_profile = profile.value_or(default_profile_directory());
+    std::string const window_downloads = downloads.value_or(default_downloads_directory());
+    keep_folder(window_profile);
+    keep_folder(window_downloads);
+    keep_folder(frames_dir);
+    keep_folder_of(timings_path);
+    for (DriveStep const& step : drive_steps) {
+        if (step.command == "dump-dom" || step.command == "dump-layout")
+            keep_folder_of(step.argument);
+    }
+    keep_writes();
     platform::MemoryWatch::start(memory_ceiling_mb >= 0
             ? static_cast<std::size_t>(memory_ceiling_mb) * 1024u * 1024u
             : platform::memory_ceiling_for(platform::physical_memory_bytes()));
     int const result = run_window(start_url, theme_path, blocklists_path,
-        downloads.value_or(default_downloads_directory()), profile.value_or(default_profile_directory()), argv[0],
+        window_downloads, window_profile, argv[0],
         exit_after_ms, timings_path, frames_dir, frame_every_ms, width, height);
     platform::MemoryWatch::stop();
     return result;

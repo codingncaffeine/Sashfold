@@ -11,4 +11,11 @@ bool forbid_new_programs(std::string* why_not)
     return false;
 }
 
+bool keep_writes_to(std::vector<std::string> const&, std::string* why_not)
+{
+    if (why_not != nullptr)
+        *why_not = "not written for this system yet";
+    return false;
+}
+
 }
