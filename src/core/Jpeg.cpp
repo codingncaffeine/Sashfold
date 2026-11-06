@@ -285,7 +285,7 @@ bool looks_like_jpeg(std::vector<std::uint8_t> const& bytes)
     return bytes.size() >= 3 && bytes[0] == 0xFF && bytes[1] == 0xD8 && bytes[2] == 0xFF;
 }
 
-std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::size_t max_pixels)
+std::optional<JpegSamples> decode_jpeg_samples(std::vector<std::uint8_t> const& bytes, std::size_t max_pixels)
 {
     if (!looks_like_jpeg(bytes))
         return std::nullopt;
@@ -304,7 +304,8 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
     int restart_interval = 0;
     bool frame_seen = false;
     bool progressive = false;
-    bool adobe_rgb = false; // Adobe APP14 transform 0 with three components
+    bool adobe = false; // an Adobe APP14 segment was seen
+    int adobe_transform = -1; // its color transform: 0 none, 1 YCbCr, 2 YCCK
     bool any_scan = false;
     std::array<std::uint8_t, 64> natural_to_zigzag {};
     for (std::size_t k = 0; k < 64; ++k)
@@ -389,7 +390,10 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
         case 0xEE: // APP14: Adobe's color transform flag
             if (length >= 14 && bytes[segment] == 'A' && bytes[segment + 1] == 'd' && bytes[segment + 2] == 'o'
                 && bytes[segment + 3] == 'b' && bytes[segment + 4] == 'e')
-                adobe_rgb = bytes[segment + 11] == 0;
+            {
+                adobe = true;
+                adobe_transform = bytes[segment + 11];
+            }
             break;
         case 0xC0:
         case 0xC1:
@@ -401,7 +405,7 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
             height = read_u16(bytes, segment + 1);
             width = read_u16(bytes, segment + 3);
             int const count = bytes[segment + 5];
-            if (precision != 8 || width == 0 || height == 0 || (count != 1 && count != 3)
+            if (precision != 8 || width == 0 || height == 0 || (count != 1 && count != 3 && count != 4)
                 || static_cast<std::size_t>(width) * static_cast<std::size_t>(height) > max_pixels
                 || length < 8 + static_cast<std::size_t>(count) * 3)
                 return std::nullopt;
@@ -741,10 +745,18 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
     // samples whose centers straddle the pixel (the 3/4-1/4 weights of the
     // usual "fancy" upsampling at factor two), edges replicated, integer
     // arithmetic; a full-resolution plane is read straight.
-    Bitmap out(width, height, Color::rgb(0, 0, 0));
+    JpegSamples out;
+    out.width = width;
+    out.height = height;
+    out.components = static_cast<int>(components.size());
+    out.adobe = adobe;
+    out.samples.resize(static_cast<std::size_t>(width) * static_cast<std::size_t>(height) * components.size());
     bool const color = components.size() == 3;
-    bool const ycbcr = color && !adobe_rgb
+    // Three components are YCbCr unless Adobe says transform 0 or the ids
+    // spell RGB; four are YCCK only when Adobe says transform 2.
+    bool const ycbcr = color && adobe_transform != 0
         && !(components[0].id == 'R' && components[1].id == 'G' && components[2].id == 'B');
+    bool const ycck = components.size() == 4 && adobe_transform == 2;
     auto const axis = [](int pixel, int factor, int factor_max, int valid, int& i0, int& i1, int& remainder,
                           int& denominator) {
         denominator = 2 * factor_max;
@@ -778,17 +790,20 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
                 int const bottom = plane_at(x0, y1) * (dx - rx) + plane_at(x1, y1) * rx;
                 return (top * (dy - ry) + bottom * ry + dx * dy / 2) / (dx * dy);
             };
-            if (!color) {
-                auto const g = static_cast<std::uint8_t>(sample(components[0]));
-                out.set_pixel(x, y, Color::rgb(g, g, g));
+            std::uint8_t* const pixel = out.samples.data()
+                + (static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)) * components.size();
+            if (!color && !ycck) {
+                for (std::size_t c = 0; c < components.size(); ++c)
+                    pixel[c] = static_cast<std::uint8_t>(sample(components[c]));
                 continue;
             }
             int const c0 = sample(components[0]);
             int const c1 = sample(components[1]);
             int const c2 = sample(components[2]);
-            if (!ycbcr) {
-                out.set_pixel(x, y, Color::rgb(static_cast<std::uint8_t>(c0), static_cast<std::uint8_t>(c1),
-                    static_cast<std::uint8_t>(c2)));
+            if (color && !ycbcr) {
+                pixel[0] = static_cast<std::uint8_t>(c0);
+                pixel[1] = static_cast<std::uint8_t>(c1);
+                pixel[2] = static_cast<std::uint8_t>(c2);
                 continue;
             }
             // ITU-R BT.601 in 16.16 fixed point, rounded.
@@ -797,7 +812,53 @@ std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::s
             int const r = c0 + ((91881 * cr + 32768) >> 16);
             int const g = c0 - ((22554 * cb + 46802 * cr + 32768) >> 16);
             int const b = c0 + ((116130 * cb + 32768) >> 16);
-            out.set_pixel(x, y, Color::rgb(clamp_sample(r), clamp_sample(g), clamp_sample(b)));
+            if (ycck) {
+                // YCCK: the YCbCr part decodes to the complement of CMY; K is as stored.
+                pixel[0] = static_cast<std::uint8_t>(255 - clamp_sample(r));
+                pixel[1] = static_cast<std::uint8_t>(255 - clamp_sample(g));
+                pixel[2] = static_cast<std::uint8_t>(255 - clamp_sample(b));
+                pixel[3] = static_cast<std::uint8_t>(sample(components[3]));
+                continue;
+            }
+            pixel[0] = clamp_sample(r);
+            pixel[1] = clamp_sample(g);
+            pixel[2] = clamp_sample(b);
+        }
+    }
+    return out;
+}
+
+std::optional<Bitmap> decode_jpeg(std::vector<std::uint8_t> const& bytes, std::size_t max_pixels)
+{
+    std::optional<JpegSamples> const samples = decode_jpeg_samples(bytes, max_pixels);
+    if (!samples || (samples->components != 1 && samples->components != 3 && samples->components != 4))
+        return std::nullopt;
+    Bitmap out(samples->width, samples->height, Color::rgb(0, 0, 0));
+    std::uint8_t const* in = samples->samples.data();
+    for (int y = 0; y < samples->height; ++y) {
+        for (int x = 0; x < samples->width; ++x) {
+            if (samples->components == 1) {
+                out.set_pixel(x, y, Color::rgb(in[0], in[0], in[0]));
+            } else if (samples->components == 3) {
+                out.set_pixel(x, y, Color::rgb(in[0], in[1], in[2]));
+            } else {
+                // CMYK, as browsers show it: an Adobe file stores the inks
+                // inverted (Photoshop's convention); then the plain
+                // complement of each ink times the black's.
+                int c = in[0];
+                int m = in[1];
+                int ye = in[2];
+                int k = in[3];
+                if (samples->adobe) {
+                    c = 255 - c;
+                    m = 255 - m;
+                    ye = 255 - ye;
+                    k = 255 - k;
+                }
+                auto const channel = [k](int ink) { return static_cast<std::uint8_t>(((255 - ink) * (255 - k) + 127) / 255); };
+                out.set_pixel(x, y, Color::rgb(channel(c), channel(m), channel(ye)));
+            }
+            in += samples->components;
         }
     }
     return out;
