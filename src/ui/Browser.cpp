@@ -6559,6 +6559,14 @@ struct Browser::Impl {
         // A fragment on the current document scrolls; it does not reload.
         if (current && !current->internal && url.fragment
             && url.serialize(true) == current->final_url.serialize(true)) {
+            // The page's own navigation to a fragment (HTML §7.4.2.3.3): its
+            // URL moves and hashchange is fired, and its host hook makes the
+            // history entry, the scroll and the address as below.
+            if (tab->realm) {
+                script_started = std::chrono::steady_clock::now();
+                if (tab->realm->navigate(url))
+                    return;
+            }
             HistoryEntry copy = *current;
             copy.url = url;
             copy.final_url = url;

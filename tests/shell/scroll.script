@@ -140,3 +140,12 @@ assert-golden goldens/scroll-fixed.png
 key Home
 assert-scroll 0
 assert-pixel 100 186 #008080
+
+# A fragment typed into the address bar on the page's own document is the
+# page's navigation to a fragment: location moves and hashchange is fired
+# (it once only scrolled, the page none the wiser).
+open data:text/html,<title>none</title><script>addEventListener('hashchange',function(e){document.title='hc '+location.hash+' '+(e.newURL===location.href)})</script><p id="two">two</p>
+assert-title none
+open data:text/html,<title>none</title><script>addEventListener('hashchange',function(e){document.title='hc '+location.hash+' '+(e.newURL===location.href)})</script><p id="two">two</p>#two
+advance 100 2
+assert-title hc #two true
