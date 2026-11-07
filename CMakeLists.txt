@@ -177,6 +177,8 @@ add_library(sashfold_core STATIC
   src/media/H264Decoder.cpp
   src/media/FrameDecoders.cpp
   src/media/Aac.cpp
+  src/media/AudioDecoders.cpp
+  src/media/Resampler.cpp
   src/media/AacData.cpp
   src/media/Yuv.cpp
   src/net/Cache.cpp

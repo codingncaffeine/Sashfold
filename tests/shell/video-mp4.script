@@ -1,6 +1,6 @@
 # An MP4 file as a video's src, played by the element itself: the file is
 # read whole (the tables, the H.264 configuration, every sample), its size
-# and length told, H.264 said to be playable and AAC not yet, the pictures
+# and length told, H.264 and AAC both said to be playable, the pictures
 # decoded on the machine's hardware in decode order (B pictures lean on
 # later ones) and shown by their presentation time, and the element ends
 # at the file's end. The test picture's colour bars give the pixels (the
@@ -10,7 +10,7 @@ require-video-hardware h264
 resize 320 200
 open video-mp4.html
 advance 10 10
-assert-title MP4 160x120 1.00s probably/ b0.000-1.000 r4
+assert-title MP4 160x120 1.00s probably/probably b0.000-1.000 r4
 advance 100
 assert-pixel 20 140 #ff0000
 assert-pixel 80 190 #0000ff

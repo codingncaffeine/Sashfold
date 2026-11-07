@@ -5,7 +5,7 @@
 
 #include "core/Bitmap.h"
 #include "core/TraceClock.h"
-#include "media/Opus.h"
+#include "media/AudioDecoder.h"
 #include "media/StreamBuffer.h"
 #include "media/VideoPipeline.h"
 #include "media/Wav.h"
@@ -197,7 +197,7 @@ public:
     // the same buffer a MediaSource's SourceBuffer uses: whole, as fetched.
     std::unique_ptr<StreamBuffer> file_buffer;
 
-    std::unique_ptr<media::OpusDecoder> opus;
+    std::unique_ptr<media::AudioDecoder> audio; // the track's codec, Opus or AAC, giving the device's rate and channels
     std::vector<float> pending;
     std::size_t pending_skip = 0;
     std::int64_t next_audio_ns = 0;
@@ -495,7 +495,10 @@ int type_support(std::string_view type)
             // profile the hardware's High profile decoder reads; AAC
             // ("mp4a.40.x") waits for its decoder (GAPS plan 6c).
             bool const h264 = mp4 && video && (codec.starts_with("avc1") || codec.starts_with("avc3"));
-            bool const ours = codec == "opus" || h264 || (video && (codec == "vp9" || vp9_string_ours(codec)));
+            // AAC-LC ("mp4a.40.2"), and the HE-AAC profiles ("mp4a.40.5",
+            // "mp4a.40.29") whose LC core plays while SBR is owed.
+            bool const aac = mp4 && (codec == "mp4a.40.2" || codec == "mp4a.40.02" || codec == "mp4a.40.5" || codec == "mp4a.40.05" || codec == "mp4a.40.29");
+            bool const ours = codec == "opus" || h264 || aac || (video && (codec == "vp9" || vp9_string_ours(codec)));
             if (!ours)
                 return 0;
         }
@@ -926,7 +929,7 @@ void restart_device(MediaStateObject& state)
 {
     // A MediaSource's sound starts again from the new position at the next
     // tick, pre-roll and all.
-    if (state.opus) {
+    if (state.audio) {
         state.stream_started = false;
         if (state.device)
             state.device->flush();
@@ -942,11 +945,14 @@ void restart_device(MediaStateObject& state)
 // --- A MediaSource's sound, decoded as it plays ---------------------------------------------
 
 // The Opus track among the element's buffers, if it has one.
-StreamBuffer::Track const* opus_track(MediaStateObject const& state)
+// The sound track among the element's buffers that this engine decodes
+// (Opus, AAC), if it has one.
+StreamBuffer::Track const* audio_track(MediaStateObject const& state)
 {
     for (StreamBuffer const* buffer : buffers_of(state)) {
         for (StreamBuffer::Track const& track : buffer->tracks()) {
-            if (track.description.kind == media::WebmTrack::Kind::Audio && track.description.codec_id == "A_OPUS")
+            if (track.description.kind == media::WebmTrack::Kind::Audio
+                && (track.description.codec_id == "A_OPUS" || track.description.codec_id == "A_AAC"))
                 return &track;
         }
     }
@@ -970,7 +976,7 @@ void start_stream(MediaStateObject& state, StreamBuffer::Track const& track)
     // Nothing buffered where playback stands: nothing to start from yet.
     if (it == track.frames.end() || it->first > position_ns + 20'000'000)
         return;
-    state.opus->reset();
+    state.audio->reset();
     state.pending.clear();
     state.next_audio_ns = it->first;
     state.pending_skip = position_ns > it->first ? static_cast<std::size_t>((position_ns - it->first) * stream_rate / nanoseconds) : 0;
@@ -1017,16 +1023,14 @@ void feed_stream(MediaStateObject& state, StreamBuffer::Track const& track)
             state.next_audio_ns = it->first;
             continue;
         }
-        media::OpusDecoder::Result result = state.opus->decode(it->second.data, state.pending);
-        if (result.outcome == media::OpusDecoder::Outcome::Invalid) {
-            state.opus->conceal(960, state.pending);
-            result.samples = 960;
-        }
-        if (result.outcome == media::OpusDecoder::Outcome::Decoded)
+        media::AudioDecoder::Result const result = state.audio->decode(it->second.data, state.pending);
+        if (result.ok)
             state.packets_decoded++;
         else
             state.packets_failed++;
-        state.next_audio_ns = it->first + static_cast<std::int64_t>(result.samples) * nanoseconds / stream_rate;
+        // Time by the packet's own frames at the stream's rate: exact where
+        // the speakers' rate is not the stream's and the output's count rounds.
+        state.next_audio_ns = it->first + static_cast<std::int64_t>(result.input_frames) * nanoseconds / state.audio->native_rate();
     }
 }
 
@@ -1034,7 +1038,7 @@ void feed_stream(MediaStateObject& state, StreamBuffer::Track const& track)
 // opened once, held while it waits, and topped up at every tick.
 void stream_media(Realm::Internals& in, MediaStateObject& state)
 {
-    StreamBuffer::Track const* const track = opus_track(state);
+    StreamBuffer::Track const* const track = audio_track(state);
     if (track == nullptr)
         return;
     bool const through_speakers = state.advancing && state.playback_rate == 1;
@@ -1054,8 +1058,15 @@ void stream_media(Realm::Internals& in, MediaStateObject& state)
     state.device->set_paused(!through_speakers);
     if (!through_speakers)
         return;
-    if (!state.opus)
-        state.opus = std::make_unique<media::OpusDecoder>(static_cast<int>(stream_channels));
+    if (!state.audio) {
+        std::string error;
+        state.audio = media::open_audio_decoder(track->description.codec_id, track->description.codec_private, error);
+        if (!state.audio) {
+            trace("no sound decoder: " + error);
+            return;
+        }
+        trace("sound decodes as " + track->description.codec_id);
+    }
     if (!state.stream_started)
         start_stream(state, *track);
     if (state.stream_started)
@@ -1085,7 +1096,7 @@ std::optional<double> heard_position(MediaStateObject const& state)
 // of an ended stream rarely reaches the declared duration to the sample.
 bool stream_played_out(MediaStateObject const& state)
 {
-    StreamBuffer::Track const* const track = opus_track(state);
+    StreamBuffer::Track const* const track = audio_track(state);
     if (track == nullptr || !state.stream_started || !state.device || !state.pending.empty())
         return false;
     if (track->frames.lower_bound(state.next_audio_ns - 1'000'000) != track->frames.end())
@@ -1541,7 +1552,7 @@ void run_load(Realm::Internals& in, MediaStateObject& state)
     state.device_tried = false;
     state.fed_frames = 0;
     state.sound_base = 0;
-    state.opus.reset();
+    state.audio.reset();
     state.pending.clear();
     state.pending_skip = 0;
     state.next_audio_ns = 0;

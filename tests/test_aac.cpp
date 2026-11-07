@@ -2,6 +2,7 @@
 
 #include "media/Aac.h"
 #include "media/Mp4.h"
+#include "media/Resampler.h"
 
 #include <cmath>
 #include <cstdint>
@@ -128,8 +129,51 @@ void check_file(std::string const& folder, std::string const& name, int channels
 
 } // namespace
 
+// The resampler, 44.1 to 48 kHz and back: a tone comes out the tone, within
+// the filter's stop-band, and the frames follow the ratio.
+void test_resampler()
+{
+    for (auto const& rates : { std::pair { 44100, 48000 }, std::pair { 48000, 44100 }, std::pair { 32000, 48000 } }) {
+        int const rate_in = rates.first;
+        int const rate_out = rates.second;
+        media::Resampler resampler(2, rate_in, rate_out);
+        std::vector<float> in;
+        std::vector<float> out;
+        int const seconds = 1;
+        for (int i = 0; i < rate_in * seconds; ++i) {
+            float const v = static_cast<float>(0.5 * std::sin(2 * 3.14159265358979 * 1000.0 * i / rate_in));
+            in.push_back(v);
+            in.push_back(-v);
+        }
+        // Fed in pieces of odd sizes, as packets come.
+        std::size_t at = 0;
+        std::size_t made = 0;
+        while (at < in.size() / 2) {
+            std::size_t const frames = std::min<std::size_t>(1024 + at % 7, in.size() / 2 - at);
+            made += resampler.resample(std::span<float const>(in.data() + at * 2, frames * 2), out);
+            at += frames;
+        }
+        CHECK(made == out.size() / 2);
+        double const expected = static_cast<double>(rate_in * seconds) * rate_out / rate_in;
+        CHECK(std::fabs(static_cast<double>(made) - expected) < 64);
+        // Past the filter's rise, the output is the tone at the new rate.
+        double signal = 0, noise = 0;
+        for (std::size_t n = 200; n + 200 < made; ++n) {
+            double const t = 0.5 * std::sin(2 * 3.14159265358979 * 1000.0 * static_cast<double>(n) / rate_out);
+            double const d = static_cast<double>(out[2 * n]) - t;
+            double const d2 = static_cast<double>(out[2 * n + 1]) + t;
+            signal += 2 * t * t;
+            noise += d * d + d2 * d2;
+        }
+        double const snr = 10 * std::log10(signal / std::max(noise, 1e-30));
+        std::fprintf(stderr, "test_aac: resampling %d -> %d: %zu frames, SNR %.1f dB\n", rate_in, rate_out, made, snr);
+        CHECK(snr > 70);
+    }
+}
+
 int main(int argc, char** argv)
 {
+    test_resampler();
     if (argc < 2) {
         CHECK(!"the fixtures folder is the first argument");
         return test::report("test_aac");
