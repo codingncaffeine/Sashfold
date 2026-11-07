@@ -2471,6 +2471,11 @@ Realm::~Realm()
 
 js::Interpreter& Realm::interpreter() { return m_internals->interpreter; }
 
+void Realm::set_wake_loop(std::function<void()> wake)
+{
+    m_internals->agent.set_wake_loop(std::move(wake));
+}
+
 void Realm::trace_if_asked()
 {
     js::Interpreter& interpreter = m_internals->interpreter;

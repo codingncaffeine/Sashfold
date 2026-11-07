@@ -661,6 +661,19 @@ bool ShellLoader::fetch_in_background(net::Url const& url, net::Url const& first
     return true;
 }
 
+bool ShellLoader::load_resource_in_background(net::Url const& url, net::Url const& first_party, std::string const& referrer,
+    net::ResourceRequest const& request, net::RequestGuard const& guard, std::string_view container,
+    std::function<void(net::FetchResult const&)> done)
+{
+    m_fetches.submit([this, url, first_party, referrer, request, guard, held = std::string(container), done = std::move(done)] {
+        net::FetchResult result = load_resource(url, first_party, referrer, request, guard, held);
+        if (done)
+            done(result);
+        return net::FetchResult {};
+    });
+    return true;
+}
+
 void ShellLoader::preconnect(net::Url const& url, net::Url const& first_party, bool name_only, std::string_view container)
 {
     (void)container; // the pool is shared by every container

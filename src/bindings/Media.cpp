@@ -12,12 +12,15 @@
 #include "platform/Audio.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <deque>
 #include <iostream>
 #include <limits>
 #include <memory>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -132,6 +135,8 @@ public:
 };
 
 // A media element's state, kept by its wrapper for the element's life.
+struct MediaFetch;
+
 class MediaStateObject final : public js::Object {
 public:
     explicit MediaStateObject(NodeWrapper& the_wrapper)
@@ -194,8 +199,12 @@ public:
     // head still to be thrown away after a seek's pre-roll), and the
     // presentation time of the next coded frame to read.
     // A file the element plays by itself (a src that is not WAVE), filed by
-    // the same buffer a MediaSource's SourceBuffer uses: whole, as fetched.
+    // the same buffer a MediaSource's SourceBuffer uses: as its parts come
+    // (a host with loader threads), or whole.
     std::unique_ptr<StreamBuffer> file_buffer;
+    std::shared_ptr<MediaFetch> fetch; // the file's parts on their way, while they are
+    bool file_complete = true; // every byte of the file is in file_buffer (or sound)
+    bool metadata_seen = false; // the file's tracks were read and the page told
 
     std::unique_ptr<media::AudioDecoder> audio; // the track's codec, Opus or AAC, giving the device's rate and channels
     std::vector<float> pending;
@@ -724,8 +733,9 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
     double const now = in.now();
     TimeRanges const buffered = element_buffered(state);
     // A file the element holds whole has nothing more to come, as an
-    // ended MediaSource has.
-    bool const source_ended = (state.source != nullptr && state.source->ready == MediaSourceObject::Ended) || state.file_buffer != nullptr;
+    // ended MediaSource has; one still arriving in parts has.
+    bool const source_ended = (state.source != nullptr && state.source->ready == MediaSourceObject::Ended)
+        || (state.file_buffer != nullptr && state.file_complete);
 
     // While the element advances, what has been heard is the clock
     // everything else keeps to, as in every browser.
@@ -1409,11 +1419,289 @@ TimeRanges sound_buffered(MediaStateObject const& state)
     return TimeRanges { { 0, state.sound->seconds() } };
 }
 
+// --- A file fetched in parts while it plays --------------------------------------------------
+//
+// HTML's resource fetch algorithm as the shipping engines run it: ranges
+// of the file asked for one after another on the host's loader threads,
+// each handed to the element's thread as it comes, so playing begins once
+// the start is here, the rest arrives while it plays, and the page's
+// thread never waits on the network. A server that answers a range with
+// the whole file (200) is taken at its word; one that cannot be reached
+// fails the load. A WAVE file is decoded once it is whole, as before.
+
+constexpr std::uint64_t first_range_bytes = 512 * 1024;
+constexpr std::uint64_t range_bytes = 2 * 1024 * 1024;
+
+struct MediaFetch {
+    // The page's side, set once: how a part reaches the element's thread.
+    std::shared_ptr<Agent::RemoteTasks> remote;
+    std::weak_ptr<bool> alive;
+    Realm::Internals* internals = nullptr;
+    std::unique_ptr<js::Persistent> element; // the page's thread alone touches it
+    std::uint64_t generation = 0;
+    std::atomic<bool> cancelled { false };
+    // The loader's side, set once.
+    net::Url url;
+    net::ResourceRequest request;
+    net::RequestGuard guard;
+    std::function<bool(net::Url const&, net::ResourceRequest const&, net::RequestGuard const&, std::function<void(net::FetchResult const&)>)> hook;
+    // Written on the loader's thread, read on the page's, under the lock.
+    std::mutex mutex;
+    std::deque<std::vector<std::uint8_t>> arrived;
+    std::uint64_t received = 0;
+    std::uint64_t total = 0; // the file's size once the server said; 0 until then
+    bool finished = false;
+    std::string error; // set: the fetch failed, and `finished`
+    int parts = 0;
+    // The page's side: a WAVE file's parts, kept until it is whole.
+    std::vector<std::uint8_t> wave;
+
+    // Runs `step` on the page's thread with the element, if both still are.
+    void post(std::shared_ptr<MediaFetch> const& self, std::function<void(Realm::Internals&, MediaStateObject&)> step)
+    {
+        auto run = [self, step = std::move(step)] {
+            if (self->alive.expired() || !self->element || self->cancelled.load())
+                return;
+            auto* target = static_cast<MediaStateObject*>(self->element->value().as_object());
+            step(*self->internals, *target);
+        };
+        std::function<void()> wake;
+        {
+            std::lock_guard<std::mutex> const lock(remote->mutex);
+            remote->tasks.push_back(std::move(run));
+            wake = remote->wake;
+        }
+        if (wake)
+            wake();
+    }
+};
+
+void take_media_parts(Realm::Internals& in, MediaStateObject& state);
+
+// "bytes a-b/total" (or "bytes a-b/*") → total, 0 when unknown.
+std::uint64_t content_range_total(std::vector<net::Header> const& headers)
+{
+    std::string const* const value = net::find_header(headers, "content-range");
+    if (value == nullptr)
+        return 0;
+    std::size_t const slash = value->find('/');
+    if (slash == std::string::npos)
+        return 0;
+    char* end = nullptr;
+    unsigned long long const total = std::strtoull(value->c_str() + slash + 1, &end, 10);
+    return end != value->c_str() + slash + 1 ? total : 0;
+}
+
+// Asks for the part from `from`, `length` bytes long; the answer, on the
+// loader's thread, files the bytes and asks for the next part.
+void request_media_part(std::shared_ptr<MediaFetch> const& fetch, std::uint64_t from, std::uint64_t length)
+{
+    net::ResourceRequest request = fetch->request;
+    request.headers.push_back({ "Range", "bytes=" + std::to_string(from) + "-" + std::to_string(from + length - 1) });
+    bool const asked = fetch->hook(fetch->url, request, fetch->guard, [fetch, from, length](net::FetchResult const& result) {
+        if (fetch->cancelled.load())
+            return;
+        bool more = false;
+        std::uint64_t next = from;
+        {
+            std::lock_guard<std::mutex> const lock(fetch->mutex);
+            if (!result.response) {
+                fetch->error = result.error.empty() ? "the media could not be fetched" : result.error;
+                fetch->finished = true;
+            } else {
+                net::FetchResponse const& response = *result.response;
+                ++fetch->parts;
+                if (response.status == 206) {
+                    std::uint64_t const total = content_range_total(response.headers);
+                    if (total > 0)
+                        fetch->total = total;
+                    fetch->received += response.body.size();
+                    fetch->arrived.push_back(response.body);
+                    next = from + response.body.size();
+                    // More while the server gave a full part and the end is not reached.
+                    more = !response.body.empty() && response.body.size() >= length
+                        && (fetch->total == 0 || fetch->received < fetch->total);
+                    if (fetch->total > 0 && fetch->received >= fetch->total)
+                        more = false;
+                    fetch->finished = !more;
+                } else if (response.status == 200 && from == 0) {
+                    // The whole file: a server that takes no ranges.
+                    fetch->total = response.body.size();
+                    fetch->received = response.body.size();
+                    fetch->arrived.push_back(response.body);
+                    fetch->finished = true;
+                } else if (response.status == 416 && from > 0) {
+                    fetch->finished = true; // past the end: the file was shorter than its first answer said
+                } else if (response.status >= 200 && response.status < 300 && from == 0) {
+                    fetch->total = response.body.size();
+                    fetch->received = response.body.size();
+                    fetch->arrived.push_back(response.body);
+                    fetch->finished = true;
+                } else {
+                    fetch->error = "the server answered " + std::to_string(response.status);
+                    fetch->finished = true;
+                }
+            }
+        }
+        fetch->post(fetch, [](Realm::Internals& in, MediaStateObject& state) { take_media_parts(in, state); });
+        if (more && !fetch->cancelled.load())
+            request_media_part(fetch, next, range_bytes);
+    });
+    if (!asked) {
+        std::lock_guard<std::mutex> const lock(fetch->mutex);
+        fetch->error = "the host gave no loader";
+        fetch->finished = true;
+    }
+}
+
+void start_progressive_fetch(Realm::Internals& in, MediaStateObject& state, net::Url const& url)
+{
+    auto fetch = std::make_shared<MediaFetch>();
+    fetch->remote = in.agent.remote_tasks;
+    fetch->alive = in.alive;
+    fetch->internals = &in;
+    fetch->element = std::make_unique<js::Persistent>(in.interpreter.heap(), js::Value::object(&state));
+    fetch->generation = state.generation;
+    fetch->url = url;
+    fetch->request.method = "GET";
+    fetch->request.headers.push_back({ "Accept", "*/*" });
+    // No crossorigin attribute: mode no-cors, credentials included (HTML §4.8.11.5).
+    fetch->request.credentials = true;
+    fetch->request.destination = "audio";
+    fetch->guard = in.request_guard(net::ResourceKind::Media);
+    fetch->hook = in.hooks.fetch_in_background;
+    state.fetch = fetch;
+    state.file_complete = false;
+    state.metadata_seen = false;
+    state.network_state = NetworkLoading;
+    trace("fetching " + url.serialize() + " in parts");
+    request_media_part(fetch, 0, first_range_bytes);
+}
+
+// The parts that have come, filed; the page told of the file's tracks the
+// first time they can be read, of progress, and of the end.
+void take_media_parts(Realm::Internals& in, MediaStateObject& state)
+{
+    std::shared_ptr<MediaFetch> const fetch = state.fetch;
+    if (!fetch || fetch->generation != state.generation)
+        return;
+    std::deque<std::vector<std::uint8_t>> parts;
+    bool finished = false;
+    std::string error;
+    std::uint64_t received = 0;
+    {
+        std::lock_guard<std::mutex> const lock(fetch->mutex);
+        parts.swap(fetch->arrived);
+        finished = fetch->finished;
+        error = fetch->error;
+        received = fetch->received;
+    }
+    if (!error.empty()) {
+        trace("fetch failed: " + error);
+        state.fetch.reset();
+        fail_load(in, state, "The media could not be fetched.");
+        return;
+    }
+    // A WAVE file is read whole: its parts are kept until the end.
+    std::vector<std::uint8_t>& wave = fetch->wave;
+    for (std::vector<std::uint8_t>& part : parts) {
+        if (!state.file_buffer && !state.sound) {
+            bool const riff = part.size() >= 12 && part[0] == 'R' && part[1] == 'I' && part[2] == 'F' && part[3] == 'F';
+            if (riff || !wave.empty()) {
+                wave.insert(wave.end(), part.begin(), part.end());
+                continue;
+            }
+            state.file_buffer = std::make_unique<StreamBuffer>();
+        }
+        if (!wave.empty()) {
+            wave.insert(wave.end(), part.begin(), part.end());
+            continue;
+        }
+        StreamBuffer::Appended const appended = state.file_buffer->append(part);
+        if (!appended.ok) {
+            trace("the file does not parse");
+            fetch->cancelled.store(true);
+            state.fetch.reset();
+            state.file_buffer.reset();
+            fail_load(in, state, "No decoder is available for this source.");
+            return;
+        }
+    }
+    if (!wave.empty() && finished) {
+        std::optional<media::Sound> decoded = media::decode_wav(wave);
+        wave.clear();
+        state.fetch.reset();
+        state.file_complete = true;
+        if (!decoded || decoded->frames() == 0) {
+            fail_load(in, state, "No decoder is available for this source.");
+            return;
+        }
+        state.sound = std::make_shared<media::Sound const>(std::move(*decoded));
+        state.network_state = NetworkIdle;
+        state.ready_state = HaveMetadata;
+        state.position_at = in.now();
+        queue_element_event(in, state, "loadedmetadata");
+        set_duration(in, state, state.sound->seconds());
+        update_sound(in, state);
+        return;
+    }
+    if (state.file_buffer && !state.metadata_seen && state.file_buffer->has_init()) {
+        bool playable = false;
+        for (StreamBuffer::Track const& track : state.file_buffer->tracks()) {
+            std::string const& codec = track.description.codec_id;
+            if (codec == "V_VP9" || codec == "V_H264" || codec == "A_OPUS" || codec == "A_AAC")
+                playable = true;
+        }
+        if (!playable) {
+            fetch->cancelled.store(true);
+            state.fetch.reset();
+            state.file_buffer.reset();
+            fail_load(in, state, "No decoder is available for this source.");
+            return;
+        }
+        state.metadata_seen = true;
+        if (StreamBuffer::Track const* const video = state.file_buffer->track_of(media::WebmTrack::Kind::Video)) {
+            state.video_width = video->description.width;
+            state.video_height = video->description.height;
+            queue_element_event(in, state, "resize");
+        }
+        state.ready_state = HaveMetadata;
+        state.position_at = in.now();
+        queue_element_event(in, state, "loadedmetadata");
+        // The duration the file's header gives; trimmed to the frames once whole.
+        set_duration(in, state, state.file_buffer->duration_seconds().value_or(state.file_buffer->highest_end()));
+        trace("file: " + std::to_string(state.file_buffer->tracks().size()) + " tracks, " + std::to_string(state.duration) + " s from the header");
+    }
+    double const now = in.now();
+    if (now - state.last_progress >= 350 || finished) {
+        state.last_progress = now;
+        queue_element_event(in, state, "progress");
+    }
+    if (finished) {
+        state.fetch.reset();
+        state.file_complete = true;
+        state.network_state = NetworkIdle;
+        queue_element_event(in, state, "suspend");
+        if (state.file_buffer) {
+            double const duration = std::min(state.file_buffer->duration_seconds().value_or(state.file_buffer->highest_end()),
+                state.file_buffer->highest_end());
+            set_duration(in, state, duration);
+            trace("file whole: " + std::to_string(received) + " bytes, " + std::to_string(duration) + " s");
+        }
+    }
+    if (state.file_buffer && state.metadata_seen)
+        update_media(in, state);
+}
+
 // Fetches a src that names no MediaSource and reads what came back. Only
 // what this build decodes plays; anything else fails the way a browser
 // without that decoder does.
 void fetch_media(Realm::Internals& in, MediaStateObject& state, net::Url const& url)
 {
+    if (in.hooks.fetch_in_background && (url.scheme == "http" || url.scheme == "https")) {
+        start_progressive_fetch(in, state, url);
+        return;
+    }
     PageRequest request;
     request.url = url;
     request.mode = FetchMode::NoCors;
@@ -1548,6 +1836,12 @@ void run_load(Realm::Internals& in, MediaStateObject& state)
     }
     state.sound.reset();
     state.file_buffer.reset();
+    if (state.fetch) {
+        state.fetch->cancelled.store(true); // the parts on their way go nowhere
+        state.fetch.reset();
+    }
+    state.file_complete = true;
+    state.metadata_seen = false;
     state.device.reset();
     state.device_tried = false;
     state.fed_frames = 0;

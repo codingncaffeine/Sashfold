@@ -128,6 +128,23 @@ public:
         (void)done;
         return false;
     }
+    // The same for a request of the page's with its own headers (a media
+    // element's range of a file): load_resource on a thread of the loader's,
+    // `done` told there. False, and `done` never called, for a loader with
+    // no threads of its own.
+    virtual bool load_resource_in_background(net::Url const& url, net::Url const& first_party, std::string const& referrer,
+        net::ResourceRequest const& request, net::RequestGuard const& guard, std::string_view container,
+        std::function<void(net::FetchResult const&)> done)
+    {
+        (void)url;
+        (void)first_party;
+        (void)referrer;
+        (void)request;
+        (void)guard;
+        (void)container;
+        (void)done;
+        return false;
+    }
     // A page's hint about an origin it will soon ask something of: a
     // connection opened to it now (preconnect), or with `name_only` its name
     // looked up (dns-prefetch). Done on threads of the loader's, never the

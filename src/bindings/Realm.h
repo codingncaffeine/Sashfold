@@ -369,6 +369,16 @@ struct HostHooks {
     WorkerThreads* worker_threads = nullptr;
     std::function<net::FetchResult(net::Url const&, net::ResourceRequest const&, net::RequestGuard const&)> worker_fetch;
 
+    // A fetch on a thread of the host's loader, for a media element reading
+    // a file in parts while it plays: `done` is called ON that thread with
+    // what came back, and may ask for the next part from there. The agent's
+    // remote tasks (and its wake loop) carry the bytes to the page's thread.
+    // Unset, the element fetches its file whole on its own thread (the
+    // script runner: deterministic).
+    std::function<bool(net::Url const&, net::ResourceRequest const&, net::RequestGuard const&,
+        std::function<void(net::FetchResult const&)> done)>
+        fetch_in_background;
+
     // Where a media element's sound goes. Unset, the machine's speakers
     // (platform::AudioDevice::open); a headless run and the tests give a
     // device that hears on the page's own clock, which plays nothing.
@@ -517,6 +527,10 @@ public:
     // failure leaves no other trace, so this is what says which thing it
     // tried. SASHFOLD_EVAL_TRACE=1: every string the page turns into code.
     void trace_if_asked();
+    // How another thread wakes this page's loop when it hands the agent a
+    // task (a media file's part, a worker's word): set by a host whose
+    // pages run on threads of their own.
+    void set_wake_loop(std::function<void()> wake);
     dom::Document& document();
     // The document's URL as scripts see it: history.pushState moves it.
     net::Url const& url() const;

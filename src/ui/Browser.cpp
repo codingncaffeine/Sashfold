@@ -11,6 +11,7 @@
 
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
+#include "bindings/Workers.h"
 #include "core/AnimatedImage.h"
 #include "core/TraceClock.h"
 #include "core/Ascii.h"
@@ -5105,6 +5106,14 @@ struct Browser::Impl {
                                  net::RequestGuard const& guard) {
             return loader->load_resource(target, page_url, referrer_for(&page_url, target), request, guard, container);
         };
+        // A media element's file, in parts on the loader's threads (the
+        // loader outlives every page; the element's own token says whether
+        // what comes back still has a taker).
+        hooks.fetch_in_background = [loader = &loader, page_url, container](net::Url const& target, net::ResourceRequest const& request,
+                                        net::RequestGuard const& guard, std::function<void(net::FetchResult const&)> done) {
+            return loader->load_resource_in_background(target, page_url, referrer_for(&page_url, target), request, guard, container,
+                std::move(done));
+        };
         hooks.local_storage = [this, container](std::string const& origin) { return storage_area(container, origin); };
         hooks.session_storage = [areas = tab.session_storage](std::string const& origin) { return &(*areas)[origin]; };
         hooks.indexed_db = [this, container](std::string const& origin) { return indexed_db_storage(container, origin); };
@@ -5529,6 +5538,10 @@ struct Browser::Impl {
         };
         auto realm = std::make_unique<bindings::Realm>(*document, url, std::move(hooks));
         realm->trace_if_asked();
+        // What other threads hand this page (a media file's parts, a
+        // worker's words) wakes its loop through the worker threads' wake.
+        if (worker_threads != nullptr)
+            realm->set_wake_loop([threads = worker_threads] { threads->wake(); });
         // The scripts asked for ahead of this document are parsed for this
         // page's heap; one an earlier page holds already (a load that began
         // no navigation of the network's) gives way to a fresh one.
