@@ -11,10 +11,19 @@ on:
 jobs:
   linux-gcc:
     runs-on: ubuntu-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/../.ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../.ccache
+          key: ccache-${{ github.job }}-${{ github.sha }}
+          restore-keys: ccache-${{ github.job }}-
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build ccache
+      - run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
       # The script-facing tests once more with freed memory poisoned and
@@ -29,11 +38,20 @@ jobs:
   # the pinned revision, and every test the baseline names must still pass.
   wpt-css:
     runs-on: ubuntu-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/../.ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../.ccache
+          key: ccache-${{ github.job }}-${{ github.sha }}
+          restore-keys: ccache-${{ github.job }}-
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build ccache
       - run: bash tools/wpt-fetch.sh
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build --target wpt_reftest
       - run: ./build/tests/wpt_reftest wpt tests/wpt/directories.txt tests/wpt/passing.txt --revision tests/wpt/REVISION
 
@@ -44,11 +62,20 @@ jobs:
   # the three agree (js-JIT-DESIGN.md §8).
   test262:
     runs-on: ubuntu-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/../.ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../.ccache
+          key: ccache-${{ github.job }}-${{ github.sha }}
+          restore-keys: ccache-${{ github.job }}-
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build ccache
       - run: bash tools/test262-fetch.sh
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build --target test262_runner
       - run: ./build/tests/test262_runner test262 tests/test262/directories.txt tests/test262/passing.txt --revision tests/test262/REVISION
       - run: SASHFOLD_JIT=0 ./build/tests/test262_runner test262 tests/test262/directories.txt tests/test262/passing.txt --revision tests/test262/REVISION
@@ -60,20 +87,38 @@ jobs:
   # hand-written cases without them.
   bidi-conformance:
     runs-on: ubuntu-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/../.ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../.ccache
+          key: ccache-${{ github.job }}-${{ github.sha }}
+          restore-keys: ccache-${{ github.job }}-
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build ccache
       - run: bash tools/ucd-fetch.sh
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build --target test_bidi
       - run: ./build/tests/test_bidi ucd/BidiCharacterTest.txt ucd/BidiTest.txt
 
   linux-clang:
     runs-on: ubuntu-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/../.ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build clang
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../.ccache
+          key: ccache-${{ github.job }}-${{ github.sha }}
+          restore-keys: ccache-${{ github.job }}-
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build clang ccache
+      - run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Release -DCMAKE_CXX_COMPILER=clang++
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
 
@@ -84,12 +129,22 @@ jobs:
   # the built-in face has to carry the tests alone.
   linux-musl:
     runs-on: ubuntu-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/../.ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../.ccache
+          key: ccache-${{ github.job }}-${{ github.sha }}
+          restore-keys: ccache-${{ github.job }}-
       - run: >
-          docker run --rm -v "$PWD:/src" -w /src alpine:3.24 sh -euc '
-          apk add -q build-base cmake ninja linux-headers bash;
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release;
+          docker run --rm -v "$PWD:/src" -v "$CCACHE_DIR:/ccache" -e CCACHE_DIR=/ccache
+          -e CCACHE_MAXSIZE -e CCACHE_COMPILERCHECK -w /src alpine:3.24 sh -euc '
+          apk add -q build-base cmake ninja linux-headers bash ccache;
+          cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Release;
           cmake --build build;
           ctest --test-dir build --output-on-failure;
           bash tools/pledge-check.sh build/sashfold;
@@ -99,14 +154,22 @@ jobs:
   linux-sanitizers:
     runs-on: ubuntu-latest
     env:
+      CCACHE_DIR: ${{ github.workspace }}/../.ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPILERCHECK: content
       # A report that names its caller: the vptr check alone prints the
       # object, not the frame that reached it.
       UBSAN_OPTIONS: print_stacktrace=1
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build clang
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../.ccache
+          key: ccache-${{ github.job }}-${{ github.sha }}
+          restore-keys: ccache-${{ github.job }}-
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build clang ccache
       - run: >
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=RelWithDebInfo
           -DCMAKE_CXX_COMPILER=clang++
           -DCMAKE_CXX_FLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all"
           -DCMAKE_EXE_LINKER_FLAGS="-fsanitize=address,undefined"
@@ -115,13 +178,24 @@ jobs:
 
   linux-fuzz-smoke:
     runs-on: ubuntu-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/../.ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build clang
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../.ccache
+          key: ccache-${{ github.job }}-${{ github.sha }}
+          restore-keys: ccache-${{ github.job }}-
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build clang ccache
       - run: >
-          cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo
+          cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=RelWithDebInfo
           -DCMAKE_CXX_COMPILER=clang++ -DSASHFOLD_FUZZ=ON
-      - run: cmake --build build
+      # Only what it runs: the rest of the tree is built and tested by the
+      # other lanes, and here every file is built instrumented.
+      - run: cmake --build build --target fuzz_html_tokenizer fuzz_html_tree fuzz_truetype fuzz_png fuzz_pdf fuzz_x509 fuzz_gif fuzz_jpeg fuzz_bmp fuzz_zip fuzz_webm
       - run: ./build/fuzz_html_tokenizer -max_total_time=40 -timeout=5 fuzz/corpus/html_tokenizer
       - run: ./build/fuzz_html_tree -max_total_time=40 -timeout=5 fuzz/corpus/html_tokenizer
       - run: ./build/fuzz_truetype -max_total_time=30 -timeout=5 fuzz/corpus/truetype
@@ -136,6 +210,10 @@ jobs:
 
   windows-mingw:
     runs-on: windows-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/../.ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPILERCHECK: content
     defaults:
       run:
         shell: msys2 {0}
@@ -149,8 +227,14 @@ jobs:
             mingw-w64-x86_64-gcc
             mingw-w64-x86_64-cmake
             mingw-w64-x86_64-ninja
+            mingw-w64-x86_64-ccache
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../.ccache
+          key: ccache-${{ github.job }}-${{ github.sha }}
+          restore-keys: ccache-${{ github.job }}-
       # The build the Windows download is made of: one that replaces itself.
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSASHFOLD_PORTABLE=ON
+      - run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Release -DSASHFOLD_PORTABLE=ON
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
       # A test that failed here, run again under gdb: where it died. The
@@ -182,10 +266,19 @@ jobs:
 
   macos:
     runs-on: macos-latest
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/../.ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: brew install ninja
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../.ccache
+          key: ccache-${{ github.job }}-${{ github.sha }}
+          restore-keys: ccache-${{ github.job }}-
+      - run: brew install ninja ccache
+      - run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Release
       - run: cmake --build build
       - run: ctest --test-dir build --output-on-failure
       - run: bash tools/pledge-check.sh build/sashfold
@@ -196,10 +289,19 @@ jobs:
   # runner's glibc), held to the pledge, staged as the release ships it.
   linux-release:
     runs-on: ubuntu-24.04
+    env:
+      CCACHE_DIR: ${{ github.workspace }}/../.ccache
+      CCACHE_MAXSIZE: 500M
+      CCACHE_COMPILERCHECK: content
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build imagemagick
-      - run: cmake -S . -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DSASHFOLD_PORTABLE=ON
+      - uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ${{ github.workspace }}/../.ccache
+          key: ccache-${{ github.job }}-${{ github.sha }}
+          restore-keys: ccache-${{ github.job }}-
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build ccache imagemagick
+      - run: cmake -S . -B build -G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache -DCMAKE_BUILD_TYPE=Release -DSASHFOLD_PORTABLE=ON
       - run: cmake --build build --target sashfold
       - run: bash tools/pledge-check.sh build/sashfold
       - run: |
