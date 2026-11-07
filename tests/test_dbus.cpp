@@ -854,8 +854,6 @@ void test_notifier_without_markup_or_service()
 }
 
 }
-#endif
-
 // The print portal: the PDF crosses the bus as a file descriptor (the
 // handshake asked for them, the header counts them, the bytes arrive
 // whole), the job's title with it, and the request's Response is the
@@ -893,9 +891,10 @@ void test_print_portal()
     CHECK(nowhere->outcome() == Outcome::Unavailable);
 }
 
+#endif
+
 int main()
 {
-    test_print_portal();
     CHECK_EQ(platform::escape_notice_markup("a < b && <a href=\"x\">c</a>"), std::string("a &lt; b &amp;&amp; &lt;a href=\"x\"&gt;c&lt;/a&gt;"));
     // A notice as a Windows toast: the page's text escaped (an apostrophe, a
     // quote, a control character XML cannot hold), the site on the
