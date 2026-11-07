@@ -173,6 +173,7 @@ add_library(sashfold_core STATIC
   src/media/Wav.cpp
   src/media/WebM.cpp
   src/media/Mp4.cpp
+  src/media/H264.cpp
   src/media/Yuv.cpp
   src/net/Cache.cpp
   src/net/Connections.cpp

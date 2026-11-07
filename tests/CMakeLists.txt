@@ -181,6 +181,9 @@ add_test(NAME test_webm COMMAND test_webm ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/m
 add_executable(test_mp4 test_mp4.cpp)
 target_link_libraries(test_mp4 PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_mp4 COMMAND test_mp4 ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/media/mp4)
+add_executable(test_h264 test_h264.cpp)
+target_link_libraries(test_h264 PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME test_h264 COMMAND test_h264 ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/media/mp4)
 # The RFC 8251 test vectors, when tools/opus-vectors-fetch.sh has fetched them.
 add_executable(test_opus test_opus.cpp)
 target_link_libraries(test_opus PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
