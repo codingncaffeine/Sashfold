@@ -22,6 +22,7 @@
 #include <array>
 #include <cstdint>
 #include <optional>
+#include <span>
 #include <vector>
 
 namespace sashfold::pdf {
@@ -140,10 +141,12 @@ Table const& black_table()
 
 class Bits {
 public:
-    explicit Bits(std::vector<std::uint8_t> const& data)
+    explicit Bits(std::span<std::uint8_t const> data, std::size_t position = 0)
         : m_data(data)
+        , m_position(position)
     {
     }
+    std::size_t position() const { return m_position; }
 
     // The next n bits (n <= 24), zeros past the end.
     std::uint32_t peek(int n) const
@@ -165,7 +168,7 @@ public:
     }
 
 private:
-    std::vector<std::uint8_t> const& m_data;
+    std::span<std::uint8_t const> m_data;
     std::size_t m_position = 0;
 };
 
@@ -460,6 +463,54 @@ std::optional<std::vector<std::uint8_t>> decode_ccitt(std::vector<std::uint8_t> 
         std::swap(reference, line);
     }
     return out;
+}
+
+// --- T.6 coding read bitmap by bitmap, for JBIG2 (T.88 6.2.6, C.5) ------
+
+MmrDecoder::MmrDecoder(std::span<std::uint8_t const> data)
+    : m_data(data)
+{
+}
+
+bool MmrDecoder::decode(int width, int height, std::uint8_t* pixels)
+{
+    if (width <= 0 || height <= 0)
+        return false;
+    Bits bits(m_data, m_bit_position);
+    Changes reference; // each bitmap starts against a white line
+    Changes line;
+    bool whole = true;
+    for (int y = 0; y < height; ++y) {
+        std::uint8_t* const row = pixels + static_cast<std::size_t>(y) * static_cast<std::size_t>(width);
+        std::fill_n(row, width, std::uint8_t { 0 });
+        if (!whole)
+            continue;
+        if (bits.at_end() || !read_two_dimensional(bits, width, reference, line)) {
+            whole = false; // damaged: the rows decoded stand, the rest white
+            continue;
+        }
+        for (std::size_t k = 0; k < line.size(); k += 2) {
+            int const to = k + 1 < line.size() ? line[k + 1] : width;
+            std::fill(row + line[k], row + to, std::uint8_t { 1 });
+        }
+        std::swap(reference, line);
+    }
+    m_bit_position = bits.position();
+    return whole;
+}
+
+void MmrDecoder::skip_end_of_block()
+{
+    Bits bits(m_data, m_bit_position);
+    if (bits.peek(24) == 0x001001)
+        bits.skip(24);
+    bits.align();
+    m_bit_position = bits.position();
+}
+
+std::size_t MmrDecoder::byte_position() const
+{
+    return (m_bit_position + 7) / 8;
 }
 
 }

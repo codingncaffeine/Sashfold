@@ -18,6 +18,7 @@
 #include <atomic>
 #include <cstdint>
 #include <cstdio>
+#include <sstream>
 #include <cstdlib>
 #include <fstream>
 #include <iterator>
@@ -869,6 +870,62 @@ void test_ccitt(std::string const& fixtures)
     CHECK(junk && junk->size() == 8);
 }
 
+// JBIG2 made by our own encoder (tools/pdf-make-jbig2-tests.py --fixtures),
+// every file of which jbig2dec decodes to the picture it was given: a
+// small picture in each coding of the standard (generic region templates,
+// typical prediction, AT pixels, MMR, unknown length; refinement; symbol
+// dictionaries and text regions, arithmetic and Huffman, refined and
+// aggregate; pattern dictionaries and halftones; striped pages, page
+// defaults, two regions). The rows the decoder must give are 1 = black
+// as the coding has it; the filter gives them the other way around.
+void test_jbig2(std::string const& fixtures)
+{
+    std::string const list_path = fixtures + "/jbig2/jbig2-fixtures.txt";
+    Bytes const list = read_file(list_path);
+    CHECK(!list.empty());
+    std::istringstream lines(std::string(list.begin(), list.end()));
+    std::string name;
+    int width = 0, height = 0, has_globals = 0;
+    int count = 0;
+    while (lines >> name >> width >> height >> has_globals) {
+        ++count;
+        std::string const base = fixtures + "/jbig2/" + name;
+        Bytes const data = read_file(base + ".bin");
+        Bytes const globals = has_globals ? read_file(base + ".globals") : Bytes {};
+        Bytes const rows = read_file(base + ".rows");
+        std::size_t const stride = (static_cast<std::size_t>(width) + 7) / 8;
+        CHECK(!data.empty() && rows.size() == stride * static_cast<std::size_t>(height));
+        std::optional<Bytes> const decoded = pdf::decode_jbig2(data, globals, width, height);
+        bool same = decoded && decoded->size() == rows.size();
+        if (same) {
+            for (std::size_t i = 0; i < rows.size(); ++i) {
+                int const spare = static_cast<int>(stride * 8) - width; // the last byte's unused bits
+                std::uint8_t const used = (i % stride == stride - 1) ? static_cast<std::uint8_t>(0xFF << spare) : 0xFF;
+                if (((*decoded)[i] & used) != (static_cast<std::uint8_t>(~rows[i]) & used)) {
+                    same = false;
+                    break;
+                }
+            }
+        }
+        if (!same)
+            std::fprintf(stderr, "jbig2 %s: %s\n", name.c_str(), decoded ? "differs" : "declined");
+        CHECK(same);
+        // The image may be larger than the page: the rest is the page's
+        // default pixel (white, but for the page that says black).
+        std::optional<Bytes> const wider = pdf::decode_jbig2(data, globals, width + 9, height + 2);
+        std::uint8_t const beyond = name == "jbig2-page-default-black" ? 0x03 : 0xFF; // 70 wide: 2 spare bits
+        CHECK(wider && wider->size() == ((static_cast<std::size_t>(width) + 16) / 8) * static_cast<std::size_t>(height + 2)
+            && wider->back() == beyond);
+    }
+    CHECK(count >= 24);
+    // Cut short: what was drawn stands; junk: nothing (no page), not a crash.
+    Bytes const whole = read_file(fixtures + "/jbig2/jbig2-generic-t0.bin");
+    Bytes const half(whole.begin(), whole.begin() + static_cast<std::ptrdiff_t>(whole.size() * 2 / 3));
+    std::optional<Bytes> const cut = pdf::decode_jbig2(half, {}, 61, 23);
+    CHECK(cut && cut->size() == 8 * 23);
+    CHECK(!pdf::decode_jbig2(bytes("\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff\xff"), {}, 16, 4));
+}
+
 // JPEG 2000 made by OpenJPEG (tools/pdf-make-jpx-tests.py --fixtures),
 // against OpenJPEG's own decoding: lossless 5/3 exactly, lossy 9/7 within
 // a level (its floating point rounds a little differently), and one with
@@ -956,6 +1013,7 @@ int main(int argc, char** argv)
     if (argc > 1) {
         test_encrypted(argv[1]);
         test_ccitt(argv[1]);
+        test_jbig2(argv[1]);
         test_jpx(argv[1]);
         test_std14_widths(std::string(argv[1]) + "/../../shell/pdf-viewer.pdf");
     }

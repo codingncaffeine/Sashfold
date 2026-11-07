@@ -219,7 +219,7 @@ add_library(sashfold_core STATIC
   src/pdf/Image.cpp
   src/pdf/Ccitt.cpp
   src/pdf/Std14Metrics.cpp
-  src/pdf/ImageCodecs.cpp
+  src/pdf/Jbig2.cpp
   src/pdf/Jpx.cpp
   src/pdf/JpxTier1.cpp
   src/pdf/Mq.cpp
