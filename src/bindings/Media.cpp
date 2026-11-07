@@ -193,6 +193,10 @@ public:
     // it made that the device has not taken yet (with the frames at its
     // head still to be thrown away after a seek's pre-roll), and the
     // presentation time of the next coded frame to read.
+    // A file the element plays by itself (a src that is not WAVE), filed by
+    // the same buffer a MediaSource's SourceBuffer uses: whole, as fetched.
+    std::unique_ptr<StreamBuffer> file_buffer;
+
     std::unique_ptr<media::OpusDecoder> opus;
     std::vector<float> pending;
     std::size_t pending_skip = 0;
@@ -227,7 +231,8 @@ public:
     bool video_started = false;
     bool video_awaiting = false; // a seek's picture not shown yet
     bool presenting = false; // listed in the realm's presenting_media
-    std::int64_t next_video_ns = 0;
+    std::int64_t next_video_ns = 0; // past the latest presentation time handed over
+    std::int64_t next_video_decode_ns = 0; // the decode time of the next frame to hand over
     bool video_needs_key = false; // frames were taken back: the next handed over must be a key frame
     std::shared_ptr<Bitmap> picture;
     std::uint64_t picture_shape = 0;
@@ -458,8 +463,9 @@ int type_support(std::string_view type)
     }
     if (!playback_enabled())
         return 0;
-    bool const video = essence == "video/webm";
-    if (!video && essence != "audio/webm")
+    bool const video = essence == "video/webm" || essence == "video/mp4";
+    bool const mp4 = essence == "video/mp4" || essence == "audio/mp4";
+    if (!video && essence != "audio/webm" && essence != "audio/mp4")
         return 0;
     int support = 1;
     rest = semicolon == std::string_view::npos ? std::string_view {} : rest.substr(semicolon + 1);
@@ -485,7 +491,11 @@ int type_support(std::string_view type)
             std::size_t const comma = list.find(',');
             std::string_view const codec = trimmed(list.substr(0, comma));
             list = comma == std::string_view::npos ? std::string_view {} : list.substr(comma + 1);
-            bool const ours = codec == "opus" || (video && (codec == "vp9" || vp9_string_ours(codec)));
+            // H.264 as "avc1.PPCCLL" and "avc3.PPCCLL" (RFC 6381): every
+            // profile the hardware's High profile decoder reads; AAC
+            // ("mp4a.40.x") waits for its decoder (GAPS plan 6c).
+            bool const h264 = mp4 && video && (codec.starts_with("avc1") || codec.starts_with("avc3"));
+            bool const ours = codec == "opus" || h264 || (video && (codec == "vp9" || vp9_string_ours(codec)));
             if (!ours)
                 return 0;
         }
@@ -569,11 +579,29 @@ double current_position(Realm::Internals& in, MediaStateObject const& state)
     return state.position + (in.now() - state.position_at) / 1000.0 * state.playback_rate;
 }
 
+// The stream buffers the element plays from: its MediaSource's, or the one
+// holding the file it fetched.
+std::vector<StreamBuffer const*> buffers_of(MediaStateObject const& state)
+{
+    std::vector<StreamBuffer const*> out;
+    if (state.file_buffer) {
+        out.push_back(state.file_buffer.get());
+        return out;
+    }
+    if (state.source != nullptr && state.source->buffers != nullptr) {
+        for (SourceBufferObject const* buffer : state.source->buffers->items)
+            out.push_back(&buffer->buffer);
+    }
+    return out;
+}
+
 TimeRanges element_buffered(MediaStateObject const& state)
 {
     // A file the element holds whole is buffered from end to end.
     if (state.sound)
         return sound_buffered(state);
+    if (state.file_buffer)
+        return state.file_buffer->buffered(true);
     if (state.source == nullptr || state.source->buffers == nullptr)
         return {};
     bool const ended = state.source->ready == MediaSourceObject::Ended;
@@ -692,7 +720,9 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
     }
     double const now = in.now();
     TimeRanges const buffered = element_buffered(state);
-    bool const source_ended = state.source != nullptr && state.source->ready == MediaSourceObject::Ended;
+    // A file the element holds whole has nothing more to come, as an
+    // ended MediaSource has.
+    bool const source_ended = (state.source != nullptr && state.source->ready == MediaSourceObject::Ended) || state.file_buffer != nullptr;
 
     // While the element advances, what has been heard is the clock
     // everything else keeps to, as in every browser.
@@ -788,7 +818,7 @@ void arm_timer(Realm::Internals& in, MediaStateObject& state)
     // seek waiting for its data, or a picture not shown yet. With a picture
     // to show it is watched often enough to meet each frame near its time.
     bool const picture_owed = state.video && state.video_awaiting;
-    if (state.timer_armed || (state.source == nullptr && !state.sound) || (state.paused && !state.seeking && !picture_owed))
+    if (state.timer_armed || (state.source == nullptr && !state.sound && !state.file_buffer) || (state.paused && !state.seeking && !picture_owed))
         return;
     state.timer_armed = true;
     js::Interpreter::Roots const roots(in.interpreter);
@@ -914,10 +944,8 @@ void restart_device(MediaStateObject& state)
 // The Opus track among the element's buffers, if it has one.
 StreamBuffer::Track const* opus_track(MediaStateObject const& state)
 {
-    if (state.source == nullptr || state.source->buffers == nullptr)
-        return nullptr;
-    for (SourceBufferObject const* buffer : state.source->buffers->items) {
-        for (StreamBuffer::Track const& track : buffer->buffer.tracks()) {
+    for (StreamBuffer const* buffer : buffers_of(state)) {
+        for (StreamBuffer::Track const& track : buffer->tracks()) {
             if (track.description.kind == media::WebmTrack::Kind::Audio && track.description.codec_id == "A_OPUS")
                 return &track;
         }
@@ -1068,14 +1096,14 @@ bool stream_played_out(MediaStateObject const& state)
 
 // --- A MediaSource's pictures, made as they come due -------------------------------------------
 
-// The VP9 track among the element's buffers, if it has one.
-StreamBuffer::Track const* vp9_track(MediaStateObject const& state)
+// The video track among the element's buffers that this engine decodes
+// (VP9, H.264), if it has one.
+StreamBuffer::Track const* video_track(MediaStateObject const& state)
 {
-    if (state.source == nullptr || state.source->buffers == nullptr)
-        return nullptr;
-    for (SourceBufferObject const* buffer : state.source->buffers->items) {
-        for (StreamBuffer::Track const& track : buffer->buffer.tracks()) {
-            if (track.description.kind == media::WebmTrack::Kind::Video && track.description.codec_id == "V_VP9")
+    for (StreamBuffer const* buffer : buffers_of(state)) {
+        for (StreamBuffer::Track const& track : buffer->tracks()) {
+            if (track.description.kind == media::WebmTrack::Kind::Video
+                && (track.description.codec_id == "V_VP9" || track.description.codec_id == "V_H264"))
                 return &track;
         }
     }
@@ -1129,16 +1157,16 @@ void deliver_frame_callbacks(Realm::Internals& in, MediaStateObject& state, std:
 // whose time has come is written into the element's bitmap.
 void present_video(Realm::Internals& in, MediaStateObject& state)
 {
-    StreamBuffer::Track const* const track = vp9_track(state);
+    StreamBuffer::Track const* const track = video_track(state);
     if (track == nullptr)
         return;
     if (!state.video && !state.video_tried) {
         state.video_tried = true;
         std::string error;
         if (in.hooks.open_video)
-            state.video = in.hooks.open_video(error);
+            state.video = in.hooks.open_video(track->description.codec_id, track->description.codec_private, error);
         else
-            state.video = media::VideoPipeline::open(error);
+            state.video = media::VideoPipeline::open(track->description.codec_id, track->description.codec_private, error);
         trace(state.video ? "video decodes on " + state.video->device() : "no video decoder: " + error);
         state.video_awaiting = state.video != nullptr;
         if (state.video && in.hooks.video_layers) {
@@ -1166,6 +1194,8 @@ void present_video(Realm::Internals& in, MediaStateObject& state)
         state.video_started && changed_from < state.next_video_ns && changed_to >= position_ns) {
         if (changed_from > position_ns && state.video->drop_from(changed_from)) {
             state.next_video_ns = changed_from;
+            if (auto const at = track->frames.lower_bound(changed_from); at != track->frames.end())
+                state.next_video_decode_ns = at->second.decode_time_ns;
             state.video_needs_key = true;
         } else {
             state.video_started = false;
@@ -1181,23 +1211,33 @@ void present_video(Realm::Internals& in, MediaStateObject& state)
             return; // nothing buffered to begin from yet
         state.video->flush();
         state.next_video_ns = it->first;
+        state.next_video_decode_ns = it->second.decode_time_ns;
         state.video_needs_key = false;
         state.video_started = true;
         trace("pictures start at " + std::to_string(state.position) + " from the key frame at "
             + std::to_string(static_cast<double>(it->first) / 1e9));
     }
+    // In the order a decoder takes them (a picture leaning on a later one
+    // comes after it), as far ahead as the window reaches by presentation
+    // time: a picture past the window holds back those behind it too.
     int handed = 0;
     std::int64_t const ahead_ns = state.clock ? shown_handover_ahead_ns : handover_ahead_ns;
-    for (auto it = track->frames.lower_bound(state.next_video_ns);
-        it != track->frames.end() && it->first < position_ns + ahead_ns && handed < 240; ++it, ++handed) {
+    for (auto it = track->decode_order.lower_bound(state.next_video_decode_ns); it != track->decode_order.end() && handed < 240; ++it) {
+        auto const frame = track->frames.find(it->second);
+        if (frame == track->frames.end())
+            continue;
+        if (frame->first >= position_ns + ahead_ns)
+            break;
         // What takes the place of frames taken back begins with a key
         // frame, or the decoder cannot go on from what it holds.
-        if (std::exchange(state.video_needs_key, false) && !it->second.key) {
+        if (std::exchange(state.video_needs_key, false) && !frame->second.key) {
             state.video_started = false;
             break;
         }
-        state.video->push(it->first, it->second.data);
-        state.next_video_ns = it->first + 1;
+        state.video->push(frame->first, frame->second.data);
+        state.next_video_decode_ns = it->first + 1;
+        state.next_video_ns = std::max(state.next_video_ns, frame->first + 1);
+        ++handed;
     }
     if (state.clock) {
         // The host shows the pictures as they come due, whatever this
@@ -1386,7 +1426,40 @@ void fetch_media(Realm::Internals& in, MediaStateObject& state, net::Url const& 
         }
         std::optional<media::Sound> decoded = media::decode_wav(outcome.body);
         if (!decoded || decoded->frames() == 0) {
-            fail_load(in, target, "No decoder is available for this source.");
+            // A WebM or MP4 file: filed whole, played as a MediaSource's
+            // stream is, by the buffer's tracks.
+            auto buffer = std::make_unique<StreamBuffer>();
+            StreamBuffer::Appended const appended = buffer->append(outcome.body);
+            bool playable = appended.ok && buffer->has_init();
+            if (playable) {
+                playable = false;
+                for (StreamBuffer::Track const& track : buffer->tracks()) {
+                    std::string const& codec = track.description.codec_id;
+                    if (codec == "V_VP9" || codec == "V_H264" || codec == "A_OPUS")
+                        playable = true;
+                }
+            }
+            if (!playable) {
+                fail_load(in, target, "No decoder is available for this source.");
+                return;
+            }
+            target.file_buffer = std::move(buffer);
+            if (StreamBuffer::Track const* const video = target.file_buffer->track_of(media::WebmTrack::Kind::Video)) {
+                target.video_width = video->description.width;
+                target.video_height = video->description.height;
+                queue_element_event(in, target, "resize");
+            }
+            target.network_state = NetworkIdle;
+            target.ready_state = HaveMetadata;
+            target.position_at = in.now();
+            queue_element_event(in, target, "loadedmetadata");
+            // As long as the frames the file holds: a header that claims more
+            // (an encoder's priming counted in) would never be reached.
+            double const duration = std::min(target.file_buffer->duration_seconds().value_or(target.file_buffer->highest_end()),
+                target.file_buffer->highest_end());
+            set_duration(in, target, duration);
+            trace("file: " + std::to_string(target.file_buffer->tracks().size()) + " tracks, " + std::to_string(duration) + " s");
+            update_media(in, target);
             return;
         }
         target.sound = std::make_shared<media::Sound const>(std::move(*decoded));
@@ -1463,6 +1536,7 @@ void run_load(Realm::Internals& in, MediaStateObject& state)
         state.duration = std::nan("");
     }
     state.sound.reset();
+    state.file_buffer.reset();
     state.device.reset();
     state.device_tried = false;
     state.fed_frames = 0;
@@ -1620,7 +1694,7 @@ void buffer_changed(Realm::Internals& in, SourceBufferObject& buffer, bool init_
         queue_fire(in, source->active, "addsourcebuffer");
     }
     if (init_segment && std::isnan(source->duration))
-        source->duration = buffer.buffer.init().duration_seconds.value_or(std::numeric_limits<double>::infinity());
+        source->duration = buffer.buffer.duration_seconds().value_or(std::numeric_limits<double>::infinity());
     double const highest = buffer.buffer.highest_end();
     if (!std::isnan(source->duration) && highest > source->duration)
         source->duration = highest;
@@ -2038,6 +2112,11 @@ void install_media_source(Realm::Internals& in)
         auto* made = interp.heap().allocate<SourceBufferObject>(internals.prototype("SourceBuffer"));
         interp.root(js::Value::object(made));
         trace("addSourceBuffer " + *type);
+        {
+            std::string const lowered = ascii_lowered(*type);
+            std::string_view const essence = trimmed(std::string_view(lowered).substr(0, lowered.find(';')));
+            made->buffer.expect(essence == "video/mp4" || essence == "audio/mp4" ? StreamBuffer::Container::Mp4 : StreamBuffer::Container::WebM);
+        }
         made->parent = &source;
         source.buffers->items.push_back(made);
         queue_fire(internals, source.buffers, "addsourcebuffer");

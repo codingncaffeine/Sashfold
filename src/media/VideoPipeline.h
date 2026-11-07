@@ -3,7 +3,7 @@
 // A video track's pictures, made off the page's thread. The page's media
 // tick hands over the coded frames a little ahead of playback, in decoding
 // order; a thread of the pipeline's own decodes them on the machine's video
-// hardware (media/Vp9Accelerator.h), reads each picture back and converts
+// hardware (media/FrameDecoder.h), reads each picture back and converts
 // it for the painter (media/Yuv.h) — a few milliseconds a picture, none of
 // which the page waits for.
 //
@@ -16,6 +16,7 @@
 // on, however long the page's thread is kept by its scripts.
 
 #include "core/Bitmap.h"
+#include "media/FrameDecoder.h"
 #include "media/PlaybackClock.h"
 #include "media/Vp9Accelerator.h"
 
@@ -50,8 +51,11 @@ struct ShownPicture {
 
 class VideoPipeline {
 public:
-    // A pipeline on the machine's VP9 decoder; null, with why, where it has none.
-    static std::unique_ptr<VideoPipeline> open(std::string& error);
+    // A pipeline on the machine's decoder for a track's codec ("V_VP9",
+    // "V_H264") and configuration record; null, with why, where it has none.
+    static std::unique_ptr<VideoPipeline> open(std::string const& codec_id, std::span<std::uint8_t const> codec_private, std::string& error);
+    explicit VideoPipeline(std::unique_ptr<FrameDecoder> decoder);
+    // VP9 on an accelerator already opened (a test's own).
     explicit VideoPipeline(std::unique_ptr<Vp9Accelerator> accelerator);
     ~VideoPipeline();
     VideoPipeline(VideoPipeline const&) = delete;
@@ -136,7 +140,7 @@ private:
     std::int64_t until_locked() const;
     void note_shown_locked();
 
-    std::unique_ptr<Vp9Accelerator> m_accelerator; // the thread's alone once it runs
+    std::unique_ptr<FrameDecoder> m_decoder; // the thread's alone once it runs
     std::string m_device;
 
     mutable std::mutex m_mutex;

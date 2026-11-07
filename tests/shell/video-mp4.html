@@ -1,0 +1,14 @@
+<!DOCTYPE html>
+<title>MP4</title>
+<body style="margin: 0; background: #224">
+<video id="v" width="160" height="120" style="display: block" src="../fixtures/media/mp4/plain-faststart.mp4"></video>
+<script>
+var v = document.getElementById('v');
+v.addEventListener('loadedmetadata', function () {
+    document.title = 'MP4 ' + v.videoWidth + 'x' + v.videoHeight + ' ' + v.duration.toFixed(2) + 's '
+        + v.canPlayType('video/mp4; codecs="avc1.64000b"') + '/' + v.canPlayType('video/mp4; codecs="mp4a.40.2"')
+        + ' b' + (v.buffered.length ? v.buffered.start(0).toFixed(3) + '-' + v.buffered.end(0).toFixed(3) : 'none') + ' r' + v.readyState;
+});
+v.addEventListener('ended', function () { document.title = 'MP4 ended at ' + v.currentTime.toFixed(2); });
+v.play();
+</script>

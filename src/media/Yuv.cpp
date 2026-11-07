@@ -78,6 +78,32 @@ YuvColour vp9_colour(int color_space, bool color_range, int height)
     return colour;
 }
 
+YuvColour h264_colour(bool present, int matrix_coefficients, bool full_range, int height)
+{
+    YuvColour colour;
+    colour.full_range = present && full_range;
+    switch (present ? matrix_coefficients : 2) {
+    case 1:
+        colour.matrix = YuvMatrix::Bt709;
+        break;
+    case 5:
+    case 6:
+        colour.matrix = YuvMatrix::Bt601;
+        break;
+    case 7:
+        colour.matrix = YuvMatrix::Smpte240;
+        break;
+    case 9:
+    case 10:
+        colour.matrix = YuvMatrix::Bt2020;
+        break;
+    default: // unspecified or beyond: by the picture's size
+        colour.matrix = height > 576 ? YuvMatrix::Bt709 : YuvMatrix::Bt601;
+        break;
+    }
+    return colour;
+}
+
 void nv12_to_rgba(Nv12Picture const& picture, YuvColour colour, std::span<std::uint8_t> rgba)
 {
     Coefficients const k = coefficients(colour);

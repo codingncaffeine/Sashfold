@@ -952,7 +952,7 @@ struct Browser::Impl {
         bool notifications_available = false;
         bindings::WorkerThreads* worker_threads = nullptr;
         bool video_layers = true;
-        std::function<std::shared_ptr<media::VideoPipeline>(std::string& error)> video_opener;
+        std::function<std::shared_ptr<media::VideoPipeline>(std::string const& codec_id, std::span<std::uint8_t const> codec_private, std::string& error)> video_opener;
         std::vector<Browser::Container> containers;
         std::vector<Browser::ThemePreset> theme_presets;
         std::string bookmark_backups_directory;
@@ -977,7 +977,7 @@ struct Browser::Impl {
     // another (ui/PageCompositor.h); and what makes a video into pictures,
     // where a test gives a decoder of its own.
     bool video_layers = true;
-    std::function<std::shared_ptr<media::VideoPipeline>(std::string& error)> video_opener;
+    std::function<std::shared_ptr<media::VideoPipeline>(std::string const& codec_id, std::span<std::uint8_t const> codec_private, std::string& error)> video_opener;
     // How an engine's thread says the shell has something to hear.
     std::function<void()> wake_window;
     std::shared_ptr<PageWakes> page_wakes = std::make_shared<PageWakes>();
@@ -15736,7 +15736,7 @@ void Browser::set_page_threads(std::function<void()> wake)
 
 void Browser::set_video_layers(bool apart) { m_impl->video_layers = apart; }
 
-void Browser::set_video_opener(std::function<std::shared_ptr<media::VideoPipeline>(std::string& error)> opener)
+void Browser::set_video_opener(std::function<std::shared_ptr<media::VideoPipeline>(std::string const& codec_id, std::span<std::uint8_t const> codec_private, std::string& error)> opener)
 {
     m_impl->video_opener = std::move(opener);
 }

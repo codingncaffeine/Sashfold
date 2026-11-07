@@ -172,7 +172,7 @@ void test_pipeline()
         }
     }
 
-    std::unique_ptr<media::VideoPipeline> pipeline = media::VideoPipeline::open(why);
+    std::unique_ptr<media::VideoPipeline> pipeline = media::VideoPipeline::open("V_VP9", {}, why);
     CHECK(pipeline != nullptr);
     if (!pipeline)
         return;

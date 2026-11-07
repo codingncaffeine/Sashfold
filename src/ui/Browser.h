@@ -503,7 +503,7 @@ public:
     // What makes a page's video into pictures, in place of the machine's
     // video hardware: for a test, which gives a decoder of its own. Said
     // before set_pages_in_engines.
-    void set_video_opener(std::function<std::shared_ptr<media::VideoPipeline>(std::string& error)> opener);
+    void set_video_opener(std::function<std::shared_ptr<media::VideoPipeline>(std::string const& codec_id, std::span<std::uint8_t const> codec_private, std::string& error)> opener);
     // Wakes every engine's thread, from any thread and for as long as
     // whoever holds it likes: what a fetch that has its answer calls, and a
     // worker with a word for its page.

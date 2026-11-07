@@ -32,6 +32,11 @@ struct YuvColour {
 // VP9's color_space (§7.2: 0 unknown, 1 BT.601, 2 BT.709, 3 SMPTE 170,
 // 4 SMPTE 240, 5 BT.2020, 7 sRGB) and color_range, for a picture this tall.
 YuvColour vp9_colour(int color_space, bool color_range, int height);
+// H.264's VUI (E.2.1): matrix_coefficients as ITU-T H.273 numbers them
+// (1 BT.709, 5 and 6 BT.601, 7 SMPTE 240, 9 BT.2020; 2 unspecified) and
+// video_full_range_flag, for a picture this tall; `present` false when
+// the stream says nothing.
+YuvColour h264_colour(bool present, int matrix_coefficients, bool full_range, int height);
 
 // Converts the picture into `rgba`, which holds width * height * 4 bytes,
 // rows packed, alpha opaque.

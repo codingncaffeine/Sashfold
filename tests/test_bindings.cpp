@@ -6091,7 +6091,7 @@ void test_a_video_the_host_shows()
         hooks.video_layers = layers;
         // (A decoder of the test's own, every picture flat white: the
         // machine's video hardware is not what is tested here.)
-        hooks.open_video = [](std::string&) { return std::make_shared<media::VideoPipeline>(std::make_unique<test::TestAccelerator>()); };
+        hooks.open_video = [](std::string const&, std::span<std::uint8_t const>, std::string&) { return std::make_shared<media::VideoPipeline>(std::make_unique<test::TestAccelerator>()); };
         auto page = std::make_unique<Page>("<!DOCTYPE html><body><video id=v></video></body>", "https://example.test/dir/page.html", std::move(hooks));
         page->load();
         auto const began = steady::now();
@@ -6571,16 +6571,16 @@ void test_media_source_and_the_media_element()
     pump();
     CHECK_EQ(page->string("ms.readyState + ' ' + ms.sourceBuffers.length + ' ' + v.readyState + ' ' + v.duration + ' ' + take()"), "closed 0 0 NaN sourceclose emptied");
 
-    // What the engine says it plays: VP9 at 8 bits and Opus in WebM, and a
-    // stream it could not is refused by its parameters.
+    // What the engine says it plays: VP9 at 8 bits and Opus in WebM, H.264
+    // in MP4, and a stream it could not is refused by its parameters.
     CHECK_EQ(page->string(R"JS([ 'video/webm; codecs="vp9"', 'video/webm; codecs="vp09.00.10.08"', 'audio/webm; codecs="opus"', 'video/webm; codecs="vp9, opus"',
         'video/webm', 'video/webm; codecs="vp09.02.51.10.01.09.16.09.00"', 'video/webm; codecs="vp8"', 'audio/webm; codecs="vp9"',
         'video/mp4; codecs="avc1.42E01E"', 'video/webm; codecs="vp9"; width=3840; height=2160; framerate=60; bitrate=26523399; eotf=bt709',
         'video/webm; codecs="vp9"; width=99999', 'video/webm; codecs="vp9"; framerate=9999', 'audio/webm; codecs="opus"; channels=99',
         'video/webm; codecs="vp9"; eotf=catavision', 'video/webm; codecs="vp9"; decode-to-texture=nope', 'video/webm; codecs="vp9"; cryptoblockformat=subsample',
         'video/webm; codecs=""' ].map(function (t) { return MediaSource.isTypeSupported(t) ? 'y' : 'n'; }).join(''))JS"),
-        "yyyyynnnnynnnnnnn");
-    CHECK_EQ(page->string("[v.canPlayType('video/webm; codecs=\"vp9\"'), v.canPlayType('audio/webm'), v.canPlayType('video/mp4')].join('|')"), "probably|maybe|");
+        "yyyyynnnyynnnnnnn");
+    CHECK_EQ(page->string("[v.canPlayType('video/webm; codecs=\"vp9\"'), v.canPlayType('audio/webm'), v.canPlayType('video/mp4')].join('|')"), "probably|maybe|maybe");
     CHECK_EQ(page->string("var r = ''; try { new MediaSource().addSourceBuffer('video/webm'); } catch (e) { r = e.name; } r"), "InvalidStateError");
 
     // A stream that is not WebM: the buffer's error, the source ended, the

@@ -378,7 +378,7 @@ struct HostHooks {
     // own video hardware (media::VideoPipeline::open); a test gives a
     // pipeline over a decoder of its own, so that what becomes of the
     // pictures is tested on a machine that has no such hardware too.
-    std::function<std::shared_ptr<media::VideoPipeline>(std::string& error)> open_video;
+    std::function<std::shared_ptr<media::VideoPipeline>(std::string const& codec_id, std::span<std::uint8_t const> codec_private, std::string& error)> open_video;
 
     // The host shows a video's pictures itself, from the pipeline that
     // makes them and at the moment each comes due (VideoFrame::layer), as a

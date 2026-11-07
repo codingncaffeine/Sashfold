@@ -1,6 +1,5 @@
 #include "media/VideoPipeline.h"
 
-#include "media/Vp9.h"
 #include "media/Yuv.h"
 
 #include <algorithm>
@@ -16,18 +15,23 @@ constexpr std::size_t ready_limit = 3;
 
 }
 
-std::unique_ptr<VideoPipeline> VideoPipeline::open(std::string& error)
+std::unique_ptr<VideoPipeline> VideoPipeline::open(std::string const& codec_id, std::span<std::uint8_t const> codec_private, std::string& error)
 {
-    std::unique_ptr<Vp9Accelerator> accelerator = Vp9Accelerator::open(error);
-    if (!accelerator)
+    std::unique_ptr<FrameDecoder> decoder = open_frame_decoder(codec_id, codec_private, error);
+    if (!decoder)
         return nullptr;
-    return std::make_unique<VideoPipeline>(std::move(accelerator));
+    return std::make_unique<VideoPipeline>(std::move(decoder));
+}
+
+VideoPipeline::VideoPipeline(std::unique_ptr<FrameDecoder> decoder)
+    : m_decoder(std::move(decoder))
+    , m_device(m_decoder->device())
+    , m_thread([this] { run(); })
+{
 }
 
 VideoPipeline::VideoPipeline(std::unique_ptr<Vp9Accelerator> accelerator)
-    : m_accelerator(std::move(accelerator))
-    , m_device(m_accelerator->device())
-    , m_thread([this] { run(); })
+    : VideoPipeline(vp9_frame_decoder(std::move(accelerator)))
 {
 }
 
@@ -279,8 +283,6 @@ bool VideoPipeline::caught_up(std::int64_t now_ns) const
 
 void VideoPipeline::run()
 {
-    Vp9HeaderReader reader;
-    YuvColour colour; // a key frame's, for the frames after it
     std::uint64_t generation = 0;
     std::unique_lock lock(m_mutex);
     for (;;) {
@@ -302,8 +304,7 @@ void VideoPipeline::run()
             return;
         if (m_generation != generation) {
             generation = m_generation;
-            reader.reset();
-            m_accelerator->reset();
+            m_decoder->reset();
             continue;
         }
         Coded const coded = std::move(m_queue.front());
@@ -320,46 +321,20 @@ void VideoPipeline::run()
         lock.unlock();
 
         Counts counts;
-        std::optional<Nv12Picture> shown;
-        bool ok = true;
-        for (auto const frame : split_vp9_superframe(coded.data)) {
-            std::optional<Vp9FrameHeader> const header = reader.read(frame);
-            if (!header) {
-                ok = false;
-                break;
-            }
-            if (header->key_frame)
-                colour = vp9_colour(header->color_space, header->color_range, header->height);
-            if (header->show_existing_frame) {
-                if (wanted)
-                    shown = m_accelerator->read_slot(header->frame_to_show);
-                else
-                    counts.skipped++;
-                continue;
-            }
-            if (!m_accelerator->decode(frame, *header)) {
-                ok = false;
-                break;
-            }
-            counts.decoded++;
-            if (!header->show_frame)
-                continue;
-            if (wanted)
-                shown = m_accelerator->read_last();
-            else
-                counts.skipped++;
-        }
-        if (!ok)
+        FrameDecoder::Result result = m_decoder->decode(coded.data, wanted);
+        counts.decoded = result.decoded;
+        counts.skipped = result.skipped;
+        if (!result.ok)
             counts.failed++;
         std::optional<VideoPicture> made;
-        if (ok && shown) {
+        if (result.ok && result.shown) {
             made.emplace();
             made->time_ns = coded.time_ns;
-            made->width = shown->width;
-            made->height = shown->height;
+            made->width = result.shown->width;
+            made->height = result.shown->height;
             made->rgba = std::move(buffer);
-            made->rgba.resize(static_cast<std::size_t>(shown->width) * static_cast<std::size_t>(shown->height) * 4);
-            nv12_to_rgba(*shown, colour, made->rgba);
+            made->rgba.resize(static_cast<std::size_t>(result.shown->width) * static_cast<std::size_t>(result.shown->height) * 4);
+            nv12_to_rgba(*result.shown, result.colour, made->rgba);
             counts.made++;
         }
 
@@ -370,7 +345,12 @@ void VideoPipeline::run()
         m_counts.made += counts.made;
         m_counts.skipped += counts.skipped;
         if (made && generation == m_generation) {
-            m_ready.push_back(std::move(*made));
+            // In presentation order: a stream whose pictures are decoded
+            // out of it (H.264's B pictures) puts each where its time falls.
+            auto place = m_ready.end();
+            while (place != m_ready.begin() && std::prev(place)->time_ns > made->time_ns)
+                --place;
+            m_ready.insert(place, std::move(*made));
             if (std::shared_ptr<std::function<void()> const> const waker = m_waker) {
                 lock.unlock();
                 (*waker)();

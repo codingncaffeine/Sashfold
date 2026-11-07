@@ -296,7 +296,7 @@ Shown watch_a_video(bool layers)
     ui::Browser browser(pages, ui::Theme {}, 800, 600);
     // A decoder of the test's own: each frame shown is another grey, so
     // that one picture is seen to give way to the next.
-    browser.set_video_opener([](std::string&) { return std::make_shared<media::VideoPipeline>(std::make_unique<test::TestAccelerator>(true)); });
+    browser.set_video_opener([](std::string const&, std::span<std::uint8_t const>, std::string&) { return std::make_shared<media::VideoPipeline>(std::make_unique<test::TestAccelerator>(true)); });
     browser.set_video_layers(layers);
     browser.set_page_threads(loop.waker());
     browser.set_pages_in_engines(true);

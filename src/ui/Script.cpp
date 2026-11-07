@@ -5,6 +5,7 @@
 #include "core/Png.h"
 #include "core/Unicode.h"
 #include "js/Runtime.h"
+#include "media/H264Accelerator.h"
 #include "media/Vp9Accelerator.h"
 #include "platform/Clipboard.h"
 #include "platform/Notifier.h"
@@ -959,10 +960,12 @@ struct Runner {
         } else if (command == "assert-video-paints") {
             expect_equal("assert-video-paints", std::to_string(browser.profile().video_paints - marked.video_paints), argument);
         } else if (command == "require-video-hardware") {
-            // What follows plays video on the machine's decoder; a machine
-            // without one (a CI runner) stops here and says so.
+            // What follows plays video on the machine's decoder (VP9's, or
+            // H.264's with the argument "h264"); a machine without one (a
+            // CI runner) stops here and says so.
             std::string why;
-            if (!media::Vp9Accelerator::open(why)) {
+            bool const present = argument == "h264" ? media::H264Accelerator::open(why) != nullptr : media::Vp9Accelerator::open(why) != nullptr;
+            if (!present) {
                 out << "skipping the rest of " << stem << ": no video hardware (" << why << ")\n";
                 skipping = true;
             }

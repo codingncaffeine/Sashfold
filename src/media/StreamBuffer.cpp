@@ -45,12 +45,14 @@ std::size_t erase_with_dependents(StreamBuffer::Track& track, Frames::iterator f
     for (auto it = from; it != to; ++it) {
         freed += it->second.data.size();
         track.changed_to_ns = std::max(track.changed_to_ns, it->first);
+        track.decode_order.erase(it->second.decode_time_ns);
     }
     auto next = frames.erase(from, to);
     if (any) {
         while (next != frames.end() && !next->second.key) {
             freed += next->second.data.size();
             track.changed_to_ns = std::max(track.changed_to_ns, next->first);
+            track.decode_order.erase(next->second.decode_time_ns);
             next = frames.erase(next);
         }
     }
@@ -86,54 +88,143 @@ TimeRange const* range_at(TimeRanges const& ranges, double time, bool at_end_too
     return nullptr;
 }
 
+namespace {
+
+// An MP4 track's description in the form the buffer keeps for every
+// container (WebM's, the first written): kind, codec, configuration, size.
+WebmTrack describe(Mp4Track const& track)
+{
+    WebmTrack out;
+    out.number = track.id;
+    out.kind = track.kind == Mp4Track::Kind::Video ? WebmTrack::Kind::Video : track.kind == Mp4Track::Kind::Audio ? WebmTrack::Kind::Audio : WebmTrack::Kind::Other;
+    out.codec_id = track.codec_id;
+    out.codec_private = track.codec_private;
+    out.width = track.width;
+    out.height = track.height;
+    out.sample_rate = track.sample_rate;
+    out.channels = track.channels;
+    if (track.default_sample_duration > 0 && track.timescale > 0)
+        out.default_duration_ns = static_cast<std::uint64_t>(static_cast<double>(track.default_sample_duration) * 1e9 / track.timescale);
+    return out;
+}
+
+} // namespace
+
+bool StreamBuffer::take_init(std::vector<WebmTrack> const& tracks, std::optional<double> duration)
+{
+    bool ok = true;
+    std::vector<WebmTrack const*> playable;
+    for (WebmTrack const& track : tracks) {
+        if (track.kind != WebmTrack::Kind::Other)
+            playable.push_back(&track);
+    }
+    if (playable.empty())
+        ok = false;
+    if (m_tracks.empty()) {
+        for (WebmTrack const* track : playable) {
+            Track made;
+            made.description = *track;
+            m_tracks.push_back(std::move(made));
+        }
+    } else {
+        // A later initialization segment describes the same tracks
+        // again (MSE §3.5.7): as many, of the same kinds and codecs.
+        bool same = playable.size() == m_tracks.size();
+        for (std::size_t i = 0; same && i < playable.size(); ++i)
+            same = playable[i]->kind == m_tracks[i].description.kind && playable[i]->codec_id == m_tracks[i].description.codec_id;
+        if (!same)
+            ok = false;
+        for (std::size_t i = 0; same && i < playable.size(); ++i)
+            m_tracks[i].description = *playable[i];
+    }
+    for (Track& track : m_tracks)
+        track.need_key_frame = true;
+    if (duration)
+        m_duration_seconds = duration;
+    return ok;
+}
+
 StreamBuffer::Appended StreamBuffer::append(std::span<std::uint8_t const> bytes)
 {
     Appended result;
-    result.ok = m_parser.append(bytes);
-    if (m_parser.init_segments() > m_inits_seen) {
-        m_inits_seen = m_parser.init_segments();
-        std::vector<WebmTrack const*> playable;
-        for (WebmTrack const& track : m_parser.init().tracks) {
-            if (track.kind != WebmTrack::Kind::Other)
-                playable.push_back(&track);
-        }
-        if (playable.empty())
+    // The container, from the first bytes: an EBML header (WebM) or a box
+    // whose name an MP4 begins with.
+    if (m_container == Container::Unknown) {
+        m_sniff.insert(m_sniff.end(), bytes.begin(), bytes.end());
+        if (m_sniff.size() < 8)
+            return result;
+        static constexpr std::uint8_t ebml[4] = { 0x1A, 0x45, 0xDF, 0xA3 };
+        std::string const box(reinterpret_cast<char const*>(m_sniff.data()) + 4, 4);
+        if (std::equal(ebml, ebml + 4, m_sniff.begin()))
+            m_container = Container::WebM;
+        else if (box == "ftyp" || box == "moov" || box == "styp" || box == "moof" || box == "sidx" || box == "free" || box == "skip" || box == "mdat")
+            m_container = Container::Mp4;
+        else {
             result.ok = false;
-        if (m_tracks.empty()) {
-            for (WebmTrack const* track : playable) {
-                Track made;
-                made.description = *track;
-                m_tracks.push_back(std::move(made));
-            }
-        } else {
-            // A later initialization segment describes the same tracks
-            // again (MSE §3.5.7): as many, of the same kinds and codecs.
-            bool same = playable.size() == m_tracks.size();
-            for (std::size_t i = 0; same && i < playable.size(); ++i)
-                same = playable[i]->kind == m_tracks[i].description.kind && playable[i]->codec_id == m_tracks[i].description.codec_id;
-            if (!same)
-                result.ok = false;
-            for (std::size_t i = 0; same && i < playable.size(); ++i)
-                m_tracks[i].description = *playable[i];
+            return result;
         }
-        for (Track& track : m_tracks)
-            track.need_key_frame = true;
-        result.init_segment = result.ok;
+        bytes = m_sniff;
     }
-    // The frames read before a fault are still the stream's.
-    for (WebmFrame& frame : m_parser.take_frames()) {
-        for (Track& track : m_tracks) {
-            if (track.description.number == frame.track) {
-                file(track, std::move(frame));
-                result.frames = true;
-                break;
+    if (m_container == Container::WebM) {
+        result.ok = m_webm.append(bytes);
+        if (m_webm.init_segments() > m_inits_seen) {
+            m_inits_seen = m_webm.init_segments();
+            result.ok = take_init(m_webm.init().tracks, m_webm.init().duration_seconds) && result.ok;
+            result.init_segment = result.ok;
+        }
+        // The frames read before a fault are still the stream's.
+        for (WebmFrame& frame : m_webm.take_frames()) {
+            for (Track& track : m_tracks) {
+                if (track.description.number == frame.track) {
+                    std::int64_t const decode_time = frame.time_ns;
+                    file(track, std::move(frame), decode_time);
+                    result.frames = true;
+                    break;
+                }
             }
         }
+    } else {
+        result.ok = m_mp4.append(bytes);
+        if (m_mp4.init_segments() > m_inits_seen) {
+            m_inits_seen = m_mp4.init_segments();
+            std::vector<WebmTrack> tracks;
+            for (Mp4Track const& track : m_mp4.init().tracks)
+                tracks.push_back(describe(track));
+            result.ok = take_init(tracks, m_mp4.init().duration_seconds) && result.ok;
+            result.init_segment = result.ok;
+        }
+        for (Mp4Frame& frame : m_mp4.take_frames()) {
+            for (Track& track : m_tracks) {
+                if (track.description.number == frame.track) {
+                    WebmFrame as_webm;
+                    as_webm.track = frame.track;
+                    as_webm.time_ns = frame.time_ns;
+                    if (frame.duration_ns > 0)
+                        as_webm.duration_ns = frame.duration_ns;
+                    as_webm.key = frame.key;
+                    as_webm.data = std::move(frame.data);
+                    file(track, std::move(as_webm), frame.decode_time_ns);
+                    result.frames = true;
+                    break;
+                }
+            }
+        }
     }
+    m_sniff.clear();
+    m_sniff.shrink_to_fit();
     return result;
 }
 
-void StreamBuffer::file(Track& track, WebmFrame&& frame)
+bool StreamBuffer::parsing_media_segment() const
+{
+    if (m_container == Container::WebM)
+        return !m_webm.at_segment_boundary();
+    if (m_container == Container::Mp4)
+        return !m_mp4.at_segment_boundary();
+    return false;
+}
+
+void StreamBuffer::file(Track& track, WebmFrame&& frame, std::int64_t decode_time_ns)
 {
     double const raw_seconds = to_seconds(frame.time_ns);
     if (mode == Mode::Sequence && group_start) {
@@ -142,15 +233,19 @@ void StreamBuffer::file(Track& track, WebmFrame&& frame)
         for (Track& each : m_tracks) {
             each.need_key_frame = true;
             each.last_time_ns.reset();
+            each.last_decode_ns.reset();
         }
         group_start.reset();
     }
     std::int64_t const time_ns = frame.time_ns + to_ns(timestamp_offset);
 
-    // A step backwards, or a leap forwards, begins a new run of frames
-    // (MSE §3.5.8 step 6): every track waits for a key frame again.
-    if (track.last_time_ns) {
-        std::int64_t const distance = time_ns - *track.last_time_ns;
+    // A step backwards, or a leap forwards, in decode time begins a new run
+    // of frames (MSE §3.5.8 step 6): every track waits for a key frame
+    // again. (Decode time, not presentation: a picture that leans on a
+    // later one is presented before it and decoded after.)
+    std::int64_t const decode_ns = decode_time_ns + (time_ns - frame.time_ns);
+    if (track.last_decode_ns) {
+        std::int64_t const distance = decode_ns - *track.last_decode_ns;
         // The leap that counts is past twice the longest frame seen, not
         // twice the last distance alone: with millisecond timestamps a
         // 60 fps stream's frames are 16 and 17 ms apart by turns, and one
@@ -163,10 +258,11 @@ void StreamBuffer::file(Track& track, WebmFrame&& frame)
             for (Track& each : m_tracks) {
                 each.need_key_frame = true;
                 each.last_time_ns.reset();
+                each.last_decode_ns.reset();
                 each.last_distance_ns = 0;
             }
             if (mode == Mode::Sequence) {
-                file(track, std::move(frame));
+                file(track, std::move(frame), decode_time_ns);
                 return;
             }
         }
@@ -174,6 +270,7 @@ void StreamBuffer::file(Track& track, WebmFrame&& frame)
 
     CodedFrame coded;
     coded.time_ns = time_ns;
+    coded.decode_time_ns = decode_ns;
     coded.key = frame.key;
     if (frame.duration_ns) {
         coded.duration_ns = static_cast<std::int64_t>(std::min<std::uint64_t>(*frame.duration_ns, static_cast<std::uint64_t>(nanoseconds) * 3600));
@@ -188,11 +285,13 @@ void StreamBuffer::file(Track& track, WebmFrame&& frame)
         auto const before = track.frames.find(*track.last_time_ns);
         if (before != track.frames.end() && before->second.duration_estimated)
             before->second.duration_ns = time_ns - *track.last_time_ns;
-        track.last_distance_ns = time_ns - *track.last_time_ns;
         if (coded.duration_estimated)
-            coded.duration_ns = track.last_distance_ns;
+            coded.duration_ns = time_ns - *track.last_time_ns;
     }
+    if (track.last_decode_ns && decode_ns > *track.last_decode_ns)
+        track.last_distance_ns = decode_ns - *track.last_decode_ns;
     track.last_time_ns = time_ns;
+    track.last_decode_ns = decode_ns;
 
     std::int64_t const end_ns = time_ns + coded.duration_ns;
     if (time_ns < to_ns(append_window_start) || end_ns > to_ns(append_window_end)) {
@@ -225,15 +324,21 @@ void StreamBuffer::file(Track& track, WebmFrame&& frame)
     track.bytes += coded.data.size();
     track.longest_frame_ns = std::max(track.longest_frame_ns, coded.duration_ns);
     m_group_end = std::max(m_group_end, to_seconds(end_ns));
+    if (auto const old = frames.find(time_ns); old != frames.end())
+        track.decode_order.erase(old->second.decode_time_ns);
+    track.decode_order[coded.decode_time_ns] = time_ns;
     frames.insert_or_assign(time_ns, std::move(coded));
 }
 
 void StreamBuffer::reset_parser()
 {
-    m_parser.reset();
+    m_webm.reset();
+    m_mp4.reset();
+    m_sniff.clear();
     for (Track& track : m_tracks) {
         track.need_key_frame = true;
         track.last_time_ns.reset();
+        track.last_decode_ns.reset();
         track.last_distance_ns = 0;
     }
 }
@@ -271,6 +376,7 @@ bool StreamBuffer::evict(double current_time, std::size_t incoming)
         }
         for (auto it = track.frames.begin(); it != keep;) {
             track.bytes -= it->second.data.size();
+            track.decode_order.erase(it->second.decode_time_ns);
             it = track.frames.erase(it);
         }
     }

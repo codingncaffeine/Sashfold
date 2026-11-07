@@ -184,6 +184,8 @@ add_test(NAME test_mp4 COMMAND test_mp4 ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/med
 add_executable(test_h264 test_h264.cpp)
 target_link_libraries(test_h264 PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME test_h264 COMMAND test_h264 ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/media/mp4)
+# It loads the GPU drivers, whose own leaks lsan-suppressions.txt names.
+set_tests_properties(test_h264 PROPERTIES ENVIRONMENT "LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt")
 # The RFC 8251 test vectors, when tools/opus-vectors-fetch.sh has fetched them.
 add_executable(test_opus test_opus.cpp)
 target_link_libraries(test_opus PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
@@ -237,6 +239,10 @@ add_test(NAME shell_forms
 add_test(NAME shell_video
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/video.script)
 set_tests_properties(shell_video PROPERTIES ENVIRONMENT
+  "SASHFOLD_MEDIA=1;LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt")
+add_test(NAME shell_video_mp4
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/video-mp4.script)
+set_tests_properties(shell_video_mp4 PROPERTIES ENVIRONMENT
   "SASHFOLD_MEDIA=1;LSAN_OPTIONS=suppressions=${CMAKE_CURRENT_SOURCE_DIR}/lsan-suppressions.txt")
 # A page's element full screen: refused without a click, granted at one, left at Esc.
 add_test(NAME shell_fullscreen
