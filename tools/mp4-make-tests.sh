@@ -27,6 +27,18 @@ make() {
     if ffprobe -hide_banner -loglevel error -select_streams v -show_streams "$out/$name.mp4" | grep -q codec_type=video; then
         ffprobe -hide_banner -loglevel error -select_streams v -show_frames -of compact=p=0:nk=1 \
             -show_entries frame=pts_time,pict_type "$out/$name.mp4" | awk -F'|' '{ print $1, $2 }' > "$out/$name.frames"
+        # Each picture as ffmpeg decodes it, in presentation order: the SHA-256
+        # of its planes (Y, then Cb, then Cr), one a line. H.264 decoding is
+        # exact by the standard, so the hardware must give the same bytes.
+        ffmpeg -hide_banner -loglevel error -i "$out/$name.mp4" -an -fps_mode passthrough -f rawvideo -pix_fmt yuv420p - \
+            | python3 -I -c '
+import hashlib, sys
+w, h = int(sys.argv[1]), int(sys.argv[2])
+size = w * h * 3 // 2
+data = sys.stdin.buffer.read()
+for i in range(len(data) // size):
+    print(hashlib.sha256(data[i * size:(i + 1) * size]).hexdigest())
+' 160 120 > "$out/$name.pictures"
     fi
 }
 

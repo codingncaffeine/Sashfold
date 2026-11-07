@@ -1,15 +1,20 @@
 #include "Test.h"
 
+#include "crypto/Sha2.h"
+#include "media/H264Decoder.h"
 #include "media/H264.h"
 #include "media/Mp4.h"
 
 #include <algorithm>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iterator>
 #include <map>
 #include <span>
+#include <iostream>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -152,6 +157,85 @@ void check_stream(std::string const& folder, std::string const& name)
         CHECK(std::any_of(seen.begin(), seen.end(), [](Seen const& s) { return s.type == 'B' && s.reference; }));
 }
 
+// The planes of a picture, Y then Cb then Cr, as ffmpeg writes yuv420p.
+std::string planar_digest(media::Nv12Picture const& picture)
+{
+    crypto::Sha256 hash;
+    hash.update(picture.luma);
+    std::size_t const samples = static_cast<std::size_t>(picture.chroma_width()) * static_cast<std::size_t>(picture.chroma_height());
+    Bytes plane(samples);
+    for (std::size_t offset : { std::size_t { 0 }, std::size_t { 1 } }) {
+        for (std::size_t i = 0; i < samples; ++i)
+            plane[i] = picture.chroma[2 * i + offset];
+        hash.update(plane);
+    }
+    std::string hex;
+    for (std::uint8_t const byte : hash.finish()) {
+        hex += "0123456789abcdef"[byte >> 4];
+        hex += "0123456789abcdef"[byte & 15];
+    }
+    return hex;
+}
+
+// Through the hardware: every picture of a file decoded in the file's
+// order, put in presentation order, and each the very bytes ffmpeg's
+// decoder gives (H.264 decoding is exact by the standard), with
+// B-pyramids, a stream of P pictures only, and a fragmented file.
+void check_hardware(std::string const& folder, std::string const& name, media::VideoApi api, char const* api_name)
+{
+    std::string why;
+    std::unique_ptr<media::H264Accelerator> accelerator = media::H264Accelerator::open(why, api);
+    char const* const expected = std::getenv("SASHFOLD_EXPECT_VIDEO_HARDWARE");
+    if (!accelerator) {
+        std::cerr << "test_h264: not decoding " << name << " through " << api_name << ": " << why << "\n";
+        CHECK(!(expected && std::strstr(expected, api_name)));
+        return;
+    }
+    std::cerr << "test_h264: decoding " << name << " through " << api_name << " on " << accelerator->device() << "\n";
+    media::H264Decoder decoder(std::move(accelerator));
+    Bytes const file = read_file(folder + "/" + name + ".mp4");
+    std::vector<std::string> truth;
+    {
+        std::ifstream in(folder + "/" + name + ".pictures");
+        std::string line;
+        while (std::getline(in, line))
+            truth.push_back(line);
+    }
+    CHECK(!file.empty() && !truth.empty());
+    media::Mp4Parser parser;
+    CHECK(parser.append(file));
+    media::Mp4Track const* video = nullptr;
+    for (media::Mp4Track const& t : parser.init().tracks) {
+        if (t.kind == media::Mp4Track::Kind::Video)
+            video = &t;
+    }
+    CHECK(video && decoder.set_configuration(video->codec_private));
+    if (!video)
+        return;
+    std::vector<std::pair<std::int64_t, std::string>> decoded;
+    for (media::Mp4Frame const& frame : parser.take_frames()) {
+        if (frame.track != video->id)
+            continue;
+        std::optional<media::Nv12Picture> const picture = decoder.decode(frame.data);
+        if (picture)
+            decoded.emplace_back(frame.time_ns, planar_digest(*picture));
+        else
+            decoded.emplace_back(frame.time_ns, "none");
+    }
+    std::sort(decoded.begin(), decoded.end());
+    CHECK(decoded.size() == truth.size());
+    std::size_t exact = 0;
+    for (std::size_t i = 0; i < decoded.size() && i < truth.size(); ++i) {
+        if (decoded[i].second == truth[i])
+            ++exact;
+        else if (exact + 3 > i)
+            std::fprintf(stderr, "    %s picture %zu (%.6f s): %s, ffmpeg %s\n", name.c_str(), i, decoded[i].first / 1e9, decoded[i].second.c_str(),
+                truth[i].c_str());
+    }
+    CHECK(exact == truth.size());
+    CHECK(decoder.counts().failed == 0 && decoder.counts().gaps == 0);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -164,6 +248,8 @@ int main(int argc, char** argv)
     check_stream(folder, "plain-faststart");
     check_stream(folder, "fragmented");
     check_stream(folder, "video-only");
+    for (char const* name : { "plain-faststart", "plain-moov-last", "video-only", "fragmented", "fragmented-absolute" })
+        check_hardware(folder, name, media::VideoApi::Vulkan, "vulkan");
     // Annex B: start codes of three and four bytes, trailing zeros no unit's,
     // the emulation prevention bytes taken out of a payload.
     {

@@ -595,14 +595,18 @@ std::optional<Nv12Picture> Device::read(int index)
     out.height = picture.height;
     auto const width = static_cast<std::size_t>(picture.width);
     auto const pitch = static_cast<std::size_t>(m_extent.width);
+    auto const crop_x = static_cast<std::size_t>(std::max(0, picture.crop_x));
+    auto const crop_y = static_cast<std::size_t>(std::max(0, picture.crop_y));
+    if (crop_x + width > m_extent.width || crop_y + static_cast<std::size_t>(picture.height) > m_extent.height)
+        return std::nullopt;
     out.luma.resize(width * static_cast<std::size_t>(picture.height));
     for (std::size_t y = 0; y < static_cast<std::size_t>(picture.height); ++y)
-        std::memcpy(out.luma.data() + y * width, m_readback.mapped + y * pitch, width);
+        std::memcpy(out.luma.data() + y * width, m_readback.mapped + (y + crop_y) * pitch + crop_x, width);
     std::size_t const chroma_row = static_cast<std::size_t>(out.chroma_width()) * 2;
     std::size_t const chroma_pitch = static_cast<std::size_t>(m_extent.width / 2) * 2;
     out.chroma.resize(chroma_row * static_cast<std::size_t>(out.chroma_height()));
     for (std::size_t y = 0; y < static_cast<std::size_t>(out.chroma_height()); ++y)
-        std::memcpy(out.chroma.data() + y * chroma_row, m_readback.mapped + chroma_offset + y * chroma_pitch, chroma_row);
+        std::memcpy(out.chroma.data() + y * chroma_row, m_readback.mapped + chroma_offset + (y + crop_y / 2) * chroma_pitch + (crop_x / 2) * 2, chroma_row);
     return out;
 }
 

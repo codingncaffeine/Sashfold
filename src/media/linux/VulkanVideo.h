@@ -800,8 +800,10 @@ struct Picture {
     VkImage image = 0;
     VkDeviceMemory memory = 0;
     VkImageView view = 0;
-    int width = 0; // of the frame decoded into it
+    int width = 0; // of the frame decoded into it, as shown
     int height = 0;
+    int crop_x = 0; // where the shown frame starts in the coded picture
+    int crop_y = 0;
 };
 
 struct HostBuffer {
