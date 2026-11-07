@@ -445,10 +445,8 @@ int main()
         // shown in what it has meanwhile, and laid out in the piece when it
         // has come.
         Rect const area = browser.chrome_layout().content;
-        // Counted from before the click: the Greek text is laid out once in
-        // what the page has, which is what asks for the piece, and again when
-        // the piece has come. A slow machine's tick can outlast the piece's
-        // 100 ms, so the second layout may land before the wait below ends.
+        // Counted from before the click: the Greek text is laid out, which is
+        // what asks for the piece, and laid out in the piece when it has come.
         std::uint64_t const layouts_before_click = browser.profile().relayouts;
         browser.mouse_move(area.x + 50, area.y + 50);
         browser.mouse_down(area.x + 50, area.y + 50, 1);
@@ -463,11 +461,15 @@ int main()
         // (macOS CI 42248948818) — so the piece's arrival and the layout in
         // it are what the wait ends on.
         auto const asked = std::chrono::steady_clock::now();
-        while ((browser.profile().relayouts < layouts_before_click + 2 || text::FontManager::instance().page_fonts_waiting() != 1u)
+        while ((browser.profile().relayouts < layouts_before_click + 1 || text::FontManager::instance().page_fonts_waiting() != 1u)
             && ms_since(asked) < 5000)
             browser.tick();
         load_fully(browser);
-        CHECK(browser.profile().relayouts >= layouts_before_click + 2); // in what it had, then in the piece
+        // Laid out again after the click; whether once in what it had and once
+        // in the piece, or once in the piece (it came before the first layout
+        // was reported, as on macOS CI 42313541072), is the machine's timing:
+        // the piece fetched once and in use, below, is what is required.
+        CHECK(browser.profile().relayouts >= layouts_before_click + 1);
         CHECK_EQ(server.asked("/greek.ttf"), std::size_t { 1 });
         CHECK_EQ(server.asked("/used.ttf"), std::size_t { 1 });
         CHECK_EQ(server.asked("/unused.ttf"), std::size_t { 0 });
