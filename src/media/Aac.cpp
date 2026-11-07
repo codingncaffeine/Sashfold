@@ -678,7 +678,7 @@ struct AacDecoder::Impl {
                 std::array<double, 13> tmp {};
                 lpc[0] = 1;
                 for (int m = 1; m <= filter.order; ++m) {
-                    double const k = filter.coefficients[static_cast<std::size_t>(m) - 1];
+                    double const k = static_cast<double>(filter.coefficients[static_cast<std::size_t>(m) - 1]);
                     for (int i = 1; i < m; ++i)
                         tmp[static_cast<std::size_t>(i)] = lpc[static_cast<std::size_t>(i)] + k * lpc[static_cast<std::size_t>(m - i)];
                     for (int i = 1; i < m; ++i)
@@ -693,7 +693,7 @@ struct AacDecoder::Impl {
                 int at = filter.backward ? size - 1 : 0;
                 std::array<double, 13> history {};
                 for (int n = 0; n < size; ++n, at += step) {
-                    double y = x[at];
+                    double y = static_cast<double>(x[at]);
                     for (int i = 1; i <= filter.order; ++i)
                         y -= lpc[static_cast<std::size_t>(i)] * history[static_cast<std::size_t>(i)];
                     for (int i = filter.order; i > 1; --i)

@@ -93,7 +93,7 @@ void check_file(std::string const& folder, std::string const& name, int channels
     CHECK(count > 1024 * static_cast<std::size_t>(channels) * 10);
     double signal = 0, noise = 0;
     for (std::size_t i = 0; i < count; ++i) {
-        double const t = truth[i];
+        double const t = static_cast<double>(truth[i]);
         double const d = static_cast<double>(ours[skip + i]) - t;
         signal += t * t;
         noise += d * d;
@@ -111,7 +111,7 @@ void check_file(std::string const& folder, std::string const& name, int channels
                 long const j = static_cast<long>(skip + i) + lag * channels;
                 if (j < 0 || static_cast<std::size_t>(j) >= ours.size())
                     continue;
-                double const t = truth[i];
+                double const t = static_cast<double>(truth[i]);
                 double const d = static_cast<double>(ours[static_cast<std::size_t>(j)]) - t;
                 sig += t * t;
                 err += d * d;
