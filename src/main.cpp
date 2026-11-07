@@ -19,6 +19,7 @@
 #include "layout/Layout.h"
 #include "net/Http.h"
 #include "paint/Painter.h"
+#include "platform/Print.h"
 #include "platform/CaretBlink.h"
 #include "platform/Clipboard.h"
 #include "platform/Confine.h"
@@ -34,6 +35,7 @@
 #include "ui/BookmarkSources.h"
 #include "ui/Bookmarks.h"
 #include "ui/Browser.h"
+#include "ui/PdfViewer.h"
 #include "ui/SpellService.h"
 #include "ui/Cosmetic.h"
 #include "ui/Frames.h"
@@ -2244,6 +2246,11 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // The desktop's file chooser, for file inputs: opened on a thread of its
     // own, which wakes the loop when it has answered.
     browser.set_file_chooser([waker](platform::FileChoice choice) { return platform::open_file_chooser(std::move(choice), [waker] { waker->wake(); }); });
+    // The PDF viewer's print button: the system's print dialog, on a thread of its own.
+    ui::set_pdf_printer([waker](platform::PrintJob job) { return platform::print_document(std::move(job), [waker] { waker->wake(); }); });
+    struct PrinterLet {
+        ~PrinterLet() { ui::set_pdf_printer(nullptr); }
+    } const printer_let;
     struct NotifierLet {
         ui::Browser& browser;
         ~NotifierLet() { browser.set_notifier(nullptr); }

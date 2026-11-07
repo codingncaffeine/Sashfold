@@ -23,7 +23,7 @@ type Test Document
 assert-find No matches
 key Escape
 # The page field: 2 + Enter scrolls page 2 to the top.
-click 528 99
+click 492 99
 type 2
 key Enter
 advance 500 4
@@ -49,3 +49,7 @@ advance 500 6
 assert-value zoom 4
 assert-pixel 450 600 #d91a1a
 assert-pixel 200 600 #ffffff
+# Print: the script runner has no print dialog, and the viewer says so.
+key ctrl+p
+advance 100 3
+assert-text Printing is not available on this system.

@@ -75,6 +75,9 @@ body.side-open #pages { padding-left: 216px; }
 .links a { position: absolute; display: block; }
 #notice { position: fixed; top: 48px; left: 0; right: 0; bottom: 0; display: none; align-items: center; justify-content: center; }
 #notice.on { display: flex; }
+#toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--bar); color: var(--ink);
+  padding: 10px 18px; border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); font-size: 14px; display: none; }
+#toast.on { display: block; }
 #notice form, #notice div.box { background: var(--bar); padding: 20px 24px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   display: flex; flex-direction: column; gap: 12px; min-width: 280px; }
 #notice input { background: var(--field); color: var(--ink); border: 1px solid #5f6368; border-radius: 4px; padding: 8px; font: inherit; }
@@ -115,6 +118,7 @@ body.side-open #pages { padding-left: 216px; }
   <div class="group">
     <button id="rotate" title="Rotate clockwise (Ctrl+])" aria-label="Rotate clockwise"><svg viewBox="0 0 24 24"><path d="M15.55 5.55L11 1v3.07C7.06 4.56 4 7.92 4 12s3.05 7.44 7 7.93v-2.02c-2.84-.48-5-2.94-5-5.91s2.16-5.43 5-5.91V10l4.55-4.45zM19.93 11c-.17-1.39-.72-2.73-1.62-3.89l-1.42 1.42c.54.75.88 1.6 1.02 2.47h2.02zM13 17.9v2.02c1.39-.17 2.74-.71 3.9-1.61l-1.44-1.44c-.75.54-1.59.89-2.46 1.03zm3.89-2.42l1.42 1.41c.9-1.16 1.45-2.5 1.62-3.89h-2.02c-.14.87-.48 1.72-1.02 2.48z"/></svg></button>
     <button id="download" title="Download" aria-label="Download"><svg viewBox="0 0 24 24"><path d="M19 9h-4V3H9v6H5l7 7 7-7zM5 18v2h14v-2H5z"/></svg></button>
+    <button id="print" title="Print (Ctrl+P)" aria-label="Print"><svg viewBox="0 0 24 24"><path d="M19 8H5c-1.66 0-3 1.34-3 3v6h4v4h12v-4h4v-6c0-1.66-1.34-3-3-3zm-3 11H8v-5h8v5zm3-7c-.55 0-1-.45-1-1s.45-1 1-1 1 .45 1 1-.45 1-1 1zm-1-9H6v4h12V3z"/></svg></button>
   </div>
 </div>
 <div id="side">
@@ -124,6 +128,7 @@ body.side-open #pages { padding-left: 216px; }
 </div>
 <div id="pages"></div>
 <div id="notice"></div>
+<div id="toast" role="status"></div>
 <script>
 "use strict";
 const BASE = "sashfold-pdf://@@ID@@/";
@@ -521,6 +526,38 @@ function build() {
   updateCurrent();
 }
 
+// A line at the foot for a moment: how printing went.
+let toastTimer = 0;
+function toast(text) {
+  const box = $("toast");
+  box.textContent = text;
+  box.classList.add("on");
+  clearTimeout(toastTimer);
+  toastTimer = setTimeout(() => box.classList.remove("on"), 4000);
+}
+
+// The system's print dialog, through the shell; its outcome is asked for
+// until it has one.
+async function printDocument() {
+  const answer = await json("print", { method: "POST", body: "" });
+  if (!answer.ok) {
+    toast("Printing is not available on this system.");
+    return;
+  }
+  const poll = async () => {
+    const state = await json("print-status");
+    if (state.status === "pending") {
+      setTimeout(poll, 500);
+      return;
+    }
+    if (state.status === "unavailable")
+      toast("Printing is not available on this system.");
+    else if (state.status === "failed")
+      toast("The document could not be printed.");
+  };
+  setTimeout(poll, 500);
+}
+
 function askPassword(wrong) {
   const notice = $("notice");
   notice.textContent = "";
@@ -612,6 +649,7 @@ $("zoom").addEventListener("change", (event) => {
 });
 $("rotate").addEventListener("click", () => rotate(90));
 $("download").addEventListener("click", () => { location.href = BASE + "file"; });
+$("print").addEventListener("click", () => printDocument());
 $("page").addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     const n = parseInt(event.target.value, 10);
@@ -645,6 +683,9 @@ document.addEventListener("keydown", (event) => {
     event.preventDefault();
   } else if (event.key === "[") {
     rotate(-90);
+    event.preventDefault();
+  } else if (event.key === "p" || event.key === "P") {
+    printDocument();
     event.preventDefault();
   }
 });

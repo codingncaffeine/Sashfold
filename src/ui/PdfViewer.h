@@ -14,8 +14,10 @@
 #include "net/Http.h"
 #include "net/Url.h"
 #include "pdf/Document.h"
+#include "platform/Print.h"
 
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -35,7 +37,14 @@ struct PdfHandle {
     mutable std::mutex mutex; // over what follows: an unlock replaces the document
     std::shared_ptr<pdf::Document const> document;
     pdf::Document::Status status = pdf::Document::Status::NotPdf;
+    std::unique_ptr<platform::PrintRequest> print; // the last print asked for, while it runs
 };
+
+// How a viewer's print button reaches the system's print dialog
+// (platform/Print.h): the shell sets it; none set (the script runner)
+// means printing is unavailable.
+using PdfPrinter = std::function<std::unique_ptr<platform::PrintRequest>(platform::PrintJob)>;
+void set_pdf_printer(PdfPrinter printer);
 
 // Whether a response is a PDF to show: its type says so, or (as browsers
 // sniff a file served with no type, or a generic one) its bytes begin

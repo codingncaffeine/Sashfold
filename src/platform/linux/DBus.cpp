@@ -47,6 +47,7 @@ enum Field : std::uint8_t {
     Destination = 6,
     Sender = 7,
     Signature = 8,
+    UnixFds = 9,
 };
 
 // The longest message a bus passes on (2^27 bytes), and the longest array.
@@ -248,6 +249,11 @@ std::vector<std::uint8_t> encode(Message const& message)
         text_field(Destination, "s", message.destination);
         text_field(Sender, "s", message.sender);
         text_field(Signature, "g", message.signature);
+        if (!message.fds.empty()) {
+            header.align(8);
+            header.byte(UnixFds);
+            header.variant_uint32(static_cast<std::uint32_t>(message.fds.size()));
+        }
     });
     header.align(8);
     std::vector<std::uint8_t> bytes = header.take();
@@ -403,6 +409,35 @@ bool said(std::string* why_not, std::string reason)
     return false;
 }
 
+// The first bytes of a message with its file descriptors beside them
+// (SCM_RIGHTS, all on one sendmsg); how many bytes went, -1 on failure.
+ssize_t send_with_fds(int fd, std::uint8_t const* bytes, std::size_t count, std::vector<int> const& fds)
+{
+    std::vector<std::uint8_t> control(CMSG_SPACE(sizeof(int) * fds.size()));
+    iovec io { const_cast<std::uint8_t*>(bytes), count };
+    msghdr message {};
+    message.msg_iov = &io;
+    message.msg_iovlen = 1;
+    message.msg_control = control.data();
+    message.msg_controllen = control.size();
+    cmsghdr* const cmsg = CMSG_FIRSTHDR(&message);
+    cmsg->cmsg_level = SOL_SOCKET;
+    cmsg->cmsg_type = SCM_RIGHTS;
+    cmsg->cmsg_len = CMSG_LEN(sizeof(int) * fds.size());
+    std::memcpy(CMSG_DATA(cmsg), fds.data(), sizeof(int) * fds.size());
+    while (true) {
+        ssize_t const wrote = sendmsg(fd, &message, MSG_NOSIGNAL);
+        if (wrote < 0 && errno == EINTR)
+            continue;
+        if (wrote < 0 && errno == EAGAIN) {
+            pollfd waiting { fd, POLLOUT, 0 };
+            poll(&waiting, 1, 1000);
+            continue;
+        }
+        return wrote;
+    }
+}
+
 bool write_all(int fd, std::uint8_t const* bytes, std::size_t count)
 {
     while (count > 0) {
@@ -488,6 +523,13 @@ std::unique_ptr<Connection> Connection::open(SocketAddress const& address, std::
         said(why_not, "the bus did not accept this user" + (answer ? ": " + *answer : std::string()));
         return nullptr;
     }
+    // File descriptors in messages (a portal's print takes the file as
+    // one): asked for; a bus that says no still carries everything else.
+    static constexpr char negotiate[] = "NEGOTIATE_UNIX_FD\r\n";
+    if (write_all(fd, reinterpret_cast<std::uint8_t const*>(negotiate), sizeof negotiate - 1)) {
+        std::optional<std::string> const agreed = read_line(fd, 5000);
+        connection->m_passes_fds = agreed && agreed->starts_with("AGREE_UNIX_FD");
+    }
     static constexpr char begin[] = "BEGIN\r\n";
     if (!write_all(fd, reinterpret_cast<std::uint8_t const*>(begin), sizeof begin - 1)) {
         said(why_not, "the bus closed the socket");
@@ -534,7 +576,18 @@ std::uint32_t Connection::send(Message message)
     if (m_next_serial == 0)
         m_next_serial = 1;
     std::vector<std::uint8_t> const bytes = encode(message);
-    if (!write_all(m_fd, bytes.data(), bytes.size())) {
+    std::size_t sent = 0;
+    if (!message.fds.empty()) {
+        if (!m_passes_fds)
+            return 0; // the bus will not carry them: not sent
+        ssize_t const first = send_with_fds(m_fd, bytes.data(), bytes.size(), message.fds);
+        if (first < 0) {
+            m_closed = true;
+            return 0;
+        }
+        sent = static_cast<std::size_t>(first);
+    }
+    if (!write_all(m_fd, bytes.data() + sent, bytes.size() - sent)) {
         m_closed = true;
         return 0;
     }

@@ -5,6 +5,7 @@
 #if defined(__linux__)
 #include "platform/linux/DBus.h"
 #include "platform/linux/NotifierDBus.h"
+#include "platform/linux/PrintPortal.h"
 
 #include <atomic>
 #include <chrono>
@@ -272,6 +273,23 @@ public:
         std::lock_guard const lock(m_mutex);
         return m_credentials;
     }
+    std::vector<std::string> fd_contents() const
+    {
+        std::lock_guard const lock(m_mutex);
+        return m_fd_contents;
+    }
+    std::string print_title() const
+    {
+        std::lock_guard const lock(m_mutex);
+        return m_print_title;
+    }
+    std::uint32_t print_fd_index() const
+    {
+        std::lock_guard const lock(m_mutex);
+        return m_print_fd_index;
+    }
+    // What the Print request's Response will say: 0 printed, 1 cancelled, 2 failed.
+    std::atomic<std::uint32_t> m_print_response { 0 };
 
     // The service's signals, sent when the connection's thread next looks.
     void press(std::uint32_t number) { emit("ActionInvoked", number, 0, true); }
@@ -370,6 +388,8 @@ private:
                     begun = true;
                     pending.assign(text.begin(), text.end());
                     break;
+                } else if (line == "NEGOTIATE_UNIX_FD") {
+                    send_all(fd, bytes_of("AGREE_UNIX_FD\r\n"));
                 } else {
                     send_all(fd, bytes_of("ERROR\r\n"));
                 }
@@ -412,9 +432,34 @@ private:
                 if (poll(&waiting, 1, 10) <= 0)
                     continue;
                 std::uint8_t buffer[4096];
-                ssize_t const got = recv(fd, buffer, sizeof buffer, 0);
+                // File descriptors beside the bytes (SCM_RIGHTS): what each
+                // holds is read and kept.
+                std::uint8_t control[CMSG_SPACE(sizeof(int) * 4)];
+                iovec io { buffer, sizeof buffer };
+                msghdr header {};
+                header.msg_iov = &io;
+                header.msg_iovlen = 1;
+                header.msg_control = control;
+                header.msg_controllen = sizeof control;
+                ssize_t const got = recvmsg(fd, &header, 0);
                 if (got <= 0)
                     return;
+                for (cmsghdr* c = CMSG_FIRSTHDR(&header); c; c = CMSG_NXTHDR(&header, c)) {
+                    if (c->cmsg_level != SOL_SOCKET || c->cmsg_type != SCM_RIGHTS)
+                        continue;
+                    std::size_t const count = (c->cmsg_len - CMSG_LEN(0)) / sizeof(int);
+                    for (std::size_t i = 0; i < count; ++i) {
+                        int passed = -1;
+                        std::memcpy(&passed, CMSG_DATA(c) + i * sizeof(int), sizeof(int));
+                        std::string contents;
+                        char piece[256];
+                        for (ssize_t n = read(passed, piece, sizeof piece); n > 0; n = read(passed, piece, sizeof piece))
+                            contents.append(piece, static_cast<std::size_t>(n));
+                        ::close(passed);
+                        std::lock_guard const lock(m_mutex);
+                        m_fd_contents.push_back(std::move(contents));
+                    }
+                }
                 pending.insert(pending.end(), buffer, buffer + got);
                 continue;
             }
@@ -426,6 +471,54 @@ private:
                 dbus::Writer name;
                 name.string(":1.7");
                 reply(fd, *message, "s", name.take());
+            } else if (message->member == "Print") {
+                // The portal: parent, title, the fd's index, options with the
+                // handle_token; the request's path is answered, then its
+                // Response says printed (0), from the sender's name and token.
+                std::string const parent = body.string().value_or("?");
+                std::string const title = body.string().value_or("?");
+                std::uint32_t const index = body.uint32().value_or(99);
+                std::string token;
+                std::uint32_t const options = body.uint32().value_or(0);
+                body.align(8);
+                std::size_t const options_end = body.position() + options;
+                while (!body.failed() && body.position() < options_end) {
+                    body.align(8);
+                    std::string const key = body.string().value_or("?");
+                    std::string const type = body.signature().value_or("?");
+                    if (type == "s") {
+                        std::string const value = body.string().value_or("");
+                        if (key == "handle_token")
+                            token = value;
+                    } else if (type == "b") {
+                        body.uint32();
+                    } else {
+                        break;
+                    }
+                }
+                std::string const request = "/org/freedesktop/portal/desktop/request/1_7/" + token;
+                {
+                    std::lock_guard const lock(m_mutex);
+                    m_print_title = title;
+                    m_print_fd_index = index;
+                    m_print_parent = parent;
+                }
+                dbus::Writer path;
+                path.string(request);
+                reply(fd, *message, "o", path.take());
+                dbus::Message response;
+                response.type = dbus::MessageType::Signal;
+                response.serial = ++m_serial;
+                response.path = request;
+                response.interface = "org.freedesktop.portal.Request";
+                response.member = "Response";
+                response.sender = ":1.2";
+                response.signature = "ua{sv}";
+                dbus::Writer arguments;
+                arguments.uint32(m_print_response);
+                arguments.array(8, [] {});
+                response.body = arguments.take();
+                send_all(fd, dbus::encode(response));
             } else if (message->member == "AddMatch") {
                 std::lock_guard const lock(m_mutex);
                 m_match_rule = body.string().value_or("");
@@ -515,6 +608,10 @@ private:
     std::atomic<bool> m_hang_up { false };
     std::uint32_t m_serial = 0;
     mutable std::mutex m_mutex;
+    std::vector<std::string> m_fd_contents; // what each passed file descriptor held
+    std::string m_print_title;
+    std::string m_print_parent;
+    std::uint32_t m_print_fd_index = 99;
     std::vector<Notified> m_notified;
     std::vector<std::uint32_t> m_closed;
     std::vector<Emission> m_emissions;
@@ -759,8 +856,46 @@ void test_notifier_without_markup_or_service()
 }
 #endif
 
+// The print portal: the PDF crosses the bus as a file descriptor (the
+// handshake asked for them, the header counts them, the bytes arrive
+// whole), the job's title with it, and the request's Response is the
+// outcome; a cancelled dialog and a bus without the portal each say so.
+void test_print_portal()
+{
+    using Outcome = platform::PrintRequest::Outcome;
+    std::string const path = scratch_socket("print-bus");
+    FakeBus bus(path);
+    CHECK(bus.ok());
+    std::atomic<int> wakes { 0 };
+    platform::PrintJob job;
+    job.title = "Quarterly report";
+    job.pdf = { '%', 'P', 'D', 'F', '-', '1', '.', '7', '\n', 0, 1, 2, 255 };
+    std::unique_ptr<platform::PrintRequest> const request
+        = platform::print_document_on(dbus::SocketAddress { path, false }, job, [&wakes] { ++wakes; });
+    CHECK(eventually([&] { return request->outcome() != Outcome::Pending; }));
+    CHECK(request->outcome() == Outcome::Printed);
+    CHECK(wakes > 0);
+    CHECK_EQ(bus.print_title(), std::string("Quarterly report"));
+    CHECK_EQ(bus.print_fd_index(), 0u);
+    std::vector<std::string> const passed = bus.fd_contents();
+    CHECK(passed.size() == 1 && passed[0] == std::string(job.pdf.begin(), job.pdf.end()));
+
+    bus.m_print_response = 1;
+    std::unique_ptr<platform::PrintRequest> const cancelled
+        = platform::print_document_on(dbus::SocketAddress { path, false }, job, nullptr);
+    CHECK(eventually([&] { return cancelled->outcome() != Outcome::Pending; }));
+    CHECK(cancelled->outcome() == Outcome::Cancelled);
+
+    // No bus at all: unavailable, at once.
+    std::unique_ptr<platform::PrintRequest> const nowhere
+        = platform::print_document_on(dbus::SocketAddress { scratch_socket("no-bus"), false }, job, nullptr);
+    CHECK(eventually([&] { return nowhere->outcome() != Outcome::Pending; }));
+    CHECK(nowhere->outcome() == Outcome::Unavailable);
+}
+
 int main()
 {
+    test_print_portal();
     CHECK_EQ(platform::escape_notice_markup("a < b && <a href=\"x\">c</a>"), std::string("a &lt; b &amp;&amp; &lt;a href=\"x\"&gt;c&lt;/a&gt;"));
     // A notice as a Windows toast: the page's text escaped (an apostrophe, a
     // quote, a control character XML cannot hold), the site on the

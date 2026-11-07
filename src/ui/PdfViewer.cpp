@@ -307,6 +307,28 @@ std::string pdf_viewer_page(PdfHandle const& handle)
     return page;
 }
 
+namespace {
+
+std::mutex& printer_mutex()
+{
+    static std::mutex mutex;
+    return mutex;
+}
+
+PdfPrinter& pdf_printer()
+{
+    static PdfPrinter printer;
+    return printer;
+}
+
+}
+
+void set_pdf_printer(PdfPrinter printer)
+{
+    std::lock_guard const lock(printer_mutex());
+    pdf_printer() = std::move(printer);
+}
+
 std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url const& first_party, std::string const& method,
     std::vector<std::uint8_t> const& body)
 {
@@ -337,6 +359,39 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
             handle->status = opened_status;
         }
         return answer_text(url, "application/json", opened ? "{\"ok\":true}" : "{\"ok\":false}");
+    }
+    if (path.size() == 1 && path[0] == "print" && method == "POST") {
+        // The system's print dialog for the file; "status" says how it went.
+        PdfPrinter printer;
+        {
+            std::lock_guard const lock(printer_mutex());
+            printer = pdf_printer();
+        }
+        std::lock_guard const lock(handle->mutex);
+        if (handle->print && handle->print->outcome() == platform::PrintRequest::Outcome::Pending)
+            return answer_text(url, "application/json", "{\"ok\":true,\"status\":\"pending\"}");
+        handle->print.reset();
+        if (!printer)
+            return answer_text(url, "application/json", "{\"ok\":false,\"status\":\"unavailable\"}");
+        platform::PrintJob job;
+        job.title = pdf_title(*handle);
+        job.pdf = handle->bytes;
+        handle->print = printer(std::move(job));
+        return answer_text(url, "application/json", handle->print ? "{\"ok\":true,\"status\":\"pending\"}" : "{\"ok\":false,\"status\":\"unavailable\"}");
+    }
+    if (path.size() == 1 && path[0] == "print-status") {
+        std::lock_guard const lock(handle->mutex);
+        char const* status_name = "none";
+        if (handle->print) {
+            switch (handle->print->outcome()) {
+            case platform::PrintRequest::Outcome::Pending: status_name = "pending"; break;
+            case platform::PrintRequest::Outcome::Printed: status_name = "printed"; break;
+            case platform::PrintRequest::Outcome::Cancelled: status_name = "cancelled"; break;
+            case platform::PrintRequest::Outcome::Failed: status_name = "failed"; break;
+            case platform::PrintRequest::Outcome::Unavailable: status_name = "unavailable"; break;
+            }
+        }
+        return answer_text(url, "application/json", std::string("{\"status\":\"") + status_name + "\"}");
     }
     if (path.size() == 1 && path[0] == "file")
         return answer(url, "application/pdf", handle->bytes);

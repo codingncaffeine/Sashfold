@@ -106,6 +106,10 @@ struct Message {
     std::string sender;
     std::string signature; // of the body
     std::vector<std::uint8_t> body;
+    // File descriptors passed with the message (SCM_RIGHTS): a body value
+    // of type 'h' is a uint32 index into these. The caller keeps them open
+    // until the message is sent.
+    std::vector<int> fds;
 };
 
 // The message as it goes on the wire, little-endian.
@@ -153,10 +157,13 @@ public:
     bool closed() const { return m_closed; }
     // The name the bus gave this connection (":1.42").
     std::string const& unique_name() const { return m_unique_name; }
+    // Whether the bus agreed to carry file descriptors (NEGOTIATE_UNIX_FD).
+    bool passes_fds() const { return m_passes_fds; }
 
 private:
     Connection() = default;
     int m_fd = -1;
+    bool m_passes_fds = false;
     std::atomic<bool> m_closed { false };
     std::uint32_t m_next_serial = 1;
     std::string m_unique_name;
