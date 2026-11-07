@@ -484,6 +484,33 @@ void test_audio_device()
     CHECK(call.has_value());
     CHECK(device->ok());
 
+    // The element's volume is a linear gain and the server's scale is cubic:
+    // a quarter of the gain goes out as the cube root of a quarter of normal
+    // (63 %), on the stream's place in the mixer, one value per channel. (As
+    // 25 % of normal it would be 1.6 % of the gain: a page that plays at a
+    // quarter would be all but silent.)
+    device->set_volume(0.25);
+    call = server.read_call();
+    while (call && call->command != static_cast<std::uint32_t>(Command::SetSinkInputVolume))
+        call = server.read_call();
+    CHECK(call.has_value());
+    if (call) {
+        Reader volume(call->rest);
+        CHECK_EQ(volume.u32().value_or(0), 99u);
+        // cvolume: its tag, the channel count, then a u32 per channel.
+        std::size_t const at = call->rest.size() - volume.remaining();
+        CHECK(volume.remaining() == 2 + 2 * 4);
+        if (volume.remaining() == 2 + 2 * 4) {
+            CHECK_EQ(call->rest[at + 1], std::uint8_t { 2 });
+            std::uint32_t const left = (std::uint32_t { call->rest[at + 2] } << 24) | (std::uint32_t { call->rest[at + 3] } << 16)
+                | (std::uint32_t { call->rest[at + 4] } << 8) | call->rest[at + 5];
+            std::uint32_t const right = (std::uint32_t { call->rest[at + 6] } << 24) | (std::uint32_t { call->rest[at + 7] } << 16)
+                | (std::uint32_t { call->rest[at + 8] } << 8) | call->rest[at + 9];
+            CHECK_EQ(left, 41285u); // 0x10000 * cbrt(0.25)
+            CHECK_EQ(right, 41285u);
+        }
+    }
+
     // A server that goes away is noticed, and what is written after that is
     // dropped rather than kept for ever.
     ::close(server.client);

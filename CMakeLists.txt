@@ -461,6 +461,12 @@ target_link_libraries(realm_cost PRIVATE sashfold_core sashfold_warnings)
 add_executable(pdf_probe tools/pdf-probe.cpp)
 target_link_libraries(pdf_probe PRIVATE sashfold_core sashfold_warnings)
 
+# media_probe reads a media file's tracks as the engine does and runs its
+# sound through the element's own decoder, mix-down and resampler, writing
+# the samples out or comparing them with ffmpeg's (tools/media-probe.cpp).
+add_executable(media_probe tools/media-probe.cpp)
+target_link_libraries(media_probe PRIVATE sashfold_core sashfold_warnings)
+
 # png_diff says where two pictures differ and whether that is only inside
 # the boxes given (tools/png-diff.cpp): what a change to the chrome shows
 # before its goldens are blessed. A build tool, never shipped.

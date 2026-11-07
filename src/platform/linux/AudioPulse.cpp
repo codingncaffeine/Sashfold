@@ -200,7 +200,10 @@ public:
     void set_volume(double volume) override
     {
         std::lock_guard<std::mutex> const guard(m_lock);
-        std::uint32_t const scaled = static_cast<std::uint32_t>(std::clamp(volume, 0.0, 1.0) * volume_normal);
+        // The element's volume is a linear gain; the server's scale is
+        // cubic (its pa_sw_volume_from_linear): a quarter of the gain is
+        // 63 % of its normal, not 25 %, which would be 1.6 % of the gain.
+        std::uint32_t const scaled = static_cast<std::uint32_t>(std::lround(std::cbrt(std::clamp(volume, 0.0, 1.0)) * volume_normal));
         if (m_volume != scaled) {
             m_volume = scaled;
             m_volume_pending = true;
