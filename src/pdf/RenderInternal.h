@@ -70,6 +70,11 @@ public:
     // Optional content: whether an OCG or OCMD is on in the default configuration.
     bool content_visible(Object const& oc) const;
 
+    // One annotation's normal appearance drawn where its rectangle is (12.5.5),
+    // or an appearance made for one of the markup kinds that has none, as
+    // viewers do (12.5.6). The renderer starts from the page's transform.
+    void draw_annotation(Dict const& annotation, canvas::Transform const& page_ctm, Dict const& page_resources);
+
 private:
     // Operators.
     void op(std::string const& name, std::vector<Object>& operands, Dict const& resources);

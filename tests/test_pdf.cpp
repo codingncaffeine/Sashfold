@@ -870,6 +870,35 @@ void test_ccitt(std::string const& fixtures)
     CHECK(junk && junk->size() == 8);
 }
 
+// Annotations (tools/pdf-make-annotation-tests.py, annot-states): the
+// normal appearance by /AS, hidden and NoView ones not drawn, a Popup
+// never, /CA opacity, the one state a set has when /AS is missing; and
+// nothing of them with annotations off. The rest of the tool's files are
+// compared with poppler and Ghostscript by pdf-render-corpus.sh.
+void test_annotations(std::string const& fixtures)
+{
+    Bytes const file = read_file(fixtures + "/annotations.pdf");
+    pdf::Document::Status status {};
+    auto const doc = pdf::Document::open(file, "", status);
+    CHECK(doc && status == pdf::Document::Status::Ok);
+    if (!doc)
+        return;
+    pdf::RenderOptions options;
+    std::optional<Bitmap> const picture = pdf::render_page(*doc, 0, options);
+    CHECK(picture && picture->width() == 300 && picture->height() == 300);
+    CHECK(near(picture, 25, 275, 0, 0, 255)); // the On state's blue frame
+    CHECK(near(picture, 40, 260, 255, 255, 255)); // its white middle
+    CHECK(near(picture, 100, 260, 128, 128, 128)); // the Off state
+    CHECK(near(picture, 160, 260, 230, 230, 230)); // hidden: the paper's gray
+    CHECK(near(picture, 220, 260, 230, 230, 230)); // NoView
+    CHECK(near(picture, 70, 150, 230, 230, 230)); // a Popup, never drawn
+    CHECK(near(picture, 155, 195, 115, 115, 242)); // CA 0.5: blue over the gray
+    CHECK(near(picture, 25, 75, 0, 0, 255)); // one state, no /AS
+    options.annotations = false;
+    std::optional<Bitmap> const bare = pdf::render_page(*doc, 0, options);
+    CHECK(near(bare, 25, 275, 230, 230, 230));
+}
+
 // JBIG2 made by our own encoder (tools/pdf-make-jbig2-tests.py --fixtures),
 // every file of which jbig2dec decodes to the picture it was given: a
 // small picture in each coding of the standard (generic region templates,
@@ -1014,6 +1043,7 @@ int main(int argc, char** argv)
         test_encrypted(argv[1]);
         test_ccitt(argv[1]);
         test_jbig2(argv[1]);
+        test_annotations(argv[1]);
         test_jpx(argv[1]);
         test_std14_widths(std::string(argv[1]) + "/../../shell/pdf-viewer.pdf");
     }

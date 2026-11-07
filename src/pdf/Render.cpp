@@ -9,8 +9,10 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdio>
 #include <cstring>
 #include <functional>
+#include <string>
 #include <unordered_map>
 
 namespace sashfold::pdf {
@@ -1217,7 +1219,275 @@ std::optional<Bitmap> render_page(Document const& doc, std::size_t index, Render
     renderer.run(content, resources);
     if (renderer.cancelled())
         return std::nullopt;
+    if (options.annotations && options.draw) {
+        // Annotations over the content, each from the page's transform; their
+        // text is not the page's (a viewer's text layer leaves them out).
+        RenderOptions quiet;
+        quiet.scale = options.scale;
+        quiet.cancel = options.cancel;
+        quiet.extra_rotation = options.extra_rotation;
+        canvas::Transform const page_ctm = page_to_device(page, options.scale, options.extra_rotation);
+        for (Object const& annotation_ref : doc.resolve(page.dict->get("Annots")).as_array()) {
+            Dict const& annotation = doc.resolve(annotation_ref).as_dict();
+            if (annotation.empty())
+                continue;
+            Renderer annotation_renderer(doc, surface, quiet);
+            annotation_renderer.draw_annotation(annotation, page_ctm, resources);
+            if (annotation_renderer.cancelled())
+                return std::nullopt;
+        }
+    }
     return surface.to_bitmap();
+}
+
+// --- Annotations (12.5) ----------------------------------------------------
+
+namespace {
+
+// A color operator for an annotation's /C or /IC: by its component count
+// (0: transparent, nothing drawn).
+std::string color_operator(Document const& doc, Object const& array_in, bool stroke)
+{
+    Array const& array = doc.resolve(array_in).as_array();
+    std::string out;
+    char buffer[64];
+    for (Object const& c : array) {
+        std::snprintf(buffer, sizeof buffer, "%.4f ", std::clamp(doc.resolve(c).as_number(0), 0.0, 1.0));
+        out += buffer;
+    }
+    switch (array.size()) {
+    case 1:
+        return out + (stroke ? "G\n" : "g\n");
+    case 3:
+        return out + (stroke ? "RG\n" : "rg\n");
+    case 4:
+        return out + (stroke ? "K\n" : "k\n");
+    default:
+        return "";
+    }
+}
+
+std::string number(double v)
+{
+    char buffer[64];
+    std::snprintf(buffer, sizeof buffer, "%.4f", v);
+    return buffer;
+}
+
+// The border width and dash of /BS (12.5.4), as content stream operators.
+std::string border_operators(Document const& doc, Dict const& annotation, double& width)
+{
+    Dict const& bs = doc.resolve(annotation.get("BS")).as_dict();
+    width = bs.has("W") ? doc.resolve(bs.get("W")).as_number(1) : 1;
+    if (width < 0)
+        width = 1;
+    std::string out = number(width) + " w\n";
+    if (doc.resolve(bs.get("S")).as_name() == "D") {
+        Array const& d = doc.resolve(bs.get("D")).as_array();
+        std::string dash = "[";
+        for (Object const& v : d)
+            dash += number(doc.resolve(v).as_number(3)) + " ";
+        out += (d.empty() ? std::string("[3] 0 d\n") : dash + "] 0 d\n");
+    }
+    return out;
+}
+
+// 12.5.6: what a viewer draws for a markup annotation that carries no
+// appearance stream, in page space. Empty when the kind has no such
+// drawing (a Text note's icon, FreeText's text: owed).
+std::string synthesized_appearance(Document const& doc, Dict const& annotation, std::string const& subtype,
+    double x0, double y0, double x1, double y1)
+{
+    std::string const stroke = color_operator(doc, annotation.get("C"), true);
+    std::string const fill = color_operator(doc, annotation.get("IC"), false);
+    std::string const fill_c = color_operator(doc, annotation.get("C"), false);
+    double width = 1;
+    std::string const border = border_operators(doc, annotation, width);
+    std::string out;
+    auto const points = [&](char const* key) {
+        std::vector<double> v;
+        for (Object const& o : doc.resolve(annotation.get(key)).as_array())
+            v.push_back(doc.resolve(o).as_number(0));
+        return v;
+    };
+    if (subtype == "Square" || subtype == "Circle") {
+        // The rectangle inset by half the border, so the stroke lies within it.
+        double const h = width / 2;
+        double const ax = x0 + h, ay = y0 + h, bx = x1 - h, by = y1 - h;
+        if (bx <= ax || by <= ay)
+            return "";
+        out += border;
+        if (subtype == "Square") {
+            out += number(ax) + " " + number(ay) + " " + number(bx - ax) + " " + number(by - ay) + " re\n";
+        } else {
+            double const k = 0.5523;
+            double const cx = (ax + bx) / 2, cy = (ay + by) / 2, rx = (bx - ax) / 2, ry = (by - ay) / 2;
+            out += number(cx + rx) + " " + number(cy) + " m\n";
+            out += number(cx + rx) + " " + number(cy + ry * k) + " " + number(cx + rx * k) + " " + number(cy + ry) + " " + number(cx) + " " + number(cy + ry) + " c\n";
+            out += number(cx - rx * k) + " " + number(cy + ry) + " " + number(cx - rx) + " " + number(cy + ry * k) + " " + number(cx - rx) + " " + number(cy) + " c\n";
+            out += number(cx - rx) + " " + number(cy - ry * k) + " " + number(cx - rx * k) + " " + number(cy - ry) + " " + number(cx) + " " + number(cy - ry) + " c\n";
+            out += number(cx + rx * k) + " " + number(cy - ry) + " " + number(cx + rx) + " " + number(cy - ry * k) + " " + number(cx + rx) + " " + number(cy) + " c\n";
+            out += "h\n";
+        }
+        bool const do_stroke = !stroke.empty() && width > 0;
+        if (!fill.empty() && do_stroke)
+            return fill + stroke + out + "B\n";
+        if (!fill.empty())
+            return fill + out + "f\n";
+        if (do_stroke)
+            return stroke + out + "S\n";
+        return "";
+    }
+    if (subtype == "Line") {
+        std::vector<double> const l = points("L");
+        if (l.size() != 4 || stroke.empty() || width <= 0)
+            return "";
+        return stroke + border + number(l[0]) + " " + number(l[1]) + " m " + number(l[2]) + " " + number(l[3]) + " l S\n";
+    }
+    if (subtype == "Polygon" || subtype == "PolyLine") {
+        std::vector<double> const v = points("Vertices");
+        if (v.size() < 4 || stroke.empty() || width <= 0)
+            return "";
+        out = stroke + border;
+        for (std::size_t i = 0; i + 1 < v.size(); i += 2)
+            out += number(v[i]) + " " + number(v[i + 1]) + (i == 0 ? " m\n" : " l\n");
+        return out + (subtype == "Polygon" ? "h S\n" : "S\n");
+    }
+    if (subtype == "Ink") {
+        if (stroke.empty() || width <= 0)
+            return "";
+        out = stroke + border + "1 J 1 j\n";
+        for (Object const& path : doc.resolve(annotation.get("InkList")).as_array()) {
+            Array const& pts = doc.resolve(path).as_array();
+            for (std::size_t i = 0; i + 1 < pts.size(); i += 2)
+                out += number(doc.resolve(pts[i]).as_number(0)) + " " + number(doc.resolve(pts[i + 1]).as_number(0)) + (i == 0 ? " m\n" : " l\n");
+            out += "S\n";
+        }
+        return out;
+    }
+    if (subtype == "Highlight" || subtype == "Underline" || subtype == "StrikeOut" || subtype == "Squiggly") {
+        // QuadPoints: x1 y1 x2 y2 x3 y3 x4 y4 per quad, the upper-left and
+        // upper-right first, then the lower pair (as writers write them).
+        std::vector<double> const q = points("QuadPoints");
+        if (q.size() < 8 || fill_c.empty())
+            return "";
+        for (std::size_t i = 0; i + 7 < q.size(); i += 8) {
+            double const left = std::min({ q[i], q[i + 2], q[i + 4], q[i + 6] });
+            double const right = std::max({ q[i], q[i + 2], q[i + 4], q[i + 6] });
+            double const top = std::max({ q[i + 1], q[i + 3], q[i + 5], q[i + 7] });
+            double const bottom = std::min({ q[i + 1], q[i + 3], q[i + 5], q[i + 7] });
+            double const h = top - bottom;
+            if (subtype == "Highlight") {
+                // Multiplied onto the text beneath, as viewers show a marker.
+                out += fill_c + number(left) + " " + number(bottom) + " " + number(right - left) + " " + number(h) + " re f\n";
+            } else if (subtype == "Underline") {
+                double const t = std::max(1.0, h / 14);
+                out += fill_c + number(left) + " " + number(bottom + t) + " " + number(right - left) + " " + number(t) + " re f\n";
+            } else if (subtype == "StrikeOut") {
+                double const t = std::max(1.0, h / 14);
+                out += fill_c + number(left) + " " + number(bottom + h / 2 - t / 2) + " " + number(right - left) + " " + number(t) + " re f\n";
+            } else {
+                // A zigzag along the bottom, a quarter of the height tall.
+                double const step = std::max(2.0, h / 4);
+                out += color_operator(doc, annotation.get("C"), true) + number(std::max(1.0, h / 14)) + " w 1 J 1 j\n";
+                bool up = false;
+                for (double x = left; x <= right; x += step / 2) {
+                    out += number(x) + " " + number(bottom + (up ? step / 2 : 0)) + (x == left ? " m\n" : " l\n");
+                    up = !up;
+                }
+                out += "S\n";
+            }
+        }
+        return out;
+    }
+    return "";
+}
+
+} // namespace
+
+void Renderer::draw_annotation(Dict const& annotation, canvas::Transform const& page_ctm, Dict const& page_resources)
+{
+    std::string const subtype = m_doc.resolve(annotation.get("Subtype")).as_name();
+    if (subtype == "Popup")
+        return; // shown by a viewer's own window, never drawn
+    int const flags = static_cast<int>(m_doc.resolve(annotation.get("F")).as_int(0));
+    if ((flags & 2) || (flags & 32)) // Hidden, NoView
+        return;
+    if (annotation.has("OC") && !content_visible(annotation.get("OC")))
+        return;
+    Array const& rect = m_doc.resolve(annotation.get("Rect")).as_array();
+    if (rect.size() != 4)
+        return;
+    double const r0 = m_doc.resolve(rect[0]).as_number(0), r1 = m_doc.resolve(rect[1]).as_number(0);
+    double const r2 = m_doc.resolve(rect[2]).as_number(0), r3 = m_doc.resolve(rect[3]).as_number(0);
+    double const x0 = std::min(r0, r2), y0 = std::min(r1, r3), x1 = std::max(r0, r2), y1 = std::max(r1, r3);
+    if (!std::isfinite(x0 + y0 + x1 + y1))
+        return;
+
+    // 12.5.5: the normal appearance, by /AS when it is a set of states (the
+    // one state there is when /AS is missing, as pdf.js takes it).
+    Dict const& ap = m_doc.resolve(annotation.get("AP")).as_dict();
+    Object entry = ap.get("N");
+    Object normal = m_doc.resolve(entry);
+    if (!normal.as_stream() && normal.is_dict()) {
+        Dict const& states = normal.as_dict();
+        std::string const as = m_doc.resolve(annotation.get("AS")).as_name();
+        Object chosen;
+        if (!as.empty())
+            chosen = states.get(as);
+        else if (states.entries().size() == 1)
+            chosen = states.entries().begin()->second;
+        entry = chosen;
+        normal = m_doc.resolve(chosen);
+    }
+    Stream const* const form = normal.as_stream();
+
+    m_stack.clear();
+    m_forms.clear();
+    m_depth = 0;
+    m_path = canvas::PathBuilder {};
+    // /CA (12.5.2): the annotation's opacity.
+    double const ca = annotation.has("CA") ? std::clamp(m_doc.resolve(annotation.get("CA")).as_number(1), 0.0, 1.0) : 1;
+    m_state.fill_alpha = ca;
+    m_state.stroke_alpha = ca;
+
+    if (!form) {
+        if (ap.has("N"))
+            return; // an appearance that cannot be read: nothing, not a stand-in
+        std::string const content = synthesized_appearance(m_doc, annotation, subtype, x0, y0, x1, y1);
+        if (content.empty())
+            return;
+        if (subtype == "Highlight")
+            m_state.blend = canvas::Composite::Multiply;
+        set_initial_ctm(page_ctm);
+        run(std::vector<std::uint8_t>(content.begin(), content.end()), page_resources);
+        return;
+    }
+    // Algorithm 8.1: the form's box through its matrix, then fitted to the
+    // rectangle; the form's own matrix and box apply as draw_form does them.
+    canvas::Transform const matrix = matrix_of(m_doc, form->dict.get("Matrix"));
+    Array const& bbox = m_doc.resolve(form->dict.get("BBox")).as_array();
+    if (bbox.size() != 4)
+        return;
+    double const bx0 = m_doc.resolve(bbox[0]).as_number(0), by0 = m_doc.resolve(bbox[1]).as_number(0);
+    double const bx1 = m_doc.resolve(bbox[2]).as_number(0), by1 = m_doc.resolve(bbox[3]).as_number(0);
+    double tx0 = 1e300, ty0 = 1e300, tx1 = -1e300, ty1 = -1e300;
+    for (auto const& corner : { std::pair { bx0, by0 }, std::pair { bx1, by0 }, std::pair { bx1, by1 }, std::pair { bx0, by1 } }) {
+        // The transform in double: a point's floats would move a corner.
+        double const px = matrix.a * corner.first + matrix.c * corner.second + matrix.e;
+        double const py = matrix.b * corner.first + matrix.d * corner.second + matrix.f;
+        tx0 = std::min(tx0, px);
+        ty0 = std::min(ty0, py);
+        tx1 = std::max(tx1, px);
+        ty1 = std::max(ty1, py);
+    }
+    if (!std::isfinite(tx0 + ty0 + tx1 + ty1))
+        return;
+    double const sx = tx1 - tx0 > 1e-9 ? (x1 - x0) / (tx1 - tx0) : 1;
+    double const sy = ty1 - ty0 > 1e-9 ? (y1 - y0) / (ty1 - ty0) : 1;
+    canvas::Transform const fit { sx, 0, 0, sy, x0 - tx0 * sx, y0 - ty0 * sy };
+    set_initial_ctm(page_ctm.multiply(fit));
+    draw_form(*form, page_resources, entry.is_ref() ? entry.as_ref() : Ref {});
 }
 
 }
