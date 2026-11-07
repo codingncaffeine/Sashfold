@@ -32,6 +32,10 @@ public:
     // filter in its chain), empty for the document's default.
     std::vector<std::uint8_t> decrypt_stream(Ref owner, std::vector<std::uint8_t> const& data,
         std::string const& crypt_filter = {}) const;
+    // The other way, for objects an update adds to the file: strings and
+    // streams encrypted as the file's own are (AES with a fresh IV).
+    std::string encrypt_string(Ref owner, std::string const& data) const;
+    std::vector<std::uint8_t> encrypt_stream(Ref owner, std::vector<std::uint8_t> const& data) const;
 
     bool encrypt_metadata() const { return m_encrypt_metadata; }
     // Whether the password that opened the file was the owner's.
@@ -40,6 +44,8 @@ public:
 
 private:
     std::vector<std::uint8_t> decrypt(Method method, Ref owner, std::vector<std::uint8_t> const& data) const;
+    std::vector<std::uint8_t> encrypt(Method method, Ref owner, std::vector<std::uint8_t> const& data) const;
+    std::vector<std::uint8_t> object_key(Method method, Ref owner) const;
     Method method_of(std::string const& filter_name) const;
 
     std::vector<std::uint8_t> m_key;

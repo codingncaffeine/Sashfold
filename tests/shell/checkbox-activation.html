@@ -1,0 +1,27 @@
+<!doctype html>
+<title>before</title>
+<div style="position:relative;width:300px;height:200px">
+<input id="a" type="checkbox" checked style="position:absolute;left:20px;top:20px;width:30px;height:30px;opacity:0;margin:0;padding:0">
+<input id="b" type="radio" name="r" style="position:absolute;left:100px;top:20px;width:30px;height:30px;opacity:0;margin:0">
+<input id="c" type="radio" name="r" checked style="position:absolute;left:150px;top:20px;width:30px;height:30px;opacity:0;margin:0">
+<input id="d" type="checkbox" checked style="position:absolute;left:200px;top:20px;width:30px;height:30px;margin:0">
+</div>
+<script>
+// Each control notes its clicks and changes in the title, with the state a
+// click listener sees (the new one: HTML's legacy-pre-activation), and
+// whether a change followed. d cancels its click: its state is set back,
+// and no change comes.
+const log = [];
+const note = (text) => { log.push(text); document.title = log.join(" "); };
+for (const id of ["a", "b", "c", "d"]) {
+  const el = document.getElementById(id);
+  el.addEventListener("click", (event) => {
+    note("click:" + id + "=" + el.checked);
+    if (id === "d") {
+      event.preventDefault();
+      setTimeout(() => note("after:d=" + el.checked), 0);
+    }
+  });
+  el.addEventListener("change", () => note("change:" + id + "=" + el.checked));
+}
+</script>

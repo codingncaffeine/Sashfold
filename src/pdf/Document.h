@@ -89,6 +89,13 @@ public:
     bool encrypted() const { return m_security.has_value(); }
     SecurityHandler const* security() const { return m_security ? &*m_security : nullptr; }
     std::size_t object_count() const { return m_entries.size(); }
+    // The file's bytes as opened, and where its newest cross-reference
+    // section begins (what an update's /Prev names; nullopt for a file
+    // whose cross-reference data was rebuilt), as a table or a stream.
+    std::vector<std::uint8_t> const& bytes() const { return *m_bytes; }
+    std::optional<std::size_t> startxref() const { return m_startxref; }
+    bool xref_is_stream() const { return m_xref_is_stream; }
+    Ref encrypt_ref() const { return m_encrypt_ref; }
 
     // Strings in an object fetched from the file, decrypted with its number.
     std::string decrypt_string(Ref owner, std::string const& data) const;
@@ -135,6 +142,8 @@ private:
     std::optional<SecurityHandler> m_security;
     Ref m_encrypt_ref { -1, 0 };
     bool m_repaired = false;
+    std::optional<std::size_t> m_startxref;
+    bool m_xref_is_stream = false;
     std::map<Ref, std::size_t> m_scanned; // objects found by the rebuild's scan
 
     struct ObjectStream {

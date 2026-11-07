@@ -73,7 +73,7 @@ public:
     // One annotation's normal appearance drawn where its rectangle is (12.5.5),
     // or an appearance made for one of the markup kinds that has none, as
     // viewers do (12.5.6). The renderer starts from the page's transform.
-    void draw_annotation(Dict const& annotation, canvas::Transform const& page_ctm, Dict const& page_resources);
+    void draw_annotation(Dict const& annotation, Ref annotation_ref, canvas::Transform const& page_ctm, Dict const& page_resources);
 
 private:
     // Operators.

@@ -3,6 +3,7 @@
 #include "crypto/Aes.h"
 #include "crypto/Md5.h"
 #include "crypto/Sha2.h"
+#include "platform/Random.h"
 
 #include <algorithm>
 #include <array>
@@ -276,10 +277,8 @@ SecurityHandler::Method SecurityHandler::method_of(std::string const& filter_nam
     return Method::None;
 }
 
-Bytes SecurityHandler::decrypt(Method method, Ref owner, Bytes const& data) const
+Bytes SecurityHandler::object_key(Method method, Ref owner) const
 {
-    if (method == Method::None)
-        return data;
     Bytes key = m_key;
     if (method != Method::Aes256) {
         // Algorithm 1: the object's own key.
@@ -295,6 +294,44 @@ Bytes SecurityHandler::decrypt(Method method, Ref owner, Bytes const& data) cons
         key = md5(input);
         key.resize(std::min<std::size_t>(m_key.size() + 5, 16));
     }
+    return key;
+}
+
+Bytes SecurityHandler::encrypt(Method method, Ref owner, Bytes const& data) const
+{
+    if (method == Method::None)
+        return data;
+    Bytes const key = object_key(method, owner);
+    if (method == Method::Rc4)
+        return crypto::rc4(key, data);
+    // AES-CBC with PKCS#7 padding behind a fresh IV.
+    Bytes iv(16);
+    platform::fill_random(iv);
+    Bytes padded = data;
+    std::uint8_t const pad = static_cast<std::uint8_t>(16 - padded.size() % 16);
+    padded.insert(padded.end(), pad, pad);
+    Bytes out = iv;
+    Bytes const body = aes_cbc_raw(key, iv, padded, true);
+    out.insert(out.end(), body.begin(), body.end());
+    return out;
+}
+
+std::string SecurityHandler::encrypt_string(Ref owner, std::string const& data) const
+{
+    Bytes const out = encrypt(m_string_method, owner, bytes_of(data));
+    return std::string(out.begin(), out.end());
+}
+
+Bytes SecurityHandler::encrypt_stream(Ref owner, Bytes const& data) const
+{
+    return encrypt(m_stream_method, owner, data);
+}
+
+Bytes SecurityHandler::decrypt(Method method, Ref owner, Bytes const& data) const
+{
+    if (method == Method::None)
+        return data;
+    Bytes const key = object_key(method, owner);
     if (method == Method::Rc4)
         return crypto::rc4(key, data);
     // AES: a 16-byte IV, then CBC, then PKCS#7 padding (dropped leniently).

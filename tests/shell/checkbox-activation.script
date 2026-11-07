@@ -1,0 +1,28 @@
+# A check box or radio button pressed: set before its click event (a
+# click listener reads the new state), input and change after it, and set
+# back with no change when the page cancels the click (HTML §4.10.5.1.15).
+# The controls sit at y 20..50 of a page under 78 px of chrome; a is at x
+# 20..50, b at 100..130, c at 150..180, d at 200..230.
+resize 900 700
+open checkbox-activation.html
+advance 200 2
+click 35 113
+advance 200 2
+assert-title click:a=false change:a=false
+click 115 113
+advance 200 2
+assert-title click:a=false change:a=false click:b=true change:b=true
+# The radio button already on: a click, no change.
+click 115 113
+advance 200 2
+assert-title click:a=false change:a=false click:b=true change:b=true click:b=true
+# d's click is canceled: seen on in the listener, back on after, no change.
+click 215 113
+advance 200 3
+assert-title click:a=false change:a=false click:b=true change:b=true click:b=true click:d=false after:d=true
+# Space on the focused check box is a click too.
+click 35 113
+advance 200 2
+key space
+advance 200 2
+assert-title click:a=false change:a=false click:b=true change:b=true click:b=true click:d=false after:d=true click:a=true change:a=true click:a=false change:a=false

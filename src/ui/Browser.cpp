@@ -6265,8 +6265,10 @@ struct Browser::Impl {
                 if (downloads_directory.empty()) {
                     tab.status = "Not saved, no downloads folder: " + handle->file_name;
                 } else {
-                    DownloadResult const saved = save_download(downloads_directory, handle->file_name, handle->bytes, handle->url, "");
-                    tab.status = saved.error.empty() ? "Downloaded " + saved.file_name + " (" + std::to_string(handle->bytes.size()) + " bytes)"
+                    // With what the reader typed into its form fields, as Chrome's viewer saves it.
+                    std::vector<std::uint8_t> const bytes = pdf_bytes_to_save(*handle);
+                    DownloadResult const saved = save_download(downloads_directory, handle->file_name, bytes, handle->url, "");
+                    tab.status = saved.error.empty() ? "Downloaded " + saved.file_name + " (" + std::to_string(bytes.size()) + " bytes)"
                                                      : "Download failed: " + saved.error;
                 }
             }
@@ -9899,14 +9901,29 @@ struct Browser::Impl {
         init.ctrl = press_modifiers.ctrl;
         init.shift = press_modifiers.shift;
         init.alt = press_modifiers.alt;
+        // HTML's legacy-pre-activation behavior (§4.10.5.1.15, 16): a check
+        // box or radio button under the press is set BEFORE the click event,
+        // so a click listener reads the new state (as every framework's
+        // form handling does), and set back if the page canceled the click.
+        std::optional<PreActivation> pre;
+        if (button == 1 && same_document) {
+            if (dom::Element const* const control = control_at(mouse_x, mouse_y))
+                pre = pre_activate(*tab, *control);
+        }
         script_started = std::chrono::steady_clock::now();
         bindings::PointerRelease const release = realm->pointer_released(same_document ? hit->element : nullptr, init);
         ensure_fresh(*tab);
         dirty = true;
+        if (pre && (!release.proceed || !tab->document)) {
+            undo_pre_activation(*tab, *pre);
+            return;
+        }
         if (button != 1 || !release.proceed || !tab->document || !same_document)
             return;
         update_hover(mouse_x, mouse_y); // the page may have changed under the pointer
-        if (dom::Element const* const control = control_at(mouse_x, mouse_y)) {
+        if (pre) {
+            finish_pre_activation(*tab, *pre);
+        } else if (dom::Element const* const control = control_at(mouse_x, mouse_y)) {
             activate_control(*control);
         } else if (hover_link && press_modifiers.ctrl && is_navigable_scheme(hover_link->scheme)) {
             net::Url const url = *hover_link; // the hover moves with the tabs
@@ -13591,6 +13608,94 @@ struct Browser::Impl {
 
     // A click on a control: focus for every kind, a toggle for a box, a
     // submission for a submit button.
+    // A check box or radio button set ahead of its click event, with what
+    // it takes to set it back: the box's state, or the button of the group
+    // that was on (none when none was).
+    struct PreActivation {
+        dom::Element const* control = nullptr;
+        bool was_checked = false;
+        dom::Element const* was_on = nullptr; // radio: the group's checked button before
+        bool changed = false;
+    };
+
+    std::optional<PreActivation> pre_activate(Tab& tab, dom::Element const& control)
+    {
+        using layout::ControlKind;
+        ControlKind const kind = layout::control_kind(control);
+        if ((kind != ControlKind::Checkbox && kind != ControlKind::Radio) || control.has_attribute("disabled"))
+            return std::nullopt;
+        PreActivation pre;
+        pre.control = &control;
+        pre.was_checked = layout::control_checked(control, &tab.controls);
+        if (kind == ControlKind::Checkbox) {
+            state_of(tab, control).checked = !pre.was_checked;
+            restyle_control(control);
+            pre.changed = true;
+        } else {
+            pre.was_on = checked_in_radio_group(tab, control);
+            pre.changed = !pre.was_checked;
+            check_radio(tab, control);
+        }
+        return pre;
+    }
+
+    void undo_pre_activation(Tab& tab, PreActivation const& pre)
+    {
+        if (!pre.control || !tab.document || !holds_element(*tab.document, pre.control))
+            return;
+        if (layout::control_kind(*pre.control) == layout::ControlKind::Checkbox) {
+            state_of(tab, *pre.control).checked = pre.was_checked;
+            restyle_control(*pre.control);
+        } else if (pre.was_on) {
+            check_radio(tab, *pre.was_on);
+        } else {
+            state_of(tab, *pre.control).checked = false;
+            restyle_control(*pre.control);
+        }
+        relayout(tab);
+        dirty = true;
+    }
+
+    // The click stood: the control takes focus and, where its state
+    // changed, the page hears input and change.
+    void finish_pre_activation(Tab& tab, PreActivation const& pre)
+    {
+        if (!pre.control || !tab.document || !holds_element(*tab.document, pre.control))
+            return;
+        focus_control(tab, pre.control, false);
+        relayout(tab);
+        dirty = true;
+        if (pre.changed)
+            fire_input_and_change(tab, *pre.control);
+    }
+
+    void fire_input_and_change(Tab& tab, dom::Element const& control)
+    {
+        bindings::Realm* const realm = realm_for(tab, control);
+        if (!realm)
+            return;
+        auto* const target = const_cast<dom::Element*>(&control);
+        realm->dispatch_event(target, "input", bindings::Realm::EventInit { true, false, true });
+        realm->dispatch_event(target, "change", bindings::Realm::EventInit { true, false, false });
+        ensure_fresh(tab);
+    }
+
+    dom::Element const* checked_in_radio_group(Tab& tab, dom::Element const& radio)
+    {
+        dom::Attr const* const name = radio.find_attribute("name");
+        dom::Element const* const form = form_owner(radio, *tab.document);
+        for (dom::Element const* const other : focusable_controls(*tab.document)) {
+            if (layout::control_kind(*other) != layout::ControlKind::Radio)
+                continue;
+            dom::Attr const* const other_name = other->find_attribute("name");
+            bool const same_group = other == &radio
+                || (name && other_name && other_name->value == name->value && form_owner(*other, *tab.document) == form);
+            if (same_group && layout::control_checked(*other, &tab.controls))
+                return other;
+        }
+        return nullptr;
+    }
+
     void activate_control(dom::Element const& control)
     {
         Tab* const tab = active_tab();
@@ -13601,11 +13706,11 @@ struct Browser::Impl {
         focus_control(*tab, &control, false);
         switch (layout::control_kind(control)) {
         case ControlKind::Checkbox:
-            state_of(*tab, control).checked = !layout::control_checked(control, &tab->controls);
-            restyle_control(control);
-            break;
         case ControlKind::Radio:
-            check_radio(*tab, control);
+            // Set ahead of the click (pre_activate), as a press does; from
+            // elsewhere, set here, and the page told.
+            if (std::optional<PreActivation> const pre = pre_activate(*tab, control); pre && pre->changed)
+                fire_input_and_change(*tab, control);
             break;
         case ControlKind::Submit:
             submit(*tab, control);
@@ -13673,18 +13778,22 @@ struct Browser::Impl {
         } else {
             switch (kind) {
             case ControlKind::Checkbox:
+            case ControlKind::Radio:
+                // Space: as a click — the state set ahead of the click event,
+                // back if the page cancels it, input and change after.
                 if (key.key == Key::Space) {
-                    state.checked = !layout::control_checked(control, &tab->controls);
-                    restyle_control(control);
+                    std::optional<PreActivation> const pre = pre_activate(*tab, control);
+                    bindings::Realm* const realm = realm_for(*tab, control);
+                    bool proceed = true;
+                    if (realm)
+                        proceed = realm->dispatch_event(const_cast<dom::Element*>(&control), "click", bindings::Realm::EventInit { true, true, true });
+                    if (pre && !proceed)
+                        undo_pre_activation(*tab, *pre);
+                    else if (pre && pre->changed)
+                        fire_input_and_change(*tab, control);
                 } else {
                     changed = false;
                 }
-                break;
-            case ControlKind::Radio:
-                if (key.key == Key::Space)
-                    check_radio(*tab, control);
-                else
-                    changed = false;
                 break;
             case ControlKind::Submit:
                 if (key.key == Key::Space || key.key == Key::Enter) {

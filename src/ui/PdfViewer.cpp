@@ -2,6 +2,7 @@
 
 #include "pdf/Extract.h"
 #include "pdf/Render.h"
+#include "pdf/Writer.h"
 #include "platform/Random.h"
 
 #include <algorithm>
@@ -193,6 +194,162 @@ net::FetchResult answer_text(net::Url const& url, std::string const& type, std::
     return answer(url, type, std::vector<std::uint8_t>(text.begin(), text.end()));
 }
 
+// A color operator ("0.85 0.9 1 rg", "0.5 g", "0 0 0 1 k") as CSS; empty for none.
+std::string css_color(std::string const& operators)
+{
+    std::vector<double> v;
+    std::string word;
+    std::string op;
+    for (char const c : operators + " ") {
+        if (c == ' ') {
+            if (!word.empty()) {
+                char* end = nullptr;
+                double const d = std::strtod(word.c_str(), &end);
+                if (end != word.c_str() && *end == '\0')
+                    v.push_back(d);
+                else
+                    op = word;
+                word.clear();
+            }
+        } else {
+            word.push_back(c);
+        }
+    }
+    double r = 0, g = 0, b = 0;
+    if (v.size() == 1)
+        r = g = b = v[0];
+    else if (v.size() == 3)
+        r = v[0], g = v[1], b = v[2];
+    else if (v.size() == 4)
+        r = (1 - v[0]) * (1 - v[3]), g = (1 - v[1]) * (1 - v[3]), b = (1 - v[2]) * (1 - v[3]);
+    else
+        return {};
+    char buffer[16];
+    std::snprintf(buffer, sizeof buffer, "#%02x%02x%02x", static_cast<int>(std::lround(std::clamp(r, 0.0, 1.0) * 255)),
+        static_cast<int>(std::lround(std::clamp(g, 0.0, 1.0) * 255)), static_cast<int>(std::lround(std::clamp(b, 0.0, 1.0) * 255)));
+    return buffer;
+}
+
+std::string ref_id(pdf::Ref ref)
+{
+    return std::to_string(ref.num) + "-" + std::to_string(ref.gen);
+}
+
+std::optional<pdf::Ref> parse_ref_id(std::string const& text)
+{
+    std::size_t const dash = text.find('-');
+    if (dash == std::string::npos || dash == 0)
+        return std::nullopt;
+    char* end = nullptr;
+    long const num = std::strtol(text.c_str(), &end, 10);
+    if (end != text.c_str() + dash)
+        return std::nullopt;
+    long const gen = std::strtol(text.c_str() + dash + 1, &end, 10);
+    if (*end != '\0' || num < 0 || gen < 0)
+        return std::nullopt;
+    return pdf::Ref { static_cast<int>(num), static_cast<int>(gen) };
+}
+
+// A page's form fields for the viewer's layer: each widget with its kind,
+// value, options, box (device pixels at scale 1) and how it looks.
+std::string fields_json(pdf::Document const& document, std::size_t index, pdf::FormValues const& values)
+{
+    pdf::Page const& page = document.page(index);
+    canvas::Transform const to_device = pdf::page_to_device(page, 1);
+    std::string out = "[";
+    bool first = true;
+    for (pdf::FormField const& field : pdf::page_fields(document, index)) {
+        if (field.hidden() || (field.annotation_flags & 32))
+            continue;
+        char const* kind = "text";
+        switch (field.kind) {
+        case pdf::FormField::Kind::Text: kind = "text"; break;
+        case pdf::FormField::Kind::CheckBox: kind = "checkbox"; break;
+        case pdf::FormField::Kind::Radio: kind = "radio"; break;
+        case pdf::FormField::Kind::PushButton: kind = "button"; break;
+        case pdf::FormField::Kind::ComboBox: kind = "combo"; break;
+        case pdf::FormField::Kind::ListBox: kind = "list"; break;
+        case pdf::FormField::Kind::Signature: kind = "signature"; break;
+        default: continue;
+        }
+        pdf::FormValue const* value = &field.value;
+        if (auto const it = values.find(field.field); it != values.end())
+            value = &it->second;
+        if (!first)
+            out += ",";
+        first = false;
+        svg::Point const a = to_device.apply(field.rect.x0, field.rect.y0);
+        svg::Point const b = to_device.apply(field.rect.x1, field.rect.y1);
+        out += "{\"field\":" + json_string(ref_id(field.field)) + ",\"widget\":" + json_string(ref_id(field.widget)) + ",\"kind\":\"" + kind + "\"";
+        out += ",\"name\":" + json_string(field.name);
+        out += ",\"rect\":[" + number(static_cast<double>(std::min(a.x, b.x))) + "," + number(static_cast<double>(std::min(a.y, b.y))) + ","
+            + number(static_cast<double>(std::max(a.x, b.x))) + "," + number(static_cast<double>(std::max(a.y, b.y))) + "]";
+        out += ",\"value\":" + json_string(value->text);
+        out += ",\"state\":" + json_string(pdf::widget_state(field, value));
+        out += ",\"on\":" + json_string(field.on_state);
+        out += ",\"selections\":[";
+        for (std::size_t i = 0; i < value->selections.size(); ++i)
+            out += (i ? "," : "") + json_string(value->selections[i]);
+        out += "],\"options\":[";
+        for (std::size_t i = 0; i < field.options.size(); ++i)
+            out += std::string(i ? "," : "") + "[" + json_string(field.options[i].first) + "," + json_string(field.options[i].second) + "]";
+        out += "],\"readOnly\":" + std::string(field.read_only() ? "true" : "false");
+        out += ",\"required\":" + std::string(field.required() ? "true" : "false");
+        out += ",\"multiline\":" + std::string(field.multiline() ? "true" : "false");
+        out += ",\"password\":" + std::string(field.password() ? "true" : "false");
+        out += ",\"comb\":" + std::string(field.comb() ? "true" : "false");
+        out += ",\"editable\":" + std::string(field.editable_combo() ? "true" : "false");
+        out += ",\"multi\":" + std::string(field.multi_select() ? "true" : "false");
+        out += ",\"spellCheck\":" + std::string(field.do_not_spell_check() ? "false" : "true");
+        out += ",\"maxLen\":" + std::to_string(field.max_len) + ",\"q\":" + std::to_string(field.quadding) + ",\"topIndex\":" + std::to_string(field.top_index);
+        out += ",\"size\":" + number(field.da.font_size) + ",\"color\":" + json_string(css_color(field.da.color_operators));
+        out += ",\"family\":" + json_string(field.font_family);
+        out += ",\"bg\":" + json_string(css_color(field.background_color)) + ",\"bc\":" + json_string(css_color(field.border_color));
+        out += ",\"bw\":" + number(field.border_width) + ",\"style\":" + json_string(field.border_style) + ",\"rotation\":" + std::to_string(field.rotation);
+        out += "}";
+    }
+    return out + "]";
+}
+
+// A value posted by the viewer's layer: "<field id>\n<text|state|selections>\n<value>",
+// the value being the rest of the body (text as it is; selections one per line).
+bool apply_field_post(std::vector<std::uint8_t> const& body, pdf::FormValues& values)
+{
+    std::string const text(body.begin(), body.end());
+    std::size_t const first = text.find('\n');
+    if (first == std::string::npos)
+        return false;
+    std::size_t const second = text.find('\n', first + 1);
+    std::optional<pdf::Ref> const ref = parse_ref_id(text.substr(0, first));
+    if (!ref)
+        return false;
+    std::string const kind = text.substr(first + 1, second == std::string::npos ? std::string::npos : second - first - 1);
+    std::string const rest = second == std::string::npos ? std::string {} : text.substr(second + 1);
+    pdf::FormValue& value = values[*ref];
+    if (kind == "text") {
+        value.text = rest;
+        value.selections.clear();
+    } else if (kind == "state") {
+        value.state = rest.empty() ? "Off" : rest;
+    } else if (kind == "selections") {
+        value.selections.clear();
+        std::size_t at = 0;
+        while (at <= rest.size() && !rest.empty()) {
+            std::size_t const nl = rest.find('\n', at);
+            std::string const item = rest.substr(at, nl == std::string::npos ? std::string::npos : nl - at);
+            if (!item.empty())
+                value.selections.push_back(item);
+            if (nl == std::string::npos)
+                break;
+            at = nl + 1;
+        }
+        value.text.clear();
+    } else {
+        return false;
+    }
+    return true;
+}
+
 std::string query_value(net::Url const& url, std::string_view key)
 {
     if (!url.query)
@@ -329,6 +486,14 @@ void set_pdf_printer(PdfPrinter printer)
     pdf_printer() = std::move(printer);
 }
 
+std::vector<std::uint8_t> pdf_bytes_to_save(PdfHandle const& handle)
+{
+    std::lock_guard const lock(handle.mutex);
+    if (!handle.document || handle.form_values.empty())
+        return handle.bytes;
+    return pdf::save_with_form_values(*handle.document, handle.form_values);
+}
+
 std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url const& first_party, std::string const& method,
     std::vector<std::uint8_t> const& body)
 {
@@ -375,9 +540,20 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
             return answer_text(url, "application/json", "{\"ok\":false,\"status\":\"unavailable\"}");
         platform::PrintJob job;
         job.title = pdf_title(*handle);
-        job.pdf = handle->bytes;
+        // With the reader's form values in it, as the download has them.
+        job.pdf = handle->document && !handle->form_values.empty() ? pdf::save_with_form_values(*handle->document, handle->form_values) : handle->bytes;
         handle->print = printer(std::move(job));
         return answer_text(url, "application/json", handle->print ? "{\"ok\":true,\"status\":\"pending\"}" : "{\"ok\":false,\"status\":\"unavailable\"}");
+    }
+    if (path.size() == 1 && path[0] == "field" && method == "POST") {
+        // A form value from the viewer's layer; the page's picture is asked
+        // for again by the viewer where the page draws the field.
+        bool ok = false;
+        {
+            std::lock_guard const lock(handle->mutex);
+            ok = document != nullptr && apply_field_post(body, handle->form_values);
+        }
+        return answer_text(url, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
     }
     if (path.size() == 1 && path[0] == "print-status") {
         std::lock_guard const lock(handle->mutex);
@@ -394,7 +570,7 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
         return answer_text(url, "application/json", std::string("{\"status\":\"") + status_name + "\"}");
     }
     if (path.size() == 1 && path[0] == "file")
-        return answer(url, "application/pdf", handle->bytes);
+        return answer(url, "application/pdf", pdf_bytes_to_save(*handle));
     if (path.size() == 1 && path[0] == "info.json") {
         std::string out = "{\"fileName\":" + json_string(handle->file_name);
         if (!document) {
@@ -426,6 +602,15 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
             options.scale = std::clamp(std::atof(query_value(url, "scale").c_str()), 0.05, 8.0);
             int const rotation = std::atoi(query_value(url, "rotate").c_str());
             options.extra_rotation = ((rotation % 360) + 360) % 360 / 90 * 90;
+            // The reader's values; text and choice fields are the layer's
+            // unless the picture is asked for with every field drawn (a thumbnail).
+            pdf::FormValues values;
+            {
+                std::lock_guard const lock(handle->mutex);
+                values = handle->form_values;
+            }
+            options.form_values = &values;
+            options.fields_shown_by_viewer = query_value(url, "fields") != "drawn";
             std::optional<Bitmap> const picture = pdf::render_page(*document, index, options);
             if (!picture)
                 return answer(url, "text/plain", {}, 404);
@@ -442,6 +627,14 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
                     + number(run.height) + "," + number(run.angle) + "," + (run.ends_line ? "1" : "0") + "]";
             }
             return answer_text(url, "application/json", out + "]");
+        }
+        if (path.size() == 3 && path[2] == "fields.json") {
+            pdf::FormValues values;
+            {
+                std::lock_guard const lock(handle->mutex);
+                values = handle->form_values;
+            }
+            return answer_text(url, "application/json", fields_json(*document, index, values));
         }
         if (path.size() == 3 && path[2] == "links.json") {
             std::string out = "[";

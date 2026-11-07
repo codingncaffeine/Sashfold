@@ -1,0 +1,40 @@
+# A PDF form in the viewer (tools/pdf-make-form-tests.py): its text and
+# choice fields are the viewer's own controls over the page, with the
+# document's values in them; typing changes the value the document holds;
+# a check box is drawn by the page and pressed through the viewer, and the
+# page's picture follows; the download is the document with the values in
+# it (an update appended to the file, which opens as a PDF again).
+# The page is 400 x 400 at automatic zoom 1.25 in a 900 x 700 window:
+# a point (x, y) of the page is at (200 + 1.25 x, 142 + 1.25 (400 - y)).
+downloads-folder
+resize 900 700
+open pdf-form.pdf
+advance 500 6
+assert-title pdf-form.pdf
+# The text field holds the document's value, the combo box its choice.
+assert-value field-10-0 Hello
+assert-value field-18-0 g
+# The check box's Yes appearance (blue) and the radio group's B (red) are
+# drawn by the page; the hidden field is not shown.
+assert-pixel 519 261 #0000ff
+assert-pixel 644 261 #ff0000
+# Typing into the text field changes what the document holds.
+click 300 194
+key end
+type , there
+advance 400 3
+assert-value field-10-0 Hello, there
+# Pressing the check box turns it off, and the page's picture is drawn again.
+click 519 261
+advance 500 6
+assert-pixel 519 261 #b3b3b3
+# Pressing radio A: A on (red), B off (gray).
+click 582 261
+advance 500 6
+assert-pixel 582 261 #ff0000
+assert-pixel 644 261 #b3b3b3
+# The download is the document with the values in it, larger than the file.
+click 832 99
+advance 300 3
+assert-status Downloaded pdf-form.pdf
+assert-download pdf-form.pdf 5200 %%EOF

@@ -1231,8 +1231,10 @@ std::optional<Bitmap> render_page(Document const& doc, std::size_t index, Render
             Dict const& annotation = doc.resolve(annotation_ref).as_dict();
             if (annotation.empty())
                 continue;
+            quiet.form_values = options.form_values;
+            quiet.fields_shown_by_viewer = options.fields_shown_by_viewer;
             Renderer annotation_renderer(doc, surface, quiet);
-            annotation_renderer.draw_annotation(annotation, page_ctm, resources);
+            annotation_renderer.draw_annotation(annotation, annotation_ref.is_ref() ? annotation_ref.as_ref() : Ref {}, page_ctm, resources);
             if (annotation_renderer.cancelled())
                 return std::nullopt;
         }
@@ -1294,7 +1296,7 @@ std::string border_operators(Document const& doc, Dict const& annotation, double
 
 // 12.5.6: what a viewer draws for a markup annotation that carries no
 // appearance stream, in page space. Empty when the kind has no such
-// drawing (a Text note's icon, FreeText's text: owed).
+// drawing (a Text note's icon and FreeText's text are Form.cpp's).
 std::string synthesized_appearance(Document const& doc, Dict const& annotation, std::string const& subtype,
     double x0, double y0, double x1, double y1)
 {
@@ -1405,7 +1407,7 @@ std::string synthesized_appearance(Document const& doc, Dict const& annotation, 
 
 } // namespace
 
-void Renderer::draw_annotation(Dict const& annotation, canvas::Transform const& page_ctm, Dict const& page_resources)
+void Renderer::draw_annotation(Dict const& annotation, Ref annotation_ref, canvas::Transform const& page_ctm, Dict const& page_resources)
 {
     std::string const subtype = m_doc.resolve(annotation.get("Subtype")).as_name();
     if (subtype == "Popup")
@@ -1424,6 +1426,56 @@ void Renderer::draw_annotation(Dict const& annotation, canvas::Transform const& 
     if (!std::isfinite(x0 + y0 + x1 + y1))
         return;
 
+    m_stack.clear();
+    m_forms.clear();
+    m_depth = 0;
+    m_path = canvas::PathBuilder {};
+    // /CA (12.5.2): the annotation's opacity.
+    double const ca = annotation.has("CA") ? std::clamp(m_doc.resolve(annotation.get("CA")).as_number(1), 0.0, 1.0) : 1;
+    m_state.fill_alpha = ca;
+    m_state.stroke_alpha = ca;
+
+    // A form field's widget (12.7): drawn from its value where the viewer
+    // has given one, the file asks for appearances to be made
+    // (NeedAppearances), or it carries none; left out where the viewer
+    // shows the field itself; a check box or radio button shows the state
+    // its value picks.
+    std::string state_override;
+    if (subtype == "Widget") {
+        std::optional<FormField> const field = widget_field(m_doc, annotation, annotation_ref);
+        if (field) {
+            bool const text_like = field->kind == FormField::Kind::Text || field->kind == FormField::Kind::ComboBox
+                || field->kind == FormField::Kind::ListBox;
+            if (m_options.fields_shown_by_viewer && text_like && !field->read_only())
+                return;
+            FormValue const* value = nullptr;
+            if (m_options.form_values) {
+                auto const it = m_options.form_values->find(field->field);
+                if (it != m_options.form_values->end())
+                    value = &it->second;
+            }
+            bool const buttons = field->kind == FormField::Kind::CheckBox || field->kind == FormField::Kind::Radio;
+            bool const synthesize = !field->has_appearance || (!buttons && (value != nullptr || need_appearances(m_doc)));
+            if (synthesize) {
+                Appearance const made = widget_appearance(m_doc, *field, value);
+                if (made.content.empty())
+                    return;
+                canvas::Transform const matrix { made.matrix[0], made.matrix[1], made.matrix[2], made.matrix[3], made.matrix[4], made.matrix[5] };
+                set_initial_ctm(page_ctm.multiply(canvas::Transform { 1, 0, 0, 1, x0, y0 }).multiply(matrix));
+                // Clipped to the widget's box, as a form's BBox clips.
+                std::string const clip = "q 0 0 " + std::to_string(made.bbox.width()) + " " + std::to_string(made.bbox.height()) + " re W n\n";
+                std::string const content = clip + made.content + "Q\n";
+                Dict resources = page_resources;
+                for (auto const& [key, object] : made.resources.entries())
+                    resources.set(key, object);
+                run(std::vector<std::uint8_t>(content.begin(), content.end()), resources);
+                return;
+            }
+            if (buttons && value)
+                state_override = widget_state(*field, value);
+        }
+    }
+
     // 12.5.5: the normal appearance, by /AS when it is a set of states (the
     // one state there is when /AS is missing, as pdf.js takes it).
     Dict const& ap = m_doc.resolve(annotation.get("AP")).as_dict();
@@ -1431,7 +1483,7 @@ void Renderer::draw_annotation(Dict const& annotation, canvas::Transform const& 
     Object normal = m_doc.resolve(entry);
     if (!normal.as_stream() && normal.is_dict()) {
         Dict const& states = normal.as_dict();
-        std::string const as = m_doc.resolve(annotation.get("AS")).as_name();
+        std::string const as = state_override.empty() ? m_doc.resolve(annotation.get("AS")).as_name() : state_override;
         Object chosen;
         if (!as.empty())
             chosen = states.get(as);
@@ -1442,25 +1494,23 @@ void Renderer::draw_annotation(Dict const& annotation, canvas::Transform const& 
     }
     Stream const* const form = normal.as_stream();
 
-    m_stack.clear();
-    m_forms.clear();
-    m_depth = 0;
-    m_path = canvas::PathBuilder {};
-    // /CA (12.5.2): the annotation's opacity.
-    double const ca = annotation.has("CA") ? std::clamp(m_doc.resolve(annotation.get("CA")).as_number(1), 0.0, 1.0) : 1;
-    m_state.fill_alpha = ca;
-    m_state.stroke_alpha = ca;
-
     if (!form) {
         if (ap.has("N"))
-            return; // an appearance that cannot be read: nothing, not a stand-in
-        std::string const content = synthesized_appearance(m_doc, annotation, subtype, x0, y0, x1, y1);
+            return; // an appearance that cannot be read, or a state with no stream (Off): nothing, not a stand-in
+        Dict resources = page_resources;
+        std::string content;
+        if (subtype == "FreeText")
+            content = free_text_appearance(m_doc, annotation, Box { x0, y0, x1, y1 }, resources);
+        else if (subtype == "Text")
+            content = note_icon_appearance(m_doc, annotation, Box { x0, y0, x1, y1 }, resources);
+        else
+            content = synthesized_appearance(m_doc, annotation, subtype, x0, y0, x1, y1);
         if (content.empty())
             return;
         if (subtype == "Highlight")
             m_state.blend = canvas::Composite::Multiply;
         set_initial_ctm(page_ctm);
-        run(std::vector<std::uint8_t>(content.begin(), content.end()), page_resources);
+        run(std::vector<std::uint8_t>(content.begin(), content.end()), resources);
         return;
     }
     // Algorithm 8.1: the form's box through its matrix, then fitted to the

@@ -223,6 +223,8 @@ add_library(sashfold_core STATIC
   src/pdf/EncodingData.cpp
   src/pdf/Filters.cpp
   src/pdf/Font.cpp
+  src/pdf/Form.cpp
+  src/pdf/Writer.cpp
   src/pdf/Function.cpp
   src/pdf/Image.cpp
   src/pdf/Ccitt.cpp

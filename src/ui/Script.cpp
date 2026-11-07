@@ -563,6 +563,28 @@ struct Runner {
             std::filesystem::remove_all(folder, error);
             std::filesystem::create_directories(folder, error);
             browser.set_downloads_directory(folder.string());
+        } else if (command == "assert-download") {
+            // `assert-download <file> <min bytes> [<ending>]`: the file is in
+            // the downloads folder, at least that large, and ends with the
+            // text (a PDF's "%%EOF", with its final newline allowed).
+            std::istringstream words(argument);
+            std::string name;
+            long long min_bytes = 0;
+            std::string ending;
+            words >> name >> min_bytes;
+            std::getline(words >> std::ws, ending);
+            std::filesystem::path const folder = std::filesystem::temp_directory_path() / ("sashfold-script-" + stem + "-downloads");
+            std::ifstream file(folder / name, std::ios::binary);
+            if (!file)
+                return fail("assert-download: no " + name + " in the downloads folder");
+            std::string const bytes((std::istreambuf_iterator<char>(file)), std::istreambuf_iterator<char>());
+            if (static_cast<long long>(bytes.size()) < min_bytes)
+                return fail("assert-download: " + name + " is " + std::to_string(bytes.size()) + " bytes, expected at least " + std::to_string(min_bytes));
+            std::string trimmed = bytes;
+            while (!trimmed.empty() && (trimmed.back() == '\n' || trimmed.back() == '\r'))
+                trimmed.pop_back();
+            if (!ending.empty() && !trimmed.ends_with(ending))
+                return fail("assert-download: " + name + " does not end with \"" + ending + "\"");
         } else if (command == "storage-folder") {
             // `storage-folder`: the pages' IndexedDB databases are written
             // under a folder of the system's temporary ones, named for this

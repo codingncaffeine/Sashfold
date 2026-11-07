@@ -73,6 +73,20 @@ body.side-open #pages { padding-left: 216px; }
 .text span::selection { background: var(--selection); }
 .text br::selection { background: transparent; }
 .links a { position: absolute; display: block; }
+/* Form fields: the page's own controls over the picture, tinted as Chrome's
+   and Firefox's viewers tint them, their border and background from the
+   document where it gives them; check boxes and radio buttons are drawn
+   by the page and only pressed here. */
+.fields .f { position: absolute; box-sizing: border-box; margin: 0; padding: 0 2px; border: 0; border-radius: 0; outline: none;
+  color: #000; background: rgba(0, 54, 255, 0.13); font-family: sans-serif; line-height: 1.15; }
+.fields textarea.f { resize: none; overflow: hidden; padding-top: 2px; white-space: pre-wrap; }
+.fields select.f { padding: 0; }
+.fields .f:focus { background: #fff; outline: 2px solid rgba(0, 54, 255, 0.55); outline-offset: -1px; }
+.fields .f.toggle { opacity: 0; cursor: pointer; padding: 0; }
+.fields .f[readonly], .fields .f:disabled { pointer-events: none; opacity: 0; }
+.fields .listbox { overflow: hidden; cursor: default; user-select: none; }
+.fields .listbox .row { white-space: nowrap; overflow: hidden; padding: 0 1px; }
+.fields .listbox .row.on { background: #99c1da; }
 #notice { position: fixed; top: 48px; left: 0; right: 0; bottom: 0; display: none; align-items: center; justify-content: center; }
 #notice.on { display: flex; }
 #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--bar); color: var(--ink);
@@ -256,6 +270,8 @@ function size(p) {
     placeText(p);
   if (p.linkItems)
     placeLinks(p);
+  if (p.fieldItems)
+    placeFields(p);
 }
 
 function show(p) {
@@ -280,6 +296,193 @@ function show(p) {
     p.textAsked = true;
     json("page/" + p.index + "/text.json").then((items) => { p.items = items; buildText(p); }).catch(() => {});
     json("page/" + p.index + "/links.json").then((items) => { p.linkItems = items; buildLinks(p); }).catch(() => {});
+    json("page/" + p.index + "/fields.json").then((items) => { p.fieldItems = items; buildFields(p); }).catch(() => {});
+  }
+}
+
+// The page's picture again: a field the page draws has changed.
+function redraw(p) {
+  p.scale = 0;
+  if (p.visible)
+    show(p);
+}
+
+// A value to the document: "<field>\n<kind>\n<value>".
+function sendField(field, kind, value) {
+  return fetch(BASE + "field", { method: "POST", body: field + "\n" + kind + "\n" + value }).catch(() => {});
+}
+
+function buildFields(p) {
+  const layer = p.fields;
+  layer.textContent = "";
+  p.controls = [];
+  const timers = new Map();
+  for (const item of p.fieldItems) {
+    let el = null;
+    if (item.kind === "text") {
+      el = document.createElement(item.multiline ? "textarea" : "input");
+      if (!item.multiline)
+        el.type = item.password ? "password" : "text";
+      el.value = item.value;
+      if (item.maxLen > 0)
+        el.maxLength = item.maxLen;
+      if (item.readOnly)
+        el.readOnly = true;
+      el.spellcheck = item.spellCheck;
+      el.autocomplete = "off";
+      const send = () => {
+        clearTimeout(timers.get(el));
+        timers.delete(el);
+        sendField(item.field, "text", el.value);
+      };
+      el.addEventListener("input", () => {
+        clearTimeout(timers.get(el));
+        timers.set(el, setTimeout(send, 250));
+      });
+      el.addEventListener("blur", () => { if (timers.has(el)) send(); });
+    } else if (item.kind === "checkbox" || item.kind === "radio") {
+      el = document.createElement("input");
+      el.type = item.kind;
+      el.className = "toggle";
+      el.name = "field-" + item.field;
+      el.checked = item.state !== "Off";
+      if (item.readOnly)
+        el.disabled = true;
+      el.addEventListener("change", async () => {
+        const state = el.checked ? (item.on || "Yes") : "Off";
+        await sendField(item.field, "state", state);
+        redraw(p);
+      });
+    } else if (item.kind === "combo" && !item.editable) {
+      el = document.createElement("select");
+      for (const [value, label] of item.options) {
+        const option = document.createElement("option");
+        option.value = value;
+        option.textContent = label;
+        el.appendChild(option);
+      }
+      el.value = item.value;
+      if (item.readOnly)
+        el.disabled = true;
+      el.addEventListener("change", () => sendField(item.field, "text", el.value));
+    } else if (item.kind === "combo") {
+      el = document.createElement("input");
+      el.type = "text";
+      const shown = item.options.find((o) => o[0] === item.value);
+      el.value = shown ? shown[1] : item.value;
+      if (item.readOnly)
+        el.readOnly = true;
+      el.addEventListener("change", () => sendField(item.field, "text", el.value));
+    } else if (item.kind === "list") {
+      // A list box of rows, as the page draws it: a press chooses a row,
+      // Ctrl+press adds one where several may be chosen, the arrow keys move.
+      el = document.createElement("div");
+      el.className = "listbox";
+      el.tabIndex = item.readOnly ? -1 : 0;
+      const chosen = new Set(item.selections.length ? item.selections : (item.value ? [item.value] : []));
+      const rows = [];
+      const send = () => sendField(item.field, "selections", rows.filter((r) => r.classList.contains("on")).map((r) => r.dataset.value).join("\n"));
+      const choose = (row, add) => {
+        if (add)
+          row.classList.toggle("on");
+        else {
+          for (const r of rows)
+            r.classList.toggle("on", r === row);
+        }
+        send();
+      };
+      for (const [value, label] of item.options.slice(item.topIndex || 0)) {
+        const row = document.createElement("div");
+        row.className = "row";
+        row.textContent = label;
+        row.dataset.value = value;
+        if (chosen.has(value))
+          row.classList.add("on");
+        row.addEventListener("mousedown", (event) => {
+          event.preventDefault();
+          if (item.readOnly)
+            return;
+          el.focus();
+          choose(row, item.multi && (event.ctrlKey || event.metaKey));
+        });
+        rows.push(row);
+        el.appendChild(row);
+      }
+      el.addEventListener("keydown", (event) => {
+        if (event.key !== "ArrowDown" && event.key !== "ArrowUp")
+          return;
+        event.preventDefault();
+        const at = rows.findIndex((r) => r.classList.contains("on"));
+        const next = Math.max(0, Math.min(rows.length - 1, at + (event.key === "ArrowDown" ? 1 : -1)));
+        if (rows[next])
+          choose(rows[next], false);
+      });
+    } else {
+      continue; // push buttons and signatures: drawn by the page, no action here
+    }
+    el.classList.add("f");
+    el.id = "field-" + item.widget;
+    if (!el.name)
+      el.name = "field-" + item.widget;
+    el.title = item.name;
+    if (item.required)
+      el.required = true;
+    el.dataset.q = item.q;
+    layer.appendChild(el);
+    p.controls.push({ el, item });
+  }
+  placeFields(p);
+}
+
+function placeFields(p) {
+  if (!p.controls)
+    return;
+  for (const { el, item } of p.controls) {
+    const r = item.rect;
+    const w = (r[2] - r[0]) * zoom;
+    const h = (r[3] - r[1]) * zoom;
+    el.style.left = r[0] * zoom + "px";
+    el.style.top = r[1] * zoom + "px";
+    el.style.width = w + "px";
+    el.style.height = h + "px";
+    if (el.classList.contains("toggle"))
+      continue;
+    // The document's border and background where it gives them; the size
+    // of its default appearance, or one that fits the box (12 for several lines).
+    const bw = item.bc && item.bw > 0 ? item.bw * zoom : 0;
+    el.style.border = bw ? bw + "px " + (item.style === "D" ? "dashed" : item.style === "U" ? "none" : "solid") + " " + item.bc : "0";
+    if (item.style === "U" && bw)
+      el.style.borderBottom = bw + "px solid " + item.bc;
+    if (item.bg)
+      el.style.background = item.bg;
+    el.style.color = item.color || "#000";
+    el.style.fontFamily = item.family;
+    let size = item.size;
+    if (!size)
+      size = item.multiline || item.kind === "list" ? 12 : Math.max(4, ((r[3] - r[1]) - 2 * (item.bw + 2)) / 1.15);
+    el.style.fontSize = size * zoom + "px";
+    el.style.textAlign = item.q === 1 ? "center" : item.q === 2 ? "right" : "left";
+    const pad = (item.bc ? item.bw : 0) + 2;
+    el.style.padding = (item.multiline ? pad * zoom + "px " : "0 ") + pad * zoom + "px";
+    if (item.comb && item.maxLen > 0) {
+      // One character a cell: the letters spaced to the cell's width, by
+      // the width of a digit measured in the field's font.
+      const cell = w / item.maxLen;
+      el.style.fontFamily = "monospace";
+      const probe = document.createElement("span");
+      probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;font-family:monospace;font-size:" + size * zoom + "px";
+      probe.textContent = "0";
+      p.fields.appendChild(probe);
+      const digit = probe.offsetWidth || size * zoom * 0.6;
+      probe.remove();
+      el.style.padding = "0";
+      el.style.textIndent = Math.max(0, (cell - digit) / 2) + "px";
+      el.style.letterSpacing = cell - digit + "px";
+    }
+    if (item.kind === "list") {
+      el.style.padding = pad * zoom + "px";
+      el.style.lineHeight = "1.15";
+    }
   }
 }
 
@@ -391,7 +594,7 @@ function rotate(by) {
     t.style.height = pageHeight(p) * scale + "px";
     const img = t.querySelector("img");
     if (img && img.src)
-      img.src = BASE + "page/" + p.index + ".bmp?scale=" + Math.round(scale * (window.devicePixelRatio || 1) * 100) / 100 + "&rotate=" + rotation;
+      img.src = BASE + "page/" + p.index + ".bmp?scale=" + Math.round(scale * (window.devicePixelRatio || 1) * 100) / 100 + "&rotate=" + rotation + "&fields=drawn";
   }
 }
 
@@ -440,7 +643,7 @@ function buildThumbs() {
       const scale = 150 / Math.max(pageWidth(p), pageHeight(p));
       const img = new Image();
       img.alt = "";
-      img.src = BASE + "page/" + p.index + ".bmp?scale=" + Math.round(scale * (window.devicePixelRatio || 1) * 100) / 100 + "&rotate=" + rotation;
+      img.src = BASE + "page/" + p.index + ".bmp?scale=" + Math.round(scale * (window.devicePixelRatio || 1) * 100) / 100 + "&rotate=" + rotation + "&fields=drawn";
       t.appendChild(img);
     }
   }, { root: $("side"), rootMargin: "300px 0px" });
@@ -499,11 +702,14 @@ function build() {
     text.className = "text";
     const links = document.createElement("div");
     links.className = "links";
+    const fields = document.createElement("div");
+    fields.className = "fields";
     layers.appendChild(text);
     layers.appendChild(links);
+    layers.appendChild(fields);
     el.appendChild(layers);
     holder.appendChild(el);
-    pages.push({ index, el, layers, text, links, w: dims[0], h: dims[1], img: null, scale: 0, visible: false });
+    pages.push({ index, el, layers, text, links, fields, w: dims[0], h: dims[1], img: null, scale: 0, visible: false });
   });
   const wanted = readHash();
   if (wanted.zoom)
@@ -661,7 +867,7 @@ $("page").addEventListener("keydown", (event) => {
 $("page").addEventListener("focus", (event) => event.target.select());
 document.addEventListener("keydown", (event) => {
   if (!event.ctrlKey && !event.metaKey) {
-    if (event.target && event.target.tagName === "INPUT")
+    if (event.target && (event.target.tagName === "INPUT" || event.target.tagName === "TEXTAREA" || event.target.tagName === "SELECT"))
       return;
     if (mode === "page-fit" && (event.key === "ArrowRight" || event.key === "ArrowLeft")) {
       goTo(current() + (event.key === "ArrowRight" ? 1 : -1));

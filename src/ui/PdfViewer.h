@@ -14,6 +14,7 @@
 #include "net/Http.h"
 #include "net/Url.h"
 #include "pdf/Document.h"
+#include "pdf/Form.h"
 #include "platform/Print.h"
 
 #include <cstdint>
@@ -38,7 +39,15 @@ struct PdfHandle {
     std::shared_ptr<pdf::Document const> document;
     pdf::Document::Status status = pdf::Document::Status::NotPdf;
     std::unique_ptr<platform::PrintRequest> print; // the last print asked for, while it runs
+    // What the reader has typed into the document's form fields: drawn
+    // over the file's values, and written into the copy they download or
+    // print (an incremental update; the file itself is never changed).
+    pdf::FormValues form_values;
 };
+
+// The document's bytes with the reader's form values in them (the file's
+// own when there are none). Takes the handle's lock.
+std::vector<std::uint8_t> pdf_bytes_to_save(PdfHandle const& handle);
 
 // How a viewer's print button reaches the system's print dialog
 // (platform/Print.h): the shell sets it; none set (the script runner)

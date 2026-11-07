@@ -13,6 +13,7 @@
 #include "pdf/ImageCodecs.h"
 #include "pdf/Render.h"
 #include "pdf/Type1.h"
+#include "pdf/Writer.h"
 #include "text/TrueType.h"
 
 #include <atomic>
@@ -899,6 +900,186 @@ void test_annotations(std::string const& fixtures)
     CHECK(near(bare, 25, 275, 230, 230, 230));
 }
 
+// Whether some pixel in a box (device pixels, top left to bottom right,
+// exclusive) is darker than the gray given in every channel.
+bool has_dark(std::optional<Bitmap> const& picture, int x0, int y0, int x1, int y1, int below = 100)
+{
+    if (!picture)
+        return false;
+    for (int y = y0; y < y1; ++y) {
+        for (int x = x0; x < x1; ++x) {
+            if (!picture->contains(x, y))
+                continue;
+            Color const c = picture->pixel(x, y);
+            if (c.r < below && c.g < below && c.b < below)
+                return true;
+        }
+    }
+    return false;
+}
+
+// Forms written by tools/pdf-make-form-tests.py: the fields read with what
+// they inherit, drawn from their values where they carry no appearance
+// (and over a stale one under NeedAppearances), the viewer's values drawn
+// over the file's, and a saved copy — an update behind a table, a
+// cross-reference stream, and RC4 — that opens with the values in it.
+void test_forms(std::string const& fixtures)
+{
+    pdf::Document::Status status {};
+    Bytes const file = read_file(fixtures + "/forms/forms.pdf");
+    auto const doc = pdf::Document::open(file, "", status);
+    CHECK(doc && status == pdf::Document::Status::Ok);
+    if (!doc)
+        return;
+    CHECK(!pdf::need_appearances(*doc));
+    std::vector<pdf::FormField> const fields = pdf::page_fields(*doc, 0);
+    CHECK_EQ(fields.size(), std::size_t { 11 });
+    if (fields.size() != 11)
+        return;
+    using Kind = pdf::FormField::Kind;
+    CHECK(fields[0].kind == Kind::Text && fields[0].name == "name" && fields[0].value.text == "Hello" && fields[0].field == (pdf::Ref { 10, 0 }));
+    CHECK(fields[0].background_color == "0.85 0.9 1 rg" && fields[0].border_color == "0 0 0 rg" && fields[0].da.font_size == 12);
+    CHECK(fields[1].multiline() && fields[1].quadding == 1 && fields[1].border_style == "D" && fields[1].border_width == 2);
+    CHECK(fields[2].comb() && fields[2].max_len == 5 && fields[2].da.font_size == 0 && fields[2].da.color_operators == "0 0 1 rg");
+    CHECK(fields[3].kind == Kind::CheckBox && fields[3].on_state == "Yes" && fields[3].value.state == "Yes" && fields[3].has_appearance);
+    // The radio group's two widgets belong to field 14, each with its own on-state.
+    CHECK(fields[4].kind == Kind::Radio && fields[4].field == (pdf::Ref { 14, 0 }) && fields[4].widget == (pdf::Ref { 16, 0 }) && fields[4].on_state == "A"
+        && fields[4].value.state == "B" && fields[4].name == "choice");
+    CHECK(fields[5].kind == Kind::Radio && fields[5].field == (pdf::Ref { 14, 0 }) && fields[5].on_state == "B");
+    CHECK(fields[6].hidden() && fields[6].value.text == "hidden");
+    CHECK(fields[7].kind == Kind::ComboBox && fields[7].options.size() == 3 && fields[7].options[1].first == "g" && fields[7].options[1].second == "Green"
+        && fields[7].value.text == "g");
+    CHECK(fields[8].kind == Kind::ListBox && fields[8].multi_select() && fields[8].value.selections == (std::vector<std::string> { "Tue", "Thu" }));
+    CHECK(fields[9].kind == Kind::PushButton && fields[9].caption == "Submit" && fields[9].border_style == "B");
+    CHECK(fields[10].read_only() && fields[10].value.text == "Read only");
+    CHECK(pdf::widget_state(fields[4], nullptr) == "Off" && pdf::widget_state(fields[5], nullptr) == "B");
+
+    // Drawn from the values. Device y is 400 - PDF y.
+    pdf::RenderOptions options;
+    std::optional<Bitmap> const picture = pdf::render_page(*doc, 0, options);
+    CHECK(picture && picture->width() == 400);
+    CHECK(near(picture, 200, 45, 217, 230, 255)); // the text field's background
+    CHECK(has_dark(picture, 22, 35, 80, 58)); // and Hello in it
+    CHECK(near(picture, 20, 45, 0, 0, 0)); // its border
+    CHECK(has_dark(picture, 25, 75, 215, 135)); // the wrapped paragraph
+    {
+        // The comb's digits in the DA's blue, one per cell: a blue pixel in
+        // the first cell and in the last, none black.
+        auto const blue_in = [&](int x0, int x1) {
+            for (int y = 33; y < 58; ++y) {
+                for (int x = x0; x < x1; ++x) {
+                    Color const c = picture->pixel(x, y);
+                    if (c.r < 80 && c.g < 80 && c.b > 200)
+                        return true;
+                }
+            }
+            return false;
+        };
+        CHECK(blue_in(243, 268) && blue_in(352, 377) && !has_dark(picture, 243, 33, 377, 58, 60));
+    }
+    CHECK(near(picture, 255, 95, 0, 0, 255)); // the check box's Yes appearance
+    CHECK(near(picture, 305, 95, 179, 179, 179)); // radio A off
+    CHECK(near(picture, 355, 95, 255, 0, 0)); // radio B on
+    CHECK(near(picture, 60, 370, 242, 242, 242)); // the hidden field: the page's gray
+    CHECK(near(picture, 370, 155, 255, 255, 204)); // the combo box's background
+    CHECK(has_dark(picture, 243, 148, 300, 163)); // and Green
+    CHECK(near(picture, 370, 204, 153, 193, 218)); // the list's Tue row highlighted
+    CHECK(near(picture, 370, 190, 242, 242, 242)); // Mon not
+    CHECK(near(picture, 28, 180, 204, 204, 204)); // the push button's face
+    CHECK(has_dark(picture, 30, 165, 115, 195)); // and its caption
+    CHECK(near(picture, 200, 245, 230, 230, 230)); // the read-only field's background
+    CHECK(near(picture, 23, 298, 255, 255, 0, 40)); // the note's yellow bubble, left of its lines
+    CHECK(has_dark(picture, 61, 282, 219, 338, 160)); // the free text's words
+    CHECK(near(picture, 60, 300, 0, 0, 153, 60)); // and its border in the DA's color
+
+    // The viewer's values drawn over the file's.
+    pdf::FormValues values;
+    values[pdf::Ref { 13, 0 }] = pdf::FormValue { "", {}, "Off" };
+    values[pdf::Ref { 14, 0 }] = pdf::FormValue { "", {}, "A" };
+    values[pdf::Ref { 19, 0 }] = pdf::FormValue { "", { "Mon" }, "" };
+    values[pdf::Ref { 10, 0 }] = pdf::FormValue { "", {}, "" };
+    options.form_values = &values;
+    std::optional<Bitmap> const changed = pdf::render_page(*doc, 0, options);
+    CHECK(near(changed, 255, 95, 179, 179, 179)); // the box off
+    CHECK(near(changed, 305, 95, 255, 0, 0) && near(changed, 355, 95, 179, 179, 179)); // A on, B off
+    CHECK(near(changed, 370, 190, 153, 193, 218) && near(changed, 370, 204, 242, 242, 242)); // Mon highlighted, Tue not
+    CHECK(near(changed, 200, 45, 217, 230, 255) && !has_dark(changed, 22, 35, 80, 58)); // the text field emptied, its background kept
+
+    // The viewer showing text and choice fields itself: they are left out,
+    // a read-only one is not.
+    options.form_values = nullptr;
+    options.fields_shown_by_viewer = true;
+    std::optional<Bitmap> const bare = pdf::render_page(*doc, 0, options);
+    CHECK(near(bare, 200, 45, 242, 242, 242) && near(bare, 370, 155, 242, 242, 242));
+    CHECK(near(bare, 200, 245, 230, 230, 230) && near(bare, 255, 95, 0, 0, 255));
+
+    // NeedAppearances: the stale red appearance is not drawn; NEW is.
+    {
+        Bytes const need_file = read_file(fixtures + "/forms/forms-need.pdf");
+        auto const need = pdf::Document::open(need_file, "", status);
+        CHECK(need && pdf::need_appearances(*need));
+        if (need) {
+            pdf::RenderOptions plain;
+            std::optional<Bitmap> const drawn = pdf::render_page(*need, 0, plain);
+            CHECK(near(drawn, 150, 100, 255, 255, 255)); // the stale appearance's red is gone
+            CHECK(has_dark(drawn, 22, 82, 100, 118)); // NEW
+        }
+    }
+
+    // Saved copies: each opens with the values in it and draws them, and
+    // the update is of the file's own kind.
+    pdf::FormValues saved_values;
+    saved_values[pdf::Ref { 10, 0 }] = pdf::FormValue { "Changed \xC3\xA9", {}, "" };
+    saved_values[pdf::Ref { 13, 0 }] = pdf::FormValue { "", {}, "Off" };
+    saved_values[pdf::Ref { 14, 0 }] = pdf::FormValue { "", {}, "A" };
+    saved_values[pdf::Ref { 18, 0 }] = pdf::FormValue { "b", {}, "" };
+    saved_values[pdf::Ref { 19, 0 }] = pdf::FormValue { "", { "Mon", "Wed" }, "" };
+    saved_values[pdf::Ref { 21, 0 }] = pdf::FormValue { "Not this", {}, "" }; // read-only: left alone
+    for (char const* name : { "forms", "forms-xrefstream", "forms-rc4" }) {
+        Bytes const original = read_file(fixtures + "/forms/" + name + ".pdf");
+        auto const source = pdf::Document::open(original, "", status);
+        CHECK(source && status == pdf::Document::Status::Ok);
+        if (!source)
+            continue;
+        CHECK(pdf::save_with_form_values(*source, {}) == original);
+        Bytes const saved = pdf::save_with_form_values(*source, saved_values);
+        CHECK(saved.size() > original.size() && std::equal(original.begin(), original.end(), saved.begin()));
+        std::string const tail(saved.end() - static_cast<std::ptrdiff_t>(std::min<std::size_t>(saved.size(), 4000)), saved.end());
+        CHECK(tail.ends_with("%%EOF\n"));
+        bool const xref_stream = std::string(name) == "forms-xrefstream";
+        CHECK((tail.find("/Type /XRef") != std::string::npos) == xref_stream);
+        CHECK((tail.find("\nxref\n") != std::string::npos) == !xref_stream);
+        CHECK(tail.find("/Prev ") != std::string::npos);
+        if (std::string(name) == "forms-rc4")
+            CHECK(tail.find("Changed") == std::string::npos); // encrypted, not in the clear
+        auto const reopened = pdf::Document::open(saved, "", status);
+        CHECK(reopened && status == pdf::Document::Status::Ok);
+        if (!reopened)
+            continue;
+        std::vector<pdf::FormField> const after = pdf::page_fields(*reopened, 0);
+        CHECK_EQ(after.size(), std::size_t { 11 });
+        if (after.size() != 11)
+            continue;
+        CHECK(after[0].value.text == "Changed \xC3\xA9" && after[0].has_appearance);
+        CHECK(after[3].value.state == "Off");
+        CHECK(after[4].value.state == "A" && after[5].value.state == "A");
+        CHECK(after[7].value.text == "b");
+        CHECK(after[8].value.selections == (std::vector<std::string> { "Mon", "Wed" }));
+        CHECK(after[10].value.text == "Read only");
+        pdf::RenderOptions plain;
+        std::optional<Bitmap> const drawn = pdf::render_page(*reopened, 0, plain);
+        CHECK(near(drawn, 255, 95, 179, 179, 179)); // off
+        CHECK(near(drawn, 305, 95, 255, 0, 0) && near(drawn, 355, 95, 179, 179, 179));
+        CHECK(near(drawn, 370, 190, 153, 193, 218) && near(drawn, 370, 204, 242, 242, 242));
+        CHECK(has_dark(drawn, 22, 35, 100, 58) && near(drawn, 200, 45, 217, 230, 255)); // Changed, from the written appearance
+        CHECK(has_dark(drawn, 243, 148, 300, 163)); // Blue
+        // The written appearance stands on its own: the viewer's synthesis
+        // is not needed to see the value (the stream is what other readers draw).
+        std::vector<pdf::FormField> const page = pdf::page_fields(*reopened, 0);
+        CHECK(page[7].has_appearance && page[8].has_appearance);
+    }
+}
+
 // JBIG2 made by our own encoder (tools/pdf-make-jbig2-tests.py --fixtures),
 // every file of which jbig2dec decodes to the picture it was given: a
 // small picture in each coding of the standard (generic region templates,
@@ -1044,6 +1225,7 @@ int main(int argc, char** argv)
         test_ccitt(argv[1]);
         test_jbig2(argv[1]);
         test_annotations(argv[1]);
+        test_forms(argv[1]);
         test_jpx(argv[1]);
         test_std14_widths(std::string(argv[1]) + "/../../shell/pdf-viewer.pdf");
     }

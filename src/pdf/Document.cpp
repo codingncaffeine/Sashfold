@@ -181,6 +181,8 @@ bool Document::load_xref(std::size_t start_offset)
             return false;
         if (first) {
             m_trailer = trailer;
+            m_startxref = start_offset;
+            m_xref_is_stream = !(t.kind == Token::Kind::Keyword && t.text == "xref");
             first = false;
         } else {
             for (auto const& [key, value] : trailer.entries()) {
@@ -308,6 +310,7 @@ void Document::reconstruct()
     // Every "N G obj" in the file, the last of a number standing (an
     // incremental update's), and every trailer: what readers rebuild from.
     m_repaired = true;
+    m_startxref.reset();
     m_entries.clear();
     m_scanned.clear();
     std::vector<std::uint8_t> const& data = *m_bytes;

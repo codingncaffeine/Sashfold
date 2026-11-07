@@ -10,6 +10,7 @@
 #include "core/Bitmap.h"
 #include "paint/Canvas2D.h"
 #include "pdf/Document.h"
+#include "pdf/Form.h"
 
 #include <array>
 #include <atomic>
@@ -39,6 +40,11 @@ struct RenderOptions {
     // at all, and the page's text is all that comes of it.
     std::function<void(TextGlyph const&)> text_sink;
     bool draw = true;
+    // Form fields: the values a viewer has given them (over the file's),
+    // and whether the viewer shows text and choice fields itself (as HTML
+    // controls over the page), in which case the page leaves them out.
+    FormValues const* form_values = nullptr;
+    bool fields_shown_by_viewer = false;
 };
 
 // The glyphs of a page in the order its content shows them, in device

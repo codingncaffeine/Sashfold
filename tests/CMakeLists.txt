@@ -283,6 +283,14 @@ add_test(NAME shell_spelling_editor
 # its text layer, the page field, a link inside the document, zoom keys.
 add_test(NAME shell_pdf_viewer
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pdf-viewer.script)
+# Check boxes and radio buttons: set before their click event, input and
+# change after it, set back when the page cancels the click.
+add_test(NAME shell_checkbox_activation
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/checkbox-activation.script)
+# A PDF form: fields as the viewer's controls, typed into, a check box
+# pressed and redrawn by the page, the download with the values in it.
+add_test(NAME shell_pdf_form
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pdf-form.script)
 # A PDF in an iframe, an embed and an object: the viewer in each, drawn.
 add_test(NAME shell_pdf_frames
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pdf-frames.script)
