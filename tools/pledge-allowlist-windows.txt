@@ -7,7 +7,8 @@
 # other programs (OLE drag and drop, CF_HDROP), advapi32 with notifications
 # (the browser's name for its toasts, registered for the user; the toasts
 # themselves are reached through combase.dll at run time, not imported),
-# imm32 with input methods (IMM32: composing, the candidates' place).
+# imm32 with input methods (IMM32: composing, the candidates' place),
+# comdlg32 with printing (the print dialog the PDF viewer opens).
 kernel32.dll
 msvcrt.dll
 ws2_32.dll
@@ -19,3 +20,4 @@ ole32.dll
 shell32.dll
 advapi32.dll
 imm32.dll
+comdlg32.dll
