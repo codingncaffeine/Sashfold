@@ -922,6 +922,7 @@ int main()
     test_addresses();
     test_notifier();
     test_notifier_without_markup_or_service();
+    test_print_portal();
     std::error_code error;
     std::filesystem::remove_all("dbus-scratch", error);
 #elif defined(_WIN32)
