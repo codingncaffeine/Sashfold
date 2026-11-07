@@ -622,7 +622,7 @@ std::optional<H264SliceHeader> parse_h264_slice_header(std::span<std::uint8_t co
     }
     if (h.num_ref_idx_l0_active > 32 || h.num_ref_idx_l1_active > 32)
         return std::nullopt;
-    // 7.3.3.1: the reference lists' modifications, passed over.
+    // 7.3.3.1: the reference lists' modifications.
     if (h.slice_type != H264SliceType::I && h.slice_type != H264SliceType::SI) {
         for (int list = 0; list < (is_b ? 2 : 1); ++list) {
             if (!bits.flag())
@@ -633,27 +633,40 @@ std::optional<H264SliceHeader> parse_h264_slice_header(std::span<std::uint8_t co
                     break;
                 if (idc > 5 || bits.failed())
                     return std::nullopt;
-                bits.ue(); // abs_diff_pic_num_minus1 or long_term_pic_num (or view index)
+                H264RefListModification m;
+                m.idc = static_cast<int>(idc);
+                // abs_diff_pic_num_minus1 or long_term_pic_num (4 and 5: a view index, MVC)
+                m.value = static_cast<int>(bits.ue()) + (idc <= 1 ? 1 : 0);
+                h.ref_list_modifications[static_cast<std::size_t>(list)].push_back(m);
             }
         }
     }
-    // 7.3.3.2: the prediction weights, passed over.
+    // 7.3.3.2: the prediction weights.
     if ((pps.weighted_pred && is_p) || (pps.weighted_bipred_idc == 1 && is_b)) {
-        bits.ue(); // luma_log2_weight_denom
+        h.weights.present = true;
+        h.weights.luma_log2_denom = static_cast<int>(bits.ue());
         bool const chroma = sps.chroma_format_idc != 0 && !sps.separate_colour_plane;
         if (chroma)
-            bits.ue(); // chroma_log2_weight_denom
+            h.weights.chroma_log2_denom = static_cast<int>(bits.ue());
         for (int list = 0; list < (is_b ? 2 : 1); ++list) {
             int const count = list == 0 ? h.num_ref_idx_l0_active : h.num_ref_idx_l1_active;
-            for (int i = 0; i < count; ++i) {
-                if (bits.flag()) {
-                    bits.se();
-                    bits.se();
+            for (int i = 0; i < count && i < 32; ++i) {
+                H264PredWeights::Entry& entry = h.weights.list[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
+                // Absent: the default weight (one at the denominator), no offset.
+                entry.luma_weight = 1 << h.weights.luma_log2_denom;
+                entry.chroma_weight = { 1 << h.weights.chroma_log2_denom, 1 << h.weights.chroma_log2_denom };
+                entry.luma_present = bits.flag();
+                if (entry.luma_present) {
+                    entry.luma_weight = bits.se();
+                    entry.luma_offset = bits.se();
                 }
-                if (chroma && bits.flag()) {
-                    for (int j = 0; j < 2; ++j) {
-                        bits.se();
-                        bits.se();
+                if (chroma) {
+                    entry.chroma_present = bits.flag();
+                    if (entry.chroma_present) {
+                        for (std::size_t j = 0; j < 2; ++j) {
+                            entry.chroma_weight[j] = bits.se();
+                            entry.chroma_offset[j] = bits.se();
+                        }
                     }
                 }
             }

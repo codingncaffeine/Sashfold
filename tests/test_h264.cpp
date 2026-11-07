@@ -181,6 +181,61 @@ std::string planar_digest(media::Nv12Picture const& picture)
 // order, put in presentation order, and each the very bytes ffmpeg's
 // decoder gives (H.264 decoding is exact by the standard), with
 // B-pyramids, a stream of P pictures only, and a fragmented file.
+// The fade with several references and explicit weights (tools/mp4-make-tests.sh):
+// the slice header parser reads its reference list modifications and its
+// prediction weight tables — what VA-API is handed — and the headers still
+// end where the data begins (the hardware lanes decode it exactly).
+void check_weighted(std::string const& folder)
+{
+    Bytes const file = read_file(folder + "/weighted.mp4");
+    CHECK(!file.empty());
+    media::Mp4Parser parser;
+    CHECK(parser.append(file));
+    media::Mp4Track const* video = nullptr;
+    for (media::Mp4Track const& t : parser.init().tracks) {
+        if (t.kind == media::Mp4Track::Kind::Video)
+            video = &t;
+    }
+    CHECK(video != nullptr);
+    if (!video)
+        return;
+    std::optional<media::H264DecoderConfiguration> const config = media::parse_avcc(video->codec_private);
+    CHECK(config && config->sps.size() == 1 && config->pps.size() == 1);
+    if (!config)
+        return;
+    std::optional<media::H264Sps> const sps = media::parse_h264_sps(config->sps[0]);
+    std::optional<media::H264Pps> const pps = sps ? media::parse_h264_pps(config->pps[0], &*sps) : std::nullopt;
+    // (libx264's weightb is the implicit kind, idc 2: no table for B slices.)
+    CHECK(sps && pps && pps->weighted_pred && pps->weighted_bipred_idc == 2 && sps->max_num_ref_frames >= 3);
+    if (!sps || !pps)
+        return;
+    int slices = 0, weighted = 0, explicit_luma = 0, modified = 0, failed = 0;
+    for (media::Mp4Frame const& frame : parser.take_frames()) {
+        if (frame.track != video->id)
+            continue;
+        for (media::H264Nal const& nal : media::split_h264_length_prefixed(frame.data, config->length_size)) {
+            if (nal.type != 1 && nal.type != 5)
+                continue;
+            std::optional<media::H264SliceHeader> const h = media::parse_h264_slice_header(nal.bytes, *sps, *pps);
+            if (!h) {
+                ++failed;
+                continue;
+            }
+            ++slices;
+            if (h->weights.present) {
+                ++weighted;
+                for (int i = 0; i < h->num_ref_idx_l0_active && i < 32; ++i)
+                    explicit_luma += h->weights.list[0][static_cast<std::size_t>(i)].luma_present ? 1 : 0;
+            }
+            if (!h->ref_list_modifications[0].empty() || !h->ref_list_modifications[1].empty())
+                ++modified;
+        }
+    }
+    std::fprintf(stderr, "test_h264: weighted: %d slices, %d with weight tables (%d explicit luma weights), %d with list modifications\n", slices, weighted,
+        explicit_luma, modified);
+    CHECK(failed == 0 && slices >= 48 && weighted > 0 && explicit_luma > 0 && modified > 0);
+}
+
 void check_hardware(std::string const& folder, std::string const& name, media::VideoApi api, char const* api_name)
 {
     std::string why;
@@ -248,8 +303,11 @@ int main(int argc, char** argv)
     check_stream(folder, "plain-faststart");
     check_stream(folder, "fragmented");
     check_stream(folder, "video-only");
-    for (char const* name : { "plain-faststart", "plain-moov-last", "video-only", "fragmented", "fragmented-absolute" })
-        check_hardware(folder, name, media::VideoApi::Vulkan, "vulkan");
+    check_weighted(folder);
+    for (auto const& [api, api_name] : { std::pair { media::VideoApi::Vulkan, "vulkan" }, std::pair { media::VideoApi::Vaapi, "vaapi" } }) {
+        for (char const* name : { "plain-faststart", "plain-moov-last", "video-only", "fragmented", "fragmented-absolute", "weighted" })
+            check_hardware(folder, name, api, api_name);
+    }
     // Annex B: start codes of three and four bytes, trailing zeros no unit's,
     // the emulation prevention bytes taken out of a payload.
     {

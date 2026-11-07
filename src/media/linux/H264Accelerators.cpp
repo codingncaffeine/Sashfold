@@ -13,8 +13,10 @@ std::unique_ptr<H264Accelerator> H264Accelerator::open(std::string& error, Video
             return nullptr;
         }
     }
-    // VA-API for H.264 is owed (GAPS plan 6b): Vulkan Video is the only way yet.
-    error = api == VideoApi::Vaapi ? "VA-API H.264 decoding is not written yet" : "Vulkan Video: " + vulkan_error;
+    std::string vaapi_error;
+    if (std::unique_ptr<H264Accelerator> accelerator = open_vaapi_h264(vaapi_error))
+        return accelerator;
+    error = api == VideoApi::Vaapi ? "VA-API: " + vaapi_error : "Vulkan Video: " + vulkan_error + "; VA-API: " + vaapi_error;
     return nullptr;
 }
 

@@ -8,5 +8,6 @@
 namespace sashfold::media {
 
 std::unique_ptr<H264Accelerator> open_vulkan_h264(std::string& error);
+std::unique_ptr<H264Accelerator> open_vaapi_h264(std::string& error);
 
 }

@@ -220,6 +220,7 @@ std::optional<Nv12Picture> H264Decoder::decode(std::span<std::uint8_t const> acc
         if (header->slice_type != H264SliceType::I && header->slice_type != H264SliceType::SI)
             picture.intra = false;
         picture.slices.push_back(nal.bytes);
+        picture.headers.push_back(*header);
     }
     if (!first)
         return std::nullopt; // no picture in this unit

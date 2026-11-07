@@ -147,6 +147,30 @@ struct H264Mmco {
     int max_long_term_frame_idx_plus1 = 0; // op 4
 };
 
+// 7.3.3.1: one step of a reference list's modification — idc 0 and 1 move
+// a short-term picture by a difference of picture numbers (value is
+// abs_diff_pic_num_minus1 + 1), idc 2 a long-term one by its number.
+struct H264RefListModification {
+    int idc = 0;
+    int value = 0;
+};
+
+// 7.3.3.2: the explicit prediction weights, per list and reference index.
+struct H264PredWeights {
+    int luma_log2_denom = 0;
+    int chroma_log2_denom = 0;
+    struct Entry {
+        bool luma_present = false;
+        int luma_weight = 0;
+        int luma_offset = 0;
+        bool chroma_present = false;
+        std::array<int, 2> chroma_weight { 0, 0 };
+        std::array<int, 2> chroma_offset { 0, 0 };
+    };
+    std::array<std::array<Entry, 32>, 2> list {};
+    bool present = false;
+};
+
 struct H264SliceHeader {
     int nal_type = 0;
     int nal_ref_idc = 0;
@@ -167,6 +191,11 @@ struct H264SliceHeader {
     bool num_ref_idx_active_override = false;
     int num_ref_idx_l0_active = 0;
     int num_ref_idx_l1_active = 0;
+    // The reference lists' modifications and the explicit weights, which
+    // an accelerator that is handed the lists (VA-API) needs; Vulkan Video
+    // reads them from the slice itself.
+    std::array<std::vector<H264RefListModification>, 2> ref_list_modifications;
+    H264PredWeights weights;
     // 7.3.3.3: how the decoded picture buffer is marked after this picture.
     bool no_output_of_prior_pics = false;
     bool long_term_reference = false; // an IDR kept as a long-term reference

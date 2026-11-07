@@ -48,4 +48,9 @@ make fragmented "${video[@]}" "${audio[@]}" "${codecs[@]}" -movflags frag_keyfra
 make fragmented-absolute "${video[@]}" "${audio[@]}" "${codecs[@]}" -movflags frag_keyframe+empty_moov
 make audio-only "${audio[@]}" -c:a aac -b:a 32k
 make video-only "${video[@]}" -c:v libx264 -preset veryfast -crf 35 -g 12 -bf 0 -pix_fmt yuv420p
+# A fade with several references, B-pyramids and explicit weights: slices
+# with reference list modifications and prediction weight tables, which the
+# header parser must read exactly for the decoders that are handed them.
+make weighted -f lavfi -i "testsrc2=size=160x120:rate=24:duration=2,fade=t=in:st=0:d=1" -c:v libx264 -preset medium -crf 30 -g 24 -bf 3 \
+    -x264-params "weightp=2:b-pyramid=normal:ref=4:mixed-refs=1:weightb=1" -pix_fmt yuv420p
 ls -la "$out"

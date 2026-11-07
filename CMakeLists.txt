@@ -342,7 +342,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     src/platform/posix/FontsPosix.cpp src/platform/linux/Wayland.cpp src/platform/linux/Xkb.cpp
     src/platform/linux/WindowWayland.cpp src/platform/linux/ClipboardWayland.cpp src/platform/linux/AudioPulse.cpp
     src/media/linux/Vp9Accelerators.cpp src/media/linux/VulkanVideo.cpp src/media/linux/Vp9Vulkan.cpp src/media/linux/Vp9Vaapi.cpp
-    src/media/linux/H264Accelerators.cpp src/media/linux/H264Vulkan.cpp
+    src/media/linux/H264Accelerators.cpp src/media/linux/H264Vulkan.cpp src/media/linux/H264Vaapi.cpp
     src/platform/linux/ConfineLinux.cpp src/platform/linux/DBus.cpp src/platform/linux/NotifierDBus.cpp src/platform/linux/CaretBlinkLinux.cpp
     src/platform/linux/FileChooserPortal.cpp src/platform/linux/PrintPortal.cpp)
 else()

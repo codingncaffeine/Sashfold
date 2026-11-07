@@ -39,6 +39,7 @@ struct H264PictureInfo {
     H264Sps const* sps = nullptr;
     H264Pps const* pps = nullptr;
     std::vector<std::span<std::uint8_t const>> slices;
+    std::vector<H264SliceHeader> headers; // one per slice, in the same order
     H264SliceHeader const* first_slice = nullptr;
     int poc_top = 0;
     int poc_bottom = 0;
