@@ -85,17 +85,26 @@ std::optional<std::string> time_zone_database_name(std::string_view requested);
 // zone the reader understands.
 std::shared_ptr<TimeZoneData const> time_zone_database_load(std::string const& name);
 
-// The IANA database's links, carried in the engine as browsers carry them
-// (tools/gen-tz-links.py): a system may install the zones without the old
-// names, which ECMA-402 still accepts.
+// The IANA time zone database, carried in the engine as browsers carry it
+// (tools/gen-tz-data.py → TimeZoneData.cpp), so a zone means the same on
+// every machine: Windows has no zoneinfo, and distributions leave names
+// out. Its zones (sorted by name) as compiled TZif, and its links.
+struct EmbeddedZone {
+    char const* name;
+    std::uint32_t offset;
+    std::uint32_t size;
+};
+std::span<EmbeddedZone const> embedded_zones();
+std::span<unsigned char const> embedded_zone_bytes();
 struct TimeZoneLink {
     char const* alias;
     char const* target;
 };
 std::span<TimeZoneLink const> time_zone_links();
+char const* time_zone_database_version();
 
 // The database's primary zones (its Zone lines, not its Links), for
-// Intl.supportedValuesOf; empty when the platform does not say.
+// Intl.supportedValuesOf.
 std::vector<std::string> time_zone_database_primary_names();
 
 } // namespace sashfold::js

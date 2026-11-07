@@ -461,49 +461,23 @@ std::string lower_ascii(std::string_view text)
     return out;
 }
 
-std::filesystem::path database_directory()
-{
-    if (char const* dir = std::getenv("TZDIR"); dir && *dir)
-        return dir;
-    return "/usr/share/zoneinfo";
-}
-
 struct DatabaseIndex {
     std::unordered_map<std::string, std::string> by_lower_name;
-    // A link the system has no file for: the zone whose file it reads.
+    // A link: the zone whose data it reads.
     std::unordered_map<std::string, std::string> link_target;
     std::vector<std::string> primary;
 };
 
+// The database the engine carries (TimeZoneData.cpp), the same on every
+// machine: its zones, then its links by their own names, each read from
+// the zone it names — through a chain of links, should one name another.
 DatabaseIndex build_index()
 {
     DatabaseIndex index;
-#if !defined(_WIN32)
-    std::filesystem::path const root = database_directory();
-    std::error_code error;
-    // The database's files that are not zones: the fallback rules, the
-    // placeholder zone, the leap second table, and the notes.
-    static constexpr std::string_view not_zones[] = { "posixrules", "Factory", "localtime", "SECURITY", "leapseconds" };
-    std::filesystem::recursive_directory_iterator it(root, std::filesystem::directory_options::skip_permission_denied, error);
-    for (; !error && it != std::filesystem::recursive_directory_iterator(); it.increment(error)) {
-        std::filesystem::directory_entry const& entry = *it;
-        std::string const name = entry.path().lexically_relative(root).generic_string();
-        std::error_code status_error;
-        if (entry.is_directory(status_error)) {
-            // posix/ repeats the database and right/ counts leap seconds.
-            if (it.depth() == 0 && (name == "posix" || name == "right"))
-                it.disable_recursion_pending();
-            continue;
-        }
-        if (!entry.is_regular_file(status_error) || !valid_zone_name(name))
-            continue;
-        if (std::find(std::begin(not_zones), std::end(not_zones), name) != std::end(not_zones))
-            continue;
-        index.by_lower_name.emplace(lower_ascii(name), name);
+    for (EmbeddedZone const& zone : embedded_zones()) {
+        index.by_lower_name.emplace(lower_ascii(zone.name), zone.name);
+        index.primary.emplace_back(zone.name);
     }
-    // The links the system left out (Debian's tzdata-legacy, say): known by
-    // their own names, read from the zone they name — through a chain of
-    // links, should one name another.
     for (TimeZoneLink const& link : time_zone_links()) {
         std::string const alias = link.alias;
         if (index.by_lower_name.contains(lower_ascii(alias)))
@@ -522,20 +496,6 @@ DatabaseIndex build_index()
         index.link_target.emplace(alias, found->second);
         index.by_lower_name.emplace(lower_ascii(alias), alias);
     }
-    // tzdata.zi, the database in zic's input form, tells a Zone from a
-    // Link: its "Z" lines name the primary zones.
-    std::ifstream zi(root / "tzdata.zi");
-    std::string line;
-    while (std::getline(zi, line)) {
-        if (!line.starts_with("Z "))
-            continue;
-        std::size_t const end = line.find_first_of(" \t", 2);
-        std::string const name = line.substr(2, end == std::string::npos ? std::string::npos : end - 2);
-        auto const found = index.by_lower_name.find(lower_ascii(name));
-        if (found != index.by_lower_name.end() && found->second == name)
-            index.primary.push_back(name);
-    }
-#endif
     return index;
 }
 
@@ -549,16 +509,13 @@ std::shared_ptr<TimeZoneData const> read_zone_file(std::string const& name)
 {
     DatabaseIndex const& index = database_index();
     auto const linked = index.link_target.find(name);
-    std::ifstream file(database_directory() / (linked != index.link_target.end() ? linked->second : name), std::ios::binary);
-    if (!file)
+    std::string const& zone = linked != index.link_target.end() ? linked->second : name;
+    std::span<EmbeddedZone const> const zones = embedded_zones();
+    auto const found = std::lower_bound(zones.begin(), zones.end(), zone,
+        [](EmbeddedZone const& entry, std::string const& wanted) { return std::string_view(entry.name) < wanted; });
+    if (found == zones.end() || found->name != zone)
         return nullptr;
-    std::vector<unsigned char> bytes;
-    char buffer[4096];
-    while (file.read(buffer, sizeof buffer) || file.gcount() > 0) {
-        bytes.insert(bytes.end(), buffer, buffer + file.gcount());
-        if (bytes.size() > (1u << 20))
-            return nullptr;
-    }
+    std::span<unsigned char const> const bytes = embedded_zone_bytes().subspan(found->offset, found->size);
     std::optional<TimeZoneData> data = TimeZoneData::parse(bytes);
     if (!data)
         return nullptr;
