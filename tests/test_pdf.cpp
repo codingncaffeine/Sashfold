@@ -7,7 +7,9 @@
 #include "pdf/Parser.h"
 #include "pdf/CMap.h"
 #include "pdf/Encoding.h"
+#include "pdf/Extract.h"
 #include "pdf/Font.h"
+#include "pdf/Std14Metrics.h"
 #include "pdf/ImageCodecs.h"
 #include "pdf/Render.h"
 #include "pdf/Type1.h"
@@ -907,6 +909,39 @@ void test_jpx(std::string const& fixtures)
     CHECK(!pdf::decode_jpx(bytes("not a picture"), 1u << 24));
 }
 
+// The standard 14 fonts' widths are the reader's own, not the machine's: a
+// page naming Helvetica without /Widths has its text laid out the same where
+// no font file is installed (CI's Alpine and Windows runners have none,
+// and the viewer's text layer was empty there).
+void test_std14_widths(std::string const& viewer_pdf)
+{
+    auto const width = [](char const* font, char const* glyph) -> int {
+        std::optional<pdf::Std14Widths> const widths = pdf::std14_widths(font);
+        if (!widths)
+            return -1;
+        for (pdf::NamedWidth const& entry : widths->by_name) {
+            if (std::string_view(entry.name) == glyph)
+                return entry.width;
+        }
+        return -2;
+    };
+    CHECK_EQ(width("Helvetica", "A"), 667);
+    CHECK_EQ(width("Helvetica-Bold", "A"), 722);
+    CHECK_EQ(width("Times-Roman", "space"), 250);
+    CHECK_EQ(width("Courier-Oblique", "W"), 600);
+    std::optional<pdf::Std14Widths> const symbol = pdf::std14_widths("Symbol");
+    CHECK(symbol && symbol->by_code && symbol->by_code['a'] == 631); // alpha
+    CHECK(!pdf::std14_widths("Arial"));
+    Bytes const file = read_file(viewer_pdf);
+    pdf::Document::Status status {};
+    std::shared_ptr<pdf::Document const> const doc = pdf::Document::open(file, {}, status);
+    CHECK(doc != nullptr);
+    if (!doc)
+        return;
+    std::vector<pdf::TextRun> const runs = pdf::page_text(*doc, 0);
+    CHECK(!runs.empty() && runs[0].text == "Sashfold PDF viewer first page" && runs[0].width > 300 && runs[0].width < 340);
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -922,6 +957,7 @@ int main(int argc, char** argv)
         test_encrypted(argv[1]);
         test_ccitt(argv[1]);
         test_jpx(argv[1]);
+        test_std14_widths(std::string(argv[1]) + "/../../shell/pdf-viewer.pdf");
     }
     else
         CHECK(!"the fixtures folder is the first argument");

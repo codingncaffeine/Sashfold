@@ -333,6 +333,34 @@ void Font::choose_substitute(Dict const& descriptor, std::string const& ordering
     m_program_bytes.reset();
 }
 
+namespace {
+
+// The standard name a simple font's /BaseFont stands for (ISO 32000-2
+// §9.6.2.2 and the alternate names every reader takes: "Arial,Bold",
+// "TimesNewRomanPS-BoldMT", "CourierNew,Italic").
+std::string standard_14_name(std::string const& base)
+{
+    std::string lowered;
+    for (char const c : base)
+        lowered += static_cast<char>(std::tolower(static_cast<unsigned char>(c)));
+    auto const has = [&](char const* part) { return lowered.find(part) != std::string::npos; };
+    if (lowered == "symbol" || lowered.starts_with("symbol,") || lowered.starts_with("symbol-"))
+        return "Symbol";
+    if (lowered == "zapfdingbats" || lowered == "dingbats")
+        return "ZapfDingbats";
+    bool const bold = has("bold");
+    bool const italic = has("italic") || has("oblique");
+    if (lowered.starts_with("helvetica") || lowered.starts_with("arial"))
+        return std::string("Helvetica") + (bold && italic ? "-BoldOblique" : bold ? "-Bold" : italic ? "-Oblique" : "");
+    if (lowered.starts_with("times") )
+        return std::string("Times-") + (bold && italic ? "BoldItalic" : bold ? "Bold" : italic ? "Italic" : "Roman");
+    if (lowered.starts_with("courier"))
+        return std::string("Courier") + (bold && italic ? "-BoldOblique" : bold ? "-Bold" : italic ? "-Oblique" : "");
+    return {};
+}
+
+} // namespace
+
 void Font::load_simple(Document const& doc, Dict const& dict)
 {
     std::string const subtype = doc.resolve(dict.get("Subtype")).as_name();
@@ -344,6 +372,8 @@ void Font::load_simple(Document const& doc, Dict const& dict)
     std::int64_t const first = doc.resolve(dict.get("FirstChar")).as_int(0);
     std::vector<double> const widths = numbers(doc, dict.get("Widths"));
     m_missing_width = doc.resolve(descriptor.get("MissingWidth")).as_number(0);
+    if (subtype != "Type3")
+        m_std14 = std14_widths(standard_14_name(m_base_font));
     for (std::size_t i = 0; i < widths.size(); ++i) {
         std::int64_t const code = first + static_cast<std::int64_t>(i);
         if (code >= 0 && code < 256) {
@@ -590,8 +620,19 @@ bool Font::next(std::string_view bytes, std::size_t& at, ShownGlyph& glyph) cons
         glyph.length = 1;
         glyph.word_space = code == 32;
         double width = m_has_width[code] ? m_widths[code] : m_missing_width;
+        if (!m_has_width[code] && width == 0 && m_std14 && m_substituted) {
+            // A standard 14 font: its widths are the reader's to know, font or no font.
+            if (m_std14->by_code) {
+                width = m_std14->by_code[code];
+            } else if (!m_names[code].empty()) {
+                auto const found = std::lower_bound(m_std14->by_name.begin(), m_std14->by_name.end(), m_names[code],
+                    [](NamedWidth const& entry, std::string const& name) { return std::string_view(entry.name) < name; });
+                if (found != m_std14->by_name.end() && found->name == m_names[code])
+                    width = found->width;
+            }
+        }
         if (!m_has_width[code] && width == 0) {
-            // No /Widths: the program's own advance (the standard 14 fonts' metrics come from their substitutes).
+            // No /Widths: the program's own advance.
             if (std::optional<std::uint16_t> const g = glyph_of(glyph))
                 width = program_advance(*g);
             else if (m_type1 && !m_names[code].empty()) {

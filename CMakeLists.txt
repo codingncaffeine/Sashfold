@@ -218,6 +218,7 @@ add_library(sashfold_core STATIC
   src/pdf/Function.cpp
   src/pdf/Image.cpp
   src/pdf/Ccitt.cpp
+  src/pdf/Std14Metrics.cpp
   src/pdf/ImageCodecs.cpp
   src/pdf/Jpx.cpp
   src/pdf/JpxTier1.cpp
@@ -408,6 +409,11 @@ endif()
 
 # gen_font writes Sashfold Mono as a TrueType file: the reader fixture and the
 # fuzzing seed. A build tool, never shipped.
+# gen_std14_metrics measures the standard 14 fonts' widths from the URW base
+# 35 into src/pdf/Std14Metrics.cpp (run by hand; the output is committed).
+add_executable(gen_std14_metrics tools/gen-std14-metrics.cpp)
+target_link_libraries(gen_std14_metrics PRIVATE sashfold_core sashfold_warnings)
+
 add_executable(gen_font tools/gen-font.cpp)
 target_link_libraries(gen_font PRIVATE sashfold_core sashfold_warnings)
 

@@ -13,6 +13,7 @@
 // and read from any thread.
 
 #include "paint/Canvas2D.h"
+#include "pdf/Std14Metrics.h"
 #include "pdf/CMap.h"
 #include "pdf/Document.h"
 #include "svg/Raster.h"
@@ -103,6 +104,8 @@ private:
     std::array<bool, 256> m_has_width {};
     std::array<std::int32_t, 256> m_code_glyphs {}; // -1: none decided at load
     double m_missing_width = 0;
+    // A standard 14 font's own widths, for codes /Widths leaves out.
+    std::optional<Std14Widths> m_std14;
     double m_ascent = 0.8;
     double m_descent = -0.2;
     bool m_symbolic = false;
