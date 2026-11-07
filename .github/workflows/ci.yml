@@ -195,7 +195,7 @@ jobs:
           -DCMAKE_CXX_COMPILER=clang++ -DSASHFOLD_FUZZ=ON
       # Only what it runs: the rest of the tree is built and tested by the
       # other lanes, and here every file is built instrumented.
-      - run: cmake --build build --target fuzz_html_tokenizer fuzz_html_tree fuzz_truetype fuzz_png fuzz_pdf fuzz_x509 fuzz_gif fuzz_jpeg fuzz_bmp fuzz_zip fuzz_webm
+      - run: cmake --build build --target fuzz_html_tokenizer fuzz_html_tree fuzz_truetype fuzz_png fuzz_pdf fuzz_x509 fuzz_gif fuzz_jpeg fuzz_bmp fuzz_zip fuzz_webm fuzz_mp4
       - run: ./build/fuzz_html_tokenizer -max_total_time=40 -timeout=5 fuzz/corpus/html_tokenizer
       - run: ./build/fuzz_html_tree -max_total_time=40 -timeout=5 fuzz/corpus/html_tokenizer
       - run: ./build/fuzz_truetype -max_total_time=30 -timeout=5 fuzz/corpus/truetype
@@ -207,6 +207,7 @@ jobs:
       - run: ./build/fuzz_bmp -max_total_time=30 -timeout=5 fuzz/corpus/bmp
       - run: ./build/fuzz_zip -max_total_time=30 -timeout=5 fuzz/corpus/zip
       - run: ./build/fuzz_webm -max_total_time=30 -timeout=5 fuzz/corpus/webm
+      - run: ./build/fuzz_mp4 -max_total_time=30 -timeout=5 fuzz/corpus/mp4
 
   windows-mingw:
     runs-on: windows-latest

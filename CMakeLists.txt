@@ -172,6 +172,7 @@ add_library(sashfold_core STATIC
   src/media/Vp9.cpp
   src/media/Wav.cpp
   src/media/WebM.cpp
+  src/media/Mp4.cpp
   src/media/Yuv.cpp
   src/net/Cache.cpp
   src/net/Connections.cpp
@@ -511,4 +512,5 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(svg)
   sashfold_fuzzer(zip)
   sashfold_fuzzer(webm)
+  sashfold_fuzzer(mp4)
 endif()
