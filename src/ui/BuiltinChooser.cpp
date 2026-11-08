@@ -183,10 +183,13 @@ std::optional<std::vector<std::string>> BuiltinChooser::take_result()
     return std::exchange(m_result, std::nullopt);
 }
 
+// Until the answer has been taken in by poll(): a listing the thread has
+// finished but the rows do not show yet is still being read, as far as
+// anyone waiting for the rows is concerned.
 bool BuiltinChooser::reading() const
 {
     std::lock_guard const lock(m_listing->mutex);
-    return m_listing->answered != m_listing->asked;
+    return m_listing->answered != m_listing->asked || m_listing->ready;
 }
 
 // A folder asked for: read on a thread, its entries sorted as every chooser
