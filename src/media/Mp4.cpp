@@ -16,6 +16,10 @@ namespace {
 
 constexpr std::size_t k_longest_box = std::size_t { 1 } << 28; // a moov or moof larger than this is not one
 constexpr std::size_t k_most_samples = 1u << 24;
+// Fragments name their samples before the bytes arrive, and a run with no
+// per-sample fields names any number of them in sixteen bytes: what is named
+// and not yet given out is held to this (a real fragment names hundreds).
+constexpr std::size_t k_most_pending_fragment_samples = 1u << 20;
 
 std::uint32_t be32(std::uint8_t const* p)
 {
@@ -790,7 +794,7 @@ bool Mp4Parser::parse_moof(std::span<std::uint8_t const> body, std::uint64_t moo
             if (!full_box(run.body, v, f, t) || t.size() < 4)
                 return false;
             std::uint32_t const count = be32(t.data());
-            if (count > k_most_samples)
+            if (count > k_most_samples || m_samples.size() + count > k_most_pending_fragment_samples)
                 return false;
             std::size_t p = 4;
             std::uint64_t run_at = data_at;

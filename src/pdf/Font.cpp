@@ -4,6 +4,7 @@
 #include "pdf/Type1.h"
 #include "text/Cff.h"
 #include "text/FontManager.h"
+#include "text/SashfoldMono.h"
 #include "text/TrueType.h"
 
 #include <algorithm>
@@ -141,7 +142,21 @@ std::shared_ptr<text::TrueTypeFont const> system_font(std::vector<std::string> c
         if (shared)
             return shared;
     }
-    return nullptr;
+    // A machine with none of them (a bare container, a stripped install):
+    // the engine's own face, as its pages fall back to, so the text is still
+    // drawn and can still be selected.
+    std::string const key = std::string("builtin#") + (bold ? "b" : "") + (italic ? "i" : "");
+    std::lock_guard const lock(mutex);
+    auto const it = cache.find(key);
+    if (it != cache.end())
+        return it->second;
+    text::TrueTypeOptions options;
+    options.bold = bold;
+    options.italic = italic;
+    std::optional<text::TrueTypeFont> font = text::TrueTypeFont::parse(text::SashfoldMono::instance().to_truetype(options), 0);
+    std::shared_ptr<text::TrueTypeFont const> shared = font ? std::make_shared<text::TrueTypeFont const>(std::move(*font)) : nullptr;
+    cache.emplace(key, shared);
+    return shared;
 }
 
 } // namespace
@@ -315,17 +330,17 @@ void Font::choose_substitute(Dict const& descriptor, std::string const& ordering
     } else if (contains(name, "dingbat")) {
         families.insert(families.begin(), { "D050000L", "Dingbats" });
     } else if (contains(name, "arial") || contains(name, "helvetica")) {
-        families.insert(families.end(), { "Liberation Sans", "Nimbus Sans", "Arimo" });
+        families.insert(families.end(), { "Liberation Sans", "Nimbus Sans", "Arimo", "Arial", "Helvetica" });
     } else if (contains(name, "calibri")) {
         families.insert(families.end(), { "Carlito" });
     } else if (contains(name, "cambria")) {
         families.insert(families.end(), { "Caladea" });
     }
     if (fixed)
-        families.insert(families.end(), { "Nimbus Mono PS", "Liberation Mono", "Cousine", "DejaVu Sans Mono" });
+        families.insert(families.end(), { "Nimbus Mono PS", "Liberation Mono", "Cousine", "Courier New", "Courier", "DejaVu Sans Mono", "Consolas" });
     else if (serif)
-        families.insert(families.end(), { "Nimbus Roman", "Liberation Serif", "Tinos", "DejaVu Serif" });
-    families.insert(families.end(), { "Nimbus Sans", "Liberation Sans", "Arimo", "DejaVu Sans", "Noto Sans" });
+        families.insert(families.end(), { "Nimbus Roman", "Liberation Serif", "Tinos", "Times New Roman", "Times", "DejaVu Serif" });
+    families.insert(families.end(), { "Nimbus Sans", "Liberation Sans", "Arimo", "Arial", "Helvetica", "DejaVu Sans", "Noto Sans", "Segoe UI" });
     m_truetype = system_font(families, bold, italic);
     m_program_scale = m_truetype ? upem_scale(*m_truetype) : 0.001;
     m_type1.reset();

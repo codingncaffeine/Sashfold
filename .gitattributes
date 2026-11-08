@@ -21,3 +21,6 @@ tests/fixtures/brotli/* binary
 # Files the shell's tests hand pages, measured to the byte (a checkout on
 # Windows must not turn their line ends into two bytes).
 tests/shell/files/* binary
+
+# Documents read byte for byte (offsets in their cross-reference tables).
+*.pdf binary
