@@ -7,9 +7,10 @@
 // scalefactors and spectra, pulses, temporal noise shaping, mid/side and
 // intensity stereo, perceptual noise substitution, the inverse MDCT in
 // long and short windows with sine and Kaiser-Bessel shapes and the
-// overlap-add — from the AudioSpecificConfig an MP4's esds carries.
-// HE-AAC's spectral band replication and parametric stereo are owed: a
-// stream that signals them decodes as plain AAC-LC at the core rate.
+// overlap-add — from the AudioSpecificConfig an MP4's esds carries, and
+// HE-AAC's spectral band replication (media/Sbr.h) on top of it, which
+// doubles the rate and the samples a block gives. Parametric stereo is
+// owed: such a stream plays as its one channel on both sides.
 
 #include <cstdint>
 #include <memory>
@@ -40,12 +41,17 @@ public:
     AacDecoder(AacDecoder const&) = delete;
     AacDecoder& operator=(AacDecoder const&) = delete;
 
-    int sample_rate() const;
+    int sample_rate() const; // the core's
     int channels() const;
+    // The rate and the samples a channel the blocks come out at: the
+    // core's and 1024, or twice both once spectral band replication is in
+    // play (signalled by the configuration, or met in the stream).
+    int output_rate() const;
+    int frames_per_block() const;
 
-    // One raw data block (an MP4 sample) decoded to 1024 samples a channel,
-    // interleaved, in [-1, 1]. False when the block could not be read; the
-    // decoder goes on with the next.
+    // One raw data block (an MP4 sample) decoded to frames_per_block()
+    // samples a channel, interleaved, in [-1, 1]. False when the block
+    // could not be read; the decoder goes on with the next.
     bool decode(std::span<std::uint8_t const> block, std::vector<float>& out);
 
     // Forgets the overlap, as at a seek.

@@ -1,11 +1,14 @@
 #include "media/Aac.h"
 
 #include "media/AacData.h"
+#include "media/Sbr.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstring>
+#include <map>
+#include <memory>
 #include <numbers>
 
 namespace sashfold::media {
@@ -290,6 +293,44 @@ struct ChannelState {
 
 // --- Configuration ----------------------------------------------------------------
 
+namespace {
+
+// A program_config_element (4.4.1.1): the channels its front, side and back
+// elements and its LFEs make, nothing when it cannot be read.
+std::optional<int> read_program_config(Bits& bits)
+{
+    bits.u(4); // element_instance_tag
+    bits.u(2); // object_type
+    bits.u(4); // sampling_frequency_index
+    int const front = static_cast<int>(bits.u(4));
+    int const side = static_cast<int>(bits.u(4));
+    int const back = static_cast<int>(bits.u(4));
+    int const lfe = static_cast<int>(bits.u(2));
+    int const assoc = static_cast<int>(bits.u(3));
+    int const cc = static_cast<int>(bits.u(4));
+    if (bits.flag())
+        bits.u(4); // mono_mixdown_element_number
+    if (bits.flag())
+        bits.u(4); // stereo_mixdown_element_number
+    if (bits.flag())
+        bits.u(3); // matrix_mixdown_idx, pseudo_surround_enable
+    int channels = 0;
+    for (int i = 0; i < front + side + back; ++i) {
+        channels += bits.flag() ? 2 : 1;
+        bits.u(4);
+    }
+    channels += lfe;
+    bits.skip(static_cast<std::size_t>(lfe) * 4 + static_cast<std::size_t>(assoc) * 4 + static_cast<std::size_t>(cc) * 5);
+    bits.align();
+    int const comment = static_cast<int>(bits.u(8));
+    bits.skip(static_cast<std::size_t>(comment) * 8);
+    if (bits.failed() || channels <= 0)
+        return std::nullopt;
+    return channels;
+}
+
+} // namespace
+
 std::optional<AacConfig> parse_aac_config(std::span<std::uint8_t const> config)
 {
     static constexpr int rates[] = { 96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350, 0, 0, 0 };
@@ -322,9 +363,29 @@ std::optional<AacConfig> parse_aac_config(std::span<std::uint8_t const> config)
         bits.u(14);
     bool const extension = bits.flag();
     (void)extension;
-    if (out.channel_configuration < 1 || out.channel_configuration > 7)
-        return std::nullopt; // a program config element in the stream: not read yet
-    out.channels = out.channel_configuration == 7 ? 8 : out.channel_configuration;
+    if (out.channel_configuration == 0) {
+        // The layout in a program config element: taken as the standard
+        // layout of as many channels (front, then side and back, then LFE,
+        // in the order the elements come).
+        std::optional<int> const channels = read_program_config(bits);
+        if (!channels || *channels > 8 || *channels == 7)
+            return std::nullopt;
+        out.channels = *channels;
+        out.channel_configuration = *channels == 8 ? 7 : *channels;
+    } else if (out.channel_configuration > 7) {
+        return std::nullopt;
+    } else {
+        out.channels = out.channel_configuration == 7 ? 8 : out.channel_configuration;
+    }
+    // Backward-compatible signalling after the core's configuration
+    // (1.6.6): SBR's presence and output rate, and parametric stereo's.
+    if (!out.sbr_signalled && bits.left() >= 16 && bits.peek(11) == 0x2B7) {
+        bits.u(11);
+        if (static_cast<int>(bits.u(5)) == 5 && bits.flag()) {
+            out.sbr_signalled = true;
+            out.extension_sample_rate = read_rate();
+        }
+    }
     if (out.frame_960)
         return std::nullopt;
     bool known_rate = false;
@@ -342,9 +403,19 @@ struct AacDecoder::Impl {
     aac_data::BandTable const* bands = nullptr;
     std::array<ChannelState, k_max_channels> state {};
     std::uint32_t noise_seed = 0x2545F491;
+    // Spectral band replication, one decoder per channel element (by the
+    // element's place in the block), once the configuration says or the
+    // stream shows there is any: every channel then comes out doubled.
+    std::map<int, std::unique_ptr<SbrDecoder>> sbr;
+    bool sbr_output = false;
+    // The configuration's SBR output rate is the core's own: the downsampled
+    // bank, at the core's rate (4.6.18.4.3).
+    bool downsampled() const { return config.sbr_signalled && config.extension_sample_rate == config.sample_rate; }
+    int sbr_frames() const { return downsampled() ? k_frame : 2 * k_frame; }
 
     explicit Impl(AacConfig const& c)
         : config(c)
+        , sbr_output(c.sbr_signalled)
     {
         for (std::size_t i = 0; i < aac_data::band_table_count; ++i) {
             if (static_cast<int>(aac_data::band_tables[i].sampling_rate) == config.sample_rate)
@@ -841,16 +912,52 @@ struct AacDecoder::Impl {
         if (!bands)
             return false;
         int const channels = config.channels;
-        out.assign(static_cast<std::size_t>(k_frame) * static_cast<std::size_t>(channels), 0.0f);
         Bits bits(block);
         int channel = 0; // the next output channel to fill
         std::array<float, k_frame> samples {};
+        // The core's samples by channel, and the elements they came from:
+        // SBR's data follows its element and is applied once the block is read.
+        std::vector<std::array<float, k_frame>> core(static_cast<std::size_t>(channels));
+        struct Element {
+            int index;
+            bool pair;
+            int first_channel;
+        };
+        std::vector<Element> elements;
+        int element_index = 0;
         auto const emit = [&](float const* data) {
             if (channel >= channels)
                 return;
-            for (int i = 0; i < k_frame; ++i)
-                out[static_cast<std::size_t>(i) * static_cast<std::size_t>(channels) + static_cast<std::size_t>(channel)] = data[i];
+            std::copy(data, data + k_frame, core[static_cast<std::size_t>(channel)].begin());
             ++channel;
+        };
+        auto const finish = [&]() {
+            if (!sbr_output) {
+                out.assign(static_cast<std::size_t>(k_frame) * static_cast<std::size_t>(channels), 0.0f);
+                for (int c = 0; c < channel; ++c)
+                    for (int i = 0; i < k_frame; ++i)
+                        out[static_cast<std::size_t>(i) * static_cast<std::size_t>(channels) + static_cast<std::size_t>(c)] = core[static_cast<std::size_t>(c)][static_cast<std::size_t>(i)];
+                return;
+            }
+            int const frames = sbr_frames();
+            out.assign(static_cast<std::size_t>(frames) * static_cast<std::size_t>(channels), 0.0f);
+            std::vector<float> left(static_cast<std::size_t>(frames)), right(static_cast<std::size_t>(frames));
+            for (Element const& e : elements) {
+                if (e.first_channel >= channel)
+                    continue;
+                std::unique_ptr<SbrDecoder>& decoder = sbr[e.index];
+                if (!decoder)
+                    decoder = std::make_unique<SbrDecoder>(config.sample_rate, e.pair, downsampled());
+                bool const two = e.pair && e.first_channel + 1 < channel;
+                decoder->process(core[static_cast<std::size_t>(e.first_channel)].data(), two ? core[static_cast<std::size_t>(e.first_channel + 1)].data() : nullptr,
+                    left.data(), right.data());
+                for (int i = 0; i < frames; ++i)
+                    out[static_cast<std::size_t>(i) * static_cast<std::size_t>(channels) + static_cast<std::size_t>(e.first_channel)] = left[static_cast<std::size_t>(i)];
+                if (two) {
+                    for (int i = 0; i < frames; ++i)
+                        out[static_cast<std::size_t>(i) * static_cast<std::size_t>(channels) + static_cast<std::size_t>(e.first_channel + 1)] = right[static_cast<std::size_t>(i)];
+                }
+            }
         };
         auto ics_a = std::make_unique<Ics>();
         auto ics_b = std::make_unique<Ics>();
@@ -864,6 +971,7 @@ struct AacDecoder::Impl {
                 break;
             if (id == 0 || id == 3) { // SCE, LFE
                 bits.u(4); // element_instance_tag
+                elements.push_back({ element_index++, false, channel });
                 if (!read_ics(bits, *ics_a, false, *quantized_a))
                     return false;
                 finish_channel(*ics_a, *quantized_a);
@@ -872,6 +980,7 @@ struct AacDecoder::Impl {
                 emit(samples.data());
             } else if (id == 1) { // CPE
                 bits.u(4);
+                elements.push_back({ element_index++, true, channel });
                 bool const common_window = bits.flag();
                 bool ms_all = false;
                 std::array<std::array<bool, k_max_sfb>, 8> ms_used {};
@@ -921,17 +1030,34 @@ struct AacDecoder::Impl {
                     bits.align();
                 bits.skip(static_cast<std::size_t>(count) * 8);
             } else if (id == 5) { // PCE: the layout the configuration already gave
-                return false;
-            } else if (id == 6) { // FIL: an extension (SBR's data lives here), passed over
+                if (!read_program_config(bits))
+                    return false;
+            } else if (id == 6) { // FIL: an extension — SBR's data for the element before it
                 int count = static_cast<int>(bits.u(4));
                 if (count == 15)
                     count += static_cast<int>(bits.u(8)) - 1;
-                bits.skip(static_cast<std::size_t>(count) * 8);
+                if (count > 0) {
+                    int const type = static_cast<int>(bits.u(4));
+                    std::size_t const payload_bits = static_cast<std::size_t>(count) * 8 - 4;
+                    if ((type == 0xD || type == 0xE) && !elements.empty()) {
+                        Element const& e = elements.back();
+                        std::unique_ptr<SbrDecoder>& decoder = sbr[e.index];
+                        if (!decoder)
+                            decoder = std::make_unique<SbrDecoder>(config.sample_rate, e.pair, downsampled());
+                        sbr_output = true;
+                        SbrBits sbr_bits(block, bits.position());
+                        decoder->read(sbr_bits, payload_bits, type == 0xE);
+                    }
+                    bits.skip(payload_bits);
+                }
             }
             if (bits.failed())
                 return false;
         }
-        return channel > 0;
+        if (channel == 0)
+            return false;
+        finish();
+        return true;
     }
 };
 
@@ -944,6 +1070,8 @@ AacDecoder::~AacDecoder() = default;
 
 int AacDecoder::sample_rate() const { return m_impl->config.sample_rate; }
 int AacDecoder::channels() const { return m_impl->config.channels; }
+int AacDecoder::output_rate() const { return m_impl->sbr_output && !m_impl->downsampled() ? 2 * m_impl->config.sample_rate : m_impl->config.sample_rate; }
+int AacDecoder::frames_per_block() const { return m_impl->sbr_output ? m_impl->sbr_frames() : k_frame; }
 
 bool AacDecoder::decode(std::span<std::uint8_t const> block, std::vector<float>& out)
 {
@@ -954,6 +1082,8 @@ void AacDecoder::reset()
 {
     for (ChannelState& st : m_impl->state)
         st = {};
+    for (auto& [index, decoder] : m_impl->sbr)
+        decoder->reset();
 }
 
 }

@@ -44,9 +44,12 @@ public:
     explicit AacAudioDecoder(AacConfig const& config)
         : m_decoder(config)
         , m_config(config)
-        , m_resampler(output_channels, config.sample_rate, output_rate)
+        , m_resampler(output_channels, m_decoder.output_rate(), output_rate)
+        , m_resampler_rate(m_decoder.output_rate())
     {
     }
+    // Timed by the core's frames: a block is 1024 of them whether or not
+    // spectral band replication doubles what comes out.
     int native_rate() const override { return m_config.sample_rate; }
     Result decode(std::span<std::uint8_t const> packet, std::vector<float>& out) override
     {
@@ -54,9 +57,15 @@ public:
         result.input_frames = 1024;
         m_frame.clear();
         result.ok = m_decoder.decode(packet, m_frame);
+        std::size_t const frames = static_cast<std::size_t>(m_decoder.frames_per_block());
         if (!result.ok)
-            m_frame.assign(1024 * static_cast<std::size_t>(m_config.channels), 0.0f);
-        mix_down();
+            m_frame.assign(frames * static_cast<std::size_t>(m_config.channels), 0.0f);
+        // The rate the blocks come out at can double once SBR is met in the stream.
+        if (m_decoder.output_rate() != m_resampler_rate) {
+            m_resampler_rate = m_decoder.output_rate();
+            m_resampler = Resampler(output_channels, m_resampler_rate, output_rate);
+        }
+        mix_down(frames);
         m_resampler.resample(m_stereo, out);
         return result;
     }
@@ -67,12 +76,14 @@ public:
     }
 
 private:
-    void mix_down()
+    void mix_down(std::size_t frames)
     {
         int const channels = m_config.channels;
-        m_stereo.assign(1024 * 2, 0.0f);
+        m_stereo.assign(frames * 2, 0.0f);
         float const k = 0.7071f;
-        for (std::size_t i = 0; i < 1024; ++i) {
+        if (m_frame.size() < frames * static_cast<std::size_t>(channels))
+            m_frame.resize(frames * static_cast<std::size_t>(channels), 0.0f);
+        for (std::size_t i = 0; i < frames; ++i) {
             float const* s = m_frame.data() + i * static_cast<std::size_t>(channels);
             float left = 0, right = 0;
             switch (m_config.channel_configuration) {
@@ -115,6 +126,7 @@ private:
     AacDecoder m_decoder;
     AacConfig m_config;
     Resampler m_resampler;
+    int m_resampler_rate;
     std::vector<float> m_frame;
     std::vector<float> m_stereo;
 };

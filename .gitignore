@@ -29,3 +29,4 @@ reftest-actual/
 # A reader's own filter lists (blocklists/README.md): read from here, never committed.
 blocklists/filters/*.txt
 blocklists/nefarious/*.txt
+__pycache__/

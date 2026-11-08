@@ -24,3 +24,8 @@ tests/shell/files/* binary
 
 # Documents read byte for byte (offsets in their cross-reference tables).
 *.pdf binary
+
+# Encoded media and decoded samples, compared byte for byte.
+*.m4a binary
+*.f32 binary
+*.s16 binary
