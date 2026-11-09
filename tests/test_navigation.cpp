@@ -10,6 +10,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -112,6 +113,17 @@ public:
         return *net::parse_url("http://127.0.0.1:" + std::to_string(m_listener.port()) + path);
     }
 
+    // When `path` was first asked for.
+    std::optional<std::chrono::steady_clock::time_point> asked_at(std::string const& path) const
+    {
+        std::lock_guard<std::mutex> const lock(m_mutex);
+        for (std::size_t i = 0; i < m_asked.size(); ++i) {
+            if (m_asked[i] == path)
+                return m_asked_at[i];
+        }
+        return std::nullopt;
+    }
+
     std::size_t asked(std::string const& path) const
     {
         std::lock_guard<std::mutex> const lock(m_mutex);
@@ -144,6 +156,7 @@ private:
         {
             std::lock_guard<std::mutex> const lock(m_mutex);
             m_asked.push_back(path);
+            m_asked_at.push_back(std::chrono::steady_clock::now());
         }
         auto const found = m_site.find(path);
         std::string response;
@@ -173,6 +186,7 @@ private:
     std::atomic<bool> m_stop = false;
     mutable std::mutex m_mutex;
     std::vector<std::string> m_asked;
+    std::vector<std::chrono::steady_clock::time_point> m_asked_at;
     std::vector<std::thread> m_handlers;
     std::thread m_thread; // last: everything above is ready when it starts
 };
@@ -242,7 +256,19 @@ int main()
         if (took < 540 || took >= 900)
             std::cerr << "the page and its two parts took " << took << " ms\n";
         CHECK(took >= 540); // the document's 150, then the two together at 400
-        CHECK(took < 900); // and not 150 + 400 + 400
+        // Together, not one after the other: the second part was asked for
+        // before the first's 400 ms answer came. (A total under 950 ms said
+        // the same on a fast machine and failed on a slow one: a CI runner
+        // took 937 ms with both asked at once.)
+        auto const css_at = server.asked_at("/look.css");
+        auto const js_at = server.asked_at("/does.js");
+        CHECK(css_at && js_at);
+        if (css_at && js_at) {
+            double const apart = std::abs(std::chrono::duration<double, std::milli>(*js_at - *css_at).count());
+            if (apart >= 300)
+                std::cerr << "the two parts were asked for " << apart << " ms apart\n";
+            CHECK(apart < 300);
+        }
         CHECK_EQ(server.asked("/page"), std::size_t { 1 });
         CHECK_EQ(server.asked("/look.css"), std::size_t { 1 });
         CHECK_EQ(server.asked("/does.js"), std::size_t { 1 });
