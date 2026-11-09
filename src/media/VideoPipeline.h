@@ -140,6 +140,10 @@ private:
     std::int64_t now_locked() const;
     std::int64_t until_locked() const;
     void note_shown_locked();
+    // Where the clock waits for the first pictures (PlaybackClock::State::
+    // preroll): it runs once the one shown and the number it asks for
+    // beyond it are made, or `all_made` (nothing more to make now).
+    void release_preroll_locked(bool all_made);
 
     std::unique_ptr<FrameDecoder> m_decoder; // the thread's alone once it runs
     std::string m_device;
@@ -160,6 +164,7 @@ private:
     std::chrono::steady_clock::time_point m_shown_at {};
     double m_longest_wait_ms = 0;
     std::uint64_t m_generation = 0; // one more at every flush
+    std::size_t m_made_since_flush = 0;
     bool m_busy = false; // the thread is decoding a frame it took
     bool m_stop = false;
     Counts m_counts;

@@ -44,9 +44,17 @@ using media::TimeRanges;
 
 constexpr double tick_ms = 50;
 constexpr double video_tick_ms = 8; // half a 60 fps frame
-// The longest playback waits after a start or a seek for the video's first
-// picture (a decoder that makes none does not hold the sound longer).
+// The longest playback waits after a start or a seek for the video's
+// pictures (a decoder that makes none does not hold the sound longer), and
+// how many it waits for besides the one shown: a decoder that starts again
+// is slow for its first few.
 constexpr double preroll_limit_ms = 1000;
+constexpr std::size_t preroll_pictures = 3;
+// Coded frames are handed to the pipeline this far ahead of the position,
+// and pictures made this far ahead: a frame's picture is ready before its
+// time comes, and a page that stops appending still has a second of it.
+constexpr std::int64_t handover_ahead_ns = 1'000'000'000;
+constexpr std::int64_t pictures_ahead_ns = 250'000'000;
 constexpr double time_update_ms = 250;
 constexpr double enough_ahead_seconds = 3.0;
 constexpr double future_ahead_seconds = 0.05;
@@ -243,6 +251,9 @@ public:
     bool video_started = false;
     bool video_awaiting = false; // a seek's picture not shown yet
     double video_awaiting_since = 0; // in.now() when it began to be awaited
+    bool prerolled = false; // since the start or the seek, playback has had the pictures it waits for
+    bool preroll_asked = false; // the clock is told to wait for them
+    std::uint64_t preroll_generation = 0; // one more at every start or seek the clock waits on
     bool presenting = false; // listed in the realm's presenting_media
     std::int64_t next_video_ns = 0; // past the latest presentation time handed over
     std::int64_t next_video_decode_ns = 0; // the decode time of the next frame to hand over
@@ -565,6 +576,8 @@ TimeRanges sound_buffered(MediaStateObject const& state);
 void stream_media(Realm::Internals& in, MediaStateObject& state);
 std::optional<double> heard_position(MediaStateObject const& state);
 bool stream_played_out(MediaStateObject const& state);
+StreamBuffer::Track const* audio_track(MediaStateObject const& state);
+void open_video(Realm::Internals& in, MediaStateObject& state);
 void present_video(Realm::Internals& in, MediaStateObject& state);
 void publish_clock(Realm::Internals& in, MediaStateObject& state);
 
@@ -823,15 +836,39 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
     }
 
     // Where the host shows the pictures on the real clock, the clock waits
-    // after a start or a seek for the video's first picture, as every
-    // browser's pipeline prerolls: playback begins on a picture, the sound
-    // with it, and a loop's first pictures are not dropped while the decoder
-    // starts again from the key frame. (A page that paints its own video —
-    // a headless run, on a clock of its own — takes what is made by then.)
-    bool const prerolling = state.clock && state.video && state.video_awaiting && now - state.video_awaiting_since < preroll_limit_ms;
+    // after a start or a seek for the video's first picture and a few made
+    // after it (or all there is to make), as every browser's pipeline
+    // prerolls: playback begins on a picture, the sound with it, and the
+    // first pictures are not dropped while the decoder starts again from the
+    // key frame. (A page that paints its own video — a headless run, on a
+    // clock of its own — takes what is made by then.)
+    // (The pipeline first, so that the sound of a file with a picture waits
+    // for the picture too.)
+    if (!state.paused)
+        open_video(in, state);
+    // The thread that makes the pictures says when they are made (the
+    // clock runs from then, whatever this thread is doing); the element
+    // takes up the position the clock has reached.
+    auto const prerolling_now = [&] {
+        if (!state.clock || !state.video || state.prerolled || now - state.video_awaiting_since >= preroll_limit_ms)
+            return false;
+        return !state.clock->preroll_ready(state.preroll_generation);
+    };
+    auto const take_up_release = [&] {
+        if (state.clock && state.preroll_asked && state.clock->released(state.preroll_generation)) {
+            state.position = state.clock->seconds();
+            state.position_at = now;
+        }
+        state.preroll_asked = false;
+        state.prerolled = true;
+    };
+    bool const prerolling = prerolling_now();
+    if (state.clock && state.video && !prerolling && !state.prerolled)
+        take_up_release();
     bool const may_advance = !state.paused && !state.seeking && !state.ended_fired && state.ready_state >= HaveFutureData
         && state.playback_rate > 0;
     state.advancing = may_advance && !prerolling;
+    state.preroll_asked = may_advance && prerolling;
     // The sound follows at once: it starts the moment playback does, and it
     // holds the moment playback stops.
     stream_media(in, state);
@@ -839,9 +876,10 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
     // just seeked.
     publish_clock(in, state);
     present_video(in, state);
-    // The awaited picture came in this turn: the clock starts now, not at
-    // the page's next turn, which a busy page may hold back.
-    if (prerolling && may_advance && !state.video_awaiting) {
+    // The pictures came while this turn ran: the element runs on from where
+    // the clock is.
+    if (prerolling && may_advance && !prerolling_now()) {
+        take_up_release();
         state.advancing = true;
         stream_media(in, state);
         publish_clock(in, state);
@@ -910,6 +948,8 @@ void begin_seek(Realm::Internals& in, MediaStateObject& state, double time)
     state.video_started = false;
     state.video_awaiting = state.video != nullptr;
     state.video_awaiting_since = in.now();
+    state.prerolled = false;
+    ++state.preroll_generation;
     publish_clock(in, state);
     queue_element_event(in, state, "seeking");
     auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(&state));
@@ -1171,11 +1211,6 @@ StreamBuffer::Track const* video_track(MediaStateObject const& state)
     return nullptr;
 }
 
-// Coded frames are handed to the pipeline this far ahead of the position,
-// and pictures made this far ahead: a frame's picture is ready before its
-// time comes, and a page that stops appending still has a second of it.
-constexpr std::int64_t handover_ahead_ns = 1'000'000'000;
-constexpr std::int64_t pictures_ahead_ns = 250'000'000;
 // Where the host shows the pictures itself, playback runs on while this
 // thread is kept by the page's scripts: the frames are handed over as far
 // ahead as the sound already given to the speakers reaches (their ring
@@ -1216,7 +1251,8 @@ void deliver_frame_callbacks(Realm::Internals& in, MediaStateObject& state, std:
 // Shows the frame due at the position: the coded frames go to the pipeline
 // from the key frame at or before it, and the newest picture it has made
 // whose time has come is written into the element's bitmap.
-void present_video(Realm::Internals& in, MediaStateObject& state)
+// Opens the element's video pipeline, once, when it has a video track.
+void open_video(Realm::Internals& in, MediaStateObject& state)
 {
     StreamBuffer::Track const* const track = video_track(state);
     if (track == nullptr)
@@ -1231,6 +1267,8 @@ void present_video(Realm::Internals& in, MediaStateObject& state)
         trace(state.video ? "video decodes on " + state.video->device() : "no video decoder: " + error);
         state.video_awaiting = state.video != nullptr;
         state.video_awaiting_since = in.now();
+        state.prerolled = false;
+        ++state.preroll_generation;
         if (state.video && in.hooks.video_layers) {
             state.clock = std::make_shared<media::PlaybackClock>();
             state.video->follow(state.clock, pictures_ahead_ns);
@@ -1238,6 +1276,14 @@ void present_video(Realm::Internals& in, MediaStateObject& state)
             trace("the host shows the pictures");
         }
     }
+}
+
+void present_video(Realm::Internals& in, MediaStateObject& state)
+{
+    StreamBuffer::Track const* const track = video_track(state);
+    if (track == nullptr)
+        return;
+    open_video(in, state);
     if (!state.video)
         return;
     if (!state.presenting) {
@@ -1353,6 +1399,10 @@ void publish_clock(Realm::Internals& in, MediaStateObject& state)
     media::PlaybackClock::State said;
     said.advancing = state.advancing;
     said.position = state.position;
+    said.preroll = state.preroll_asked;
+    said.preroll_alone = audio_track(state) == nullptr; // with sound, the element starts both
+    said.preroll_generation = state.preroll_generation;
+    said.preroll_pictures = preroll_pictures;
     said.at = std::chrono::steady_clock::now();
     said.rate = state.playback_rate;
     // As far as the element itself would go before it looked again: the

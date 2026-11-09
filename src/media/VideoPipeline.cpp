@@ -103,6 +103,7 @@ void VideoPipeline::flush()
             m_spare.push_back(std::move(picture.rgba));
         m_ready.clear();
         m_generation++;
+        m_made_since_flush = 0;
         m_decoded_to_ns.reset();
         m_shown_at = {};
         waker = m_waker;
@@ -275,6 +276,12 @@ std::size_t VideoPipeline::queued() const
     return m_queue.size();
 }
 
+void VideoPipeline::release_preroll_locked(bool all_made)
+{
+    if (m_clock && m_clock->prerolling() && (all_made || m_made_since_flush > m_clock->preroll_pictures()))
+        m_clock->release_preroll();
+}
+
 bool VideoPipeline::caught_up(std::int64_t now_ns) const
 {
     std::lock_guard const lock(m_mutex);
@@ -292,6 +299,10 @@ void VideoPipeline::run()
             bool const waiting = !m_queue.empty() && m_ready.size() < ready_limit;
             if (waiting && m_queue.front().time_ns < until_locked())
                 break;
+            // Nothing more to make now: a playback that waits for its first
+            // pictures has what there is.
+            if (m_made_since_flush > 0)
+                release_preroll_locked(true);
             // A frame that waits for its time, under a clock that runs by
             // itself: nobody says when the time has come, so it is looked
             // for again shortly.
@@ -345,6 +356,8 @@ void VideoPipeline::run()
         m_counts.made += counts.made;
         m_counts.skipped += counts.skipped;
         if (made && generation == m_generation) {
+            ++m_made_since_flush;
+            release_preroll_locked(false);
             // In presentation order: a stream whose pictures are decoded
             // out of it (H.264's B pictures) puts each where its time falls.
             auto place = m_ready.end();
