@@ -464,6 +464,10 @@ std::optional<H264Sps> parse_h264_sps(std::span<std::uint8_t const> nal)
     sps.gaps_in_frame_num_allowed = bits.flag();
     sps.pic_width_in_mbs = static_cast<int>(bits.ue()) + 1;
     sps.pic_height_in_map_units = static_cast<int>(bits.ue()) + 1;
+    // A.3.1: no side exceeds Sqrt(MaxFS * 8) macroblocks, 1055 at level
+    // 6.2, the largest; refused before any size is computed from them.
+    if (sps.pic_width_in_mbs <= 0 || sps.pic_width_in_mbs > 1055 || sps.pic_height_in_map_units <= 0 || sps.pic_height_in_map_units > 1055)
+        return std::nullopt;
     if (sps.pic_width_in_mbs > 1024 || sps.pic_height_in_map_units > 1024)
         return std::nullopt;
     sps.frame_mbs_only = bits.flag();
@@ -479,6 +483,16 @@ std::optional<H264Sps> parse_h264_sps(std::span<std::uint8_t const> nal)
     }
     if (bits.flag() && !read_vui(bits, sps.vui))
         return std::nullopt;
+    // 7.4.2.1.1: the crop leaves at least one sample each way (counted
+    // wide, so a hostile offset cannot overflow width() and height()).
+    if (sps.frame_cropping) {
+        long long const unit_x = sps.chroma_format_idc == 0 || sps.separate_colour_plane || sps.chroma_format_idc == 3 ? 1 : 2;
+        long long const unit_y = (sps.chroma_format_idc == 0 || sps.separate_colour_plane ? 1 : (sps.chroma_format_idc == 1 ? 2 : 1)) * (sps.frame_mbs_only ? 1 : 2);
+        if (sps.crop_left < 0 || sps.crop_right < 0 || sps.crop_top < 0 || sps.crop_bottom < 0
+            || unit_x * (static_cast<long long>(sps.crop_left) + sps.crop_right) >= sps.coded_width()
+            || unit_y * (static_cast<long long>(sps.crop_top) + sps.crop_bottom) >= sps.coded_height())
+            return std::nullopt;
+    }
     if (bits.failed() || sps.width() <= 0 || sps.height() <= 0)
         return std::nullopt;
     return sps;
@@ -648,6 +662,9 @@ std::optional<H264SliceHeader> parse_h264_slice_header(std::span<std::uint8_t co
         bool const chroma = sps.chroma_format_idc != 0 && !sps.separate_colour_plane;
         if (chroma)
             h.weights.chroma_log2_denom = static_cast<int>(bits.ue());
+        // 7.4.3.2: each denominator 0 to 7.
+        if (h.weights.luma_log2_denom > 7 || h.weights.chroma_log2_denom > 7)
+            return std::nullopt;
         for (int list = 0; list < (is_b ? 2 : 1); ++list) {
             int const count = list == 0 ? h.num_ref_idx_l0_active : h.num_ref_idx_l1_active;
             for (int i = 0; i < count && i < 32; ++i) {
@@ -655,10 +672,14 @@ std::optional<H264SliceHeader> parse_h264_slice_header(std::span<std::uint8_t co
                 // Absent: the default weight (one at the denominator), no offset.
                 entry.luma_weight = 1 << h.weights.luma_log2_denom;
                 entry.chroma_weight = { 1 << h.weights.chroma_log2_denom, 1 << h.weights.chroma_log2_denom };
+                // 7.4.3.2: weights and offsets -128 to 127.
+                auto const in_range = [](int v) { return v >= -128 && v <= 127; };
                 entry.luma_present = bits.flag();
                 if (entry.luma_present) {
                     entry.luma_weight = bits.se();
                     entry.luma_offset = bits.se();
+                    if (!in_range(entry.luma_weight) || !in_range(entry.luma_offset))
+                        return std::nullopt;
                 }
                 if (chroma) {
                     entry.chroma_present = bits.flag();
@@ -666,6 +687,8 @@ std::optional<H264SliceHeader> parse_h264_slice_header(std::span<std::uint8_t co
                         for (std::size_t j = 0; j < 2; ++j) {
                             entry.chroma_weight[j] = bits.se();
                             entry.chroma_offset[j] = bits.se();
+                            if (!in_range(entry.chroma_weight[j]) || !in_range(entry.chroma_offset[j]))
+                                return std::nullopt;
                         }
                     }
                 }
@@ -715,6 +738,14 @@ std::optional<H264SliceHeader> parse_h264_slice_header(std::span<std::uint8_t co
             h.slice_beta_offset_div2 = bits.se();
         }
     }
+    // 7.4.3's ranges: cabac_init_idc 0 to 2, SliceQPY 0 to 51 (8 bits;
+    // -QpBdOffsetY below for deeper samples), disable_deblocking_filter_idc
+    // 0 to 2, the filter's offsets -6 to 6.
+    int const qp = pps.pic_init_qp + h.slice_qp_delta;
+    if (h.cabac_init_idc < 0 || h.cabac_init_idc > 2 || qp < -6 * (sps.bit_depth_luma - 8) || qp > 51
+        || h.disable_deblocking_filter_idc < 0 || h.disable_deblocking_filter_idc > 2
+        || h.slice_alpha_c0_offset_div2 < -6 || h.slice_alpha_c0_offset_div2 > 6 || h.slice_beta_offset_div2 < -6 || h.slice_beta_offset_div2 > 6)
+        return std::nullopt;
     if (pps.num_slice_groups > 1 && pps.slice_group_map_type >= 3 && pps.slice_group_map_type <= 5) {
         // Ceil(Log2(PicSizeInMapUnits ÷ SliceGroupChangeRate + 1)) bits: the
         // rate is not kept, so the field is counted as the most it can be.
