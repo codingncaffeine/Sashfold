@@ -370,61 +370,72 @@ void derive_motion(Frame& frame, Slice const& slice, int addr, MbSyntax const& m
 
 namespace {
 
-// 8.4.2.2.1: one luma sample of the reference at quarter-sample position.
-struct LumaRef {
-    std::uint8_t const* data;
-    int width;
-    int height;
-    int at(int x, int y) const { return data[std::clamp(y, 0, height - 1) * width + std::clamp(x, 0, width - 1)]; }
-    // the six-tap intermediate (b1 / h1) at a half position
-    int tap_h(int x, int y) const { return at(x - 2, y) - 5 * at(x - 1, y) + 20 * at(x, y) + 20 * at(x + 1, y) - 5 * at(x + 2, y) + at(x + 3, y); }
-    int tap_v(int x, int y) const { return at(x, y - 2) - 5 * at(x, y - 1) + 20 * at(x, y) + 20 * at(x, y + 1) - 5 * at(x, y + 2) + at(x, y + 3); }
-    int b(int x, int y) const { return clip1((tap_h(x, y) + 16) >> 5); }
-    int h(int x, int y) const { return clip1((tap_v(x, y) + 16) >> 5); }
-    int j(int x, int y) const
-    {
-        int const j1 = tap_h(x, y - 2) - 5 * tap_h(x, y - 1) + 20 * tap_h(x, y) + 20 * tap_h(x, y + 1) - 5 * tap_h(x, y + 2) + tap_h(x, y + 3);
-        return clip1((j1 + 512) >> 10);
+// 8.4.2.2.1 for one 4x4 block: the reference window it reads fetched
+// once, its edge samples repeated past the picture (8-228, 8-229), and
+// each half-sample array the block's fraction needs computed once; the
+// quarter positions are the averages Table 8-12 names.
+void luma_block(std::uint8_t const* data, int width, int height, int x, int y, int fx, int fy, int* out)
+{
+    // Rows y - 2 .. y + 6 and columns x - 2 .. x + 6.
+    int win[9][9];
+    for (int r = 0; r < 9; ++r) {
+        std::uint8_t const* row = data + static_cast<std::ptrdiff_t>(std::clamp(y - 2 + r, 0, height - 1)) * width;
+        for (int c = 0; c < 9; ++c)
+            win[r][c] = row[std::clamp(x - 2 + c, 0, width - 1)];
     }
-    int sample(int x, int y, int fx, int fy) const
-    {
-        int const G = at(x, y);
-        switch (fy * 4 + fx) {
-        case 0:
-            return G;
-        case 1: // a
-            return (G + b(x, y) + 1) >> 1;
-        case 2: // b
-            return b(x, y);
-        case 3: // c
-            return (b(x, y) + at(x + 1, y) + 1) >> 1;
-        case 4: // d
-            return (G + h(x, y) + 1) >> 1;
-        case 5: // e
-            return (b(x, y) + h(x, y) + 1) >> 1;
-        case 6: // f
-            return (b(x, y) + j(x, y) + 1) >> 1;
-        case 7: // g
-            return (b(x, y) + h(x + 1, y) + 1) >> 1;
-        case 8: // h
-            return h(x, y);
-        case 9: // i
-            return (h(x, y) + j(x, y) + 1) >> 1;
-        case 10: // j
-            return j(x, y);
-        case 11: // k
-            return (j(x, y) + h(x + 1, y) + 1) >> 1;
-        case 12: // n
-            return (h(x, y) + at(x, y + 1) + 1) >> 1;
-        case 13: // p
-            return (h(x, y) + b(x, y + 1) + 1) >> 1;
-        case 14: // q
-            return (j(x, y) + b(x, y + 1) + 1) >> 1;
-        default: // r
-            return (h(x + 1, y) + b(x, y + 1) + 1) >> 1;
+    auto G = [&](int r, int c) { return win[r + 2][c + 2]; }; // r, c from the block's corner, -2 .. 6
+    if (fx == 0 && fy == 0) {
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 4; ++c)
+                out[r * 4 + c] = G(r, c);
+        return;
+    }
+    auto tap_h = [&](int r, int c) { return G(r, c - 2) - 5 * G(r, c - 1) + 20 * G(r, c) + 20 * G(r, c + 1) - 5 * G(r, c + 2) + G(r, c + 3); };
+    auto tap_v = [&](int r, int c) { return G(r - 2, c) - 5 * G(r - 1, c) + 20 * G(r, c) + 20 * G(r + 1, c) - 5 * G(r + 2, c) + G(r + 3, c); };
+    // b at rows 0 .. 4 (row 4 is s), h at columns 0 .. 4 (column 4 is m), j.
+    int b[5][4], h[4][5], j[4][4];
+    // j enters f, i, j, k and q: a half step one way and any step the other.
+    bool const need_j = (fx == 2 && fy != 0) || (fy == 2 && fx != 0);
+    for (int r = 0; r < 5; ++r)
+        for (int c = 0; c < 4; ++c)
+            b[r][c] = clip1((tap_h(r, c) + 16) >> 5);
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 5; ++c)
+            h[r][c] = clip1((tap_v(r, c) + 16) >> 5);
+    if (need_j) {
+        int b1[9][4]; // the unclipped horizontal half samples, rows -2 .. 6
+        for (int r = 0; r < 9; ++r)
+            for (int c = 0; c < 4; ++c)
+                b1[r][c] = tap_h(r - 2, c);
+        for (int r = 0; r < 4; ++r)
+            for (int c = 0; c < 4; ++c) {
+                int const j1 = b1[r][c] - 5 * b1[r + 1][c] + 20 * b1[r + 2][c] + 20 * b1[r + 3][c] - 5 * b1[r + 4][c] + b1[r + 5][c];
+                j[r][c] = clip1((j1 + 512) >> 10);
+            }
+    }
+    for (int r = 0; r < 4; ++r)
+        for (int c = 0; c < 4; ++c) {
+            int v;
+            switch (fy * 4 + fx) {
+            case 1: v = (G(r, c) + b[r][c] + 1) >> 1; break; // a
+            case 2: v = b[r][c]; break; // b
+            case 3: v = (b[r][c] + G(r, c + 1) + 1) >> 1; break; // c
+            case 4: v = (G(r, c) + h[r][c] + 1) >> 1; break; // d
+            case 5: v = (b[r][c] + h[r][c] + 1) >> 1; break; // e
+            case 6: v = (b[r][c] + j[r][c] + 1) >> 1; break; // f
+            case 7: v = (b[r][c] + h[r][c + 1] + 1) >> 1; break; // g
+            case 8: v = h[r][c]; break; // h
+            case 9: v = (h[r][c] + j[r][c] + 1) >> 1; break; // i
+            case 10: v = j[r][c]; break; // j
+            case 11: v = (j[r][c] + h[r][c + 1] + 1) >> 1; break; // k
+            case 12: v = (h[r][c] + G(r + 1, c) + 1) >> 1; break; // n
+            case 13: v = (h[r][c] + b[r + 1][c] + 1) >> 1; break; // p
+            case 14: v = (j[r][c] + b[r + 1][c] + 1) >> 1; break; // q
+            default: v = (h[r][c + 1] + b[r + 1][c] + 1) >> 1; break; // r
+            }
+            out[r * 4 + c] = v;
         }
-    }
-};
+}
 
 // 8.4.2.2.2.
 int chroma_sample(std::uint8_t const* data, int width, int height, int x, int y, int fx, int fy)
@@ -518,18 +529,15 @@ void inter_predict(Frame& frame, Slice const& slice, int addr)
             }
             int const x0 = mx * 16 + bx * 4, y0 = my * 16 + by * 4;
             Weights const wl = weights_for(slice, refs[0], refs[1], use[0], use[1], 0);
+            int pl[2][16] = {};
+            for (int list = 0; list < 2; ++list) {
+                if (use[list])
+                    luma_block(ref_pics[list]->y.data(), ref_pics[list]->width, ref_pics[list]->height, x0 + (mvs[list].x >> 2), y0 + (mvs[list].y >> 2),
+                        mvs[list].x & 3, mvs[list].y & 3, pl[list]);
+            }
             for (int y = 0; y < 4; ++y)
-                for (int x = 0; x < 4; ++x) {
-                    int p[2] = { 0, 0 };
-                    for (int list = 0; list < 2; ++list) {
-                        if (!use[list])
-                            continue;
-                        LumaRef const r { ref_pics[list]->y.data(), ref_pics[list]->width, ref_pics[list]->height };
-                        int const xi = x0 + x + (mvs[list].x >> 2), yi = y0 + y + (mvs[list].y >> 2);
-                        p[list] = r.sample(xi, yi, mvs[list].x & 3, mvs[list].y & 3);
-                    }
-                    pic.y[static_cast<std::size_t>((y0 + y) * pic.width + x0 + x)] = weigh(p[0], p[1], use[0], use[1], wl);
-                }
+                for (int x = 0; x < 4; ++x)
+                    pic.y[static_cast<std::size_t>((y0 + y) * pic.width + x0 + x)] = weigh(pl[0][y * 4 + x], pl[1][y * 4 + x], use[0], use[1], wl);
             int const cw = pic.width / 2, ch = pic.height / 2;
             int const cx0 = x0 / 2, cy0 = y0 / 2;
             for (int c = 0; c < 2; ++c) {
