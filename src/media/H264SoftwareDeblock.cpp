@@ -30,15 +30,14 @@ constexpr std::uint8_t tc0_table[3][52] = {
 std::uint8_t clip1(int v) { return static_cast<std::uint8_t>(std::clamp(v, 0, 255)); }
 
 // 8.7.2.1: bS between two 4x4 luma blocks (global block indices).
-int strength(Frame const& f, int mb_p, int mb_q, int bp, int bq, bool mb_edge)
+// lp, lq: the blocks' raster indices inside their macroblocks.
+int strength(Frame const& f, int mb_p, int mb_q, int bp, int bq, int lp, int lq, bool mb_edge)
 {
     MbState const& p = f.mbs[static_cast<std::size_t>(mb_p)];
     MbState const& q = f.mbs[static_cast<std::size_t>(mb_q)];
     if (p.intra || q.intra)
         return mb_edge ? 4 : 3;
     Picture const& pic = *f.picture;
-    int const lp = (bp / (pic.mb_width * 4)) % 4 * 4 + bp % 4; // raster index inside its macroblock
-    int const lq = (bq / (pic.mb_width * 4)) % 4 * 4 + bq % 4;
     if (((p.nonzero >> lp) & 1) || ((q.nonzero >> lq) & 1))
         return 2;
     auto pic_of = [&](int list, int b) { return pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(b)] >= 0 ? pic.ref_pic[static_cast<std::size_t>(list)][static_cast<std::size_t>(b)] : -2; };
@@ -163,7 +162,7 @@ void deblock_picture(Frame& frame)
                     for (int k = 0; k < 4; ++k) {
                         int const qx = mx * 4 + (dir == 0 ? e : k), qy = my * 4 + (dir == 0 ? k : e);
                         int const px = dir == 0 ? qx - 1 : qx, py = dir == 0 ? qy : qy - 1;
-                        bs[e][k] = strength(frame, mb_p, addr, py * bw + px, qy * bw + qx, mb_edge);
+                        bs[e][k] = strength(frame, mb_p, addr, py * bw + px, qy * bw + qx, (py & 3) * 4 + (px & 3), (qy & 3) * 4 + (qx & 3), mb_edge);
                     }
                 }
                 // Luma.
@@ -176,6 +175,9 @@ void deblock_picture(Frame& frame)
                     int const index_a = std::clamp(qp_av + off_a, 0, 51);
                     int const index_b = std::clamp(qp_av + off_b, 0, 51);
                     int const alpha = alpha_table[index_a], beta = beta_table[index_b];
+                    // 8-460's test fails for every sample where alpha or beta is 0.
+                    if (alpha == 0 || beta == 0 || (bs[e][0] | bs[e][1] | bs[e][2] | bs[e][3]) == 0)
+                        continue;
                     for (int i = 0; i < 16; ++i) {
                         int const b = bs[e][i >> 2];
                         if (b == 0)
@@ -198,6 +200,8 @@ void deblock_picture(Frame& frame)
                         int const index_a = std::clamp(qp_av + off_a, 0, 51);
                         int const index_b = std::clamp(qp_av + off_b, 0, 51);
                         int const alpha = alpha_table[index_a], beta = beta_table[index_b];
+                        if (alpha == 0 || beta == 0 || (bs[e][0] | bs[e][1] | bs[e][2] | bs[e][3]) == 0)
+                            continue;
                         for (int i = 0; i < 8; ++i) {
                             int const b = bs[e][i >> 1];
                             if (b == 0)

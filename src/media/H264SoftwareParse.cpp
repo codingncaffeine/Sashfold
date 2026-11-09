@@ -6,6 +6,7 @@
 
 #include <algorithm>
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
@@ -56,16 +57,32 @@ void Cabac::init_contexts(int slice_qp, int kind)
 // 9.3.1.2.
 void Cabac::init_engine(BitReader& reader)
 {
-    m_reader = &reader;
+    m_data = reader.data();
+    m_size = reader.size();
+    m_next = reader.position() / 8;
     m_range = 510;
-    m_offset = reader.bits(9);
+    m_low = 0;
+    m_bits = -9; // codIOffset is the first nine bits
+    refill();
+}
+
+// Two more bytes below m_low (zeros past the end; overrun() tells).
+void Cabac::refill()
+{
+    for (int i = 0; i < 2; ++i, ++m_next)
+        m_low = (m_low << 8) | (m_next < m_size ? m_data[m_next] : 0u);
+    m_bits += 16;
 }
 
 void Cabac::renormalize()
 {
-    while (m_range < 256) {
-        m_range <<= 1;
-        m_offset = (m_offset << 1) | m_reader->bit();
+    // As many doublings as take the range back to nine bits, in one step.
+    if (m_range < 256) {
+        int const shift = std::countl_zero(m_range) - 23;
+        m_range <<= shift;
+        if (m_bits < shift)
+            refill();
+        m_bits -= shift;
     }
 }
 
@@ -77,9 +94,10 @@ int Cabac::decision(int ctx_idx)
     std::uint32_t const lps = range_tab_lps[state][(m_range >> 6) & 3];
     m_range -= lps;
     int bin;
-    if (m_offset >= m_range) {
+    std::uint32_t const scaled = m_range << m_bits;
+    if (m_low >= scaled) {
         bin = m_mps[c] ^ 1;
-        m_offset -= m_range;
+        m_low -= scaled;
         m_range = lps;
         if (state == 0)
             m_mps[c] ^= 1;
@@ -95,9 +113,12 @@ int Cabac::decision(int ctx_idx)
 // 9.3.3.2.3.
 int Cabac::bypass()
 {
-    m_offset = (m_offset << 1) | m_reader->bit();
-    if (m_offset >= m_range) {
-        m_offset -= m_range;
+    if (m_bits < 1)
+        refill();
+    --m_bits;
+    std::uint32_t const scaled = m_range << m_bits;
+    if (m_low >= scaled) {
+        m_low -= scaled;
         return 1;
     }
     return 0;
@@ -107,7 +128,7 @@ int Cabac::bypass()
 int Cabac::terminate()
 {
     m_range -= 2;
-    if (m_offset >= m_range)
+    if (m_low >= (m_range << m_bits))
         return 1;
     renormalize();
     return 0;
@@ -882,7 +903,7 @@ bool Parser::run()
             more = m_reader.more_rbsp_data();
         else
             more = !m_cabac.terminate();
-        if (m_reader.overrun())
+        if (m_reader.overrun() || (m_cabac_mode && m_cabac.overrun()))
             return false;
         ++m_addr;
     }
@@ -1312,6 +1333,8 @@ bool Parser::macroblock_layer()
     s.intra = !is_inter(mb.kind);
     s.direct_16x16 = mb.kind == MbKind::BDirect16x16;
     if (mb.kind == MbKind::IPCM) {
+        if (m_cabac_mode)
+            m_cabac.hand_back(m_reader);
         while (!m_reader.byte_aligned())
             m_reader.bit();
         for (std::uint8_t& v : mb.pcm_luma)

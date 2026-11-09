@@ -374,78 +374,174 @@ void derive_motion(Frame& frame, Slice const& slice, int addr, MbSyntax const& m
 
 namespace {
 
-// 8.4.2.2.1 for one 4x4 block: the reference window it reads fetched
-// once, its edge samples repeated past the picture (8-228, 8-229), and
-// each half-sample array the block's fraction needs computed once; the
-// quarter positions are the averages Table 8-12 names.
-void luma_block(std::uint8_t const* data, int width, int height, int x, int y, int fx, int fy, int* out)
+// Inter prediction (8.4.2.2) a partition at a time: the blocks of a
+// macroblock that share their motion are predicted as one rectangle, read
+// straight from the reference plane where the filter's window lies inside
+// it and from a copy with the edge samples repeated (8-228, 8-229) where it
+// does not; each quarter position computes only the half-sample arrays
+// Table 8-12 averages it from.
+
+// The largest block: a partition of 16x16 luma samples.
+constexpr int mc_stride = 16;
+
+// A reference window with its edges repeated: rows y - top .. y + h + bottom
+// and columns x - left .. x + w + right of `data`, at `pitch`.
+struct EdgeWindow {
+    static constexpr int pitch = 32;
+    std::uint8_t samples[pitch * (16 + 6)];
+};
+
+// `src` for a block at (x, y) of w x h whose filter reads `before` samples
+// above and left of it and `after` below and right: the plane itself, or
+// `window` filled from it.
+std::uint8_t const* mc_source(std::uint8_t const* data, int width, int height, int x, int y, int w, int h, int before, int after,
+    EdgeWindow& window, int& stride)
 {
-    // Rows y - 2 .. y + 6 and columns x - 2 .. x + 6.
-    int win[9][9];
-    for (int r = 0; r < 9; ++r) {
-        std::uint8_t const* row = data + static_cast<std::ptrdiff_t>(std::clamp(y - 2 + r, 0, height - 1)) * width;
-        for (int c = 0; c < 9; ++c)
-            win[r][c] = row[std::clamp(x - 2 + c, 0, width - 1)];
+    if (x - before >= 0 && y - before >= 0 && x + w + after <= width && y + h + after <= height) {
+        stride = width;
+        return data + static_cast<std::ptrdiff_t>(y) * width + x;
     }
-    auto G = [&](int r, int c) { return win[r + 2][c + 2]; }; // r, c from the block's corner, -2 .. 6
-    if (fx == 0 && fy == 0) {
-        for (int r = 0; r < 4; ++r)
-            for (int c = 0; c < 4; ++c)
-                out[r * 4 + c] = G(r, c);
-        return;
+    int const rows = h + before + after, cols = w + before + after;
+    for (int r = 0; r < rows; ++r) {
+        std::uint8_t const* row = data + static_cast<std::ptrdiff_t>(std::clamp(y - before + r, 0, height - 1)) * width;
+        std::uint8_t* out = window.samples + r * EdgeWindow::pitch;
+        for (int c = 0; c < cols; ++c)
+            out[c] = row[std::clamp(x - before + c, 0, width - 1)];
     }
-    auto tap_h = [&](int r, int c) { return G(r, c - 2) - 5 * G(r, c - 1) + 20 * G(r, c) + 20 * G(r, c + 1) - 5 * G(r, c + 2) + G(r, c + 3); };
-    auto tap_v = [&](int r, int c) { return G(r - 2, c) - 5 * G(r - 1, c) + 20 * G(r, c) + 20 * G(r + 1, c) - 5 * G(r + 2, c) + G(r + 3, c); };
-    // b at rows 0 .. 4 (row 4 is s), h at columns 0 .. 4 (column 4 is m), j.
-    int b[5][4], h[4][5], j[4][4];
-    // j enters f, i, j, k and q: a half step one way and any step the other.
-    bool const need_j = (fx == 2 && fy != 0) || (fy == 2 && fx != 0);
-    for (int r = 0; r < 5; ++r)
-        for (int c = 0; c < 4; ++c)
-            b[r][c] = clip1((tap_h(r, c) + 16) >> 5);
-    for (int r = 0; r < 4; ++r)
-        for (int c = 0; c < 5; ++c)
-            h[r][c] = clip1((tap_v(r, c) + 16) >> 5);
-    if (need_j) {
-        int b1[9][4]; // the unclipped horizontal half samples, rows -2 .. 6
-        for (int r = 0; r < 9; ++r)
-            for (int c = 0; c < 4; ++c)
-                b1[r][c] = tap_h(r - 2, c);
-        for (int r = 0; r < 4; ++r)
-            for (int c = 0; c < 4; ++c) {
-                int const j1 = b1[r][c] - 5 * b1[r + 1][c] + 20 * b1[r + 2][c] + 20 * b1[r + 3][c] - 5 * b1[r + 4][c] + b1[r + 5][c];
-                j[r][c] = clip1((j1 + 512) >> 10);
-            }
-    }
-    for (int r = 0; r < 4; ++r)
-        for (int c = 0; c < 4; ++c) {
-            int v;
-            switch (fy * 4 + fx) {
-            case 1: v = (G(r, c) + b[r][c] + 1) >> 1; break; // a
-            case 2: v = b[r][c]; break; // b
-            case 3: v = (b[r][c] + G(r, c + 1) + 1) >> 1; break; // c
-            case 4: v = (G(r, c) + h[r][c] + 1) >> 1; break; // d
-            case 5: v = (b[r][c] + h[r][c] + 1) >> 1; break; // e
-            case 6: v = (b[r][c] + j[r][c] + 1) >> 1; break; // f
-            case 7: v = (b[r][c] + h[r][c + 1] + 1) >> 1; break; // g
-            case 8: v = h[r][c]; break; // h
-            case 9: v = (h[r][c] + j[r][c] + 1) >> 1; break; // i
-            case 10: v = j[r][c]; break; // j
-            case 11: v = (j[r][c] + h[r][c + 1] + 1) >> 1; break; // k
-            case 12: v = (h[r][c] + G(r + 1, c) + 1) >> 1; break; // n
-            case 13: v = (h[r][c] + b[r + 1][c] + 1) >> 1; break; // p
-            case 14: v = (j[r][c] + b[r + 1][c] + 1) >> 1; break; // q
-            default: v = (h[r][c + 1] + b[r + 1][c] + 1) >> 1; break; // r
-            }
-            out[r * 4 + c] = v;
+    stride = EdgeWindow::pitch;
+    return window.samples + before * EdgeWindow::pitch + before;
+}
+
+inline int six_tap(int a, int b, int c, int d, int e, int f) { return a - 5 * b + 20 * c + 20 * d - 5 * e + f; }
+
+// b (8-241): the horizontal half samples of the block's rows.
+template<int W>
+void half_h(std::uint8_t* dst, std::uint8_t const* src, int stride, int h)
+{
+    for (int r = 0; r < h; ++r, src += stride, dst += mc_stride)
+        for (int c = 0; c < W; ++c)
+            dst[c] = clip1((six_tap(src[c - 2], src[c - 1], src[c], src[c + 1], src[c + 2], src[c + 3]) + 16) >> 5);
+}
+
+// h (8-242): the vertical half samples.
+template<int W>
+void half_v(std::uint8_t* dst, std::uint8_t const* src, int stride, int h)
+{
+    for (int r = 0; r < h; ++r, src += stride, dst += mc_stride)
+        for (int c = 0; c < W; ++c)
+            dst[c] = clip1((six_tap(src[c - 2 * stride], src[c - stride], src[c], src[c + stride], src[c + 2 * stride], src[c + 3 * stride]) + 16) >> 5);
+}
+
+// j (8-243, 8-244): the centre half samples, from the unclipped horizontal
+// intermediates of rows -2 .. h + 2.
+template<int W>
+void half_hv(std::uint8_t* dst, std::uint8_t const* src, int stride, int h)
+{
+    std::int16_t mid[(16 + 5) * 16];
+    std::uint8_t const* s = src - 2 * stride;
+    for (int r = 0; r < h + 5; ++r, s += stride)
+        for (int c = 0; c < W; ++c)
+            mid[r * 16 + c] = static_cast<std::int16_t>(six_tap(s[c - 2], s[c - 1], s[c], s[c + 1], s[c + 2], s[c + 3]));
+    for (int r = 0; r < h; ++r, dst += mc_stride)
+        for (int c = 0; c < W; ++c) {
+            std::int16_t const* m = mid + r * 16 + c;
+            dst[c] = clip1((six_tap(m[0], m[16], m[32], m[48], m[64], m[80]) + 512) >> 10);
         }
 }
 
-// 8.4.2.2.2.
-int chroma_sample(std::uint8_t const* data, int width, int height, int x, int y, int fx, int fy)
+template<int W>
+void average(std::uint8_t* dst, std::uint8_t const* a, int a_stride, std::uint8_t const* b, int b_stride, int h)
 {
-    auto at = [&](int xx, int yy) { return data[std::clamp(yy, 0, height - 1) * width + std::clamp(xx, 0, width - 1)]; };
-    return ((8 - fx) * (8 - fy) * at(x, y) + fx * (8 - fy) * at(x + 1, y) + (8 - fx) * fy * at(x, y + 1) + fx * fy * at(x + 1, y + 1) + 32) >> 6;
+    for (int r = 0; r < h; ++r, dst += mc_stride, a += a_stride, b += b_stride)
+        for (int c = 0; c < W; ++c)
+            dst[c] = static_cast<std::uint8_t>((a[c] + b[c] + 1) >> 1);
+}
+
+// 8.4.2.2.1 for a w x h block at (x, y) with fraction (fx, fy), into `out`
+// (rows of mc_stride).
+template<int W>
+void luma_partition(std::uint8_t const* data, int width, int height, int x, int y, int fx, int fy, int h, std::uint8_t* out)
+{
+    EdgeWindow window;
+    int stride = 0;
+    if (fx == 0 && fy == 0) {
+        std::uint8_t const* src = mc_source(data, width, height, x, y, W, h, 0, 0, window, stride);
+        for (int r = 0; r < h; ++r)
+            std::memcpy(out + r * mc_stride, src + r * stride, W);
+        return;
+    }
+    std::uint8_t const* g = mc_source(data, width, height, x, y, W, h, 2, 3, window, stride);
+    std::uint8_t b[mc_stride * 17], hv[mc_stride * 16], j[mc_stride * 16];
+    switch (fy * 4 + fx) {
+    case 1: // a
+        half_h<W>(b, g, stride, h);
+        average<W>(out, g, stride, b, mc_stride, h);
+        break;
+    case 2: // b
+        half_h<W>(out, g, stride, h);
+        break;
+    case 3: // c
+        half_h<W>(b, g, stride, h);
+        average<W>(out, g + 1, stride, b, mc_stride, h);
+        break;
+    case 4: // d
+        half_v<W>(hv, g, stride, h);
+        average<W>(out, g, stride, hv, mc_stride, h);
+        break;
+    case 8: // h
+        half_v<W>(out, g, stride, h);
+        break;
+    case 12: // n
+        half_v<W>(hv, g, stride, h);
+        average<W>(out, g + stride, stride, hv, mc_stride, h);
+        break;
+    case 5: // e
+    case 7: // g
+    case 13: // p
+    case 15: // r
+        // b of the block's rows (one row down for p and r), h of its columns (one right for g and r)
+        half_h<W>(b, g + (fy == 3 ? stride : 0), stride, h);
+        half_v<W>(hv, g + (fx == 3 ? 1 : 0), stride, h);
+        average<W>(out, b, mc_stride, hv, mc_stride, h);
+        break;
+    case 6: // f
+    case 14: // q
+        half_hv<W>(j, g, stride, h);
+        half_h<W>(b, g + (fy == 3 ? stride : 0), stride, h);
+        average<W>(out, j, mc_stride, b, mc_stride, h);
+        break;
+    case 9: // i
+    case 11: // k
+        half_hv<W>(j, g, stride, h);
+        half_v<W>(hv, g + (fx == 3 ? 1 : 0), stride, h);
+        average<W>(out, j, mc_stride, hv, mc_stride, h);
+        break;
+    default: // 10, j
+        half_hv<W>(out, g, stride, h);
+        break;
+    }
+}
+
+void luma_partition(std::uint8_t const* data, int width, int height, int x, int y, int fx, int fy, int w, int h, std::uint8_t* out)
+{
+    if (w == 16)
+        luma_partition<16>(data, width, height, x, y, fx, fy, h, out);
+    else if (w == 8)
+        luma_partition<8>(data, width, height, x, y, fx, fy, h, out);
+    else
+        luma_partition<4>(data, width, height, x, y, fx, fy, h, out);
+}
+
+// 8.4.2.2.2 for a w x h chroma block at (x, y) with fraction (fx, fy).
+void chroma_partition(std::uint8_t const* data, int width, int height, int x, int y, int fx, int fy, int w, int h, std::uint8_t* out)
+{
+    EdgeWindow window;
+    int stride = 0;
+    std::uint8_t const* s = mc_source(data, width, height, x, y, w, h, 0, 1, window, stride);
+    int const a = (8 - fx) * (8 - fy), b = fx * (8 - fy), c = (8 - fx) * fy, d = fx * fy;
+    for (int r = 0; r < h; ++r, s += stride, out += mc_stride)
+        for (int i = 0; i < w; ++i)
+            out[i] = static_cast<std::uint8_t>((a * s[i] + b * s[i + 1] + c * s[i + stride] + d * s[i + stride + 1] + 32) >> 6);
 }
 
 struct Weights {
@@ -453,24 +549,6 @@ struct Weights {
     int log_wd = 0;
     int w0 = 1, w1 = 1, o0 = 0, o1 = 0;
 };
-
-// 8.4.2.3: one sample from the list predictions.
-std::uint8_t weigh(int p0, int p1, bool l0, bool l1, Weights const& w)
-{
-    if (l0 && l1) {
-        if (w.mode == 0)
-            return static_cast<std::uint8_t>((p0 + p1 + 1) >> 1);
-        return clip1(((p0 * w.w0 + p1 * w.w1 + (1 << w.log_wd)) >> (w.log_wd + 1)) + ((w.o0 + w.o1 + 1) >> 1));
-    }
-    int const p = l0 ? p0 : p1;
-    if (w.mode != 1)
-        return static_cast<std::uint8_t>(p);
-    int const wt = l0 ? w.w0 : w.w1;
-    int const o = l0 ? w.o0 : w.o1;
-    if (w.log_wd >= 1)
-        return clip1(((p * wt + (1 << (w.log_wd - 1))) >> w.log_wd) + o);
-    return clip1(p * wt + o);
-}
 
 Weights weights_for(Slice const& slice, int ref0, int ref1, bool l0, bool l1, int component)
 {
@@ -508,59 +586,129 @@ Weights weights_for(Slice const& slice, int ref0, int ref1, bool l0, bool l1, in
     return w;
 }
 
+// 8.4.2.3 over a w x h block: the list predictions into the picture
+// (8-270 to 8-273: default, then explicit or implicit with two lists, then one).
+void weigh_block(std::uint8_t* dst, int stride, std::uint8_t const* p0, std::uint8_t const* p1, bool l0, bool l1, Weights const& w, int bw, int bh)
+{
+    for (int r = 0; r < bh; ++r, dst += stride, p0 += mc_stride, p1 += mc_stride) {
+        if (l0 && l1 && w.mode == 0) {
+            for (int c = 0; c < bw; ++c)
+                dst[c] = static_cast<std::uint8_t>((p0[c] + p1[c] + 1) >> 1);
+        } else if (!(l0 && l1) && w.mode != 1) {
+            std::memcpy(dst, l0 ? p0 : p1, static_cast<std::size_t>(bw));
+        } else if (l0 && l1) {
+            int const round = 1 << w.log_wd, shift = w.log_wd + 1, o = (w.o0 + w.o1 + 1) >> 1;
+            for (int c = 0; c < bw; ++c)
+                dst[c] = clip1(((p0[c] * w.w0 + p1[c] * w.w1 + round) >> shift) + o);
+        } else {
+            std::uint8_t const* p = l0 ? p0 : p1;
+            int const wt = l0 ? w.w0 : w.w1, o = l0 ? w.o0 : w.o1;
+            if (w.log_wd >= 1) {
+                int const round = 1 << (w.log_wd - 1);
+                for (int c = 0; c < bw; ++c)
+                    dst[c] = clip1(((p[c] * wt + round) >> w.log_wd) + o);
+            } else {
+                for (int c = 0; c < bw; ++c)
+                    dst[c] = clip1(p[c] * wt + o);
+            }
+        }
+    }
+}
+
+// Whether the 4x4 blocks of a w4 x h4 rectangle at (x4, y4) of the
+// macroblock share their motion.
+bool same_motion(Picture const& pic, int mx, int my, int x4, int y4, int w4, int h4)
+{
+    int const first = pic.block_index(mx * 4 + x4, my * 4 + y4);
+    for (int y = y4; y < y4 + h4; ++y)
+        for (int x = x4; x < x4 + w4; ++x) {
+            int const i = pic.block_index(mx * 4 + x, my * 4 + y);
+            for (std::size_t list = 0; list < 2; ++list)
+                if (pic.ref_idx[list][static_cast<std::size_t>(i)] != pic.ref_idx[list][static_cast<std::size_t>(first)]
+                    || !(pic.mv[list][static_cast<std::size_t>(i)] == pic.mv[list][static_cast<std::size_t>(first)]))
+                    return false;
+        }
+    return true;
+}
+
+// One rectangle of the macroblock with one motion: (x4, y4) and its size in 4x4 blocks.
+void predict_rectangle(Picture& pic, Slice const& slice, int mx, int my, int x4, int y4, int w4, int h4)
+{
+    int const i = pic.block_index(mx * 4 + x4, my * 4 + y4);
+    int refs[2];
+    Mv mvs[2];
+    Picture const* ref_pics[2] = { nullptr, nullptr };
+    bool use[2];
+    for (int list = 0; list < 2; ++list) {
+        refs[list] = pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
+        mvs[list] = pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
+        use[list] = refs[list] >= 0 && static_cast<std::size_t>(refs[list]) < slice.list[static_cast<std::size_t>(list)].size()
+            && slice.list[static_cast<std::size_t>(list)][static_cast<std::size_t>(refs[list])].picture;
+        if (use[list])
+            ref_pics[list] = slice.list[static_cast<std::size_t>(list)][static_cast<std::size_t>(refs[list])].picture;
+    }
+    if (!use[0] && !use[1]) {
+        // A reference the buffer does not hold: the block stays as it was (grey on a fresh picture).
+        return;
+    }
+    int const w = w4 * 4, h = h4 * 4;
+    int const x0 = mx * 16 + x4 * 4, y0 = my * 16 + y4 * 4;
+    alignas(16) std::uint8_t pl[2][mc_stride * 16];
+    for (int list = 0; list < 2; ++list)
+        if (use[list])
+            luma_partition(ref_pics[list]->y.data(), ref_pics[list]->width, ref_pics[list]->height, x0 + (mvs[list].x >> 2), y0 + (mvs[list].y >> 2),
+                mvs[list].x & 3, mvs[list].y & 3, w, h, pl[list]);
+    weigh_block(&pic.y[static_cast<std::size_t>(y0 * pic.width + x0)], pic.width, pl[0], pl[1], use[0], use[1],
+        weights_for(slice, refs[0], refs[1], use[0], use[1], 0), w, h);
+    int const cw = pic.width / 2, ch = pic.height / 2;
+    int const cx0 = x0 / 2, cy0 = y0 / 2;
+    for (int c = 0; c < 2; ++c) {
+        for (int list = 0; list < 2; ++list) {
+            if (!use[list])
+                continue;
+            std::vector<std::uint8_t> const& rp = c == 0 ? ref_pics[list]->cb : ref_pics[list]->cr;
+            chroma_partition(rp.data(), cw, ch, cx0 + (mvs[list].x >> 3), cy0 + (mvs[list].y >> 3), mvs[list].x & 7, mvs[list].y & 7, w / 2, h / 2, pl[list]);
+        }
+        std::vector<std::uint8_t>& plane = c == 0 ? pic.cb : pic.cr;
+        weigh_block(&plane[static_cast<std::size_t>(cy0 * cw + cx0)], cw, pl[0], pl[1], use[0], use[1],
+            weights_for(slice, refs[0], refs[1], use[0], use[1], 1 + c), w / 2, h / 2);
+    }
+}
+
+// An 8x8 quadrant: whole, two halves either way, or four 4x4 blocks.
+void predict_quadrant(Picture& pic, Slice const& slice, int mx, int my, int x4, int y4)
+{
+    if (same_motion(pic, mx, my, x4, y4, 2, 2)) {
+        predict_rectangle(pic, slice, mx, my, x4, y4, 2, 2);
+    } else if (same_motion(pic, mx, my, x4, y4, 2, 1) && same_motion(pic, mx, my, x4, y4 + 1, 2, 1)) {
+        predict_rectangle(pic, slice, mx, my, x4, y4, 2, 1);
+        predict_rectangle(pic, slice, mx, my, x4, y4 + 1, 2, 1);
+    } else if (same_motion(pic, mx, my, x4, y4, 1, 2) && same_motion(pic, mx, my, x4 + 1, y4, 1, 2)) {
+        predict_rectangle(pic, slice, mx, my, x4, y4, 1, 2);
+        predict_rectangle(pic, slice, mx, my, x4 + 1, y4, 1, 2);
+    } else {
+        for (int y = 0; y < 2; ++y)
+            for (int x = 0; x < 2; ++x)
+                predict_rectangle(pic, slice, mx, my, x4 + x, y4 + y, 1, 1);
+    }
+}
+
 void inter_predict(Frame& frame, Slice const& slice, int addr)
 {
     Picture& pic = *frame.picture;
     int const mx = addr % pic.mb_width, my = addr / pic.mb_width;
-    for (int by = 0; by < 4; ++by)
-        for (int bx = 0; bx < 4; ++bx) {
-            int const i = pic.block_index(mx * 4 + bx, my * 4 + by);
-            int refs[2];
-            Mv mvs[2];
-            Picture const* ref_pics[2] = { nullptr, nullptr };
-            bool use[2];
-            for (int list = 0; list < 2; ++list) {
-                refs[list] = pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
-                mvs[list] = pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
-                use[list] = refs[list] >= 0 && static_cast<std::size_t>(refs[list]) < slice.list[static_cast<std::size_t>(list)].size()
-                    && slice.list[static_cast<std::size_t>(list)][static_cast<std::size_t>(refs[list])].picture;
-                if (use[list])
-                    ref_pics[list] = slice.list[static_cast<std::size_t>(list)][static_cast<std::size_t>(refs[list])].picture;
-            }
-            if (!use[0] && !use[1]) {
-                // A reference the buffer does not hold: the block stays as it was (grey on a fresh picture).
-                continue;
-            }
-            int const x0 = mx * 16 + bx * 4, y0 = my * 16 + by * 4;
-            Weights const wl = weights_for(slice, refs[0], refs[1], use[0], use[1], 0);
-            int pl[2][16] = {};
-            for (int list = 0; list < 2; ++list) {
-                if (use[list])
-                    luma_block(ref_pics[list]->y.data(), ref_pics[list]->width, ref_pics[list]->height, x0 + (mvs[list].x >> 2), y0 + (mvs[list].y >> 2),
-                        mvs[list].x & 3, mvs[list].y & 3, pl[list]);
-            }
-            for (int y = 0; y < 4; ++y)
-                for (int x = 0; x < 4; ++x)
-                    pic.y[static_cast<std::size_t>((y0 + y) * pic.width + x0 + x)] = weigh(pl[0][y * 4 + x], pl[1][y * 4 + x], use[0], use[1], wl);
-            int const cw = pic.width / 2, ch = pic.height / 2;
-            int const cx0 = x0 / 2, cy0 = y0 / 2;
-            for (int c = 0; c < 2; ++c) {
-                Weights const wc = weights_for(slice, refs[0], refs[1], use[0], use[1], 1 + c);
-                std::vector<std::uint8_t>& plane = c == 0 ? pic.cb : pic.cr;
-                for (int y = 0; y < 2; ++y)
-                    for (int x = 0; x < 2; ++x) {
-                        int p[2] = { 0, 0 };
-                        for (int list = 0; list < 2; ++list) {
-                            if (!use[list])
-                                continue;
-                            std::vector<std::uint8_t> const& rp = c == 0 ? ref_pics[list]->cb : ref_pics[list]->cr;
-                            int const xi = cx0 + x + (mvs[list].x >> 3), yi = cy0 + y + (mvs[list].y >> 3);
-                            p[list] = chroma_sample(rp.data(), cw, ch, xi, yi, mvs[list].x & 7, mvs[list].y & 7);
-                        }
-                        plane[static_cast<std::size_t>((cy0 + y) * cw + cx0 + x)] = weigh(p[0], p[1], use[0], use[1], wc);
-                    }
-            }
-        }
+    if (same_motion(pic, mx, my, 0, 0, 4, 4)) {
+        predict_rectangle(pic, slice, mx, my, 0, 0, 4, 4);
+    } else if (same_motion(pic, mx, my, 0, 0, 4, 2) && same_motion(pic, mx, my, 0, 2, 4, 2)) {
+        predict_rectangle(pic, slice, mx, my, 0, 0, 4, 2);
+        predict_rectangle(pic, slice, mx, my, 0, 2, 4, 2);
+    } else if (same_motion(pic, mx, my, 0, 0, 2, 4) && same_motion(pic, mx, my, 2, 0, 2, 4)) {
+        predict_rectangle(pic, slice, mx, my, 0, 0, 2, 4);
+        predict_rectangle(pic, slice, mx, my, 2, 0, 2, 4);
+    } else {
+        for (int q = 0; q < 4; ++q)
+            predict_quadrant(pic, slice, mx, my, (q & 1) * 2, (q >> 1) * 2);
+    }
 }
 
 // Intra prediction's neighboring samples (8.3.1.2, 8.3.2.2, 8.3.3,

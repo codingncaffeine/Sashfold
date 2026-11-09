@@ -48,6 +48,13 @@ public:
     }
     std::uint32_t bits(int n)
     {
+        // Up to 25 bits from one big-endian word where four bytes remain.
+        if (n <= 25 && (m_position >> 3) + 4 <= m_size) {
+            std::uint8_t const* p = m_data + (m_position >> 3);
+            std::uint32_t const word = (std::uint32_t { p[0] } << 24) | (std::uint32_t { p[1] } << 16) | (std::uint32_t { p[2] } << 8) | p[3];
+            m_position += static_cast<std::size_t>(n);
+            return n == 0 ? 0 : (word << ((m_position - static_cast<std::size_t>(n)) & 7)) >> (32 - n);
+        }
         std::uint32_t v = 0;
         for (int i = 0; i < n; ++i)
             v = (v << 1) | bit();
@@ -89,6 +96,15 @@ public:
     bool overrun() const { return m_overrun || m_position > m_size * 8; }
     // 7.2 more_rbsp_data(): data before the stop bit.
     bool more_rbsp_data() const;
+    std::uint8_t const* data() const { return m_data; }
+    std::size_t size() const { return m_size; }
+    // Where the arithmetic decoder hands the data back (I_PCM's samples
+    // follow it): its read position, and whether it read past the end.
+    void resume_at(std::size_t bit_position, bool overrun)
+    {
+        m_position = bit_position;
+        m_overrun = m_overrun || overrun;
+    }
 
 private:
     std::uint8_t const* m_data = nullptr;
@@ -98,20 +114,33 @@ private:
 };
 
 // 9.3.1.2 and 9.3.3.2: the arithmetic decoding engine, its 1024 contexts.
+// The engine reads its data two bytes ahead: m_low holds codIOffset
+// followed by m_bits bits not yet taken, so codIOffset >= codIRange is
+// m_low >= codIRange << m_bits, and RenormD only moves m_bits.
 class Cabac {
 public:
     void init_contexts(int slice_qp, int kind); // kind: 0 for I slices, 1 + cabac_init_idc
+    // From the reader's position, which must be byte-aligned (9.3.1.2).
     void init_engine(BitReader& reader);
     int decision(int ctx_idx);
     int bypass();
     int terminate();
+    // The bits the engine has taken (9.3.3.2.2.3 has nothing more to read
+    // after a terminate of 1), given back to the reader.
+    void hand_back(BitReader& reader) const { reader.resume_at(consumed(), overrun()); }
+    bool overrun() const { return consumed() > m_size * 8; }
 
 private:
     void renormalize();
+    void refill();
+    std::size_t consumed() const { return m_next * 8 - static_cast<std::size_t>(m_bits); }
 
-    BitReader* m_reader = nullptr;
+    std::uint8_t const* m_data = nullptr;
+    std::size_t m_size = 0;
+    std::size_t m_next = 0; // the next byte to load
+    int m_bits = 0;
     std::uint32_t m_range = 0;
-    std::uint32_t m_offset = 0;
+    std::uint32_t m_low = 0;
     std::array<std::uint8_t, 1024> m_state {};
     std::array<std::uint8_t, 1024> m_mps {};
 };
