@@ -53,6 +53,29 @@ struct H264PictureInfo {
     std::vector<H264Reference> references;
 };
 
+// A reference as a slice's lists see it: its slot and its numbers for the
+// picture being decoded (8.2.4.1).
+struct H264ListPicture {
+    int slot = -1;
+    bool long_term = false;
+    int frame_num = 0; // FrameNum, or LongTermFrameIdx
+    int pic_num = 0; // PicNum (FrameNumWrap) of a short-term frame, LongTermPicNum of a long-term one
+    int poc = 0; // the frame's PicOrderCnt
+    int poc_top = 0;
+    int poc_bottom = 0;
+};
+
+// 8.2.4.1: the picture's references with their numbers, in the order given.
+std::vector<H264ListPicture> h264_list_pictures(H264PictureInfo const& picture, int max_frame_num);
+
+// 8.2.4.2 and 8.2.4.3: a slice's reference list `list` (0 or 1) — the
+// initial order (P: short-term by descending PicNum, then long-term by
+// ascending LongTermPicNum; B: by order count around the current
+// picture), then the modifications its header carries, cut to the active
+// count. Frames only.
+std::vector<H264ListPicture> h264_reference_list(std::vector<H264ListPicture> const& references, H264SliceHeader const& header,
+    std::size_t list, bool is_b, int current_poc, int max_frame_num, int current_frame_num);
+
 class H264Accelerator {
 public:
     // The hardware decoder for H.264 at 8 bits, 4:2:0, progressive, or

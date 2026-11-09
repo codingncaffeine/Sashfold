@@ -1,6 +1,7 @@
 #include "media/H264Decoder.h"
 
 #include <algorithm>
+#include <optional>
 
 namespace sashfold::media {
 
@@ -326,6 +327,113 @@ std::optional<Nv12Picture> H264Decoder::decode(std::span<std::uint8_t const> acc
         m_dpb.push_back(e);
         m_prev_ref_frame_num = first->has_mmco5() ? 0 : first->frame_num;
     }
+    return out;
+}
+
+
+std::vector<H264ListPicture> h264_list_pictures(H264PictureInfo const& picture, int max_frame_num)
+{
+    std::vector<H264ListPicture> out;
+    for (H264Reference const& r : picture.references) {
+        H264ListPicture e;
+        e.slot = r.slot;
+        e.long_term = r.long_term;
+        e.frame_num = r.frame_num;
+        e.pic_num = r.long_term ? r.frame_num : (r.frame_num > picture.frame_num ? r.frame_num - max_frame_num : r.frame_num);
+        e.poc_top = r.poc_top;
+        e.poc_bottom = r.poc_bottom;
+        e.poc = std::min(r.poc_top, r.poc_bottom);
+        out.push_back(e);
+    }
+    return out;
+}
+
+std::vector<H264ListPicture> h264_reference_list(std::vector<H264ListPicture> const& references, H264SliceHeader const& header,
+    std::size_t list, bool is_b, int current_poc, int max_frame_num, int current_frame_num)
+{
+    std::vector<H264ListPicture> short_term;
+    std::vector<H264ListPicture> long_term;
+    for (H264ListPicture const& e : references)
+        (e.long_term ? long_term : short_term).push_back(e);
+    std::vector<H264ListPicture> out;
+    if (!is_b) {
+        std::sort(short_term.begin(), short_term.end(), [](H264ListPicture const& a, H264ListPicture const& b) { return a.pic_num > b.pic_num; });
+        std::sort(long_term.begin(), long_term.end(), [](H264ListPicture const& a, H264ListPicture const& b) { return a.pic_num < b.pic_num; });
+        out = short_term;
+        out.insert(out.end(), long_term.begin(), long_term.end());
+    } else {
+        std::vector<H264ListPicture> before;
+        std::vector<H264ListPicture> after;
+        for (H264ListPicture const& e : short_term)
+            (e.poc <= current_poc ? before : after).push_back(e);
+        std::sort(before.begin(), before.end(), [](H264ListPicture const& a, H264ListPicture const& b) { return a.poc > b.poc; });
+        std::sort(after.begin(), after.end(), [](H264ListPicture const& a, H264ListPicture const& b) { return a.poc < b.poc; });
+        std::sort(long_term.begin(), long_term.end(), [](H264ListPicture const& a, H264ListPicture const& b) { return a.pic_num < b.pic_num; });
+        if (list == 0) {
+            out = before;
+            out.insert(out.end(), after.begin(), after.end());
+        } else {
+            out = after;
+            out.insert(out.end(), before.begin(), before.end());
+        }
+        out.insert(out.end(), long_term.begin(), long_term.end());
+        if (list == 1 && out.size() > 1) {
+            // 8.2.4.2.3: a list 1 that equals list 0 swaps its first two.
+            std::vector<H264ListPicture> l0 = before;
+            l0.insert(l0.end(), after.begin(), after.end());
+            l0.insert(l0.end(), long_term.begin(), long_term.end());
+            bool same = l0.size() == out.size();
+            for (std::size_t i = 0; same && i < out.size(); ++i)
+                same = l0[i].slot == out[i].slot;
+            if (same)
+                std::swap(out[0], out[1]);
+        }
+    }
+    int const active = list == 0 ? header.num_ref_idx_l0_active : header.num_ref_idx_l1_active;
+    // 8.2.4.3: each modification puts a named picture at the next index,
+    // the rest sliding along (a picture named twice is kept once).
+    int const max_pic_num = max_frame_num; // frames
+    int pic_num_pred = current_frame_num;
+    std::size_t ref_idx = 0;
+    if (out.size() < static_cast<std::size_t>(active))
+        out.resize(static_cast<std::size_t>(active)); // room for the moves; empty entries drop out below
+    for (H264RefListModification const& m : header.ref_list_modifications[list]) {
+        if (m.idc > 2)
+            break;
+        std::optional<H264ListPicture> wanted;
+        if (m.idc == 0 || m.idc == 1) {
+            int pic_num_no_wrap = m.idc == 0 ? pic_num_pred - m.value : pic_num_pred + m.value;
+            if (pic_num_no_wrap < 0)
+                pic_num_no_wrap += max_pic_num;
+            else if (pic_num_no_wrap >= max_pic_num)
+                pic_num_no_wrap -= max_pic_num;
+            pic_num_pred = pic_num_no_wrap;
+            int const pic_num = pic_num_no_wrap > current_frame_num ? pic_num_no_wrap - max_pic_num : pic_num_no_wrap;
+            for (H264ListPicture const& e : references) {
+                if (!e.long_term && e.pic_num == pic_num)
+                    wanted = e;
+            }
+        } else {
+            for (H264ListPicture const& e : references) {
+                if (e.long_term && e.pic_num == m.value)
+                    wanted = e;
+            }
+        }
+        if (!wanted || ref_idx >= out.size())
+            continue;
+        out.insert(out.begin() + static_cast<std::ptrdiff_t>(ref_idx), *wanted);
+        ++ref_idx;
+        // The same picture further along goes.
+        for (std::size_t i = ref_idx; i < out.size(); ++i) {
+            if (out[i].slot == wanted->slot) {
+                out.erase(out.begin() + static_cast<std::ptrdiff_t>(i));
+                break;
+            }
+        }
+    }
+    std::erase_if(out, [](H264ListPicture const& e) { return e.slot < 0; });
+    if (out.size() > static_cast<std::size_t>(active))
+        out.resize(static_cast<std::size_t>(active));
     return out;
 }
 

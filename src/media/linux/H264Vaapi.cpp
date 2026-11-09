@@ -283,22 +283,10 @@ void quiet(void*, char const*) { }
 // Sixteen references and the picture being decoded.
 constexpr int slot_count = 17;
 
-// A reference as the lists see it: where it is, and its numbers for
-// this picture (8.2.4.1).
-struct ListEntry {
-    VASurfaceID surface = va_invalid_id;
-    bool long_term = false;
-    int frame_num = 0; // FrameNum, or LongTermFrameIdx
-    int pic_num = 0; // PicNum (FrameNumWrap) for a short-term frame, LongTermPicNum for a long-term one
-    int poc = 0; // the frame's PicOrderCnt
-    int poc_top = 0;
-    int poc_bottom = 0;
-};
-
-VAPictureH264 va_picture_of(ListEntry const& e)
+VAPictureH264 va_picture_of(H264ListPicture const& e, VASurfaceID surface)
 {
     VAPictureH264 out {};
-    out.picture_id = e.surface;
+    out.picture_id = surface;
     out.frame_idx = static_cast<std::uint32_t>(e.frame_num);
     out.flags = e.long_term ? va_picture_h264_long_term : va_picture_h264_short_term;
     out.top_field_order_cnt = e.poc_top;
@@ -363,20 +351,11 @@ public:
 
         // 8.2.4.1: the references' numbers for this picture.
         int const max_frame_num = 1 << sps.log2_max_frame_num;
-        std::vector<ListEntry> references;
         for (H264Reference const& r : picture.references) {
             if (r.slot < 0 || r.slot >= slot_count || r.slot == picture.slot)
                 return false;
-            ListEntry e;
-            e.surface = surface_of(r.slot);
-            e.long_term = r.long_term;
-            e.frame_num = r.frame_num;
-            e.pic_num = r.long_term ? r.frame_num : (r.frame_num > picture.frame_num ? r.frame_num - max_frame_num : r.frame_num);
-            e.poc_top = r.poc_top;
-            e.poc_bottom = r.poc_bottom;
-            e.poc = std::min(r.poc_top, r.poc_bottom);
-            references.push_back(e);
         }
+        std::vector<H264ListPicture> const references = h264_list_pictures(picture, max_frame_num);
         int const current_poc = std::min(picture.poc_top, picture.poc_bottom);
 
         VAPictureParameterBufferH264 pp {};
@@ -386,7 +365,7 @@ public:
         pp.current.top_field_order_cnt = picture.poc_top;
         pp.current.bottom_field_order_cnt = picture.poc_bottom;
         for (std::size_t i = 0; i < 16; ++i)
-            pp.reference_frames[i] = i < references.size() ? va_picture_of(references[i]) : va_no_picture();
+            pp.reference_frames[i] = i < references.size() ? va_picture_of(references[i], surface_of(references[i].slot)) : va_no_picture();
         pp.picture_width_in_mbs_minus1 = static_cast<std::uint16_t>(sps.pic_width_in_mbs - 1);
         pp.picture_height_in_mbs_minus1 = static_cast<std::uint16_t>(sps.frame_height_in_mbs() - 1);
         pp.bit_depth_luma_minus8 = static_cast<std::uint8_t>(sps.bit_depth_luma - 8);
@@ -421,26 +400,32 @@ public:
         pp.pic_fields.bits.reference_pic_flag = picture.is_reference;
         pp.frame_num = static_cast<std::uint16_t>(picture.frame_num);
 
-        // The scaling lists in force (the PPS's hold the SPS's where it has none).
+        // The scaling lists in force (the PPS's hold the SPS's where it has
+        // none), in the raster order VA-API takes them in: the stream codes
+        // them in zig-zag order (8.5.6, 8.5.7).
+        static constexpr std::uint8_t zigzag4x4[16] = { 0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 7, 11, 14, 15 };
+        static constexpr std::uint8_t zigzag8x8[64] = { 0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48,
+            41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
+            38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63 };
         VAIQMatrixBufferH264 iq {};
         for (std::size_t i = 0; i < 6; ++i)
-            std::copy(pps.scaling.list_4x4[i].begin(), pps.scaling.list_4x4[i].end(), iq.scaling_list_4x4[i]);
+            for (std::size_t k = 0; k < 16; ++k)
+                iq.scaling_list_4x4[i][zigzag4x4[k]] = pps.scaling.list_4x4[i][k];
         for (std::size_t i = 0; i < 2; ++i)
-            std::copy(pps.scaling.list_8x8[i].begin(), pps.scaling.list_8x8[i].end(), iq.scaling_list_8x8[i]);
+            for (std::size_t k = 0; k < 64; ++k)
+                iq.scaling_list_8x8[i][zigzag8x8[k]] = pps.scaling.list_8x8[i][k];
 
         // The slices, each with its parameters: the whole unit (its header
         // byte first) is the data, the header's end the bit offset.
+        // Each slice goes as its own parameter and data buffers, as drivers
+        // expect: Mesa's frontend puts a start code before each data buffer,
+        // so slices sharing one would run together.
         std::vector<VASliceParameterBufferH264> slice_params(picture.slices.size());
-        std::size_t data_size = 0;
-        for (auto const& slice : picture.slices)
-            data_size += slice.size();
-        std::vector<std::uint8_t> data;
-        data.reserve(data_size);
         for (std::size_t i = 0; i < picture.slices.size(); ++i) {
             H264SliceHeader const& h = picture.headers[i];
             VASliceParameterBufferH264& sp = slice_params[i];
             sp.slice_data_size = static_cast<std::uint32_t>(picture.slices[i].size());
-            sp.slice_data_offset = static_cast<std::uint32_t>(data.size());
+            sp.slice_data_offset = 0;
             sp.slice_data_flag = va_slice_data_flag_all;
             sp.slice_data_bit_offset = static_cast<std::uint16_t>(h.header_bits);
             sp.first_mb_in_slice = static_cast<std::uint16_t>(h.first_mb_in_slice);
@@ -460,13 +445,13 @@ public:
                 sp.ref_pic_list1[j] = va_no_picture();
             }
             if (is_p || is_b) {
-                std::vector<ListEntry> const l0 = reference_list(references, h, 0, is_b, current_poc, max_frame_num, picture.frame_num);
+                std::vector<H264ListPicture> const l0 = h264_reference_list(references, h, 0, is_b, current_poc, max_frame_num, picture.frame_num);
                 for (std::size_t j = 0; j < l0.size() && j < 32; ++j)
-                    sp.ref_pic_list0[j] = va_picture_of(l0[j]);
+                    sp.ref_pic_list0[j] = va_picture_of(l0[j], surface_of(l0[j].slot));
                 if (is_b) {
-                    std::vector<ListEntry> const l1 = reference_list(references, h, 1, true, current_poc, max_frame_num, picture.frame_num);
+                    std::vector<H264ListPicture> const l1 = h264_reference_list(references, h, 1, true, current_poc, max_frame_num, picture.frame_num);
                     for (std::size_t j = 0; j < l1.size() && j < 32; ++j)
-                        sp.ref_pic_list1[j] = va_picture_of(l1[j]);
+                        sp.ref_pic_list1[j] = va_picture_of(l1[j], surface_of(l1[j].slot));
                 }
             }
             if (h.weights.present) {
@@ -491,7 +476,6 @@ public:
                 if (is_b)
                     fill(1, sp.luma_weight_l1_flag, sp.luma_weight_l1, sp.luma_offset_l1, sp.chroma_weight_l1_flag, sp.chroma_weight_l1, sp.chroma_offset_l1);
             }
-            data.insert(data.end(), picture.slices[i].begin(), picture.slices[i].end());
         }
 
         std::vector<VABufferID> buffers;
@@ -502,9 +486,12 @@ public:
             buffers.push_back(id);
             return true;
         };
-        bool ok = make(va_picture_parameter_buffer, sizeof pp, 1, &pp) && make(va_iq_matrix_buffer, sizeof iq, 1, &iq)
-            && make(va_slice_parameter_buffer, sizeof(VASliceParameterBufferH264), static_cast<unsigned>(slice_params.size()), slice_params.data())
-            && make(va_slice_data_buffer, static_cast<unsigned>(data.size()), 1, data.data());
+        bool ok = make(va_picture_parameter_buffer, sizeof pp, 1, &pp) && make(va_iq_matrix_buffer, sizeof iq, 1, &iq);
+        for (std::size_t i = 0; ok && i < picture.slices.size(); ++i) {
+            std::vector<std::uint8_t> data(picture.slices[i].begin(), picture.slices[i].end());
+            ok = make(va_slice_parameter_buffer, sizeof(VASliceParameterBufferH264), 1, &slice_params[i])
+                && make(va_slice_data_buffer, static_cast<unsigned>(data.size()), 1, data.data());
+        }
         VASurfaceID const target = surface_of(picture.slot);
         if (ok)
             ok = m_va.begin_picture(m_display, m_context, target) == va_success;
@@ -582,99 +569,6 @@ private:
         int crop_x = 0;
         int crop_y = 0;
     };
-
-    // 8.2.4.2 and 8.2.4.3: a slice's reference list — the initial order
-    // (P: short-term by descending PicNum then long-term by ascending
-    // LongTermPicNum; B: by order count around the current picture), then
-    // the modifications the header carries, cut to the active count.
-    static std::vector<ListEntry> reference_list(std::vector<ListEntry> const& references, H264SliceHeader const& h, std::size_t list, bool is_b,
-        int current_poc, int max_frame_num, int current_frame_num)
-    {
-        std::vector<ListEntry> short_term;
-        std::vector<ListEntry> long_term;
-        for (ListEntry const& e : references)
-            (e.long_term ? long_term : short_term).push_back(e);
-        std::vector<ListEntry> out;
-        if (!is_b) {
-            std::sort(short_term.begin(), short_term.end(), [](ListEntry const& a, ListEntry const& b) { return a.pic_num > b.pic_num; });
-            std::sort(long_term.begin(), long_term.end(), [](ListEntry const& a, ListEntry const& b) { return a.pic_num < b.pic_num; });
-            out = short_term;
-            out.insert(out.end(), long_term.begin(), long_term.end());
-        } else {
-            std::vector<ListEntry> before;
-            std::vector<ListEntry> after;
-            for (ListEntry const& e : short_term)
-                (e.poc <= current_poc ? before : after).push_back(e);
-            std::sort(before.begin(), before.end(), [](ListEntry const& a, ListEntry const& b) { return a.poc > b.poc; });
-            std::sort(after.begin(), after.end(), [](ListEntry const& a, ListEntry const& b) { return a.poc < b.poc; });
-            std::sort(long_term.begin(), long_term.end(), [](ListEntry const& a, ListEntry const& b) { return a.pic_num < b.pic_num; });
-            if (list == 0) {
-                out = before;
-                out.insert(out.end(), after.begin(), after.end());
-            } else {
-                out = after;
-                out.insert(out.end(), before.begin(), before.end());
-            }
-            out.insert(out.end(), long_term.begin(), long_term.end());
-            if (list == 1 && out.size() > 1) {
-                // 8.2.4.2.3: a list 1 that equals list 0 swaps its first two.
-                std::vector<ListEntry> l0 = before;
-                l0.insert(l0.end(), after.begin(), after.end());
-                l0.insert(l0.end(), long_term.begin(), long_term.end());
-                bool same = l0.size() == out.size();
-                for (std::size_t i = 0; same && i < out.size(); ++i)
-                    same = l0[i].surface == out[i].surface;
-                if (same)
-                    std::swap(out[0], out[1]);
-            }
-        }
-        int const active = list == 0 ? h.num_ref_idx_l0_active : h.num_ref_idx_l1_active;
-        // 8.2.4.3: each modification puts a named picture at the next index,
-        // the rest sliding along (a picture named twice is kept once).
-        int const max_pic_num = max_frame_num; // frames
-        int pic_num_pred = current_frame_num;
-        std::size_t ref_idx = 0;
-        if (out.size() < static_cast<std::size_t>(active))
-            out.resize(static_cast<std::size_t>(active)); // room for the moves; empty entries drop out below
-        for (H264RefListModification const& m : h.ref_list_modifications[list]) {
-            if (m.idc > 2)
-                break;
-            std::optional<ListEntry> wanted;
-            if (m.idc == 0 || m.idc == 1) {
-                int pic_num_no_wrap = m.idc == 0 ? pic_num_pred - m.value : pic_num_pred + m.value;
-                if (pic_num_no_wrap < 0)
-                    pic_num_no_wrap += max_pic_num;
-                else if (pic_num_no_wrap >= max_pic_num)
-                    pic_num_no_wrap -= max_pic_num;
-                pic_num_pred = pic_num_no_wrap;
-                int const pic_num = pic_num_no_wrap > current_frame_num ? pic_num_no_wrap - max_pic_num : pic_num_no_wrap;
-                for (ListEntry const& e : references) {
-                    if (!e.long_term && e.pic_num == pic_num)
-                        wanted = e;
-                }
-            } else {
-                for (ListEntry const& e : references) {
-                    if (e.long_term && e.pic_num == m.value)
-                        wanted = e;
-                }
-            }
-            if (!wanted || ref_idx >= out.size())
-                continue;
-            out.insert(out.begin() + static_cast<std::ptrdiff_t>(ref_idx), *wanted);
-            ++ref_idx;
-            // The same picture further along goes.
-            for (std::size_t i = ref_idx; i < out.size(); ++i) {
-                if (out[i].surface == wanted->surface) {
-                    out.erase(out.begin() + static_cast<std::ptrdiff_t>(i));
-                    break;
-                }
-            }
-        }
-        std::erase_if(out, [](ListEntry const& e) { return e.surface == va_invalid_id; });
-        if (out.size() > static_cast<std::size_t>(active))
-            out.resize(static_cast<std::size_t>(active));
-        return out;
-    }
 
     void release_context()
     {
