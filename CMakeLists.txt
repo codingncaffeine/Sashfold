@@ -174,7 +174,13 @@ add_library(sashfold_core STATIC
   src/media/WebM.cpp
   src/media/Mp4.cpp
   src/media/H264.cpp
+  src/media/H264Data.cpp
   src/media/H264Decoder.cpp
+  src/media/H264Software.cpp
+  src/media/H264SoftwareDeblock.cpp
+  src/media/H264SoftwareParse.cpp
+  src/media/H264SoftwarePredict.cpp
+  src/media/H264SoftwareResidual.cpp
   src/media/FrameDecoders.cpp
   src/media/Aac.cpp
   src/media/AudioDecoders.cpp
@@ -532,4 +538,5 @@ if(SASHFOLD_FUZZ)
   sashfold_fuzzer(zip)
   sashfold_fuzzer(webm)
   sashfold_fuzzer(mp4)
+  sashfold_fuzzer(h264)
 endif()

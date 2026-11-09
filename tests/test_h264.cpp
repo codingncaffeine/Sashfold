@@ -244,6 +244,7 @@ void check_hardware(std::string const& folder, std::string const& name, media::V
     if (!accelerator) {
         std::cerr << "test_h264: not decoding " << name << " through " << api_name << ": " << why << "\n";
         CHECK(!(expected && std::strstr(expected, api_name)));
+        CHECK(api != media::VideoApi::Software); // the processor's decoder is always there
         return;
     }
     std::cerr << "test_h264: decoding " << name << " through " << api_name << " on " << accelerator->device() << "\n";
@@ -304,9 +305,15 @@ int main(int argc, char** argv)
     check_stream(folder, "fragmented");
     check_stream(folder, "video-only");
     check_weighted(folder);
-    for (auto const& [api, api_name] : { std::pair { media::VideoApi::Vulkan, "vulkan" }, std::pair { media::VideoApi::Vaapi, "vaapi" } }) {
+    for (auto const& [api, api_name] : { std::pair { media::VideoApi::Vulkan, "vulkan" }, std::pair { media::VideoApi::Vaapi, "vaapi" },
+             std::pair { media::VideoApi::Software, "software" } }) {
         for (char const* name : { "plain-faststart", "plain-moov-last", "video-only", "fragmented", "fragmented-absolute", "weighted" })
             check_hardware(folder, name, api, api_name);
+        // tools/h264-make-tests.sh: the coding tools one by one.
+        for (char const* name : { "cavlc-baseline", "cavlc-high", "temporal-direct", "temporal-direct-cavlc", "partitions-all",
+                 "partitions-all-8x8", "slices", "scaling-matrix", "deblock-offsets", "no-deblock", "constrained-intra", "cropped",
+                 "intra-only", "edges", "low-qp" })
+            check_hardware(folder + "/../h264", name, api, api_name);
     }
     // Annex B: start codes of three and four bytes, trailing zeros no unit's,
     // the emulation prevention bytes taken out of a payload.

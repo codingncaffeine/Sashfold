@@ -42,6 +42,7 @@ enum class VideoApi {
     Any, // the best there is: Vulkan Video, then VA-API
     Vulkan,
     Vaapi,
+    Software, // decoded on the processor (H.264; VP9 has no software path yet)
 };
 
 class Vp9Accelerator {

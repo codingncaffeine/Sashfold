@@ -85,6 +85,8 @@ public:
 
     // What decodes: the device and its driver, for the media trace.
     virtual std::string const& device() const = 0;
+    // The processor's decoder (media/H264Software.h), not the hardware's.
+    virtual bool is_software() const { return false; }
     // How many pictures the buffer holds (slots 0 to slots() - 1).
     virtual int slots() const = 0;
     // The parameter sets the stream uses, all of them, given again whole

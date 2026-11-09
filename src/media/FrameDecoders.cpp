@@ -1,7 +1,13 @@
 #include "media/FrameDecoder.h"
 
 #include "media/H264Decoder.h"
+#include "media/H264Software.h"
 #include "media/Vp9.h"
+
+#include <cstdlib>
+#include <memory>
+#include <string_view>
+#include <vector>
 
 namespace sashfold::media {
 
@@ -64,10 +70,12 @@ private:
 
 class H264FrameDecoder final : public FrameDecoder {
 public:
-    H264FrameDecoder(std::unique_ptr<H264Accelerator> accelerator, std::span<std::uint8_t const> avcc)
-        : m_decoder(std::move(accelerator))
+    H264FrameDecoder(std::unique_ptr<H264Accelerator> accelerator, std::span<std::uint8_t const> avcc, bool software)
+        : m_avcc(avcc.begin(), avcc.end())
+        , m_software(software)
+        , m_decoder(std::make_unique<H264Decoder>(std::move(accelerator)))
     {
-        m_configured = m_decoder.set_configuration(avcc);
+        m_configured = m_decoder->set_configuration(avcc);
         if (std::optional<H264DecoderConfiguration> const config = parse_avcc(avcc); config && !config->sps.empty()) {
             if (std::optional<H264Sps> const sps = parse_h264_sps(config->sps[0]))
                 m_colour = h264_colour(sps->vui.present && sps->vui.colour_description_present, sps->vui.matrix_coefficients,
@@ -76,14 +84,14 @@ public:
     }
 
     bool configured() const { return m_configured; }
-    std::string const& device() const override { return m_decoder.device(); }
+    std::string const& device() const override { return m_decoder->device(); }
 
     Result decode(std::span<std::uint8_t const> block, bool wanted) override
     {
         Result result;
         // Every picture is shown: read back only when it is wanted.
-        std::optional<Nv12Picture> picture = m_decoder.decode(block);
-        H264Decoder::Counts const& counts = m_decoder.counts();
+        std::optional<Nv12Picture> picture = m_decoder->decode(block);
+        H264Decoder::Counts const& counts = m_decoder->counts();
         if (counts.decoded > m_decoded) {
             result.decoded = counts.decoded - m_decoded;
             m_decoded = counts.decoded;
@@ -94,15 +102,30 @@ public:
         } else if (counts.failed > m_failed) {
             m_failed = counts.failed;
             result.ok = false;
+            // A picture the hardware refused: the processor's decoder from
+            // here on, as browsers fall back; it starts at the next key frame.
+            if (!m_software)
+                fall_back();
         }
         result.colour = m_colour;
         return result;
     }
 
-    void reset() override { m_decoder.reset(); }
+    void reset() override { m_decoder->reset(); }
 
 private:
-    H264Decoder m_decoder;
+    void fall_back()
+    {
+        m_software = true;
+        m_decoder = std::make_unique<H264Decoder>(open_software_h264());
+        m_configured = m_decoder->set_configuration(m_avcc);
+        m_decoded = 0;
+        m_failed = 0;
+    }
+
+    std::vector<std::uint8_t> m_avcc;
+    bool m_software;
+    std::unique_ptr<H264Decoder> m_decoder;
     bool m_configured = false;
     std::uint64_t m_decoded = 0;
     std::uint64_t m_failed = 0;
@@ -123,10 +146,18 @@ std::unique_ptr<FrameDecoder> open_frame_decoder(std::string const& codec_id, st
         return accelerator ? vp9_frame_decoder(std::move(accelerator)) : nullptr;
     }
     if (codec_id == "V_H264") {
-        std::unique_ptr<H264Accelerator> accelerator = H264Accelerator::open(error);
+        // SASHFOLD_VIDEO_DECODE=software, vulkan or vaapi picks the way
+        // (unset: the best there is, the processor's last).
+        VideoApi api = VideoApi::Any;
+        if (char const* const way = std::getenv("SASHFOLD_VIDEO_DECODE")) {
+            std::string_view const w = way;
+            api = w == "software" ? VideoApi::Software : (w == "vulkan" ? VideoApi::Vulkan : (w == "vaapi" ? VideoApi::Vaapi : VideoApi::Any));
+        }
+        std::unique_ptr<H264Accelerator> accelerator = H264Accelerator::open(error, api);
         if (!accelerator)
             return nullptr;
-        auto decoder = std::make_unique<H264FrameDecoder>(std::move(accelerator), codec_private);
+        bool const software = accelerator->is_software();
+        auto decoder = std::make_unique<H264FrameDecoder>(std::move(accelerator), codec_private, software);
         if (!decoder->configured()) {
             error = "the track's H.264 configuration record could not be read";
             return nullptr;

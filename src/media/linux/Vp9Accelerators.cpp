@@ -8,6 +8,10 @@ namespace sashfold::media {
 // not decode VP9.
 std::unique_ptr<Vp9Accelerator> Vp9Accelerator::open(std::string& error, VideoApi api)
 {
+    if (api == VideoApi::Software) {
+        error = "no software VP9 decoder is written";
+        return nullptr;
+    }
     std::string vulkan_error;
     if (api != VideoApi::Vaapi) {
         if (auto accelerator = open_vulkan_vp9(vulkan_error))

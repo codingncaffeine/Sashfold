@@ -55,5 +55,12 @@ Harnesses:
   every lacing, fed whole and then in pieces whose lengths the input chooses
   (seeds: a second of VP9 and a second of Opus from ffmpeg's test sources);
   smoke run in CI.
+- `h264.cpp` — the H.264 software decoder end to end through the host's
+  buffer bookkeeping: parameter sets, slice headers, CAVLC and CABAC slice
+  data, prediction, reconstruction and the deblocking filter, fed as one
+  Annex B stream and then in access units whose lengths the input chooses,
+  pictures capped at 4096 macroblocks (seeds: four pictures each of eight
+  `tools/h264-make-tests.sh` clips — CAVLC, CABAC, every partition, temporal
+  direct, slices, a scaling matrix, intra only, weights); smoke run in CI.
 
 Still to come, one per parser as each lands: xkb, tls_records, js_lexer.
