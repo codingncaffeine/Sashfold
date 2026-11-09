@@ -538,6 +538,7 @@ void run_load(Realm::Internals& in, MediaStateObject& state);
 void schedule_selection(Realm::Internals& in, MediaStateObject& state);
 void select_resource(Realm::Internals& in, MediaStateObject& state);
 void update_media(Realm::Internals& in, MediaStateObject& state);
+void begin_seek(Realm::Internals& in, MediaStateObject& state, double time);
 void update_sound(Realm::Internals& in, MediaStateObject& state);
 void restart_device(MediaStateObject& state);
 void fail_load(Realm::Internals& in, MediaStateObject& state, std::string_view message);
@@ -789,10 +790,7 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
             dom::Node& node = state.wrapper->node();
             bool const loops = node.is_element() && static_cast<dom::Element&>(node).find_attribute("loop") != nullptr;
             if (loops) {
-                state.ended_fired = false;
-                state.position = 0;
-                state.seeking = true;
-                queue_element_event(in, state, "seeking");
+                begin_seek(in, state, 0);
             } else {
                 if (!state.paused) {
                     state.paused = true;
@@ -857,6 +855,14 @@ void seek(Realm::Internals& in, MediaStateObject& state, double time)
     update_media(in, state);
     if (!std::isnan(state.duration))
         time = std::min(time, state.duration);
+    begin_seek(in, state, time);
+}
+
+// The seek itself, once the position is brought up to date: also what a
+// looping element does at its end (HTML 4.8.11.8, "seek to the earliest
+// possible position").
+void begin_seek(Realm::Internals& in, MediaStateObject& state, double time)
+{
     trace("seek to " + std::to_string(time));
     time = std::max(time, 0.0);
     state.seeking = true;
