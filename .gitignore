@@ -16,6 +16,7 @@ _plans/
 
 # The Web Platform Tests checkout tools/wpt-fetch.sh makes (never committed)
 /wpt/
+/h264-conformance/
 
 # The Unicode data files tools/ucd-fetch.sh downloads (never committed)
 /ucd/

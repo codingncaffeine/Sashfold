@@ -1,0 +1,55 @@
+# ITU-T H.264.1 conformance bitstreams the software decoder holds exact,
+# every picture matching the reconstruction the stream ships with
+# (tests/h264_conformance.cpp; fetched by tools/h264-conformance-fetch.sh).
+# Progressive, frame-coded, Baseline / Main / High profile streams; the
+# field, MBAFF, FMO/ASO and SP/SI streams are not decoded yet.
+BA_MW_D           # Baseline, CAVLC, I and P
+BA1_FT_C          # several slices a picture
+BA3_SVA_C         # Baseline, CAVLC
+BANM_MW_D         # nal_ref_idc 0 pictures
+BAMQ1_JVC_C       # mb_qp_delta in every macroblock
+BAMQ2_JVC_C       # mb_qp_delta, wide range
+BASQP1_Sony_C     # slice QP changes
+CI_MW_D           # constrained intra prediction
+CI1_FT_B          # constrained intra prediction, CABAC
+CVPCMNL1_SVA_C    # I_PCM, CAVLC
+CVPCMNL2_SVA_C    # I_PCM, CAVLC, every QP
+CAPCM1_Sand_E     # I_PCM, CABAC
+CAPCMNL1_Sand_E   # I_PCM, CABAC, no deblocking
+MR1_BT_A          # several references
+MR1_MW_A          # several references, list modification
+MR2_MW_A          # several references
+MR2_TANDBERG_E    # several references, MMCO
+MR3_TANDBERG_B    # several references, MMCO
+MR4_TANDBERG_C    # several references, MMCO
+MR5_TANDBERG_C    # several references, MMCO
+CVWP1_TOSHIBA_E   # explicit weighted prediction, P
+CVWP2_TOSHIBA_E   # explicit weighted prediction
+CVWP3_TOSHIBA_E   # explicit weighted prediction, B
+CVWP5_TOSHIBA_E   # explicit weighted prediction, every slice type
+CAWP1_TOSHIBA_E   # weighted prediction, CABAC
+CAWP5_TOSHIBA_E   # weighted prediction, CABAC
+CACQP3_Sony_D     # chroma QP index offset
+CAQP1_Sony_B      # QP changes, CABAC
+CVFC1_Sony_C      # frame cropping
+NRF_MW_E          # non-reference frames
+MIDR_MW_D         # IDR pictures in the middle
+MPS_MW_A          # several parameter sets
+CABAST3_Sony_E    # every slice type, CABAC
+CABASTBR3_Sony_B  # every slice type, B references
+LS_SVA_D          # a long sequence (frame_num wraps)
+SL1_SVA_B         # large slices
+CVSE2_Sony_B      # SEI messages
+NL3_SVA_E         # CAVLC, Main
+NLMQ2_JVC_C       # mb_qp_delta, Main
+CAPM3_Sony_D      # I_PCM, CABAC, B with temporal direct
+CABACI3_Sony_B    # CABAC, I slices
+CANL4_SVA_B       # CABAC
+CVBS3_Sony_C      # B slices, CAVLC
+CABA3_TOSHIBA_E   # CABAC, B
+MV1_BRCM_D        # motion vectors to the picture's edges and past
+SVA_BA2_D         # Baseline
+SVA_CL1_E         # Baseline
+SVA_NL2_E         # Baseline
+HCBP2_HHI_A       # hierarchical B pictures
+HCMP1_HHI_A       # hierarchical B, Main

@@ -702,3 +702,14 @@ target_link_libraries(test_pdf PRIVATE sashfold_core sashfold_warnings sashfold_
 add_dependencies(test_pdf sashfold_test_sans)
 add_test(NAME test_pdf
   COMMAND test_pdf ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/pdf ${SASHFOLD_TEST_SANS})
+
+# ITU-T H.264.1's conformance bitstreams through the software decoder,
+# against the checkout tools/h264-conformance-fetch.sh makes at
+# h264-conformance/ (a fresh clone has none: fetch it to run this one).
+add_executable(h264_conformance h264_conformance.cpp)
+target_link_libraries(h264_conformance PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+if(EXISTS ${CMAKE_SOURCE_DIR}/h264-conformance)
+  add_test(NAME h264_conformance
+    COMMAND h264_conformance ${CMAKE_SOURCE_DIR}/h264-conformance ${CMAKE_CURRENT_SOURCE_DIR}/h264-conformance/streams.txt)
+  set_tests_properties(h264_conformance PROPERTIES TIMEOUT 600)
+endif()
