@@ -4,6 +4,9 @@
 #include "media/H264SoftwareResidual.h"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
 
 namespace sashfold::media::h264sw {
 

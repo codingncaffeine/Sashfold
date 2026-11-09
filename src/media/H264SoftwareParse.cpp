@@ -5,7 +5,12 @@
 #include "media/H264SoftwareInternal.h"
 
 #include <algorithm>
+#include <array>
+#include <cstddef>
+#include <cstdint>
 #include <cstdlib>
+#include <utility>
+#include <vector>
 
 namespace sashfold::media::h264sw {
 
