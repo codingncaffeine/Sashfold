@@ -288,9 +288,21 @@ struct SubMbInfo {
 };
 SubMbInfo sub_mb_info(H264SliceType type, int sub_mb_type);
 
+// Where the parser puts each macroblock's syntax: begin() gives a cleared
+// one to parse into, end() says it is whole and may be reconstructed —
+// at once, or by the picture's threads (H264Software.cpp). A macroblock
+// begun and never ended is not reconstructed.
+class MacroblockSink {
+public:
+    virtual ~MacroblockSink() = default;
+    virtual MbSyntax& begin(int mb_addr) = 0;
+    virtual void end(Slice const& slice, int mb_addr) = 0;
+};
+
 // The picture's state while its slices decode.
 struct Frame {
     Picture* picture = nullptr;
+    MacroblockSink* sink = nullptr;
     std::vector<MbState> mbs;
     std::vector<int> slice_alpha; // per slice number: FilterOffsetA, FilterOffsetB, disable_deblocking_filter_idc
     std::vector<int> slice_beta;
@@ -301,6 +313,10 @@ struct Frame {
 // The decoding of one slice's macroblocks, from its data's first bit.
 bool decode_slice_data(Frame& frame, Slice const& slice, BitReader& reader);
 
+// An intra macroblock's motion as later parsing and pictures read it: no
+// reference in either list. Set as soon as the macroblock is parsed.
+void clear_intra_motion(Frame& frame, int mb_addr);
+
 // The prediction and reconstruction of one macroblock (8.3 to 8.5).
 void reconstruct_macroblock(Frame& frame, Slice const& slice, int mb_addr, MbSyntax const& mb);
 
@@ -308,7 +324,9 @@ void reconstruct_macroblock(Frame& frame, Slice const& slice, int mb_addr, MbSyn
 // arrays for the macroblock.
 void derive_motion(Frame& frame, Slice const& slice, int mb_addr, MbSyntax const& mb);
 
-// 8.7 over the whole picture.
+// 8.7 over the whole picture, or one macroblock's edges (in raster order
+// after its left and top neighbors, and after the top one's right one).
 void deblock_picture(Frame& frame);
+void deblock_macroblock(Frame& frame, int mb_x, int mb_y);
 
 }

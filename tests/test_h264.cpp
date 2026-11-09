@@ -4,6 +4,7 @@
 #include "media/FrameDecoder.h"
 #include "media/H264Decoder.h"
 #include "media/H264.h"
+#include "media/H264Software.h"
 #include "media/Mp4.h"
 
 #include <algorithm>
@@ -12,8 +13,10 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <initializer_list>
 #include <iterator>
 #include <map>
+#include <memory>
 #include <span>
 #include <iostream>
 #include <sstream>
@@ -237,6 +240,8 @@ void check_weighted(std::string const& folder)
     CHECK(failed == 0 && slices >= 48 && weighted > 0 && explicit_luma > 0 && modified > 0);
 }
 
+void check_decoder(std::string const& folder, std::string const& name, std::unique_ptr<media::H264Accelerator> accelerator, char const* api_name);
+
 void check_hardware(std::string const& folder, std::string const& name, media::VideoApi api, char const* api_name)
 {
     std::string why;
@@ -248,6 +253,12 @@ void check_hardware(std::string const& folder, std::string const& name, media::V
         CHECK(api != media::VideoApi::Software); // the processor's decoder is always there
         return;
     }
+    check_decoder(folder, name, std::move(accelerator), api_name);
+}
+
+// Every picture of a fixture identical to ffmpeg's.
+void check_decoder(std::string const& folder, std::string const& name, std::unique_ptr<media::H264Accelerator> accelerator, char const* api_name)
+{
     std::cerr << "test_h264: decoding " << name << " through " << api_name << " on " << accelerator->device() << "\n";
     media::H264Decoder decoder(std::move(accelerator));
     Bytes const file = read_file(folder + "/" + name + ".mp4");
@@ -306,15 +317,26 @@ int main(int argc, char** argv)
     check_stream(folder, "fragmented");
     check_stream(folder, "video-only");
     check_weighted(folder);
+    std::initializer_list<char const*> const clips = { "plain-faststart", "plain-moov-last", "video-only", "fragmented", "fragmented-absolute", "weighted" };
+    // tools/h264-make-tests.sh: the coding tools one by one.
+    std::initializer_list<char const*> const tools = { "cavlc-baseline", "cavlc-high", "temporal-direct", "temporal-direct-cavlc", "partitions-all",
+        "partitions-all-8x8", "slices", "scaling-matrix", "deblock-offsets", "no-deblock", "constrained-intra", "cropped", "intra-only", "edges",
+        "low-qp" };
     for (auto const& [api, api_name] : { std::pair { media::VideoApi::Vulkan, "vulkan" }, std::pair { media::VideoApi::Vaapi, "vaapi" },
              std::pair { media::VideoApi::Software, "software" } }) {
-        for (char const* name : { "plain-faststart", "plain-moov-last", "video-only", "fragmented", "fragmented-absolute", "weighted" })
+        for (char const* name : clips)
             check_hardware(folder, name, api, api_name);
-        // tools/h264-make-tests.sh: the coding tools one by one.
-        for (char const* name : { "cavlc-baseline", "cavlc-high", "temporal-direct", "temporal-direct-cavlc", "partitions-all",
-                 "partitions-all-8x8", "slices", "scaling-matrix", "deblock-offsets", "no-deblock", "constrained-intra", "cropped",
-                 "intra-only", "edges", "low-qp" })
+        for (char const* name : tools)
             check_hardware(folder + "/../h264", name, api, api_name);
+    }
+    // The processor's decoder on one thread and on three (a picture's rows
+    // reconstructed and filtered side by side), whatever the machine has.
+    for (int threads : { 1, 3 }) {
+        char const* const api_name = threads == 1 ? "software, one thread" : "software, three threads";
+        for (char const* name : clips)
+            check_decoder(folder, name, media::open_software_h264(media::h264_max_frame_macroblocks, threads), api_name);
+        for (char const* name : tools)
+            check_decoder(folder + "/../h264", name, media::open_software_h264(media::h264_max_frame_macroblocks, threads), api_name);
     }
     // Plain Baseline (no constraint_set1_flag) goes to the processor's
     // decoder, whatever hardware there is: the Constrained Baseline

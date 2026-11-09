@@ -127,93 +127,96 @@ void filter_line(std::uint8_t* pos, int step, int bs, int alpha, int beta, int i
 
 } // namespace
 
-void deblock_picture(Frame& frame)
+void deblock_macroblock(Frame& frame, int mx, int my)
 {
     Picture& pic = *frame.picture;
-    int const w = pic.mb_width, h = pic.mb_height;
+    int const w = pic.mb_width;
     int const stride = pic.width, cstride = pic.width / 2;
     int const bw = w * 4;
-    for (int my = 0; my < h; ++my)
-        for (int mx = 0; mx < w; ++mx) {
-            int const addr = my * w + mx;
-            MbState const& q = frame.mbs[static_cast<std::size_t>(addr)];
-            if (q.slice < 0)
+    int const addr = my * w + mx;
+    MbState const& q = frame.mbs[static_cast<std::size_t>(addr)];
+    if (q.slice < 0)
+        return;
+    int const idc = frame.slice_disable[static_cast<std::size_t>(q.slice)];
+    if (idc == 1)
+        return;
+    int const off_a = frame.slice_alpha[static_cast<std::size_t>(q.slice)];
+    int const off_b = frame.slice_beta[static_cast<std::size_t>(q.slice)];
+    bool const left = mx > 0 && frame.mbs[static_cast<std::size_t>(addr - 1)].slice >= 0
+        && (idc != 2 || frame.mbs[static_cast<std::size_t>(addr - 1)].slice == q.slice);
+    bool const top = my > 0 && frame.mbs[static_cast<std::size_t>(addr - w)].slice >= 0
+        && (idc != 2 || frame.mbs[static_cast<std::size_t>(addr - w)].slice == q.slice);
+    for (int dir = 0; dir < 2; ++dir) { // 0: vertical edges, 1: horizontal
+        int bs[4][4]; // [edge][block along it]
+        for (int e = 0; e < 4; ++e) {
+            for (int k = 0; k < 4; ++k)
+                bs[e][k] = 0;
+            bool const mb_edge = e == 0;
+            if (mb_edge && !(dir == 0 ? left : top))
                 continue;
-            int const idc = frame.slice_disable[static_cast<std::size_t>(q.slice)];
-            if (idc == 1)
+            if (!mb_edge && q.transform_8x8 && (e & 1))
                 continue;
-            int const off_a = frame.slice_alpha[static_cast<std::size_t>(q.slice)];
-            int const off_b = frame.slice_beta[static_cast<std::size_t>(q.slice)];
-            bool const left = mx > 0 && frame.mbs[static_cast<std::size_t>(addr - 1)].slice >= 0
-                && (idc != 2 || frame.mbs[static_cast<std::size_t>(addr - 1)].slice == q.slice);
-            bool const top = my > 0 && frame.mbs[static_cast<std::size_t>(addr - w)].slice >= 0
-                && (idc != 2 || frame.mbs[static_cast<std::size_t>(addr - w)].slice == q.slice);
-            for (int dir = 0; dir < 2; ++dir) { // 0: vertical edges, 1: horizontal
-                int bs[4][4]; // [edge][block along it]
-                for (int e = 0; e < 4; ++e) {
-                    for (int k = 0; k < 4; ++k)
-                        bs[e][k] = 0;
-                    bool const mb_edge = e == 0;
-                    if (mb_edge && !(dir == 0 ? left : top))
+            int const mb_p = mb_edge ? (dir == 0 ? addr - 1 : addr - w) : addr;
+            for (int k = 0; k < 4; ++k) {
+                int const qx = mx * 4 + (dir == 0 ? e : k), qy = my * 4 + (dir == 0 ? k : e);
+                int const px = dir == 0 ? qx - 1 : qx, py = dir == 0 ? qy : qy - 1;
+                bs[e][k] = strength(frame, mb_p, addr, py * bw + px, qy * bw + qx, (py & 3) * 4 + (px & 3), (qy & 3) * 4 + (qx & 3), mb_edge);
+            }
+        }
+        // Luma.
+        for (int e = 0; e < 4; ++e) {
+            bool const mb_edge = e == 0;
+            if (mb_edge && !(dir == 0 ? left : top))
+                continue;
+            MbState const& p = mb_edge ? frame.mbs[static_cast<std::size_t>(dir == 0 ? addr - 1 : addr - w)] : q;
+            int const qp_av = (p.qp + q.qp + 1) >> 1;
+            int const index_a = std::clamp(qp_av + off_a, 0, 51);
+            int const index_b = std::clamp(qp_av + off_b, 0, 51);
+            int const alpha = alpha_table[index_a], beta = beta_table[index_b];
+            // 8-460's test fails for every sample where alpha or beta is 0.
+            if (alpha == 0 || beta == 0 || (bs[e][0] | bs[e][1] | bs[e][2] | bs[e][3]) == 0)
+                continue;
+            for (int i = 0; i < 16; ++i) {
+                int const b = bs[e][i >> 2];
+                if (b == 0)
+                    continue;
+                std::uint8_t* pos = dir == 0 ? &pic.y[static_cast<std::size_t>((my * 16 + i) * stride + mx * 16 + e * 4)]
+                                             : &pic.y[static_cast<std::size_t>((my * 16 + e * 4) * stride + mx * 16 + i)];
+                filter_line(pos, dir == 0 ? 1 : stride, b, alpha, beta, index_a, false);
+            }
+        }
+        // Chroma: edges 0 and 4 of each 8x8, their bS from luma edges 0 and 2.
+        for (int c = 0; c < 2; ++c) {
+            std::vector<std::uint8_t>& plane = c == 0 ? pic.cb : pic.cr;
+            for (int ce = 0; ce < 2; ++ce) {
+                int const e = ce * 2;
+                bool const mb_edge = e == 0;
+                if (mb_edge && !(dir == 0 ? left : top))
+                    continue;
+                MbState const& p = mb_edge ? frame.mbs[static_cast<std::size_t>(dir == 0 ? addr - 1 : addr - w)] : q;
+                int const qp_av = (p.qpc[static_cast<std::size_t>(c)] + q.qpc[static_cast<std::size_t>(c)] + 1) >> 1;
+                int const index_a = std::clamp(qp_av + off_a, 0, 51);
+                int const index_b = std::clamp(qp_av + off_b, 0, 51);
+                int const alpha = alpha_table[index_a], beta = beta_table[index_b];
+                if (alpha == 0 || beta == 0 || (bs[e][0] | bs[e][1] | bs[e][2] | bs[e][3]) == 0)
+                    continue;
+                for (int i = 0; i < 8; ++i) {
+                    int const b = bs[e][i >> 1];
+                    if (b == 0)
                         continue;
-                    if (!mb_edge && q.transform_8x8 && (e & 1))
-                        continue;
-                    int const mb_p = mb_edge ? (dir == 0 ? addr - 1 : addr - w) : addr;
-                    for (int k = 0; k < 4; ++k) {
-                        int const qx = mx * 4 + (dir == 0 ? e : k), qy = my * 4 + (dir == 0 ? k : e);
-                        int const px = dir == 0 ? qx - 1 : qx, py = dir == 0 ? qy : qy - 1;
-                        bs[e][k] = strength(frame, mb_p, addr, py * bw + px, qy * bw + qx, (py & 3) * 4 + (px & 3), (qy & 3) * 4 + (qx & 3), mb_edge);
-                    }
-                }
-                // Luma.
-                for (int e = 0; e < 4; ++e) {
-                    bool const mb_edge = e == 0;
-                    if (mb_edge && !(dir == 0 ? left : top))
-                        continue;
-                    MbState const& p = mb_edge ? frame.mbs[static_cast<std::size_t>(dir == 0 ? addr - 1 : addr - w)] : q;
-                    int const qp_av = (p.qp + q.qp + 1) >> 1;
-                    int const index_a = std::clamp(qp_av + off_a, 0, 51);
-                    int const index_b = std::clamp(qp_av + off_b, 0, 51);
-                    int const alpha = alpha_table[index_a], beta = beta_table[index_b];
-                    // 8-460's test fails for every sample where alpha or beta is 0.
-                    if (alpha == 0 || beta == 0 || (bs[e][0] | bs[e][1] | bs[e][2] | bs[e][3]) == 0)
-                        continue;
-                    for (int i = 0; i < 16; ++i) {
-                        int const b = bs[e][i >> 2];
-                        if (b == 0)
-                            continue;
-                        std::uint8_t* pos = dir == 0 ? &pic.y[static_cast<std::size_t>((my * 16 + i) * stride + mx * 16 + e * 4)]
-                                                     : &pic.y[static_cast<std::size_t>((my * 16 + e * 4) * stride + mx * 16 + i)];
-                        filter_line(pos, dir == 0 ? 1 : stride, b, alpha, beta, index_a, false);
-                    }
-                }
-                // Chroma: edges 0 and 4 of each 8x8, their bS from luma edges 0 and 2.
-                for (int c = 0; c < 2; ++c) {
-                    std::vector<std::uint8_t>& plane = c == 0 ? pic.cb : pic.cr;
-                    for (int ce = 0; ce < 2; ++ce) {
-                        int const e = ce * 2;
-                        bool const mb_edge = e == 0;
-                        if (mb_edge && !(dir == 0 ? left : top))
-                            continue;
-                        MbState const& p = mb_edge ? frame.mbs[static_cast<std::size_t>(dir == 0 ? addr - 1 : addr - w)] : q;
-                        int const qp_av = (p.qpc[static_cast<std::size_t>(c)] + q.qpc[static_cast<std::size_t>(c)] + 1) >> 1;
-                        int const index_a = std::clamp(qp_av + off_a, 0, 51);
-                        int const index_b = std::clamp(qp_av + off_b, 0, 51);
-                        int const alpha = alpha_table[index_a], beta = beta_table[index_b];
-                        if (alpha == 0 || beta == 0 || (bs[e][0] | bs[e][1] | bs[e][2] | bs[e][3]) == 0)
-                            continue;
-                        for (int i = 0; i < 8; ++i) {
-                            int const b = bs[e][i >> 1];
-                            if (b == 0)
-                                continue;
-                            std::uint8_t* pos = dir == 0 ? &plane[static_cast<std::size_t>((my * 8 + i) * cstride + mx * 8 + ce * 4)]
-                                                         : &plane[static_cast<std::size_t>((my * 8 + ce * 4) * cstride + mx * 8 + i)];
-                            filter_line(pos, dir == 0 ? 1 : cstride, b, alpha, beta, index_a, true);
-                        }
-                    }
+                    std::uint8_t* pos = dir == 0 ? &plane[static_cast<std::size_t>((my * 8 + i) * cstride + mx * 8 + ce * 4)]
+                                                 : &plane[static_cast<std::size_t>((my * 8 + ce * 4) * cstride + mx * 8 + i)];
+                    filter_line(pos, dir == 0 ? 1 : cstride, b, alpha, beta, index_a, true);
                 }
             }
         }
+    }
 }
 
+void deblock_picture(Frame& frame)
+{
+    for (int my = 0; my < frame.picture->mb_height; ++my)
+        for (int mx = 0; mx < frame.picture->mb_width; ++mx)
+            deblock_macroblock(frame, mx, my);
+}
 }

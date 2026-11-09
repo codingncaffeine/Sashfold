@@ -15,7 +15,8 @@ namespace sashfold::media {
 constexpr int h264_max_frame_macroblocks = 139264;
 
 // A picture larger than `max_macroblocks` is refused (a fuzzer's harness
-// passes a small bound to keep its memory low).
-std::unique_ptr<H264Accelerator> open_software_h264(int max_macroblocks = h264_max_frame_macroblocks);
+// passes a small bound to keep its memory low). `threads`: how many decode
+// each picture; 0 for SASHFOLD_H264_THREADS or the machine's cores.
+std::unique_ptr<H264Accelerator> open_software_h264(int max_macroblocks = h264_max_frame_macroblocks, int threads = 0);
 
 }

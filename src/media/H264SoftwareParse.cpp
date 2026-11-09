@@ -921,13 +921,13 @@ void Parser::skip_macroblock()
     s.direct_16x16 = b;
     s.qp = m_qp;
     s.intra4x4_modes.fill(2);
-    MbSyntax mb;
+    MbSyntax& mb = m_frame.sink->begin(m_addr);
     mb.kind = s.kind;
     mb.part_pred[0] = b ? PredDirect : PredL0;
     m_prev_addr = m_addr;
     m_prev_qp_delta_nonzero = false;
     derive_motion(m_frame, m_slice, m_addr, mb);
-    reconstruct_macroblock(m_frame, m_slice, m_addr, mb);
+    m_frame.sink->end(m_slice, m_addr);
 }
 
 bool Parser::mb_pred(MbSyntax& mb)
@@ -1321,7 +1321,7 @@ bool Parser::macroblock_layer()
     s.slice = m_slice.number;
     s.intra4x4_modes.fill(2);
     m_p8x8ref0 = false;
-    MbSyntax mb;
+    MbSyntax& mb = m_frame.sink->begin(m_addr);
     mb.ref_idx[0] = { -1, -1, -1, -1 };
     mb.ref_idx[1] = { -1, -1, -1, -1 };
     int raw = 0;
@@ -1352,7 +1352,8 @@ bool Parser::macroblock_layer()
         s.nonzero = 0xffff;
         m_prev_qp_delta_nonzero = false;
         m_prev_addr = m_addr;
-        reconstruct_macroblock(m_frame, m_slice, m_addr, mb);
+        clear_intra_motion(m_frame, m_addr);
+        m_frame.sink->end(m_slice, m_addr);
         return !m_reader.overrun();
     }
     bool no_sub_less_than_8x8 = true;
@@ -1467,7 +1468,9 @@ bool Parser::macroblock_layer()
     if (has_residual && !residual(mb))
         return false;
     m_prev_addr = m_addr;
-    reconstruct_macroblock(m_frame, m_slice, m_addr, mb);
+    if (s.intra)
+        clear_intra_motion(m_frame, m_addr);
+    m_frame.sink->end(m_slice, m_addr);
     return !m_reader.overrun();
 }
 

@@ -1142,6 +1142,22 @@ bool any_nonzero(std::int32_t const* c, int n)
 
 } // namespace
 
+void clear_intra_motion(Frame& frame, int addr)
+{
+    Picture& pic = *frame.picture;
+    int const mx = addr % pic.mb_width, my = addr / pic.mb_width;
+    pic.mb_intra[static_cast<std::size_t>(addr)] = 1;
+    for (int by = 0; by < 4; ++by)
+        for (int bx = 0; bx < 4; ++bx) {
+            int const i = pic.block_index(mx * 4 + bx, my * 4 + by);
+            for (int list = 0; list < 2; ++list) {
+                pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)] = -1;
+                pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)] = {};
+                pic.ref_pic[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)] = -1;
+            }
+        }
+}
+
 void reconstruct_macroblock(Frame& frame, Slice const& slice, int addr, MbSyntax const& mb)
 {
     Picture& pic = *frame.picture;
@@ -1152,18 +1168,6 @@ void reconstruct_macroblock(Frame& frame, Slice const& slice, int addr, MbSyntax
     std::uint8_t* const y0 = &pic.y[static_cast<std::size_t>(my * 16 * stride + mx * 16)];
     s.qpc[0] = chroma_qp(s.qp, frame.chroma_qp_offset[0]);
     s.qpc[1] = chroma_qp(s.qp, frame.chroma_qp_offset[1]);
-    if (s.intra) {
-        pic.mb_intra[static_cast<std::size_t>(addr)] = 1;
-        for (int by = 0; by < 4; ++by)
-            for (int bx = 0; bx < 4; ++bx) {
-                int const i = pic.block_index(mx * 4 + bx, my * 4 + by);
-                for (int list = 0; list < 2; ++list) {
-                    pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)] = -1;
-                    pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)] = {};
-                    pic.ref_pic[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)] = -1;
-                }
-            }
-    }
     if (mb.kind == MbKind::IPCM) {
         for (int y = 0; y < 16; ++y)
             for (int x = 0; x < 16; ++x)
