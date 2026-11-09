@@ -49,8 +49,6 @@ Coefficients coefficients(YuvColour colour)
     };
 }
 
-std::uint8_t clamp_to_byte(int value) { return static_cast<std::uint8_t>(std::clamp(value, 0, 255)); }
-
 }
 
 YuvColour vp9_colour(int color_space, bool color_range, int height)
@@ -104,6 +102,67 @@ YuvColour h264_colour(bool present, int matrix_coefficients, bool full_range, in
     return colour;
 }
 
+namespace {
+
+// One row: the pixels in pairs that share a chroma sample, in a loop the
+// compiler vectorizes; an odd width's last pixel alone. The arithmetic is
+// the same 16-bit fixed point whichever way it is compiled.
+[[gnu::always_inline]] inline void convert_row(std::uint8_t const* luma, std::uint8_t const* chroma, std::uint8_t* out, std::size_t width,
+    Coefficients const& k)
+{
+    auto const pixel = [&k](std::uint8_t* to, int y, int red, int green, int blue) {
+        int const l = (y - k.y_offset) * k.y_scale + (1 << 15);
+        to[0] = static_cast<std::uint8_t>(std::clamp((l + red) >> 16, 0, 255));
+        to[1] = static_cast<std::uint8_t>(std::clamp((l + green) >> 16, 0, 255));
+        to[2] = static_cast<std::uint8_t>(std::clamp((l + blue) >> 16, 0, 255));
+        to[3] = 255;
+    };
+    std::size_t const pairs = width / 2;
+    for (std::size_t i = 0; i < pairs; ++i) {
+        int const cb = chroma[i * 2] - 128;
+        int const cr = chroma[i * 2 + 1] - 128;
+        int const red = k.cr_r * cr, green = -k.cb_g * cb - k.cr_g * cr, blue = k.cb_b * cb;
+        pixel(out + i * 8, luma[i * 2], red, green, blue);
+        pixel(out + i * 8 + 4, luma[i * 2 + 1], red, green, blue);
+    }
+    if (width & 1) {
+        int const cb = chroma[pairs * 2] - 128;
+        int const cr = chroma[pairs * 2 + 1] - 128;
+        pixel(out + pairs * 8, luma[pairs * 2], k.cr_r * cr, -k.cb_g * cb - k.cr_g * cr, k.cb_b * cb);
+    }
+}
+
+[[gnu::always_inline]] inline void convert(Nv12Picture const& picture, Coefficients const& k, std::uint8_t* rgba)
+{
+    auto const width = static_cast<std::size_t>(picture.width);
+    std::size_t const chroma_row = static_cast<std::size_t>(picture.chroma_width()) * 2;
+    for (std::size_t y = 0; y < static_cast<std::size_t>(picture.height); ++y)
+        convert_row(picture.luma.data() + y * width, picture.chroma.data() + (y / 2) * chroma_row, rgba + y * width * 4, width, k);
+}
+
+#if (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
+// The same loop with AVX2's eight-wide 32-bit multiplies, where the
+// processor has them.
+__attribute__((target("avx2"))) void convert_avx2(Nv12Picture const& picture, Coefficients const& k, std::uint8_t* rgba)
+{
+    convert(picture, k, rgba);
+}
+bool has_avx2()
+{
+    // Asked once, after the processor has been looked at (a static
+    // initializer may run before libgcc's own does).
+    static bool const yes = [] {
+        __builtin_cpu_init();
+        return __builtin_cpu_supports("avx2") != 0;
+    }();
+    return yes;
+}
+#endif
+
+void convert_baseline(Nv12Picture const& picture, Coefficients const& k, std::uint8_t* rgba) { convert(picture, k, rgba); }
+
+}
+
 void nv12_to_rgba(Nv12Picture const& picture, YuvColour colour, std::span<std::uint8_t> rgba)
 {
     Coefficients const k = coefficients(colour);
@@ -113,21 +172,13 @@ void nv12_to_rgba(Nv12Picture const& picture, YuvColour colour, std::span<std::u
     if (rgba.size() < width * height * 4 || picture.luma.size() < width * height
         || picture.chroma.size() < chroma_row * static_cast<std::size_t>(picture.chroma_height()))
         return;
-    for (std::size_t y = 0; y < height; ++y) {
-        std::uint8_t const* const luma = picture.luma.data() + y * width;
-        std::uint8_t const* const chroma = picture.chroma.data() + (y / 2) * chroma_row;
-        std::uint8_t* out = rgba.data() + y * width * 4;
-        for (std::size_t x = 0; x < width; ++x) {
-            int const cb = chroma[(x / 2) * 2] - 128;
-            int const cr = chroma[(x / 2) * 2 + 1] - 128;
-            int const l = (luma[x] - k.y_offset) * k.y_scale + (1 << 15);
-            out[0] = clamp_to_byte((l + k.cr_r * cr) >> 16);
-            out[1] = clamp_to_byte((l - k.cb_g * cb - k.cr_g * cr) >> 16);
-            out[2] = clamp_to_byte((l + k.cb_b * cb) >> 16);
-            out[3] = 255;
-            out += 4;
-        }
+#if (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
+    if (has_avx2()) {
+        convert_avx2(picture, k, rgba.data());
+        return;
     }
+#endif
+    convert_baseline(picture, k, rgba.data());
 }
 
 }
