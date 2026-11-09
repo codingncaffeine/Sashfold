@@ -1320,12 +1320,13 @@ bool Parser::macroblock_layer()
             v = static_cast<std::uint8_t>(m_reader.bits(8));
         if (m_cabac_mode)
             m_cabac.init_engine(m_reader);
+        // The deblocking filter takes an I_PCM macroblock's QP as 0 (8.7.2.2);
+        // the next macroblock's QPY,PRED is still the one before it.
         s.qp = 0;
         s.cbp = 0x2f;
         s.cbf = 0x07ffffff;
         s.total_coeff.fill(16);
         s.nonzero = 0xffff;
-        m_qp = 0;
         m_prev_qp_delta_nonzero = false;
         m_prev_addr = m_addr;
         reconstruct_macroblock(m_frame, m_slice, m_addr, mb);
