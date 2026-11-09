@@ -287,7 +287,11 @@ void test_crl_cache_concurrency()
             while (most_at_once.load() < 2 && clock::now() < until)
                 std::this_thread::sleep_for(std::chrono::milliseconds(1));
         } else {
-            std::this_thread::sleep_for(slow);
+            // Until a deadline on the clock the test measures with: Windows'
+            // sleep can wake a timer tick early by that clock.
+            auto const until = clock::now() + slow;
+            while (clock::now() < until)
+                std::this_thread::sleep_until(until);
         }
         --under_way;
         return std::vector<std::uint8_t>(at.begin(), at.end());
