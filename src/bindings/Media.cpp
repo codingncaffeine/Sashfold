@@ -829,8 +829,9 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
     // starts again from the key frame. (A page that paints its own video —
     // a headless run, on a clock of its own — takes what is made by then.)
     bool const prerolling = state.clock && state.video && state.video_awaiting && now - state.video_awaiting_since < preroll_limit_ms;
-    state.advancing = !state.paused && !state.seeking && !state.ended_fired && state.ready_state >= HaveFutureData
-        && state.playback_rate > 0 && !prerolling;
+    bool const may_advance = !state.paused && !state.seeking && !state.ended_fired && state.ready_state >= HaveFutureData
+        && state.playback_rate > 0;
+    state.advancing = may_advance && !prerolling;
     // The sound follows at once: it starts the moment playback does, and it
     // holds the moment playback stops.
     stream_media(in, state);
@@ -838,6 +839,13 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
     // just seeked.
     publish_clock(in, state);
     present_video(in, state);
+    // The awaited picture came in this turn: the clock starts now, not at
+    // the page's next turn, which a busy page may hold back.
+    if (prerolling && may_advance && !state.video_awaiting) {
+        state.advancing = true;
+        stream_media(in, state);
+        publish_clock(in, state);
+    }
     // The periodic timeupdate says the position moved (HTML §4.8.11.8): a
     // clock held at the end of what is buffered is not news every 250 ms.
     if (state.advancing && now - state.last_time_update >= time_update_ms && state.position != state.last_time_update_position) {
