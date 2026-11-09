@@ -500,10 +500,24 @@ int type_support(std::string_view type)
             std::size_t const comma = list.find(',');
             std::string_view const codec = trimmed(list.substr(0, comma));
             list = comma == std::string_view::npos ? std::string_view {} : list.substr(comma + 1);
-            // H.264 as "avc1.PPCCLL" and "avc3.PPCCLL" (RFC 6381): every
-            // profile the hardware's High profile decoder reads; AAC
-            // ("mp4a.40.x") waits for its decoder (GAPS plan 6c).
-            bool const h264 = mp4 && video && (codec.starts_with("avc1") || codec.starts_with("avc3"));
+            // H.264 as "avc1.PPCCLL" and "avc3.PPCCLL" (RFC 6381): the
+            // profiles every decoder here reads, hardware or software —
+            // Baseline (and Constrained Baseline), Main and High, 8 bits,
+            // 4:2:0 — and the bare names; not High 10, 4:2:2, 4:4:4 or
+            // Extended (its switching slices).
+            auto const h264_profile_ours = [](std::string_view c) {
+                if (c.size() == 4)
+                    return true;
+                if (c.size() < 7 || c[4] != '.')
+                    return false;
+                auto const hex = [](char ch) { return ch >= '0' && ch <= '9' ? ch - '0' : (ch >= 'a' && ch <= 'f' ? ch - 'a' + 10 : (ch >= 'A' && ch <= 'F' ? ch - 'A' + 10 : -1)); };
+                int const hi = hex(c[5]), lo = hex(c[6]);
+                if (hi < 0 || lo < 0)
+                    return false;
+                int const profile = hi * 16 + lo;
+                return profile == 66 || profile == 77 || profile == 100;
+            };
+            bool const h264 = mp4 && video && (codec.starts_with("avc1") || codec.starts_with("avc3")) && h264_profile_ours(codec);
             // AAC-LC ("mp4a.40.2"), and the HE-AAC profiles ("mp4a.40.5",
             // "mp4a.40.29") whose LC core plays while SBR is owed.
             bool const aac = mp4 && (codec == "mp4a.40.2" || codec == "mp4a.40.02" || codec == "mp4a.40.5" || codec == "mp4a.40.05" || codec == "mp4a.40.29");

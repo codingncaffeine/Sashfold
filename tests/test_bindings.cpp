@@ -6580,6 +6580,10 @@ void test_media_source_and_the_media_element()
         'video/webm; codecs="vp9"; eotf=catavision', 'video/webm; codecs="vp9"; decode-to-texture=nope', 'video/webm; codecs="vp9"; cryptoblockformat=subsample',
         'video/webm; codecs=""' ].map(function (t) { return MediaSource.isTypeSupported(t) ? 'y' : 'n'; }).join(''))JS"),
         "yyyyynnnyynnnnnnn");
+    // H.264 by profile: Baseline, Main, High and the bare names, not High 10, 4:2:2, 4:4:4 or Extended.
+    CHECK_EQ(page->string(R"JS([ 'avc1.42E01E', 'avc1.4D401F', 'avc1.640028', 'avc3.64001F', 'avc1', 'avc1.6E0028', 'avc1.7A0028', 'avc1.F4001E',
+        'avc1.58A01E', 'avc1.6', 'avc1.zz0028' ].map(function (c) { return MediaSource.isTypeSupported('video/mp4; codecs="' + c + '"') ? 'y' : 'n'; }).join(''))JS"),
+        "yyyyynnnnnn");
     CHECK_EQ(page->string("[v.canPlayType('video/webm; codecs=\"vp9\"'), v.canPlayType('audio/webm'), v.canPlayType('video/mp4')].join('|')"), "probably|maybe|maybe");
     CHECK_EQ(page->string("var r = ''; try { new MediaSource().addSourceBuffer('video/webm'); } catch (e) { r = e.name; } r"), "InvalidStateError");
 
