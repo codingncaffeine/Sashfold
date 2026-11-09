@@ -573,8 +573,13 @@ struct SbrDecoder::Impl {
             bool const reset = !have_header || h.start_freq != header.start_freq || h.stop_freq != header.stop_freq || h.freq_scale != header.freq_scale
                 || h.alter_scale != header.alter_scale || h.xover_band != header.xover_band || h.noise_bands != header.noise_bands;
             if (reset) {
+                // The gains' smoothing starts again, and so does the noise:
+                // its index into the random phases goes back to 0, as the
+                // reference decoder's reset does (3GPP TS 26.410,
+                // resetSbrEnvelopeCalc).
                 for (ChannelState& s : ch) {
                     s.hist_primed = false;
+                    s.noise_index = 0;
                 }
             }
             tables = t;

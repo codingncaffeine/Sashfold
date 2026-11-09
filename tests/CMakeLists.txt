@@ -718,3 +718,13 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/h264-conformance)
     COMMAND h264_conformance ${CMAKE_SOURCE_DIR}/h264-conformance ${CMAKE_CURRENT_SOURCE_DIR}/h264-conformance/streams.txt --api playback)
   set_tests_properties(h264_conformance_playback PROPERTIES TIMEOUT 900)
 endif()
+
+# ISO/IEC 14496-26's HE-AAC (SBR) conformance streams against their
+# reference outputs, every one at 100 dB or better, from sbr-conformance/
+# (ISO's files, never in the repository: tools/sbr-conformance.sh fetches
+# them into a folder given; a fresh clone has none, and skips this one).
+if(EXISTS ${CMAKE_SOURCE_DIR}/sbr-conformance)
+  add_test(NAME sbr_conformance
+    COMMAND bash ${CMAKE_SOURCE_DIR}/tools/sbr-conformance.sh $<TARGET_FILE:media_probe> ${CMAKE_SOURCE_DIR}/sbr-conformance)
+  set_tests_properties(sbr_conformance PROPERTIES TIMEOUT 900)
+endif()
