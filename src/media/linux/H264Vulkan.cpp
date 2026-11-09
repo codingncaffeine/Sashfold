@@ -194,6 +194,8 @@ public:
     }
 
     std::string const& device() const override { return m_device.name(); }
+    // NVIDIA's driver (seen on 615.78.08): see H264Accelerator.
+    bool mishandles_long_term_and_wrap() const override { return m_device.name().find("NVIDIA") != std::string::npos; }
     int slots() const override { return static_cast<int>(picture_count); }
 
     void reset() override { m_device.request_reset(); }

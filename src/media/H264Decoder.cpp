@@ -233,6 +233,17 @@ std::optional<Nv12Picture> H264Decoder::decode(std::span<std::uint8_t const> acc
         m_counts.failed++; // a stream must begin at an IDR
         return std::nullopt;
     }
+    // A picture the driver is known to predict wrongly is not given to
+    // it; the caller takes the stream to another decoder.
+    if (m_accelerator->mishandles_long_term_and_wrap() && !first->idr) {
+        bool const long_term = std::any_of(m_dpb.begin(), m_dpb.end(), [](Entry const& e) { return e.long_term; })
+            || std::any_of(first->mmco.begin(), first->mmco.end(), [](H264Mmco const& m) { return m.op == 3 || m.op == 6; });
+        bool const wraps = sps->max_num_ref_frames > 1 && first->frame_num < m_prev_ref_frame_num;
+        if (long_term || wraps) {
+            m_counts.declined++;
+            return std::nullopt;
+        }
+    }
     if (first->idr) {
         m_dpb.clear();
         m_max_long_term_frame_idx = first->long_term_reference ? 0 : -1;

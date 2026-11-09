@@ -80,6 +80,8 @@ public:
         , m_decoder(std::make_unique<H264Decoder>(std::move(accelerator)))
     {
         m_configured = m_decoder->set_configuration(avcc);
+        if (std::optional<H264DecoderConfiguration> const config = parse_avcc(avcc))
+            m_length_size = config->length_size;
         if (std::optional<H264DecoderConfiguration> const config = parse_avcc(avcc); config && !config->sps.empty()) {
             if (std::optional<H264Sps> const sps = parse_h264_sps(config->sps[0]))
                 m_colour = h264_colour(sps->vui.present && sps->vui.colour_description_present, sps->vui.matrix_coefficients,
@@ -93,8 +95,35 @@ public:
     Result decode(std::span<std::uint8_t const> block, bool wanted) override
     {
         Result result;
+        // The units since the last IDR, for a switch to the processor's
+        // decoder to pick the stream up where it is.
+        if (!m_software) {
+            bool idr = false;
+            for (H264Nal const& nal : split_h264_length_prefixed(block, m_length_size))
+                idr |= nal.type == 5;
+            if (idr)
+                m_since_key.clear();
+            m_since_key.emplace_back(block.begin(), block.end());
+        }
         // Every picture is shown: read back only when it is wanted.
         std::optional<Nv12Picture> picture = m_decoder->decode(block);
+        if (!m_software && (m_decoder->counts().declined > 0 || m_decoder->counts().failed > m_failed)) {
+            // Refused or kept from a driver known to get it wrong: the
+            // processor's decoder from here on, as browsers fall back, given
+            // the units since the key frame so this picture is decoded now.
+            picture = fall_back();
+            result.decoded = picture ? 1 : 0;
+            m_decoded = m_decoder->counts().decoded;
+            m_failed = m_decoder->counts().failed;
+            if (picture && wanted)
+                result.shown = std::move(picture);
+            else if (picture)
+                result.skipped++;
+            else
+                result.ok = false;
+            result.colour = m_colour;
+            return result;
+        }
         H264Decoder::Counts const& counts = m_decoder->counts();
         if (counts.decoded > m_decoded) {
             result.decoded = counts.decoded - m_decoded;
@@ -106,10 +135,6 @@ public:
         } else if (counts.failed > m_failed) {
             m_failed = counts.failed;
             result.ok = false;
-            // A picture the hardware refused: the processor's decoder from
-            // here on, as browsers fall back; it starts at the next key frame.
-            if (!m_software)
-                fall_back();
         }
         result.colour = m_colour;
         return result;
@@ -118,16 +143,24 @@ public:
     void reset() override { m_decoder->reset(); }
 
 private:
-    void fall_back()
+    // The software decoder, fed the units since the key frame (their
+    // pictures are not shown again); the last unit's picture returned.
+    std::optional<Nv12Picture> fall_back()
     {
         m_software = true;
         m_decoder = std::make_unique<H264Decoder>(open_software_h264());
         m_configured = m_decoder->set_configuration(m_avcc);
-        m_decoded = 0;
-        m_failed = 0;
+        std::optional<Nv12Picture> last;
+        for (std::vector<std::uint8_t> const& unit : m_since_key)
+            last = m_decoder->decode(unit);
+        m_since_key.clear();
+        m_since_key.shrink_to_fit();
+        return last;
     }
 
     std::vector<std::uint8_t> m_avcc;
+    int m_length_size = 4;
+    std::vector<std::vector<std::uint8_t>> m_since_key;
     bool m_software;
     std::unique_ptr<H264Decoder> m_decoder;
     bool m_configured = false;

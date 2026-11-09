@@ -87,6 +87,11 @@ public:
     virtual std::string const& device() const = 0;
     // The processor's decoder (media/H264Software.h), not the hardware's.
     virtual bool is_software() const { return false; }
+    // A driver known to predict from the wrong picture once a long-term
+    // reference is held, or after frame_num wraps with more than one
+    // reference (NVIDIA's Vulkan Video: ITU conformance streams MR1_BT_A,
+    // CABA3_TOSHIBA_E, which ffmpeg's Vulkan path decodes wrong too).
+    virtual bool mishandles_long_term_and_wrap() const { return false; }
     // How many pictures the buffer holds (slots 0 to slots() - 1).
     virtual int slots() const = 0;
     // The parameter sets the stream uses, all of them, given again whole

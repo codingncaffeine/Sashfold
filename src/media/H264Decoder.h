@@ -49,6 +49,7 @@ public:
         std::uint64_t decoded = 0;
         std::uint64_t failed = 0;
         std::uint64_t gaps = 0; // frames the stream skipped (8.2.5.2)
+        std::uint64_t declined = 0; // pictures kept from a driver known to get them wrong
     };
     Counts const& counts() const { return m_counts; }
 
