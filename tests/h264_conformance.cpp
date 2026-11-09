@@ -3,7 +3,10 @@
 // by tools/h264-conformance-fetch.sh (a fresh clone has none); the list
 // names the ones held exact, one a line.
 //
-//   h264_conformance <folder> <streams.txt> [--api software|vulkan|vaapi]
+//   h264_conformance <folder> <streams.txt> [--api software|vulkan|vaapi|playback]
+//
+// playback decodes as <video> does: the best decoder there is, with its
+// fallbacks (media/FrameDecoder.h).
 //
 // Each stream is raw Annex B, split here into access units (7.4.1.2.3: a
 // picture's first slice has first_mb_in_slice 0; units 6 to 9 after a
@@ -12,6 +15,7 @@
 // order, so the comparison is of the two sets of picture digests: order
 // cannot make a wrong picture match.
 
+#include "media/FrameDecoder.h"
 #include "media/H264.h"
 #include "media/H264Decoder.h"
 #include "media/H264Software.h"
@@ -128,7 +132,42 @@ struct Result {
     std::string note;
 };
 
-Result check(std::filesystem::path const& folder, media::VideoApi api)
+// The stream as playback hands it to a frame decoder: an avcC record of
+// its first parameter sets, and each access unit with four-byte lengths.
+struct Track {
+    Bytes avcc;
+    std::vector<Bytes> samples;
+};
+
+Track as_track(std::vector<Bytes> const& units)
+{
+    Track t;
+    Bytes sps, pps;
+    for (Bytes const& unit : units) {
+        Bytes sample;
+        for (media::H264Nal const& nal : media::split_h264_annex_b(unit)) {
+            if (nal.type == 7 && sps.empty())
+                sps.assign(nal.bytes.begin(), nal.bytes.end());
+            if (nal.type == 8 && pps.empty())
+                pps.assign(nal.bytes.begin(), nal.bytes.end());
+            auto const n = static_cast<std::uint32_t>(nal.bytes.size());
+            std::uint8_t const length[4] = { static_cast<std::uint8_t>(n >> 24), static_cast<std::uint8_t>(n >> 16), static_cast<std::uint8_t>(n >> 8),
+                static_cast<std::uint8_t>(n) };
+            sample.insert(sample.end(), length, length + 4);
+            sample.insert(sample.end(), nal.bytes.begin(), nal.bytes.end());
+        }
+        t.samples.push_back(std::move(sample));
+    }
+    if (sps.size() < 4 || pps.empty())
+        return t;
+    t.avcc = { 1, sps[1], sps[2], sps[3], 0xFF, 0xE1, static_cast<std::uint8_t>(sps.size() >> 8), static_cast<std::uint8_t>(sps.size()) };
+    t.avcc.insert(t.avcc.end(), sps.begin(), sps.end());
+    t.avcc.insert(t.avcc.end(), { 1, static_cast<std::uint8_t>(pps.size() >> 8), static_cast<std::uint8_t>(pps.size()) });
+    t.avcc.insert(t.avcc.end(), pps.begin(), pps.end());
+    return t;
+}
+
+Result check(std::filesystem::path const& folder, media::VideoApi api, bool playback)
 {
     Result r;
     auto const bitstream = find(folder, { ".264", ".jsv", ".26l", ".avc", ".h264", ".jvt", ".bit" });
@@ -140,19 +179,37 @@ Result check(std::filesystem::path const& folder, media::VideoApi api)
         return r;
     }
     std::string why;
-    std::unique_ptr<media::H264Accelerator> accelerator = api == media::VideoApi::Software ? media::open_software_h264() : media::H264Accelerator::open(why, api);
-    if (!accelerator) {
-        r.note = "no decoder: " + why;
-        return r;
-    }
-    media::H264Decoder decoder(std::move(accelerator));
     std::vector<std::uint64_t> ours;
     int width = 0, height = 0;
-    for (Bytes const& unit : access_units(read_file(*bitstream))) {
-        if (std::optional<media::Nv12Picture> const picture = decoder.decode(unit)) {
-            ours.push_back(digest(*picture));
-            width = picture->width;
-            height = picture->height;
+    auto take = [&](media::Nv12Picture const& picture) {
+        ours.push_back(digest(picture));
+        width = picture.width;
+        height = picture.height;
+    };
+    if (playback) {
+        // The way <video> decodes: the best decoder there is, with its
+        // fallbacks.
+        Track const track = as_track(access_units(read_file(*bitstream)));
+        std::unique_ptr<media::FrameDecoder> decoder = media::open_frame_decoder("V_H264", track.avcc, why);
+        if (!decoder) {
+            r.note = "no decoder: " + why;
+            return r;
+        }
+        for (Bytes const& sample : track.samples) {
+            media::FrameDecoder::Result result = decoder->decode(sample, true);
+            if (result.shown)
+                take(*result.shown);
+        }
+    } else {
+        std::unique_ptr<media::H264Accelerator> accelerator = api == media::VideoApi::Software ? media::open_software_h264() : media::H264Accelerator::open(why, api);
+        if (!accelerator) {
+            r.note = "no decoder: " + why;
+            return r;
+        }
+        media::H264Decoder decoder(std::move(accelerator));
+        for (Bytes const& unit : access_units(read_file(*bitstream))) {
+            if (std::optional<media::Nv12Picture> const picture = decoder.decode(unit))
+                take(*picture);
         }
     }
     r.decoded = ours.size();
@@ -184,15 +241,17 @@ Result check(std::filesystem::path const& folder, media::VideoApi api)
 int main(int argc, char** argv)
 {
     if (argc < 3) {
-        std::fprintf(stderr, "usage: h264_conformance <folder> <streams.txt> [--api software|vulkan|vaapi]\n");
+        std::fprintf(stderr, "usage: h264_conformance <folder> <streams.txt> [--api software|vulkan|vaapi|playback]\n");
         return 2;
     }
     std::filesystem::path const root = argv[1];
     media::VideoApi api = media::VideoApi::Software;
+    bool playback = false;
     for (int i = 3; i + 1 < argc; ++i) {
         if (std::strcmp(argv[i], "--api") == 0) {
             std::string const a = argv[i + 1];
             api = a == "vulkan" ? media::VideoApi::Vulkan : (a == "vaapi" ? media::VideoApi::Vaapi : media::VideoApi::Software);
+            playback = a == "playback";
         }
     }
     std::ifstream list(argv[2]);
@@ -202,7 +261,7 @@ int main(int argc, char** argv)
         std::string const name = line.substr(0, line.find_first_of(" \t#"));
         if (name.empty())
             continue;
-        Result const r = check(root / name, api);
+        Result const r = check(root / name, api, playback);
         bool const ok = r.reference > 0 && r.matched == r.reference && r.decoded == r.reference && r.note.empty();
         std::printf("%s %-22s %zu of %zu pictures (%zu decoded)%s%s\n", ok ? "PASS" : "FAIL", name.c_str(), r.matched, r.reference, r.decoded,
             r.note.empty() ? "" : ": ", r.note.c_str());

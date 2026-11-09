@@ -712,4 +712,9 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/h264-conformance)
   add_test(NAME h264_conformance
     COMMAND h264_conformance ${CMAKE_SOURCE_DIR}/h264-conformance ${CMAKE_CURRENT_SOURCE_DIR}/h264-conformance/streams.txt)
   set_tests_properties(h264_conformance PROPERTIES TIMEOUT 600)
+  # The same streams the way <video> decodes them: the best decoder there
+  # is, with its fallbacks and the drivers' known faults routed around.
+  add_test(NAME h264_conformance_playback
+    COMMAND h264_conformance ${CMAKE_SOURCE_DIR}/h264-conformance ${CMAKE_CURRENT_SOURCE_DIR}/h264-conformance/streams.txt --api playback)
+  set_tests_properties(h264_conformance_playback PROPERTIES TIMEOUT 900)
 endif()
