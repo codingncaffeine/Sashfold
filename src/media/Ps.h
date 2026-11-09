@@ -9,8 +9,10 @@
 // baseline decoder (Annex 8.A): the 20-band layout (34-band parameters
 // mapped onto it), QMF bands 0 to 2 split finer by the hybrid filters, the
 // all-pass decorrelator with its transient ducking, and the mixing matrices
-// interpolated across each envelope; the phase parameters (IPD/OPD) a
-// stream may carry in its extension are read past.
+// interpolated across each envelope by either mixing procedure (A, or
+// the unrestricted decoder's B); the phase parameters (IPD/OPD) a stream
+// may carry in its extension are read past, and a 34-band stream is mixed
+// in the 20 bands.
 
 #include <array>
 #include <complex>
@@ -20,6 +22,14 @@
 namespace sashfold::media {
 
 class SbrBits;
+
+// One band's mixing matrix (8.6.4, stereo processing): left = h11 s + h21 d,
+// right = h12 s + h22 d, from the mono signal s and its decorrelated copy d,
+// for an IID and ICC index; procedure B when `procedure_b` (ICC modes 3-5).
+struct PsMatrix {
+    float h11 = 0, h12 = 0, h21 = 0, h22 = 0;
+};
+PsMatrix ps_mixing_matrix(bool procedure_b, bool fine_iid, int iid_index, int icc_index);
 
 class PsDecoder {
 public:

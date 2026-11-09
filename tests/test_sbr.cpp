@@ -2,8 +2,10 @@
 
 #include "media/Aac.h"
 #include "media/Mp4.h"
+#include "media/Ps.h"
 #include "media/Sbr.h"
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -265,6 +267,38 @@ int main(int argc, char** argv)
         w.put(0, 8); // no comment
         std::optional<media::AacConfig> const c = media::parse_aac_config(w.bytes);
         CHECK(c && c->channels == 2 && c->sample_rate == 48000);
+    }
+    // Parametric stereo's mixing procedure B (ICC modes 3 to 5): fed the
+    // mono signal and its decorrelated copy at unit power and uncorrelated,
+    // its matrix must give the pair the sent level difference (power ratio
+    // 10^(dB/10)), the sent coherence (held above 0.05) and the total power
+    // of two — the contract the rotation is built to meet, for every index
+    // of both IID quantizers and all eight ICC steps.
+    {
+        static constexpr double coarse[15] = { -25, -18, -14, -10, -7, -4, -2, 0, 2, 4, 7, 10, 14, 18, 25 };
+        static constexpr double fine[31] = { -50, -45, -40, -35, -30, -25, -22, -19, -16, -13, -10, -8, -6, -4, -2, 0, 2, 4, 6, 8, 10, 13, 16, 19, 22, 25, 30, 35, 40, 45, 50 };
+        static constexpr double icc[8] = { 1, 0.937, 0.84118, 0.60092, 0.36764, 0, -0.589, -1 };
+        double worst_ratio = 0, worst_coherence = 0, worst_power = 0;
+        int cases = 0;
+        for (int f = 0; f < 2; ++f) {
+            int const steps = f ? 15 : 7;
+            for (int i = -steps; i <= steps; ++i) {
+                double const db = f ? fine[i + 15] : coarse[i + 7];
+                for (int k = 0; k < 8; ++k) {
+                    media::PsMatrix const m = media::ps_mixing_matrix(true, f != 0, i, k);
+                    double const h11 = static_cast<double>(m.h11), h12 = static_cast<double>(m.h12), h21 = static_cast<double>(m.h21), h22 = static_cast<double>(m.h22);
+                    double const pl = h11 * h11 + h21 * h21;
+                    double const pr = h12 * h12 + h22 * h22;
+                    double const cross = h11 * h12 + h21 * h22;
+                    worst_ratio = std::max(worst_ratio, std::fabs(10 * std::log10(pl / pr) - db));
+                    worst_coherence = std::max(worst_coherence, std::fabs(cross / std::sqrt(pl * pr) - std::max(icc[k], 0.05)));
+                    worst_power = std::max(worst_power, std::fabs(pl + pr - 2));
+                    ++cases;
+                }
+            }
+        }
+        std::fprintf(stderr, "test_sbr: PS procedure B over %d cases: level off by %.2g dB, coherence by %.2g, power by %.2g\n", cases, worst_ratio, worst_coherence, worst_power);
+        CHECK(cases == 368 && worst_ratio < 0.01 && worst_coherence < 1e-4 && worst_power < 1e-4);
     }
     // Tones at the middle of bands 1 and 5 (689 Hz a band), then at a band's
     // edge (where the aliasing of a bank that is not perfect would show), then

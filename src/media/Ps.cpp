@@ -180,6 +180,50 @@ void delta_decode(bool enabled, std::array<int, k_max_bins>& v, std::array<int, 
 
 } // namespace
 
+PsMatrix ps_mixing_matrix(bool procedure_b, bool fine_iid, int iid_index, int icc_index)
+{
+    Tables const& t = tables();
+    int const steps = fine_iid ? 15 : 7;
+    float const* scale = fine_iid ? t.scale_fine.data() : t.scale_coarse.data();
+    PsMatrix m;
+    if (!procedure_b) {
+        // Procedure A: the pair rotated apart by the coherence's angle,
+        // about an axis the level difference sets.
+        float const scale_r = scale[steps + iid_index];
+        float const scale_l = scale[steps - iid_index];
+        float const alpha = t.alpha[static_cast<std::size_t>(icc_index)];
+        float const beta = alpha * (scale_r - scale_l) / std::numbers::sqrt2_v<float>;
+        double const plus = static_cast<double>(beta + alpha);
+        double const minus = static_cast<double>(beta - alpha);
+        m.h11 = static_cast<float>(static_cast<double>(scale_l) * std::cos(plus));
+        m.h12 = static_cast<float>(static_cast<double>(scale_r) * std::cos(minus));
+        m.h21 = static_cast<float>(static_cast<double>(scale_l) * std::sin(plus));
+        m.h22 = static_cast<float>(static_cast<double>(scale_r) * std::sin(minus));
+        return m;
+    }
+    // Procedure B: the principal axis of the target covariance (angle a,
+    // where tan 2a = 2 c rho / (c^2 - 1), c the left-to-right amplitude
+    // ratio) carries the mono signal, the minor axis the decorrelated one,
+    // each weighted by the square root of its eigenvalue (angle gamma) —
+    // so the pair comes out with the sent level difference and coherence,
+    // rho held above 0.05.
+    double const db = fine_iid ? k_iid_fine[static_cast<std::size_t>(iid_index + 15)] : k_iid_coarse[static_cast<std::size_t>(iid_index + 7)];
+    double const c = std::pow(10.0, db / 20);
+    double const rho = std::max(k_icc[static_cast<std::size_t>(icc_index)], 0.05);
+    double a = 0.5 * std::atan2(2 * c * rho, c * c - 1);
+    if (a < 0)
+        a += std::numbers::pi / 2;
+    double const sum = c + 1 / c;
+    double const mu = std::sqrt(1 + (4 * rho * rho - 4) / (sum * sum));
+    double const gamma = std::atan(std::sqrt((1 - mu) / (1 + mu)));
+    double const r2 = std::numbers::sqrt2;
+    m.h11 = static_cast<float>(r2 * std::cos(a) * std::cos(gamma));
+    m.h12 = static_cast<float>(r2 * std::sin(a) * std::cos(gamma));
+    m.h21 = static_cast<float>(-r2 * std::sin(a) * std::sin(gamma));
+    m.h22 = static_cast<float>(r2 * std::cos(a) * std::sin(gamma));
+    return m;
+}
+
 struct PsDecoder::Impl {
     bool seen = false;
     // The header's fields, kept until a header changes them.
@@ -189,6 +233,7 @@ struct PsDecoder::Impl {
     bool fine_iid = false;
     int iid_mode = 0; // 0 to 2: 10, 20 or 34 bins
     int icc_mode = 0;
+    bool mixing_b = false; // ICC modes 3 to 5: the rotation mixing (procedure B)
     // The frame's data.
     bool data_available = false;
     bool frame_class = false; // variable borders
@@ -311,24 +356,12 @@ struct PsDecoder::Impl {
                 }
             }
         }
-        Tables const& t = tables();
-        int const steps = fine_iid ? 15 : 7;
-        float const* scale = fine_iid ? t.scale_fine.data() : t.scale_coarse.data();
         int const length = border[static_cast<std::size_t>(e + 1)] - border[static_cast<std::size_t>(e)];
         float const step = 1.0f / static_cast<float>(std::max(length, 1));
         for (int g = 0; g < k_groups; ++g) {
             std::size_t const bin = static_cast<std::size_t>(k_group_bin[static_cast<std::size_t>(g)]);
-            int const iid_index = iid[static_cast<std::size_t>(e)][bin];
-            float const scale_r = scale[steps + iid_index];
-            float const scale_l = scale[steps - iid_index];
-            float const alpha = t.alpha[static_cast<std::size_t>(icc[static_cast<std::size_t>(e)][bin])];
-            float const beta = alpha * (scale_r - scale_l) / std::numbers::sqrt2_v<float>;
-            double const plus = static_cast<double>(beta + alpha);
-            double const minus = static_cast<double>(beta - alpha);
-            float const n11 = static_cast<float>(static_cast<double>(scale_l) * std::cos(plus));
-            float const n12 = static_cast<float>(static_cast<double>(scale_r) * std::cos(minus));
-            float const n21 = static_cast<float>(static_cast<double>(scale_l) * std::sin(plus));
-            float const n22 = static_cast<float>(static_cast<double>(scale_r) * std::sin(minus));
+            PsMatrix const m = ps_mixing_matrix(mixing_b, fine_iid, iid[static_cast<std::size_t>(e)][bin], icc[static_cast<std::size_t>(e)][bin]);
+            float const n11 = m.h11, n12 = m.h12, n21 = m.h21, n22 = m.h22;
             std::size_t const gi = static_cast<std::size_t>(g);
             d11[gi] = (n11 - h11_prev[gi]) * step;
             d12[gi] = (n12 - h12_prev[gi]) * step;
@@ -506,8 +539,8 @@ std::size_t PsDecoder::read(SbrBits& bits, std::size_t bits_left)
         p.enable_icc = bits.flag();
         if (p.enable_icc) {
             int const mode = static_cast<int>(bits.u(3));
-            // 3 to 5: the same layouts for the unrestricted decoder's other
-            // mixing procedure, which the baseline does not tell apart.
+            // 3 to 5: the same layouts, mixed by procedure B.
+            p.mixing_b = mode > 2;
             p.icc_mode = mode > 2 ? mode - 3 : mode;
         }
         p.enable_ext = bits.flag();
@@ -590,6 +623,7 @@ void PsDecoder::reset()
     fresh->fine_iid = p.fine_iid;
     fresh->iid_mode = p.iid_mode;
     fresh->icc_mode = p.icc_mode;
+    fresh->mixing_b = p.mixing_b;
     m_impl = std::move(fresh);
 }
 
