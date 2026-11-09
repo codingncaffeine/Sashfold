@@ -16,6 +16,7 @@
 #include "media/H264SoftwareResidual.h"
 
 #include <array>
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <memory>
@@ -113,36 +114,85 @@ private:
     bool m_overrun = false;
 };
 
-// 9.3.1.2 and 9.3.3.2: the arithmetic decoding engine, its 1024 contexts.
-// The engine reads its data two bytes ahead: m_low holds codIOffset
-// followed by m_bits bits not yet taken, so codIOffset >= codIRange is
-// m_low >= codIRange << m_bits, and RenormD only moves m_bits.
+// 9.3.1.2 and 9.3.3.2: the arithmetic decoding engine. It reads its data
+// two bytes ahead: `low` holds codIOffset followed by `bits` bits not yet
+// taken, so codIOffset >= codIRange is low >= codIRange << bits, and
+// RenormD only moves `bits`. A plain value, so the residual's loops keep a
+// copy in registers.
+struct CabacEngine {
+    std::uint8_t const* data = nullptr;
+    std::size_t size = 0;
+    std::size_t next = 0; // the next byte to load
+    int bits = 0;
+    std::uint32_t range = 0;
+    std::uint32_t low = 0;
+
+    // A context's bin (`context`: pStateIdx * 2 + valMPS); in H264SoftwareParse.cpp.
+    int decision(std::uint8_t& context);
+    // 9.3.3.2.3.
+    int bypass()
+    {
+        if (bits < 1)
+            refill();
+        --bits;
+        std::uint32_t const scaled = range << bits;
+        if (low >= scaled) {
+            low -= scaled;
+            return 1;
+        }
+        return 0;
+    }
+    // 9.3.3.2.4.
+    int terminate()
+    {
+        range -= 2;
+        if (low >= (range << bits))
+            return 1;
+        renormalize();
+        return 0;
+    }
+    // As many doublings as take the range back to nine bits, in one step.
+    void renormalize()
+    {
+        if (range < 256) {
+            int const shift = std::countl_zero(range) - 23;
+            range <<= shift;
+            if (bits < shift)
+                refill();
+            bits -= shift;
+        }
+    }
+    // Two more bytes below `low` (zeros past the end; overrun() tells).
+    void refill()
+    {
+        low = (low << 16) | (std::uint32_t { byte(next) } << 8) | byte(next + 1);
+        next += 2;
+        bits += 16;
+    }
+    std::uint8_t byte(std::size_t i) const { return i < size ? data[i] : 0; }
+    std::size_t consumed() const { return next * 8 - static_cast<std::size_t>(bits); }
+};
+
+// The engine and its 1024 contexts.
 class Cabac {
 public:
     void init_contexts(int slice_qp, int kind); // kind: 0 for I slices, 1 + cabac_init_idc
     // From the reader's position, which must be byte-aligned (9.3.1.2).
     void init_engine(BitReader& reader);
-    int decision(int ctx_idx);
-    int bypass();
-    int terminate();
+    int decision(int ctx_idx) { return m_engine.decision(m_context[static_cast<std::size_t>(ctx_idx)]); }
+    int bypass() { return m_engine.bypass(); }
+    int terminate() { return m_engine.terminate(); }
     // The bits the engine has taken (9.3.3.2.2.3 has nothing more to read
     // after a terminate of 1), given back to the reader.
-    void hand_back(BitReader& reader) const { reader.resume_at(consumed(), overrun()); }
-    bool overrun() const { return consumed() > m_size * 8; }
+    void hand_back(BitReader& reader) const { reader.resume_at(m_engine.consumed(), overrun()); }
+    bool overrun() const { return m_engine.consumed() > m_engine.size * 8; }
+    CabacEngine& engine() { return m_engine; }
+    std::uint8_t* contexts() { return m_context.data(); }
 
 private:
-    void renormalize();
-    void refill();
-    std::size_t consumed() const { return m_next * 8 - static_cast<std::size_t>(m_bits); }
-
-    std::uint8_t const* m_data = nullptr;
-    std::size_t m_size = 0;
-    std::size_t m_next = 0; // the next byte to load
-    int m_bits = 0;
-    std::uint32_t m_range = 0;
-    std::uint32_t m_low = 0;
-    std::array<std::uint8_t, 1024> m_state {};
-    std::array<std::uint8_t, 1024> m_mps {};
+    CabacEngine m_engine;
+    // Per context: pStateIdx * 2 + valMPS.
+    std::array<std::uint8_t, 1024> m_context {};
 };
 
 struct Mv {

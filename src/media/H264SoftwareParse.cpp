@@ -34,6 +34,25 @@ bool BitReader::more_rbsp_data() const
     return m_position < stop_bit;
 }
 
+// Tables 9-44 and 9-45 indexed by a context's pStateIdx * 2 + valMPS: the
+// range of its LPS, and the context after an MPS or an LPS (9.3.3.2.1.1,
+// valMPS flipping on an LPS from state 0).
+struct CabacTables {
+    std::uint8_t lps_range[128][4];
+    std::uint8_t after[128][2]; // [context][1 after an LPS]
+    CabacTables()
+    {
+        for (int c = 0; c < 128; ++c) {
+            int const state = c >> 1, mps = c & 1;
+            for (int q = 0; q < 4; ++q)
+                lps_range[c][q] = range_tab_lps[state][q];
+            after[c][0] = static_cast<std::uint8_t>(trans_idx_mps[state] * 2 + mps);
+            after[c][1] = static_cast<std::uint8_t>(trans_idx_lps[state] * 2 + (state == 0 ? 1 - mps : mps));
+        }
+    }
+};
+CabacTables const cabac_tables;
+
 // 9.3.1.1.
 void Cabac::init_contexts(int slice_qp, int kind)
 {
@@ -41,97 +60,45 @@ void Cabac::init_contexts(int slice_qp, int kind)
     for (int i = 0; i < 1024; ++i) {
         CabacInit const& c = cabac_init[i][kind];
         int const pre = std::clamp(((c.m * qp) >> 4) + c.n, 1, 126);
-        if (pre <= 63) {
-            m_state[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(63 - pre);
-            m_mps[static_cast<std::size_t>(i)] = 0;
-        } else {
-            m_state[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(pre - 64);
-            m_mps[static_cast<std::size_t>(i)] = 1;
-        }
+        m_context[static_cast<std::size_t>(i)] = static_cast<std::uint8_t>(pre <= 63 ? (63 - pre) * 2 : (pre - 64) * 2 + 1);
     }
     // ctxIdx 276 does not adapt (end_of_slice_flag and the I_PCM bin).
-    m_state[276] = 63;
-    m_mps[276] = 0;
+    m_context[276] = 63 * 2;
 }
 
 // 9.3.1.2.
 void Cabac::init_engine(BitReader& reader)
 {
-    m_data = reader.data();
-    m_size = reader.size();
-    m_next = reader.position() / 8;
-    m_range = 510;
-    m_low = 0;
-    m_bits = -9; // codIOffset is the first nine bits
-    refill();
+    m_engine.data = reader.data();
+    m_engine.size = reader.size();
+    m_engine.next = reader.position() / 8;
+    m_engine.range = 510;
+    m_engine.low = 0;
+    m_engine.bits = -9; // codIOffset is the first nine bits
+    m_engine.refill();
 }
 
-// Two more bytes below m_low (zeros past the end; overrun() tells).
-void Cabac::refill()
+// 9.3.3.2.1, without a branch on the bin (the parser branches on it
+// already): the LPS case chosen by a mask, and RenormD as one shift, since
+// codIRange is below 512 and its leading zeros say how far it falls short
+// of nine bits.
+inline int CabacEngine::decision(std::uint8_t& context)
 {
-    for (int i = 0; i < 2; ++i, ++m_next)
-        m_low = (m_low << 8) | (m_next < m_size ? m_data[m_next] : 0u);
-    m_bits += 16;
-}
-
-void Cabac::renormalize()
-{
-    // As many doublings as take the range back to nine bits, in one step.
-    if (m_range < 256) {
-        int const shift = std::countl_zero(m_range) - 23;
-        m_range <<= shift;
-        if (m_bits < shift)
-            refill();
-        m_bits -= shift;
-    }
-}
-
-// 9.3.3.2.1.
-int Cabac::decision(int ctx_idx)
-{
-    std::size_t const c = static_cast<std::size_t>(ctx_idx);
-    std::uint8_t const state = m_state[c];
-    std::uint32_t const lps = range_tab_lps[state][(m_range >> 6) & 3];
-    m_range -= lps;
-    int bin;
-    std::uint32_t const scaled = m_range << m_bits;
-    if (m_low >= scaled) {
-        bin = m_mps[c] ^ 1;
-        m_low -= scaled;
-        m_range = lps;
-        if (state == 0)
-            m_mps[c] ^= 1;
-        m_state[c] = trans_idx_lps[state];
-    } else {
-        bin = m_mps[c];
-        m_state[c] = trans_idx_mps[state];
-    }
-    renormalize();
-    return bin;
-}
-
-// 9.3.3.2.3.
-int Cabac::bypass()
-{
-    if (m_bits < 1)
+    std::uint32_t const lps = cabac_tables.lps_range[context][(range >> 6) & 3];
+    std::uint32_t const mps_range = range - lps;
+    std::uint32_t const scaled = mps_range << bits;
+    std::uint32_t const is_lps = low >= scaled ? 1u : 0u;
+    std::uint32_t const mask = 0u - is_lps;
+    low -= scaled & mask;
+    range = (lps & mask) | (mps_range & ~mask);
+    int const bin = (context & 1) ^ static_cast<int>(is_lps);
+    context = cabac_tables.after[context][is_lps];
+    int const shift = std::countl_zero(range) - 23;
+    range <<= shift;
+    if (bits < shift)
         refill();
-    --m_bits;
-    std::uint32_t const scaled = m_range << m_bits;
-    if (m_low >= scaled) {
-        m_low -= scaled;
-        return 1;
-    }
-    return 0;
-}
-
-// 9.3.3.2.4.
-int Cabac::terminate()
-{
-    m_range -= 2;
-    if (m_low >= (m_range << m_bits))
-        return 1;
-    renormalize();
-    return 0;
+    bits -= shift;
+    return bin;
 }
 
 SubMbInfo sub_mb_info(H264SliceType type, int t)
@@ -252,6 +219,7 @@ private:
     int nc_chroma(int c, int x2, int y2) const;
     // CABAC.
     bool cabac_block(std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc, bool& coded);
+    static bool cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc, bool& coded);
     int cbf_inc_luma(int cat, int x4, int y4) const;
     int cbf_inc_dc(int cat, int c) const;
     int cbf_inc_chroma_ac(int c, int x2, int y2) const;
@@ -537,6 +505,17 @@ int Parser::cbf_inc_chroma_ac(int c, int x2, int y2) const
 // 7.3.5.3.3 with 9.3.3.1.1.9 and 9.3.3.1.3: residual_block_cabac.
 bool Parser::cabac_block(std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc, bool& coded)
 {
+    // The engine in a local the compiler keeps in registers (the level
+    // stores below could otherwise alias its fields), given back at the end.
+    CabacEngine engine = m_cabac.engine();
+    std::uint8_t* const contexts = m_cabac.contexts();
+    bool const ok = cabac_block(engine, contexts, levels, start, end, max_coeff, cat, cbf_inc, coded);
+    m_cabac.engine() = engine;
+    return ok;
+}
+
+bool Parser::cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc, bool& coded)
+{
     for (int i = start; i <= end; ++i)
         levels[i] = 0;
     // Table 9-40: ctxIdxBlockCatOffset of cbf, significance and levels.
@@ -544,7 +523,7 @@ bool Parser::cabac_block(std::int32_t* levels, int start, int end, int max_coeff
     static constexpr int sig_off[6] = { 0, 15, 29, 44, 47, 0 };
     static constexpr int abs_off[6] = { 0, 10, 20, 30, 39, 0 };
     if (max_coeff != 64) {
-        coded = m_cabac.decision(85 + cbf_off[cat] + cbf_inc) != 0;
+        coded = engine.decision(contexts[85 + cbf_off[cat] + cbf_inc]) != 0;
         if (!coded)
             return true;
     } else {
@@ -563,9 +542,9 @@ bool Parser::cabac_block(std::int32_t* levels, int start, int end, int max_coeff
             sig_ctx = 105 + sig_off[cat] + inc;
             last_ctx = 166 + sig_off[cat] + inc;
         }
-        if (m_cabac.decision(sig_ctx)) {
+        if (engine.decision(contexts[sig_ctx])) {
             significant[static_cast<std::size_t>(i)] = true;
-            if (m_cabac.decision(last_ctx)) {
+            if (engine.decision(contexts[last_ctx])) {
                 num = i + 1;
                 break;
             }
@@ -580,20 +559,20 @@ bool Parser::cabac_block(std::int32_t* levels, int start, int end, int max_coeff
         // coeff_abs_level_minus1: TU prefix (cMax 14) with contexts, then Exp-Golomb k = 0 bypass.
         int inc0 = gt1 != 0 ? 0 : std::min(4, 1 + eq1);
         int value = 0;
-        if (m_cabac.decision(base + inc0)) {
+        if (engine.decision(contexts[base + inc0])) {
             int const inc = 5 + std::min(4 - (cat == 3 ? 1 : 0), gt1);
             value = 1;
-            while (value < 14 && m_cabac.decision(base + inc))
+            while (value < 14 && engine.decision(contexts[base + inc]))
                 ++value;
             if (value == 14) {
                 int k = 0;
-                while (m_cabac.bypass()) {
+                while (engine.bypass()) {
                     value += 1 << k;
                     if (++k > 16) // past any level a stream may hold (7.4.5.3.3)
                         return false;
                 }
                 while (k-- > 0)
-                    value += m_cabac.bypass() << k;
+                    value += engine.bypass() << k;
             }
         }
         int const level = std::min(value + 1, 32768);
@@ -601,7 +580,7 @@ bool Parser::cabac_block(std::int32_t* levels, int start, int end, int max_coeff
             ++eq1;
         else
             ++gt1;
-        levels[start + i] = m_cabac.bypass() ? -level : level;
+        levels[start + i] = engine.bypass() ? -level : level;
     }
     return true;
 }
