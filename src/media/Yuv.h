@@ -13,7 +13,10 @@
 #include "media/Vp9Accelerator.h"
 
 #include <cstdint>
+#include <memory>
 #include <span>
+#include <thread>
+#include <vector>
 
 namespace sashfold::media {
 
@@ -41,5 +44,25 @@ YuvColour h264_colour(bool present, int matrix_coefficients, bool full_range, in
 // Converts the picture into `rgba`, which holds width * height * 4 bytes,
 // rows packed, alpha opaque.
 void nv12_to_rgba(Nv12Picture const& picture, YuvColour colour, std::span<std::uint8_t> rgba);
+
+// The same, a large picture's rows split among threads kept for it: a 4K
+// picture is about 4 ms on one core, a quarter of a 60 Hz frame. The
+// output is the same as nv12_to_rgba's.
+class Nv12Converter {
+public:
+    // `threads`: how many convert a large picture (the caller's own
+    // included); 0 for the machine's cores up to four.
+    explicit Nv12Converter(int threads = 0);
+    ~Nv12Converter();
+    Nv12Converter(Nv12Converter const&) = delete;
+    Nv12Converter& operator=(Nv12Converter const&) = delete;
+
+    void convert(Nv12Picture const& picture, YuvColour colour, std::span<std::uint8_t> rgba);
+
+private:
+    struct Shared;
+    std::unique_ptr<Shared> m_shared;
+    std::vector<std::thread> m_helpers;
+};
 
 }

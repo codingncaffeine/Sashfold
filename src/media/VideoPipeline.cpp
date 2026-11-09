@@ -334,7 +334,7 @@ void VideoPipeline::run()
             made->height = result.shown->height;
             made->rgba = std::move(buffer);
             made->rgba.resize(static_cast<std::size_t>(result.shown->width) * static_cast<std::size_t>(result.shown->height) * 4);
-            nv12_to_rgba(*result.shown, result.colour, made->rgba);
+            m_converter.convert(*result.shown, result.colour, made->rgba);
             counts.made++;
         }
 

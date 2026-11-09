@@ -1,8 +1,11 @@
 #include "media/Yuv.h"
 
 #include <algorithm>
+#include <atomic>
 #include <cmath>
+#include <condition_variable>
 #include <cstddef>
+#include <mutex>
 
 namespace sashfold::media {
 
@@ -132,20 +135,21 @@ namespace {
     }
 }
 
-[[gnu::always_inline]] inline void convert(Nv12Picture const& picture, Coefficients const& k, std::uint8_t* rgba)
+// Rows first to end of the picture.
+[[gnu::always_inline]] inline void convert(Nv12Picture const& picture, Coefficients const& k, std::uint8_t* rgba, int first, int end)
 {
     auto const width = static_cast<std::size_t>(picture.width);
     std::size_t const chroma_row = static_cast<std::size_t>(picture.chroma_width()) * 2;
-    for (std::size_t y = 0; y < static_cast<std::size_t>(picture.height); ++y)
+    for (auto y = static_cast<std::size_t>(first); y < static_cast<std::size_t>(end); ++y)
         convert_row(picture.luma.data() + y * width, picture.chroma.data() + (y / 2) * chroma_row, rgba + y * width * 4, width, k);
 }
 
 #if (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
 // The same loop with AVX2's eight-wide 32-bit multiplies, where the
 // processor has them.
-__attribute__((target("avx2"))) void convert_avx2(Nv12Picture const& picture, Coefficients const& k, std::uint8_t* rgba)
+__attribute__((target("avx2"))) void convert_avx2(Nv12Picture const& picture, Coefficients const& k, std::uint8_t* rgba, int first, int end)
 {
-    convert(picture, k, rgba);
+    convert(picture, k, rgba, first, end);
 }
 bool has_avx2()
 {
@@ -159,26 +163,128 @@ bool has_avx2()
 }
 #endif
 
-void convert_baseline(Nv12Picture const& picture, Coefficients const& k, std::uint8_t* rgba) { convert(picture, k, rgba); }
+void convert_baseline(Nv12Picture const& picture, Coefficients const& k, std::uint8_t* rgba, int first, int end)
+{
+    convert(picture, k, rgba, first, end);
+}
+
+void convert_rows(Nv12Picture const& picture, Coefficients const& k, std::uint8_t* rgba, int first, int end)
+{
+#if (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
+    if (has_avx2()) {
+        convert_avx2(picture, k, rgba, first, end);
+        return;
+    }
+#endif
+    convert_baseline(picture, k, rgba, first, end);
+}
+
+bool fits(Nv12Picture const& picture, std::span<std::uint8_t> rgba)
+{
+    auto const width = static_cast<std::size_t>(picture.width);
+    auto const height = static_cast<std::size_t>(picture.height);
+    std::size_t const chroma_row = static_cast<std::size_t>(picture.chroma_width()) * 2;
+    return rgba.size() >= width * height * 4 && picture.luma.size() >= width * height
+        && picture.chroma.size() >= chroma_row * static_cast<std::size_t>(picture.chroma_height());
+}
 
 }
 
 void nv12_to_rgba(Nv12Picture const& picture, YuvColour colour, std::span<std::uint8_t> rgba)
 {
-    Coefficients const k = coefficients(colour);
-    auto const width = static_cast<std::size_t>(picture.width);
-    auto const height = static_cast<std::size_t>(picture.height);
-    std::size_t const chroma_row = static_cast<std::size_t>(picture.chroma_width()) * 2;
-    if (rgba.size() < width * height * 4 || picture.luma.size() < width * height
-        || picture.chroma.size() < chroma_row * static_cast<std::size_t>(picture.chroma_height()))
+    if (fits(picture, rgba))
+        convert_rows(picture, coefficients(colour), rgba.data(), 0, picture.height);
+}
+
+// What the caller and the helpers share: the picture of the moment, cut
+// into bands taken in turn.
+struct Nv12Converter::Shared {
+    std::mutex mutex;
+    std::condition_variable wake;
+    std::condition_variable finished;
+    std::uint64_t generation = 0;
+    bool stop = false;
+    int helpers_working = 0;
+    Nv12Picture const* picture = nullptr;
+    Coefficients k {};
+    std::uint8_t* rgba = nullptr;
+    int bands = 0;
+    std::atomic<int> next_band { 0 };
+
+    void take_bands()
+    {
+        for (;;) {
+            int const band = next_band.fetch_add(1, std::memory_order_relaxed);
+            if (band >= bands)
+                return;
+            int const height = picture->height;
+            convert_rows(*picture, k, rgba, static_cast<int>(static_cast<long long>(height) * band / bands),
+                static_cast<int>(static_cast<long long>(height) * (band + 1) / bands));
+        }
+    }
+};
+
+Nv12Converter::Nv12Converter(int threads)
+    : m_shared(std::make_unique<Shared>())
+{
+    if (threads <= 0)
+        threads = std::clamp(static_cast<int>(std::thread::hardware_concurrency()), 1, 4);
+    for (int i = 1; i < threads; ++i)
+        m_helpers.emplace_back([shared = m_shared.get()] {
+            std::uint64_t seen = 0;
+            for (;;) {
+                {
+                    std::unique_lock lock(shared->mutex);
+                    shared->wake.wait(lock, [&] { return shared->stop || shared->generation != seen; });
+                    if (shared->stop)
+                        return;
+                    seen = shared->generation;
+                }
+                shared->take_bands();
+                {
+                    std::lock_guard lock(shared->mutex);
+                    --shared->helpers_working;
+                }
+                shared->finished.notify_all();
+            }
+        });
+}
+
+Nv12Converter::~Nv12Converter()
+{
+    {
+        std::lock_guard lock(m_shared->mutex);
+        m_shared->stop = true;
+    }
+    m_shared->wake.notify_all();
+    for (std::thread& t : m_helpers)
+        t.join();
+}
+
+void Nv12Converter::convert(Nv12Picture const& picture, YuvColour colour, std::span<std::uint8_t> rgba)
+{
+    if (!fits(picture, rgba))
         return;
-#if (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
-    if (has_avx2()) {
-        convert_avx2(picture, k, rgba.data());
+    // Below a million pixels a picture is quicker done than handed out.
+    if (m_helpers.empty() || static_cast<long long>(picture.width) * picture.height < 1'000'000) {
+        convert_rows(picture, coefficients(colour), rgba.data(), 0, picture.height);
         return;
     }
-#endif
-    convert_baseline(picture, k, rgba.data());
+    Shared& s = *m_shared;
+    {
+        std::lock_guard lock(s.mutex);
+        s.picture = &picture;
+        s.k = coefficients(colour);
+        s.rgba = rgba.data();
+        s.bands = static_cast<int>(m_helpers.size() + 1) * 4;
+        s.next_band.store(0, std::memory_order_relaxed);
+        s.helpers_working = static_cast<int>(m_helpers.size());
+        ++s.generation;
+    }
+    s.wake.notify_all();
+    s.take_bands();
+    std::unique_lock lock(s.mutex);
+    s.finished.wait(lock, [&] { return s.helpers_working == 0; });
 }
 
 }

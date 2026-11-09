@@ -19,6 +19,7 @@
 #include "media/FrameDecoder.h"
 #include "media/PlaybackClock.h"
 #include "media/Vp9Accelerator.h"
+#include "media/Yuv.h"
 
 #include <chrono>
 #include <condition_variable>
@@ -142,6 +143,7 @@ private:
 
     std::unique_ptr<FrameDecoder> m_decoder; // the thread's alone once it runs
     std::string m_device;
+    Nv12Converter m_converter; // the thread's alone
 
     mutable std::mutex m_mutex;
     std::condition_variable m_wake;
