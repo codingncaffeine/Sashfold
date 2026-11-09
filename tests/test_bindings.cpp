@@ -6065,6 +6065,60 @@ void test_media_source_shows_its_video()
     CHECK_EQ(page->realm->stats().uncaught_errors, 0);
 }
 
+// Where the host shows the pictures, playback waits after play() for the
+// first picture, as browsers preroll: a decoder slow to start (200 ms for
+// its first frame here) does not make the clock run ahead of the pictures,
+// so the first shown is the stream's first and the position is still at it.
+void test_playback_waits_for_the_first_picture()
+{
+    std::filesystem::path const fixture = std::filesystem::path(__FILE__).parent_path() / "fixtures" / "media" / "vp9-144p.webm";
+    std::ifstream in(fixture, std::ios::binary);
+    std::vector<std::uint8_t> const video_stream { std::istreambuf_iterator<char>(in), std::istreambuf_iterator<char>() };
+    CHECK(video_stream.size() > 1000);
+    using steady = std::chrono::steady_clock;
+    bindings::HostHooks hooks;
+    hooks.video_layers = true;
+    hooks.open_video = [](std::string const&, std::span<std::uint8_t const>, std::string&) {
+        return std::make_shared<media::VideoPipeline>(std::make_unique<test::TestAccelerator>(false, std::chrono::milliseconds(200)));
+    };
+    auto page = std::make_unique<Page>("<!DOCTYPE html><body><video id=v></video></body>", "https://example.test/dir/page.html", std::move(hooks));
+    page->load();
+    auto const began = steady::now();
+    double const clock_began = page->clock;
+    auto const turn = [&] {
+        page->clock = clock_began + std::chrono::duration<double, std::milli>(steady::now() - began).count();
+        for (int i = 0; i < 100 && page->realm->run_pending(); ++i) { }
+    };
+    page->eval("var VI = '" + base64_encode(video_stream) + "';");
+    page->eval(R"JS(
+        var v = document.getElementById('v'), ms = new MediaSource();
+        ms.addEventListener('sourceopen', function () {
+            var sb = ms.addSourceBuffer('video/webm; codecs="vp9"');
+            sb.addEventListener('updateend', function () { ms.endOfStream(); }, { once: true });
+            sb.appendBuffer(Uint8Array.from(atob(VI), function (c) { return c.charCodeAt(0); }));
+        }, { once: true });
+        v.src = URL.createObjectURL(ms);
+    )JS");
+    turn();
+    CHECK_EQ(page->number("v.readyState"), 4);
+    page->eval("v.play();");
+    std::shared_ptr<media::ShownPicture const> first;
+    for (int i = 0; i < 2000 && !first; ++i) {
+        turn();
+        std::vector<bindings::VideoFrame> const frames = page->realm->video_frames();
+        if (frames.size() == 1 && frames[0].layer)
+            first = frames[0].layer->shown();
+        if (!first)
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+    }
+    CHECK(first != nullptr);
+    if (!first)
+        return;
+    CHECK_EQ(first->time_ns, 0);
+    // (The turn that saw the picture may come a frame or two after it.)
+    CHECK(page->number("v.currentTime") < 0.1);
+}
+
 // A video whose pictures the host shows itself (HostHooks::video_layers):
 // the element hands the host the pipeline the pictures come from, and the
 // pictures keep coming due by the element's clock while the page does
@@ -6732,6 +6786,7 @@ int main()
     test_media_source_plays_its_sound();
     test_media_source_shows_its_video();
     test_a_video_the_host_shows();
+    test_playback_waits_for_the_first_picture();
     test_a_rate_that_is_not_one_moves_the_position();
     test_a_sound_file_plays();
     return test::report("test_bindings");

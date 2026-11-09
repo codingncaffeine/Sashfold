@@ -9,24 +9,35 @@
 
 #include "media/Vp9Accelerator.h"
 
+#include <chrono>
 #include <cstdint>
 #include <optional>
 #include <span>
 #include <string>
+#include <thread>
 
 namespace sashfold::test {
 
 class TestAccelerator final : public media::Vp9Accelerator {
 public:
-    explicit TestAccelerator(bool counting = false)
+    // `first_decode`: how long the first frame after the start or a reset
+    // takes, as a slow decoder's would.
+    explicit TestAccelerator(bool counting = false, std::chrono::milliseconds first_decode = {})
         : m_counting(counting)
+        , m_first_decode(first_decode)
     {
     }
     std::string const& device() const override { return m_name; }
-    bool decode(std::span<std::uint8_t const>, media::Vp9FrameHeader const&) override { return true; }
+    bool decode(std::span<std::uint8_t const>, media::Vp9FrameHeader const&) override
+    {
+        if (m_fresh && m_first_decode.count() > 0)
+            std::this_thread::sleep_for(m_first_decode);
+        m_fresh = false;
+        return true;
+    }
     std::optional<media::Nv12Picture> read_last() override { return picture(); }
     std::optional<media::Nv12Picture> read_slot(int) override { return picture(); }
-    void reset() override { }
+    void reset() override { m_fresh = true; }
 
 private:
     media::Nv12Picture picture()
@@ -40,6 +51,8 @@ private:
     }
 
     bool m_counting;
+    std::chrono::milliseconds m_first_decode;
+    bool m_fresh = true;
     unsigned m_shown = 0;
     std::string m_name = "a decoder of the test's own";
 };

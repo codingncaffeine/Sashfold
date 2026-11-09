@@ -44,6 +44,9 @@ using media::TimeRanges;
 
 constexpr double tick_ms = 50;
 constexpr double video_tick_ms = 8; // half a 60 fps frame
+// The longest playback waits after a start or a seek for the video's first
+// picture (a decoder that makes none does not hold the sound longer).
+constexpr double preroll_limit_ms = 1000;
 constexpr double time_update_ms = 250;
 constexpr double enough_ahead_seconds = 3.0;
 constexpr double future_ahead_seconds = 0.05;
@@ -239,6 +242,7 @@ public:
     bool video_tried = false;
     bool video_started = false;
     bool video_awaiting = false; // a seek's picture not shown yet
+    double video_awaiting_since = 0; // in.now() when it began to be awaited
     bool presenting = false; // listed in the realm's presenting_media
     std::int64_t next_video_ns = 0; // past the latest presentation time handed over
     std::int64_t next_video_decode_ns = 0; // the decode time of the next frame to hand over
@@ -818,8 +822,15 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
         state.ended_fired = false;
     }
 
+    // Where the host shows the pictures on the real clock, the clock waits
+    // after a start or a seek for the video's first picture, as every
+    // browser's pipeline prerolls: playback begins on a picture, the sound
+    // with it, and a loop's first pictures are not dropped while the decoder
+    // starts again from the key frame. (A page that paints its own video —
+    // a headless run, on a clock of its own — takes what is made by then.)
+    bool const prerolling = state.clock && state.video && state.video_awaiting && now - state.video_awaiting_since < preroll_limit_ms;
     state.advancing = !state.paused && !state.seeking && !state.ended_fired && state.ready_state >= HaveFutureData
-        && state.playback_rate > 0;
+        && state.playback_rate > 0 && !prerolling;
     // The sound follows at once: it starts the moment playback does, and it
     // holds the moment playback stops.
     stream_media(in, state);
@@ -890,6 +901,7 @@ void begin_seek(Realm::Internals& in, MediaStateObject& state, double time)
     restart_device(state);
     state.video_started = false;
     state.video_awaiting = state.video != nullptr;
+    state.video_awaiting_since = in.now();
     publish_clock(in, state);
     queue_element_event(in, state, "seeking");
     auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(&state));
@@ -1210,6 +1222,7 @@ void present_video(Realm::Internals& in, MediaStateObject& state)
             state.video = media::VideoPipeline::open(track->description.codec_id, track->description.codec_private, error);
         trace(state.video ? "video decodes on " + state.video->device() : "no video decoder: " + error);
         state.video_awaiting = state.video != nullptr;
+        state.video_awaiting_since = in.now();
         if (state.video && in.hooks.video_layers) {
             state.clock = std::make_shared<media::PlaybackClock>();
             state.video->follow(state.clock, pictures_ahead_ns);
