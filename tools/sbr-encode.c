@@ -1,19 +1,27 @@
 /* sbr-encode: 16-bit PCM to HE-AAC (AAC-LC with spectral band replication)
  * in ADTS, through the Fraunhofer FDK AAC encoder library — an encoder
  * independent of ours, for the fixtures tools/sbr-make-tests.sh writes.
- * Not part of the build: the script compiles it where libfdk-aac is present.
+ * With --ps, HE-AAC v2: a stereo input coded as one channel with
+ * parametric stereo. Not part of the build: the script compiles it where
+ * libfdk-aac is present.
  *
- *   sbr-encode <in.s16> <rate> <channels> <bitrate> <out.adts>
+ *   sbr-encode [--ps] <in.s16> <rate> <channels> <bitrate> <out.adts>
  */
 #include <fdk-aac/aacenc_lib.h>
 
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 int main(int argc, char** argv)
 {
-    if (argc != 6) {
-        fprintf(stderr, "usage: sbr-encode <in.s16> <rate> <channels> <bitrate> <out.adts>\n");
+    int const ps = argc > 1 && strcmp(argv[1], "--ps") == 0;
+    if (ps) {
+        ++argv;
+        --argc;
+    }
+    if (argc != 6 || (ps && atoi(argv[3]) != 2)) {
+        fprintf(stderr, "usage: sbr-encode [--ps] <in.s16> <rate> <channels> <bitrate> <out.adts> (--ps takes two channels)\n");
         return 2;
     }
     int const rate = atoi(argv[2]);
@@ -28,7 +36,7 @@ int main(int argc, char** argv)
     HANDLE_AACENCODER encoder;
     if (aacEncOpen(&encoder, 0, (UINT)channels) != AACENC_OK)
         return 1;
-    if (aacEncoder_SetParam(encoder, AACENC_AOT, AOT_SBR) != AACENC_OK
+    if (aacEncoder_SetParam(encoder, AACENC_AOT, ps ? AOT_PS : AOT_SBR) != AACENC_OK
         || aacEncoder_SetParam(encoder, AACENC_SAMPLERATE, (UINT)rate) != AACENC_OK
         || aacEncoder_SetParam(encoder, AACENC_CHANNELMODE, channels == 1 ? MODE_1 : MODE_2) != AACENC_OK
         || aacEncoder_SetParam(encoder, AACENC_CHANNELORDER, 1) != AACENC_OK

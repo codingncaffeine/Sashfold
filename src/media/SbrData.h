@@ -3,7 +3,8 @@
 // The tables of ISO/IEC 14496-3 §4.6.18 an SBR decoder reads, written by
 // tools/gen-sbr-tables.py (SbrData.cpp): the envelope and noise floor
 // codebooks, the start frequency tables, the QMF prototype filter, the
-// noise generator's phases, and the limiter's and smoother's constants.
+// noise generator's phases, and the limiter's and smoother's constants;
+// and parametric stereo's codebooks (§8.6.4).
 
 #include <cstddef>
 #include <cstdint>
@@ -27,6 +28,11 @@ struct HuffmanBook {
 // 8 noise level time; 9 noise balance time. (Noise in the frequency
 // direction uses books 5 and 7.)
 extern HuffmanBook const books[10];
+
+// Parametric stereo's parameter deltas (§8.6.4): 0 IID by
+// time, 1 by frequency; 2 fine IID by time, 3 by frequency; 4 ICC by
+// time, 5 by frequency.
+extern HuffmanBook const ps_books[6];
 
 // Table 4.A.78 by the core rate's band, index = start_freq (0 to 15).
 extern std::uint8_t const start_freq_16[16];

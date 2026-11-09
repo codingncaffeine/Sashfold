@@ -225,6 +225,7 @@ add_library(sashfold_core STATIC
   src/pdf/Font.cpp
   src/pdf/Form.cpp
   src/pdf/Writer.cpp
+  src/media/Ps.cpp
   src/media/Sbr.cpp
   src/media/SbrData.cpp
   src/pdf/Function.cpp

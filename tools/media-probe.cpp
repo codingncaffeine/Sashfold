@@ -27,6 +27,7 @@
 #include <iterator>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 using namespace sashfold;
@@ -161,12 +162,27 @@ int main(int argc, char** argv)
         media::AacDecoder aac(*config);
         std::vector<float> decoded, block;
         std::size_t failed = 0, packets = 0;
+        int layout = aac.channels();
         for (auto const& [time_ns, frame] : audio->frames) {
             ++packets;
             block.clear();
             if (!aac.decode(frame.data, block)) {
                 ++failed;
                 block.assign(static_cast<std::size_t>(aac.frames_per_block()) * static_cast<std::size_t>(aac.channels()), 0.0f);
+            }
+            // A single channel becomes two where parametric stereo is first
+            // met (its SBR header may come late in the stream): what came
+            // before is the one channel on both sides, as a decoder that
+            // outputs the pair throughout gives it.
+            if (aac.channels() != layout) {
+                std::printf("native: %d channels from packet %zu on\n", aac.channels(), packets);
+                if (layout == 1 && aac.channels() == 2) {
+                    std::vector<float> both(decoded.size() * 2);
+                    for (std::size_t i = 0; i < decoded.size(); ++i)
+                        both[2 * i] = both[2 * i + 1] = decoded[i];
+                    decoded = std::move(both);
+                }
+                layout = aac.channels();
             }
             decoded.insert(decoded.end(), block.begin(), block.end());
         }

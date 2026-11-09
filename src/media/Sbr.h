@@ -9,8 +9,8 @@
 // decoder per channel element (a single channel or a pair), reading the
 // element's SBR payload each frame.
 //
-// Parametric stereo (HE-AAC v2) is owed: its payload is read past, and
-// the one channel plays as two.
+// A single channel's payload may carry parametric stereo (HE-AAC v2,
+// media/Ps.h): the one channel then comes out as two.
 
 #include "media/SbrData.h"
 
@@ -18,6 +18,7 @@
 #include <complex>
 #include <cstdint>
 #include <memory>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -45,9 +46,14 @@ public:
     // upsampled with no high band.
     bool ready() const;
 
+    // Whether a single channel's stream has carried parametric stereo: its
+    // output is two channels from then on.
+    bool parametric_stereo() const;
+
     // One frame: each channel's 1024 core samples in, 2048 out at twice
-    // the rate (1024 at the core's when downsampled). A pair's second channel is the first again until
-    // parametric stereo is written.
+    // the rate (1024 at the core's when downsampled). A single channel's
+    // second output is its parametric stereo's right channel, or the one
+    // channel again when the stream has none.
     void process(float const* core_left, float const* core_right, float* out_left, float* out_right);
 
     void reset();
@@ -83,5 +89,9 @@ private:
     std::size_t m_position;
     bool m_failed = false;
 };
+
+// A codeword of one of the standard's Huffman books (SBR's or parametric
+// stereo's): the delta it stands for, nothing for bits that are no codeword.
+std::optional<int> sbr_read_code(SbrBits& bits, sbr_data::HuffmanBook const& book);
 
 }

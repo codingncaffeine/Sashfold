@@ -5,7 +5,10 @@
 # by ffmpeg (which signals SBR implicitly, as most files do), and beside each
 # ffmpeg's decoding of it as 32-bit float samples ("<name>.f32", interleaved,
 # at twice the core's rate) — the truth, since ffmpeg's decoder matches the
-# ISO/IEC 14496-26 reference decodings of the SBR conformance streams.
+# ISO/IEC 14496-26 reference decodings of the SBR conformance streams. The
+# HE-AAC v2 fixture codes a stereo input as one channel with parametric
+# stereo (20 bands, no phase parameters, where ffmpeg's unrestricted
+# decoder and the baseline one agree); its truth is ffmpeg's stereo.
 #   tools/sbr-make-tests.sh <out-folder>
 set -euo pipefail
 out="${1:?the out folder}"
@@ -16,9 +19,14 @@ trap 'rm -rf "$work"' EXIT
 cc -O2 -o "$work/sbr-encode" "$(dirname "$0")/sbr-encode.c" -lfdk-aac || { echo "libfdk-aac is needed" >&2; exit 2; }
 
 make() {
-    local name="$1" rate="$2" channels="$3" bitrate="$4"; shift 4
+    local name="$1" rate="$2" channels="$3" bitrate="$4" ps=()
+    shift 4
+    if [ "$channels" = ps ]; then
+        channels=2
+        ps=(--ps)
+    fi
     ffmpeg -hide_banner -loglevel error -y "$@" -ar "$rate" -ac "$channels" -f s16le "$work/$name.s16"
-    "$work/sbr-encode" "$work/$name.s16" "$rate" "$channels" "$bitrate" "$work/$name.aac"
+    "$work/sbr-encode" "${ps[@]}" "$work/$name.s16" "$rate" "$channels" "$bitrate" "$work/$name.aac"
     ffmpeg -hide_banner -loglevel error -y -i "$work/$name.aac" -c copy "$out/$name.m4a"
     # ffmpeg answers a mono HE-AAC stream in stereo (parametric stereo may
     # follow) with the two channels the same: the first is kept as it is
@@ -33,5 +41,6 @@ make() {
 tone=(-f lavfi -i "sine=frequency=523:sample_rate=48000:duration=0.5")
 noise=(-f lavfi -i "anoisesrc=color=pink:sample_rate=48000:duration=0.5:amplitude=0.3:seed=11")
 make he-stereo-44k 44100 2 48000 "${tone[@]}" "${noise[@]}" -filter_complex "[0:a][1:a]amerge=inputs=2,pan=stereo|c0=c0+0.4*c1|c1=0.6*c0+c1[a]" -map "[a]"
+make he-ps-44k 44100 ps 32000 "${tone[@]}" "${noise[@]}" -filter_complex "[0:a][1:a]amerge=inputs=2,pan=stereo|c0=c0+0.3*c1|c1=0.4*c0+c1[a]" -map "[a]"
 make he-mono-48k 48000 1 32000 "${tone[@]}" "${noise[@]}" -filter_complex "[0:a][1:a]amerge=inputs=2,pan=mono|c0=c0+0.5*c1[a]" -map "[a]"
 ls -la "$out"

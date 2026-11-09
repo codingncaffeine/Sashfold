@@ -9,8 +9,8 @@
 // long and short windows with sine and Kaiser-Bessel shapes and the
 // overlap-add — from the AudioSpecificConfig an MP4's esds carries, and
 // HE-AAC's spectral band replication (media/Sbr.h) on top of it, which
-// doubles the rate and the samples a block gives. Parametric stereo is
-// owed: such a stream plays as its one channel on both sides.
+// doubles the rate and the samples a block gives, and HE-AAC v2's
+// parametric stereo (media/Ps.h), which makes a single channel two.
 
 #include <cstdint>
 #include <memory>
@@ -26,6 +26,7 @@ struct AacConfig {
     int channel_configuration = 0; // 1 mono, 2 stereo, 3 to 7 the standard layouts
     int channels = 0;
     bool sbr_signalled = false;
+    bool ps_signalled = false; // parametric stereo: type 29, or the 0x548 sync extension
     int extension_sample_rate = 0; // the rate after SBR, when signalled
     bool frame_960 = false; // 960-sample frames (not read)
 };
@@ -42,6 +43,8 @@ public:
     AacDecoder& operator=(AacDecoder const&) = delete;
 
     int sample_rate() const; // the core's
+    // The channels the blocks come out with: the configuration's, or two
+    // for a single channel once parametric stereo is signalled or met.
     int channels() const;
     // The rate and the samples a channel the blocks come out at: the
     // core's and 1024, or twice both once spectral band replication is in

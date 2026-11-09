@@ -59,7 +59,7 @@ public:
         result.ok = m_decoder.decode(packet, m_frame);
         std::size_t const frames = static_cast<std::size_t>(m_decoder.frames_per_block());
         if (!result.ok)
-            m_frame.assign(frames * static_cast<std::size_t>(m_config.channels), 0.0f);
+            m_frame.assign(frames * static_cast<std::size_t>(m_decoder.channels()), 0.0f);
         // The rate the blocks come out at can double once SBR is met in the stream.
         if (m_decoder.output_rate() != m_resampler_rate) {
             m_resampler_rate = m_decoder.output_rate();
@@ -78,7 +78,9 @@ public:
 private:
     void mix_down(std::size_t frames)
     {
-        int const channels = m_config.channels;
+        // A single channel with parametric stereo comes out as a pair.
+        int const channels = m_decoder.channels();
+        int const layout = m_config.channel_configuration == 1 && channels == 2 ? 2 : m_config.channel_configuration;
         m_stereo.assign(frames * 2, 0.0f);
         float const k = 0.7071f;
         if (m_frame.size() < frames * static_cast<std::size_t>(channels))
@@ -86,7 +88,7 @@ private:
         for (std::size_t i = 0; i < frames; ++i) {
             float const* s = m_frame.data() + i * static_cast<std::size_t>(channels);
             float left = 0, right = 0;
-            switch (m_config.channel_configuration) {
+            switch (layout) {
             case 1:
                 left = right = s[0];
                 break;

@@ -51,8 +51,13 @@ struct BitWriter {
 // An HE-AAC file written by an independent encoder (tools/sbr-make-tests.sh)
 // against ffmpeg's decoding of it: SBR found in the stream (the file signals
 // it implicitly), the output at twice the core's rate, sample for sample.
-void check_file(std::string const& folder, std::string const& name, int channels, int core_rate)
+// `channels`: the output's; `coded` the configuration's (one, for HE-AAC
+// v2's parametric stereo, which is met in the stream too). `skip`: output
+// frames at the start left out of the comparison.
+void check_file(std::string const& folder, std::string const& name, int channels, int core_rate, int coded = 0, std::size_t skip = 0)
 {
+    if (coded == 0)
+        coded = channels;
     Bytes const file = read_file(folder + "/" + name + ".m4a");
     Bytes const truth_bytes = read_file(folder + "/" + name + ".f32");
     CHECK(!file.empty() && !truth_bytes.empty());
@@ -76,7 +81,7 @@ void check_file(std::string const& folder, std::string const& name, int channels
     if (!audio)
         return;
     std::optional<media::AacConfig> const config = media::parse_aac_config(audio->codec_private);
-    CHECK(config && config->channels == channels && config->sample_rate == core_rate);
+    CHECK(config && config->channels == coded && config->sample_rate == core_rate);
     if (!config)
         return;
     media::AacDecoder decoder(*config);
@@ -92,6 +97,8 @@ void check_file(std::string const& folder, std::string const& name, int channels
         ours.insert(ours.end(), block.begin(), block.end());
     }
     CHECK(failed == 0);
+    CHECK_EQ(decoder.channels(), channels);
+    CHECK_EQ(ours.size() % static_cast<std::size_t>(2048 * channels), 0u);
     CHECK_EQ(decoder.output_rate(), 2 * core_rate);
     CHECK_EQ(decoder.frames_per_block(), 2048);
     // Lined up where they agree best (ffmpeg may trim a priming delay).
@@ -99,7 +106,7 @@ void check_file(std::string const& folder, std::string const& name, int channels
     long best_lag = 0;
     for (long lag = -4096; lag <= 4096; ++lag) {
         double signal = 0, noise = 0;
-        for (std::size_t i = 0; i < truth.size(); i += (lag % 16 == 0 ? 1 : 13)) {
+        for (std::size_t i = skip * static_cast<std::size_t>(channels); i < truth.size(); i += (lag % 16 == 0 ? 1 : 13)) {
             long const j = static_cast<long>(i) + lag * channels;
             if (j < 0 || static_cast<std::size_t>(j) >= ours.size())
                 continue;
@@ -158,6 +165,47 @@ int main(int argc, char** argv)
     if (argc >= 2) {
         check_file(argv[1], "he-stereo-44k", 2, 22050);
         check_file(argv[1], "he-mono-48k", 1, 24000);
+        // HE-AAC v2: one channel coded, parametric stereo making the pair.
+        // From the second frame on: ffmpeg starts its mixing matrices at
+        // zero, where the standard's baseline decoder (and the conformance
+        // references, where parametric stereo starts mid-stream) starts
+        // them at the neutral parameters' — the first frame fades in there.
+        check_file(argv[1], "he-ps-44k", 2, 22050, 1, 2048);
+    }
+    {
+        // Parametric stereo signalled explicitly (1.6.5.1): audio object
+        // type 29 over a single channel — two channels out from the start.
+        BitWriter w;
+        w.put(29, 5);
+        w.put(7, 4); // 22050
+        w.put(1, 4); // mono
+        w.put(4, 4); // extension at 44100
+        w.put(2, 5); // AAC-LC
+        w.put(0, 3);
+        std::optional<media::AacConfig> const c = media::parse_aac_config(w.bytes);
+        CHECK(c && c->sbr_signalled && c->ps_signalled && c->channels == 1);
+        media::AacDecoder decoder(*c);
+        CHECK_EQ(decoder.channels(), 2);
+        CHECK_EQ(decoder.output_rate(), 44100);
+    }
+    {
+        // Backward-compatible signalling (1.6.6): SBR's sync extension,
+        // then parametric stereo's (0x548) with its present flag.
+        BitWriter w;
+        w.put(2, 5);
+        w.put(7, 4); // 22050
+        w.put(1, 4); // mono
+        w.put(0, 3);
+        w.put(0x2B7, 11);
+        w.put(5, 5);
+        w.put(1, 1);
+        w.put(4, 4); // extension at 44100
+        w.put(0x548, 11);
+        w.put(1, 1);
+        std::optional<media::AacConfig> const c = media::parse_aac_config(w.bytes);
+        CHECK(c && c->sbr_signalled && c->ps_signalled && c->extension_sample_rate == 44100);
+        media::AacDecoder decoder(*c);
+        CHECK_EQ(decoder.channels(), 2);
     }
     {
         // Explicit signalling (1.6.5.1): audio object type 5, the core's

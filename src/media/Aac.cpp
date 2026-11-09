@@ -352,6 +352,7 @@ std::optional<AacConfig> parse_aac_config(std::span<std::uint8_t const> config)
     if (out.object_type == 5 || out.object_type == 29) {
         // SBR (and PS) signalled explicitly: the core's own type follows.
         out.sbr_signalled = true;
+        out.ps_signalled = out.object_type == 29;
         out.extension_sample_rate = read_rate();
         out.object_type = read_object_type();
     }
@@ -384,8 +385,15 @@ std::optional<AacConfig> parse_aac_config(std::span<std::uint8_t const> config)
         if (static_cast<int>(bits.u(5)) == 5 && bits.flag()) {
             out.sbr_signalled = true;
             out.extension_sample_rate = read_rate();
+            // And parametric stereo's after it.
+            if (bits.left() >= 12 && bits.peek(11) == 0x548) {
+                bits.u(11);
+                out.ps_signalled = bits.flag();
+            }
         }
     }
+    // Parametric stereo is a single channel's.
+    out.ps_signalled = out.ps_signalled && out.channels == 1;
     if (out.frame_960)
         return std::nullopt;
     bool known_rate = false;
@@ -408,6 +416,10 @@ struct AacDecoder::Impl {
     // stream shows there is any: every channel then comes out doubled.
     std::map<int, std::unique_ptr<SbrDecoder>> sbr;
     bool sbr_output = false;
+    // A single channel that parametric stereo makes two, once the
+    // configuration says or the stream shows it.
+    bool ps_output = false;
+    int output_channels() const { return ps_output ? 2 : config.channels; }
     // The configuration's SBR output rate is the core's own: the downsampled
     // bank, at the core's rate (4.6.18.4.3).
     bool downsampled() const { return config.sbr_signalled && config.extension_sample_rate == config.sample_rate; }
@@ -416,6 +428,7 @@ struct AacDecoder::Impl {
     explicit Impl(AacConfig const& c)
         : config(c)
         , sbr_output(c.sbr_signalled)
+        , ps_output(c.ps_signalled)
     {
         for (std::size_t i = 0; i < aac_data::band_table_count; ++i) {
             if (static_cast<int>(aac_data::band_tables[i].sampling_rate) == config.sample_rate)
@@ -940,7 +953,8 @@ struct AacDecoder::Impl {
                 return;
             }
             int const frames = sbr_frames();
-            out.assign(static_cast<std::size_t>(frames) * static_cast<std::size_t>(channels), 0.0f);
+            int const out_channels = output_channels();
+            out.assign(static_cast<std::size_t>(frames) * static_cast<std::size_t>(out_channels), 0.0f);
             std::vector<float> left(static_cast<std::size_t>(frames)), right(static_cast<std::size_t>(frames));
             for (Element const& e : elements) {
                 if (e.first_channel >= channel)
@@ -949,13 +963,15 @@ struct AacDecoder::Impl {
                 if (!decoder)
                     decoder = std::make_unique<SbrDecoder>(config.sample_rate, e.pair, downsampled());
                 bool const two = e.pair && e.first_channel + 1 < channel;
+                // A single channel's parametric stereo: its right channel is the output's second.
+                bool const stereo = !e.pair && ps_output && e.first_channel == 0;
                 decoder->process(core[static_cast<std::size_t>(e.first_channel)].data(), two ? core[static_cast<std::size_t>(e.first_channel + 1)].data() : nullptr,
                     left.data(), right.data());
                 for (int i = 0; i < frames; ++i)
-                    out[static_cast<std::size_t>(i) * static_cast<std::size_t>(channels) + static_cast<std::size_t>(e.first_channel)] = left[static_cast<std::size_t>(i)];
-                if (two) {
+                    out[static_cast<std::size_t>(i) * static_cast<std::size_t>(out_channels) + static_cast<std::size_t>(e.first_channel)] = left[static_cast<std::size_t>(i)];
+                if (two || stereo) {
                     for (int i = 0; i < frames; ++i)
-                        out[static_cast<std::size_t>(i) * static_cast<std::size_t>(channels) + static_cast<std::size_t>(e.first_channel + 1)] = right[static_cast<std::size_t>(i)];
+                        out[static_cast<std::size_t>(i) * static_cast<std::size_t>(out_channels) + static_cast<std::size_t>(e.first_channel + 1)] = right[static_cast<std::size_t>(i)];
                 }
             }
         };
@@ -1047,6 +1063,8 @@ struct AacDecoder::Impl {
                         sbr_output = true;
                         SbrBits sbr_bits(block, bits.position());
                         decoder->read(sbr_bits, payload_bits, type == 0xE);
+                        if (!e.pair && config.channels == 1 && decoder->parametric_stereo())
+                            ps_output = true;
                     }
                     bits.skip(payload_bits);
                 }
@@ -1069,7 +1087,7 @@ AacDecoder::AacDecoder(AacConfig const& config)
 AacDecoder::~AacDecoder() = default;
 
 int AacDecoder::sample_rate() const { return m_impl->config.sample_rate; }
-int AacDecoder::channels() const { return m_impl->config.channels; }
+int AacDecoder::channels() const { return m_impl->output_channels(); }
 int AacDecoder::output_rate() const { return m_impl->sbr_output && !m_impl->downsampled() ? 2 * m_impl->config.sample_rate : m_impl->config.sample_rate; }
 int AacDecoder::frames_per_block() const { return m_impl->sbr_output ? m_impl->sbr_frames() : k_frame; }
 

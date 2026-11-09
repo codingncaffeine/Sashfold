@@ -1,5 +1,7 @@
 #include "media/Sbr.h"
 
+#include "media/Ps.h"
+
 #include <algorithm>
 #include <cmath>
 #include <cstring>
@@ -484,9 +486,9 @@ void synthesize_down(ChannelState& s, std::array<Complex, 64> const& x, float* o
     }
 }
 
-// A codeword of one of the standard's books: the delta it stands for,
-// nothing for bits that are no codeword.
-std::optional<int> read_code(SbrBits& bits, sbr_data::HuffmanBook const& book)
+} // namespace
+
+std::optional<int> sbr_read_code(SbrBits& bits, sbr_data::HuffmanBook const& book)
 {
     std::uint32_t code = 0;
     int length = 0;
@@ -506,8 +508,6 @@ std::optional<int> read_code(SbrBits& bits, sbr_data::HuffmanBook const& book)
     return std::nullopt;
 }
 
-} // namespace
-
 struct SbrDecoder::Impl {
     int core_rate;
     bool pair;
@@ -517,12 +517,17 @@ struct SbrDecoder::Impl {
     Tables tables;
     bool coupling = false;
     std::array<ChannelState, 2> ch {};
+    // A single channel's parametric stereo; its right channel is
+    // synthesized through the second channel's bank.
+    std::unique_ptr<PsDecoder> ps;
 
     Impl(int rate, bool channel_pair, bool down)
         : core_rate(rate)
         , pair(channel_pair)
         , downsampled(down)
     {
+        if (!pair)
+            ps = std::make_unique<PsDecoder>();
     }
 
     void reset_states()
@@ -722,7 +727,7 @@ struct SbrDecoder::Impl {
                 std::array<int, 64> const& prev = l == 0 ? s.env_prev : f.env_q[static_cast<std::size_t>(l - 1)];
                 bool const prev_res = l == 0 ? s.res_prev : f.freq_res[static_cast<std::size_t>(l - 1)];
                 for (int k = 0; k < bands; ++k) {
-                    std::optional<int> const delta = read_code(bits, *t_book);
+                    std::optional<int> const delta = sbr_read_code(bits, *t_book);
                     if (!delta)
                         return false;
                     int source = k;
@@ -746,7 +751,7 @@ struct SbrDecoder::Impl {
             } else {
                 e[0] = scale * static_cast<int>(bits.u(start_bits));
                 for (int k = 1; k < bands; ++k) {
-                    std::optional<int> const delta = read_code(bits, *f_book);
+                    std::optional<int> const delta = sbr_read_code(bits, *f_book);
                     if (!delta)
                         return false;
                     e[static_cast<std::size_t>(k)] = e[static_cast<std::size_t>(k - 1)] + scale * *delta;
@@ -766,7 +771,7 @@ struct SbrDecoder::Impl {
             if (f.df_noise[static_cast<std::size_t>(l)]) {
                 std::array<int, 5> const& prev = l == 0 ? s.noise_prev : f.noise_q[0];
                 for (int k = 0; k < tables.n_q; ++k) {
-                    std::optional<int> const delta = read_code(bits, t_book);
+                    std::optional<int> const delta = sbr_read_code(bits, t_book);
                     if (!delta)
                         return false;
                     q[static_cast<std::size_t>(k)] = prev[static_cast<std::size_t>(k)] + scale * *delta;
@@ -774,7 +779,7 @@ struct SbrDecoder::Impl {
             } else {
                 q[0] = scale * static_cast<int>(bits.u(5));
                 for (int k = 1; k < tables.n_q; ++k) {
-                    std::optional<int> const delta = read_code(bits, f_book);
+                    std::optional<int> const delta = sbr_read_code(bits, f_book);
                     if (!delta)
                         return false;
                     q[static_cast<std::size_t>(k)] = q[static_cast<std::size_t>(k - 1)] + scale * *delta;
@@ -893,12 +898,28 @@ struct SbrDecoder::Impl {
         }
         if (bits.failed())
             return false;
-        // bs_extended_data: parametric stereo and whatever else, passed over.
+        // bs_extended_data: extensions by id, each running to the end
+        // of the bits left — parametric stereo (id 2) in a single channel's,
+        // once a frame; the others passed over.
         if (bits.flag()) {
-            int count = static_cast<int>(bits.u(4));
+            std::size_t count = bits.u(4);
             if (count == 15)
-                count += static_cast<int>(bits.u(8)) - 1;
-            bits.skip(static_cast<std::size_t>(count) * 8);
+                count += bits.u(8);
+            std::size_t left = count * 8;
+            bool ps_read = false;
+            while (left > 7 && !bits.failed()) {
+                int const id = static_cast<int>(bits.u(2));
+                left -= 2;
+                if (id == 2 && ps && !ps_read) {
+                    left -= ps->read(bits, left);
+                    ps_read = true;
+                } else {
+                    std::size_t const bytes = left / 8 * 8;
+                    bits.skip(bytes);
+                    left -= bytes;
+                }
+            }
+            bits.skip(left);
         }
         dequantize();
         a.frame.present = true;
@@ -909,7 +930,9 @@ struct SbrDecoder::Impl {
 
     // --- The signal (4.6.18.6 to 4.6.18.8) ---
 
-    void process_channel(ChannelState& s, float const* in, float* out)
+    // `right`: the state and output of parametric stereo's right channel,
+    // made from this one's columns when the stream carries it.
+    void process_channel(ChannelState& s, float const* in, float* out, ChannelState* right = nullptr, float* out_right = nullptr)
     {
         // The frame before moves up; the new columns are analysed in.
         for (auto& band : s.low)
@@ -949,6 +972,9 @@ struct SbrDecoder::Impl {
                     s.high[static_cast<std::size_t>(k)][static_cast<std::size_t>(c)] = Complex(0, 0);
             }
         }
+        // Parametric stereo works up to the top of the SBR range.
+        if (right)
+            ps->begin_frame(have_header && tables.valid ? tables.kx + tables.m : k_low_bands);
         // 4.6.18.8: assembled and synthesized, each output column from the
         // buffer's column two on (tHFAdj).
         for (int l = 0; l < k_columns; ++l) {
@@ -963,12 +989,25 @@ struct SbrDecoder::Impl {
             for (int k = kx; k < k_bands; ++k)
                 x[static_cast<std::size_t>(k)] = s.high[static_cast<std::size_t>(k)][static_cast<std::size_t>(c)];
             int const per_column = downsampled ? 32 : 64;
-            if (downsampled)
-                synthesize_down(s, x, out + per_column * l);
-            else
-                synthesize(s, x, out + per_column * l);
-            for (int n = 0; n < per_column; ++n)
-                out[per_column * l + n] /= k_pcm_scale;
+            auto const emit = [&](ChannelState& state, std::array<Complex, 64> const& column, float* to) {
+                if (downsampled)
+                    synthesize_down(state, column, to + per_column * l);
+                else
+                    synthesize(state, column, to + per_column * l);
+                for (int n = 0; n < per_column; ++n)
+                    to[per_column * l + n] /= k_pcm_scale;
+            };
+            if (right) {
+                // The hybrid filters delay QMF bands 0 to 2 by six columns:
+                // they are taken six columns on, from the low band's analysis.
+                std::array<Complex, 3> ahead {};
+                for (int k = 0; k < 3; ++k)
+                    ahead[static_cast<std::size_t>(k)] = s.low[static_cast<std::size_t>(k)][static_cast<std::size_t>(c + 6)];
+                std::array<Complex, 64> xr {};
+                ps->apply(l, x, ahead, xr);
+                emit(*right, xr, out_right);
+            }
+            emit(s, x, out);
         }
     }
 
@@ -1256,6 +1295,8 @@ SbrDecoder::~SbrDecoder() = default;
 
 bool SbrDecoder::ready() const { return m_impl->have_header && m_impl->tables.valid; }
 
+bool SbrDecoder::parametric_stereo() const { return m_impl->ps && m_impl->ps->active(); }
+
 bool SbrDecoder::read(SbrBits& bits, std::size_t bit_count, bool crc)
 {
     std::size_t const start = bits.position();
@@ -1278,10 +1319,14 @@ bool SbrDecoder::read(SbrBits& bits, std::size_t bit_count, bool crc)
 void SbrDecoder::process(float const* core_left, float const* core_right, float* out_left, float* out_right)
 {
     Impl& in = *m_impl;
-    in.process_channel(in.ch[0], core_left, out_left);
+    if (in.ps && in.ps->active() && out_right) {
+        in.process_channel(in.ch[0], core_left, out_left, &in.ch[1], out_right);
+    } else {
+        in.process_channel(in.ch[0], core_left, out_left);
+    }
     if (in.pair) {
         in.process_channel(in.ch[1], core_right ? core_right : core_left, out_right);
-    } else if (out_right) {
+    } else if (out_right && !(in.ps && in.ps->active())) {
         std::copy(out_left, out_left + (in.downsampled ? 1024 : 2048), out_right);
     }
     for (ChannelState& s : in.ch)
@@ -1292,6 +1337,8 @@ void SbrDecoder::reset()
 {
     for (ChannelState& s : m_impl->ch)
         s = ChannelState {};
+    if (m_impl->ps)
+        m_impl->ps->reset();
 }
 
 void sbr_qmf_round_trip(std::span<float const> in, std::vector<float>& out)
