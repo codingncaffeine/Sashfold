@@ -153,9 +153,16 @@ std::unique_ptr<FrameDecoder> open_frame_decoder(std::string const& codec_id, st
         // SASHFOLD_VIDEO_DECODE=software, vulkan or vaapi picks the way
         // (unset: the best there is, the processor's last).
         VideoApi api = VideoApi::Any;
+        // Baseline that is not Constrained Baseline (no constraint_set1_flag)
+        // may use tools hardware decoders do not implement: the processor's
+        // decoder takes it, as ffmpeg keeps such streams off VA-API.
+        if (std::optional<H264DecoderConfiguration> const config = parse_avcc(codec_private); config && !config->sps.empty()) {
+            if (std::optional<H264Sps> const sps = parse_h264_sps(config->sps[0]); sps && sps->profile_idc == 66 && !(sps->constraint_set_flags & 0x40))
+                api = VideoApi::Software;
+        }
         if (char const* const way = std::getenv("SASHFOLD_VIDEO_DECODE")) {
             std::string_view const w = way;
-            api = w == "software" ? VideoApi::Software : (w == "vulkan" ? VideoApi::Vulkan : (w == "vaapi" ? VideoApi::Vaapi : VideoApi::Any));
+            api = w == "software" ? VideoApi::Software : (w == "vulkan" ? VideoApi::Vulkan : (w == "vaapi" ? VideoApi::Vaapi : api));
         }
         std::unique_ptr<H264Accelerator> accelerator = H264Accelerator::open(error, api);
         if (!accelerator)

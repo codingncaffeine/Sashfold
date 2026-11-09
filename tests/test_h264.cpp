@@ -1,6 +1,7 @@
 #include "Test.h"
 
 #include "crypto/Sha2.h"
+#include "media/FrameDecoder.h"
 #include "media/H264Decoder.h"
 #include "media/H264.h"
 #include "media/Mp4.h"
@@ -314,6 +315,28 @@ int main(int argc, char** argv)
                  "partitions-all-8x8", "slices", "scaling-matrix", "deblock-offsets", "no-deblock", "constrained-intra", "cropped",
                  "intra-only", "edges", "low-qp" })
             check_hardware(folder + "/../h264", name, api, api_name);
+    }
+    // Plain Baseline (no constraint_set1_flag) goes to the processor's
+    // decoder, whatever hardware there is: the Constrained Baseline
+    // fixture's configuration with the flag cleared, in the record and in
+    // its sequence parameter set.
+    {
+        Bytes const file = read_file(folder + "/../h264/cavlc-baseline.mp4");
+        media::Mp4Parser parser;
+        CHECK(parser.append(file));
+        Bytes avcc;
+        for (media::Mp4Track const& t : parser.init().tracks) {
+            if (t.kind == media::Mp4Track::Kind::Video)
+                avcc = t.codec_private;
+        }
+        CHECK(avcc.size() > 11 && avcc[1] == 66 && avcc[8] == 0x67 && (avcc[10] & 0x40));
+        if (avcc.size() > 11) {
+            avcc[2] = static_cast<std::uint8_t>(avcc[2] & ~0x40);
+            avcc[10] = static_cast<std::uint8_t>(avcc[10] & ~0x40);
+            std::string why;
+            std::unique_ptr<media::FrameDecoder> const decoder = media::open_frame_decoder("V_H264", avcc, why);
+            CHECK(decoder && decoder->device().starts_with("software"));
+        }
     }
     // Annex B: start codes of three and four bytes, trailing zeros no unit's,
     // the emulation prevention bytes taken out of a payload.
