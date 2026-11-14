@@ -5412,11 +5412,20 @@ struct Layouter {
             end->width += ellipsis_width;
         }
         if (!style.line_clamp_webkit) {
+            // What stands after the cut goes; a box the cut falls inside ends
+            // at it, as the clamping box does; and a box out of the flow
+            // stays with the box it is placed against, wherever it reaches.
             auto const discard = [&clamp, cut](auto const& self, Fragment& fragment) -> void {
                 std::erase_if(fragment.runs, [&clamp](TextRun const& run) { return run.line > clamp.cut_line; });
-                std::erase_if(fragment.children, [cut](Fragment const& child) { return child.y >= cut - 0.01f; });
-                for (Fragment& child : fragment.children)
+                std::erase_if(fragment.children,
+                    [cut](Fragment const& child) { return !child.out_of_flow && child.y >= cut - 0.01f; });
+                for (Fragment& child : fragment.children) {
+                    if (child.out_of_flow)
+                        continue;
+                    if (!child.floating && child.y + child.height > cut)
+                        child.height = std::max(0.0f, cut - child.y);
                     self(self, child);
+                }
             };
             discard(discard, box);
         }
