@@ -269528,8 +269528,6 @@ media-source/mediasource-closed.html	Test removeSourceBuffer() while closed.
 media-source/mediasource-closed.html	Test setting duration while closed.
 media-source/mediasource-closed.html	Test setting duration while open->closed.
 media-source/mediasource-closed.html	Test sourcebuffer.abort when closed.
-media-source/mediasource-config-change-mp4-av-audio-bitrate.html	Tests mp4 audio bitrate changes in multiplexed content.
-media-source/mediasource-config-change-mp4-av-video-bitrate.html	Tests mp4 video bitrate changes in multiplexed content.
 media-source/mediasource-config-change-mp4-v-bitrate.html	Tests mp4 video-only bitrate changes.
 media-source/mediasource-config-change-mp4-v-framerate.html	Tests mp4 video-only frame rate changes.
 media-source/mediasource-duration-boundaryconditions.html	Set duration to 1

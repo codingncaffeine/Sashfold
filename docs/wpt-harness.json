@@ -1,7 +1,7 @@
 {
   "revision": "b1a7025f8bc16454e18604c9e195038aa5cf1d94",
   "date": "2026-11-14",
-  "passed": 322275,
+  "passed": 322273,
   "total": 392462,
   "files": 8815,
   "completed": 8791,
@@ -37,7 +37,7 @@
     { "path": "css/css-display", "passed": 179, "total": 443, "files": 33, "completed": 33 },
     { "path": "IndexedDB", "passed": 1587, "total": 1618, "files": 226, "completed": 226 },
     { "path": "html/canvas/element", "passed": 1937, "total": 3417, "files": 1286, "completed": 1286 },
-    { "path": "media-source", "passed": 340, "total": 552, "files": 83, "completed": 83 },
+    { "path": "media-source", "passed": 338, "total": 552, "files": 83, "completed": 83 },
     { "path": "html/semantics/embedded-content/media-elements", "passed": 378, "total": 871, "files": 379, "completed": 379 },
     { "path": "html/semantics/embedded-content/the-video-element", "passed": 8, "total": 29, "files": 22, "completed": 22 },
     { "path": "html/semantics/embedded-content/the-audio-element", "passed": 12, "total": 24, "files": 14, "completed": 14 },

@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (10464 of 15682) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (10467 of 15682) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -1573,6 +1573,8 @@ css/CSS2/generated-content/before-after-002.xht
 css/CSS2/generated-content/before-after-dynamic-attr-001.xht
 css/CSS2/generated-content/before-after-dynamic-restyle-001.xht
 css/CSS2/generated-content/before-after-images-001.xht
+css/CSS2/generated-content/before-after-positioned-002.html
+css/CSS2/generated-content/before-after-positioned-003.html
 css/CSS2/generated-content/before-content-display-001.xht
 css/CSS2/generated-content/before-content-display-002.xht
 css/CSS2/generated-content/before-content-display-005.xht
@@ -5262,6 +5264,7 @@ css/css-backgrounds/animations/background-color-animation-half-opaque.html
 css/css-backgrounds/animations/background-color-animation-in-body.html
 css/css-backgrounds/animations/background-color-animation-non-zero-size-element-change-to-zero.html
 css/css-backgrounds/animations/background-color-animation-offset-position-not-stuck.html
+css/css-backgrounds/animations/background-color-animation-pseudo-element.html
 css/css-backgrounds/animations/background-color-animation-single-keyframe.html
 css/css-backgrounds/animations/background-color-animation-three-keyframes1.html
 css/css-backgrounds/animations/background-color-animation-three-keyframes2.html
