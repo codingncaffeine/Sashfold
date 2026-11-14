@@ -2722,6 +2722,72 @@ int main(int argc, char** argv)
         CHECK(layout::check_fragments(page.result).empty());
     }
 
+    // --- A flex or grid container's generated boxes out of the flow are no items --
+    // css-flexbox-1 §4.1, css-grid-2 §9: an absolutely positioned child of
+    // the container does not take part in its layout, and a ::before or
+    // ::after is a child like any other. Laid out as an item, the overlay
+    // a button draws with `::before { position: absolute; inset: 0 }`
+    // pushed the button's own content aside.
+    {
+        constexpr std::string_view html = R"(<!doctype html>
+<html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  .box { position: relative; width: 200px; height: 40px }
+  .box::before { content: ''; position: absolute; left: -16px; top: 0; width: 24px; height: 16px }
+  .box::after { content: ''; position: absolute; left: 0; top: 0; right: 0; bottom: 0 }
+  #flex { display: flex; margin-left: 40px }
+  #grid { display: grid; margin-left: 40px }
+  #sized { display: inline-flex; position: relative }
+  #sized::before { content: 'wide wide wide'; position: absolute; left: 0; top: 0 }
+</style></head><body>
+<div id=flex class=box><div id=fi>item</div></div>
+<div id=grid class=box><div id=gi>item</div></div>
+<div id=sized><span id=si>ab</span></div>
+</body></html>)";
+        Page const page = lay_out(html, 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            dom::Attr const* const attribute = f.element ? f.element->find_attribute("id") : nullptr;
+            // The element's own box: a generated one carries the element too.
+            if (attribute && attribute->value == id && !f.out_of_flow)
+                return &f;
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* found = find(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        for (std::string_view const id : { "flex", "grid" }) {
+            layout::Fragment const* const box = find(page.result.root, id);
+            if (!CHECK(box != nullptr))
+                continue;
+            // The item starts where the container's content does.
+            layout::Fragment const* const item = find(*box, id == "flex" ? "fi" : "gi");
+            if (CHECK(item != nullptr)) {
+                CHECK_EQ(item->x, 40.0f);
+                CHECK_EQ(item->y, box->y);
+            }
+            // And the two generated boxes are placed against the container.
+            std::vector<layout::Fragment const*> placed;
+            for (layout::Fragment const& child : box->children) {
+                if (child.out_of_flow)
+                    placed.push_back(&child);
+            }
+            if (CHECK_EQ(placed.size(), std::size_t { 2 })) {
+                CHECK_EQ(placed[0]->x, 24.0f);
+                CHECK_EQ(placed[0]->width, 24.0f);
+                CHECK_EQ(placed[0]->height, 16.0f);
+                CHECK_EQ(placed[1]->x, 40.0f);
+                CHECK_EQ(placed[1]->width, 200.0f);
+                CHECK_EQ(placed[1]->height, 40.0f);
+            }
+        }
+        // Nor do they count in the width a container shrinks to: two letters.
+        if (layout::Fragment const* const sized = find(page.result.root, "sized"); CHECK(sized != nullptr))
+            CHECK_EQ(sized->width, 20.0f);
+        CHECK(layout::check_fragments(page.result).empty());
+    }
+
     // --- A line clamp ends its box at the last line it keeps ----------------------
     // The form pages write (-webkit-box, vertical, -webkit-line-clamp, overflow
     // hidden): the box is as tall as the lines it keeps, the last of them ends

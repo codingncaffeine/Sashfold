@@ -7085,11 +7085,12 @@ struct Layouter {
             }
             pending.clear();
         };
-        // The generated boxes count as text at either end (their own edges aside).
+        // The generated boxes count as text at either end (their own edges aside),
+        // unless out of the flow, where they take no room.
         // A display: contents child's boxes are items where it stands.
         std::function<void(dom::Element const&, ComputedStyle const&)> items_of;
         items_of = [&](dom::Element const& parent, ComputedStyle const& parent_style) {
-            if (css::GeneratedBox const* const before = before_of(&parent_style))
+            if (css::GeneratedBox const* const before = before_of(&parent_style); before && !before->style.out_of_flow())
                 append_generated(*before, parent, pending);
             for (dom::Node const* child : dom::flat_children(parent)) {
                 if (child->is_text()) {
@@ -7115,7 +7116,7 @@ struct Layouter {
                 flush();
                 take(block_intrinsic(child_element, *child_style));
             }
-            if (css::GeneratedBox const* const after = after_of(&parent_style))
+            if (css::GeneratedBox const* const after = after_of(&parent_style); after && !after->style.out_of_flow())
                 append_generated(*after, parent, pending);
         };
         items_of(element, style);
@@ -7762,6 +7763,18 @@ struct Layouter {
             if (is_contents(box.style)) {
                 // No item of its own: its text joins the text around it.
                 append_generated(box, owner, pending);
+                return;
+            }
+            if (box.style.out_of_flow()) {
+                // Out of the flow, as an element child is: no item, placed
+                // against the container once it is done (and, as there, not
+                // recorded by a pass that only measures).
+                flush_text();
+                if (content_width) {
+                    bool const static_rtl = style.direction == css::Direction::Rtl;
+                    record_out_of_flow(owner, box.style,
+                        std::make_pair(static_rtl ? content_x + *content_width : content_x, content_y), static_rtl);
+                }
                 return;
             }
             flush_text();
@@ -8729,6 +8742,15 @@ struct Layouter {
             if (is_contents(box.style)) {
                 // No item of its own: its text joins the text around it.
                 append_generated(box, owner, pending);
+                return;
+            }
+            if (box.style.out_of_flow()) {
+                // Out of the flow, as an element child is: no item, placed
+                // against the container once it is done.
+                flush_text();
+                bool const static_rtl = style.direction == css::Direction::Rtl;
+                record_out_of_flow(owner, box.style,
+                    std::make_pair(static_rtl ? content_x + content_width : content_x, content_y), static_rtl);
                 return;
             }
             flush_text();
