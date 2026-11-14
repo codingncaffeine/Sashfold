@@ -6,6 +6,7 @@
 #include "text/FontManager.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <cstdlib>
 #include <iostream>
@@ -356,6 +357,15 @@ void LayoutOracle::install(HostHooks& hooks)
     hooks.with_fonts = [this](std::function<void()> const& use) { with_fonts(use); };
     hooks.element_scroll = [this](dom::Element const& element) { return element_scroll(element); };
     hooks.scroll_element = [this](dom::Element const& element, float x, float y) { scroll_element(element, x, y); };
+    // The document's own scroll. A frame's document asks through its page's
+    // hooks and is not scrolled from here.
+    hooks.scroll_position = [this](dom::Document const& document) {
+        return std::pair<int, int> { 0, &document == m_document ? static_cast<int>(std::lround(page_scroll())) : 0 };
+    };
+    hooks.scroll_to = [this](dom::Document const& document, int, int y) {
+        if (&document == m_document)
+            scroll_page(static_cast<float>(y));
+    };
 }
 
 namespace {
@@ -435,6 +445,38 @@ void LayoutOracle::ensure()
         m_realm ? &embedded : nullptr);
     m_computed = true;
     m_mutations = mutations;
+    // A fresh layout stands at the top of the page.
+    m_page_applied = {};
+    settle_page_scroll();
+}
+
+void LayoutOracle::settle_page_scroll()
+{
+    float const reach = m_layout.viewport_overflow_y == css::Overflow::Clip
+        ? 0.0f
+        : std::max(0.0f, m_layout.page_height - m_media.height);
+    layout::ScrollOffset const want { 0, std::clamp(m_page_scroll, 0.0f, reach) };
+    if (want.y == m_page_applied.y)
+        return;
+    layout::apply_page_scroll(m_layout, m_media.width, m_media.height, want, m_page_applied, nullptr);
+}
+
+float LayoutOracle::page_scroll()
+{
+    ensure();
+    return m_page_applied.y;
+}
+
+void LayoutOracle::scroll_page(float y)
+{
+    ensure();
+    float const before = m_page_applied.y;
+    m_page_scroll = y;
+    settle_page_scroll();
+    // What the page could not reach is not kept for a later, longer page.
+    m_page_scroll = m_page_applied.y;
+    if (m_page_applied.y != before && m_realm != nullptr)
+        m_realm->scrolled(nullptr);
 }
 
 void LayoutOracle::with_fonts(std::function<void()> const& use)

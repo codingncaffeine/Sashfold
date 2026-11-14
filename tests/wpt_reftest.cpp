@@ -500,6 +500,15 @@ private:
         layout::LayoutResult page = layout::layout_document(*document, styles,
             static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height), 1,
             realm ? &embedded : nullptr);
+        // The boxes the page's scripts scrolled are shown where they left
+        // them, and what sticks inside them is stuck again where they stand.
+        layout::ScrollOffsets scrolled;
+        layout::apply_scroll(page.root, oracle.scrolls(), scrolled);
+        if (!scrolled.empty()) {
+            layout::ScrollOffset at_origin;
+            layout::apply_page_scroll(page, static_cast<float>(viewport_width), static_cast<float>(viewport_height),
+                layout::ScrollOffset {}, at_origin, &scrolled);
+        }
         // The frames: one whose document has a realm is drawn from it.
         ui::draw_frames(*url, page, frame_fetcher(), 1.0f, nullptr, nullptr, realm.get());
         text::FontManager::instance().set_page_fonts(fonts);

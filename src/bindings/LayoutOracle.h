@@ -75,6 +75,16 @@ public:
     // held within the box's reach as laid out now.
     std::optional<ElementScroll> element_scroll(dom::Element const& element);
     void scroll_element(dom::Element const& element, float x, float y);
+    // Where the scripts have left every box they moved: what a host that
+    // draws the page once the scripts are done puts on its own layout.
+    layout::ScrollOffsets const& scrolls() const { return m_scrolls; }
+    // The document's own scroll, as a script moves it (window.scrollTo and
+    // the like): down the page, held within what the page as laid out now
+    // can reach. What is fixed stays with the viewport and what sticks is
+    // stuck again where the viewport then stands, so a script that
+    // measures either after scrolling measures what a window would show.
+    float page_scroll();
+    void scroll_page(float y);
     // Brings styles and layout up to date with the tree.
     void ensure();
     // Runs `use` with the document's own fonts in the process's font
@@ -108,6 +118,10 @@ private:
     css::StyleRecord m_style_record; // what the next update needs to compute only what changed
     layout::LayoutResult m_layout;
     layout::ScrollOffsets m_scrolls;
+    float m_page_scroll = 0; // as last asked for
+    layout::ScrollOffset m_page_applied; // what `m_layout` carries of it
+    // Puts the page's scroll on `m_layout`, held within its reach.
+    void settle_page_scroll();
 };
 
 }

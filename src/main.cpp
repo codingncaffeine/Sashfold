@@ -1170,6 +1170,15 @@ int render_page(std::string const& path, std::string const& output, int viewport
     layout::LayoutResult page = layout::layout_document(*document, styles,
         static_cast<float>(viewport_width), &images, nullptr, static_cast<float>(viewport_height), g_device_scale,
         realm ? &embedded : nullptr);
+    // The boxes the page's scripts scrolled are shown where they left them,
+    // and what sticks inside them is stuck again where they stand.
+    layout::ScrollOffsets scrolled;
+    layout::apply_scroll(page.root, oracle.scrolls(), scrolled);
+    if (!scrolled.empty()) {
+        layout::ScrollOffset at_origin;
+        layout::apply_page_scroll(page, static_cast<float>(viewport_width), static_cast<float>(viewport_height),
+            layout::ScrollOffset {}, at_origin, &scrolled);
+    }
     // The page's frames: a frame's document under the page's frame-src, what
     // that document fetches under its own policy.
     ui::draw_frames(loaded.url, page, frame_fetcher(loaded), g_device_scale, loaded.policy.get(), nullptr, realm.get());
