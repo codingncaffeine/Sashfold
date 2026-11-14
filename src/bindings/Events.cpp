@@ -847,17 +847,20 @@ void event_getter(Realm::Internals& in, js::Object& prototype, std::string_view 
     }
 }
 
-// A pointer position relative to the target's box, for offsetX/offsetY.
+// A pointer position relative to the target's box, for offsetX/offsetY; an
+// event with no box to be relative to answers with its place on the page,
+// pageX and pageY (CSSOM View §10.1).
 std::pair<double, double> offset_in_target(Realm::Internals& in, EventObject const& event)
 {
+    std::pair<int, int> const scroll = in.hooks.scroll_position ? in.hooks.scroll_position(*in.document) : std::pair<int, int> { 0, 0 };
+    std::pair<double, double> const on_page { event.client_x + scroll.first, event.client_y + scroll.second };
     dom::Element* element = event.target.is_object() ? element_of(in, event.target.as_object()) : nullptr;
     if (!element || !in.hooks.layout_box)
-        return { event.client_x, event.client_y };
+        return on_page;
     std::optional<LayoutBox> const box = in.hooks.layout_box(*element);
     if (!box)
-        return { event.client_x, event.client_y };
-    std::pair<int, int> const scroll = in.hooks.scroll_position ? in.hooks.scroll_position(*in.document) : std::pair<int, int> { 0, 0 };
-    return { event.client_x + scroll.first - box->x, event.client_y + scroll.second - box->y };
+        return on_page;
+    return { on_page.first - static_cast<double>(box->x), on_page.second - static_cast<double>(box->y) };
 }
 
 } // namespace
