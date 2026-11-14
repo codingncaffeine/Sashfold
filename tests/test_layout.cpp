@@ -2849,5 +2849,53 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- A box sized to its own text holds it on one line -------------------------
+    // The row a list of links is made of: a flex item that shrinks to its
+    // text, inside another, beside an icon and a gap, far from the page's
+    // left edge. Its width is the text's own, back from a sum and a
+    // difference of floats; a letter spacing in thousandths of an em makes
+    // every width a fraction. No text, spacing or place may send the last
+    // word to a second line.
+    {
+        std::string rows;
+        int row_count = 0;
+        for (int spacing = 1; spacing <= 12; ++spacing) {
+            for (int digits = 3; digits <= 9; ++digits) {
+                rows += "<li><a><span class=l><span class=i></span><span class=t><span class=n>r/name</span>"
+                        "<span class=c style='letter-spacing: -0.0"
+                    + std::string(spacing < 10 ? "0" : "") + std::to_string(spacing) // thousandths of an em
+                    + "em'>" + std::string(static_cast<std::size_t>(digits), '7') + " members</span></span></span>"
+                      "<span class=r></span></a></li>";
+                ++row_count;
+            }
+        }
+        Page const page = lay_out(R"HTML(<!doctype html><html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono" }
+  ul { width: 284px; padding: 0; margin: 110px 0 0 956.3px }
+  li { list-style: none }
+  a { display: flex; justify-content: space-between; padding: 4px 16px; gap: 8px }
+  .l { display: flex; align-items: center; gap: 8px; min-width: 0; flex-shrink: 1 }
+  .i { display: flex; flex-shrink: 0; width: 32px; height: 32px }
+  .t { display: flex; flex-direction: column; justify-content: center; min-width: 0; flex-shrink: 1; padding: 6px 0 }
+  .n { font-size: 14px; line-height: 20px; display: block; white-space: nowrap; overflow: hidden }
+  .c { font-size: 12px; line-height: 16px }
+  .r { display: flex; flex-shrink: 0 }
+</style></head><body><ul>)HTML" + rows + "</ul></body></html>", 1280);
+        int seen = 0;
+        int wrapped = 0;
+        auto const walk = [&](auto const& self, layout::Fragment const& f) -> void {
+            if (f.element && f.element->local_name() == "li") {
+                ++seen;
+                if (f.height != 56.0f)
+                    ++wrapped;
+            }
+            for (layout::Fragment const& child : f.children)
+                self(self, child);
+        };
+        walk(walk, page.result.root);
+        CHECK_EQ(seen, row_count);
+        CHECK_EQ(wrapped, 0);
+    }
+
     return test::report("layout");
 }

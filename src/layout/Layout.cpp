@@ -30,6 +30,11 @@ using css::Display;
 using css::LengthPercent;
 using css::WhiteSpace;
 
+// How far over its room content may be and still fit it: the layout unit of
+// the engines that count in 1/64 px. Widths here are floats, and a width
+// that went through a sum and a difference comes back a hair off.
+constexpr float fit_slack = 1.0f / 64.0f;
+
 float resolve(LengthPercent const& length, float percent_base)
 {
     switch (length.kind) {
@@ -3689,6 +3694,12 @@ struct Layouter {
         // The room the current line has between floats, found where it starts.
         float line_left = content_x;
         float line_avail = content_width;
+        // Whether that much does not fit the line. A box sized to its own
+        // text gets the text's width back through sums and differences of
+        // floats, a hair short now and then: what is over by less than the
+        // layout unit of the engines that count in 1/64 px fits, as it does
+        // in them.
+        auto const past_line_end = [&](float extent) { return extent > line_avail + fit_slack; };
         // text-indent: how far the first line of this block starts in, and
         // nothing after it. A percentage is of the block's own content width.
         float const indent = opens_block ? resolve(block_style.text_indent, content_width) : 0.0f;
@@ -4505,7 +4516,7 @@ struct Layouter {
         // A line beside a float is short: content that would fit the full
         // width but not this line starts the line below the float instead.
         auto const widen_for = [&](float needed) {
-            while (line.empty() && needed > line_avail && line_avail < content_width) {
+            while (line.empty() && past_line_end(needed) && line_avail < content_width) {
                 std::optional<float> const next = floats.next_bottom(y);
                 if (!next)
                     break;
@@ -4533,7 +4544,7 @@ struct Layouter {
         };
         auto const hyphen_overflows = [&](std::size_t index) {
             InlineItem const* const word = soft_hyphen_before(index);
-            return word && line_width + measure(*word->style, hyphen_text(*word->style)) > line_avail;
+            return word && past_line_end(line_width + measure(*word->style, hyphen_text(*word->style)));
         };
         // The line is ending at a soft wrap: the last text on it takes its
         // hyphen when its word hyphenates after itself.
@@ -4656,7 +4667,7 @@ struct Layouter {
                 bool const opening = item.kind == InlineItem::Kind::BoxStart;
                 float const edge = inline_edge(*item.style, opening, content_width);
                 note_opportunity(index);
-                if (allow_wrap && edge > 0 && !line.empty() && line_width + edge > line_avail) {
+                if (allow_wrap && edge > 0 && !line.empty() && past_line_end(line_width + edge)) {
                     if (std::optional<std::size_t> const again = end_line_before(index)) {
                         index = *again - 1;
                         continue;
@@ -4714,7 +4725,7 @@ struct Layouter {
                 // Once one float waits for the line's end, the floats after
                 // it on the line wait too: none may sit higher than an
                 // earlier one.
-                if (!pending_floats.empty() || (!line.empty() && line_width + outer > line_avail)) {
+                if (!pending_floats.empty() || (!line.empty() && past_line_end(line_width + outer))) {
                     pending_floats.push_back(&item);
                     continue;
                 }
@@ -4741,7 +4752,7 @@ struct Layouter {
                 }
                 float const outer = measure.outer();
                 note_opportunity(index);
-                if (allow_wrap && !line.empty() && line_width + outer > line_avail) {
+                if (allow_wrap && !line.empty() && past_line_end(line_width + outer)) {
                     if (std::optional<std::size_t> const again = end_line_before(index)) {
                         index = *again - 1;
                         continue;
@@ -4789,7 +4800,7 @@ struct Layouter {
                 edges.left = edges.right = edges.top = edges.bottom = 0;
                 float const width = edges.margin_left + spec.size.width + edges.margin_right;
                 note_opportunity(index);
-                if (allow_wrap && !line.empty() && line_width + width > line_avail) {
+                if (allow_wrap && !line.empty() && past_line_end(line_width + width)) {
                     if (std::optional<std::size_t> const again = end_line_before(index)) {
                         index = *again - 1;
                         continue;
@@ -4848,7 +4859,7 @@ struct Layouter {
                 float const width = edges.margin_left + edges.left + size->width + edges.right
                     + edges.margin_right;
                 note_opportunity(index);
-                if (allow_wrap && !line.empty() && line_width + width > line_avail) {
+                if (allow_wrap && !line.empty() && past_line_end(line_width + width)) {
                     if (std::optional<std::size_t> const again = end_line_before(index)) {
                         index = *again - 1;
                         continue;
@@ -4895,7 +4906,7 @@ struct Layouter {
             float tail = tail_width();
             float hang = mode == WhiteSpace::BreakSpaces ? 0.0f : tail;
             note_opportunity(index);
-            if (allow_wrap && !line.empty() && line_width + width - hang > line_avail) {
+            if (allow_wrap && !line.empty() && past_line_end(line_width + width - hang)) {
                 if (std::optional<std::size_t> const again = end_line_before(index)) {
                     index = *again - 1;
                     continue;
@@ -4910,7 +4921,7 @@ struct Layouter {
             if (allow_wrap && item.style->word_break == css::WordBreak::AutoPhrase
                 && item.style->hyphens != css::Hyphens::None) {
                 std::u32string remaining = item.text;
-                while (line.empty() && width - hang > line_avail) {
+                while (line.empty() && past_line_end(width - hang)) {
                     std::u32string const hyphen = hyphen_text(*item.style);
                     float const hyphen_width = measure(*item.style, hyphen);
                     std::size_t chosen = std::u32string::npos;
@@ -4919,7 +4930,7 @@ struct Layouter {
                             continue;
                         float const before_width
                             = measure(*item.style, drawn_text(std::u32string_view(remaining).substr(0, shy)));
-                        bool const fits = before_width + hyphen_width <= line_avail;
+                        bool const fits = !past_line_end(before_width + hyphen_width);
                         if (chosen != std::u32string::npos && !fits)
                             break;
                         chosen = shy;
@@ -4958,7 +4969,7 @@ struct Layouter {
                 // trailing spaces are never sliced: those that hang are
                 // outside the fit already, and those that take their room
                 // (break-spaces) go over whole, a break in front of them.
-                while (line.empty() && width - hang > line_avail) {
+                while (line.empty() && past_line_end(width - hang)) {
                     std::size_t fit = 0;
                     float fit_width = 0;
                     if (fonts_for(*item.style).builtin_alone()) {
@@ -4971,7 +4982,7 @@ struct Layouter {
                         for (std::size_t i = 0; i < head; ++i) {
                             float const glyph_width
                                 = measure(*item.style, std::u32string_view(word).substr(i, 1));
-                            if (fit > 0 && fit_width + glyph_width > line_avail)
+                            if (fit > 0 && past_line_end(fit_width + glyph_width))
                                 break;
                             fit_width += glyph_width;
                             ++fit;
