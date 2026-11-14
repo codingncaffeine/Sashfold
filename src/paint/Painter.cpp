@@ -1,5 +1,6 @@
 #include "paint/Painter.h"
 
+#include "core/Unicode.h"
 #include "dom/Dom.h"
 #include "paint/Blur.h"
 #include "paint/Effects.h"
@@ -13,6 +14,8 @@
 #include <cmath>
 #include <cstddef>
 #include <optional>
+#include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -27,6 +30,27 @@ using css::BorderStyle;
 using css::ComputedStyle;
 using layout::Fragment;
 using layout::TextRun;
+
+// text-overflow: ellipsis (css-overflow-3 §7.1), as one painting of the page
+// shows it. Layout leaves every line whole; a block that ends its lines in
+// an ellipsis has, for each line that runs out past its end edge where the
+// content now stands, the characters and the atomic inlines that give way
+// to the ellipsis, and the ellipsis itself. Nothing here outlives the
+// painting: content that is scrolled is read again where it then stands.
+struct Elisions {
+    // The characters of a run that show, [from, to), and how far from the
+    // run's left edge the first of them begins. A run not named shows whole.
+    struct Kept {
+        std::size_t from = 0;
+        std::size_t to = 0;
+        float shift = 0;
+    };
+    std::unordered_map<TextRun const*, Kept> runs;
+    // The atomic inlines that do not show.
+    std::unordered_set<Fragment const*> hidden;
+    // The ellipses, by the fragment that holds their lines' words.
+    std::unordered_map<Fragment const*, std::vector<TextRun>> marks;
+};
 
 struct Context {
     Bitmap& target;
@@ -54,6 +78,8 @@ struct Context {
     // host's own coordinates.
     int origin_x = 0;
     int origin_y = 0;
+    // What text-overflow hides and adds in this painting; null hides nothing.
+    Elisions* elisions = nullptr;
 };
 
 int round_px(float value)
@@ -903,7 +929,7 @@ void paint_vertical_run(Context& context, TextRun const& run)
     draw(context.target, baseline_x, start, style.color);
 }
 
-void paint_run(Context& context, TextRun const& run)
+void paint_whole_run(Context& context, TextRun const& run)
 {
     if (!run.style || !run.fonts)
         return;
@@ -1004,6 +1030,225 @@ void paint_run(Context& context, TextRun const& run)
         }
     }
     draw(&context.target, start_x, baseline, color, style.color);
+}
+
+// A run as the page shows it: whole, or the part of it text-overflow left.
+void paint_run(Context& context, TextRun const& run)
+{
+    if (context.elisions && !context.elisions->runs.empty()) {
+        if (auto const it = context.elisions->runs.find(&run); it != context.elisions->runs.end()) {
+            Elisions::Kept const& kept = it->second;
+            if (kept.from >= kept.to)
+                return;
+            TextRun part = run;
+            part.text = run.text.substr(kept.from, kept.to - kept.from);
+            part.x += kept.shift;
+            paint_whole_run(context, part);
+            return;
+        }
+    }
+    paint_whole_run(context, run);
+}
+
+// Whether text-overflow has taken a box off its line.
+bool elided(Context const& context, Fragment const& fragment)
+{
+    return context.elisions && !context.elisions->hidden.empty() && context.elisions->hidden.contains(&fragment);
+}
+
+// Where each character of a run begins, from the run's left edge, and where
+// the last one ends: the pen's steps as `paint_whole_run` takes them.
+std::vector<float> stops_of(TextRun const& run)
+{
+    ComputedStyle const& style = *run.style;
+    bool const kern = style.font_kerning != css::FontKerning::None;
+    std::vector<float> stops;
+    stops.reserve(run.text.size() + 1);
+    float x = 0;
+    text::FontStack::Glyph previous { nullptr, 0 };
+    for (char32_t const c : run.text) {
+        text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
+        if (kern && previous.face == glyph.face)
+            x += glyph.face->kerning(previous.glyph, glyph.glyph, style.font_size);
+        stops.push_back(x);
+        x += glyph.face->advance(glyph.glyph, style.font_size) + style.letter_spacing;
+        if (c == U' ')
+            x += style.word_spacing;
+        previous = glyph;
+    }
+    stops.push_back(x);
+    return stops;
+}
+
+// Whether a run may be cut in front of its character `at`: not inside what
+// a reader takes for one character — a letter and the marks on it, an emoji
+// and what is joined to it. `reversed` runs hold their text last character
+// first, so the mark comes before its letter there.
+bool cut_allowed(TextRun const& run, std::size_t at)
+{
+    if (at == 0 || at >= run.text.size())
+        return true;
+    char32_t const earlier = run.source_reversed ? run.text[at] : run.text[at - 1];
+    char32_t const later = run.source_reversed ? run.text[at - 1] : run.text[at];
+    auto const joins = [](char32_t c) {
+        return is_combining_mark(c) || c == 0x200D || (c >= 0xFE00 && c <= 0xFE0F) || (c >= 0x1F3FB && c <= 0x1F3FF);
+    };
+    return !joins(later) && earlier != 0x200D;
+}
+
+// One thing on a line that text-overflow hides or keeps: a run of text, or
+// an atomic inline.
+struct LineItem {
+    TextRun const* run = nullptr;
+    Fragment const* box = nullptr;
+    float left = 0;
+    float right = 0;
+};
+
+// What a fragment holds of each line, by the line's number: its own runs,
+// the atomic inlines placed on the line, and what the inline boxes that
+// took their words with them hold.
+void gather_line_items(Fragment const& holder, std::unordered_map<std::uint32_t, std::vector<LineItem>>& lines)
+{
+    for (TextRun const& run : holder.runs) {
+        if (run.line == 0 || run.swapped || run.mode != css::WritingMode::HorizontalTb || !run.style || !run.fonts
+            || run.text.empty())
+            continue;
+        lines[run.line].push_back(LineItem { &run, nullptr, run.x, run.x + run.width });
+    }
+    for (Fragment const& child : holder.children) {
+        if (child.line == 0 || child.floating || child.out_of_flow || !child.style)
+            continue;
+        if (child.style->display == css::Display::Inline && !child.image && !child.control)
+            gather_line_items(child, lines);
+        else
+            lines[child.line].push_back(LineItem { nullptr, &child, child.x, child.x + child.width });
+    }
+}
+
+// Ends the lines one fragment holds for a block that ends its lines in an
+// ellipsis: `holder` is the block itself or an anonymous block inside it.
+void plan_elision_of(Elisions& plan, Fragment const& block, Fragment const& holder)
+{
+    plan.marks.erase(&holder);
+    if (holder.lines.empty())
+        return;
+    Fragment::Elision const& edges = *block.elision;
+    ComputedStyle const& style = *block.style;
+    bool const rtl = style.direction == css::Direction::Rtl;
+    std::u32string const ellipsis = U"\u2026";
+    float const room = edges.fonts->measure(ellipsis, style.font_size, style.font_kerning != css::FontKerning::None);
+    float const slack = 0.01f;
+    std::unordered_map<std::uint32_t, std::vector<LineItem>> lines;
+    gather_line_items(holder, lines);
+    for (Fragment::LineBox const& line : holder.lines) {
+        auto const found = lines.find(line.number);
+        if (found == lines.end())
+            continue;
+        std::vector<LineItem> const& items = found->second;
+        float const left = edges.left + line.left_inset;
+        float const right = edges.right - line.right_inset;
+        bool over = false;
+        // The line's first: the one that starts nearest its start edge.
+        LineItem const* first = nullptr;
+        for (LineItem const& item : items) {
+            if (item.right <= item.left)
+                continue;
+            over = over || (rtl ? item.left < left - slack : item.right > right + slack);
+            if (!first || (rtl ? item.right > first->right : item.left < first->left))
+                first = &item;
+        }
+        if (!over || !first)
+            continue;
+        // How far the line's content may reach, the ellipsis beyond it; and
+        // where what is left of it ends, which is where the ellipsis goes.
+        float const limit = rtl ? left + room : right - room;
+        float end = rtl ? first->right : first->left;
+        auto const reaches = [&](float edge) { end = rtl ? std::min(end, edge) : std::max(end, edge); };
+        for (LineItem const& item : items) {
+            bool const fits = rtl ? item.left >= limit - slack : item.right <= limit + slack;
+            if (fits) {
+                reaches(rtl ? item.left : item.right);
+                continue;
+            }
+            // The first character or atomic inline of a line is clipped
+            // where it runs out, never taken away.
+            bool const is_first = &item == first;
+            if (item.box) {
+                if (is_first)
+                    reaches(rtl ? item.left : item.right);
+                else
+                    plan.hidden.insert(item.box);
+                continue;
+            }
+            TextRun const& run = *item.run;
+            std::size_t const count = run.text.size();
+            std::vector<float> const stops = stops_of(run);
+            if (rtl) {
+                // The characters from `from` on show: the first of them
+                // begins at or right of the limit.
+                std::size_t from = count;
+                for (std::size_t i = 0; i < count; ++i) {
+                    if (run.x + stops[i] >= limit - slack && cut_allowed(run, i)) {
+                        from = i;
+                        break;
+                    }
+                }
+                if (is_first && from >= count) {
+                    from = count - 1;
+                    while (from > 0 && !cut_allowed(run, from))
+                        --from;
+                }
+                plan.runs.insert_or_assign(&run, Elisions::Kept { from, count, from < count ? stops[from] : 0.0f });
+                if (from < count)
+                    reaches(run.x + stops[from]);
+            } else {
+                // The characters before `to` show: the last of them ends
+                // at or left of the limit.
+                std::size_t to = 0;
+                for (std::size_t i = count; i > 0; --i) {
+                    if (run.x + stops[i] <= limit + slack && cut_allowed(run, i)) {
+                        to = i;
+                        break;
+                    }
+                }
+                if (is_first && to == 0) {
+                    to = 1;
+                    while (to < count && !cut_allowed(run, to))
+                        ++to;
+                }
+                plan.runs.insert_or_assign(&run, Elisions::Kept { 0, to, 0.0f });
+                if (to > 0)
+                    reaches(run.x + (to == count ? run.width : stops[to]));
+            }
+        }
+        // The ellipsis, in the block's own font and on the block's own
+        // baseline, whatever it stands in for.
+        TextRun mark;
+        mark.x = rtl ? end - room : end;
+        mark.baseline_y = line.baseline;
+        mark.text = ellipsis;
+        mark.style = block.style;
+        mark.element = block.element;
+        mark.fonts = edges.fonts;
+        mark.width = room;
+        mark.line = line.number;
+        plan.marks[&holder].push_back(std::move(mark));
+    }
+}
+
+// Ends the lines of a block that ends its lines in an ellipsis: its own,
+// and those of the anonymous blocks its inline content stands in between
+// its block children — whose own lines are theirs to end.
+void plan_elision(Context const& context, Fragment const& block)
+{
+    if (!context.elisions || !block.elision || !block.style || !block.elision->fonts)
+        return;
+    plan_elision_of(*context.elisions, block, block);
+    for (Fragment const& child : block.children) {
+        if (!child.style && !child.element)
+            plan_elision_of(*context.elisions, block, child);
+    }
 }
 
 // A form control's look: the page's own background and borders when the
@@ -1503,7 +1748,7 @@ void paint_floats(Context& context, Fragment const& box)
 void paint_inline_content(Context& context, Fragment const& box)
 {
     for (Fragment const& child : box.children) {
-        if (child.floating || paints_as_layer(child))
+        if (child.floating || paints_as_layer(child) || elided(context, child))
             continue;
         if (paints_whole(box, child)) {
             paint_flow(context, child, false);
@@ -1517,6 +1762,15 @@ void paint_inline_content(Context& context, Fragment const& box)
     for (TextRun const& run : box.runs) {
         if (!run.style->hidden())
             paint_run(context, run);
+    }
+    // The ellipses its lines end in.
+    if (context.elisions && !context.elisions->marks.empty()) {
+        if (auto const it = context.elisions->marks.find(&box); it != context.elisions->marks.end()) {
+            for (TextRun const& mark : it->second) {
+                if (!mark.style->hidden())
+                    paint_whole_run(context, mark);
+            }
+        }
     }
 }
 
@@ -1697,6 +1951,11 @@ void collect_positioned(Context const& context, Fragment const& fragment, Clips 
     Clips const& out_of_flow, std::vector<Layer>& out, std::vector<Layer>& bars)
 {
     for (Fragment const& child : fragment.children) {
+        // A block that ends its lines in an ellipsis is read here, before
+        // anything of the context is painted: what it hides may paint at
+        // any of the context's steps. A stacking context reads its own.
+        if (child.elision && !child.stacking_context)
+            plan_elision(context, child);
         if (paints_as_layer(child)) {
             if (child.fixed) {
                 out.push_back(Layer { &child, context.page_clip, {} });
@@ -1742,10 +2001,13 @@ void paint_opaque_context(Context& context, Fragment const& root, bool is_canvas
     if (context.scrolls && root.style && root.style->overflow_applies
         && css::scrolls(root.style->overflow_x))
         bars.push_back(Layer { &root, inside.rect, inside.rounds });
+    plan_elision(context, root);
     collect_positioned(context, root, inside, root.positioned ? inside : outside, positioned, bars);
     std::stable_sort(positioned.begin(), positioned.end(),
         [](Layer const& a, Layer const& b) { return a.box->z_index < b.box->z_index; });
     auto const paint_one = [&](Layer const& layer) {
+        if (elided(context, *layer.box))
+            return;
         context.target.set_clip(layer.clip);
         for (RoundedRect const& round : layer.rounds)
             context.target.push_round_clip(round);
@@ -1934,6 +2196,7 @@ void paint_through_effects(Context& context, Fragment const& root, bool is_canva
         inside.shown_apart = context.shown_apart;
         inside.origin_x = context.origin_x + area.x;
         inside.origin_y = context.origin_y + area.y;
+        inside.elisions = context.elisions;
         paint_opaque_context(inside, root, is_canvas_background_owner);
         return group;
     };
@@ -1993,6 +2256,7 @@ void paint_stacking_context(Context& context, Fragment const& root, bool is_canv
     inside.shown_apart = context.shown_apart;
     inside.origin_x = context.origin_x + area.x;
     inside.origin_y = context.origin_y + area.y;
+    inside.elisions = context.elisions;
     if (std::optional<Rect> const held = context.target.clip()) {
         group.set_clip(Rect { held->x - area.x, held->y - area.y, held->width, held->height });
     }
@@ -2306,6 +2570,8 @@ void paint_page(Bitmap& target, layout::LayoutResult const& page, float offset_x
     // one known double-composite, noted for the reftest era.
     Fragment const* const owner = canvas_background_owner(page);
     Context context { target, offset_x, offset_y, backgrounds, owner, scrolls, page.device_scale, target.clip(), pictures, shown_apart };
+    Elisions elisions;
+    context.elisions = &elisions;
     // The canvas takes the whole background of the box that owns it, its
     // pictures included: they cover the surface, sized and placed against
     // the root element's box whichever box they came from.

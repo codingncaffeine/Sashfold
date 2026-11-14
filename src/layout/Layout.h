@@ -225,6 +225,38 @@ struct Fragment {
     // page y), when it has one: an inline-block sits on its line by it
     // (CSS 2.1 §10.8.1). A flex container's is its first item's.
     std::optional<float> last_baseline;
+
+    // The line box this box was placed on — an atomic inline, or the piece
+    // of an inline box drawn behind a line's words — numbered as its runs
+    // are (`TextRun::line`); 0 for a box no line made.
+    std::uint32_t line = 0;
+
+    // text-overflow: ellipsis (css-overflow-3 §7.1) on a block container
+    // that clips along its lines: the edges of its content box, absolute,
+    // which its lines are ended at, and the faces of its own font, which
+    // the ellipsis is drawn in. Layout cuts nothing: the lines stay whole —
+    // to be measured, selected, pointed at, scrolled into view — and the
+    // painter hides what runs out past the end edge where the content now
+    // stands. Unset on a box that ends no line so.
+    struct Elision {
+        float left = 0;
+        float right = 0;
+        text::FontStack const* fonts = nullptr;
+    };
+    std::optional<Elision> elision;
+
+    // The line boxes whose runs and boxes this fragment holds, kept only
+    // inside a block that ends its lines in an ellipsis: where the block's
+    // own text stands on the line (absolute page y), which is where the
+    // ellipsis stands, and how far floats beside the line hold its box in
+    // from the block's content edges.
+    struct LineBox {
+        std::uint32_t number = 0;
+        float baseline = 0;
+        float left_inset = 0;
+        float right_inset = 0;
+    };
+    std::vector<LineBox> lines;
 };
 
 struct LayoutResult {

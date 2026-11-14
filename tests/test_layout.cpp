@@ -2436,76 +2436,163 @@ int main(int argc, char** argv)
     }
 
     // --- text-overflow: ellipsis ends an overflowing line in an ellipsis ----------
-    // css-overflow-3 §7.1: on a box that clips, a line running out past
-    // the end edge gives up what is beyond and enough before it for the
-    // ellipsis, which then ends inside the box; a line that fits, a box
-    // that does not clip and `clip` are left as they are. Each letter of
-    // the test face is 10 px wide at 16 px.
+    // css-overflow-3 §7.1 is about what is painted, and nothing else: the
+    // lines stay whole in the layout — to be measured, pointed at, selected
+    // and scrolled — and a block that clips along its lines is only marked
+    // as one whose lines end in an ellipsis. What shows is read off the
+    // painting: each case is painted beside the same line written out by
+    // hand, and the two rows have to be the same pixels. Each letter of the
+    // test face is 10 px wide at 16 px.
     {
         constexpr std::string_view html = R"(<!doctype html>
 <html><head><style>
   body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
-  div { width: 100px; white-space: nowrap }
-  .cut { overflow: hidden; text-overflow: ellipsis }
+  div { width: 100px; height: 20px; white-space: nowrap; overflow: hidden }
+  .cut { text-overflow: ellipsis }
+  s { display: inline-block; width: 30px; height: 10px; background: green; text-decoration: none }
+  p { margin: 0 }
 </style></head><body>
 <div id=long class=cut>abcdefghijklmnopqrstuvwxyz</div>
+<div>abcdefghi…</div>
 <div id=fits class=cut>abcdefghij</div>
-<div id=visible style="text-overflow: ellipsis">abcdefghijklmnopqrstuvwxyz</div>
-<div id=clip style="overflow: hidden; text-overflow: clip">abcdefghijklmnopqrstuvwxyz</div>
+<div>abcdefghij</div>
 <div id=spans class=cut>abcd<b>efgh</b><i>ijklmnop</i><u>qrstuvwxyz</u></div>
+<div>abcd<b>efgh</b><i>i</i>…</div>
 <div id=rtl class=cut dir=rtl>abcdefghijklmnopqrstuvwxyz</div>
-<div id=two style="overflow: hidden; text-overflow: clip ellipsis">abcdefghijklmnopqrstuvwxyz</div>
+<div style="text-align: right">…rstuvwxyz</div>
+<div id=box class=cut>ab<s></s>cdefghijkl</div>
+<div>ab<s></s>cdef…</div>
+<div id=boxcut class=cut>abcdefg<s></s>hij</div>
+<div>abcdefg…</div>
+<div id=first class=cut style="width: 15px">abc</div>
+<div style="width: 15px">a…</div>
+<div id=mixed class=cut style="height: 40px">abcdefghijklmnop<p>abcdefghijklmnop</p></div>
+<div style="height: 40px">abcdefghi…<p>abcdefghijklmnop</p></div>
+<div id=scrolled class=cut>abcdefghijklmnopqrstuvwxyz</div>
+<div>fghijklmn…</div>
+<div id=end class=cut>abcdefghijklmnopqrstuvwxyz</div>
+<div>qrstuvwxyz</div>
+<div id=layer class=cut>abcd<a style="opacity: 0.5">efghijklmnop</a></div>
+<div>abcd<a style="opacity: 0.5">efghi</a>…</div>
+<div id=visible style="overflow: visible; text-overflow: ellipsis">abcdefghijklmnopqrstuvwxyz</div>
+<div id=clip style="text-overflow: clip">abcdefghijklmnopqrstuvwxyz</div>
+<div id=edited class=cut contenteditable>abcdefghijklmnopqrstuvwxyz</div>
 </body></html>)";
-        Page const page = lay_out(html, 400);
-        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find
-            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+        Page page = lay_out(html, 400);
+        std::function<layout::Fragment*(layout::Fragment&, std::string_view)> find
+            = [&](layout::Fragment& f, std::string_view id) -> layout::Fragment* {
             dom::Attr const* const attribute = f.element ? f.element->find_attribute("id") : nullptr;
             if (attribute && attribute->value == id)
                 return &f;
-            for (layout::Fragment const& child : f.children) {
-                if (layout::Fragment const* found = find(child, id))
+            for (layout::Fragment& child : f.children) {
+                if (layout::Fragment* found = find(child, id))
                     return found;
             }
             return nullptr;
         };
         auto const text_of = [&](std::string_view id) {
             std::u32string text;
-            float right = 0;
             if (layout::Fragment const* const box = find(page.result.root, id)) {
                 std::vector<layout::TextRun const*> runs;
                 collect(*box, runs);
-                for (layout::TextRun const* run : runs) {
+                for (layout::TextRun const* run : runs)
                     text += run->text;
-                    if (!run->text.empty())
-                        right = std::max(right, run->x + run->width);
+            }
+            return text;
+        };
+        // Layout cuts nothing, and marks the blocks whose lines the painter ends.
+        for (std::string_view const id : { "long", "rtl", "scrolled", "end", "visible", "clip" })
+            CHECK(text_of(id) == U"abcdefghijklmnopqrstuvwxyz");
+        CHECK(text_of("spans") == U"abcdefghijklmnopqrstuvwxyz");
+        for (std::string_view const id : { "long", "fits", "spans", "rtl", "box", "first", "mixed", "layer" }) {
+            layout::Fragment const* const box = find(page.result.root, id);
+            if (!CHECK(box != nullptr))
+                continue;
+            if (CHECK(box->elision.has_value())) {
+                CHECK_EQ(box->elision->left, 0.0f);
+                CHECK_EQ(box->elision->right, id == "first" ? 15.0f : 100.0f);
+            }
+        }
+        for (std::string_view const id : { "visible", "clip" }) {
+            layout::Fragment const* const box = find(page.result.root, id);
+            if (CHECK(box != nullptr))
+                CHECK(!box->elision.has_value());
+        }
+        if (layout::Fragment const* const box = find(page.result.root, "long"); CHECK(box != nullptr)) {
+            if (CHECK_EQ(box->lines.size(), std::size_t { 1 })) {
+                CHECK_EQ(box->lines[0].left_inset, 0.0f);
+                CHECK_EQ(box->lines[0].right_inset, 0.0f);
+                CHECK(box->lines[0].baseline > box->y && box->lines[0].baseline < box->y + 20);
+            }
+        }
+        // The two boxes moved by a script or a reader: halfway, and to the end.
+        layout::ScrollOffsets offsets;
+        layout::ScrollOffsets applied;
+        if (layout::Fragment const* const box = find(page.result.root, "scrolled"); CHECK(box != nullptr)) {
+            CHECK_EQ(box->scroll_range_x, 160.0f);
+            offsets[box->element] = layout::ScrollOffset { 50, 0 };
+        }
+        if (layout::Fragment const* const box = find(page.result.root, "end"); CHECK(box != nullptr))
+            offsets[box->element] = layout::ScrollOffset { 160, 0 };
+        layout::apply_scroll(page.result.root, offsets, applied);
+        Bitmap canvas(400, static_cast<int>(page.result.page_height + 0.5f), Color::rgb(255, 255, 255));
+        paint::paint_page(canvas, page.result);
+        // Whether the box named and the one written after it show the same.
+        auto const same_as_next = [&](std::string_view id, int height = 20) {
+            layout::Fragment const* const box = find(page.result.root, id);
+            if (!box)
+                return false;
+            int const top = static_cast<int>(box->y);
+            bool ink = false;
+            for (int y = 0; y < height; ++y) {
+                for (int x = 0; x < 120; ++x) {
+                    Color const here = canvas.pixel(x, top + y);
+                    if (!(here == canvas.pixel(x, top + height + y)))
+                        return false;
+                    ink = ink || !(here == Color::rgb(255, 255, 255));
                 }
             }
-            return std::pair { text, right };
+            return ink; // two blank rows would agree about nothing
         };
         // Ten letters fit in 100 px; nine and the ellipsis do too.
-        CHECK(text_of("long").first == U"abcdefghi…");
-        CHECK_EQ(text_of("long").second, 100.0f);
-        CHECK(text_of("fits").first == U"abcdefghij");
-        CHECK(text_of("visible").first == U"abcdefghijklmnopqrstuvwxyz");
-        CHECK(text_of("clip").first == U"abcdefghijklmnopqrstuvwxyz");
-        // Across inline boxes: the run the edge falls in is cut, the ones
-        // past it show nothing.
-        CHECK(text_of("spans").first == U"abcdefghi…");
-        CHECK_EQ(text_of("spans").second, 100.0f);
-        CHECK(text_of("two").first == U"abcdefghi…");
+        CHECK(same_as_next("long"));
+        CHECK(same_as_next("fits"));
+        // Across inline boxes the ellipsis is the block's own: upright, and
+        // not underlined, whatever the words it stands for were.
+        CHECK(same_as_next("spans"));
         // Right to left the line runs out at the left: the ellipsis is there.
-        if (layout::Fragment const* const rtl = find(page.result.root, "rtl"); CHECK(rtl != nullptr)) {
-            std::vector<layout::TextRun const*> runs;
-            collect(*rtl, runs);
-            float left = 1000;
-            std::u32string text;
-            for (layout::TextRun const* run : runs) {
-                left = std::min(left, run->x);
-                text += run->text;
-            }
-            CHECK(left >= -0.01f);
-            CHECK(text.find(U'…') != std::u32string::npos);
-            CHECK(text.size() <= 10);
+        CHECK(same_as_next("rtl"));
+        // An atomic inline that fits stays; one the ellipsis needs the room
+        // of goes whole, and the ellipsis stands where it began.
+        CHECK(same_as_next("box"));
+        CHECK(same_as_next("boxcut"));
+        // The first character of a line is clipped, never taken away: the
+        // ellipsis follows it and is clipped with it.
+        CHECK(same_as_next("first"));
+        // The lines between a block's block children are its own; the
+        // children's are theirs.
+        CHECK(same_as_next("mixed", 40));
+        // Moved content is ended where it now stands, and shows whole once
+        // its end has come into view.
+        CHECK(same_as_next("scrolled"));
+        CHECK(same_as_next("end"));
+        // An inline box painted as a layer of its own gives up its words too.
+        CHECK(same_as_next("layer"));
+        // A box being edited shows what is typed: no ellipsis while the
+        // focus is in it, and one again once the focus has gone.
+        if (dom::Element const* const edited = find(page.result.root, "edited") ? find(page.result.root, "edited")->element : nullptr;
+            CHECK(edited != nullptr)) {
+            CHECK(find(page.result.root, "edited")->elision.has_value());
+            page.document->set_focused(edited, false);
+            page.result = layout::layout_document(*page.document, page.styles, 400);
+            if (layout::Fragment const* const box = find(page.result.root, "edited"); CHECK(box != nullptr))
+                CHECK(!box->elision.has_value());
+            if (layout::Fragment const* const box = find(page.result.root, "long"); CHECK(box != nullptr))
+                CHECK(box->elision.has_value());
+            page.document->set_focused(nullptr, false);
+            page.result = layout::layout_document(*page.document, page.styles, 400);
+            if (layout::Fragment const* const box = find(page.result.root, "edited"); CHECK(box != nullptr))
+                CHECK(box->elision.has_value());
         }
     }
 

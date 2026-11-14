@@ -1152,6 +1152,12 @@ struct Layouter {
             *fragment.last_baseline += dy;
         if (fragment.first_baseline)
             *fragment.first_baseline += dy;
+        if (fragment.elision) {
+            fragment.elision->left += dx;
+            fragment.elision->right += dx;
+        }
+        for (Fragment::LineBox& line : fragment.lines)
+            line.baseline += dy;
         for (TextRun& run : fragment.runs) {
             // A run that has already been turned holds the page's y in `x`
             // and the page's x in `baseline_y`, so it takes the two steps
@@ -2208,6 +2214,10 @@ struct Layouter {
         // one out there, so it does not survive the turn.
         fragment.first_baseline.reset();
         fragment.last_baseline.reset();
+        // Nor do the lines' own records: a turned block ends none of its
+        // lines in an ellipsis.
+        fragment.elision.reset();
+        fragment.lines.clear();
         turn_box(fragment);
         fragment.style = style_in(t.destination, fragment.style);
     }
@@ -3038,6 +3048,8 @@ struct Layouter {
                 shift_fragment(child, 0, dy);
             for (TextRun& run : fragment.runs)
                 run.baseline_y += dy;
+            for (Fragment::LineBox& line : fragment.lines)
+                line.baseline += dy;
             if (fragment.first_baseline)
                 *fragment.first_baseline += dy;
             if (fragment.last_baseline)
@@ -4323,6 +4335,18 @@ struct Layouter {
             std::uint32_t const line_number = ++next_line;
             for (std::size_t r = runs_before; r < out.runs.size(); ++r)
                 out.runs[r].line = line_number;
+            for (std::size_t c = children_before; c < out.children.size(); ++c)
+                out.children[c].line = line_number;
+            // A block that ends its lines in an ellipsis keeps where each
+            // one's box is: the painter ends the line there.
+            if (ends_lines_in_ellipsis(block_style) && frame_mode == css::WritingMode::HorizontalTb) {
+                float const start = paragraph_rtl ? 0.0f : indent_now();
+                float const end = paragraph_rtl ? indent_now() : 0.0f;
+                float const box_left = line_left - start;
+                float const box_right = line_left + line_avail + end;
+                out.lines.push_back(Fragment::LineBox { line_number, line_baseline,
+                    std::max(0.0f, box_left - content_x), std::max(0.0f, content_x + content_width - box_right) });
+            }
             if (!line_clamps.empty() && !line_clamps.back().barrier) {
                 LineClamp& clamp = line_clamps.back();
                 if (clamp.remaining > 0) {
@@ -5379,65 +5403,31 @@ struct Layouter {
         return std::min(content_height, std::max(0.0f, cut - content_y));
     }
 
-    // text-overflow: ellipsis (css-overflow-3 §7.1), once a box that clips
-    // has its lines: each line of its own that runs out past its end edge
-    // gives up what is beyond and as many characters before that as an
-    // ellipsis needs, and ends in the ellipsis. The words of the lines
-    // inside its block children are theirs to cut.
-    void cut_overflowing_lines(Fragment& box, ComputedStyle const& style, float content_x, float content_width) const
+    // text-overflow: ellipsis (css-overflow-3 §7.1) takes effect on a block
+    // container that clips along its lines. Layout cuts nothing for it: a
+    // line's words stay whole, and the painter ends the line in an ellipsis
+    // where it runs out (`Fragment::elision`).
+    static bool ends_lines_in_ellipsis(ComputedStyle const& style)
     {
-        bool const rtl = style.direction == css::Direction::Rtl;
-        float const left = content_x;
-        float const right = content_x + content_width;
-        std::u32string const ellipsis = U"\u2026";
-        std::map<int, std::vector<TextRun*>> lines;
-        for (TextRun& run : box.runs) {
-            if (run.swapped || run.mode != css::WritingMode::HorizontalTb || !run.style)
-                continue;
-            lines[run.line].push_back(&run);
+        return style.text_overflow_ellipsis && style.overflow_x != css::Overflow::Visible;
+    }
+
+    // Whether the reader is editing in or around a box: the focus is on an
+    // editable element that holds the box or is held by it. Such a box
+    // clips its lines and shows no ellipsis (css-overflow-3 §7.2), so what
+    // is being typed is what is seen.
+    static bool being_edited(dom::Element const& element)
+    {
+        dom::Element const* const focused = element.document().focused();
+        if (!focused || !dom::forms::editing_host_editable(*focused))
+            return false;
+        if (element.document().holds_focus(element))
+            return true;
+        for (dom::Node const* node = &element; node; node = node->style_parent()) {
+            if (node == focused)
+                return true;
         }
-        for (auto& [line, runs] : lines) {
-            bool over = false;
-            for (TextRun const* run : runs)
-                over = over || (rtl ? run->x < left - 0.01f : run->x + run->width > right + 0.01f);
-            if (!over)
-                continue;
-            float const room = measure(style, ellipsis);
-            // How far the words may reach, the ellipsis after them.
-            float const limit = rtl ? left + room : right - room;
-            TextRun* end = nullptr;
-            for (TextRun* run : runs) {
-                bool const beyond = rtl ? run->x + run->width <= limit + 0.01f : run->x >= limit - 0.01f;
-                if (beyond && (rtl ? run->x + run->width < right - 0.01f : run->x > left + 0.01f)) {
-                    // Wholly in the ellipsis's place or past it, and not the
-                    // line's first: nothing of it shows.
-                    if (rtl)
-                        run->x += run->width;
-                    run->text.clear();
-                    run->width = 0;
-                    continue;
-                }
-                while (!run->text.empty() && (rtl ? run->x < limit - 0.01f : run->x + run->width > limit + 0.01f)) {
-                    float const before = run->width;
-                    run->text.pop_back();
-                    run->width = measure(*run->style, run->text);
-                    if (rtl)
-                        run->x += before - run->width;
-                }
-                if (!end || (rtl ? run->x < end->x : run->x + run->width > end->x + end->width))
-                    end = run;
-            }
-            if (!end)
-                continue;
-            float const drawn = measure(*end->style, ellipsis);
-            if (rtl) {
-                end->text.insert(end->text.begin(), ellipsis.begin(), ellipsis.end());
-                end->x -= drawn;
-            } else {
-                end->text += ellipsis;
-            }
-            end->width += drawn;
-        }
+        return false;
     }
 
     Fragment layout_block(dom::Element const& element, ComputedStyle const& style, float x,
@@ -5744,8 +5734,9 @@ struct Layouter {
         if (clamps && line_clamps.back().cut_line != 0 && line_clamps.back().more)
             content_height = cut_clamped_lines(fragment, line_clamps.back(), style, content_x, content_y, content_width,
                 content_height);
-        if (style.text_overflow_ellipsis && style.overflow_x != css::Overflow::Visible && !fragment.runs.empty())
-            cut_overflowing_lines(fragment, style, content_x, content_width);
+        if (ends_lines_in_ellipsis(style) && !flex && !grid && frame_mode == css::WritingMode::HorizontalTb
+            && !being_edited(element))
+            fragment.elision = Fragment::Elision { content_x, content_x + content_width, &fonts_for(style) };
         // The box's baseline, for an inline-block's sake: its own lines set
         // it; with block children it is the last in-flow child's (a flex or
         // grid container's the first item's).
@@ -9804,6 +9795,10 @@ void shift_contents(Fragment& box, float dx, float dy)
         run.x += run.swapped ? dy : dx;
         run.baseline_y += run.swapped ? dx : dy;
     }
+    // Its lines go up and down with their words. The edges it ends them at
+    // are its own box's, and stay.
+    for (Fragment::LineBox& line : box.lines)
+        line.baseline += dy;
     for (Fragment& child : box.children) {
         if (child.style && child.style->position == css::Position::Fixed)
             continue;
