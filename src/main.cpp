@@ -327,9 +327,11 @@ bool trace_frames = false;
 //   press <x> <y>          release <x> <y>       (a drag: a press, moves, a release)
 //   click-text <text>      type <text>           key enter|escape|... or a chord: ctrl+t, ctrl+shift+t, alt+left
 //   navigate <typed>       text <file>           frame <file>
+//   gaps <file>
 //
 // `text` writes the page's laid-out text and its console beside the frames
-// (--frames-to), `frame` the frame last shown.
+// (--frames-to), `frame` the frame last shown, `gaps` what the pages wrote
+// so far that the engine dropped (the census of --render --gaps).
 struct DriveStep {
     double at_ms = 0;
     std::string command;
@@ -2414,6 +2416,15 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // the last one at the end — the real window, on the real clock.
     double next_capture_ms = frame_every_ms;
     Bitmap const* last_presented = nullptr;
+    // A driven window with a `gaps` step counts what its pages write that
+    // the engine drops, as --render --gaps does, from the start: the census
+    // of a page only a real window gets to.
+    GapCensus window_gaps;
+    struct GapSinkReset {
+        ~GapSinkReset() { css::set_gap_sink(nullptr); }
+    } const gap_sink_reset;
+    if (std::any_of(drive_steps.begin(), drive_steps.end(), [](DriveStep const& step) { return step.command == "gaps"; }))
+        css::set_gap_sink([&window_gaps](std::string_view kind, std::string_view item) { window_gaps.note(kind, item); });
     auto const capture = [&](Bitmap const& frame, std::string const& name) {
         std::ofstream out(std::filesystem::path(frames_dir) / name, std::ios::binary);
         std::vector<std::uint8_t> const png = encode_png(frame);
@@ -2714,6 +2725,9 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                     << "title: " << browser.page_title() << "\n--- text ---\n"
                     << browser.page_text() << "\n--- console ---\n"
                     << browser.console_text();
+            } else if (step.command == "gaps" && !frames_dir.empty()) {
+                // `<ms> gaps <file>`: the census so far, into the frames folder.
+                write_gaps((std::filesystem::path(frames_dir) / step.argument).string(), window_gaps);
             } else if (step.command == "frame" && !frames_dir.empty() && last_presented != nullptr) {
                 capture(*last_presented, step.argument);
             } else {
