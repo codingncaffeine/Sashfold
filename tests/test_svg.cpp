@@ -441,5 +441,54 @@ int main()
         }
     }
 
+    // --- An <image> that names a resource is drawn from the page's pictures --------
+    // The renderer fetches nothing: whoever fetched the page's pictures
+    // answers for the element. With an answer the picture is drawn into the
+    // element's box and cut by its clip path; with none, or no one to ask,
+    // nothing is drawn there. An avatar written as an inline <svg> around
+    // an <image href> is drawn this way.
+    {
+        constexpr std::string_view html = R"HTML(<!doctype html><html><body>
+<svg viewBox="0 0 100 100" width="100" height="100">
+  <defs><clipPath id="top"><rect x="0" y="0" width="100" height="50"/></clipPath></defs>
+  <image id="pic" href="avatar.png" width="100%" height="100%" clip-path="url(#top)"/>
+</svg></body></html>)HTML";
+        auto const document = html::parse_document(html);
+        css::StyleMap const styles = css::resolve_styles(*document);
+        dom::Element const* svg_root = nullptr;
+        dom::Element const* image = nullptr;
+        std::function<void(dom::Node const&)> find = [&](dom::Node const& node) {
+            if (node.is_element()) {
+                auto const& element = static_cast<dom::Element const&>(node);
+                if (element.is_svg("svg"))
+                    svg_root = &element;
+                if (element.is_svg("image"))
+                    image = &element;
+            }
+            for (dom::Node const* child : node.children())
+                find(*child);
+        };
+        find(*document);
+        if (CHECK(svg_root != nullptr && image != nullptr)) {
+            auto const fetched = std::make_shared<Bitmap const>(8, 8, red);
+            int asked = 0;
+            svg::Pictures const pictures = [&](dom::Element const& element) -> std::shared_ptr<Bitmap const> {
+                ++asked;
+                return &element == image ? fetched : nullptr;
+            };
+            Bitmap const drawn = svg::render(*svg_root, styles, 100, 100, &pictures);
+            CHECK_EQ(asked, 1);
+            CHECK(same(at(drawn, 50, 25), red)); // inside the clip path
+            CHECK_EQ(static_cast<int>(at(drawn, 50, 75).a), 0); // cut away by it
+            // Not yet come: nothing is drawn, and nothing breaks.
+            svg::Pictures const none = [](dom::Element const&) -> std::shared_ptr<Bitmap const> { return nullptr; };
+            Bitmap const waiting = svg::render(*svg_root, styles, 100, 100, &none);
+            CHECK_EQ(static_cast<int>(at(waiting, 50, 25).a), 0);
+            // No one to ask: the same.
+            Bitmap const alone = svg::render(*svg_root, styles, 100, 100);
+            CHECK_EQ(static_cast<int>(at(alone, 50, 25).a), 0);
+        }
+    }
+
     return test::report("svg");
 }

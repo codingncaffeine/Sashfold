@@ -530,6 +530,8 @@ struct Context {
     // A budget on the work one document may ask for, so a hostile file
     // cannot spin the renderer: every shape and every text run spends one.
     int budget = 200000;
+    // The pictures the page has fetched for <image> elements; null has none.
+    Pictures const* pictures = nullptr;
 };
 
 struct State {
@@ -1369,19 +1371,25 @@ void render_image(Context& context, State const& state, dom::Element const& elem
     if (context.budget-- <= 0 || style.visibility == css::Visibility::Hidden)
         return;
     std::string_view const href = href_of(element);
-    if (!href.starts_with("data:"))
-        return;
-    std::optional<net::Url> const url = net::parse_url(std::string(href));
-    if (!url)
-        return;
-    std::optional<net::DataUrlPayload> const payload = net::parse_data_url(*url);
-    if (!payload)
-        return;
-    std::optional<Bitmap> picture;
-    if (looks_like_svg(payload->bytes))
-        picture = decode_svg(payload->bytes, 4u << 20);
-    else
-        picture = decode_embedded(payload->bytes);
+    // A picture written into the document is decoded here; one that names a
+    // resource is the page's to fetch, and is drawn once the page has it.
+    std::optional<Bitmap> decoded;
+    std::shared_ptr<Bitmap const> fetched;
+    if (href.starts_with("data:")) {
+        std::optional<net::Url> const url = net::parse_url(std::string(href));
+        if (!url)
+            return;
+        std::optional<net::DataUrlPayload> const payload = net::parse_data_url(*url);
+        if (!payload)
+            return;
+        if (looks_like_svg(payload->bytes))
+            decoded = decode_svg(payload->bytes, 4u << 20);
+        else
+            decoded = decode_embedded(payload->bytes);
+    } else if (context.pictures && *context.pictures) {
+        fetched = (*context.pictures)(element);
+    }
+    Bitmap const* const picture = decoded ? &*decoded : fetched.get();
     if (!picture || picture->width() <= 0 || picture->height() <= 0)
         return;
     float const em = style.font_size;
@@ -1653,7 +1661,7 @@ IntrinsicSize intrinsic_size(dom::Element const& svg)
     return size;
 }
 
-Bitmap render(dom::Element const& svg, css::StyleMap const& styles, float width, float height)
+Bitmap render(dom::Element const& svg, css::StyleMap const& styles, float width, float height, Pictures const* pictures)
 {
     if (!std::isfinite(width) || !std::isfinite(height))
         return Bitmap(1, 1, Color::rgba(0, 0, 0, 0));
@@ -1662,7 +1670,7 @@ Bitmap render(dom::Element const& svg, css::StyleMap const& styles, float width,
     Bitmap target(w, h, Color::rgba(0, 0, 0, 0));
     if (!svg.is_svg("svg"))
         return target;
-    Context context { svg, styles, target, {}, 200000 };
+    Context context { svg, styles, target, {}, 200000, pictures };
     collect_ids(context, svg);
     css::ComputedStyle const* const style = style_of(context, svg);
     if (!style || style->display == css::Display::None || view_box_disables(attribute(svg, "viewBox")))

@@ -63,6 +63,8 @@ struct Collector {
             auto const& element = static_cast<dom::Element const&>(node);
             if (element.is_html("img"))
                 consider(element);
+            else if (element.is_svg("image"))
+                consider_svg_image(element);
             else if (embedded && (element.is_html("object") || element.is_html("embed")))
                 consider_embedded(element);
             // The pictures of a shadow tree are the page's too.
@@ -81,6 +83,21 @@ struct Collector {
         if (!source)
             return;
         take(element, source->url, source->density);
+    }
+
+    // The picture an <image> inside an inline <svg> names by its href (or
+    // the older xlink:href): fetched with the page's pictures and handed to
+    // the SVG renderer by its element. One written as a `data:` URL is the
+    // renderer's own to decode.
+    void consider_svg_image(dom::Element const& element)
+    {
+        for (dom::Attr const& attribute : element.attributes()) {
+            if (attribute.local_name != "href" || attribute.value.empty() || attribute.value.starts_with("data:"))
+                continue;
+            if (std::optional<net::Url> const url = net::parse_url(attribute.value, base))
+                take(element, *url, 1);
+            return;
+        }
     }
 
     // An object's or an embed's picture: what its data or its src names, once

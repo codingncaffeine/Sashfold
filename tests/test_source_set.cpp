@@ -260,6 +260,32 @@ int main()
         CHECK(!more);
     }
 
+    // The pictures an inline <svg> names with <image> are the page's to
+    // fetch, by href or the older xlink:href, against the document's base;
+    // one written into the document as a `data:` URL is not fetched, and an
+    // <image> with no href names nothing.
+    {
+        constexpr std::string_view html = R"HTML(<!doctype html><html><body>
+<svg width="40" height="40"><image id="a" href="avatar.png" width="40" height="40"/></svg>
+<svg width="40" height="40" xmlns:xlink="http://www.w3.org/1999/xlink"><image id="b" xlink:href="../old.png" width="40" height="40"/></svg>
+<svg width="40" height="40"><image id="c" href="data:image/png;base64,AAAA" width="40" height="40"/><image id="d" width="40" height="40"/></svg>
+</body></html>)HTML";
+        auto const document = html::parse_document(html);
+        net::Url const base = page_url();
+        std::vector<std::string> fetched;
+        ui::ImageFetcher const fetcher = [&](net::Url const& url) -> std::optional<std::vector<std::uint8_t>> {
+            fetched.push_back(path_of(url));
+            return encode_png(Bitmap(4, 4, Color::rgb(255, 0, 0)));
+        };
+        layout::ImageMap const images = ui::collect_images(*document, &base, fetcher, css::MediaContext { 800, 600 });
+        CHECK(fetched == (std::vector<std::string> { "/dir/avatar.png", "/old.png" }));
+        CHECK_EQ(images.size(), std::size_t { 2 });
+        for (auto const& [element, image] : images) {
+            CHECK(element->is_svg("image"));
+            CHECK(image.bitmap != nullptr && image.bitmap->width() == 4);
+        }
+    }
+
     // A pass that is told which sources have arrived takes those and leaves
     // the rest for a later one — waiting for none, and spending none of its
     // budget on what it left.

@@ -5054,6 +5054,13 @@ struct Browser::Impl {
             auto const& element = static_cast<dom::Element const&>(node);
             if (element.is_html("img") && !images.contains(&element))
                 return true;
+            // An inline SVG's <image> that names a resource is fetched too.
+            if (element.is_svg("image") && !images.contains(&element)) {
+                for (dom::Attr const& attribute : element.attributes()) {
+                    if (attribute.local_name == "href" && !attribute.value.empty() && !attribute.value.starts_with("data:"))
+                        return true;
+                }
+            }
             if (dom::ShadowRoot const* const shadow = element.shadow_root(); shadow != nullptr && has_unfetched_image(*shadow, images))
                 return true;
         }

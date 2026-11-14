@@ -15,6 +15,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string_view>
 #include <vector>
@@ -35,9 +36,16 @@ struct IntrinsicSize {
 };
 IntrinsicSize intrinsic_size(dom::Element const& svg);
 
+// The picture an <image> element names, as whoever fetches the page's
+// pictures has it: null while it has not come, or could not be had. The
+// renderer fetches nothing itself; a `data:` picture it decodes on its own.
+using Pictures = std::function<std::shared_ptr<Bitmap const>(dom::Element const& image)>;
+
 // Draws the element's content into a transparent bitmap of the given size
 // in CSS px, the viewBox fitted to it as preserveAspectRatio says.
-Bitmap render(dom::Element const& svg, css::StyleMap const& styles, float width, float height);
+// `pictures` answers for the <image> elements that name a resource.
+Bitmap render(dom::Element const& svg, css::StyleMap const& styles, float width, float height,
+    Pictures const* pictures = nullptr);
 
 // A standalone SVG document's bytes, decoded at the size it declares — the
 // viewBox's when it declares none, 300 by 150 when it has neither — and

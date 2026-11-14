@@ -1804,7 +1804,16 @@ struct Layouter {
         if (auto const it = svg_pictures.find(&element);
             it != svg_pictures.end() && it->second.width == w && it->second.height == h)
             return it->second.bitmap;
-        auto picture = std::make_shared<Bitmap const>(svg::render(element, styles, static_cast<float>(w), static_cast<float>(h)));
+        // The pictures its <image> elements name are the page's, fetched
+        // with the rest: drawn once they are in.
+        svg::Pictures const fetched = [this](dom::Element const& image) -> std::shared_ptr<Bitmap const> {
+            if (!images)
+                return nullptr;
+            auto const had = images->find(&image);
+            return had == images->end() ? nullptr : had->second.bitmap;
+        };
+        auto picture = std::make_shared<Bitmap const>(
+            svg::render(element, styles, static_cast<float>(w), static_cast<float>(h), &fetched));
         svg_pictures[&element] = SvgPicture { w, h, picture };
         return picture;
     }
