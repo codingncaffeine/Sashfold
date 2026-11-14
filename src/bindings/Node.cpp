@@ -762,6 +762,15 @@ void scroll_into_view(Realm::Internals& in, dom::Element& element, std::string c
     std::optional<LayoutBox> const target = client_box(in, element);
     if (!target || !in.hooks.scroll_to)
         return;
+    // A box fixed to the viewport, and what is inside one, stays where it
+    // is however the page is scrolled: the page is not moved for it.
+    if (in.hooks.computed_style) {
+        for (dom::Node* node = &element; node != nullptr && node->is_element(); node = node->parent()) {
+            css::ComputedStyle const* const style = in.hooks.computed_style(static_cast<dom::Element&>(*node));
+            if (style && style->position == css::Position::Fixed)
+                return;
+        }
+    }
     if (in.hooks.refresh_viewport)
         in.hooks.refresh_viewport();
     std::pair<double, double> const page = page_scroll(in);
