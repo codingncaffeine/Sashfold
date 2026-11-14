@@ -3885,6 +3885,13 @@ std::optional<std::string> Realm::target_name() const
     return *name;
 }
 
+void Realm::focus_moved(dom::Element const* previous, dom::Element const* now)
+{
+    if (previous == now)
+        return;
+    fire_focus_events(*m_internals, previous, now);
+}
+
 bool Realm::dispatch_event(dom::Node* target, std::string_view type, EventInit init)
 {
     Internals& in = *m_internals;

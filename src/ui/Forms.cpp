@@ -346,13 +346,30 @@ dom::Element const* default_submitter(dom::Element const& form)
     });
 }
 
-std::vector<dom::Element const*> focusable_controls(dom::Document const& document)
+namespace {
+
+// The controls under a node in the order the flat tree draws them: a
+// host's shadow tree in its place, a slot's assigned nodes in the slot's.
+void collect_focusable(dom::Node const& node, std::vector<dom::Element const*>& controls)
 {
-    std::vector<dom::Element const*> controls;
-    for_each_element(document, [&](dom::Element const& element) {
+    for (dom::Node const* child : dom::flat_children(node)) {
+        if (!child->is_element())
+            continue;
+        auto const& element = static_cast<dom::Element const&>(*child);
         if (layout::is_control(element) && !element.has_attribute("disabled"))
             controls.push_back(&element);
-    });
+        collect_focusable(element, controls);
+    }
+}
+
+}
+
+std::vector<dom::Element const*> focusable_controls(dom::Document const& document)
+{
+    // Tab reaches the fields inside components as it reaches any other
+    // (HTML §6.6.3: the order is the flat tree's).
+    std::vector<dom::Element const*> controls;
+    collect_focusable(document, controls);
     return controls;
 }
 

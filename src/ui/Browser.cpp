@@ -5426,7 +5426,10 @@ struct Browser::Impl {
             if (Tab* const owner = tab_of(document)) {
                 // element.focus(): the selection the control had stays
                 // (Blink's restore-on-focus), the caret at the start of one
-                // nothing has selected in.
+                // nothing has selected in. What the reader typed in the
+                // control the script takes the focus from is committed.
+                if (owner->controls.edited && owner->controls.edited != element)
+                    commit_text_change(*owner);
                 owner->controls.focused = element;
             }
         };
@@ -12415,14 +12418,46 @@ struct Browser::Impl {
 
     // The control with the focus, told to its document too (it may be a
     // frame's): :focus, :focus-within and :focus-visible follow it.
-    static void focus_control(Tab& tab, dom::Element const* control, bool visible)
+    // A text control the reader edited and has now left, or pressed Enter
+    // in: its change event, when its value is not what it was before the
+    // edits (HTML §4.10.5.5 — the reader has committed the change).
+    void commit_text_change(Tab& tab)
     {
-        if (dom::Element const* previous = tab.controls.focused; previous && previous != control
-            && (!control || &previous->document() != &control->document()))
+        dom::Element const* const edited = std::exchange(tab.controls.edited, nullptr);
+        if (!edited || !tab.document)
+            return;
+        std::string const before = std::move(tab.controls.value_before_edits);
+        tab.controls.value_before_edits.clear();
+        if (layout::control_value(*edited, &tab.controls) == before)
+            return;
+        if (bindings::Realm* const realm = tab.realm ? realm_for(tab, *edited) : nullptr) {
+            realm->dispatch_event(const_cast<dom::Element*>(edited), "change", bindings::Realm::EventInit { true, false, false });
+            ensure_fresh(tab);
+        }
+    }
+
+    void focus_control(Tab& tab, dom::Element const* control, bool visible)
+    {
+        // What the reader typed in the control being left is committed
+        // first: change comes before blur.
+        if (tab.controls.edited && tab.controls.edited != control)
+            commit_text_change(tab);
+        dom::Element const* const previous = tab.controls.focused;
+        if (previous && previous != control && (!control || &previous->document() != &control->document()))
             previous->document().set_focused(nullptr, false);
         tab.controls.focused = control;
         if (control)
             control->document().set_focused(control, visible);
+        if (previous == control)
+            return;
+        // The page hears of it, as it hears of a focus a script gave: the
+        // one that lost it first, each in its own document's realm.
+        bindings::Realm* const from = previous ? realm_for(tab, *previous) : nullptr;
+        bindings::Realm* const to = control ? realm_for(tab, *control) : nullptr;
+        if (from && from != to)
+            from->focus_moved(previous, nullptr);
+        if (to)
+            to->focus_moved(from == to ? previous : nullptr, control);
     }
 
     static std::string utf8_of(std::u32string const& text)
@@ -12992,6 +13027,13 @@ struct Browser::Impl {
             with = std::u32string(field_edit::within_max_length(text, start, end, with, max_length_of(control)));
         if (start == end && with.empty())
             return false;
+        // The first edit since the value was committed: what it was is
+        // kept, for the change event owed when the reader is done.
+        if (tab.controls.edited != &control) {
+            commit_text_change(tab);
+            tab.controls.edited = &control;
+            tab.controls.value_before_edits = layout::control_value(control, &tab.controls);
+        }
         bindings::Realm* const realm = tab.realm ? realm_for(tab, control) : nullptr;
         bindings::InputInit init;
         init.input_type = std::string(input_type);
@@ -13344,8 +13386,12 @@ struct Browser::Impl {
             return true;
         }
         case Key::Enter:
-            if (!textarea)
-                return false; // the form's implicit submission
+            if (!textarea) {
+                // Enter commits what was typed, then the form's implicit
+                // submission follows.
+                commit_text_change(tab);
+                return false;
+            }
             field_edit(tab, control, "insertLineBreak", selection.start, selection.end, U"\n");
             return true;
         default: return false;

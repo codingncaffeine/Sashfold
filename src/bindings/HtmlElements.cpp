@@ -194,6 +194,8 @@ dom::Element const* focused_element(Realm::Internals& in)
     return in.fallback_focus;
 }
 
+void fire_focus_events(Realm::Internals& in, dom::Element const* previous, dom::Element const* element);
+
 void move_focus(Realm::Internals& in, dom::Element const* element)
 {
     dom::Element const* previous = focused_element(in);
@@ -210,12 +212,21 @@ void move_focus(Realm::Internals& in, dom::Element const* element)
     // a field lays out its caret (a timer's focus() has no input event
     // behind it to ask for a picture).
     in.realm.note_mutation();
-    if (previous) {
-        in.realm.dispatch_event(const_cast<dom::Element*>(previous), "blur");
+    fire_focus_events(in, previous, element);
+}
+
+// The four events of a move of the focus. All are composed (UI Events
+// §5.2): blur and focus do not bubble, and still reach the host of a shadow
+// tree the element is in, where a component listens for the focus of the
+// field inside it.
+void fire_focus_events(Realm::Internals& in, dom::Element const* previous, dom::Element const* element)
+{
+    if (previous && &previous->document() == in.document) {
+        in.realm.dispatch_event(const_cast<dom::Element*>(previous), "blur", Realm::EventInit { false, false, true });
         in.realm.dispatch_event(const_cast<dom::Element*>(previous), "focusout", Realm::EventInit { true, false, true });
     }
-    if (element) {
-        in.realm.dispatch_event(const_cast<dom::Element*>(element), "focus");
+    if (element && &element->document() == in.document) {
+        in.realm.dispatch_event(const_cast<dom::Element*>(element), "focus", Realm::EventInit { false, false, true });
         in.realm.dispatch_event(const_cast<dom::Element*>(element), "focusin", Realm::EventInit { true, false, true });
     }
 }

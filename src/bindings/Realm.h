@@ -583,6 +583,12 @@ public:
     // called preventDefault on a cancelable event: the host then skips
     // the default action.
     bool dispatch_event(dom::Node* target, std::string_view type, EventInit init = {});
+    // The reader moved the focus — a press on a control, Tab — and the
+    // host has already recorded it: the events a script's focus() fires,
+    // blur and focusout at the element that had it, focus and focusin at
+    // the one that has it now. Either may be null, or another realm's (a
+    // frame's), which is then not this realm's to tell.
+    void focus_moved(dom::Element const* previous, dom::Element const* now);
     // The reader's answer to HostHooks::ask_notification_permission:
     // "granted", "denied" or "default". Every requestPermission() waiting
     // on it is settled with it.

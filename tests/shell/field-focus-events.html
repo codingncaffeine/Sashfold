@@ -1,0 +1,24 @@
+<!doctype html>
+<title>start</title>
+<div style="position:relative;width:500px;height:120px">
+<input id="a" style="position:absolute;left:20px;top:20px;width:150px;height:30px;margin:0;padding:0;border:1px solid gray">
+<input id="b" style="position:absolute;left:220px;top:20px;width:150px;height:30px;margin:0;padding:0;border:1px solid gray">
+<div id="host" style="position:absolute;left:20px;top:70px;width:152px;height:32px"></div>
+</div>
+<script>
+// Each field notes the events of the reader's own focus moves and edits in
+// the title: focus and blur (composed, so the host of the third field's
+// shadow tree hears them at itself), and change when the reader leaves a
+// field they edited or presses Enter in it — before the blur, once, and
+// not when nothing was typed.
+const log = [];
+const note = (text) => { log.push(text); document.title = log.join(" "); };
+const host = document.getElementById("host");
+host.attachShadow({ mode: "open" }).innerHTML = '<input id="c" style="width:150px;height:30px;margin:0;padding:0;border:1px solid gray">';
+for (const el of [document.getElementById("a"), document.getElementById("b"), host.shadowRoot.getElementById("c")]) {
+  for (const type of ["focus", "blur", "change"])
+    el.addEventListener(type, () => note(type + ":" + el.id + (type === "change" ? "=" + el.value : "")));
+}
+for (const type of ["focus", "blur", "focusin", "focusout", "change"])
+  host.addEventListener(type, (event) => note("host-" + type + "@" + event.target.id));
+</script>

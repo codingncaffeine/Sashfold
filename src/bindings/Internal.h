@@ -2132,6 +2132,7 @@ bool control_checked_of(Realm::Internals&, dom::Element const&);
 void set_control_checked_of(Realm::Internals&, dom::Element const&, bool checked);
 // Focus moves: the hook, the events, the fallback.
 void move_focus(Realm::Internals&, dom::Element const* element);
+void fire_focus_events(Realm::Internals&, dom::Element const* previous, dom::Element const* element);
 // Autofocus (HTML §6.6.7): an inserted tree with [autofocus] in it is a
 // candidate; the candidates are flushed at the end of a turn.
 void note_autofocus_candidates(Realm::Internals&, dom::Node const& inserted);

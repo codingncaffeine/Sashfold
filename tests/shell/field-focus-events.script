@@ -1,0 +1,29 @@
+# The reader's own focus moves and edits, as the page hears them: focus and
+# blur when a press or Tab moves the focus, and a text field's change event
+# when the reader leaves it after typing or presses Enter in it (HTML
+# §4.10.5.5), before its blur. The fields sit under 78 px of chrome: a at x
+# 20..170 and b at 220..370, y 20..50; c, inside a shadow tree, at y 70..100.
+resize 900 700
+open field-focus-events.html
+advance 200 2
+# A press in a: its focus. Nothing typed, a press in b: no change.
+click 60 113
+advance 200 2
+assert-title focus:a
+click 260 113
+advance 200 2
+assert-title focus:a blur:a focus:b
+# Typed into b, then Tab: change with the new value, then blur; the focus
+# goes on to the field in the shadow tree, which its host hears at itself.
+type hi
+advance 200 2
+key tab
+advance 200 2
+assert-title focus:a blur:a focus:b change:b=hi blur:b focus:c host-focus@host host-focusin@host
+# Enter commits what was typed; leaving after it brings no second change.
+type x
+key enter
+advance 200 2
+click 60 113
+advance 200 2
+assert-title focus:a blur:a focus:b change:b=hi blur:b focus:c host-focus@host host-focusin@host change:c=x blur:c host-blur@host host-focusout@host focus:a

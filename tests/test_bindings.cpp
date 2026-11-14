@@ -4469,6 +4469,26 @@ void test_shadow_trees()
     page.eval("root.appendChild(document.createElement('q')).mark = 7; for (var i = 0; i < 50; ++i) ({ filler: [i] });");
     CHECK_EQ(page.number("root.lastChild.mark"), 7);
     CHECK_EQ(page.console, "");
+    // focus and blur are composed (UI Events §5.2): they do not bubble, and
+    // still reach the host of the shadow tree the field is in — at the host
+    // as its own target — and a capturing listener on the document, where
+    // a component listening on itself hears the field inside it.
+    {
+        Page focus("<!DOCTYPE html><body><div id=h></div><input id=other></body>");
+        focus.load();
+        focus.eval("var log = []; var h = document.getElementById('h'); var r = h.attachShadow({ mode: 'open' }); r.innerHTML = '<input id=inner>';"
+                   "var inner = r.getElementById('inner');"
+                   "['focus', 'blur', 'focusin', 'focusout'].forEach(function (t) {"
+                   "  h.addEventListener(t, function (e) { log.push('host ' + t + ' ' + e.eventPhase + ' ' + e.target.id + ' ' + e.composed + ' ' + e.bubbles); });"
+                   "  document.addEventListener(t, function (e) { log.push('doc ' + t + ' ' + e.target.id); }, true);"
+                   "  document.addEventListener(t, function (e) { log.push('doc-bubble ' + t); });"
+                   "});"
+                   "inner.focus(); log.push('--'); document.getElementById('other').focus();");
+        CHECK_EQ(focus.string("log.join(', ')"),
+            "doc focus h, host focus 2 h true false, doc focusin h, host focusin 2 h true true, doc-bubble focusin, --, "
+            "doc blur h, host blur 2 h true false, doc focusout h, host focusout 2 h true true, doc-bubble focusout, "
+            "doc focus other, doc focusin other, doc-bubble focusin");
+    }
 }
 
 // An event's path through shadow trees (DOM §2.9): a listener outside a

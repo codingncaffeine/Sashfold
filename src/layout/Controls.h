@@ -95,6 +95,12 @@ struct ControlStates {
     // belongs to, which is the focused one when it was set.
     std::string preedit;
     dom::Element const* preedit_owner = nullptr;
+    // A text control the reader has edited since its value was last
+    // committed, and the value it had before the first of those edits:
+    // what tells, when the control loses the focus or Enter is pressed in
+    // it, whether a change event is owed (HTML §4.10.5.5).
+    dom::Element const* edited = nullptr;
+    std::string value_before_edits;
 
     ControlState const* find(dom::Element const& element) const;
 };

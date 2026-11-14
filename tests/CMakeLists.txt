@@ -291,6 +291,11 @@ add_test(NAME shell_pdf_viewer
 # change after it, set back when the page cancels the click.
 add_test(NAME shell_checkbox_activation
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/checkbox-activation.script)
+# The reader's focus moves and text edits as events: focus and blur on a
+# press and on Tab, through a shadow host, and change when an edited field
+# is left or Enter is pressed in it.
+add_test(NAME shell_field_focus_events
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/field-focus-events.script)
 # A PDF form: fields as the viewer's controls, typed into, a check box
 # pressed and redrawn by the page, the download with the values in it.
 add_test(NAME shell_pdf_form
