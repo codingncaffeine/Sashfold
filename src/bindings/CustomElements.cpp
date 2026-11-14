@@ -275,6 +275,18 @@ Native define(js::Interpreter& interp, js::Value const&, Args args)
         if (matches(*element, stored))
             upgrade_custom_element(in, *element);
     }
+    // Whoever asked whenDefined() for the name is answered now, with the
+    // constructor (§4.13.4 "define", the last steps): after the upgrades,
+    // and by a promise, so what waited runs once this script has returned.
+    if (auto const waiting = in.custom_element_waits.find(stored.name); waiting != in.custom_element_waits.end()) {
+        js::PromiseCapability const capability = waiting->second;
+        in.custom_element_waits.erase(waiting);
+        // The function's own roots are in force: these join them.
+        in.interpreter.root(capability.promise);
+        in.interpreter.root(capability.resolve);
+        js::Value const arguments[] = { stored.constructor };
+        static_cast<void>(in.interpreter.call(capability.resolve, js::Value::undefined(), arguments));
+    }
     return js::Value::undefined();
 }
 
@@ -511,6 +523,11 @@ void trace_custom_elements(Realm::Internals const& in, js::Tracer& tracer)
         tracer.visit(definition->form_disabled);
         tracer.visit(definition->form_state_restore);
     }
+    for (auto const& [name, waiting] : in.custom_element_waits) {
+        tracer.visit(waiting.promise);
+        tracer.visit(waiting.resolve);
+        tracer.visit(waiting.reject);
+    }
 }
 
 void install_custom_elements(Realm::Internals& in)
@@ -593,7 +610,13 @@ void install_custom_elements(Realm::Internals& in)
         CustomElementDefinition* const definition = custom_element_definition(internals, *name);
         if (definition != nullptr)
             return resolved_promise(interp, definition->constructor);
-        return pending_promise(interp);
+        if (auto const waiting = internals.custom_element_waits.find(*name); waiting != internals.custom_element_waits.end())
+            return waiting->second.promise;
+        std::optional<js::PromiseCapability> const capability = js::new_promise_capability(interp, js::Value::object(interp.intrinsics().promise_constructor));
+        if (!capability)
+            return std::nullopt;
+        internals.custom_element_waits.emplace(*name, *capability);
+        return capability->promise;
     });
 
     js::Object* const registry_object = interpreter.heap().allocate<PlainPlatformObject>(registry, in.realm_record);

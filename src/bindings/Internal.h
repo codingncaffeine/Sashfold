@@ -1173,6 +1173,11 @@ struct Realm::Internals {
     // order it defined them. Held by pointer so that a definition's address
     // stands still while an element it upgraded points at it.
     std::vector<std::shared_ptr<CustomElementDefinition>> custom_element_definitions;
+    // Its when-defined promise map (HTML §4.13.4): for each name asked
+    // about before it was defined, the promise whenDefined() answered
+    // with, which the definition settles with the constructor. Every ask
+    // for one name gets the same promise.
+    std::unordered_map<std::string, js::PromiseCapability> custom_element_waits;
     // The MediaQueryLists a page made (Window.cpp), whose answers are
     // compared after a change of the media: those with no listener left go
     // when the list is long.

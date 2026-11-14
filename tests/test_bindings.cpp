@@ -5791,6 +5791,23 @@ void test_custom_elements()
     page->eval("customElements.whenDefined('my-card').then(function (c) { log.push('when:' + (c === MyCard)); });");
     pump();
     CHECK_EQ(page->string("take()"), "when:true");
+    // Asked before the name is defined, the promise waits for the
+    // definition and is settled with its constructor: after the elements
+    // of that name were upgraded, and once the defining script has
+    // returned — so what the script does right after define() is done by
+    // then. Every ask for one name is answered with the same promise.
+    page->eval("var early = customElements.whenDefined('my-later');"
+               "early.then(function (c) { log.push('later:' + (c === MyLater) + ':' + registered); });"
+               "(async function () { await customElements.whenDefined('my-later'); log.push('awaited'); })();"
+               "var registered = false; var same = early === customElements.whenDefined('my-later');"
+               "document.body.appendChild(document.createElement('my-later'));");
+    pump();
+    CHECK_EQ(page->string("same + ' ' + take()"), "true ");
+    page->eval("class MyLater extends HTMLElement { constructor() { super(); log.push('made'); } }"
+               "customElements.define('my-later', MyLater); log.push('defined'); registered = true;");
+    pump();
+    CHECK_EQ(page->string("take()"), "made defined later:true:true awaited");
+    CHECK(page->boolean("early !== customElements.whenDefined('my-later')"));
 
     // The ways a page can get it wrong.
     CHECK_EQ(page->string("var r = ''; try { customElements.define('nodash', MyCard); } catch (e) { r = e.name; } r"), "SyntaxError");
