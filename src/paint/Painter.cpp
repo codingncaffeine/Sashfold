@@ -614,7 +614,7 @@ void paint_rounded_borders(Context& context, Fragment const& fragment, RoundedRe
     RoundedRect const inner = outer.inset(left, top, right, bottom);
     float const outer_right = outer.x + outer.width;
     float const outer_bottom = outer.y + outer.height;
-    context.target.fill_ring(outer, inner, [&](float px, float py, Color& color) {
+    auto const side_at = [&](float px, float py, Color& color) {
         float nearest = 0;
         bool found = false;
         auto const consider = [&](float width, Color const& candidate, float distance) {
@@ -632,6 +632,56 @@ void paint_rounded_borders(Context& context, Fragment const& fragment, RoundedRe
         consider(bottom, style.border_bottom.color, outer_bottom - py);
         consider(left, style.border_left.color, px - outer.x);
         return found;
+    };
+    // One color all round has no seam to find.
+    bool const one_color = [&] {
+        Color const* first = nullptr;
+        for (auto const& [width, color] : { std::pair { top, &style.border_top.color }, std::pair { right, &style.border_right.color },
+                 std::pair { bottom, &style.border_bottom.color }, std::pair { left, &style.border_left.color } }) {
+            if (width <= 0)
+                continue;
+            if (first && !(*first == *color))
+                return false;
+            first = color;
+        }
+        return true;
+    }();
+    if (one_color) {
+        context.target.fill_ring(outer, inner, side_at);
+        return;
+    }
+    // The seam between two colors runs along the corner's diagonal: a
+    // pixel it crosses takes its share of each side's color.
+    context.target.fill_ring(outer, inner, [&](float px, float py, Color& color) {
+        float red = 0;
+        float green = 0;
+        float blue = 0;
+        float alpha = 0;
+        int found = 0;
+        for (float const dy : { -0.25f, 0.25f }) {
+            for (float const dx : { -0.25f, 0.25f }) {
+                Color sample;
+                if (!side_at(px + dx, py + dy, sample))
+                    continue;
+                ++found;
+                float const share = static_cast<float>(sample.a) / 255.0f;
+                red += static_cast<float>(sample.r) * share;
+                green += static_cast<float>(sample.g) * share;
+                blue += static_cast<float>(sample.b) * share;
+                alpha += share;
+            }
+        }
+        if (found == 0)
+            return false;
+        if (alpha <= 0) {
+            color = Color { 0, 0, 0, 0 };
+            return true;
+        }
+        color = Color::rgb(static_cast<std::uint8_t>(std::clamp(red / alpha + 0.5f, 0.0f, 255.0f)),
+            static_cast<std::uint8_t>(std::clamp(green / alpha + 0.5f, 0.0f, 255.0f)),
+            static_cast<std::uint8_t>(std::clamp(blue / alpha + 0.5f, 0.0f, 255.0f)));
+        color.a = static_cast<std::uint8_t>(std::clamp(alpha / 4 * 255.0f + 0.5f, 0.0f, 255.0f));
+        return true;
     });
 }
 
@@ -842,6 +892,29 @@ void paint_background_and_borders(Context& context, Fragment const& fragment,
     if (round) {
         paint_rounded_borders(context, fragment, shape);
         return;
+    }
+    // Sides that meet in different colors, or in one that lets the page
+    // show through, meet along the corner's diagonal (CSS 2.1 §8.5.4):
+    // each side is the trapezoid, or the triangle, the diagonals leave it,
+    // and no corner is painted twice.
+    {
+        int drawn = 0;
+        bool same = true;
+        bool opaque = true;
+        Color const* first = nullptr;
+        for (css::BorderSide const* const side : { &style.border_top, &style.border_right, &style.border_bottom, &style.border_left }) {
+            if (side->style != BorderStyle::Solid || side->width <= 0)
+                continue;
+            ++drawn;
+            opaque = opaque && side->color.a == 255;
+            if (first && !(*first == side->color))
+                same = false;
+            first = &side->color;
+        }
+        if (drawn > 1 && (!same || !opaque)) {
+            paint_rounded_borders(context, fragment, rounded_box(context, fragment));
+            return;
+        }
     }
 
     if (style.border_top.style == BorderStyle::Solid && style.border_top.width > 0)

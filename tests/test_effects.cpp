@@ -328,5 +328,34 @@ int main()
         CHECK(id_at(page, 260, 20) != "gone");
     }
 
+    // --- Borders of different colors meet on the corner's diagonal ---------------
+    // CSS 2.1 §8.5.4: each side is the trapezoid the diagonals leave it — a
+    // triangle when the box inside has no size, which is how pages draw
+    // arrows. A border the page shows through is not laid twice over its
+    // corners.
+    {
+        Page const page = lay_out(page_with(R"HTML(
+<div style="position: absolute; left: 10px; top: 10px; width: 0; height: 0; border-top: 40px solid rgb(255, 0, 0); border-left: 40px solid transparent"></div>
+<div style="position: absolute; left: 100px; top: 10px; width: 0; height: 0; border: 20px solid; border-color: rgb(255, 0, 0) rgb(0, 128, 0) rgb(0, 0, 255) rgb(255, 255, 0)"></div>
+<div style="position: absolute; left: 200px; top: 10px; width: 40px; height: 40px; border: 10px solid rgba(255, 0, 0, 0.5)"></div>
+<div style="position: absolute; left: 300px; top: 10px; width: 40px; height: 40px; border: 10px solid rgb(255, 0, 0)"></div>
+)HTML"));
+        Bitmap const canvas = paint_canvas(page, 400, 100);
+        CHECK(same(canvas.pixel(40, 15), red)); // above the diagonal: the top border
+        CHECK(same(canvas.pixel(30, 20), red));
+        CHECK(same(canvas.pixel(15, 40), white)); // below it: the left border, which is transparent
+        CHECK(same(canvas.pixel(20, 30), white));
+        CHECK(same(canvas.pixel(120, 15), red)); // four triangles about (120, 30)
+        CHECK(same(canvas.pixel(135, 30), Color::rgb(0, 128, 0)));
+        CHECK(same(canvas.pixel(120, 45), Color::rgb(0, 0, 255)));
+        CHECK(same(canvas.pixel(105, 30), Color::rgb(255, 255, 0)));
+        CHECK(same(canvas.pixel(220, 13), Color::rgb(255, 128, 128))); // a side
+        CHECK(same(canvas.pixel(203, 13), Color::rgb(255, 128, 128))); // a corner, as light as the side
+        CHECK(same(canvas.pixel(237, 47), Color::rgb(255, 128, 128)));
+        CHECK(same(canvas.pixel(220, 30), white));
+        CHECK(same(canvas.pixel(303, 13), red)); // one opaque color all round
+        CHECK(same(canvas.pixel(320, 30), white));
+    }
+
     return sashfold::test::report("effects");
 }
