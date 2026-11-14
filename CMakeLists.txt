@@ -209,6 +209,7 @@ add_library(sashfold_core STATIC
   src/net/tls/X509.cpp
   src/paint/Blur.cpp
   src/paint/Canvas2D.cpp
+  src/paint/Effects.cpp
   src/paint/Painter.cpp
   src/platform/Clipboard.cpp
   src/platform/AudioVirtual.cpp

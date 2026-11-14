@@ -2392,6 +2392,123 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- An absolutely positioned child takes no room in a flex container ---------
+    // css-flexbox-1 §4.1: it is no flex item. A container sized by its
+    // content — a tooltip's host around its trigger, the popup standing
+    // absolutely inside it, through a display: contents wrapper as a
+    // component writes it — is as wide as the trigger alone.
+    {
+        constexpr std::string_view html = R"(<!doctype html>
+<html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  .row { display: flex; width: 300px }
+  .host { display: flex; justify-content: center }
+  .trigger { width: 40px; height: 40px }
+  .wrap { display: contents }
+  .popup { position: absolute; width: 170px; height: 30px }
+</style></head><body>
+<div class=row><div class=host id=plain><div class=trigger></div></div>
+<div class=host id=direct><div class=trigger></div><div class=popup></div></div>
+<div class=host id=wrapped><div class=trigger></div><div class=wrap><div class=popup></div></div></div></div>
+</body></html>)";
+        Page const page = lay_out(html, 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            dom::Attr const* const attribute = f.element ? f.element->find_attribute("id") : nullptr;
+            if (attribute && attribute->value == id)
+                return &f;
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* found = find(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        layout::Fragment const* const plain = find(page.result.root, "plain");
+        layout::Fragment const* const direct = find(page.result.root, "direct");
+        layout::Fragment const* const wrapped = find(page.result.root, "wrapped");
+        if (CHECK(plain && direct && wrapped)) {
+            CHECK_EQ(plain->width, 40.0f);
+            CHECK_EQ(direct->width, 40.0f);
+            CHECK_EQ(wrapped->width, 40.0f);
+            CHECK_EQ(direct->x, 40.0f);
+            CHECK_EQ(wrapped->x, 80.0f);
+        }
+    }
+
+    // --- text-overflow: ellipsis ends an overflowing line in an ellipsis ----------
+    // css-overflow-3 §7.1: on a box that clips, a line running out past
+    // the end edge gives up what is beyond and enough before it for the
+    // ellipsis, which then ends inside the box; a line that fits, a box
+    // that does not clip and `clip` are left as they are. Each letter of
+    // the test face is 10 px wide at 16 px.
+    {
+        constexpr std::string_view html = R"(<!doctype html>
+<html><head><style>
+  body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+  div { width: 100px; white-space: nowrap }
+  .cut { overflow: hidden; text-overflow: ellipsis }
+</style></head><body>
+<div id=long class=cut>abcdefghijklmnopqrstuvwxyz</div>
+<div id=fits class=cut>abcdefghij</div>
+<div id=visible style="text-overflow: ellipsis">abcdefghijklmnopqrstuvwxyz</div>
+<div id=clip style="overflow: hidden; text-overflow: clip">abcdefghijklmnopqrstuvwxyz</div>
+<div id=spans class=cut>abcd<b>efgh</b><i>ijklmnop</i><u>qrstuvwxyz</u></div>
+<div id=rtl class=cut dir=rtl>abcdefghijklmnopqrstuvwxyz</div>
+<div id=two style="overflow: hidden; text-overflow: clip ellipsis">abcdefghijklmnopqrstuvwxyz</div>
+</body></html>)";
+        Page const page = lay_out(html, 400);
+        std::function<layout::Fragment const*(layout::Fragment const&, std::string_view)> find
+            = [&](layout::Fragment const& f, std::string_view id) -> layout::Fragment const* {
+            dom::Attr const* const attribute = f.element ? f.element->find_attribute("id") : nullptr;
+            if (attribute && attribute->value == id)
+                return &f;
+            for (layout::Fragment const& child : f.children) {
+                if (layout::Fragment const* found = find(child, id))
+                    return found;
+            }
+            return nullptr;
+        };
+        auto const text_of = [&](std::string_view id) {
+            std::u32string text;
+            float right = 0;
+            if (layout::Fragment const* const box = find(page.result.root, id)) {
+                std::vector<layout::TextRun const*> runs;
+                collect(*box, runs);
+                for (layout::TextRun const* run : runs) {
+                    text += run->text;
+                    if (!run->text.empty())
+                        right = std::max(right, run->x + run->width);
+                }
+            }
+            return std::pair { text, right };
+        };
+        // Ten letters fit in 100 px; nine and the ellipsis do too.
+        CHECK(text_of("long").first == U"abcdefghi…");
+        CHECK_EQ(text_of("long").second, 100.0f);
+        CHECK(text_of("fits").first == U"abcdefghij");
+        CHECK(text_of("visible").first == U"abcdefghijklmnopqrstuvwxyz");
+        CHECK(text_of("clip").first == U"abcdefghijklmnopqrstuvwxyz");
+        // Across inline boxes: the run the edge falls in is cut, the ones
+        // past it show nothing.
+        CHECK(text_of("spans").first == U"abcdefghi…");
+        CHECK_EQ(text_of("spans").second, 100.0f);
+        CHECK(text_of("two").first == U"abcdefghi…");
+        // Right to left the line runs out at the left: the ellipsis is there.
+        if (layout::Fragment const* const rtl = find(page.result.root, "rtl"); CHECK(rtl != nullptr)) {
+            std::vector<layout::TextRun const*> runs;
+            collect(*rtl, runs);
+            float left = 1000;
+            std::u32string text;
+            for (layout::TextRun const* run : runs) {
+                left = std::min(left, run->x);
+                text += run->text;
+            }
+            CHECK(left >= -0.01f);
+            CHECK(text.find(U'…') != std::u32string::npos);
+            CHECK(text.size() <= 10);
+        }
+    }
+
     // --- A line clamp ends its box at the last line it keeps ----------------------
     // The form pages write (-webkit-box, vertical, -webkit-line-clamp, overflow
     // hidden): the box is as tall as the lines it keeps, the last of them ends

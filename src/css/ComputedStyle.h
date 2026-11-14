@@ -141,6 +141,24 @@ struct Shadow {
 // list (or none at all) is `none`.
 using Shadows = std::vector<Shadow>;
 
+// One function of a filter list (filter-effects-1 §11): what `filter` and
+// `backdrop-filter` are made of, applied in the order written.
+struct FilterFunction {
+    enum class Kind : std::uint8_t { Blur, Brightness, Contrast, DropShadow, Grayscale, HueRotate, Invert, Opacity, Saturate, Sepia };
+    Kind kind = Kind::Blur;
+    // Blur: the standard deviation in px. Hue-rotate: degrees. The others
+    // but drop-shadow: the amount as a number, 1 for 100%.
+    float amount = 0;
+    // Drop-shadow: its offset and color; its blur is `amount`.
+    float x = 0;
+    float y = 0;
+    Color color;
+    bool current_color = true;
+
+    bool operator==(FilterFunction const&) const = default;
+};
+using FilterList = std::vector<FilterFunction>;
+
 // The content property: normal (a ::before or ::after generates no box),
 // none (the same), or the items a generated box shows.
 struct Content {
@@ -198,6 +216,41 @@ struct LengthPercent {
     // auto — which is what the engine did with the whole declaration before
     // it read the keywords at all, so a site not yet taught loses nothing.
     bool is_auto() const { return kind == Kind::Auto || is_content_size(); }
+};
+
+// clip-path (css-masking-1 §5.1): a basic shape, sized against one of the
+// element's boxes, outside of which nothing of the element is painted or
+// answers the pointer.
+struct ClipPath {
+    enum class Shape : std::uint8_t { Box, Inset, Circle, Ellipse, Polygon, Path };
+    enum class Box : std::uint8_t { Border, Padding, Content, Margin };
+    // A circle's or an ellipse's radius: a length or percentage, or as far
+    // as the nearest or the farthest side of the reference box.
+    struct Radius {
+        enum class Kind : std::uint8_t { Length, ClosestSide, FarthestSide };
+        Kind kind = Kind::ClosestSide;
+        LengthPercent length = LengthPercent::px(0);
+        bool operator==(Radius const&) const = default;
+    };
+    Shape shape = Shape::Box;
+    Box box = Box::Border;
+    // Inset: the four offsets (top, right, bottom, left) and the corner
+    // radii, horizontal then vertical, from the top left clockwise.
+    LengthPercent inset[4] = { LengthPercent::px(0), LengthPercent::px(0), LengthPercent::px(0), LengthPercent::px(0) };
+    LengthPercent radii[8] = { LengthPercent::px(0), LengthPercent::px(0), LengthPercent::px(0), LengthPercent::px(0),
+        LengthPercent::px(0), LengthPercent::px(0), LengthPercent::px(0), LengthPercent::px(0) };
+    // Circle and ellipse: the radii and the center.
+    Radius radius_x;
+    Radius radius_y;
+    LengthPercent center_x = LengthPercent::percent_of(50);
+    LengthPercent center_y = LengthPercent::percent_of(50);
+    // Polygon: its corners. Path: SVG path data, in px from the box's
+    // corner. Both: the rule that says what is inside.
+    std::vector<std::pair<LengthPercent, LengthPercent>> points;
+    std::string path;
+    // Device px per CSS px where the path was written: its numbers are CSS px.
+    float path_scale = 1;
+    bool even_odd = false;
 };
 
 enum class Display : std::uint8_t {
@@ -1097,7 +1150,71 @@ struct ComputedStyle {
     LengthPercent translate_y = LengthPercent::px(0);
     bool transformed = false;
 
+    // isolation (compositing-1 §3.3): `isolate` makes the box a stacking
+    // context and changes nothing else about it.
+    bool isolate = false;
+    // perspective (css-transforms-2 §9): how far the viewer stands from the
+    // box's plane, for its children turned in three dimensions, in px; none
+    // by default. A box with one is a stacking context and holds the
+    // positioned boxes inside it, fixed ones too.
+    std::optional<float> perspective;
+    // contain (css-contain-2 §2): a set of the Contain bits below. Layout
+    // and paint containment make the box a formatting context of its own,
+    // a stacking context, and the holder of every positioned box inside.
+    static constexpr std::uint8_t contain_size = 1;
+    static constexpr std::uint8_t contain_inline_size = 2;
+    static constexpr std::uint8_t contain_layout = 4;
+    static constexpr std::uint8_t contain_style = 8;
+    static constexpr std::uint8_t contain_paint = 16;
+    std::uint8_t contain = 0;
+    // will-change (css-will-change-1 §3): what the page says is about to
+    // change, kept as written for its computed value; and what the hint
+    // itself does — naming a property whose non-initial value would make
+    // the box a stacking context, or the holder of the positioned boxes
+    // inside it, makes it one now.
+    std::shared_ptr<std::string const> will_change;
+    bool will_change_stacks = false;
+    bool will_change_contains = false;
+    // filter and backdrop-filter (filter-effects-1 §4, filter-effects-2
+    // §2): none without a list. A filtered box paints as one unit, through
+    // its filters; one with a backdrop filter first passes what is behind
+    // it through that list. Either makes the box a stacking context and
+    // the holder of the positioned boxes inside it.
+    std::shared_ptr<FilterList const> filter;
+    std::shared_ptr<FilterList const> backdrop_filter;
+    // clip-path (css-masking-1 §5.1): none without one.
+    std::shared_ptr<ClipPath const> clip_path;
+    // text-overflow (css-overflow-3 §7.1): whether a line of a box that
+    // clips, running out past the box's end edge, ends in an ellipsis
+    // there instead of being cut mid-letter.
+    bool text_overflow_ellipsis = false;
+
     bool positioned() const { return position != Position::Static; }
+    // Whether the box holds every positioned box inside it, the fixed ones
+    // as well as the absolute (css-transforms-1 §3, css-contain-2 §3.3 and
+    // §3.6, css-will-change-1 §3): a transformed box, one with a
+    // perspective, one with layout or paint containment, one that says its
+    // transform or perspective is about to change.
+    bool contains_fixed() const
+    {
+        return transformed || perspective.has_value() || will_change_contains || (contain & (contain_layout | contain_paint)) != 0
+            || filter != nullptr || backdrop_filter != nullptr;
+    }
+    // Whether the box is the containing block of the absolutely positioned
+    // boxes inside it (css-position-3 §2.1): a positioned box, and one that
+    // holds fixed boxes too.
+    bool contains_absolute() const { return positioned() || contains_fixed(); }
+    // Whether the box is a stacking context by something other than a
+    // z-index: everything in it paints as one unit at its place.
+    bool effects_stack() const
+    {
+        return opacity < 1 || transformed || isolate || perspective.has_value() || will_change_stacks
+            || (contain & (contain_layout | contain_paint)) != 0 || paints_through_effects();
+    }
+    // Whether the box and everything in it is painted as one picture that
+    // is then changed before it reaches the page: filtered, cut to a shape,
+    // or laid over a filtered backdrop.
+    bool paints_through_effects() const { return filter != nullptr || backdrop_filter != nullptr || clip_path != nullptr; }
     bool out_of_flow() const { return position == Position::Absolute || position == Position::Fixed; }
     bool hidden() const { return visibility == Visibility::Hidden; }
     // Any corner curved: the box is painted as a rounded shape. A table

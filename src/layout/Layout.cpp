@@ -92,7 +92,8 @@ bool establishes_bfc(ComputedStyle const& style)
     return is_floating(style) || style.display == Display::FlowRoot
         || style.display == Display::Flex || style.display == Display::Grid
         || style.display == Display::Table || is_atomic_inline(style)
-        || style.overflow != css::Overflow::Visible;
+        || style.overflow != css::Overflow::Visible
+        || (style.contain & (ComputedStyle::contain_layout | ComputedStyle::contain_paint)) != 0;
 }
 
 // A control drawn whole, from what it holds, with nothing inside it laid
@@ -1230,12 +1231,15 @@ struct Layouter {
             shift_fragment(box, resolve(style.translate_x, box.width), resolve(style.translate_y, box.height));
             box.stacking_context = true;
         }
+        // An effect that composites the box as one unit makes it a stacking
+        // context whether or not it is positioned.
+        box.stacking_context = box.stacking_context || style.effects_stack();
         if (!style.positioned())
             return;
         box.positioned = true;
         box.fixed = style.position == css::Position::Fixed;
         box.z_index = style.z_index.value_or(0);
-        box.stacking_context = box.stacking_context || style.z_index.has_value() || style.opacity < 1;
+        box.stacking_context = box.stacking_context || style.z_index.has_value() || style.effects_stack();
         if (style.position == css::Position::Relative)
             shift_fragment(box, relative_dx(style, containing_width, cb_rtl), relative_dy(style, containing_height));
     }
@@ -1469,7 +1473,7 @@ struct Layouter {
             fragment.out_of_flow = true;
             fragment.fixed = s.position == css::Position::Fixed;
             fragment.z_index = s.z_index.value_or(0);
-            fragment.stacking_context = s.z_index.has_value() || s.opacity < 1 || s.transformed;
+            fragment.stacking_context = s.z_index.has_value() || s.effects_stack();
             if (s.transformed)
                 shift_fragment(fragment, resolve(s.translate_x, fragment.width), resolve(s.translate_y, fragment.height));
             parent.children.push_back(std::move(fragment));
@@ -2418,8 +2422,8 @@ struct Layouter {
     // order every page depends on today.
     static bool inline_box_makes_layer(ComputedStyle const& style)
     {
-        return (style.positioned() && style.z_index.has_value()) || style.opacity < 1
-            || style.transformed || style.position == css::Position::Sticky;
+        return (style.positioned() && style.z_index.has_value()) || style.effects_stack()
+            || style.position == css::Position::Sticky;
     }
 
     // What an inline box's edge takes on the line where it opens or closes:
@@ -4408,7 +4412,7 @@ struct Layouter {
                     box.positioned = s.positioned();
                     box.z_index = s.z_index.value_or(0);
                     box.stacking_context
-                        = (s.positioned() && s.z_index.has_value()) || s.opacity < 1 || s.transformed;
+                        = (s.positioned() && s.z_index.has_value()) || s.effects_stack();
                     // The relative shift was applied above, to the fragment
                     // and to its content separately, while they were still
                     // apart; a translation is applied here, once, because
@@ -5375,6 +5379,67 @@ struct Layouter {
         return std::min(content_height, std::max(0.0f, cut - content_y));
     }
 
+    // text-overflow: ellipsis (css-overflow-3 §7.1), once a box that clips
+    // has its lines: each line of its own that runs out past its end edge
+    // gives up what is beyond and as many characters before that as an
+    // ellipsis needs, and ends in the ellipsis. The words of the lines
+    // inside its block children are theirs to cut.
+    void cut_overflowing_lines(Fragment& box, ComputedStyle const& style, float content_x, float content_width) const
+    {
+        bool const rtl = style.direction == css::Direction::Rtl;
+        float const left = content_x;
+        float const right = content_x + content_width;
+        std::u32string const ellipsis = U"\u2026";
+        std::map<int, std::vector<TextRun*>> lines;
+        for (TextRun& run : box.runs) {
+            if (run.swapped || run.mode != css::WritingMode::HorizontalTb || !run.style)
+                continue;
+            lines[run.line].push_back(&run);
+        }
+        for (auto& [line, runs] : lines) {
+            bool over = false;
+            for (TextRun const* run : runs)
+                over = over || (rtl ? run->x < left - 0.01f : run->x + run->width > right + 0.01f);
+            if (!over)
+                continue;
+            float const room = measure(style, ellipsis);
+            // How far the words may reach, the ellipsis after them.
+            float const limit = rtl ? left + room : right - room;
+            TextRun* end = nullptr;
+            for (TextRun* run : runs) {
+                bool const beyond = rtl ? run->x + run->width <= limit + 0.01f : run->x >= limit - 0.01f;
+                if (beyond && (rtl ? run->x + run->width < right - 0.01f : run->x > left + 0.01f)) {
+                    // Wholly in the ellipsis's place or past it, and not the
+                    // line's first: nothing of it shows.
+                    if (rtl)
+                        run->x += run->width;
+                    run->text.clear();
+                    run->width = 0;
+                    continue;
+                }
+                while (!run->text.empty() && (rtl ? run->x < limit - 0.01f : run->x + run->width > limit + 0.01f)) {
+                    float const before = run->width;
+                    run->text.pop_back();
+                    run->width = measure(*run->style, run->text);
+                    if (rtl)
+                        run->x += before - run->width;
+                }
+                if (!end || (rtl ? run->x < end->x : run->x + run->width > end->x + end->width))
+                    end = run;
+            }
+            if (!end)
+                continue;
+            float const drawn = measure(*end->style, ellipsis);
+            if (rtl) {
+                end->text.insert(end->text.begin(), ellipsis.begin(), ellipsis.end());
+                end->x -= drawn;
+            } else {
+                end->text += ellipsis;
+            }
+            end->width += drawn;
+        }
+    }
+
     Fragment layout_block(dom::Element const& element, ComputedStyle const& style, float x,
         float y, float containing_width, int list_depth, FloatContext& floats,
         BlockOptions const& options = {}) const
@@ -5396,12 +5461,12 @@ struct Layouter {
         fragment.style = &style;
         // A box with opacity below one paints as one unit: a stacking
         // context whose positioned descendants stay inside it.
-        fragment.stacking_context = style.opacity < 1;
+        fragment.stacking_context = style.effects_stack();
 
-        // A positioned box is the containing block of the absolutely
-        // positioned boxes inside it: they collect here and are placed
-        // once this box's padding box is known.
-        bool const containing_block = style.positioned();
+        // A positioned box, or a transformed one, is the containing block
+        // of the absolutely positioned boxes inside it: they collect here
+        // and are placed once this box's padding box is known.
+        bool const containing_block = style.contains_absolute();
         if (containing_block)
             absolute_stack.emplace_back();
         struct PopOnExit {
@@ -5679,6 +5744,8 @@ struct Layouter {
         if (clamps && line_clamps.back().cut_line != 0 && line_clamps.back().more)
             content_height = cut_clamped_lines(fragment, line_clamps.back(), style, content_x, content_y, content_width,
                 content_height);
+        if (style.text_overflow_ellipsis && style.overflow_x != css::Overflow::Visible && !fragment.runs.empty())
+            cut_overflowing_lines(fragment, style, content_x, content_width);
         // The box's baseline, for an inline-block's sake: its own lines set
         // it; with block children it is the last in-flow child's (a flex or
         // grid container's the first item's).
@@ -6998,6 +7065,10 @@ struct Layouter {
                     items_of(child_element, *child_style);
                     continue;
                 }
+                // An absolutely positioned child is no flex item and takes
+                // no room in the container (css-flexbox-1 §4.1).
+                if (child_style->out_of_flow())
+                    continue;
                 flush();
                 take(block_intrinsic(child_element, *child_style));
             }
@@ -9571,25 +9642,33 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
             // ancestor of its element that forms a stacking context, when
             // there is one below the root. The last first, so that taking
             // one out moves none still to be looked at.
+            // They are taken out first and put in afterwards, in the order
+            // they were placed — the tree's — so that of two fixed boxes
+            // under one ancestor (a dialog's backdrop, then the dialog) the
+            // later one still paints over the earlier.
+            std::vector<std::pair<dom::Element const*, Fragment>> moved;
             for (std::size_t i = result.root.children.size(); i > placed_from; --i) {
                 Fragment& placed = result.root.children[i - 1];
                 if (!placed.fixed || !placed.element)
                     continue;
-                Fragment* home = nullptr;
+                dom::Element const* home = nullptr;
                 for (dom::Node const* up = dom::flat_parent(*placed.element); up && !home; up = dom::flat_parent(*up)) {
                     if (!up->is_element())
                         continue;
                     Fragment* const found = fragment_of(result.root, static_cast<dom::Element const&>(*up));
                     if (found && found != &result.root && found->stacking_context)
-                        home = found;
+                        home = static_cast<dom::Element const*>(up);
                 }
                 if (!home)
                     continue;
-                Fragment moving = std::move(placed);
-                // Where `home` stands does not change by taking out a later
-                // child of the root: it is inside an earlier one.
+                moved.emplace_back(home, std::move(placed));
                 result.root.children.erase(result.root.children.begin() + static_cast<std::ptrdiff_t>(i - 1));
-                home->children.push_back(std::move(moving));
+            }
+            for (auto entry = moved.rbegin(); entry != moved.rend(); ++entry) {
+                // Found again each time: putting one in can move the boxes
+                // around the next one's home.
+                if (Fragment* const home = fragment_of(result.root, *entry->first))
+                    home->children.push_back(std::move(entry->second));
             }
             boxes = std::move(layouter.fixed_boxes);
             layouter.fixed_boxes.clear();

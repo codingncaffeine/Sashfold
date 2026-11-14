@@ -2,6 +2,7 @@
 
 #include "dom/Dom.h"
 #include "paint/Blur.h"
+#include "paint/Effects.h"
 #include "svg/Svg.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
@@ -1820,11 +1821,153 @@ void ink_bounds(Fragment const& box, float& left, float& top, float& right, floa
 // source-over is exactly the group's colour there — the arithmetic is in
 // `Bitmap::blend_over`. It costs one buffer the size of the group's ink,
 // held to whatever clip is already in force.
+// The box a clip path is sized against (css-masking-1 §5.1): the border
+// box unless it names another, moved by (dx, dy).
+ShapeBox clip_box_of(Fragment const& fragment, float dx, float dy)
+{
+    ComputedStyle const& style = *fragment.style;
+    ShapeBox box { fragment.x + dx, fragment.y + dy, fragment.width, fragment.height };
+    auto const inset = [&](float left, float top, float right, float bottom) {
+        box.x += left;
+        box.y += top;
+        box.width = std::max(0.0f, box.width - left - right);
+        box.height = std::max(0.0f, box.height - top - bottom);
+    };
+    float const base = fragment.width;
+    using Box = css::ClipPath::Box;
+    Box const named = style.clip_path ? style.clip_path->box : Box::Border;
+    if (named == Box::Padding || named == Box::Content)
+        inset(style.border_left.width, style.border_top.width, style.border_right.width, style.border_bottom.width);
+    if (named == Box::Content)
+        inset(resolve_length(style.padding_left, base), resolve_length(style.padding_top, base),
+            resolve_length(style.padding_right, base), resolve_length(style.padding_bottom, base));
+    if (named == Box::Margin) {
+        float const left = resolve_length(style.margin_left, base);
+        float const top = resolve_length(style.margin_top, base);
+        box.x -= left;
+        box.y -= top;
+        box.width += left + resolve_length(style.margin_right, base);
+        box.height += top + resolve_length(style.margin_bottom, base);
+    }
+    return box;
+}
+
+Rect grown(Rect const& rect, Reach const& by)
+{
+    return Rect { rect.x - by.left, rect.y - by.top, rect.width + by.left + by.right, rect.height + by.top + by.bottom };
+}
+
+// backdrop-filter (filter-effects-2 §2): what is already painted behind
+// the box, within its border box and its corners, passed through the list
+// before anything of the box itself is painted over it. A blur reads from
+// beyond the box, as far as the picture reaches.
+void filter_backdrop(Context& context, Fragment const& root)
+{
+    css::FilterList const& filters = *root.style->backdrop_filter;
+    RoundedRect const shape = rounded_box(context, root);
+    Rect const whole { 0, 0, context.target.width(), context.target.height() };
+    Rect area = intersect(shape.bounds(), whole);
+    if (std::optional<Rect> const held = context.target.clip())
+        area = intersect(area, *held);
+    if (area.is_empty())
+        return;
+    Rect const read = intersect(grown(area, reach_of(filters)), whole);
+    Bitmap behind(read.width, read.height);
+    behind.blit(context.target, -read.x, -read.y);
+    EffectLayer layer = layer_of(behind);
+    apply_filters(layer, filters, root.style->color);
+    Bitmap const filtered = bitmap_of(layer);
+    for (int y = area.y; y < area.bottom(); ++y) {
+        for (int x = area.x; x < area.right(); ++x) {
+            std::uint8_t const covered = shape.coverage(x, y);
+            if (covered == 0)
+                continue;
+            Color color = filtered.pixel(x - read.x, y - read.y);
+            color.a = static_cast<std::uint8_t>(static_cast<int>(color.a) * covered / 255);
+            context.target.blend_pixel(x, y, color);
+        }
+    }
+}
+
+// A box with a filter or a clip path (filter-effects-1 §4, css-masking-1
+// §5): everything in it is painted as one picture with transparency of its
+// own, which then goes through the filters, is cut to the shape, takes the
+// box's opacity and is laid over the page. The picture is read back from
+// two paintings of the group, over black and over white (`layer_from`).
+void paint_through_effects(Context& context, Fragment const& root, bool is_canvas_background_owner, float alpha)
+{
+    ComputedStyle const& style = *root.style;
+    if (style.backdrop_filter)
+        filter_backdrop(context, root);
+    if (!style.filter && !style.clip_path) {
+        // Only the backdrop was filtered: the box itself paints as ever.
+        if (alpha >= 1) {
+            paint_opaque_context(context, root, is_canvas_background_owner);
+            return;
+        }
+    }
+    float left = std::numeric_limits<float>::max();
+    float top = left;
+    float right = std::numeric_limits<float>::lowest();
+    float bottom = right;
+    ink_bounds(root, left, top, right, bottom);
+    Reach const reach = style.filter ? reach_of(*style.filter) : Reach {};
+    Rect const ink = snap(left + context.dx, top + context.dy, right - left, bottom - top);
+    Rect const whole { 0, 0, context.target.width(), context.target.height() };
+    // What of the result can show, and what of the group has to be painted
+    // to make it: a filter that reaches out draws from as far beyond.
+    Rect shown = intersect(grown(ink, reach), whole);
+    if (std::optional<Rect> const held = context.target.clip())
+        shown = intersect(shown, *held);
+    if (shown.is_empty())
+        return;
+    Rect const area = intersect(grown(shown, reach), grown(ink, reach));
+    if (area.is_empty() || static_cast<long long>(area.width) * area.height > 64LL * 1024 * 1024)
+        return;
+    auto const paint_over = [&](Color backdrop, bool first) {
+        Bitmap group(area.width, area.height, backdrop);
+        Context inside { group, context.dx - static_cast<float>(area.x), context.dy - static_cast<float>(area.y),
+            context.backgrounds, context.canvas_owner, context.scrolls };
+        inside.device_scale = context.device_scale;
+        // The pictures are noted once, by the first of the two paintings.
+        inside.pictures = first ? context.pictures : nullptr;
+        inside.shown_apart = context.shown_apart;
+        inside.origin_x = context.origin_x + area.x;
+        inside.origin_y = context.origin_y + area.y;
+        paint_opaque_context(inside, root, is_canvas_background_owner);
+        return group;
+    };
+    EffectLayer layer;
+    {
+        Bitmap const over_black = paint_over(Color::rgb(0, 0, 0), true);
+        Bitmap const over_white = paint_over(Color::rgb(255, 255, 255), false);
+        layer = layer_from(over_black, over_white);
+    }
+    if (style.filter)
+        apply_filters(layer, *style.filter, style.color);
+    if (style.clip_path) {
+        bool even_odd = false;
+        std::vector<svg::Polygon> const outline = clip_outline(*style.clip_path, clip_box_of(root, context.dx, context.dy), even_odd);
+        cut_to(layer, outline, even_odd, area.x, area.y);
+    }
+    if (alpha < 1) {
+        for (std::vector<float>* const plane : { &layer.red, &layer.green, &layer.blue, &layer.alpha }) {
+            for (float& value : *plane)
+                value *= alpha;
+        }
+    }
+    context.target.draw(bitmap_of(layer), area.x, area.y);
+}
+
 void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner)
 {
     float const alpha = root.style ? root.style->opacity : 1.0f;
     if (alpha <= 0)
         return; // nothing of it paints, its positioned descendants included
+    if (root.style && root.style->paints_through_effects()) {
+        paint_through_effects(context, root, is_canvas_background_owner, alpha);
+        return;
+    }
     if (alpha >= 1) {
         paint_opaque_context(context, root, is_canvas_background_owner);
         return;
@@ -2061,6 +2204,11 @@ void collect_hit_layers(Fragment const& fragment, Probe at, bool in_flow, bool o
 // top down, the context's own flow, the layers below zero, its own box.
 std::optional<PointHit> hit_context(Fragment const& root, Probe at)
 {
+    // Outside its clip path nothing of the box is there to point at
+    // (css-masking-1 §5.1: pointer events are not dispatched on the
+    // clipped-away region).
+    if (root.style && root.style->clip_path && !clip_holds(*root.style->clip_path, clip_box_of(root, 0, 0), at.x, at.y))
+        return std::nullopt;
     bool const inside = clip_lets_through(root, at);
     std::vector<HitLayer> layers;
     collect_hit_layers(root, at, inside, root.positioned ? inside : true, layers);

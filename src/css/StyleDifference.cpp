@@ -46,6 +46,8 @@ bool same(BackgroundPosition const& a, BackgroundPosition const& b);
 bool same(BackgroundSize const& a, BackgroundSize const& b);
 bool same(CounterOp const& a, CounterOp const& b);
 bool same(Shadow const& a, Shadow const& b) { return a == b; }
+bool same(FilterFunction const& a, FilterFunction const& b) { return a == b; }
+bool same(ClipPath const& a, ClipPath const& b);
 bool same(ContentItem const& a, ContentItem const& b);
 bool same(ComponentValue const& a, ComponentValue const& b);
 bool same(GeneratedBox const& a, GeneratedBox const& b);
@@ -82,6 +84,26 @@ bool same(ComputedStyle::Outline const& a, ComputedStyle::Outline const& b)
 }
 
 bool same(CornerRadius const& a, CornerRadius const& b) { return same(a.x, b.x) && same(a.y, b.y); }
+
+bool same(ClipPath const& a, ClipPath const& b)
+{
+    if (a.shape != b.shape || a.box != b.box || a.even_odd != b.even_odd || a.path != b.path || a.points.size() != b.points.size())
+        return false;
+    for (std::size_t i = 0; i < 4; ++i) {
+        if (!same(a.inset[i], b.inset[i]))
+            return false;
+    }
+    for (std::size_t i = 0; i < 8; ++i) {
+        if (!same(a.radii[i], b.radii[i]))
+            return false;
+    }
+    for (std::size_t i = 0; i < a.points.size(); ++i) {
+        if (!same(a.points[i].first, b.points[i].first) || !same(a.points[i].second, b.points[i].second))
+            return false;
+    }
+    return a.radius_x.kind == b.radius_x.kind && same(a.radius_x.length, b.radius_x.length) && a.radius_y.kind == b.radius_y.kind
+        && same(a.radius_y.length, b.radius_y.length) && same(a.center_x, b.center_x) && same(a.center_y, b.center_y);
+}
 
 bool same(SvgPaint const& a, SvgPaint const& b)
 {
@@ -334,6 +356,14 @@ std::optional<std::string_view> first_style_difference(ComputedStyle const& a, C
     field("translate_x", a.translate_x, b.translate_x);
     field("translate_y", a.translate_y, b.translate_y);
     field("transformed", a.transformed, b.transformed);
+    field("isolate", a.isolate, b.isolate);
+    field("perspective", a.perspective, b.perspective);
+    field("contain", static_cast<int>(a.contain), static_cast<int>(b.contain));
+    field("will_change", a.will_change, b.will_change);
+    field("filter", a.filter, b.filter);
+    field("backdrop_filter", a.backdrop_filter, b.backdrop_filter);
+    field("clip_path", a.clip_path, b.clip_path);
+    field("text_overflow_ellipsis", a.text_overflow_ellipsis, b.text_overflow_ellipsis);
     field("flex_direction", a.flex_direction, b.flex_direction);
     field("webkit_box", a.webkit_box, b.webkit_box);
     field("webkit_box_vertical", a.webkit_box_vertical, b.webkit_box_vertical);

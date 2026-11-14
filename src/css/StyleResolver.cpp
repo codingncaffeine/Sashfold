@@ -2062,6 +2062,336 @@ std::optional<Shadows> parse_shadows(Values const& values, LengthContext const& 
     return shadows;
 }
 
+std::optional<float> parse_angle(ComponentValue const& value);
+std::optional<BackgroundPosition> parse_background_position(Values const& values, std::size_t from,
+    LengthContext const& context, std::size_t& taken);
+
+// A <filter-value-list> (filter-effects-1 §11): `none`, or the filter
+// functions in a row. Nullopt when the declaration is not one — a
+// reference to an SVG filter among them, which nothing here draws; an
+// empty list for none. An amount left out is the function's default, and
+// one past the function's range is clamped where the standard says so.
+std::optional<FilterList> parse_filter_list(Values const& values, LengthContext const& context, Color current)
+{
+    if (values.size() == 1 && is_ident(values[0], "none"))
+        return FilterList {};
+    FilterList list;
+    for (ComponentValue const* value : values) {
+        if (!value->is_function())
+            return std::nullopt;
+        std::string const name = lowercase_name(value->function().name);
+        Values const arguments = significant(value->function().values);
+        FilterFunction function;
+        using Kind = FilterFunction::Kind;
+        // <number> | <percentage>, never negative; the default when absent.
+        auto const amount = [&](float missing, bool clamp_to_one) -> std::optional<float> {
+            if (arguments.empty())
+                return missing;
+            if (arguments.size() != 1)
+                return std::nullopt;
+            Token const* const token = arguments[0]->is_token(Token::Type::Number) || arguments[0]->is_token(Token::Type::Percentage) ? &arguments[0]->token() : nullptr;
+            if (token == nullptr)
+                return std::nullopt;
+            auto number = static_cast<float>(token->type == Token::Type::Percentage ? token->numeric_value / 100.0 : token->numeric_value);
+            if (number < 0)
+                return std::nullopt;
+            return clamp_to_one ? std::min(number, 1.0f) : number;
+        };
+        std::optional<float> parsed;
+        if (name == "blur") {
+            function.kind = Kind::Blur;
+            if (arguments.empty()) {
+                parsed = 0.0f;
+            } else if (arguments.size() == 1) {
+                std::optional<LengthPercent> const length = parse_length_percent(*arguments[0], context, false, false);
+                if (length && length->kind == LengthPercent::Kind::Px && length->value >= 0)
+                    parsed = length->value;
+            }
+        } else if (name == "brightness") {
+            function.kind = Kind::Brightness;
+            parsed = amount(1, false);
+        } else if (name == "contrast") {
+            function.kind = Kind::Contrast;
+            parsed = amount(1, false);
+        } else if (name == "saturate") {
+            function.kind = Kind::Saturate;
+            parsed = amount(1, false);
+        } else if (name == "grayscale") {
+            function.kind = Kind::Grayscale;
+            parsed = amount(1, true);
+        } else if (name == "sepia") {
+            function.kind = Kind::Sepia;
+            parsed = amount(1, true);
+        } else if (name == "invert") {
+            function.kind = Kind::Invert;
+            parsed = amount(1, true);
+        } else if (name == "opacity") {
+            function.kind = Kind::Opacity;
+            parsed = amount(1, true);
+        } else if (name == "hue-rotate") {
+            function.kind = Kind::HueRotate;
+            if (arguments.empty())
+                parsed = 0.0f;
+            else if (arguments.size() == 1)
+                parsed = parse_angle(*arguments[0]);
+        } else if (name == "drop-shadow") {
+            // <color>? && <length>{2,3}: a text shadow's grammar, one of them.
+            function.kind = Kind::DropShadow;
+            bool const names_color = std::any_of(arguments.begin(), arguments.end(), [](ComponentValue const* argument) {
+                return !argument->is_token(Token::Type::Dimension) && !argument->is_token(Token::Type::Number) && !(argument->is_function() && lowercase_name(argument->function().name) == "calc");
+            });
+            std::optional<Shadows> const shadows = parse_shadows(arguments, context, current, false);
+            if (shadows && shadows->size() == 1) {
+                Shadow const& shadow = shadows->front();
+                function.x = shadow.x;
+                function.y = shadow.y;
+                function.color = shadow.color;
+                function.current_color = !names_color;
+                parsed = shadow.blur;
+            }
+        }
+        if (!parsed)
+            return std::nullopt;
+        function.amount = *parsed;
+        list.push_back(function);
+    }
+    if (list.empty())
+        return std::nullopt;
+    return list;
+}
+
+// A clip-path (css-masking-1 §5.1): `none`, or a basic shape of css-shapes-1
+// §3 with or without the box it is sized against, or that box alone.
+// Nullopt when the declaration is not one — a reference to an SVG clipPath
+// element among them, which nothing here draws; a null pointer for none.
+std::optional<std::shared_ptr<ClipPath const>> parse_clip_path(Values const& values, LengthContext const& context)
+{
+    if (values.size() == 1 && is_ident(values[0], "none"))
+        return std::shared_ptr<ClipPath const> {};
+    ClipPath clip;
+    bool shape_seen = false;
+    bool box_seen = false;
+    auto const length = [&](ComponentValue const& value) -> std::optional<LengthPercent> {
+        return parse_length_percent(value, context, false, true);
+    };
+    auto const fill_rule = [&](Values const& arguments, std::size_t& at) {
+        // [ <fill-rule> , ]? at the head of a polygon or a path.
+        if (at + 1 < arguments.size() && arguments[at]->is_token(Token::Type::Ident) && arguments[at + 1]->is_token(Token::Type::Comma)
+            && (is_ident(arguments[at], "nonzero") || is_ident(arguments[at], "evenodd"))) {
+            clip.even_odd = is_ident(arguments[at], "evenodd");
+            at += 2;
+        }
+    };
+    // `at <position>` closing a circle or an ellipse.
+    auto const center = [&](Values const& arguments, std::size_t at) {
+        if (at == arguments.size())
+            return true;
+        if (!is_ident(arguments[at], "at"))
+            return false;
+        std::size_t taken = 0;
+        std::optional<BackgroundPosition> const position = parse_background_position(arguments, at + 1, context, taken);
+        if (!position || at + 1 + taken != arguments.size())
+            return false;
+        clip.center_x = position->x;
+        clip.center_y = position->y;
+        return true;
+    };
+    auto const radius = [&](ComponentValue const& value) -> std::optional<ClipPath::Radius> {
+        if (is_ident(&value, "closest-side"))
+            return ClipPath::Radius { ClipPath::Radius::Kind::ClosestSide, LengthPercent::px(0) };
+        if (is_ident(&value, "farthest-side"))
+            return ClipPath::Radius { ClipPath::Radius::Kind::FarthestSide, LengthPercent::px(0) };
+        std::optional<LengthPercent> const given = length(value);
+        if (!given || (!value.is_function() && (given->value < 0 || given->percent < 0)))
+            return std::nullopt;
+        return ClipPath::Radius { ClipPath::Radius::Kind::Length, *given };
+    };
+    for (ComponentValue const* value : values) {
+        if (value->is_token(Token::Type::Ident)) {
+            static constexpr std::pair<std::string_view, ClipPath::Box> boxes[] = { { "border-box", ClipPath::Box::Border },
+                { "padding-box", ClipPath::Box::Padding }, { "content-box", ClipPath::Box::Content }, { "margin-box", ClipPath::Box::Margin },
+                { "fill-box", ClipPath::Box::Content }, { "stroke-box", ClipPath::Box::Border }, { "view-box", ClipPath::Box::Border } };
+            bool found = false;
+            for (auto const& [word, box] : boxes) {
+                if (!box_seen && is_ident(value, word)) {
+                    clip.box = box;
+                    found = box_seen = true;
+                }
+            }
+            if (!found)
+                return std::nullopt;
+            continue;
+        }
+        if (!value->is_function() || shape_seen)
+            return std::nullopt;
+        shape_seen = true;
+        std::string const name = lowercase_name(value->function().name);
+        Values const arguments = significant(value->function().values);
+        if (name == "inset" || name == "rect" || name == "xywh") {
+            // inset( <length-percentage>{1,4} [ round <'border-radius'> ]? ), and
+            // its two other spellings: rect() names each edge from the box's top
+            // and left (auto = that side's own edge), xywh() a corner and a size.
+            clip.shape = ClipPath::Shape::Inset;
+            std::vector<LengthPercent> offsets;
+            std::vector<bool> automatic;
+            std::size_t at = 0;
+            for (; at < arguments.size() && !is_ident(arguments[at], "round"); ++at) {
+                if (name == "rect" && is_ident(arguments[at], "auto")) {
+                    offsets.push_back(LengthPercent::px(0));
+                    automatic.push_back(true);
+                    continue;
+                }
+                std::optional<LengthPercent> const offset = length(*arguments[at]);
+                if (!offset)
+                    return std::nullopt;
+                offsets.push_back(*offset);
+                automatic.push_back(false);
+            }
+            auto const from_far_edge = [](LengthPercent const& from_near) {
+                // 100% minus the distance from the near edge.
+                float const px = from_near.kind == LengthPercent::Kind::Percent ? 0 : from_near.value;
+                float const percent = from_near.kind == LengthPercent::Kind::Percent ? from_near.value : from_near.kind == LengthPercent::Kind::Calc ? from_near.percent : 0;
+                return LengthPercent::calc(-px, 100 - percent);
+            };
+            auto const sum = [](LengthPercent const& a, LengthPercent const& b) {
+                auto const px = [](LengthPercent const& v) { return v.kind == LengthPercent::Kind::Percent ? 0 : v.value; };
+                auto const percent = [](LengthPercent const& v) { return v.kind == LengthPercent::Kind::Percent ? v.value : v.kind == LengthPercent::Kind::Calc ? v.percent : 0; };
+                return LengthPercent::calc(px(a) + px(b), percent(a) + percent(b));
+            };
+            if (name == "inset") {
+                if (offsets.empty() || offsets.size() > 4)
+                    return std::nullopt;
+                for (std::size_t side = 0; side < 4; ++side) {
+                    // One value covers every side, two top/bottom and
+                    // left/right, three leave the left to match the right.
+                    switch (offsets.size()) {
+                    case 1: clip.inset[side] = offsets[0]; break;
+                    case 2: clip.inset[side] = offsets[side % 2]; break;
+                    case 3: clip.inset[side] = side == 3 ? offsets[1] : offsets[side]; break;
+                    default: clip.inset[side] = offsets[side]; break;
+                    }
+                }
+            } else if (name == "rect") {
+                // top, right, bottom, left — each from the top or the left edge.
+                if (offsets.size() != 4)
+                    return std::nullopt;
+                clip.inset[0] = offsets[0];
+                clip.inset[1] = automatic[1] ? LengthPercent::px(0) : from_far_edge(offsets[1]);
+                clip.inset[2] = automatic[2] ? LengthPercent::px(0) : from_far_edge(offsets[2]);
+                clip.inset[3] = offsets[3];
+            } else {
+                // x, y, width, height.
+                if (offsets.size() != 4)
+                    return std::nullopt;
+                clip.inset[0] = offsets[1];
+                clip.inset[3] = offsets[0];
+                clip.inset[1] = from_far_edge(sum(offsets[0], offsets[2]));
+                clip.inset[2] = from_far_edge(sum(offsets[1], offsets[3]));
+            }
+            if (at < arguments.size()) {
+                // round <'border-radius'>: up to four lengths, a slash, up to four more.
+                std::vector<LengthPercent> across;
+                std::vector<LengthPercent> down;
+                bool past_slash = false;
+                for (++at; at < arguments.size(); ++at) {
+                    if (arguments[at]->is_token(Token::Type::Delim) && arguments[at]->token().delim == U'/') {
+                        if (past_slash)
+                            return std::nullopt;
+                        past_slash = true;
+                        continue;
+                    }
+                    std::optional<LengthPercent> const corner = length(*arguments[at]);
+                    if (!corner || (!arguments[at]->is_function() && (corner->value < 0 || corner->percent < 0)))
+                        return std::nullopt;
+                    (past_slash ? down : across).push_back(*corner);
+                }
+                if (across.empty() || across.size() > 4 || down.size() > 4 || (past_slash && down.empty()))
+                    return std::nullopt;
+                if (!past_slash)
+                    down = across;
+                auto const corner = [](std::vector<LengthPercent> const& list, std::size_t which) {
+                    switch (list.size()) {
+                    case 1: return list[0];
+                    case 2: return list[which % 2];
+                    case 3: return which == 3 ? list[1] : list[which];
+                    default: return list[which];
+                    }
+                };
+                for (std::size_t which = 0; which < 4; ++which) {
+                    clip.radii[which * 2] = corner(across, which);
+                    clip.radii[which * 2 + 1] = corner(down, which);
+                }
+            }
+        } else if (name == "circle") {
+            // circle( <radius>? [ at <position> ]? )
+            clip.shape = ClipPath::Shape::Circle;
+            std::size_t at = 0;
+            if (at < arguments.size() && !is_ident(arguments[at], "at")) {
+                std::optional<ClipPath::Radius> const given = radius(*arguments[at]);
+                if (!given)
+                    return std::nullopt;
+                clip.radius_x = clip.radius_y = *given;
+                ++at;
+            }
+            if (!center(arguments, at))
+                return std::nullopt;
+        } else if (name == "ellipse") {
+            // ellipse( [ <radius>{2} ]? [ at <position> ]? )
+            clip.shape = ClipPath::Shape::Ellipse;
+            std::size_t at = 0;
+            if (at < arguments.size() && !is_ident(arguments[at], "at")) {
+                if (at + 1 >= arguments.size())
+                    return std::nullopt;
+                std::optional<ClipPath::Radius> const across = radius(*arguments[at]);
+                std::optional<ClipPath::Radius> const down = radius(*arguments[at + 1]);
+                if (!across || !down)
+                    return std::nullopt;
+                clip.radius_x = *across;
+                clip.radius_y = *down;
+                at += 2;
+            }
+            if (!center(arguments, at))
+                return std::nullopt;
+        } else if (name == "polygon") {
+            // polygon( [ <fill-rule> , ]? [ <length-percentage> <length-percentage> ]# )
+            clip.shape = ClipPath::Shape::Polygon;
+            std::size_t at = 0;
+            fill_rule(arguments, at);
+            while (at < arguments.size()) {
+                if (at + 1 >= arguments.size())
+                    return std::nullopt;
+                std::optional<LengthPercent> const x = length(*arguments[at]);
+                std::optional<LengthPercent> const y = length(*arguments[at + 1]);
+                if (!x || !y)
+                    return std::nullopt;
+                clip.points.emplace_back(*x, *y);
+                at += 2;
+                if (at < arguments.size()) {
+                    if (!arguments[at]->is_token(Token::Type::Comma) || at + 1 == arguments.size())
+                        return std::nullopt;
+                    ++at;
+                }
+            }
+            if (clip.points.empty())
+                return std::nullopt;
+        } else if (name == "path") {
+            // path( [ <fill-rule> , ]? <string> )
+            clip.shape = ClipPath::Shape::Path;
+            std::size_t at = 0;
+            fill_rule(arguments, at);
+            if (at + 1 != arguments.size() || !arguments[at]->is_token(Token::Type::String))
+                return std::nullopt;
+            clip.path = arguments[at]->token().value;
+            clip.path_scale = context.device_scale;
+        } else {
+            return std::nullopt;
+        }
+    }
+    if (!shape_seen && !box_seen)
+        return std::nullopt;
+    return std::make_shared<ClipPath const>(std::move(clip));
+}
+
 bool all_none(std::vector<BackgroundImage> const& images)
 {
     for (BackgroundImage const& image : images) {
@@ -4513,6 +4843,23 @@ struct Resolver {
             { "pointer-events", true, [](S& to, S const& from) { to.pointer_events = from.pointer_events; }, 0 },
             { "interactivity", true, [](S& to, S const& from) { to.inert = from.inert; }, 0 },
             { "opacity", false, [](S& to, S const& from) { to.opacity = from.opacity; }, 0 },
+            { "filter", false, [](S& to, S const& from) { to.filter = from.filter; }, 0 },
+            { "-webkit-filter", false, [](S& to, S const& from) { to.filter = from.filter; }, 0 },
+            { "backdrop-filter", false, [](S& to, S const& from) { to.backdrop_filter = from.backdrop_filter; }, 0 },
+            { "-webkit-backdrop-filter", false, [](S& to, S const& from) { to.backdrop_filter = from.backdrop_filter; }, 0 },
+            { "clip-path", false, [](S& to, S const& from) { to.clip_path = from.clip_path; }, 0 },
+            { "-webkit-clip-path", false, [](S& to, S const& from) { to.clip_path = from.clip_path; }, 0 },
+            { "text-overflow", false, [](S& to, S const& from) { to.text_overflow_ellipsis = from.text_overflow_ellipsis; }, 0 },
+            { "isolation", false, [](S& to, S const& from) { to.isolate = from.isolate; }, 0 },
+            { "perspective", false, [](S& to, S const& from) { to.perspective = from.perspective; }, 0 },
+            { "contain", false, [](S& to, S const& from) { to.contain = from.contain; }, 0 },
+            { "will-change", false,
+                [](S& to, S const& from) {
+                    to.will_change = from.will_change;
+                    to.will_change_stacks = from.will_change_stacks;
+                    to.will_change_contains = from.will_change_contains;
+                },
+                0 },
             // SVG's painting properties.
             { "fill", true, [](S& to, S const& from) { to.fill = from.fill; }, 0 },
             { "stroke", true, [](S& to, S const& from) { to.stroke = from.stroke; }, 0 },
@@ -6399,6 +6746,135 @@ struct Resolver {
             else
                 return;
             style.opacity = static_cast<float>(std::clamp(amount, 0.0, 1.0));
+            return;
+        }
+        if (name == "filter" || name == "-webkit-filter" || name == "backdrop-filter" || name == "-webkit-backdrop-filter") {
+            std::optional<FilterList> list = parse_filter_list(values, context, style.color);
+            if (!list)
+                return;
+            std::shared_ptr<FilterList const>& held = name.ends_with("backdrop-filter") ? style.backdrop_filter : style.filter;
+            held = list->empty() ? nullptr : std::make_shared<FilterList const>(std::move(*list));
+            return;
+        }
+        if (name == "clip-path" || name == "-webkit-clip-path") {
+            if (std::optional<std::shared_ptr<ClipPath const>> clip = parse_clip_path(values, context))
+                style.clip_path = std::move(*clip);
+            return;
+        }
+        if (name == "text-overflow") {
+            // [ clip | ellipsis ]{1,2} (css-overflow-4 §7.1): one value for the
+            // end of the line, or the start's and then the end's. The end's
+            // is what a line running out of its box shows.
+            if (values.empty() || values.size() > 2)
+                return;
+            for (ComponentValue const* value : values) {
+                if (!is_ident(value, "clip") && !is_ident(value, "ellipsis"))
+                    return;
+            }
+            style.text_overflow_ellipsis = is_ident(values.back(), "ellipsis");
+            return;
+        }
+        if (name == "isolation") {
+            // auto | isolate (compositing-1 §3.3)
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "isolate"))
+                style.isolate = true;
+            else if (is_ident(values[0], "auto"))
+                style.isolate = false;
+            return;
+        }
+        if (name == "perspective") {
+            // none | <length [0,∞]> (css-transforms-2 §9)
+            if (values.size() != 1)
+                return;
+            if (is_ident(values[0], "none")) {
+                style.perspective.reset();
+                return;
+            }
+            std::optional<LengthPercent> const length = parse_length_percent(*values[0], context, false);
+            if (!length || length->kind != LengthPercent::Kind::Px || length->value < 0)
+                return;
+            style.perspective = length->value;
+            return;
+        }
+        if (name == "contain") {
+            // none | strict | content | [ [size | inline-size] || layout || style || paint ]
+            // (css-contain-2 §2); strict is all four, content all but size.
+            std::uint8_t bits = 0;
+            if (values.size() == 1 && is_ident(values[0], "none")) {
+                style.contain = 0;
+                return;
+            }
+            if (values.size() == 1 && (is_ident(values[0], "strict") || is_ident(values[0], "content"))) {
+                style.contain = ComputedStyle::contain_layout | ComputedStyle::contain_style | ComputedStyle::contain_paint
+                    | (is_ident(values[0], "strict") ? ComputedStyle::contain_size : 0);
+                return;
+            }
+            for (ComponentValue const* value : values) {
+                std::uint8_t bit = 0;
+                if (is_ident(value, "size"))
+                    bit = ComputedStyle::contain_size;
+                else if (is_ident(value, "inline-size"))
+                    bit = ComputedStyle::contain_inline_size;
+                else if (is_ident(value, "layout"))
+                    bit = ComputedStyle::contain_layout;
+                else if (is_ident(value, "style"))
+                    bit = ComputedStyle::contain_style;
+                else if (is_ident(value, "paint"))
+                    bit = ComputedStyle::contain_paint;
+                // A word twice, a word this property does not have, and
+                // size beside inline-size are all invalid.
+                if (bit == 0 || (bits & bit) != 0)
+                    return;
+                bits |= bit;
+            }
+            if (bits == 0 || (bits & (ComputedStyle::contain_size | ComputedStyle::contain_inline_size)) == (ComputedStyle::contain_size | ComputedStyle::contain_inline_size))
+                return;
+            style.contain = bits;
+            return;
+        }
+        if (name == "will-change") {
+            // auto | <animateable-feature># (css-will-change-1 §3): scroll-position,
+            // contents, or a property's name; the CSS-wide keywords, `auto`
+            // in a list, `will-change` itself and `none` are not names.
+            if (values.size() == 1 && is_ident(values[0], "auto")) {
+                style.will_change.reset();
+                style.will_change_stacks = false;
+                style.will_change_contains = false;
+                return;
+            }
+            std::string text;
+            bool stacks = false;
+            bool contains = false;
+            bool wants_name = true;
+            for (ComponentValue const* value : values) {
+                if (value->is_token(Token::Type::Comma)) {
+                    if (wants_name)
+                        return;
+                    wants_name = true;
+                    continue;
+                }
+                if (!wants_name || !value->is_token(Token::Type::Ident))
+                    return;
+                std::string const feature = lowercase_name(value->token().value);
+                static constexpr std::string_view refused[] = { "auto", "will-change", "none", "all", "initial", "inherit", "unset", "revert", "revert-layer", "default" };
+                if (std::find(std::begin(refused), std::end(refused), feature) != std::end(refused))
+                    return;
+                static constexpr std::string_view holding[] = { "transform", "translate", "rotate", "scale", "perspective", "filter", "backdrop-filter", "contain" };
+                static constexpr std::string_view stacking[] = { "opacity", "isolation", "clip-path", "mask", "mask-image", "mask-border", "mix-blend-mode", "z-index", "position" };
+                if (std::find(std::begin(holding), std::end(holding), feature) != std::end(holding))
+                    stacks = contains = true;
+                else if (std::find(std::begin(stacking), std::end(stacking), feature) != std::end(stacking))
+                    stacks = true;
+                text += (text.empty() ? "" : ", ") + feature;
+                wants_name = false;
+            }
+            if (wants_name)
+                return;
+            style.will_change = std::make_shared<std::string const>(std::move(text));
+            style.will_change_stacks = stacks;
+            style.will_change_contains = contains;
             return;
         }
         // --- SVG's painting properties (SVG 2 §13) ---------------------------------

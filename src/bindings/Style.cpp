@@ -1145,6 +1145,128 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         return style.pointer_events ? "auto" : "none";
     if (name == "interactivity")
         return style.inert ? "inert" : "auto";
+    if (name == "filter" || name == "-webkit-filter" || name == "backdrop-filter" || name == "-webkit-backdrop-filter") {
+        std::shared_ptr<css::FilterList const> const& list = name.ends_with("backdrop-filter") ? style.backdrop_filter : style.filter;
+        if (!list)
+            return "none";
+        std::string out;
+        for (css::FilterFunction const& function : *list) {
+            using Kind = css::FilterFunction::Kind;
+            auto const number = [&] { return js::number_to_utf8(std::round(static_cast<double>(function.amount) * 1000) / 1000); };
+            out += out.empty() ? "" : " ";
+            switch (function.kind) {
+            case Kind::Blur: out += "blur(" + px(function.amount) + ")"; break;
+            case Kind::Brightness: out += "brightness(" + number() + ")"; break;
+            case Kind::Contrast: out += "contrast(" + number() + ")"; break;
+            case Kind::Grayscale: out += "grayscale(" + number() + ")"; break;
+            case Kind::Invert: out += "invert(" + number() + ")"; break;
+            case Kind::Opacity: out += "opacity(" + number() + ")"; break;
+            case Kind::Saturate: out += "saturate(" + number() + ")"; break;
+            case Kind::Sepia: out += "sepia(" + number() + ")"; break;
+            case Kind::HueRotate: out += "hue-rotate(" + number() + "deg)"; break;
+            case Kind::DropShadow:
+                out += "drop-shadow(" + color_text(function.current_color ? style.color : function.color) + " " + px(function.x) + " "
+                    + px(function.y) + " " + px(function.amount) + ")";
+                break;
+            }
+        }
+        return out;
+    }
+    if (name == "clip-path" || name == "-webkit-clip-path") {
+        if (!style.clip_path)
+            return "none";
+        css::ClipPath const& clip = *style.clip_path;
+        using Shape = css::ClipPath::Shape;
+        auto const radius = [](css::ClipPath::Radius const& r) {
+            return r.kind == css::ClipPath::Radius::Kind::ClosestSide ? std::string("closest-side")
+                : r.kind == css::ClipPath::Radius::Kind::FarthestSide ? std::string("farthest-side") : length_text(r.length);
+        };
+        std::string out;
+        switch (clip.shape) {
+        case Shape::Box: break;
+        case Shape::Inset: {
+            // The offsets in their shortest form, as the sides of a margin are.
+            std::string const side[4] = { length_text(clip.inset[0]), length_text(clip.inset[1]), length_text(clip.inset[2]), length_text(clip.inset[3]) };
+            out = "inset(" + side[0];
+            if (side[3] != side[1])
+                out += " " + side[1] + " " + side[2] + " " + side[3];
+            else if (side[2] != side[0])
+                out += " " + side[1] + " " + side[2];
+            else if (side[1] != side[0])
+                out += " " + side[1];
+            bool round = false;
+            bool elliptical = false;
+            for (std::size_t i = 0; i < 8; ++i)
+                round = round || clip.radii[i].value != 0 || clip.radii[i].percent != 0;
+            for (std::size_t i = 0; i < 4; ++i)
+                elliptical = elliptical || length_text(clip.radii[i * 2]) != length_text(clip.radii[i * 2 + 1]);
+            if (round) {
+                auto const four = [&](std::size_t from) {
+                    std::string const c[4] = { length_text(clip.radii[from]), length_text(clip.radii[from + 2]), length_text(clip.radii[from + 4]), length_text(clip.radii[from + 6]) };
+                    std::string text = c[0];
+                    if (c[3] != c[1])
+                        text += " " + c[1] + " " + c[2] + " " + c[3];
+                    else if (c[2] != c[0])
+                        text += " " + c[1] + " " + c[2];
+                    else if (c[1] != c[0])
+                        text += " " + c[1];
+                    return text;
+                };
+                out += " round " + four(0);
+                if (elliptical)
+                    out += " / " + four(1);
+            }
+            out += ")";
+            break;
+        }
+        case Shape::Circle:
+            out = "circle(" + radius(clip.radius_x) + " at " + length_text(clip.center_x) + " " + length_text(clip.center_y) + ")";
+            break;
+        case Shape::Ellipse:
+            out = "ellipse(" + radius(clip.radius_x) + " " + radius(clip.radius_y) + " at " + length_text(clip.center_x) + " " + length_text(clip.center_y) + ")";
+            break;
+        case Shape::Polygon:
+            out = clip.even_odd ? "polygon(evenodd, " : "polygon(";
+            for (std::size_t i = 0; i < clip.points.size(); ++i)
+                out += (i == 0 ? "" : ", ") + length_text(clip.points[i].first) + " " + length_text(clip.points[i].second);
+            out += ")";
+            break;
+        case Shape::Path:
+            out = std::string(clip.even_odd ? "path(evenodd, \"" : "path(\"") + clip.path + "\")";
+            break;
+        }
+        static constexpr char const* boxes[] = { "border-box", "padding-box", "content-box", "margin-box" };
+        if (clip.shape == Shape::Box || clip.box != css::ClipPath::Box::Border)
+            out += (out.empty() ? "" : " ") + std::string(boxes[static_cast<std::size_t>(clip.box)]);
+        return out;
+    }
+    if (name == "text-overflow")
+        return style.text_overflow_ellipsis ? "ellipsis" : "clip";
+    if (name == "isolation")
+        return style.isolate ? "isolate" : "auto";
+    if (name == "perspective")
+        return style.perspective ? px(*style.perspective) : "none";
+    if (name == "will-change")
+        return style.will_change ? *style.will_change : "auto";
+    if (name == "contain") {
+        // The shortest form (css-contain-2 §2): strict and content when the
+        // bits are theirs, the words in the grammar's order otherwise.
+        using S = css::ComputedStyle;
+        std::uint8_t const all = S::contain_layout | S::contain_style | S::contain_paint;
+        if (style.contain == 0)
+            return "none";
+        if (style.contain == (all | S::contain_size))
+            return "strict";
+        if (style.contain == all)
+            return "content";
+        std::string out;
+        for (auto const& [bit, word] : { std::pair<std::uint8_t, char const*> { S::contain_size, "size" }, { S::contain_inline_size, "inline-size" },
+                 { S::contain_layout, "layout" }, { S::contain_style, "style" }, { S::contain_paint, "paint" } }) {
+            if ((style.contain & bit) != 0)
+                out += (out.empty() ? "" : " ") + std::string(word);
+        }
+        return out;
+    }
     if (name == "cursor")
         return "auto";
     if (name == "content")
@@ -1180,23 +1302,23 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
 // before the custom properties in force.
 constexpr std::string_view computed_longhands[] = { "align-content", "align-items", "align-self", "animation-composition", "animation-delay",
     "animation-direction", "animation-duration", "animation-fill-mode", "animation-iteration-count", "animation-name",
-    "animation-play-state", "animation-timeline", "animation-timing-function", "appearance", "aspect-ratio", "background-color", "background-image",
+    "animation-play-state", "animation-timeline", "animation-timing-function", "appearance", "aspect-ratio", "backdrop-filter", "background-color", "background-image",
     "border-bottom-color", "border-bottom-left-radius", "border-bottom-right-radius", "border-bottom-style", "border-bottom-width",
     "border-collapse", "border-left-color", "border-left-style", "border-left-width", "border-right-color", "border-right-style",
     "border-right-width", "border-spacing", "border-top-color", "border-top-left-radius", "border-top-right-radius",
-    "border-top-style", "border-top-width", "bottom", "box-shadow", "box-sizing", "clear", "color", "column-gap", "content",
-    "cursor", "direction", "display", "flex-basis", "flex-direction", "flex-grow", "flex-shrink", "flex-wrap", "float",
+    "border-top-style", "border-top-width", "bottom", "box-shadow", "box-sizing", "clear", "clip-path", "color", "column-gap", "contain", "content",
+    "cursor", "direction", "display", "filter", "flex-basis", "flex-direction", "flex-grow", "flex-shrink", "flex-wrap", "float",
     "font-family", "font-kerning", "font-size", "font-stretch", "font-style", "font-synthesis-position",
     "font-synthesis-small-caps", "font-synthesis-style", "font-synthesis-weight", "font-weight", "grid-auto-columns",
     "grid-auto-flow", "grid-auto-rows", "grid-column-end", "grid-column-start", "grid-row-end", "grid-row-start",
     "grid-template-areas", "grid-template-columns", "grid-template-rows", "height", "hyphenate-character", "hyphens",
-    "interactivity", "justify-content", "justify-items", "justify-self", "left", "letter-spacing", "line-break", "line-height", "margin-bottom",
+    "interactivity", "isolation", "justify-content", "justify-items", "justify-self", "left", "letter-spacing", "line-break", "line-height", "margin-bottom",
     "margin-left", "margin-right", "margin-top", "max-height", "max-width", "min-height", "min-width", "object-fit",
     "object-position", "opacity", "order", "outline-color", "outline-offset", "outline-style", "outline-width", "overflow-wrap",
-    "overflow-x", "overflow-y", "padding-bottom", "padding-left", "padding-right", "padding-top", "pointer-events", "position",
-    "right", "row-gap", "text-align", "text-decoration-line", "text-shadow", "text-transform", "top", "transform",
+    "overflow-x", "overflow-y", "padding-bottom", "padding-left", "padding-right", "padding-top", "perspective", "pointer-events", "position",
+    "right", "row-gap", "text-align", "text-decoration-line", "text-overflow", "text-shadow", "text-transform", "top", "transform",
     "transition-behavior", "transition-delay", "transition-duration", "transition-property", "transition-timing-function",
-    "visibility", "white-space", "width", "word-break", "word-spacing", "z-index" };
+    "visibility", "white-space", "width", "will-change", "word-break", "word-spacing", "z-index" };
 
 // Whether getComputedStyle's second argument leaves a style to answer
 // (CSSOM §9.1): one that does not start with a colon is ignored, so the
