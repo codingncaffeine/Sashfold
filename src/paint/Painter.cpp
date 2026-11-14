@@ -1937,6 +1937,83 @@ std::vector<RoundedRect> rounds_within(Context const& context, Fragment const& f
     return rounds;
 }
 
+// --- Tree order among a context's layers ---------------------------------------------
+//
+// CSS 2.1 Appendix E paints the positioned descendants of a stacking
+// context in tree order within a z-index level. The fragments mostly are in
+// that order, but a box out of the flow is kept under its containing block
+// after everything that block holds in the flow, wherever in the tree its
+// element stands: a backdrop written first and laid over its parent would
+// be painted over the positioned content written after it.
+
+// An element's ancestors in the flat tree, the root first, itself last.
+std::vector<dom::Node const*> tree_path(dom::Element const& element)
+{
+    std::vector<dom::Node const*> path;
+    for (dom::Node const* node = &element; node; node = dom::flat_parent(*node))
+        path.push_back(node);
+    std::reverse(path.begin(), path.end());
+    return path;
+}
+
+// Whether the element `a` leads to comes after the one `b` leads to in tree
+// order: inside it, or in a later branch of the ancestor they share.
+bool follows_in_tree(std::vector<dom::Node const*> const& a, std::vector<dom::Node const*> const& b)
+{
+    std::size_t shared = 0;
+    while (shared < a.size() && shared < b.size() && a[shared] == b[shared])
+        ++shared;
+    if (shared == a.size() || shared == 0)
+        return false; // the same element, an ancestor of the other, or another tree
+    if (shared == b.size())
+        return true;
+    for (dom::Node const* child : dom::flat_children(*a[shared - 1])) {
+        if (child == b[shared])
+            return true;
+        if (child == a[shared])
+            return false;
+    }
+    return false;
+}
+
+// Puts each layer that is out of the flow back where its element stands in
+// the tree: before the first layer in the flow whose element follows its
+// own. The layers in the flow are in the order layout gave them, which is
+// tree order as `order` changes it among flex and grid items, and keep it;
+// so do the layers out of the flow among themselves, placed in that order
+// too. Both the painter and the hit test read the layers through this, so
+// what is on top is what answers the pointer.
+template <typename Layers>
+void put_in_tree_order(Layers& layers)
+{
+    using Entry = typename Layers::value_type;
+    auto const hoisted = [](Entry const& layer) { return layer.box->out_of_flow && layer.box->element != nullptr; };
+    if (layers.size() < 2 || std::none_of(layers.begin(), layers.end(), hoisted))
+        return;
+    struct Placed {
+        Entry layer;
+        std::vector<dom::Node const*> path;
+        bool hoisted = false;
+    };
+    std::vector<Placed> kept;
+    std::vector<Placed> moved;
+    for (Entry& layer : layers) {
+        bool const out = hoisted(layer);
+        std::vector<dom::Node const*> path = layer.box->element ? tree_path(*layer.box->element)
+                                                               : std::vector<dom::Node const*> {};
+        (out ? moved : kept).push_back(Placed { std::move(layer), std::move(path), out });
+    }
+    for (Placed& placed : moved) {
+        auto at = kept.begin();
+        while (at != kept.end() && (at->hoisted || at->path.empty() || !follows_in_tree(at->path, placed.path)))
+            ++at;
+        kept.insert(at, std::move(placed));
+    }
+    layers.clear();
+    for (Placed& placed : kept)
+        layers.push_back(std::move(placed.layer));
+}
+
 // The layers a stacking context paints: every positioned descendant, and
 // every descendant that is a stacking context for another reason, reached
 // without crossing another stacking context (a positioned box with
@@ -2003,6 +2080,7 @@ void paint_opaque_context(Context& context, Fragment const& root, bool is_canvas
         bars.push_back(Layer { &root, inside.rect, inside.rounds });
     plan_elision(context, root);
     collect_positioned(context, root, inside, root.positioned ? inside : outside, positioned, bars);
+    put_in_tree_order(positioned);
     std::stable_sort(positioned.begin(), positioned.end(),
         [](Layer const& a, Layer const& b) { return a.box->z_index < b.box->z_index; });
     auto const paint_one = [&](Layer const& layer) {
@@ -2476,6 +2554,7 @@ std::optional<PointHit> hit_context(Fragment const& root, Probe at)
     bool const inside = clip_lets_through(root, at);
     std::vector<HitLayer> layers;
     collect_hit_layers(root, at, inside, root.positioned ? inside : true, layers);
+    put_in_tree_order(layers);
     std::stable_sort(layers.begin(), layers.end(),
         [](HitLayer const& a, HitLayer const& b) { return a.box->z_index < b.box->z_index; });
     auto const hit_one = [&](HitLayer const& layer) -> std::optional<PointHit> {

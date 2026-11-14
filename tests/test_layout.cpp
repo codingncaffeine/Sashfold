@@ -2596,6 +2596,50 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- Positioned boxes paint in tree order, in the flow and out of it ----------
+    // CSS 2.1 Appendix E: within a z-index level the positioned boxes of a
+    // stacking context are painted in tree order. A box out of the flow is
+    // kept under its containing block, after what that block holds in the
+    // flow, so the order has to come from where its element stands: a box
+    // laid over its parent and written first is under the positioned box
+    // written after it. What is painted on top is what answers the pointer.
+    {
+        constexpr std::string_view html = R"(<!doctype html>
+<html><head><style>
+  body { margin: 0 }
+  .frame { position: relative; width: 40px; height: 40px }
+  .abs { position: absolute; left: 0; top: 0; width: 40px; height: 40px; background: rgb(255, 0, 0) }
+  .rel { position: relative; width: 40px; height: 40px; background: rgb(0, 128, 0) }
+  p { margin: 0 }
+</style></head><body>
+<div class=frame><div id=a1 class=abs></div><div id=r1 class=rel></div></div>
+<div class=frame><div id=r2 class=rel></div><div id=a2 class=abs></div></div>
+<div class=frame><div><p><span id=a3 class=abs></span></p></div><div id=r3 class=rel></div></div>
+<div class=frame><div id=r4 class=rel></div><div><p><span id=a4 class=abs></span></p></div></div>
+<div class=frame><div id=a5 class=abs style="z-index: 1"></div><div id=r5 class=rel></div></div>
+<div class=frame><div id=a6 class=abs></div><div id=r6 class=rel style="z-index: -1"></div></div>
+<div class=frame><div id=a7 class=abs></div><div class=rel style="background: none"><div id=r7 class=rel></div></div></div>
+</body></html>)";
+        Page const page = lay_out(html, 200);
+        Bitmap canvas(200, static_cast<int>(page.result.page_height + 0.5f), Color::rgb(255, 255, 255));
+        paint::paint_page(canvas, page.result);
+        Color const red = Color::rgb(255, 0, 0);
+        Color const green = Color::rgb(0, 128, 0);
+        struct Row {
+            int index;
+            Color shown;
+            std::string_view on_top;
+        };
+        for (Row const& row : { Row { 0, green, "r1" }, Row { 1, red, "a2" }, Row { 2, green, "r3" }, Row { 3, red, "a4" },
+                 Row { 4, red, "a5" }, Row { 5, red, "a6" }, Row { 6, green, "r7" } }) {
+            int const y = row.index * 40 + 20;
+            CHECK(canvas.pixel(20, y) == row.shown);
+            std::optional<paint::PointHit> const hit = paint::hit_test(page.result.root, 20, static_cast<float>(y));
+            dom::Attr const* const id = hit && hit->element ? hit->element->find_attribute("id") : nullptr;
+            CHECK(id != nullptr && id->value == row.on_top);
+        }
+    }
+
     // --- A line clamp ends its box at the last line it keeps ----------------------
     // The form pages write (-webkit-box, vertical, -webkit-line-clamp, overflow
     // hidden): the box is as tall as the lines it keeps, the last of them ends
