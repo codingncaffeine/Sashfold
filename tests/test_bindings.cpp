@@ -1468,6 +1468,104 @@ void test_cssom_sheets()
     CHECK_EQ(page.console, "");
 }
 
+// offsetParent, offsetTop and offsetLeft (CSSOM View §7): the nearest
+// ancestor in the flat tree that holds absolutely positioned boxes and is
+// not inside a shadow tree the element is outside of; offsets from that
+// box's padding edge. What a script placing a popup beside its trigger
+// reads before it writes left and top.
+void test_offset_parent()
+{
+    LaidOutPage laid(R"HTML(<!DOCTYPE html><body style="margin:0">
+<div id=header style="position:fixed; top:0; left:0; right:0; height:50px; border:3px solid black">
+  <div id=row style="margin-left:400px; width:100px; height:40px"><div id=host></div><div id=closed></div></div>
+</div>
+<div id=rel style="position:relative; margin-top:100px; margin-left:20px; padding:7px; border:5px solid black; width:300px">
+  <div id=plain style="height:10px"></div><div id=inner style="height:20px"></div>
+  <div id=moved style="transform:translate(10px, 10px); height:30px"><div id=within style="position:absolute; left:4px; top:6px; width:5px; height:5px"></div></div>
+  <table id=table style="border-spacing:0"><tr><td id=cell style="padding:0"><div id=incell style="height:5px"></div><div id=incellrel style="position:relative; height:5px"></div></td></tr></table>
+  <div id=gone style="display:none"><div id=ingone></div></div>
+  <div><span id=inl></span></div>
+</div>
+<div id=fix style="position:fixed; top:300px; left:0; width:10px; height:10px"></div>
+<script>
+  var host = document.getElementById('host');
+  var open = host.attachShadow({ mode: 'open' });
+  open.innerHTML = '<div id=popup style="position:absolute; left:120px; top:30px; width:10px; height:10px"></div><div id=posd style="position:relative"><slot></slot></div>';
+  host.innerHTML = '<span id=slotted style="display:block; height:4px"></span>';
+  var closedRoot = document.getElementById('closed').attachShadow({ mode: 'closed' });
+  closedRoot.innerHTML = '<div id=shut style="position:relative"><slot></slot></div>';
+  document.getElementById('closed').innerHTML = '<span id=light style="display:block; height:4px"></span>';
+  window.popup = open.getElementById('popup');
+  window.posd = open.getElementById('posd');
+  function id(e) { return e === null ? 'null' : e.id || e.localName; }
+  function at(name) { var e = typeof name === 'string' ? document.getElementById(name) : name; return id(e.offsetParent) + ' ' + e.offsetLeft + ',' + e.offsetTop; }
+</script></body>)HTML");
+    Page& page = *laid.page;
+    // The root, the body and a fixed box have none; nor has a box that is
+    // not drawn.
+    CHECK_EQ(page.string("[id(document.documentElement.offsetParent), id(document.body.offsetParent), id(document.getElementById('fix').offsetParent), id(document.getElementById('header').offsetParent), id(document.getElementById('ingone').offsetParent), id(document.getElementById('gone').offsetParent)].join()"), "null,null,null,null,null,null");
+    // With none, the offsets are the page's; the body's own are 0.
+    CHECK_EQ(page.string("[document.getElementById('fix').offsetLeft, document.getElementById('fix').offsetTop, document.body.offsetLeft, document.body.offsetTop].join()"), "0,300,0,0");
+    // A positioned ancestor, from its padding edge: the border (5) is not
+    // counted, the padding (7) is.
+    CHECK_EQ(page.string("at('rel')"), "body 20,100");
+    CHECK_EQ(page.string("at('plain')"), "rel 7,7");
+    CHECK_EQ(page.string("at('inner')"), "rel 7,17");
+    // A transformed box holds its absolutely positioned boxes too.
+    CHECK_EQ(page.string("at('within')"), "moved 4,6");
+    // A table or a cell, around a box that is not positioned only.
+    CHECK_EQ(page.string("id(document.getElementById('incell').offsetParent)"), "cell");
+    CHECK_EQ(page.string("id(document.getElementById('cell').offsetParent)"), "table");
+    CHECK_EQ(page.string("id(document.getElementById('incellrel').offsetParent)"), "rel");
+    // Inside an open shadow tree under a fixed header: the header, whose
+    // border is 3 px — where a library placing the popup measures from.
+    CHECK_EQ(page.string("at(popup)"), "header 120,30");
+    CHECK_EQ(page.string("id(posd.offsetParent)"), "header");
+    // A slotted box does not see the positioned box around its slot,
+    // whether the tree it was slotted into is open or closed.
+    CHECK_EQ(page.string("id(document.getElementById('slotted').offsetParent)"), "header");
+    CHECK_EQ(page.string("id(document.getElementById('light').offsetParent)"), "header");
+    // An inline host's box is its shadow tree's text.
+    CHECK(page.boolean("(function () { var h = document.getElementById('inl'); h.attachShadow({ mode: 'closed' }).innerHTML = '<span>text</span>'; var r = h.getBoundingClientRect(); return r.width > 10 && r.height > 5 && h.offsetParent.id === 'rel' && h.offsetLeft === 7 && h.offsetWidth > 10; })()"));
+    CHECK_EQ(page.console, "");
+}
+
+// isolation, perspective, contain and will-change: their computed values (a
+// box without them answers the initial value, never an empty string — a
+// script asking `perspective !== 'none'` is asking whether the box holds
+// its positioned descendants), and what each does to the boxes inside.
+void test_containing_properties()
+{
+    LaidOutPage laid(R"HTML(<!DOCTYPE html><body style="margin:0">
+<div id=plain></div>
+<div id=all style="isolation:isolate; perspective:500px; contain:layout paint; will-change:transform, opacity"></div>
+<div id=strict style="contain:strict"></div><div id=content style="contain:content"></div>
+<div id=sized style="contain:inline-size style"></div>
+<div id=bad style="contain:size inline-size; perspective:-1px; will-change:auto, transform; isolation:none"></div>
+<div id=p style="perspective:100px; margin-left:30px; width:50px; height:20px"><div id=pa style="position:absolute; left:1px; top:2px; width:5px; height:5px"></div></div>
+<div id=c style="contain:layout; margin-left:40px; width:50px; height:20px"><div id=ca style="position:absolute; left:1px; top:2px; width:5px; height:5px"></div></div>
+<div id=w style="will-change:transform; margin-left:50px; width:50px; height:20px"><div id=wa style="position:absolute; left:1px; top:2px; width:5px; height:5px"></div></div>
+<div id=o style="will-change:opacity; margin-left:60px; width:50px; height:20px"><div id=oa style="position:absolute; left:1px; top:2px; width:5px; height:5px"></div></div>
+<script>
+  function read(id) { var s = getComputedStyle(document.getElementById(id)); return [s.isolation, s.perspective, s.contain, s.willChange].join(' | '); }
+  function left(id) { return document.getElementById(id).getBoundingClientRect().left; }
+</script></body>)HTML");
+    Page& page = *laid.page;
+    CHECK_EQ(page.string("read('plain')"), "auto | none | none | auto");
+    CHECK_EQ(page.string("read('all')"), "isolate | 500px | layout paint | transform, opacity");
+    CHECK_EQ(page.string("[getComputedStyle(document.getElementById('strict')).contain, getComputedStyle(document.getElementById('content')).contain, getComputedStyle(document.getElementById('sized')).contain].join()"), "strict,content,inline-size style");
+    // Each of these is invalid and leaves the initial value.
+    CHECK_EQ(page.string("read('bad')"), "auto | none | none | auto");
+    CHECK(page.boolean("CSS.supports('perspective', '10px') && CSS.supports('isolation', 'isolate') && CSS.supports('contain', 'paint') && CSS.supports('will-change', 'scroll-position')"));
+    CHECK(page.boolean("!CSS.supports('perspective', '10%') && !CSS.supports('isolation', 'yes') && !CSS.supports('contain', 'paint paint') && !CSS.supports('will-change', 'will-change')"));
+    // A perspective, layout containment and a transform about to change
+    // each hold the absolutely positioned box inside; an opacity about to
+    // change does not, and that box is placed against the page.
+    CHECK_EQ(page.string("[left('pa'), left('ca'), left('wa'), left('oa')].join()"), "31,41,51,1");
+    CHECK_EQ(page.string("[document.getElementById('pa').offsetParent.id, document.getElementById('ca').offsetParent.id, document.getElementById('wa').offsetParent.id, document.getElementById('oa').offsetParent.localName].join()"), "p,c,w,body");
+    CHECK_EQ(page.console, "");
+}
+
 void test_display_contents_geometry()
 {
     // CSS Display 3 §2.5: the element has no box, so no rects, no offset
@@ -6715,6 +6813,8 @@ int main()
     test_layout_and_style_hooks();
     test_cssom_sheets();
     test_element_scrolling();
+    test_offset_parent();
+    test_containing_properties();
     test_display_contents_geometry();
     test_form_controls_without_a_host();
     test_dom_parser_and_foreign_documents();

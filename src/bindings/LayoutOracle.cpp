@@ -44,13 +44,15 @@ layout::Fragment const* find_fragment(layout::Fragment const& fragment, dom::Ele
 }
 
 // The runs whose element chain reaches `element`, joined into one box.
-// The line's exact ascent lives in the font; the box is taken as the
-// run's font-size line, which is what a script measuring an inline
-// element gets to within a pixel or two.
+// The chain is the flat tree's: the text of an inline host's shadow tree,
+// and of what is slotted into it, is inside the host's box. The line's
+// exact ascent lives in the font; the box is taken as the run's font-size
+// line, which is what a script measuring an inline element gets to within
+// a pixel or two.
 void union_runs(layout::Fragment const& fragment, dom::Element const& element, LayoutBox& box, bool& found)
 {
     for (layout::TextRun const& run : fragment.runs) {
-        for (dom::Node const* node = run.element; node; node = node->parent()) {
+        for (dom::Node const* node = run.element; node; node = dom::flat_parent(*node)) {
             if (node != &element)
                 continue;
             float const size = run.style ? run.style->font_size : 16.0f;

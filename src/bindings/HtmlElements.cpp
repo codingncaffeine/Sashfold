@@ -1129,6 +1129,69 @@ js::Object* new_validity_state(Realm::Internals& in, NodeWrapper& wrapper)
 
 namespace {
 
+// Whether one node is out of another's sight inside a shadow tree: its
+// tree is a shadow tree the other is not inside. An offsetParent is never
+// such a node, whatever the root's mode — a script holding an element is
+// not handed the inside of a component it was slotted into (every engine;
+// WPT shadow-dom/offsetTop-offsetLeft-across-shadow-boundaries).
+bool shadow_hidden(dom::Node const& node, dom::Node const& from)
+{
+    dom::Node const& root = node.root();
+    if (!root.is_shadow_root())
+        return false;
+    for (dom::Node const* at = &from; at != nullptr;) {
+        if (at == &root)
+            return false;
+        dom::Node const* const parent = at->parent();
+        at = parent != nullptr || !at->is_shadow_root() ? parent : &static_cast<dom::ShadowRoot const&>(*at).host();
+    }
+    return true;
+}
+
+// An element's offsetParent (CSSOM View §7): none for one without a box,
+// the root, the body and a fixed box; otherwise the nearest ancestor in the
+// flat tree that holds absolutely positioned boxes, is the body, or is a
+// table or a cell around a box that is not positioned. An ancestor inside
+// a shadow tree the element is not in is never the answer, and a fixed one
+// there ends the search with none. Every body element has none.
+dom::Element* offset_parent_of(Realm::Internals& in, dom::Element& element)
+{
+    dom::Element* const body = body_element(*in.document);
+    bool const root = element.parent() != nullptr && element.parent()->type() == dom::NodeType::Document;
+    if (root || element.is_html("body"))
+        return nullptr;
+    if (!in.hooks.computed_style)
+        return body;
+    css::ComputedStyle const* const own = in.hooks.computed_style(element);
+    if (own == nullptr || own->display == css::Display::Contents || own->position == css::Position::Fixed)
+        return nullptr;
+    // Nothing in a display: none subtree has a box, and nothing outside the
+    // flat tree (a host's child no slot takes).
+    for (dom::Node const* at = &element; at != nullptr && at->type() != dom::NodeType::Document; at = dom::flat_parent(*at)) {
+        if (!at->is_element())
+            return nullptr;
+        css::ComputedStyle const* const style = in.hooks.computed_style(static_cast<dom::Element const&>(*at));
+        if (style == nullptr || style->display == css::Display::None)
+            return nullptr;
+        if (dom::flat_parent(*at) == nullptr)
+            return nullptr;
+    }
+    for (dom::Node* at = dom::flat_parent(element); at != nullptr && at->is_element(); at = dom::flat_parent(*at)) {
+        auto& ancestor = static_cast<dom::Element&>(*at);
+        css::ComputedStyle const* const style = in.hooks.computed_style(ancestor);
+        if (shadow_hidden(ancestor, element)) {
+            if (style != nullptr && style->position == css::Position::Fixed)
+                return nullptr;
+            continue;
+        }
+        if ((style != nullptr && style->contains_absolute()) || &ancestor == body)
+            return &ancestor;
+        if (!own->positioned() && (ancestor.is_html("td") || ancestor.is_html("th") || ancestor.is_html("table")))
+            return &ancestor;
+    }
+    return nullptr;
+}
+
 // A control's checkedness set: a radio button checked unchecks the rest of
 // its group (§4.10.5.1.15).
 void set_checkedness(Realm::Internals& in, dom::Element& element, bool checked)
@@ -1481,21 +1544,7 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
         });
     element_forwarding_getter(in, html_element, "style", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_style_declaration(internals, &e, false); }, "cssText");
     element_getter(in, html_element, "offsetParent", [](Realm::Internals& internals, dom::Element& e) -> Native {
-        if (e.is_html("body") || e.is_html("html"))
-            return js::Value::null();
-        // CSSOM View §7: an element with no box has no offset parent — one
-        // that is display: contents, or display: none or inside one.
-        if (internals.hooks.computed_style) {
-            for (dom::Node const* at = &e; at && at->is_element(); at = at->parent()) {
-                css::ComputedStyle const* const style
-                    = internals.hooks.computed_style(static_cast<dom::Element const&>(*at));
-                if (style
-                    && (style->display == css::Display::None
-                        || (at == &e && style->display == css::Display::Contents)))
-                    return js::Value::null();
-            }
-        }
-        return internals.realm.wrap_or_null(body_element(*internals.document));
+        return internals.realm.wrap_or_null(offset_parent_of(internals, e));
     });
     auto const offset = [](int which) {
         return [which](Realm::Internals& internals, dom::Element& e) -> Native {
@@ -1504,12 +1553,30 @@ void install_html_elements(Realm::Internals& in, js::Object& html_element)
             std::optional<LayoutBox> const box = internals.hooks.layout_box(e);
             if (!box)
                 return js::Value::number(0);
-            switch (which) {
-            case 0: return js::Value::number(std::round(static_cast<double>(box->width)));
-            case 1: return js::Value::number(std::round(static_cast<double>(box->height)));
-            case 2: return js::Value::number(std::round(static_cast<double>(box->y)));
-            default: return js::Value::number(std::round(static_cast<double>(box->x)));
+            if (which < 2)
+                return js::Value::number(std::round(static_cast<double>(which == 0 ? box->width : box->height)));
+            // offsetTop and offsetLeft (CSSOM View §7): the body's are 0;
+            // with an offsetParent, from that box's padding edge to this
+            // one's border edge; with none, from the page's origin. A body
+            // that is not positioned is measured through, as every engine
+            // does: a box at the top of a page with the default 8 px
+            // margin is at 8, not at 0.
+            dom::Element* const body = body_element(*internals.document);
+            if (&e == body)
+                return js::Value::number(0);
+            float x = box->x;
+            float y = box->y;
+            if (dom::Element* const parent = offset_parent_of(internals, e)) {
+                css::ComputedStyle const* const style = internals.hooks.computed_style ? internals.hooks.computed_style(*parent) : nullptr;
+                std::optional<LayoutBox> const outer
+                    = parent == body && (style == nullptr || !style->contains_absolute()) ? std::nullopt : internals.hooks.layout_box(*parent);
+                if (outer) {
+                    float const scale = internals.hooks.device_scale > 0 ? internals.hooks.device_scale : 1.0f;
+                    x -= outer->x + (style ? style->border_left.width / scale : 0.0f);
+                    y -= outer->y + (style ? style->border_top.width / scale : 0.0f);
+                }
             }
+            return js::Value::number(std::round(static_cast<double>(which == 2 ? y : x)));
         };
     };
     element_getter(in, html_element, "offsetWidth", offset(0));
