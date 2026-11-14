@@ -1555,8 +1555,8 @@ struct Layouter {
 
     // Walks the finished tree carrying two rectangles: the content box of
     // the block a child is in, and the scrollport around it — the padding
-    // box of the nearest box that scrolls or clips, the viewport where
-    // there is none. A box is settled before its own boxes are, so what is
+    // box of the nearest box that scrolls (css-position-3 §3.4), the viewport
+    // where there is none. A box is settled before its own boxes are, so what is
     // inside it travels with it. Run again after a scrollport has moved,
     // it sticks every box afresh from its flow position; `scrolled` is
     // then how far each box that scrolls has had its content moved
@@ -1572,7 +1572,9 @@ struct Layouter {
             inner.top += s.border_top.width;
             inner.right -= s.border_right.width;
             inner.bottom -= s.border_bottom.width;
-            if (s.overflow_x != css::Overflow::Visible || s.overflow_y != css::Overflow::Visible)
+            // A box that only clips (`overflow: clip`) is no scrollport: what
+            // sticks inside it sticks to the one around it.
+            if (css::scrolls(s.overflow_x) || css::scrolls(s.overflow_y))
                 port = inner;
             float const width = cb.width();
             inner.left += resolve(s.padding_left, width);
