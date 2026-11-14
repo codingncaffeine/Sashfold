@@ -1594,8 +1594,26 @@ struct Layouter {
                 inner.bottom += box.scroll_range_y - at.y;
             }
         }
+        // A table's rows and row groups are not what its parts stick
+        // inside: a cell, a row or a row group that sticks moves within the
+        // table — a heading row kept in view down a long table. Nor is a
+        // box of the flow's own making: what is in it sticks inside the
+        // block it was made for.
+        bool passes_on = !box.style;
+        if (box.style) {
+            switch (box.style->display) {
+            case css::Display::TableRowGroup:
+            case css::Display::TableHeaderGroup:
+            case css::Display::TableFooterGroup:
+            case css::Display::TableRow:
+                passes_on = true;
+                break;
+            default:
+                break;
+            }
+        }
         for (Fragment& child : box.children)
-            settle_sticky(child, inner, port, scrolled);
+            settle_sticky(child, passes_on ? cb : inner, port, scrolled);
     }
 
     // How far a subtree reaches on the page: the far corner of the
