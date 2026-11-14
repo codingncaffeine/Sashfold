@@ -16836,7 +16836,17 @@ std::string Browser::page_html() const
     if (Impl::FrontPage const page = m_impl->front_page())
         return page->page_html();
     Impl::Tab const* const tab = m_impl->active_tab();
-    return tab && tab->document ? html::serialize_children(*tab->document) : std::string();
+    if (!tab || !tab->document)
+        return std::string();
+    // With every shadow tree, each as the <template shadowrootmode> under
+    // its host: most of a page built from components is inside them.
+    html::ShadowRootSerialization shadow;
+    dom::Node const& top = *tab->document;
+    dom::for_each_shadow_including(top, [&shadow](dom::Node const& node) {
+        if (node.is_shadow_root())
+            shadow.roots.push_back(static_cast<dom::ShadowRoot const*>(&node));
+    });
+    return html::serialize_children(*tab->document, shadow);
 }
 
 namespace {

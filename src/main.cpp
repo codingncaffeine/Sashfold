@@ -2679,8 +2679,22 @@ int run_window(std::string const& start_url, std::string const& theme_path,
                 browser.mouse_move(x, y);
                 browser.wheel(x, y, notches);
             } else if (step.command == "type") {
-                for (char32_t const code_point : decode_utf8(step.argument))
+                // Each character as a keyboard gives it: the key going down,
+                // then the text it types.
+                for (char32_t const code_point : decode_utf8(step.argument)) {
+                    if (code_point > U' ' && code_point < 0x7F) {
+                        platform::KeyEvent key;
+                        key.key = platform::Key::Letter;
+                        key.shift = code_point >= U'A' && code_point <= U'Z';
+                        key.letter = code_point >= U'a' && code_point <= U'z' ? code_point - U'a' + U'A' : code_point;
+                        browser.key_down(key);
+                    } else if (code_point == U' ') {
+                        platform::KeyEvent key;
+                        key.key = platform::Key::Space;
+                        browser.key_down(key);
+                    }
                     browser.text_input(code_point);
+                }
             } else if (step.command == "key") {
                 static constexpr std::pair<char const*, platform::Key> named[] = {
                     { "enter", platform::Key::Enter }, { "escape", platform::Key::Escape },
