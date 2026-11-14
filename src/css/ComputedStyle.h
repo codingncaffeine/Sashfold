@@ -230,7 +230,6 @@ struct ClipPath {
         enum class Kind : std::uint8_t { Length, ClosestSide, FarthestSide };
         Kind kind = Kind::ClosestSide;
         LengthPercent length = LengthPercent::px(0);
-        bool operator==(Radius const&) const = default;
     };
     Shape shape = Shape::Box;
     Box box = Box::Border;
