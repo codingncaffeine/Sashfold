@@ -5180,6 +5180,10 @@ struct Browser::Impl {
                 box->height = static_cast<float>(to_css_px(box->height));
                 for (float* const edge : { &box->padding_top, &box->padding_right, &box->padding_bottom, &box->padding_left })
                     *edge = static_cast<float>(to_css_px(*edge));
+                if (box->seen) {
+                    for (float& part : *box->seen)
+                        part = static_cast<float>(to_css_px(part));
+                }
             }
             return box;
         };
@@ -5196,6 +5200,10 @@ struct Browser::Impl {
                     box.y = static_cast<float>(to_css_px(box.y));
                     box.width = static_cast<float>(to_css_px(box.width));
                     box.height = static_cast<float>(to_css_px(box.height));
+                    if (box.seen) {
+                        for (float& part : *box.seen)
+                            part = static_cast<float>(to_css_px(part));
+                    }
                 }
             }
             return boxes;

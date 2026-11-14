@@ -1078,9 +1078,22 @@ struct Layouter {
     unsigned record_out_of_flow(dom::Element const& element, ComputedStyle const& style,
         std::optional<std::pair<float, float>> static_position, bool static_rtl = false) const
     {
-        std::vector<OutOfFlow>& list = style.position == css::Position::Fixed || absolute_stack.empty()
-            ? fixed_boxes
-            : absolute_stack.back();
+        // An absolute box goes to the nearest box that holds such boxes; a
+        // fixed one to the nearest that holds fixed boxes too
+        // (css-transforms-1 §3, css-contain-2 §3.3), and to the viewport
+        // when none does.
+        std::vector<OutOfFlow>* home = &fixed_boxes;
+        if (style.position == css::Position::Fixed) {
+            for (std::size_t i = std::min(absolute_stack.size(), absolute_holds_fixed.size()); i-- > 0;) {
+                if (absolute_holds_fixed[i] != 0) {
+                    home = &absolute_stack[i];
+                    break;
+                }
+            }
+        } else if (!absolute_stack.empty()) {
+            home = &absolute_stack.back();
+        }
+        std::vector<OutOfFlow>& list = *home;
         OutOfFlow entry;
         entry.element = &element;
         entry.style = &style;
@@ -1237,6 +1250,101 @@ struct Layouter {
         list.resize(keep);
     }
 
+    // A box's transform, once its size is known (css-transforms-2 §7). A
+    // matrix that only moves the box along the page moves it here, with
+    // everything in it; any other stays on the fragment, for the painter,
+    // the pointer and the scripts that measure.
+    // `containing_width` is what the box's padding is a percentage of, for
+    // a transform measured in the content box.
+    static css::Matrix4 transform_matrix(Fragment const& box, ComputedStyle const& style, float containing_width)
+    {
+        css::Transforms const& transforms = *style.transforms;
+        bool const turned = (transforms.frame & css::Transforms::frame_turned) != 0;
+        auto width = static_cast<double>(turned ? box.height : box.width);
+        auto height = static_cast<double>(turned ? box.width : box.height);
+        // The reference box (css-transforms-1 §6.1): the border box, or
+        // the content box when transform-box names it — as fill-box does
+        // for a box that is not a shape.
+        bool const content_box = transforms.box == css::TransformBox::ContentBox || transforms.box == css::TransformBox::FillBox;
+        if (!content_box || turned)
+            return transforms.matrix(width, height);
+        auto const left = static_cast<double>(style.border_left.width + resolve(style.padding_left, containing_width));
+        auto const top = static_cast<double>(style.border_top.width + resolve(style.padding_top, containing_width));
+        auto const right = static_cast<double>(style.border_right.width + resolve(style.padding_right, containing_width));
+        auto const bottom = static_cast<double>(style.border_bottom.width + resolve(style.padding_bottom, containing_width));
+        width = std::max(0.0, width - left - right);
+        height = std::max(0.0, height - top - bottom);
+        return css::Matrix4::translation(left, top) * transforms.matrix(width, height) * css::Matrix4::translation(-left, -top);
+    }
+
+    static void apply_transform(Fragment& box, ComputedStyle const& style, float containing_width)
+    {
+        css::Transforms const& transforms = *style.transforms;
+        bool const turned = (transforms.frame & css::Transforms::frame_turned) != 0;
+        css::Matrix4 const matrix = transform_matrix(box, style, containing_width);
+        if (matrix.is_translation_2d()) {
+            auto const dx = static_cast<float>(matrix.m[3][0]);
+            auto const dy = static_cast<float>(matrix.m[3][1]);
+            if (turned) {
+                // A page offset turns with the page: its block part runs
+                // backwards when the lines stack towards the left.
+                shift_fragment(box, (transforms.frame & css::Transforms::frame_up) != 0 ? -dy : dy,
+                    (transforms.frame & css::Transforms::frame_left) != 0 ? -dx : dx);
+            } else {
+                shift_fragment(box, dx, dy);
+            }
+            return;
+        }
+        box.transform = std::make_shared<css::PlaneTransform const>(css::PlaneTransform::of(matrix));
+        box.back_hidden = transforms.backface_hidden && matrix.shows_back();
+    }
+
+    // perspective (css-transforms-2 §9): a box with one shows its child
+    // boxes that are turned or moved out of its plane as from that far in
+    // front of it, looking at perspective-origin. Applied once the page is
+    // laid out and every box is where it stays: the child's matrix is its
+    // own with the parent's perspective in front, about the origin as the
+    // child sees it.
+    static void give_perspective(Fragment& within, dom::Element const& parent, double depth, double origin_x, double origin_y)
+    {
+        for (Fragment& child : within.children) {
+            bool const anonymous = !child.element || child.element == &parent;
+            if (anonymous) {
+                give_perspective(child, parent, depth, origin_x, origin_y);
+                continue;
+            }
+            if (!child.style || !child.style->transformed() || dom::flat_parent(*child.element) != &parent)
+                continue;
+            css::Transforms const& transforms = *child.style->transforms;
+            if ((transforms.frame & css::Transforms::frame_turned) != 0)
+                continue;
+            css::Matrix4 const own = transform_matrix(child, *child.style, within.width);
+            // A move along the page was made when the box was laid out,
+            // and stays in the page's plane: perspective changes nothing
+            // of it.
+            if (own.is_translation_2d())
+                continue;
+            double const x = origin_x - static_cast<double>(child.x);
+            double const y = origin_y - static_cast<double>(child.y);
+            css::Matrix4 const seen = css::Matrix4::translation(x, y) * css::Matrix4::perspective(depth)
+                * css::Matrix4::translation(-x, -y) * own;
+            child.transform = std::make_shared<css::PlaneTransform const>(css::PlaneTransform::of(seen));
+            child.back_hidden = transforms.backface_hidden && seen.shows_back();
+        }
+    }
+    static void apply_perspectives(Fragment& box)
+    {
+        if (box.element && box.style && box.style->perspective) {
+            css::Transforms const initial;
+            css::Transforms const& transforms = box.style->transforms ? *box.style->transforms : initial;
+            give_perspective(box, *box.element, static_cast<double>(*box.style->perspective),
+                static_cast<double>(box.x) + transforms.perspective_origin_x.resolve(static_cast<double>(box.width)),
+                static_cast<double>(box.y) + transforms.perspective_origin_y.resolve(static_cast<double>(box.height)));
+        }
+        for (Fragment& child : box.children)
+            apply_perspectives(child);
+    }
+
     // Marks a laid-out box as positioned when its style says so — it paints
     // in the positioned layer, is a stacking context with a z-index or an
     // opacity below one, and a relative one is shifted by its offsets. Called
@@ -1244,10 +1352,8 @@ struct Layouter {
     static void mark_positioned(Fragment& box, ComputedStyle const& style, float containing_width,
         bool cb_rtl = false, std::optional<float> containing_height = std::nullopt)
     {
-        if (style.transformed) {
-            // A translation moves the box after layout, percentages of its
-            // own size; any transform makes it a stacking context.
-            shift_fragment(box, resolve(style.translate_x, box.width), resolve(style.translate_y, box.height));
+        if (style.transformed()) {
+            apply_transform(box, style, containing_width);
             box.stacking_context = true;
         }
         // An effect that composites the box as one unit makes it a stacking
@@ -1256,7 +1362,6 @@ struct Layouter {
         if (!style.positioned())
             return;
         box.positioned = true;
-        box.fixed = style.position == css::Position::Fixed;
         box.z_index = style.z_index.value_or(0);
         box.stacking_context = box.stacking_context || style.z_index.has_value() || style.effects_stack();
         if (style.position == css::Position::Relative)
@@ -1302,8 +1407,11 @@ struct Layouter {
     // different box from the one a static position was recorded against —
     // the box was written inside one block and is placed against another —
     // which is why the two cannot share a flag.
+    // `viewport`: the containing block is the viewport's, where a fixed
+    // box stays put as the page scrolls; one held by a box of the page
+    // moves with that box as any absolute one does.
     void place_out_of_flow(std::vector<OutOfFlow> const& boxes, float outer_x, float outer_y, float outer_width,
-        float outer_height, Fragment& parent, int list_depth, bool cb_rtl) const
+        float outer_height, Fragment& parent, int list_depth, bool cb_rtl, bool viewport = false) const
     {
         for (OutOfFlow const& box : boxes) {
             ComputedStyle const& s = *box.style;
@@ -1490,11 +1598,11 @@ struct Layouter {
             shift_fragment(fragment, x - fragment.x, y - fragment.y);
             fragment.positioned = true;
             fragment.out_of_flow = true;
-            fragment.fixed = s.position == css::Position::Fixed;
+            fragment.fixed = viewport && s.position == css::Position::Fixed;
             fragment.z_index = s.z_index.value_or(0);
             fragment.stacking_context = s.z_index.has_value() || s.effects_stack();
-            if (s.transformed)
-                shift_fragment(fragment, resolve(s.translate_x, fragment.width), resolve(s.translate_y, fragment.height));
+            if (s.transformed())
+                apply_transform(fragment, s, cb_width);
             parent.children.push_back(std::move(fragment));
         }
     }
@@ -1674,6 +1782,25 @@ struct Layouter {
     // resolved against, which is what its padding is a percentage of.
     Reach settle_scroll(Fragment& box, float cb_width) const
     {
+        Reach const flat = settle_scroll_flat(box, cb_width);
+        // A box drawn through a transform reaches as far as the transform
+        // takes what it holds (css-overflow-3 §2.2).
+        bool const turned = box.style && box.style->transforms
+            && (box.style->transforms->frame & css::Transforms::frame_turned) != 0;
+        if (!box.transform || turned)
+            return flat;
+        double left = 0;
+        double top = 0;
+        double right = 0;
+        double bottom = 0;
+        if (!box.transform->about(static_cast<double>(box.x), static_cast<double>(box.y))
+                 .map_rect(static_cast<double>(box.x), static_cast<double>(box.y), static_cast<double>(flat.right - box.x),
+                     static_cast<double>(flat.bottom - box.y), left, top, right, bottom))
+            return Reach {};
+        return Reach { static_cast<float>(right), static_cast<float>(bottom) };
+    }
+    Reach settle_scroll_flat(Fragment& box, float cb_width) const
+    {
         Reach const own { box.x + box.width, box.y + box.height };
         // What is inside the box, kept apart from the box's own border box:
         // the box itself is the scrollport, not something to scroll to.
@@ -1692,7 +1819,7 @@ struct Layouter {
         Reach in_flow {};
         for (Fragment& child : box.children) {
             Reach const child_reach = settle_scroll(child, inner_width);
-            if (child.style && child.style->position == css::Position::Fixed)
+            if (child.fixed)
                 continue;
             inside.take(child_reach);
             if (child.style && (child.style->position == css::Position::Absolute))
@@ -1795,6 +1922,11 @@ struct Layouter {
     };
     mutable std::vector<LineClamp> line_clamps;
     mutable std::uint32_t next_line = 0;
+    // Which of the boxes of `absolute_stack` hold the fixed boxes inside
+    // them as well (a transformed box, one with a filter, with
+    // containment): one entry for each list there. Declared last: the
+    // layouter is initialised as an aggregate.
+    mutable std::vector<char> absolute_holds_fixed;
     std::shared_ptr<Bitmap const> picture_for(dom::Element const& element,
         std::shared_ptr<Bitmap const> bitmap, float width, float height) const
     {
@@ -2063,13 +2195,6 @@ struct Layouter {
         return it == physical_styles.end() ? style : it->second;
     }
 
-    static LengthPercent negated(LengthPercent length)
-    {
-        length.value = -length.value;
-        length.percent = -length.percent;
-        return length;
-    }
-
     void turn_style(ComputedStyle& to, ComputedStyle const& from, css::WritingMode mode) const
     {
         bool const up = css::inline_runs_up(mode);
@@ -2121,10 +2246,14 @@ struct Layouter {
         to.border_top_right_radius = corner(true, false);
         to.border_bottom_right_radius = corner(false, false);
         to.border_bottom_left_radius = corner(false, true);
-        // A translation is a page offset, so it turns with the page: its
-        // block part runs backwards when the lines stack towards the left.
-        to.translate_x = up ? negated(from.translate_y) : from.translate_y;
-        to.translate_y = left ? negated(from.translate_x) : from.translate_x;
+        // A transform is the page's own, whichever way the page is laid
+        // out: the copy says how the frame it is applied in lies.
+        if (from.transforms) {
+            css::edit_transforms(to, [&](css::Transforms& t) {
+                t.frame = static_cast<std::uint8_t>(css::Transforms::frame_turned | (up ? css::Transforms::frame_up : 0)
+                    | (left ? css::Transforms::frame_left : 0));
+            });
+        }
         if (from.first_letter) {
             auto letter = std::make_shared<ComputedStyle>(*from.first_letter);
             turn_style(*letter, *from.first_letter, mode);
@@ -4487,12 +4616,8 @@ struct Layouter {
                         = (s.positioned() && s.z_index.has_value()) || s.effects_stack();
                     // The relative shift was applied above, to the fragment
                     // and to its content separately, while they were still
-                    // apart; a translation is applied here, once, because
-                    // the content now travels with the box.
-                    if (s.transformed) {
-                        shift_fragment(box, resolve(s.translate_x, box.width),
-                            resolve(s.translate_y, box.height));
-                    }
+                    // apart. No transform is: an inline box that is not
+                    // replaced is not transformable (css-transforms-1 §2).
                 }
                 compact(out.runs, runs_before, claimed_run);
                 compact(out.children, children_before, claimed_child);
@@ -5514,18 +5639,23 @@ struct Layouter {
         // of the absolutely positioned boxes inside it: they collect here
         // and are placed once this box's padding box is known.
         bool const containing_block = style.contains_absolute();
-        if (containing_block)
+        if (containing_block) {
             absolute_stack.emplace_back();
+            absolute_holds_fixed.push_back(style.contains_fixed() ? 1 : 0);
+        }
         struct PopOnExit {
             std::vector<std::vector<OutOfFlow>>& stack;
+            std::vector<char>& holds_fixed;
             bool active;
             std::vector<OutOfFlow> taken;
             ~PopOnExit()
             {
                 if (active && !stack.empty())
                     stack.pop_back();
+                if (active && !holds_fixed.empty())
+                    holds_fixed.pop_back();
             }
-        } pop { absolute_stack, containing_block, {} };
+        } pop { absolute_stack, absolute_holds_fixed, containing_block, {} };
 
         float const margin_left = resolve(style.margin_left, containing_width);
         float const margin_right = resolve(style.margin_right, containing_width);
@@ -9591,7 +9721,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
         return result;
 
     Layouter layouter { styles, {}, images, controls, embedded, device_scale > 0 ? device_scale : 1.0f, {}, {}, {}, 0, {}, {},
-        css::WritingMode::HorizontalTb, 0, 0, {}, {}, {}, {}, 0 };
+        css::WritingMode::HorizontalTb, 0, 0, {}, {}, {}, {}, 0, {} };
     // The whole page is laid out in the root's own writing mode — which the
     // resolver has already taken from body where there is one — so the
     // frame is settled before a single style is read: everything after this
@@ -9686,6 +9816,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     // with no positioned ancestor; the fixed ones join them. It has the
     // viewport's size, or the page's height when no viewport height is known.
     layouter.absolute_stack.emplace_back();
+    layouter.absolute_holds_fixed.push_back(0);
     // The initial containing block has the viewport's height: the root's
     // percentage height resolves against it.
     BlockOptions root_options;
@@ -9707,6 +9838,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
     {
         std::vector<Layouter::OutOfFlow> boxes = std::move(layouter.absolute_stack.back());
         layouter.absolute_stack.pop_back();
+        layouter.absolute_holds_fixed.pop_back();
         boxes.insert(boxes.end(), layouter.fixed_boxes.begin(), layouter.fixed_boxes.end());
         layouter.fixed_boxes.clear();
         // Placing one lays it out, and that can find more: a fixed box inside
@@ -9717,7 +9849,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
             float const icb_height = frame_height > 0 ? frame_height : frame_block_extent;
             std::size_t const placed_from = result.root.children.size();
             layouter.place_out_of_flow(boxes, 0, 0, frame_width, icb_height, result.root, 0,
-                html_style->direction == css::Direction::Rtl);
+                html_style->direction == css::Direction::Rtl, true);
             for (Fragment const& child : result.root.children) {
                 if (child.positioned)
                     frame_block_extent = std::max(frame_block_extent, child.y + child.height);
@@ -9797,6 +9929,7 @@ LayoutResult layout_document(dom::Document const& document, css::StyleMap const&
         result.page_height = result.root.y + result.root.height
             + resolve(physical_root->margin_bottom, viewport_width);
     }
+    Layouter::apply_perspectives(result.root);
     // The anonymous boxes' styles go with the fragments that point at them.
     result.owned_styles = std::move(layouter.owned_styles);
     return result;
@@ -9896,7 +10029,7 @@ void shift_contents(Fragment& box, float dx, float dy)
     for (Fragment::LineBox& line : box.lines)
         line.baseline += dy;
     for (Fragment& child : box.children) {
-        if (child.style && child.style->position == css::Position::Fixed)
+        if (child.fixed)
             continue;
         Layouter::shift_fragment(child, dx, dy);
     }
@@ -9928,7 +10061,7 @@ namespace {
 void shift_fixed(Fragment& box, float dx, float dy)
 {
     for (Fragment& child : box.children) {
-        if (child.style && child.style->position == css::Position::Fixed)
+        if (child.fixed)
             Layouter::shift_fragment(child, dx, dy);
         else
             shift_fixed(child, dx, dy);

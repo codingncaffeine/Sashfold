@@ -43,6 +43,7 @@ struct AnimatedValue {
         Numbers,
         Visibility,
         ShadowList, // box-shadow and text-shadow
+        Transform, // a transform function list; null for none
     };
     Kind kind = Kind::Number;
     double number = 0;
@@ -53,6 +54,7 @@ struct AnimatedValue {
     std::vector<double> numbers;
     bool visible = true;
     std::vector<AnimatedShadow> shadows;
+    std::shared_ptr<TransformList const> transform;
 };
 
 // The longhands a style can animate, by name. Null for a name that is not

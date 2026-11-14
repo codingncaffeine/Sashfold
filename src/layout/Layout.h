@@ -189,6 +189,17 @@ struct Fragment {
     // descendants belong to the parent context.
     bool stacking_context = false;
 
+    // A transform that does more than move the box along the page
+    // (css-transforms-1 §3): what it does to the box's plane, measured from
+    // the box's own corner, so that it holds wherever the box is put
+    // afterwards. The box and everything in it are laid out as if there
+    // were none and are drawn, pointed at and measured through it. Null on
+    // a box without one, and on one that is only moved — that one is
+    // simply laid where the move puts it.
+    std::shared_ptr<css::PlaneTransform const> transform;
+    // backface-visibility: hidden on a box turned to show its back: none
+    // of it is drawn or answers the pointer.
+    bool back_hidden = false;
     // How far the sticky pass has moved this box from where the flow put
     // it, so that it can be stuck again against a scrollport that has since
     // moved: the flow position is the box's position less this. Zero on a

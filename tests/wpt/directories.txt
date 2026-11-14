@@ -31,3 +31,5 @@ css/css-nesting
 css/css-conditional
 # Added 2026-10-04 with text shadows, which are drawn with the decorations.
 css/css-text-decor
+# Added 2026-11-13 with rotate, scale, skew and matrix transforms.
+css/css-transforms

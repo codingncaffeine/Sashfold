@@ -146,7 +146,10 @@ Measured measure(Realm::Internals& in, dom::Element& target)
     css::ComputedStyle const* const style = in.hooks.computed_style ? in.hooks.computed_style(target) : nullptr;
     if (style != nullptr && non_replaced_inline(target, *style))
         return out;
-    std::optional<LayoutBox> const box = client_box(in, target);
+    // The box as laid out, whatever it is drawn through: a transform
+    // changes no size an observer reports (resize-observer-1 §3.4.1.1).
+    std::optional<LayoutBox> const box = svg_client_box(in, target).or_else(
+        [&]() -> std::optional<LayoutBox> { return in.hooks.layout_box ? in.hooks.layout_box(target) : std::nullopt; });
     if (!box)
         return out;
     double const width = static_cast<double>(box->width);

@@ -631,6 +631,13 @@ std::optional<LayoutBox> client_box(Realm::Internals& in, dom::Element const& el
     std::optional<LayoutBox> box = in.hooks.layout_box(element);
     if (!box)
         return std::nullopt;
+    // A client rectangle is of the box as drawn, through its transforms.
+    if (box->seen) {
+        box->x = (*box->seen)[0];
+        box->y = (*box->seen)[1];
+        box->width = (*box->seen)[2];
+        box->height = (*box->seen)[3];
+    }
     if (in.hooks.scroll_position) {
         std::pair<int, int> const scroll = in.hooks.scroll_position(*in.document);
         box->x -= static_cast<float>(scroll.first);

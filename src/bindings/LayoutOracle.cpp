@@ -50,8 +50,54 @@ layout::Fragment const* find_fragment(layout::Fragment const& fragment, dom::Ele
 // exact ascent lives in the font; the box is taken as the run's font-size
 // line, which is what a script measuring an inline element gets to within
 // a pixel or two.
-void union_runs(layout::Fragment const& fragment, dom::Element const& element, LayoutBox& box, bool& found)
+//
+// `through` is what the transforms of the boxes around the runs come to,
+// null under none: the joined box is of the runs as laid out, and `seen`
+// of the same runs as drawn.
+struct Seen {
+    bool any = false;
+    float left = 0;
+    float top = 0;
+    float right = 0;
+    float bottom = 0;
+    void take(float x, float y, float width, float height, css::PlaneTransform const* through)
+    {
+        double l = static_cast<double>(x);
+        double t = static_cast<double>(y);
+        double r = static_cast<double>(x + width);
+        double b = static_cast<double>(y + height);
+        if (through && !through->map_rect(l, t, r - l, b - t, l, t, r, b))
+            return;
+        if (!any) {
+            left = static_cast<float>(l);
+            top = static_cast<float>(t);
+            right = static_cast<float>(r);
+            bottom = static_cast<float>(b);
+            any = true;
+            return;
+        }
+        left = std::min(left, static_cast<float>(l));
+        top = std::min(top, static_cast<float>(t));
+        right = std::max(right, static_cast<float>(r));
+        bottom = std::max(bottom, static_cast<float>(b));
+    }
+};
+
+// What a box's own transform adds to the transforms around it.
+std::optional<css::PlaneTransform> joined(layout::Fragment const& fragment, css::PlaneTransform const* through)
 {
+    if (!fragment.transform)
+        return std::nullopt;
+    css::PlaneTransform const own = fragment.transform->about(static_cast<double>(fragment.x), static_cast<double>(fragment.y));
+    return through ? *through * own : own;
+}
+
+void union_runs(layout::Fragment const& fragment, dom::Element const& element, LayoutBox& box, bool& found, Seen& seen,
+    bool& transformed, css::PlaneTransform const* through = nullptr)
+{
+    std::optional<css::PlaneTransform> const own = joined(fragment, through);
+    if (own)
+        through = &*own;
     for (layout::TextRun const& run : fragment.runs) {
         for (dom::Node const* node = run.element; node; node = dom::flat_parent(*node)) {
             if (node != &element)
@@ -59,6 +105,8 @@ void union_runs(layout::Fragment const& fragment, dom::Element const& element, L
             float const size = run.style ? run.style->font_size : 16.0f;
             float const top = run.baseline_y - size * 0.8f;
             float const height = size * 1.2f;
+            seen.take(run.x, top, run.width, height, through);
+            transformed = transformed || through != nullptr;
             if (!found) {
                 box = LayoutBox { run.x, top, run.width, height };
                 found = true;
@@ -74,7 +122,7 @@ void union_runs(layout::Fragment const& fragment, dom::Element const& element, L
         }
     }
     for (layout::Fragment const& child : fragment.children)
-        union_runs(child, element, box, found);
+        union_runs(child, element, box, found, seen, transformed, through);
 }
 
 } // namespace
@@ -101,8 +149,10 @@ float length_px(css::LengthPercent const& length, float base)
 // (CSS 2 §10.1): the content box of the box around it, or, for one taken out
 // of flow, the padding box of its nearest positioned ancestor (the root's
 // box standing in for the viewport). Anonymous boxes pass their own on.
+// `through` gathers the transforms the box found is drawn through, its
+// own and those of the boxes around it, outermost last to be applied.
 layout::Fragment const* find_fragment_within(layout::Fragment const& fragment, dom::Element const& element, float viewport, float in_flow,
-    float positioned, float& containing_width)
+    float positioned, float& containing_width, std::optional<css::PlaneTransform>& through)
 {
     for (layout::Fragment const& child : fragment.children) {
         css::ComputedStyle const* const style = child.style;
@@ -113,6 +163,7 @@ layout::Fragment const* find_fragment_within(layout::Fragment const& fragment, d
             cb = viewport;
         if (child.element == &element) {
             containing_width = cb;
+            through = joined(child, nullptr);
             return &child;
         }
         float inner_flow = in_flow;
@@ -124,8 +175,14 @@ layout::Fragment const* find_fragment_within(layout::Fragment const& fragment, d
             if (style->position != css::Position::Static)
                 inner_positioned = std::max(0.0f, child.width - borders);
         }
-        if (layout::Fragment const* found = find_fragment_within(child, element, viewport, inner_flow, inner_positioned, containing_width))
+        if (layout::Fragment const* found
+            = find_fragment_within(child, element, viewport, inner_flow, inner_positioned, containing_width, through)) {
+            if (child.transform) {
+                css::PlaneTransform const own = child.transform->about(static_cast<double>(child.x), static_cast<double>(child.y));
+                through = through ? own * *through : own;
+            }
             return found;
+        }
     }
     return nullptr;
 }
@@ -215,8 +272,11 @@ float run_prefix(layout::TextRun const& run, std::size_t count)
 }
 
 void collect_text_boxes(layout::Fragment const& fragment, dom::Node const& text, std::uint32_t from, std::uint32_t to,
-    std::vector<LayoutBox>& out)
+    std::vector<LayoutBox>& out, css::PlaneTransform const* through = nullptr)
 {
+    std::optional<css::PlaneTransform> const own = joined(fragment, through);
+    if (own)
+        through = &*own;
     for (layout::TextRun const& run : fragment.runs) {
         if (run.source != &text || run.text.empty())
             continue;
@@ -249,10 +309,16 @@ void collect_text_boxes(layout::Fragment const& fragment, dom::Node const& text,
         box.y = run.baseline_y - ascent;
         box.width = right - left;
         box.height = ascent + descent;
+        if (through) {
+            Seen seen;
+            seen.take(box.x, box.y, box.width, box.height, through);
+            if (seen.any)
+                box.seen = std::array<float, 4> { seen.left, seen.top, seen.right - seen.left, seen.bottom - seen.top };
+        }
         out.push_back(box);
     }
     for (layout::Fragment const& child : fragment.children)
-        collect_text_boxes(child, text, from, to, out);
+        collect_text_boxes(child, text, from, to, out, through);
 }
 
 std::uint32_t code_points_before(std::string const& utf8, std::uint32_t units)
@@ -289,11 +355,24 @@ std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Ele
     if (auto const it = styles.find(&element); it != styles.end() && it->second.display == css::Display::Contents)
         return std::nullopt;
     float containing_width = root.width;
+    std::optional<css::PlaneTransform> through;
+    if (root.element == &element)
+        through = joined(root, nullptr);
     layout::Fragment const* const fragment = root.element == &element
         ? &root
-        : find_fragment_within(root, element, root.width, root.width, root.width, containing_width);
+        : find_fragment_within(root, element, root.width, root.width, root.width, containing_width, through);
+    if (fragment != nullptr && root.element != &element && root.transform) {
+        css::PlaneTransform const own = root.transform->about(static_cast<double>(root.x), static_cast<double>(root.y));
+        through = through ? own * *through : own;
+    }
     if (fragment != nullptr) {
         LayoutBox box { fragment->x, fragment->y, fragment->width, fragment->height };
+        if (through) {
+            Seen seen;
+            seen.take(box.x, box.y, box.width, box.height, &*through);
+            if (seen.any)
+                box.seen = std::array<float, 4> { seen.left, seen.top, seen.right - seen.left, seen.bottom - seen.top };
+        }
         if (css::ComputedStyle const* const style = fragment->style) {
             // Padding percentages are all of the containing block's width.
             box.padding_top = std::max(0.0f, length_px(style->padding_top, containing_width));
@@ -305,9 +384,14 @@ std::optional<LayoutBox> find_element_box(layout::Fragment const& root, dom::Ele
     }
     LayoutBox box;
     bool found = false;
-    union_runs(root, element, box, found);
-    if (found)
+    Seen seen;
+    bool transformed = false;
+    union_runs(root, element, box, found, seen, transformed);
+    if (found) {
+        if (transformed && seen.any)
+            box.seen = std::array<float, 4> { seen.left, seen.top, seen.right - seen.left, seen.bottom - seen.top };
         return box;
+    }
     return std::nullopt;
 }
 

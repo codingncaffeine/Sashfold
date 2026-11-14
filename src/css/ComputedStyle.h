@@ -5,6 +5,7 @@
 // a containing block stay as LengthPercent; everything else is resolved here.
 
 #include "core/Bitmap.h"
+#include "css/Transform.h"
 
 #include <cstddef>
 #include <cstdint>
@@ -1141,13 +1142,13 @@ struct ComputedStyle {
     // selected. Inherited.
     bool inert = false;
 
-    // Transforms: the translation parts of `transform` and `translate`,
-    // percentages of the box's own size, applied after layout without
-    // touching the flow; any transform makes the box a stacking context.
-    // Rotations, scales and skews are not drawn yet.
-    LengthPercent translate_x = LengthPercent::px(0);
-    LengthPercent translate_y = LengthPercent::px(0);
-    bool transformed = false;
+    // Transforms (css-transforms-1 and -2): `transform`, `translate`,
+    // `rotate`, `scale`, their origin and the rest, held apart and null
+    // until one of them is written. They move, turn and stretch the box as
+    // drawn, after layout and without touching the flow; a box with any of
+    // the first four is a stacking context.
+    std::shared_ptr<Transforms const> transforms;
+    bool transformed() const { return transforms && transforms->any(); }
 
     // isolation (compositing-1 §3.3): `isolate` makes the box a stacking
     // context and changes nothing else about it.
@@ -1196,7 +1197,7 @@ struct ComputedStyle {
     // transform or perspective is about to change.
     bool contains_fixed() const
     {
-        return transformed || perspective.has_value() || will_change_contains || (contain & (contain_layout | contain_paint)) != 0
+        return transformed() || perspective.has_value() || will_change_contains || (contain & (contain_layout | contain_paint)) != 0
             || filter != nullptr || backdrop_filter != nullptr;
     }
     // Whether the box is the containing block of the absolutely positioned
@@ -1207,7 +1208,7 @@ struct ComputedStyle {
     // z-index: everything in it paints as one unit at its place.
     bool effects_stack() const
     {
-        return opacity < 1 || transformed || isolate || perspective.has_value() || will_change_stacks
+        return opacity < 1 || transformed() || isolate || perspective.has_value() || will_change_stacks
             || (contain & (contain_layout | contain_paint)) != 0 || paints_through_effects();
     }
     // Whether the box and everything in it is painted as one picture that
@@ -1471,4 +1472,17 @@ struct GeneratedContent {
     std::optional<GeneratedBox> after;
 };
 
+
+// Changes what a style's transform is made of; a style whose every part is
+// back at its initial value holds none again.
+template<typename Change>
+void edit_transforms(ComputedStyle& style, Change&& change)
+{
+    Transforms next = style.transforms ? *style.transforms : Transforms {};
+    change(next);
+    if (next == Transforms {})
+        style.transforms = nullptr;
+    else
+        style.transforms = std::make_shared<Transforms const>(std::move(next));
+}
 }

@@ -562,7 +562,7 @@ std::string svg_presentational_hints(dom::Element const& element)
     static constexpr std::string_view names[] = { "fill", "stroke", "stroke-width", "fill-opacity",
         "stroke-opacity", "fill-rule", "stroke-linecap", "stroke-linejoin", "stroke-miterlimit",
         "stroke-dasharray", "stroke-dashoffset", "opacity", "color", "stop-color", "stop-opacity",
-        "display", "visibility", "font-size", "font-family", "font-weight", "font-style", "overflow" };
+        "display", "visibility", "font-size", "font-family", "font-weight", "font-style", "overflow", "transform-origin" };
     std::string css;
     for (dom::Attr const& attribute : element.attributes()) {
         if (!attribute.prefix.empty() || attribute.value.empty())
@@ -1520,11 +1520,32 @@ std::string lowercase_name(std::string_view text)
     return out;
 }
 
+// An angle written as one token, in degrees; a bare zero is one.
+std::optional<float> angle_token(ComponentValue const& value)
+{
+    if (value.is_token(Token::Type::Number))
+        return value.token().numeric_value == 0 ? std::optional<float>(0.0f) : std::nullopt;
+    if (!value.is_token(Token::Type::Dimension))
+        return std::nullopt;
+    auto const number = static_cast<float>(value.token().numeric_value);
+    std::string_view const unit = value.token().unit;
+    if (ascii_ci_equals(unit, "deg"))
+        return number;
+    if (ascii_ci_equals(unit, "grad"))
+        return number * 0.9f;
+    if (ascii_ci_equals(unit, "rad"))
+        return number * 180.0f / 3.14159265f;
+    if (ascii_ci_equals(unit, "turn"))
+        return number * 360.0f;
+    return std::nullopt;
+}
+
 // calc(), min(), max() and clamp() over lengths and percentages: a sum of
 // products of lengths, percentages and numbers, with parentheses and the
 // four functions nested. A value is pixels plus a percentage, or a bare
 // number (a factor). Comparisons need all arms in one currency — pixels
-// alone or percentages alone.
+// alone or percentages alone. Asked for angles instead, the dimensions it
+// takes are angles and `px` holds their degrees.
 struct CalcValue {
     float px = 0;
     float percent = 0;
@@ -1534,15 +1555,17 @@ struct CalcValue {
 
 class CalcEvaluator {
 public:
-    CalcEvaluator(std::vector<ComponentValue const*> items, LengthContext const& context, bool allow_percent)
+    CalcEvaluator(std::vector<ComponentValue const*> items, LengthContext const& context, bool allow_percent,
+        bool angles = false)
         : m_items(std::move(items))
         , m_context(context)
         , m_allow_percent(allow_percent)
+        , m_angles(angles)
     {
     }
     // The context is kept by reference: a temporary would be gone before
     // whole() reads it.
-    CalcEvaluator(std::vector<ComponentValue const*>, LengthContext&&, bool) = delete;
+    CalcEvaluator(std::vector<ComponentValue const*>, LengthContext&&, bool, bool = false) = delete;
 
     std::optional<CalcValue> whole()
     {
@@ -1618,7 +1641,7 @@ private:
         ComponentValue const& value = *m_items[m_at];
         if (value.is_block() && value.block().open == Token::Type::OpenParen) {
             ++m_at;
-            CalcEvaluator inner(significant(value.block().values), m_context, m_allow_percent);
+            CalcEvaluator inner(significant(value.block().values), m_context, m_allow_percent, m_angles);
             return inner.whole();
         }
         if (value.is_function()) {
@@ -1631,6 +1654,15 @@ private:
             number.number = true;
             number.scalar = static_cast<float>(value.token().numeric_value);
             return number;
+        }
+        if (m_angles) {
+            std::optional<float> const degrees = angle_token(value);
+            if (!degrees)
+                return std::nullopt;
+            ++m_at;
+            CalcValue result;
+            result.px = *degrees;
+            return result;
         }
         std::optional<LengthPercent> const length = parse_length_percent(value, m_context, false, m_allow_percent);
         if (!length)
@@ -1659,7 +1691,7 @@ private:
         }
         std::vector<CalcValue> values;
         for (std::vector<ComponentValue const*> const& argument : arguments) {
-            CalcEvaluator inner(argument, m_context, m_allow_percent);
+            CalcEvaluator inner(argument, m_context, m_allow_percent, m_angles);
             std::optional<CalcValue> const value = inner.whole();
             if (!value)
                 return std::nullopt;
@@ -1702,6 +1734,7 @@ private:
     std::size_t m_at = 0;
     LengthContext const& m_context;
     bool m_allow_percent;
+    bool m_angles;
 };
 
 std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
@@ -2431,23 +2464,295 @@ std::optional<std::string> url_of(ComponentValue const& value)
 }
 
 // An <angle> in degrees: deg, grad, rad or turn (a bare 0 counts).
+// An angle in degrees: one token, or a calculation over angles.
 std::optional<float> parse_angle(ComponentValue const& value)
 {
-    if (value.is_token(Token::Type::Number))
-        return value.token().numeric_value == 0 ? std::optional<float>(0.0f) : std::nullopt;
-    if (!value.is_token(Token::Type::Dimension))
+    if (!value.is_function())
+        return angle_token(value);
+    std::string const name = lowercase_name(value.function().name);
+    if (name != "calc" && name != "min" && name != "max" && name != "clamp")
         return std::nullopt;
-    auto const number = static_cast<float>(value.token().numeric_value);
-    std::string_view const unit = value.token().unit;
-    if (ascii_ci_equals(unit, "deg"))
-        return number;
-    if (ascii_ci_equals(unit, "grad"))
-        return number * 0.9f;
-    if (ascii_ci_equals(unit, "rad"))
-        return number * 180.0f / 3.14159265f;
-    if (ascii_ci_equals(unit, "turn"))
-        return number * 360.0f;
-    return std::nullopt;
+    LengthContext const context {};
+    CalcEvaluator evaluator({ &value }, context, false, true);
+    std::optional<CalcValue> const result = evaluator.whole();
+    if (!result || result->number)
+        return std::nullopt;
+    return std::isnan(result->px) ? 0.0f : result->px;
+}
+
+// --- Transforms (css-transforms-1, css-transforms-2) ----------------------------
+
+TransformLength transform_length(LengthPercent const& length)
+{
+    switch (length.kind) {
+    case LengthPercent::Kind::Percent: return { 0, static_cast<double>(length.value) };
+    case LengthPercent::Kind::Calc: return { static_cast<double>(length.value), static_cast<double>(length.percent) };
+    default: return { static_cast<double>(length.value), 0 };
+    }
+}
+
+// One part of a style's transform taken from another style: what
+// `inherit` and the initial value copy.
+template<auto Member>
+void copy_transform_part(ComputedStyle& to, ComputedStyle const& from)
+{
+    Transforms const initial;
+    Transforms const& source = from.transforms ? *from.transforms : initial;
+    edit_transforms(to, [&](Transforms& t) { t.*Member = source.*Member; });
+}
+
+// A function's arguments, one value between each two commas; nullopt when
+// a place is empty or holds more than one value.
+std::optional<Values> comma_arguments(FunctionValue const& call)
+{
+    Values out;
+    bool wants_value = true;
+    for (ComponentValue const* item : significant(call.values)) {
+        if (item->is_token(Token::Type::Comma)) {
+            if (wants_value)
+                return std::nullopt;
+            wants_value = true;
+        } else {
+            if (!wants_value)
+                return std::nullopt;
+            out.push_back(item);
+            wants_value = false;
+        }
+    }
+    if (wants_value)
+        return std::nullopt;
+    return out;
+}
+
+// <transform-function>+ (css-transforms-1 §10, css-transforms-2 §12).
+std::optional<TransformList> parse_transform_list(Values const& values, LengthContext const& context)
+{
+    using Kind = TransformFunction::Kind;
+    TransformList list;
+    for (ComponentValue const* value : values) {
+        if (!value->is_function())
+            return std::nullopt;
+        std::string const name = lowercase_name(value->function().name);
+        std::optional<Values> const arguments = comma_arguments(value->function());
+        if (!arguments)
+            return std::nullopt;
+        Values const& a = *arguments;
+        TransformFunction f;
+        f.n[15] = static_cast<double>(a.size());
+        auto const length = [&](std::size_t i, bool percent) -> std::optional<TransformLength> {
+            std::optional<LengthPercent> const parsed = parse_length_percent(*a[i], context, false, percent);
+            if (!parsed)
+                return std::nullopt;
+            return transform_length(*parsed);
+        };
+        auto const number = [&](std::size_t i) { return parse_number_value(*a[i]); };
+        auto const factor = [&](std::size_t i) -> std::optional<double> {
+            if (std::optional<double> const plain = parse_number_value(*a[i]))
+                return plain;
+            if (std::optional<double> const percent = parse_percentage_value(*a[i]))
+                return *percent / 100.0;
+            return std::nullopt;
+        };
+        auto const angle = [&](std::size_t i) -> std::optional<double> {
+            std::optional<float> const degrees = parse_angle(*a[i]);
+            if (!degrees)
+                return std::nullopt;
+            return static_cast<double>(*degrees);
+        };
+        if (name == "matrix" || name == "matrix3d") {
+            std::size_t const count = name == "matrix" ? 6 : 16;
+            if (a.size() != count)
+                return std::nullopt;
+            f.kind = name == "matrix" ? Kind::Matrix : Kind::Matrix3d;
+            for (std::size_t i = 0; i < count; ++i) {
+                std::optional<double> const entry = number(i);
+                if (!entry)
+                    return std::nullopt;
+                f.n[i] = *entry;
+            }
+        } else if (name == "translate") {
+            if (a.empty() || a.size() > 2)
+                return std::nullopt;
+            f.kind = Kind::Translate;
+            std::optional<TransformLength> const x = length(0, true);
+            std::optional<TransformLength> const y = a.size() > 1 ? length(1, true) : TransformLength {};
+            if (!x || !y)
+                return std::nullopt;
+            f.x = *x;
+            f.y = *y;
+        } else if (name == "translatex" || name == "translatey") {
+            if (a.size() != 1)
+                return std::nullopt;
+            std::optional<TransformLength> const amount = length(0, true);
+            if (!amount)
+                return std::nullopt;
+            f.kind = name == "translatex" ? Kind::TranslateX : Kind::TranslateY;
+            (name == "translatex" ? f.x : f.y) = *amount;
+        } else if (name == "translatez") {
+            if (a.size() != 1)
+                return std::nullopt;
+            std::optional<TransformLength> const z = length(0, false);
+            if (!z)
+                return std::nullopt;
+            f.kind = Kind::TranslateZ;
+            f.n[0] = z->px;
+        } else if (name == "translate3d") {
+            if (a.size() != 3)
+                return std::nullopt;
+            std::optional<TransformLength> const x = length(0, true);
+            std::optional<TransformLength> const y = length(1, true);
+            std::optional<TransformLength> const z = length(2, false);
+            if (!x || !y || !z)
+                return std::nullopt;
+            f.kind = Kind::Translate3d;
+            f.x = *x;
+            f.y = *y;
+            f.n[0] = z->px;
+        } else if (name == "scale") {
+            if (a.empty() || a.size() > 2)
+                return std::nullopt;
+            std::optional<double> const x = factor(0);
+            std::optional<double> const y = a.size() > 1 ? factor(1) : x;
+            if (!x || !y)
+                return std::nullopt;
+            f.kind = Kind::Scale;
+            f.n[0] = *x;
+            f.n[1] = *y;
+            f.n[2] = 1;
+        } else if (name == "scalex" || name == "scaley" || name == "scalez") {
+            if (a.size() != 1)
+                return std::nullopt;
+            std::optional<double> const amount = factor(0);
+            if (!amount)
+                return std::nullopt;
+            f.kind = name == "scalex" ? Kind::ScaleX : name == "scaley" ? Kind::ScaleY : Kind::ScaleZ;
+            f.n[0] = f.n[1] = f.n[2] = 1;
+            f.n[name == "scalex" ? 0 : name == "scaley" ? 1 : 2] = *amount;
+        } else if (name == "scale3d") {
+            if (a.size() != 3)
+                return std::nullopt;
+            f.kind = Kind::Scale3d;
+            for (std::size_t i = 0; i < 3; ++i) {
+                std::optional<double> const amount = factor(i);
+                if (!amount)
+                    return std::nullopt;
+                f.n[i] = *amount;
+            }
+        } else if (name == "rotate" || name == "rotatex" || name == "rotatey" || name == "rotatez") {
+            if (a.size() != 1)
+                return std::nullopt;
+            std::optional<double> const turned = angle(0);
+            if (!turned)
+                return std::nullopt;
+            f.kind = name == "rotate" ? Kind::Rotate : name == "rotatex" ? Kind::RotateX : name == "rotatey" ? Kind::RotateY : Kind::RotateZ;
+            f.n[3] = *turned;
+        } else if (name == "rotate3d") {
+            if (a.size() != 4)
+                return std::nullopt;
+            f.kind = Kind::Rotate3d;
+            for (std::size_t i = 0; i < 3; ++i) {
+                std::optional<double> const part = number(i);
+                if (!part)
+                    return std::nullopt;
+                f.n[i] = *part;
+            }
+            std::optional<double> const turned = angle(3);
+            if (!turned)
+                return std::nullopt;
+            f.n[3] = *turned;
+        } else if (name == "skew") {
+            if (a.empty() || a.size() > 2)
+                return std::nullopt;
+            std::optional<double> const x = angle(0);
+            std::optional<double> const y = a.size() > 1 ? angle(1) : 0.0;
+            if (!x || !y)
+                return std::nullopt;
+            f.kind = Kind::Skew;
+            f.n[0] = *x;
+            f.n[1] = *y;
+        } else if (name == "skewx" || name == "skewy") {
+            if (a.size() != 1)
+                return std::nullopt;
+            std::optional<double> const leaned = angle(0);
+            if (!leaned)
+                return std::nullopt;
+            f.kind = name == "skewx" ? Kind::SkewX : Kind::SkewY;
+            f.n[name == "skewx" ? 0 : 1] = *leaned;
+        } else if (name == "perspective") {
+            if (a.size() != 1)
+                return std::nullopt;
+            f.kind = Kind::Perspective;
+            if (is_ident(a[0], "none")) {
+                f.n[0] = -1;
+            } else {
+                std::optional<TransformLength> const depth = length(0, false);
+                if (!depth || depth->px < 0)
+                    return std::nullopt;
+                f.n[0] = depth->px;
+            }
+        } else {
+            return std::nullopt;
+        }
+        list.functions.push_back(std::move(f));
+    }
+    if (list.functions.empty())
+        return std::nullopt;
+    return list;
+}
+
+// transform-origin's and perspective-origin's two places (css-transforms-1
+// §6): a keyword or a length on each axis, the keywords in either order.
+bool parse_origin_pair(Values const& values, LengthContext const& context, TransformLength& x, TransformLength& y)
+{
+    enum class Word : std::uint8_t { Horizontal, Vertical, Center, Length };
+    struct Place {
+        Word word = Word::Length;
+        TransformLength length;
+    };
+    auto const read = [&](ComponentValue const& value) -> std::optional<Place> {
+        if (value.is_token(Token::Type::Ident)) {
+            std::string_view const word = value.token().value;
+            if (ascii_ci_equals(word, "left"))
+                return Place { Word::Horizontal, { 0, 0 } };
+            if (ascii_ci_equals(word, "right"))
+                return Place { Word::Horizontal, { 0, 100 } };
+            if (ascii_ci_equals(word, "top"))
+                return Place { Word::Vertical, { 0, 0 } };
+            if (ascii_ci_equals(word, "bottom"))
+                return Place { Word::Vertical, { 0, 100 } };
+            if (ascii_ci_equals(word, "center"))
+                return Place { Word::Center, { 0, 50 } };
+            return std::nullopt;
+        }
+        std::optional<LengthPercent> const parsed = parse_length_percent(value, context, false);
+        if (!parsed)
+            return std::nullopt;
+        return Place { Word::Length, transform_length(*parsed) };
+    };
+    if (values.empty() || values.size() > 2)
+        return false;
+    std::optional<Place> const first = read(*values[0]);
+    if (!first)
+        return false;
+    if (values.size() == 1) {
+        x = first->word == Word::Vertical ? TransformLength { 0, 50 } : first->length;
+        y = first->word == Word::Vertical ? first->length : TransformLength { 0, 50 };
+        return true;
+    }
+    std::optional<Place> const second = read(*values[1]);
+    if (!second)
+        return false;
+    bool const swapped = first->word == Word::Vertical || second->word == Word::Horizontal;
+    Place const& horizontal = swapped ? *second : *first;
+    Place const& vertical = swapped ? *first : *second;
+    // Written the other way round, both are keywords.
+    if (swapped && (first->word == Word::Length || second->word == Word::Length))
+        return false;
+    if (horizontal.word == Word::Vertical || vertical.word == Word::Horizontal)
+        return false;
+    x = horizontal.length;
+    y = vertical.length;
+    return true;
 }
 
 // A position keyword or length along one axis of a background position.
@@ -4905,20 +5210,36 @@ struct Resolver {
             { "transition-timing-function", false, &copy_transition_list<&TransitionLists::timing_functions>, 0 },
             { "transition-delay", false, &copy_transition_list<&TransitionLists::delays>, 0 },
             { "transition-behavior", false, &copy_transition_list<&TransitionLists::allow_discrete>, 0 },
-            { "transform", false,
+            { "transform", false, &copy_transform_part<&Transforms::list>, 0 },
+            { "-webkit-transform", false, &copy_transform_part<&Transforms::list>, 0 },
+            { "translate", false, &copy_transform_part<&Transforms::translate>, 0 },
+            { "rotate", false, &copy_transform_part<&Transforms::rotate>, 0 },
+            { "scale", false, &copy_transform_part<&Transforms::scale>, 0 },
+            { "transform-origin", false,
                 [](S& to, S const& from) {
-                    to.translate_x = from.translate_x;
-                    to.translate_y = from.translate_y;
-                    to.transformed = from.transformed;
+                    Transforms const initial;
+                    Transforms const& source = from.transforms ? *from.transforms : initial;
+                    edit_transforms(to, [&](Transforms& t) {
+                        t.origin_x = source.origin_x;
+                        t.origin_y = source.origin_y;
+                        t.origin_z = source.origin_z;
+                        t.origin_set = source.origin_set;
+                    });
                 },
                 0 },
-            { "translate", false,
+            { "perspective-origin", false,
                 [](S& to, S const& from) {
-                    to.translate_x = from.translate_x;
-                    to.translate_y = from.translate_y;
-                    to.transformed = from.transformed;
+                    Transforms const initial;
+                    Transforms const& source = from.transforms ? *from.transforms : initial;
+                    edit_transforms(to, [&](Transforms& t) {
+                        t.perspective_origin_x = source.perspective_origin_x;
+                        t.perspective_origin_y = source.perspective_origin_y;
+                    });
                 },
                 0 },
+            { "transform-box", false, &copy_transform_part<&Transforms::box>, 0 },
+            { "transform-style", false, &copy_transform_part<&Transforms::preserve_3d>, 0 },
+            { "backface-visibility", false, &copy_transform_part<&Transforms::backface_hidden>, 0 },
             { "flex-direction", false, [](S& to, S const& from) { to.flex_direction = from.flex_direction; }, 0 },
             { "column-count", false, [](S& to, S const& from) { to.multicol = from.multicol; }, 0 },
             { "-webkit-box-orient", false, [](S& to, S const& from) { to.webkit_box_vertical = from.webkit_box_vertical; }, 0 },
@@ -5272,7 +5593,7 @@ struct Resolver {
                     || property.name == "grid-row" || property.name == "grid-column"
                     || property.name == "grid-area"
                     || property.name == "background" || property.name == "font"
-                    || property.name == "list-style" || property.name == "translate"
+                    || property.name == "list-style" || property.name == "-webkit-transform"
                     || property.name == "animation" || property.name == "transition"
                     || property.name == "overflow-x" || property.name == "overflow-y"
                     || property.name == "text-decoration-line")
@@ -6627,84 +6948,193 @@ struct Resolver {
                 style.overflow_applies = false;
             return;
         }
-        if (name == "transform" || name == "translate") {
-            // The translations add up; other functions are passed over
-            // (the box stays put, unrotated and unscaled). `none` clears.
+        if (name == "transform" || name == "-webkit-transform") {
+            // none | <transform-function>+
             if (values.size() == 1 && is_ident(values[0], "none")) {
-                style.translate_x = LengthPercent::px(0);
-                style.translate_y = LengthPercent::px(0);
-                style.transformed = false;
+                edit_transforms(style, [](Transforms& t) { t.list = nullptr; });
                 return;
             }
-            float px_x = 0;
-            float px_y = 0;
-            float percent_x = 0;
-            float percent_y = 0;
-            auto const add = [&](LengthPercent const& length, bool horizontal) {
-                float& px = horizontal ? px_x : px_y;
-                float& percent = horizontal ? percent_x : percent_y;
-                if (length.kind == LengthPercent::Kind::Percent)
-                    percent += length.value;
-                else if (length.kind == LengthPercent::Kind::Calc) {
-                    px += length.value;
-                    percent += length.percent;
-                } else
-                    px += length.value;
-            };
-            bool any = false;
-            if (name == "translate") {
-                // translate: <x> [<y>]
-                std::optional<LengthPercent> const x = parse_length_percent(*values[0], context, false);
-                if (!x)
+            std::optional<TransformList> list = parse_transform_list(values, context);
+            if (!list)
+                return;
+            edit_transforms(style, [&](Transforms& t) { t.list = std::make_shared<TransformList const>(std::move(*list)); });
+            return;
+        }
+        if (name == "translate") {
+            // none | <length-percentage> [ <length-percentage> <length>? ]?
+            if (values.size() == 1 && is_ident(values[0], "none")) {
+                edit_transforms(style, [](Transforms& t) { t.translate.reset(); });
+                return;
+            }
+            if (values.empty() || values.size() > 3)
+                return;
+            TranslateValue moved;
+            std::optional<LengthPercent> const x = parse_length_percent(*values[0], context, false);
+            if (!x)
+                return;
+            moved.x = transform_length(*x);
+            if (values.size() > 1) {
+                std::optional<LengthPercent> const y = parse_length_percent(*values[1], context, false);
+                if (!y)
                     return;
-                add(*x, true);
-                if (values.size() > 1) {
-                    std::optional<LengthPercent> const y = parse_length_percent(*values[1], context, false);
-                    if (!y)
+                moved.y = transform_length(*y);
+            }
+            if (values.size() > 2) {
+                std::optional<LengthPercent> const z = parse_length_percent(*values[2], context, false, false);
+                if (!z)
+                    return;
+                moved.z = static_cast<double>(z->value);
+            }
+            edit_transforms(style, [&](Transforms& t) { t.translate = moved; });
+            return;
+        }
+        if (name == "rotate") {
+            // none | <angle> | [ x | y | z | <number>{3} ] && <angle>
+            if (values.size() == 1 && is_ident(values[0], "none")) {
+                edit_transforms(style, [](Transforms& t) { t.rotate.reset(); });
+                return;
+            }
+            RotateValue turned;
+            std::optional<double> angle;
+            std::vector<double> axis;
+            bool named = false;
+            bool axis_ended = false; // something has come after the numbers
+            for (ComponentValue const* value : values) {
+                bool const is_axis_number = value->is_token(Token::Type::Number)
+                    && (!axis.empty() || value->token().numeric_value != 0 || values.size() > 1);
+                if (!axis.empty() && !is_axis_number)
+                    axis_ended = true;
+                if (value->is_token(Token::Type::Ident)) {
+                    std::string_view const word = value->token().value;
+                    if (named || !axis.empty())
                         return;
-                    add(*y, false);
-                }
-                any = true;
-            } else {
-                for (ComponentValue const* value : values) {
-                    if (!value->is_function())
+                    named = true;
+                    if (ascii_ci_equals(word, "x"))
+                        turned = { 1, 0, 0, 0 };
+                    else if (ascii_ci_equals(word, "y"))
+                        turned = { 0, 1, 0, 0 };
+                    else if (ascii_ci_equals(word, "z"))
+                        turned = { 0, 0, 1, 0 };
+                    else
                         return;
-                    std::string const function = lowercase_name(value->function().name);
-                    auto const arguments = significant(value->function().values);
-                    std::vector<ComponentValue const*> parts;
-                    for (ComponentValue const* argument : arguments) {
-                        if (!argument->is_token(Token::Type::Comma))
-                            parts.push_back(argument);
-                    }
-                    if (function == "translate" || function == "translate3d") {
-                        if (parts.empty())
-                            return;
-                        std::optional<LengthPercent> const x = parse_length_percent(*parts[0], context, false);
-                        if (!x)
-                            return;
-                        add(*x, true);
-                        if (parts.size() > 1) {
-                            std::optional<LengthPercent> const y = parse_length_percent(*parts[1], context, false);
-                            if (!y)
-                                return;
-                            add(*y, false);
-                        }
-                    } else if (function == "translatex" || function == "translatey") {
-                        if (parts.size() != 1)
-                            return;
-                        std::optional<LengthPercent> const amount = parse_length_percent(*parts[0], context, false);
-                        if (!amount)
-                            return;
-                        add(*amount, function == "translatex");
-                    }
-                    any = true;
+                } else if (is_axis_number) {
+                    // The three numbers stand together, before the angle or after it.
+                    if (named || axis.size() >= 3 || axis_ended)
+                        return;
+                    axis.push_back(value->token().numeric_value);
+                } else if (std::optional<float> const degrees = parse_angle(*value)) {
+                    if (angle || (!axis.empty() && axis.size() != 3))
+                        return;
+                    angle = static_cast<double>(*degrees);
+                } else {
+                    return;
                 }
             }
-            if (!any)
+            if (!angle || (!axis.empty() && axis.size() != 3))
                 return;
-            style.translate_x = LengthPercent::calc(px_x, percent_x);
-            style.translate_y = LengthPercent::calc(px_y, percent_y);
-            style.transformed = true;
+            if (axis.size() == 3) {
+                turned = { axis[0], axis[1], axis[2], 0 };
+                // An axis of the page's own is written by its name, turned
+                // the way that keeps the name's direction.
+                int const along = (axis[0] != 0) + (axis[1] != 0) + (axis[2] != 0);
+                if (along == 1) {
+                    double const sign = axis[0] + axis[1] + axis[2] < 0 ? -1 : 1;
+                    turned = { axis[0] != 0 ? 1.0 : 0.0, axis[1] != 0 ? 1.0 : 0.0, axis[2] != 0 ? 1.0 : 0.0, 0 };
+                    angle = *angle * sign;
+                }
+            }
+            turned.degrees = *angle;
+            edit_transforms(style, [&](Transforms& t) { t.rotate = turned; });
+            return;
+        }
+        if (name == "scale") {
+            // none | [ <number> | <percentage> ]{1,3}
+            if (values.size() == 1 && is_ident(values[0], "none")) {
+                edit_transforms(style, [](Transforms& t) { t.scale.reset(); });
+                return;
+            }
+            if (values.empty() || values.size() > 3)
+                return;
+            double factors[3] = { 1, 1, 1 };
+            for (std::size_t i = 0; i < values.size(); ++i) {
+                if (std::optional<double> const plain = parse_number_value(*values[i]))
+                    factors[i] = *plain;
+                else if (std::optional<double> const percent = parse_percentage_value(*values[i]))
+                    factors[i] = *percent / 100.0;
+                else
+                    return;
+            }
+            if (values.size() == 1)
+                factors[1] = factors[0];
+            edit_transforms(style, [&](Transforms& t) { t.scale = ScaleValue { factors[0], factors[1], factors[2] }; });
+            return;
+        }
+        if (name == "transform-origin" || name == "-webkit-transform-origin") {
+            // One or two places, and a length out of the page after two.
+            Values places = values;
+            double z = 0;
+            if (places.size() == 3) {
+                std::optional<LengthPercent> const depth = parse_length_percent(*places[2], context, false, false);
+                if (!depth)
+                    return;
+                z = static_cast<double>(depth->value);
+                places.pop_back();
+            }
+            TransformLength x;
+            TransformLength y;
+            if (!parse_origin_pair(places, context, x, y))
+                return;
+            edit_transforms(style, [&](Transforms& t) {
+                t.origin_x = x;
+                t.origin_y = y;
+                t.origin_z = z;
+                t.origin_set = true;
+            });
+            return;
+        }
+        if (name == "perspective-origin" || name == "-webkit-perspective-origin") {
+            TransformLength x;
+            TransformLength y;
+            if (!parse_origin_pair(values, context, x, y))
+                return;
+            edit_transforms(style, [&](Transforms& t) {
+                t.perspective_origin_x = x;
+                t.perspective_origin_y = y;
+            });
+            return;
+        }
+        if (name == "transform-box") {
+            if (values.size() != 1 || !values[0]->is_token(Token::Type::Ident))
+                return;
+            std::string_view const keyword = values[0]->token().value;
+            TransformBox box = TransformBox::ViewBox;
+            if (ascii_ci_equals(keyword, "view-box"))
+                box = TransformBox::ViewBox;
+            else if (ascii_ci_equals(keyword, "content-box"))
+                box = TransformBox::ContentBox;
+            else if (ascii_ci_equals(keyword, "border-box"))
+                box = TransformBox::BorderBox;
+            else if (ascii_ci_equals(keyword, "fill-box"))
+                box = TransformBox::FillBox;
+            else if (ascii_ci_equals(keyword, "stroke-box"))
+                box = TransformBox::StrokeBox;
+            else
+                return;
+            edit_transforms(style, [&](Transforms& t) { t.box = box; });
+            return;
+        }
+        if (name == "transform-style" || name == "-webkit-transform-style") {
+            if (values.size() != 1 || (!is_ident(values[0], "flat") && !is_ident(values[0], "preserve-3d")))
+                return;
+            bool const kept = is_ident(values[0], "preserve-3d");
+            edit_transforms(style, [&](Transforms& t) { t.preserve_3d = kept; });
+            return;
+        }
+        if (name == "backface-visibility" || name == "-webkit-backface-visibility") {
+            if (values.size() != 1 || (!is_ident(values[0], "visible") && !is_ident(values[0], "hidden")))
+                return;
+            bool const hidden = is_ident(values[0], "hidden");
+            edit_transforms(style, [&](Transforms& t) { t.backface_hidden = hidden; });
             return;
         }
         if (name == "pointer-events") {

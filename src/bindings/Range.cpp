@@ -518,9 +518,19 @@ std::vector<LayoutBox> range_boxes(Realm::Internals& in, dom::Range const& range
     std::vector<LayoutBox> boxes;
     if (is_released(range) || !in.hooks.text_boxes)
         return boxes;
+    // Each box as drawn, through the transforms around it.
+    auto const as_seen = [](LayoutBox box) {
+        if (box.seen) {
+            box.x = (*box.seen)[0];
+            box.y = (*box.seen)[1];
+            box.width = (*box.seen)[2];
+            box.height = (*box.seen)[3];
+        }
+        return box;
+    };
     auto const add_text = [&](dom::Node const& node, std::uint32_t from, std::uint32_t to) {
         for (LayoutBox const& box : in.hooks.text_boxes(node, from, to))
-            boxes.push_back(box);
+            boxes.push_back(as_seen(box));
     };
     dom::Node& start = *range.start_node;
     dom::Node& end = *range.end_node;
@@ -536,7 +546,7 @@ std::vector<LayoutBox> range_boxes(Realm::Internals& in, dom::Range const& range
                 add_text(*node, 0, node_length(*node));
             } else if (node->is_element() && !(node->parent() && is_contained(*node->parent(), range))) {
                 if (std::optional<LayoutBox> const box = in.hooks.layout_box ? in.hooks.layout_box(static_cast<dom::Element const&>(*node)) : std::nullopt)
-                    boxes.push_back(*box);
+                    boxes.push_back(as_seen(*box));
             }
         }
         if (end.is_text() && &end != &start)

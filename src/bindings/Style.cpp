@@ -1139,8 +1139,68 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
     if (name == "grid-column") return grid_lines_text({ &style.grid_column_start, &style.grid_column_end });
     if (name == "grid-area")
         return grid_lines_text({ &style.grid_row_start, &style.grid_column_start, &style.grid_row_end, &style.grid_column_end });
-    if (name == "transform")
-        return style.transformed ? "matrix(1, 0, 0, 1, " + js::number_to_utf8(static_cast<double>(style.translate_x.value)) + ", " + js::number_to_utf8(static_cast<double>(style.translate_y.value)) + ")" : "none";
+    if (name == "transform" || name == "-webkit-transform") {
+        // The resolved value (css-transforms-1 §9): the matrix the list
+        // comes to against the element's own box, in CSS px.
+        if (!style.transforms || !style.transforms->list)
+            return "none";
+        double const scale = in.hooks.device_scale > 0 ? static_cast<double>(in.hooks.device_scale) : 1.0;
+        double width = 0;
+        double height = 0;
+        if (std::optional<LayoutBox> const b = box_of()) {
+            width = static_cast<double>(b->width) * scale;
+            height = static_cast<double>(b->height) * scale;
+        }
+        css::Matrix4 matrix = style.transforms->list->matrix(width, height);
+        for (std::size_t i = 0; i < 3; ++i) {
+            matrix.m[3][i] /= scale;
+            matrix.m[i][3] *= scale;
+        }
+        return css::serialize(matrix);
+    }
+    if (name == "translate")
+        return style.transforms && style.transforms->translate ? css::serialize(*style.transforms->translate) : "none";
+    if (name == "rotate")
+        return style.transforms && style.transforms->rotate ? css::serialize(*style.transforms->rotate) : "none";
+    if (name == "scale")
+        return style.transforms && style.transforms->scale ? css::serialize(*style.transforms->scale) : "none";
+    if (name == "transform-origin" || name == "-webkit-transform-origin" || name == "perspective-origin"
+        || name == "-webkit-perspective-origin") {
+        // Resolved against the box when there is one: two lengths, and a
+        // third when the origin stands off the page.
+        css::Transforms const initial;
+        css::Transforms const& t = style.transforms ? *style.transforms : initial;
+        bool const of_transform = name.ends_with("transform-origin");
+        css::TransformLength const& x = of_transform ? t.origin_x : t.perspective_origin_x;
+        css::TransformLength const& y = of_transform ? t.origin_y : t.perspective_origin_y;
+        std::optional<LayoutBox> const b = box_of();
+        auto const text = [&](css::TransformLength const& length, float size) -> std::string {
+            if (b)
+                return px(static_cast<float>(length.resolve(static_cast<double>(size))));
+            if (length.percent == 0)
+                return px(static_cast<float>(length.px));
+            if (length.px == 0)
+                return js::number_to_utf8(length.percent) + "%";
+            return "calc(" + js::number_to_utf8(length.percent) + "% + " + px(static_cast<float>(length.px)) + ")";
+        };
+        std::string out = text(x, b ? b->width : 0) + " " + text(y, b ? b->height : 0);
+        if (of_transform && t.origin_z != 0)
+            out += " " + px(static_cast<float>(t.origin_z));
+        return out;
+    }
+    if (name == "transform-box") {
+        switch (style.transforms ? style.transforms->box : css::TransformBox::ViewBox) {
+        case css::TransformBox::ViewBox: return "view-box";
+        case css::TransformBox::ContentBox: return "content-box";
+        case css::TransformBox::BorderBox: return "border-box";
+        case css::TransformBox::FillBox: return "fill-box";
+        case css::TransformBox::StrokeBox: return "stroke-box";
+        }
+    }
+    if (name == "transform-style" || name == "-webkit-transform-style")
+        return style.transforms && style.transforms->preserve_3d ? "preserve-3d" : "flat";
+    if (name == "backface-visibility" || name == "-webkit-backface-visibility")
+        return style.transforms && style.transforms->backface_hidden ? "hidden" : "visible";
     if (name == "pointer-events")
         return style.pointer_events ? "auto" : "none";
     if (name == "interactivity")
@@ -1302,7 +1362,7 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
 // before the custom properties in force.
 constexpr std::string_view computed_longhands[] = { "align-content", "align-items", "align-self", "animation-composition", "animation-delay",
     "animation-direction", "animation-duration", "animation-fill-mode", "animation-iteration-count", "animation-name",
-    "animation-play-state", "animation-timeline", "animation-timing-function", "appearance", "aspect-ratio", "backdrop-filter", "background-color", "background-image",
+    "animation-play-state", "animation-timeline", "animation-timing-function", "appearance", "aspect-ratio", "backdrop-filter", "backface-visibility", "background-color", "background-image",
     "border-bottom-color", "border-bottom-left-radius", "border-bottom-right-radius", "border-bottom-style", "border-bottom-width",
     "border-collapse", "border-left-color", "border-left-style", "border-left-width", "border-right-color", "border-right-style",
     "border-right-width", "border-spacing", "border-top-color", "border-top-left-radius", "border-top-right-radius",
@@ -1315,9 +1375,10 @@ constexpr std::string_view computed_longhands[] = { "align-content", "align-item
     "interactivity", "isolation", "justify-content", "justify-items", "justify-self", "left", "letter-spacing", "line-break", "line-height", "margin-bottom",
     "margin-left", "margin-right", "margin-top", "max-height", "max-width", "min-height", "min-width", "object-fit",
     "object-position", "opacity", "order", "outline-color", "outline-offset", "outline-style", "outline-width", "overflow-wrap",
-    "overflow-x", "overflow-y", "padding-bottom", "padding-left", "padding-right", "padding-top", "perspective", "pointer-events", "position",
-    "right", "row-gap", "text-align", "text-decoration-line", "text-overflow", "text-shadow", "text-transform", "top", "transform",
-    "transition-behavior", "transition-delay", "transition-duration", "transition-property", "transition-timing-function",
+    "overflow-x", "overflow-y", "padding-bottom", "padding-left", "padding-right", "padding-top", "perspective", "perspective-origin", "pointer-events", "position",
+    "right", "rotate", "row-gap", "scale", "text-align", "text-decoration-line", "text-overflow", "text-shadow", "text-transform", "top", "transform",
+    "transform-box", "transform-origin", "transform-style",
+    "transition-behavior", "transition-delay", "transition-duration", "transition-property", "transition-timing-function", "translate",
     "visibility", "white-space", "width", "will-change", "word-break", "word-spacing", "z-index" };
 
 // Whether getComputedStyle's second argument leaves a style to answer

@@ -47,6 +47,7 @@ bool same(BackgroundSize const& a, BackgroundSize const& b);
 bool same(CounterOp const& a, CounterOp const& b);
 bool same(Shadow const& a, Shadow const& b) { return a == b; }
 bool same(FilterFunction const& a, FilterFunction const& b) { return a == b; }
+bool same(Transforms const& a, Transforms const& b) { return a == b; }
 bool same(ClipPath const& a, ClipPath const& b);
 bool same(ContentItem const& a, ContentItem const& b);
 bool same(ComponentValue const& a, ComponentValue const& b);
@@ -353,9 +354,7 @@ std::optional<std::string_view> first_style_difference(ComputedStyle const& a, C
     field("opacity", a.opacity, b.opacity);
     field("pointer_events", a.pointer_events, b.pointer_events);
     field("inert", a.inert, b.inert);
-    field("translate_x", a.translate_x, b.translate_x);
-    field("translate_y", a.translate_y, b.translate_y);
-    field("transformed", a.transformed, b.transformed);
+    field("transforms", a.transforms, b.transforms);
     field("isolate", a.isolate, b.isolate);
     field("perspective", a.perspective, b.perspective);
     field("contain", static_cast<int>(a.contain), static_cast<int>(b.contain));

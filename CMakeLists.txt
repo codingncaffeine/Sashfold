@@ -150,6 +150,7 @@ add_library(sashfold_core STATIC
   src/css/Easing.cpp
   src/css/Grid.cpp
   src/css/Interpolation.cpp
+  src/css/Transform.cpp
   src/css/Parser.cpp
   src/css/Selector.cpp
   src/css/StyleDifference.cpp

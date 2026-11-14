@@ -161,3 +161,7 @@ css/css-font-loading
 selection
 editing
 input-events
+
+# Added 2026-11-13 with the transform functions: parsing, computed values,
+# animation and the boxes scripts measure through a transform.
+css/css-transforms

@@ -915,20 +915,11 @@ void census_declaration(css::Declaration const& declaration, FeatureCensus& cens
         return; // inline-block is written
     else if (name == "display" && first_ident == "contents")
         return; // display: contents is written
-    else if (name == "rotate" || name == "scale")
-        ++census["transforms"];
-    else if (name == "transform") {
-        // Translations are drawn; the rest of a transform list is not.
-        for (css::ComponentValue const& value : declaration.value) {
-            if (!value.is_function())
-                continue;
-            std::string const function = lowercase_ascii(value.function().name);
-            if (!function.starts_with("translate")) {
-                ++census["transforms"];
-                break;
-            }
-        }
-    }
+    else if (name == "transform" || name == "translate" || name == "rotate" || name == "scale" || name == "transform-origin"
+        || name == "transform-box" || name == "transform-style" || name == "backface-visibility" || name == "perspective-origin"
+        || name == "-webkit-transform" || name == "-webkit-transform-origin" || name == "-webkit-transform-style"
+        || name == "-webkit-backface-visibility" || name == "-webkit-perspective-origin")
+        return; // transforms are drawn
     else if (name.starts_with("animation") || name.starts_with("transition"))
         return; // animations and transitions are written
     else if (name == "vertical-align")

@@ -26,6 +26,7 @@
 #include "net/WebSocket.h"
 #include "platform/Audio.h"
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -66,6 +67,11 @@ struct LayoutBox {
     float padding_right = 0;
     float padding_bottom = 0;
     float padding_left = 0;
+    // Where the box is seen when it, or a box around it, is drawn through
+    // a transform: the bounds of what the transforms make of the box
+    // above, as x, y, width and height in page coordinates — what a client
+    // rectangle is (CSSOM View §7). Unset when nothing transforms it.
+    std::optional<std::array<float, 4>> seen = std::nullopt;
 };
 
 // A box that scrolls (CSSOM View §6): how far its content is moved now and

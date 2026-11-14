@@ -578,8 +578,17 @@ int main(int argc, char** argv)
             CHECK(t1->stacking_context);
             CHECK_EQ(t2->x, -100.0f); // a full width to the left: off the page
             CHECK_EQ(t2->y, 20.0f);
-            CHECK_EQ(t3->x, 50.0f); // half its width, a quarter of its height; the rotation is passed over
-            CHECK_EQ(t3->y, 45.0f);
+            // More than a move: the box stays where it was laid, and its
+            // transform takes its middle half a width along and a quarter
+            // of its height down, turned about it.
+            CHECK_EQ(t3->x, 0.0f);
+            CHECK_EQ(t3->y, 40.0f);
+            if (CHECK(t3->transform != nullptr)) {
+                double x = 0;
+                double y = 0;
+                CHECK(t3->transform->map(50, 10, x, y));
+                CHECK(x > 99.999 && x < 100.001 && y > 14.999 && y < 15.001);
+            }
             CHECK_EQ(t4->x, 3.0f); // the translate property
             CHECK_EQ(t4->y, 64.0f);
             CHECK_EQ(t5->x, 0.0f);

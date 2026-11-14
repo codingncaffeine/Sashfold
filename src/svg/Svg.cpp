@@ -550,6 +550,72 @@ css::ComputedStyle const* style_of(Context const& context, dom::Element const& e
     return it == context.styles.end() ? nullptr : &it->second;
 }
 
+Box local_bbox(dom::Element const& element, float viewport_width, float viewport_height, StyleOf const& style_of, int depth);
+
+// An element's own transform (SVG 2 §8.5, css-transforms-1 §6.1 and
+// css-transforms-2 §7): the transform property where a style gives one,
+// else what the attribute says; before it translate, rotate and scale; all
+// of it about transform-origin, measured in the reference box that
+// transform-box names — the viewport, or the element's own bounding box.
+// An element with no origin written turns about its user space's origin.
+// What reaches out of the page's plane is seen flat.
+Matrix element_transform(dom::Element const& element, css::ComputedStyle const* style, float viewport_width, float viewport_height,
+    StyleOf const& style_of)
+{
+    Matrix const written = parse_transform(attribute(element, "transform"));
+    if (!style || !style->transforms)
+        return written;
+    css::Transforms const& t = *style->transforms;
+    if (!t.any() && !t.origin_set)
+        return written;
+    double left = 0;
+    double top = 0;
+    auto width = static_cast<double>(viewport_width);
+    auto height = static_cast<double>(viewport_height);
+    if (t.box != css::TransformBox::ViewBox) {
+        Box box = local_bbox(element, viewport_width, viewport_height, style_of, 0);
+        bool const with_stroke = t.box == css::TransformBox::StrokeBox || t.box == css::TransformBox::BorderBox;
+        if (with_stroke && style->stroke.kind != css::SvgPaint::Kind::None) {
+            // A percentage is of the viewport's diagonal over the square root of two.
+            float const diagonal = std::sqrt((viewport_width * viewport_width + viewport_height * viewport_height) / 2);
+            float const half = (style->stroke_width.kind == css::LengthPercent::Kind::Percent
+                                       ? style->stroke_width.value / 100 * diagonal
+                                       : style->stroke_width.value)
+                / 2;
+            box = Box { box.left - half, box.top - half, box.right + half, box.bottom + half };
+        }
+        left = static_cast<double>(box.left);
+        top = static_cast<double>(box.top);
+        width = static_cast<double>(box.right - box.left);
+        height = static_cast<double>(box.bottom - box.top);
+    }
+    double const origin_x = left + (t.origin_set ? t.origin_x.resolve(width) : 0);
+    double const origin_y = top + (t.origin_set ? t.origin_y.resolve(height) : 0);
+    css::Matrix4 matrix = css::Matrix4::translation(origin_x, origin_y);
+    if (t.translate)
+        matrix = matrix * css::Matrix4::translation(t.translate->x.resolve(width), t.translate->y.resolve(height));
+    if (t.rotate)
+        matrix = matrix * css::Matrix4::rotation(t.rotate->x, t.rotate->y, t.rotate->z, t.rotate->degrees);
+    if (t.scale)
+        matrix = matrix * css::Matrix4::scaling(t.scale->x, t.scale->y, t.scale->z);
+    matrix = matrix * (t.list ? t.list->matrix(width, height)
+                              : css::Matrix4::affine(static_cast<double>(written.a), static_cast<double>(written.b),
+                                    static_cast<double>(written.c), static_cast<double>(written.d), static_cast<double>(written.e),
+                                    static_cast<double>(written.f)));
+    matrix = matrix * css::Matrix4::translation(-origin_x, -origin_y);
+    return Matrix { static_cast<float>(matrix.m[0][0]), static_cast<float>(matrix.m[0][1]), static_cast<float>(matrix.m[1][0]),
+        static_cast<float>(matrix.m[1][1]), static_cast<float>(matrix.m[3][0]), static_cast<float>(matrix.m[3][1]) };
+}
+
+// The same, for the renderer: the styles are the context's.
+Matrix element_transform(Context const& context, State const& state, dom::Element const& element, css::ComputedStyle const* style)
+{
+    if (!style || !style->transforms)
+        return parse_transform(attribute(element, "transform"));
+    StyleOf const styles = [&context](dom::Element const& of) { return style_of(context, of); };
+    return element_transform(element, style, state.viewport_width, state.viewport_height, styles);
+}
+
 void collect_ids(Context& context, dom::Node const& node)
 {
     if (node.is_element()) {
@@ -1553,7 +1619,7 @@ void render_use(Context& context, State const& state, dom::Element const& elemen
         if (!target_style)
             return;
         // The symbol's own transform, then the use's.
-        inner.ctm = parse_transform(attribute(*target, "transform")).then(inner.ctm);
+        inner.ctm = element_transform(context, inner, *target, target_style).then(inner.ctm);
         inner.opacity *= std::clamp(target_style->opacity, 0.0f, 1.0f);
         render_viewport(context, inner, *target, *target_style, 0, 0, width, height);
         return;
@@ -1576,7 +1642,7 @@ void render_element(Context& context, State state, dom::Element const& element)
         || name == "desc" || name == "metadata" || name == "style" || name == "script"
         || name == "foreignObject" || name == "filter")
         return;
-    state.ctm = parse_transform(attribute(element, "transform")).then(state.ctm);
+    state.ctm = element_transform(context, state, element, style).then(state.ctm);
     state.opacity *= std::clamp(style->opacity, 0.0f, 1.0f);
     if (state.opacity <= 0)
         return;
@@ -1815,9 +1881,10 @@ Matrix nested_viewport(dom::Element const& element, float em, float& viewport_wi
 
 // From a child's user space to its parent's: its transform, and for a
 // nested <svg> its viewport inside that; the viewport sizes move with it.
-Matrix local_transform(dom::Element const& child, float em, float& viewport_width, float& viewport_height)
+Matrix local_transform(dom::Element const& child, float em, float& viewport_width, float& viewport_height, StyleOf const& style_of)
 {
-    Matrix const own = parse_transform(attribute(child, "transform"));
+    Matrix const own
+        = element_transform(child, style_of ? style_of(child) : nullptr, viewport_width, viewport_height, style_of);
     if (child.is_svg("svg"))
         return nested_viewport(child, em, viewport_width, viewport_height).then(own);
     return own;
@@ -1914,7 +1981,7 @@ Box children_bbox(dom::Element const& element, float viewport_width, float viewp
             continue;
         float inner_width = viewport_width;
         float inner_height = viewport_height;
-        Matrix const local = local_transform(child_element, em_for(child_element, style_of), inner_width, inner_height);
+        Matrix const local = local_transform(child_element, em_for(child_element, style_of), inner_width, inner_height, style_of);
         Box const box = local_bbox(child_element, inner_width, inner_height, style_of, depth + 1);
         // An empty container adds nothing; an empty shape still adds its
         // point, as the browsers count a zero-size rect.
@@ -2018,7 +2085,7 @@ std::optional<UserSpace> user_space(dom::Element const& root, dom::Element const
     space.viewport_height = box ? box->height : height;
     for (std::size_t i = chain.size() - 1; i-- > 0;) {
         dom::Element const& at = *chain[i];
-        space.ctm = local_transform(at, em_for(at, style_of), space.viewport_width, space.viewport_height).then(space.ctm);
+        space.ctm = local_transform(at, em_for(at, style_of), space.viewport_width, space.viewport_height, style_of).then(space.ctm);
     }
     return space;
 }
@@ -2179,7 +2246,7 @@ dom::Element const* hit_element(dom::Element const& element, float viewport_widt
     // <svg> its viewport.
     float inner_width = viewport_width;
     float inner_height = viewport_height;
-    Matrix const local = local_transform(element, style->font_size, inner_width, inner_height);
+    Matrix const local = local_transform(element, style->font_size, inner_width, inner_height, style_of);
     std::optional<Matrix> const inverse = local.inverse();
     if (!inverse)
         return nullptr;

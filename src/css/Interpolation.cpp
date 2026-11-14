@@ -346,27 +346,102 @@ std::vector<AnimatableProperty> const& property_table()
                 s.border_spacing_horizontal = to_length(v.lengths[0].first, v.lengths[0].second, NonNegative);
                 s.border_spacing_vertical = to_length(v.lengths[1].first, v.lengths[1].second, NonNegative);
             } },
-        // The translations: the engine draws only these of a transform,
-        // and `transform` and `translate` keep them in the same place. A
-        // box with a transform animating is a stacking context throughout
-        // (css-transforms-1 §6), whatever the value of the moment.
+        // The transforms. A box with one animating is a stacking context
+        // throughout (css-transforms-1 §6): `none` reads as the value that
+        // does nothing, and what is written back is never none.
         AnimatableProperty { "translate", false, V::Kind::Lengths, Any, false,
-            [](S const& s) { return pair(s.translate_x, s.translate_y); },
+            [](S const& s) {
+                TranslateValue const moved = s.transforms && s.transforms->translate ? *s.transforms->translate : TranslateValue {};
+                V value;
+                value.kind = V::Kind::Lengths;
+                value.lengths = { { moved.x.px, moved.x.percent }, { moved.y.px, moved.y.percent }, { moved.z, 0 } };
+                return std::optional<V>(std::move(value));
+            },
             [](V const& v, S& s, unsigned&) {
-                if (v.lengths.size() != 2)
+                if (v.lengths.size() != 3)
                     return;
-                s.translate_x = to_length(v.lengths[0].first, v.lengths[0].second, Any);
-                s.translate_y = to_length(v.lengths[1].first, v.lengths[1].second, Any);
-                s.transformed = true;
+                edit_transforms(s, [&](Transforms& t) {
+                    t.translate = TranslateValue { { v.lengths[0].first, v.lengths[0].second }, { v.lengths[1].first, v.lengths[1].second },
+                        v.lengths[2].first };
+                });
             } },
-        AnimatableProperty { "transform", false, V::Kind::Lengths, Any, false,
-            [](S const& s) { return pair(s.translate_x, s.translate_y); },
+        AnimatableProperty { "rotate", false, V::Kind::Numbers, Any, false,
+            [](S const& s) {
+                RotateValue const turned = s.transforms && s.transforms->rotate ? *s.transforms->rotate : RotateValue {};
+                V value;
+                value.kind = V::Kind::Numbers;
+                value.numbers = { turned.x, turned.y, turned.z, turned.degrees };
+                return std::optional<V>(std::move(value));
+            },
+            [](V const& v, S& s, unsigned&) {
+                if (v.numbers.size() != 4)
+                    return;
+                edit_transforms(s, [&](Transforms& t) { t.rotate = RotateValue { v.numbers[0], v.numbers[1], v.numbers[2], v.numbers[3] }; });
+            } },
+        AnimatableProperty { "scale", false, V::Kind::Numbers, Any, false,
+            [](S const& s) {
+                ScaleValue const sized = s.transforms && s.transforms->scale ? *s.transforms->scale : ScaleValue {};
+                V value;
+                value.kind = V::Kind::Numbers;
+                value.numbers = { sized.x, sized.y, sized.z };
+                return std::optional<V>(std::move(value));
+            },
+            [](V const& v, S& s, unsigned&) {
+                if (v.numbers.size() != 3)
+                    return;
+                edit_transforms(s, [&](Transforms& t) { t.scale = ScaleValue { v.numbers[0], v.numbers[1], v.numbers[2] }; });
+            } },
+        AnimatableProperty { "transform", false, V::Kind::Transform, Any, false,
+            [](S const& s) {
+                V value;
+                value.kind = V::Kind::Transform;
+                value.transform = s.transforms ? s.transforms->list : nullptr;
+                return std::optional<V>(std::move(value));
+            },
+            [](V const& v, S& s, unsigned&) {
+                // Written back as a list even when it holds nothing: the
+                // box stays what a transformed box is.
+                std::shared_ptr<TransformList const> list = v.transform;
+                if (!list)
+                    list = std::make_shared<TransformList const>();
+                edit_transforms(s, [&](Transforms& t) { t.list = list; });
+            } },
+        AnimatableProperty { "transform-origin", false, V::Kind::Lengths, Any, false,
+            [](S const& s) {
+                Transforms const initial;
+                Transforms const& t = s.transforms ? *s.transforms : initial;
+                V value;
+                value.kind = V::Kind::Lengths;
+                value.lengths = { { t.origin_x.px, t.origin_x.percent }, { t.origin_y.px, t.origin_y.percent }, { t.origin_z, 0 } };
+                return std::optional<V>(std::move(value));
+            },
+            [](V const& v, S& s, unsigned&) {
+                if (v.lengths.size() != 3)
+                    return;
+                edit_transforms(s, [&](Transforms& t) {
+                    t.origin_x = { v.lengths[0].first, v.lengths[0].second };
+                    t.origin_y = { v.lengths[1].first, v.lengths[1].second };
+                    t.origin_z = v.lengths[2].first;
+                    t.origin_set = true;
+                });
+            } },
+        AnimatableProperty { "perspective-origin", false, V::Kind::Lengths, Any, false,
+            [](S const& s) {
+                Transforms const initial;
+                Transforms const& t = s.transforms ? *s.transforms : initial;
+                V value;
+                value.kind = V::Kind::Lengths;
+                value.lengths = { { t.perspective_origin_x.px, t.perspective_origin_x.percent },
+                    { t.perspective_origin_y.px, t.perspective_origin_y.percent } };
+                return std::optional<V>(std::move(value));
+            },
             [](V const& v, S& s, unsigned&) {
                 if (v.lengths.size() != 2)
                     return;
-                s.translate_x = to_length(v.lengths[0].first, v.lengths[0].second, Any);
-                s.translate_y = to_length(v.lengths[1].first, v.lengths[1].second, Any);
-                s.transformed = true;
+                edit_transforms(s, [&](Transforms& t) {
+                    t.perspective_origin_x = { v.lengths[0].first, v.lengths[0].second };
+                    t.perspective_origin_y = { v.lengths[1].first, v.lengths[1].second };
+                });
             } },
         // The background layers' positions, two lengths a layer.
         AnimatableProperty { "background-position", false, V::Kind::Lengths, Any, false,
@@ -632,7 +707,16 @@ std::optional<AnimatedValue> interpolate_animated(AnimatableProperty const& prop
         return std::nullopt;
     V out;
     out.kind = a.kind;
+    if (property.name == "rotate" && a.numbers.size() == 4 && b.numbers.size() == 4) {
+        RotateValue const turned = interpolate(RotateValue { a.numbers[0], a.numbers[1], a.numbers[2], a.numbers[3] },
+            RotateValue { b.numbers[0], b.numbers[1], b.numbers[2], b.numbers[3] }, p);
+        out.numbers = { turned.x, turned.y, turned.z, turned.degrees };
+        return out;
+    }
     switch (a.kind) {
+    case V::Kind::Transform:
+        out.transform = interpolate(a.transform, b.transform, p);
+        return out;
     case V::Kind::Number:
         out.number = mix(a.number, b.number, p);
         if (property.integer)
@@ -752,6 +836,9 @@ std::optional<AnimatedValue> accumulate_animated(AnimatableProperty const& prope
         return out;
     }
     case V::Kind::Visibility: return std::nullopt;
+    case V::Kind::Transform:
+        out.transform = accumulate(a.transform, b.transform, count);
+        return out;
     }
     return std::nullopt;
 }
@@ -764,6 +851,19 @@ std::optional<AnimatedValue> add_animated(AnimatableProperty const& property, An
     if (a.kind == V::Kind::ShadowList && b.kind == V::Kind::ShadowList) {
         V out = a;
         out.shadows.insert(out.shadows.end(), b.shadows.begin(), b.shadows.end());
+        return out;
+    }
+    // Transform lists add the same way (css-transforms-1 §13): the
+    // functions under, then the ones added.
+    if (a.kind == V::Kind::Transform && b.kind == V::Kind::Transform) {
+        TransformList joined;
+        if (a.transform)
+            joined.functions = a.transform->functions;
+        if (b.transform)
+            joined.functions.insert(joined.functions.end(), b.transform->functions.begin(), b.transform->functions.end());
+        V out;
+        out.kind = V::Kind::Transform;
+        out.transform = std::make_shared<TransformList const>(std::move(joined));
         return out;
     }
     return accumulate_animated(property, a, b, 1);
@@ -781,6 +881,7 @@ bool same_animated(AnimatedValue const& a, AnimatedValue const& b)
     case V::Kind::Numbers: return a.numbers == b.numbers;
     case V::Kind::Visibility: return a.visible == b.visible;
     case V::Kind::ShadowList: return a.shadows == b.shadows;
+    case V::Kind::Transform: return a.transform == b.transform || (a.transform && b.transform && *a.transform == *b.transform);
     }
     return false;
 }
@@ -830,6 +931,14 @@ std::string length_text(double px, double percent)
 
 std::string serialize_animated(AnimatableProperty const& property, AnimatedValue const& value)
 {
+    if (property.name == "rotate" && value.numbers.size() == 4)
+        return serialize(RotateValue { value.numbers[0], value.numbers[1], value.numbers[2], value.numbers[3] });
+    if (property.name == "scale" && value.numbers.size() == 3)
+        return serialize(ScaleValue { value.numbers[0], value.numbers[1], value.numbers[2] });
+    if (property.name == "translate" && value.lengths.size() == 3) {
+        return serialize(TranslateValue { { value.lengths[0].first, value.lengths[0].second },
+            { value.lengths[1].first, value.lengths[1].second }, value.lengths[2].first });
+    }
     switch (value.kind) {
     case V::Kind::Number:
         return number_text(property.integer ? round_half_up(value.number) : value.number);
@@ -855,6 +964,7 @@ std::string serialize_animated(AnimatableProperty const& property, AnimatedValue
         return text;
     }
     case V::Kind::Visibility: return value.visible ? "visible" : "hidden";
+    case V::Kind::Transform: return value.transform ? serialize(*value.transform) : "none";
     case V::Kind::ShadowList: {
         if (value.shadows.empty())
             return "none";

@@ -1466,7 +1466,9 @@ void paint_control(Context& context, Fragment const& fragment)
     }
 }
 
-void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner);
+// `in_own_plane`: the root is being painted flat, on the way through its
+// own transform, which is then not applied a second time.
+void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner, bool in_own_plane = false);
 void paint_flow(Context& context, Fragment const& fragment, bool is_canvas_background_owner);
 
 // css-ui-4 §3: a box's outline, around its border box and `outline-offset`
@@ -2202,18 +2204,84 @@ void paint_opaque_context(Context& context, Fragment const& root, bool is_canvas
 // large costs memory and being too small would lose ink — the run's box is
 // therefore taken as a whole em above and below its baseline, which covers
 // its decorations and the way a synthesized italic leans.
-void ink_bounds(Fragment const& box, float& left, float& top, float& right, float& bottom)
+//
+// A box drawn through a transform puts its ink where the transform takes
+// it; `through_own` false asks for the box's ink in its own plane, as it
+// was laid out, which is what the picture drawn through the transform is
+// sized by.
+void ink_bounds(Fragment const& box, float& left, float& top, float& right, float& bottom, bool through_own = true)
 {
-    left = std::min(left, box.x);
-    top = std::min(top, box.y);
-    right = std::max(right, box.x + box.width);
-    bottom = std::max(bottom, box.y + box.height);
+    if (box.transform && through_own) {
+        float own_left = std::numeric_limits<float>::max();
+        float own_top = own_left;
+        float own_right = std::numeric_limits<float>::lowest();
+        float own_bottom = own_right;
+        ink_bounds(box, own_left, own_top, own_right, own_bottom, false);
+        double to_left = 0;
+        double to_top = 0;
+        double to_right = 0;
+        double to_bottom = 0;
+        if (box.transform->about(static_cast<double>(box.x), static_cast<double>(box.y))
+                .map_rect(static_cast<double>(own_left), static_cast<double>(own_top), static_cast<double>(own_right - own_left),
+                    static_cast<double>(own_bottom - own_top), to_left, to_top, to_right, to_bottom)) {
+            left = std::min(left, static_cast<float>(to_left) - 1);
+            top = std::min(top, static_cast<float>(to_top) - 1);
+            right = std::max(right, static_cast<float>(to_right) + 1);
+            bottom = std::max(bottom, static_cast<float>(to_bottom) + 1);
+        }
+        return;
+    }
+    // What the box draws beyond its border box: its outline, and the
+    // shadows it casts outwards.
+    float out_left = 0;
+    float out_top = 0;
+    float out_right = 0;
+    float out_bottom = 0;
+    if (box.style) {
+        ComputedStyle const& style = *box.style;
+        if (style.outline.style != css::BorderStyle::None) {
+            float const reach = std::max(0.0f, style.outline.width + std::max(0.0f, style.outline.offset)) + 1;
+            out_left = out_top = out_right = out_bottom = reach;
+        }
+        if (style.box_shadow) {
+            for (css::Shadow const& shadow : *style.box_shadow) {
+                if (shadow.inset)
+                    continue;
+                float const spread = std::max(0.0f, shadow.spread) + std::max(0.0f, shadow.blur) * 1.5f + 1;
+                out_left = std::max(out_left, spread - shadow.x);
+                out_right = std::max(out_right, spread + shadow.x);
+                out_top = std::max(out_top, spread - shadow.y);
+                out_bottom = std::max(out_bottom, spread + shadow.y);
+            }
+        }
+    }
+    left = std::min(left, box.x - out_left);
+    top = std::min(top, box.y - out_top);
+    right = std::max(right, box.x + box.width + out_right);
+    bottom = std::max(bottom, box.y + box.height + out_bottom);
     for (TextRun const& run : box.runs) {
         float const em = run.style ? run.style->font_size : 0.0f;
-        float const x0 = css::is_vertical(run.mode) ? run.baseline_y - em : run.x;
-        float const y0 = css::is_vertical(run.mode) ? run.x : run.baseline_y - em;
-        float const x1 = css::is_vertical(run.mode) ? run.baseline_y + em : run.x + run.width;
-        float const y1 = css::is_vertical(run.mode) ? run.x + run.width : run.baseline_y + em;
+        float x0 = css::is_vertical(run.mode) ? run.baseline_y - em : run.x;
+        float y0 = css::is_vertical(run.mode) ? run.x : run.baseline_y - em;
+        float x1 = css::is_vertical(run.mode) ? run.baseline_y + em : run.x + run.width;
+        float y1 = css::is_vertical(run.mode) ? run.x + run.width : run.baseline_y + em;
+        if (run.style && run.style->text_shadow) {
+            float cast_left = 0;
+            float cast_top = 0;
+            float cast_right = 0;
+            float cast_bottom = 0;
+            for (css::Shadow const& shadow : *run.style->text_shadow) {
+                float const blur = std::max(0.0f, shadow.blur) * 1.5f + 1;
+                cast_left = std::max(cast_left, blur - shadow.x);
+                cast_right = std::max(cast_right, blur + shadow.x);
+                cast_top = std::max(cast_top, blur - shadow.y);
+                cast_bottom = std::max(cast_bottom, blur + shadow.y);
+            }
+            x0 -= cast_left;
+            y0 -= cast_top;
+            x1 += cast_right;
+            y1 += cast_bottom;
+        }
         left = std::min(left, x0);
         top = std::min(top, y0);
         right = std::max(right, x1);
@@ -2323,7 +2391,7 @@ void paint_through_effects(Context& context, Fragment const& root, bool is_canva
     float top = left;
     float right = std::numeric_limits<float>::lowest();
     float bottom = right;
-    ink_bounds(root, left, top, right, bottom);
+    ink_bounds(root, left, top, right, bottom, false);
     Reach const reach = style.filter ? reach_of(*style.filter) : Reach {};
     Rect const ink = snap(left + context.dx, top + context.dy, right - left, bottom - top);
     Rect const whole { 0, 0, context.target.width(), context.target.height() };
@@ -2373,11 +2441,268 @@ void paint_through_effects(Context& context, Fragment const& root, bool is_canva
     context.target.draw(bitmap_of(layer), area.x, area.y);
 }
 
-void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner)
+// A box with a transform that does more than move it (css-transforms-1
+// §3): it and everything in it are painted flat, as one picture with
+// transparency of its own, in the plane the box was laid out in, and the
+// picture goes onto the page through the transform. Each pixel of the page
+// it reaches takes the picture's color at the place the transform's
+// inverse says the pixel came from, weighed between the four pixels of the
+// picture around that place — which is what softens a turned box's edges
+// too. A picture drawn at less than half its size along an axis is halved
+// along it first, as often as that takes, so that every pixel of it has
+// its say.
+void paint_transformed(Context& context, Fragment const& root, bool is_canvas_background_owner)
+{
+    float left = std::numeric_limits<float>::max();
+    float top = left;
+    float right = std::numeric_limits<float>::lowest();
+    float bottom = right;
+    ink_bounds(root, left, top, right, bottom, false);
+    if (root.style && root.style->filter) {
+        Reach const reach = reach_of(*root.style->filter);
+        left -= static_cast<float>(reach.left);
+        top -= static_cast<float>(reach.top);
+        right += static_cast<float>(reach.right);
+        bottom += static_cast<float>(reach.bottom);
+    }
+    if (!(right > left) || !(bottom > top))
+        return;
+    css::PlaneTransform const to_target = css::PlaneTransform::translation(static_cast<double>(context.dx), static_cast<double>(context.dy))
+        * root.transform->about(static_cast<double>(root.x), static_cast<double>(root.y));
+    std::optional<css::PlaneTransform> const from_target = to_target.inverse();
+    if (!from_target)
+        return; // flattened to a line or a point: nothing of it shows
+    Rect reach { 0, 0, context.target.width(), context.target.height() };
+    if (std::optional<Rect> const held = context.target.clip())
+        reach = intersect(reach, *held);
+    auto const down = [](double value) { return static_cast<int>(std::floor(std::clamp(value, -1.0e9, 1.0e9))); };
+    auto const up = [](double value) { return static_cast<int>(std::ceil(std::clamp(value, -1.0e9, 1.0e9))); };
+    double to_left = 0;
+    double to_top = 0;
+    double to_right = 0;
+    double to_bottom = 0;
+    if (!to_target.map_rect(static_cast<double>(left), static_cast<double>(top), static_cast<double>(right - left),
+            static_cast<double>(bottom - top), to_left, to_top, to_right, to_bottom))
+        return;
+    Rect shown { down(to_left) - 1, down(to_top) - 1, 0, 0 };
+    shown.width = up(to_right) + 1 - shown.x;
+    shown.height = up(to_bottom) + 1 - shown.y;
+    shown = intersect(shown, reach);
+    if (shown.is_empty())
+        return;
+    // What of the plane lands there: no more of the group is painted.
+    double from_left = static_cast<double>(left);
+    double from_top = static_cast<double>(top);
+    double from_right = static_cast<double>(right);
+    double from_bottom = static_cast<double>(bottom);
+    {
+        double l = 0;
+        double t = 0;
+        double r = 0;
+        double b = 0;
+        if (from_target->map_rect(shown.x, shown.y, shown.width, shown.height, l, t, r, b)) {
+            from_left = std::max(from_left, l - 2);
+            from_top = std::max(from_top, t - 2);
+            from_right = std::min(from_right, r + 2);
+            from_bottom = std::min(from_bottom, b + 2);
+        }
+    }
+    if (!(from_right > from_left) || !(from_bottom > from_top))
+        return;
+    Rect const area { down(from_left), down(from_top), up(from_right) - down(from_left), up(from_bottom) - down(from_top) };
+    if (area.is_empty() || static_cast<long long>(area.width) * area.height > 64LL * 1024 * 1024)
+        return;
+    auto const paint_over = [&](Color backdrop) {
+        Bitmap group(area.width, area.height, backdrop);
+        Context inside { group, -static_cast<float>(area.x), -static_cast<float>(area.y), context.backgrounds, context.canvas_owner,
+            context.scrolls };
+        inside.device_scale = context.device_scale;
+        inside.elisions = context.elisions;
+        paint_stacking_context(inside, root, is_canvas_background_owner, true);
+        return group;
+    };
+    EffectLayer layer;
+    {
+        Bitmap const over_black = paint_over(Color::rgb(0, 0, 0));
+        Bitmap const over_white = paint_over(Color::rgb(255, 255, 255));
+        layer = layer_from(over_black, over_white);
+    }
+    auto const sample = [&](std::vector<float> const& plane, int x, int y) -> float {
+        if (x < 0 || y < 0 || x >= layer.width || y >= layer.height)
+            return 0.0f;
+        return plane[static_cast<std::size_t>(y) * static_cast<std::size_t>(layer.width) + static_cast<std::size_t>(x)];
+    };
+    auto const put = [&](int px, int py, float r, float g, float b, float alpha) {
+        if (alpha <= 0.0f)
+            return;
+        auto const channel = [alpha](float value) {
+            return static_cast<std::uint8_t>(std::clamp(value / alpha * 255.0f + 0.5f, 0.0f, 255.0f));
+        };
+        Color color = Color::rgb(channel(r), channel(g), channel(b));
+        color.a = static_cast<std::uint8_t>(std::clamp(alpha * 255.0f + 0.5f, 0.0f, 255.0f));
+        context.target.blend_pixel(px, py, color);
+    };
+    // Stretched or squeezed along the page's own axes, and no more: each
+    // pixel of the page covers a rectangle of the picture, and takes the
+    // average of what lies under it — every pixel of a picture drawn
+    // smaller has its say, and one drawn larger keeps its edges where
+    // they were. Inside a picture drawn larger the colors run smoothly
+    // from one of its pixels to the next, as a scaled photograph's must,
+    // while a hard edge of the picture itself — all there on one side,
+    // nothing on the other — stays as sharp as the box that made it.
+    if (to_target.is_affine() && to_target.h[1] == 0 && to_target.h[3] == 0) {
+        double const scale_x = to_target.h[0];
+        double const scale_y = to_target.h[4];
+        auto const span = [](double scale, double shift, int pixel, int origin, double& from, double& to) {
+            double const a = (pixel - shift) / scale - origin;
+            double const b = (pixel + 1 - shift) / scale - origin;
+            from = std::min(a, b);
+            to = std::max(a, b);
+        };
+        // The average of a plane under [u0, u1) x [v0, v1), in the layer's
+        // own pixels.
+        auto const under = [&](std::vector<float> const& plane, double u0, double u1, double v0, double v1) -> float {
+            int const x0 = std::max(0, static_cast<int>(std::floor(u0)));
+            int const x1 = std::min(layer.width, static_cast<int>(std::ceil(u1)));
+            int const y0 = std::max(0, static_cast<int>(std::floor(v0)));
+            int const y1 = std::min(layer.height, static_cast<int>(std::ceil(v1)));
+            double sum = 0;
+            for (int y = y0; y < y1; ++y) {
+                double const tall = std::min(v1, y + 1.0) - std::max(v0, static_cast<double>(y));
+                if (tall <= 0)
+                    continue;
+                for (int x = x0; x < x1; ++x) {
+                    double const wide = std::min(u1, x + 1.0) - std::max(u0, static_cast<double>(x));
+                    if (wide > 0)
+                        sum += static_cast<double>(plane[static_cast<std::size_t>(y) * static_cast<std::size_t>(layer.width) + static_cast<std::size_t>(x)]) * wide * tall;
+                }
+            }
+            return static_cast<float>(sum / ((u1 - u0) * (v1 - v0)));
+        };
+        bool const grows = std::fabs(scale_x) > 1 || std::fabs(scale_y) > 1;
+        for (int py = shown.y; py < shown.bottom(); ++py) {
+            double v0 = 0;
+            double v1 = 0;
+            span(scale_y, to_target.h[5], py, area.y, v0, v1);
+            if (v1 <= 0 || v0 >= layer.height)
+                continue;
+            for (int px = shown.x; px < shown.right(); ++px) {
+                double u0 = 0;
+                double u1 = 0;
+                span(scale_x, to_target.h[2], px, area.x, u0, u1);
+                if (u1 <= 0 || u0 >= layer.width)
+                    continue;
+                float const covered = under(layer.alpha, u0, u1, v0, v1);
+                if (!grows) {
+                    put(px, py, under(layer.red, u0, u1, v0, v1), under(layer.green, u0, u1, v0, v1),
+                        under(layer.blue, u0, u1, v0, v1), covered);
+                    continue;
+                }
+                // Between the four pixels around the middle of what this
+                // pixel covers.
+                double const u = (u0 + u1) / 2 - 0.5;
+                double const v = (v0 + v1) / 2 - 0.5;
+                int const x0 = static_cast<int>(std::floor(u));
+                int const y0 = static_cast<int>(std::floor(v));
+                auto const fx = static_cast<float>(u - x0);
+                auto const fy = static_cast<float>(v - y0);
+                float const taps[4] = { sample(layer.alpha, x0, y0), sample(layer.alpha, x0 + 1, y0), sample(layer.alpha, x0, y0 + 1),
+                    sample(layer.alpha, x0 + 1, y0 + 1) };
+                float const weights[4] = { (1 - fx) * (1 - fy), fx * (1 - fy), (1 - fx) * fy, fx * fy };
+                auto const mixed = [&](std::vector<float> const& plane) {
+                    return sample(plane, x0, y0) * weights[0] + sample(plane, x0 + 1, y0) * weights[1]
+                        + sample(plane, x0, y0 + 1) * weights[2] + sample(plane, x0 + 1, y0 + 1) * weights[3];
+                };
+                float const smooth = taps[0] * weights[0] + taps[1] * weights[1] + taps[2] * weights[2] + taps[3] * weights[3];
+                if (smooth <= 0.0f)
+                    continue;
+                bool const hard = std::all_of(std::begin(taps), std::end(taps), [](float tap) { return tap <= 0.001f || tap >= 0.999f; });
+                float const alpha = hard ? covered : smooth;
+                float const keep = alpha / smooth;
+                put(px, py, mixed(layer.red) * keep, mixed(layer.green) * keep, mixed(layer.blue) * keep, alpha);
+            }
+        }
+        return;
+    }
+    // Halved along an axis it is drawn at under half its size on.
+    double shrink_x = 1;
+    double shrink_y = 1;
+    {
+        double const along_x = std::hypot(to_target.h[0], to_target.h[3]) / std::max(1e-9, std::fabs(to_target.h[8]));
+        double const along_y = std::hypot(to_target.h[1], to_target.h[4]) / std::max(1e-9, std::fabs(to_target.h[8]));
+        auto const halve = [&](bool horizontal) {
+            int const width = horizontal ? (layer.width + 1) / 2 : layer.width;
+            int const height = horizontal ? layer.height : (layer.height + 1) / 2;
+            EffectLayer half;
+            half.width = width;
+            half.height = height;
+            for (std::vector<float> EffectLayer::* const plane : { &EffectLayer::red, &EffectLayer::green, &EffectLayer::blue, &EffectLayer::alpha }) {
+                std::vector<float> const& from = layer.*plane;
+                std::vector<float>& to = half.*plane;
+                to.assign(static_cast<std::size_t>(width) * static_cast<std::size_t>(height), 0.0f);
+                for (int y = 0; y < height; ++y) {
+                    for (int x = 0; x < width; ++x) {
+                        int const x0 = horizontal ? x * 2 : x;
+                        int const y0 = horizontal ? y : y * 2;
+                        int const x1 = horizontal ? std::min(x0 + 1, layer.width - 1) : x0;
+                        int const y1 = horizontal ? y0 : std::min(y0 + 1, layer.height - 1);
+                        // A last odd column or row is averaged with nothing.
+                        bool const pair = horizontal ? x0 + 1 < layer.width : y0 + 1 < layer.height;
+                        float const a = from[static_cast<std::size_t>(y0) * static_cast<std::size_t>(layer.width) + static_cast<std::size_t>(x0)];
+                        float const b = pair ? from[static_cast<std::size_t>(y1) * static_cast<std::size_t>(layer.width) + static_cast<std::size_t>(x1)] : 0.0f;
+                        to[static_cast<std::size_t>(y) * static_cast<std::size_t>(width) + static_cast<std::size_t>(x)] = (a + b) / 2;
+                    }
+                }
+            }
+            layer = std::move(half);
+        };
+        while (along_x * shrink_x < 0.5 && layer.width > 1 && shrink_x < 4096) {
+            halve(true);
+            shrink_x *= 2;
+        }
+        while (along_y * shrink_y < 0.5 && layer.height > 1 && shrink_y < 4096) {
+            halve(false);
+            shrink_y *= 2;
+        }
+    }
+    for (int py = shown.y; py < shown.bottom(); ++py) {
+        for (int px = shown.x; px < shown.right(); ++px) {
+            double x = 0;
+            double y = 0;
+            if (!from_target->map(px + 0.5, py + 0.5, x, y))
+                continue;
+            double const u = (x - area.x) / shrink_x - 0.5;
+            double const v = (y - area.y) / shrink_y - 0.5;
+            if (u <= -1 || v <= -1 || u >= layer.width || v >= layer.height)
+                continue;
+            int const x0 = static_cast<int>(std::floor(u));
+            int const y0 = static_cast<int>(std::floor(v));
+            auto const fx = static_cast<float>(u - x0);
+            auto const fy = static_cast<float>(v - y0);
+            float const w00 = (1 - fx) * (1 - fy);
+            float const w10 = fx * (1 - fy);
+            float const w01 = (1 - fx) * fy;
+            float const w11 = fx * fy;
+            auto const mixed = [&](std::vector<float> const& plane) {
+                return sample(plane, x0, y0) * w00 + sample(plane, x0 + 1, y0) * w10 + sample(plane, x0, y0 + 1) * w01
+                    + sample(plane, x0 + 1, y0 + 1) * w11;
+            };
+            put(px, py, mixed(layer.red), mixed(layer.green), mixed(layer.blue), mixed(layer.alpha));
+        }
+    }
+}
+
+void paint_stacking_context(Context& context, Fragment const& root, bool is_canvas_background_owner, bool in_own_plane)
 {
     float const alpha = root.style ? root.style->opacity : 1.0f;
     if (alpha <= 0)
         return; // nothing of it paints, its positioned descendants included
+    if (root.back_hidden)
+        return; // turned to show a back it does not show
+    if (root.transform && !in_own_plane) {
+        paint_transformed(context, root, is_canvas_background_owner);
+        return;
+    }
     if (root.style && root.style->paints_through_effects()) {
         paint_through_effects(context, root, is_canvas_background_owner, alpha);
         return;
@@ -2390,7 +2715,7 @@ void paint_stacking_context(Context& context, Fragment const& root, bool is_canv
     float top = left;
     float right = std::numeric_limits<float>::lowest();
     float bottom = right;
-    ink_bounds(root, left, top, right, bottom);
+    ink_bounds(root, left, top, right, bottom, false);
     Rect const whole { 0, 0, context.target.width(), context.target.height() };
     Rect area = intersect(
         snap(left + context.dx, top + context.dy, right - left, bottom - top), whole);
@@ -2617,8 +2942,21 @@ void collect_hit_layers(Fragment const& fragment, Probe at, bool in_flow, bool o
 
 // `paint_opaque_context` backwards: the layers at zero and above from the
 // top down, the context's own flow, the layers below zero, its own box.
-std::optional<PointHit> hit_context(Fragment const& root, Probe at)
+std::optional<PointHit> hit_context(Fragment const& root, Probe at, bool in_own_plane = false)
 {
+    if (root.back_hidden)
+        return std::nullopt;
+    // A box drawn through a transform is pointed at through it: the point
+    // is taken back to where it lies in the box's own plane.
+    if (root.transform && !in_own_plane) {
+        std::optional<css::PlaneTransform> const back
+            = root.transform->about(static_cast<double>(root.x), static_cast<double>(root.y)).inverse();
+        double x = 0;
+        double y = 0;
+        if (!back || !back->map(static_cast<double>(at.x), static_cast<double>(at.y), x, y))
+            return std::nullopt;
+        return hit_context(root, Probe { static_cast<float>(x), static_cast<float>(y) }, true);
+    }
     // Outside its clip path nothing of the box is there to point at
     // (css-masking-1 §5.1: pointer events are not dispatched on the
     // clipped-away region).
