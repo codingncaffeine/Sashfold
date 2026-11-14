@@ -6186,14 +6186,27 @@ struct Layouter {
             // into its own. ⚠ Each block that came out of the same inline
             // box is then its own group rather than all of them and the
             // lines being one, which shows only where two of them overlap.
+            // A filter on such a box passes over the block the same way: the
+            // block's own list first, then each open box's, innermost first.
             {
                 float fade = 1;
-                for (ComputedStyle const* open : open_inline_boxes)
+                bool filtered = false;
+                for (ComputedStyle const* open : open_inline_boxes) {
                     fade *= open->opacity;
-                if (fade < 1) {
-                    std::shared_ptr<ComputedStyle> const faded = owned_copy(*child_style);
-                    faded->opacity *= fade;
-                    child_fragment.style = faded.get();
+                    filtered = filtered || open->filter != nullptr;
+                }
+                if (fade < 1 || filtered) {
+                    std::shared_ptr<ComputedStyle> const joined = owned_copy(*child_style);
+                    joined->opacity *= fade;
+                    if (filtered) {
+                        css::FilterList list = child_style->filter ? *child_style->filter : css::FilterList {};
+                        for (auto open = open_inline_boxes.rbegin(); open != open_inline_boxes.rend(); ++open) {
+                            if ((*open)->filter)
+                                list.insert(list.end(), (*open)->filter->begin(), (*open)->filter->end());
+                        }
+                        joined->filter = std::make_shared<css::FilterList const>(std::move(list));
+                    }
+                    child_fragment.style = joined.get();
                     child_fragment.stacking_context = true;
                 }
             }
