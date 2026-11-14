@@ -59,6 +59,12 @@ struct PostedForm {
     std::string origin;
 };
 
+// The Referer a request carries under strict-origin-when-cross-origin, the
+// default policy: the whole address to the same origin, the origin alone
+// across origins, nothing on an https-to-http downgrade, and nothing from
+// a document that has no web address.
+std::string default_referrer(net::Url const* from, net::Url const& to);
+
 // Every request names the container its tab is in (empty for the
 // default): a container has a cookie jar of its own, so a site in one
 // never sees the cookies it set in another.

@@ -21,6 +21,22 @@
 
 namespace sashfold::ui {
 
+std::string default_referrer(net::Url const* from, net::Url const& to)
+{
+    if (!from || (from->scheme != "http" && from->scheme != "https"))
+        return {};
+    if (from->scheme == "https" && to.scheme != "https")
+        return {};
+    if (from->serialize_origin() == to.serialize_origin()) {
+        net::Url stripped = *from;
+        stripped.fragment.reset();
+        stripped.username.clear();
+        stripped.password.clear();
+        return stripped.serialize();
+    }
+    return from->serialize_origin() + "/";
+}
+
 namespace {
 
 // The Accept a request carries when its caller set none, by what it is for
@@ -41,6 +57,12 @@ char const* default_accept(net::ResourceKind kind)
     default:
         return "*/*";
     }
+}
+
+// The document a request is made for: the one its guard names, or the page.
+net::Url const& client_of(net::RequestGuard const& guard, net::Url const& first_party)
+{
+    return guard.client && (guard.client->scheme == "http" || guard.client->scheme == "https") ? *guard.client : first_party;
 }
 
 // Fetch Metadata (the Sec-Fetch-* request headers every engine sends): what a
@@ -583,12 +605,12 @@ net::FetchResult ShellLoader::fetch_subresource(net::Url const& url, net::Url co
     net::FetchOptions options;
     options.cookie_jar = &cookies(container);
     options.first_party = &first_party;
-    options.referrer = referrer;
+    options.referrer = guard.client ? default_referrer(&client_of(guard, first_party), url) : referrer;
     options.cache = &m_cache;
     options.pool = &m_pool;
     options.transport_security = &m_transport_security;
     options.headers.push_back({ "Accept", default_accept(kind) });
-    add_fetch_metadata(options.headers, fetch_destination(kind), fetch_mode(kind), fetch_site(&first_party, url), false);
+    add_fetch_metadata(options.headers, fetch_destination(kind), fetch_mode(kind), fetch_site(&client_of(guard, first_party), url), false);
     options.hop_refusal = hop_refusal(&first_party, kind, guard);
     net::FetchResult result = noted(kind, net::fetch(url, options));
     if (net_tracing())
@@ -776,7 +798,7 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
     net::FetchOptions options;
     options.cookie_jar = request.credentials ? &cookies(container) : nullptr;
     options.first_party = &first_party;
-    options.referrer = referrer;
+    options.referrer = guard.client ? default_referrer(&client_of(guard, first_party), url) : referrer;
     options.cache = &m_cache;
     options.pool = &m_pool;
     options.transport_security = &m_transport_security;
@@ -784,7 +806,7 @@ net::FetchResult ShellLoader::load_resource(net::Url const& requested, net::Url 
     options.headers = request.headers;
     if (std::none_of(options.headers.begin(), options.headers.end(), [](net::Header const& header) { return ascii_ci_equals(header.name, "accept"); }))
         options.headers.push_back({ "Accept", default_accept(kind) });
-    add_fetch_metadata(options.headers, request.destination == "script" ? "script" : "empty", "cors", fetch_site(&first_party, url), false);
+    add_fetch_metadata(options.headers, request.destination == "script" ? "script" : "empty", "cors", fetch_site(&client_of(guard, first_party), url), false);
     options.body = request.body;
     options.follow_redirects = request.follow_redirects;
     options.hop_refusal = hop_refusal(&first_party, kind, guard);

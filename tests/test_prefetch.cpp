@@ -174,6 +174,21 @@ int main()
         CHECK(server.head_of("/pic").find("Sec-Fetch-User") == std::string::npos);
         CHECK(says("/face", "Sec-Fetch-Dest: font") && says("/face", "Sec-Fetch-Mode: cors"));
         CHECK(says("/far", "Sec-Fetch-Site: cross-site"));
+        // A frame's own requests are told from the frame's document and
+        // not from the page around it (Fetch §4.1, the request's client):
+        // to its own origin they are same-origin and carry its address as
+        // their Referer, whatever site the page is. The same request with
+        // no document named is the page's: cross-site.
+        net::RequestGuard from_frame;
+        from_frame.client = server.url("/frame");
+        net::ResourceRequest const asked;
+        (void)loader.load_subresource(server.url("/inframe"), elsewhere, "", net::ResourceKind::Script, from_frame);
+        (void)loader.load_resource(server.url("/xhr"), elsewhere, "", asked, from_frame, "");
+        (void)loader.load_resource(server.url("/pagexhr"), elsewhere, "", asked, net::RequestGuard {}, "");
+        CHECK(says("/inframe", "Sec-Fetch-Site: same-origin") && says("/inframe", "Referer: " + server.url("/frame").serialize()));
+        CHECK(says("/xhr", "Sec-Fetch-Site: same-origin") && says("/xhr", "Referer: " + server.url("/frame").serialize()));
+        CHECK(says("/pagexhr", "Sec-Fetch-Site: cross-site"));
+        CHECK(server.head_of("/pagexhr").find("Referer:") == std::string::npos);
     }
 
     // Six resources that each take 200 ms, asked for ahead and then asked

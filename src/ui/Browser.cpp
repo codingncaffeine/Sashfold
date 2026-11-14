@@ -369,18 +369,7 @@ bool is_navigable_scheme(std::string const& scheme)
 // downgrade, and nothing from pages that are not web origins.
 std::string referrer_for(net::Url const* from, net::Url const& to)
 {
-    if (!from || !is_web_scheme(from->scheme))
-        return {};
-    if (from->scheme == "https" && to.scheme != "https")
-        return {};
-    if (from->serialize_origin() == to.serialize_origin()) {
-        net::Url stripped = *from;
-        stripped.fragment.reset();
-        stripped.username.clear();
-        stripped.password.clear();
-        return stripped.serialize();
-    }
-    return from->serialize_origin() + "/";
+    return default_referrer(from, to);
 }
 
 std::size_t previous_code_point(std::string const& text, std::size_t at)

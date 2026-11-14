@@ -38,6 +38,12 @@ enum class InlineKind : std::uint8_t { Script, ScriptAttribute, Style, StyleAttr
 struct RequestGuard {
     std::function<std::optional<std::string>(Url const& url, bool redirected)> refusal;
     bool upgrade_insecure = false;
+    // The document the request is made for, when the realm asking knows
+    // it: a frame's own address and not its page's. The Referer and
+    // Sec-Fetch-Site of the request are told from it (Fetch §4.1 takes
+    // both from the request's client), where the page's would say a
+    // frame's request to its own origin came from across sites.
+    std::optional<Url> client;
     explicit operator bool() const { return static_cast<bool>(refusal) || upgrade_insecure; }
 };
 

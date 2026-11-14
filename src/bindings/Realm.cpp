@@ -1070,10 +1070,17 @@ void Realm::Internals::adopt_meta_policies()
 
 net::RequestGuard Realm::Internals::request_guard(net::ResourceKind kind, std::string nonce, bool parser_inserted)
 {
-    if (!hooks.policy)
-        return {};
-    adopt_meta_policies();
-    return hooks.policy->guard(kind, std::move(nonce), parser_inserted);
+    net::RequestGuard guard;
+    if (hooks.policy) {
+        adopt_meta_policies();
+        guard = hooks.policy->guard(kind, std::move(nonce), parser_inserted);
+    }
+    // The document asking: its own address, or for one without a web
+    // address of its own (about:blank, srcdoc, a blob) the one its origin
+    // came from.
+    net::Url const& own = realm.url();
+    guard.client = own.scheme == "http" || own.scheme == "https" ? own : origin_url;
+    return guard;
 }
 
 bool Realm::Internals::inline_refused(net::InlineKind kind, std::string_view nonce, std::string_view source)
