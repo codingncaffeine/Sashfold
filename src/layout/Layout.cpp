@@ -1011,6 +1011,9 @@ struct Layouter {
         bool static_rtl = false;
         float static_y = 0;
         unsigned serial = 0; // the record's order among all records made
+        // Which box of the element this is: its own, or the ::before or
+        // ::after it generates — each is a box of its own to place.
+        std::uint8_t generated = 0;
         // A grid container that is this box's containing block gives it the
         // grid area its placement names instead of the padding box; an edge
         // the placement leaves auto keeps the padding box's (css-grid-2 §9).
@@ -1083,8 +1086,13 @@ struct Layouter {
             entry.static_y = static_position->second;
         }
         entry.serial = next_serial++;
+        if (ComputedStyle const* const own = style_of(element); own && own != &style) {
+            css::GeneratedBox const* const before = before_of(own);
+            css::GeneratedBox const* const after = after_of(own);
+            entry.generated = before && &before->style == &style ? 1 : after && &after->style == &style ? 2 : 0;
+        }
         for (OutOfFlow& existing : list) {
-            if (existing.element == &element) {
+            if (existing.element == &element && existing.generated == entry.generated) {
                 existing = entry;
                 return entry.serial;
             }
@@ -9775,7 +9783,9 @@ bool sane(float value)
 // An inline box is laid out once per line it runs across, so meeting the
 // same element again is ordinary there. Everything else is placed once, and
 // a second fragment for it means two boxes drawing the same content — at
-// the same coordinates, no picture will ever differ.
+// the same coordinates, no picture will ever differ. A box is known by its
+// style: an element's ::before and ::after are boxes of their own, each
+// with the style it was generated from.
 bool placed_once(ComputedStyle const* style)
 {
     if (!style)
@@ -9784,7 +9794,7 @@ bool placed_once(ComputedStyle const* style)
 }
 
 void check_box(Fragment const& fragment, std::vector<std::string>& faults,
-    std::unordered_map<dom::Element const*, int>& seen)
+    std::unordered_map<css::ComputedStyle const*, int>& seen)
 {
     std::string const name = name_of(fragment);
     if (!sane(fragment.x) || !sane(fragment.y) || !sane(fragment.width) || !sane(fragment.height)) {
@@ -9798,7 +9808,7 @@ void check_box(Fragment const& fragment, std::vector<std::string>& faults,
     if (fragment.style && fragment.style->display == css::Display::Contents)
         faults.push_back(name + ": a box for a display: contents element");
     if (fragment.element && placed_once(fragment.style)) {
-        int& count = seen[fragment.element];
+        int& count = seen[fragment.style];
         ++count;
         if (count == 2)
             faults.push_back(name + ": placed more than once");
@@ -9917,7 +9927,7 @@ ScrollOffset scroll_of(Fragment const& fragment, ScrollOffsets const* offsets)
 std::vector<std::string> check_fragments(LayoutResult const& result)
 {
     std::vector<std::string> faults;
-    std::unordered_map<dom::Element const*, int> seen;
+    std::unordered_map<css::ComputedStyle const*, int> seen;
     check_box(result.root, faults, seen);
     if (!sane(result.page_height) || result.page_height < 0)
         faults.push_back("the page: a height that is not a number at or above zero");

@@ -2689,6 +2689,39 @@ int main(int argc, char** argv)
         CHECK_EQ(generated_height("capped"), 20.0f);
     }
 
+    // --- An element's ::before and ::after are each placed when out of the flow ----
+    // Both are boxes of the one element. Placed by element alone, the second
+    // took the first one's place and a corner piece drawn by ::before went
+    // missing wherever the same box also had an ::after laid over it.
+    {
+        constexpr std::string_view html = R"(<!doctype html>
+<html><head><style>
+  body { margin: 0 }
+  #both { position: relative; width: 200px; height: 40px }
+  #both::before { content: ''; position: absolute; left: 30px; top: 0; width: 28px; height: 16px }
+  #both::after { content: ''; position: absolute; left: 0; right: 0; top: 16px; bottom: 0 }
+</style></head><body><div id=both>text</div></body></html>)";
+        Page const page = lay_out(html, 300);
+        std::vector<layout::Fragment const*> placed;
+        std::function<void(layout::Fragment const&)> walk = [&](layout::Fragment const& f) {
+            if (f.out_of_flow)
+                placed.push_back(&f);
+            for (layout::Fragment const& child : f.children)
+                walk(child);
+        };
+        walk(page.result.root);
+        if (CHECK_EQ(placed.size(), std::size_t { 2 })) {
+            CHECK_EQ(placed[0]->x, 30.0f);
+            CHECK_EQ(placed[0]->width, 28.0f);
+            CHECK_EQ(placed[0]->height, 16.0f);
+            CHECK_EQ(placed[1]->x, 0.0f);
+            CHECK_EQ(placed[1]->y, 16.0f);
+            CHECK_EQ(placed[1]->width, 200.0f);
+            CHECK_EQ(placed[1]->height, 24.0f);
+        }
+        CHECK(layout::check_fragments(page.result).empty());
+    }
+
     // --- A line clamp ends its box at the last line it keeps ----------------------
     // The form pages write (-webkit-box, vertical, -webkit-line-clamp, overflow
     // hidden): the box is as tall as the lines it keeps, the last of them ends
