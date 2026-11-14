@@ -468,7 +468,7 @@ bool stream_parameter_ours(std::string_view name, std::string_view value)
 // What this engine has, or is getting, a decoder for: VP9 and Opus in WebM.
 // 0: not at all; 1: the container alone was named; 2: with codecs, every
 // one of them ours.
-int type_support(std::string_view type)
+int type_support(std::string_view type, bool codecs_required = false)
 {
     std::string const lowered = ascii_lowered(type);
     std::string_view rest = lowered;
@@ -483,6 +483,10 @@ int type_support(std::string_view type)
         if (semicolon == std::string_view::npos)
             return 1;
         std::string_view const parameter = trimmed(rest.substr(semicolon + 1));
+        // No parameter after the semicolon, or a codecs parameter with no
+        // value, names the container alone.
+        if (parameter.empty() || parameter == "codecs" || parameter == "codecs=" || parameter == "codecs=\"\"")
+            return 1;
         return parameter == "codecs=1" || parameter == "codecs=\"1\"" ? 2 : 0;
     }
     if (!playback_enabled())
@@ -509,8 +513,15 @@ int type_support(std::string_view type)
         std::string_view list = trimmed(parameter.substr(equals + 1));
         if (list.size() >= 2 && list.front() == '"' && list.back() == '"')
             list = list.substr(1, list.size() - 2);
-        if (trimmed(list).empty())
-            return 0;
+        // A codecs parameter with nothing in it names no codec: the
+        // container alone was named — which is enough for canPlayType's
+        // "maybe" and not for a source buffer, whose type must say what
+        // it carries (media-source §3.1 isTypeSupported).
+        if (trimmed(list).empty()) {
+            if (codecs_required)
+                return 0;
+            continue;
+        }
         while (!list.empty()) {
             std::size_t const comma = list.find(',');
             std::string_view const codec = trimmed(list.substr(0, comma));
@@ -2285,7 +2296,7 @@ void install_source_buffer(Realm::Internals& in)
             return interp.throw_type_error("Failed to execute 'changeType' on 'SourceBuffer': the type is empty.");
         if (Native refused = refuse_if_busy(internals, **found); !refused)
             return refused;
-        if (type_support(*type) == 0)
+        if (type_support(*type, true) == 0)
             return internals.throw_dom_exception("NotSupportedError", "The type is not supported.");
         reopen_if_ended(internals, *(*found)->parent);
         (*found)->buffer.reset_parser();
@@ -2418,8 +2429,8 @@ void install_media_source(Realm::Internals& in)
         std::optional<std::string> const type = internals_of(interp).to_utf8(js::argument(args, 0));
         if (!type)
             return std::nullopt;
-        trace("isTypeSupported " + *type + " -> " + (type_support(*type) > 0 ? "yes" : "no"));
-        return js::Value::boolean(type_support(*type) > 0);
+        trace("isTypeSupported " + *type + " -> " + (type_support(*type, true) > 0 ? "yes" : "no"));
+        return js::Value::boolean(type_support(*type, true) > 0);
     });
     // A static attribute: an accessor on the interface object (WebIDL).
     define_getter(in, *constructor.as_object(), "canConstructInDedicatedWorker",
@@ -2497,7 +2508,7 @@ void install_media_source(Realm::Internals& in)
             return std::nullopt;
         if (type->empty())
             return interp.throw_type_error("Failed to execute 'addSourceBuffer' on 'MediaSource': the type is empty.");
-        if (type_support(*type) == 0)
+        if (type_support(*type, true) == 0)
             return internals.throw_dom_exception("NotSupportedError", "The type is not supported.");
         MediaSourceObject& source = **found;
         if (source.ready != MediaSourceObject::Open)
