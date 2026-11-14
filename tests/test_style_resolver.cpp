@@ -387,6 +387,8 @@ int main()
   #ratio-d { aspect-ratio: 3 / 2 1; object-position: left right }
   #ratio-e { aspect-ratio: 1.5 auto; object-fit: CONTAIN; object-position: center top }
   #ratio-parent { aspect-ratio: 2 / 1; object-fit: none }
+  #viewport-units { width: 50dvw; height: 50svh; min-height: 10lvh; max-height: calc(100dvh - 68px); margin-left: 10vi; margin-top: 10vb;
+                    min-width: 10dvmin; max-width: 10svmax; padding-left: 10LVW; padding-top: 5xvh; padding-right: 5dvx }
   #calc-bad { width: calc(10px * 10px); height: calc(10px + 5); margin-top: calc(5px }
 </style></head>
 <body id="body">
@@ -414,6 +416,7 @@ int main()
   <div id="vars-initial">i</div>
   <div id="calc">c</div>
   <div id="calc-bad">b</div>
+  <div id="viewport-units">u</div>
   <div id="ratio-a"></div><div id="ratio-b"></div><div id="ratio-c"></div><div id="ratio-d"></div><div id="ratio-e"></div>
   <div id="ratio-parent"><div id="ratio-child"></div></div>
 </body></html>)"));
@@ -471,6 +474,21 @@ int main()
         CHECK(bad.width.is_auto()); // a length times a length is no length
         CHECK(bad.height.is_auto()); // a length plus a number neither
         CHECK(close(bad.margin_top.value, 0)); // an unclosed calc is dropped by the parser
+        // The small, large and dynamic viewport units are the plain ones
+        // here, and vi and vb the width and the height: of the default
+        // 1024 by 768.
+        ComputedStyle const& u = style_of("viewport-units");
+        CHECK(u.width.kind == LengthPercent::Kind::Px && close(u.width.value, 512));
+        CHECK(u.height.kind == LengthPercent::Kind::Px && close(u.height.value, 384));
+        CHECK(close(u.min_height.value, 76.8f));
+        CHECK(close(u.max_height.value, 700));
+        CHECK(close(u.margin_left.value, 102.4f));
+        CHECK(close(u.margin_top.value, 76.8f));
+        CHECK(close(u.min_width.value, 76.8f));
+        CHECK(close(u.max_width.value, 102.4f));
+        CHECK(close(u.padding_left.value, 102.4f)); // units are written in any case
+        CHECK(close(u.padding_top.value, 0)); // no such units: the declarations are dropped
+        CHECK(close(u.padding_right.value, 0));
     }
 
     // --- Custom properties and var() ------------------------------------------

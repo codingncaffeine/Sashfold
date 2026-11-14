@@ -1763,20 +1763,32 @@ std::optional<LengthPercent> parse_length_percent(ComponentValue const& value,
         return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.ex_size())));
     if (ascii_ci_equals(unit, "ch"))
         return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.ch_size())));
-    // The viewport units, against the viewport this resolution is for.
-    if (context.used_viewport && unit.size() >= 2 && (unit[0] == 'v' || unit[0] == 'V'))
-        *context.used_viewport |= ascii_ci_equals(unit, "vw") ? 1u : ascii_ci_equals(unit, "vh") ? 2u : 3u;
-    if (ascii_ci_equals(unit, "vw"))
-        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.viewport_width) / 100.0));
-    if (ascii_ci_equals(unit, "vh"))
-        return LengthPercent::px(static_cast<float>(number * static_cast<double>(context.viewport_height) / 100.0));
-    if (ascii_ci_equals(unit, "vmin"))
-        return LengthPercent::px(static_cast<float>(
-            number * static_cast<double>(std::min(context.viewport_width, context.viewport_height)) / 100.0));
-    if (ascii_ci_equals(unit, "vmax"))
-        return LengthPercent::px(static_cast<float>(
-            number * static_cast<double>(std::max(context.viewport_width, context.viewport_height)) / 100.0));
-    return std::nullopt;
+    // The viewport units, against the viewport this resolution is for. The
+    // small, large and dynamic ones (css-values-4 §6.1.2: svh, lvh, dvh and
+    // the rest) are the same lengths here: no interface of the window comes
+    // and goes over the page. `vi` and `vb` are the viewport's size along
+    // the inline and block axes, taken as a horizontal page's.
+    std::string_view viewport_unit = unit;
+    if (viewport_unit.size() >= 3 && (viewport_unit[1] == 'v' || viewport_unit[1] == 'V')) {
+        char const size = viewport_unit[0];
+        if (size == 's' || size == 'S' || size == 'l' || size == 'L' || size == 'd' || size == 'D')
+            viewport_unit.remove_prefix(1);
+    }
+    bool const across = ascii_ci_equals(viewport_unit, "vw") || ascii_ci_equals(viewport_unit, "vi");
+    bool const down = ascii_ci_equals(viewport_unit, "vh") || ascii_ci_equals(viewport_unit, "vb");
+    bool const least = ascii_ci_equals(viewport_unit, "vmin");
+    bool const most = ascii_ci_equals(viewport_unit, "vmax");
+    if (!across && !down && !least && !most)
+        return std::nullopt;
+    if (context.used_viewport)
+        *context.used_viewport |= across ? 1u : down ? 2u : 3u;
+    double const viewport_width = static_cast<double>(context.viewport_width);
+    double const viewport_height = static_cast<double>(context.viewport_height);
+    double const whole = across ? viewport_width
+        : down ? viewport_height
+        : least ? std::min(viewport_width, viewport_height)
+        : std::max(viewport_width, viewport_height);
+    return LengthPercent::px(static_cast<float>(number * whole / 100.0));
 }
 
 std::optional<float> parse_border_width(ComponentValue const& value, LengthContext const& context)
