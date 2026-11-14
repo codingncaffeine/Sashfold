@@ -2640,6 +2640,55 @@ int main(int argc, char** argv)
         }
     }
 
+    // --- A generated block's percentage height is of the box it is in -------------
+    // CSS 2.1 §10.5: a percentage height is of the containing block's
+    // height when that does not depend on content — a written height, or
+    // the one an absolutely positioned box gets from its top and bottom.
+    // A ::before drawn as a one-pixel line the height of its box is how a
+    // page rules a thread of replies; in a box as tall as its content the
+    // percentage is `auto`, and an empty box has no height.
+    {
+        constexpr std::string_view html = R"(<!doctype html>
+<html><head><style>
+  body { margin: 0 }
+  .frame { position: relative; width: 100px; height: 100px }
+  #given { height: 60px }
+  #inset { position: absolute; top: 10px; bottom: 10px; left: 0; width: 20px }
+  #given::before, #inset::before, #loose::before, #capped::after { content: ''; display: block; width: 1px; height: 50% }
+  #inset::before { height: 100% }
+  #capped { height: 80px }
+  #capped::after { height: 100%; max-height: 25% }
+</style></head><body>
+<div id=given></div>
+<div class=frame><div id=inset></div></div>
+<div id=loose></div>
+<div id=capped></div>
+</body></html>)";
+        Page const page = lay_out(html, 200);
+        auto const generated_height = [&](std::string_view id) -> float {
+            float height = -1;
+            std::function<void(layout::Fragment const&)> walk = [&](layout::Fragment const& f) {
+                dom::Attr const* const attribute = f.element ? f.element->find_attribute("id") : nullptr;
+                if (attribute && attribute->value == id) {
+                    // The generated box is a box of the same element inside its own.
+                    for (layout::Fragment const& child : f.children) {
+                        if (child.element == f.element)
+                            height = child.height;
+                    }
+                    return;
+                }
+                for (layout::Fragment const& child : f.children)
+                    walk(child);
+            };
+            walk(page.result.root);
+            return height;
+        };
+        CHECK_EQ(generated_height("given"), 30.0f);
+        CHECK_EQ(generated_height("inset"), 80.0f);
+        CHECK_EQ(generated_height("loose"), 0.0f);
+        CHECK_EQ(generated_height("capped"), 20.0f);
+    }
+
     // --- A line clamp ends its box at the last line it keeps ----------------------
     // The form pages write (-webkit-box, vertical, -webkit-line-clamp, overflow
     // hidden): the box is as tall as the lines it keeps, the last of them ends

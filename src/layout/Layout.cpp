@@ -5466,7 +5466,7 @@ struct Layouter {
         // A generated box named by its style: laid out from its text.
         if (css::GeneratedBox const* const box = generated_box_of(element, style))
             return layout_generated_block(*box, element, x, y, containing_width, floats,
-                options.content_width, options.content_height);
+                options.content_width, options.content_height, options.containing_height);
         // A <button> is no table whatever its display says (HTML §15.5.2):
         // an inline-table one lays out as an inline-block, a table as a block.
         if (is_table_display(style.display) && !lays_out_contents(element)) {
@@ -5944,7 +5944,8 @@ struct Layouter {
             float y = cursor + (held_by_caller ? 0.0f : collapse_margins(previous_bottom_margin, margin_top));
             if (box.style.clear != css::Clear::None)
                 y = floats.cleared_y(box.style.clear, y);
-            Fragment child = layout_generated_block(box, owner, content_x, y, content_width, floats);
+            Fragment child = layout_generated_block(box, owner, content_x, y, content_width, floats, std::nullopt,
+                std::nullopt, containing_height);
             cursor = child.y + child.height;
             previous_bottom_margin = margin_bottom;
             first_in_flow = false;
@@ -6287,11 +6288,13 @@ struct Layouter {
 
     // A block-level ::before or ::after box: its own edges and width from
     // its style, its text laid out in lines inside, no children of its own.
-    // A flex line hands it settled content sizes.
+    // A flex line hands it settled content sizes. `containing_height` is
+    // the height its percentages are of, when the box it is in has one.
     Fragment layout_generated_block(css::GeneratedBox const& box, dom::Element const& element,
         float x, float y, float containing_width, FloatContext& floats,
         std::optional<float> settled_width = std::nullopt,
-        std::optional<float> settled_height = std::nullopt) const
+        std::optional<float> settled_height = std::nullopt,
+        std::optional<float> containing_height = std::nullopt) const
     {
         ComputedStyle const& style = box.style;
         Fragment fragment;
@@ -6337,11 +6340,10 @@ struct Layouter {
             = padding_top + padding_bottom + style.border_top.width + style.border_bottom.width;
         if (settled_height)
             content_height = *settled_height;
-        else if (!style.height.is_auto() && style.height.kind == LengthPercent::Kind::Px)
-            content_height = clamp_height(style, as_content_size(style, style.height.value, vertical_edges),
-                std::nullopt, vertical_edges);
+        else if (std::optional<float> const written = definite_height_of(style, containing_height, vertical_edges))
+            content_height = clamp_height(style, *written, containing_height, vertical_edges);
         else
-            content_height = clamp_height(style, content_height, std::nullopt, vertical_edges);
+            content_height = clamp_height(style, content_height, containing_height, vertical_edges);
         fragment.height = content_height + style.border_top.width + style.border_bottom.width
             + padding_top + padding_bottom;
         return fragment;
