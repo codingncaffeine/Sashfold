@@ -186,3 +186,7 @@ svg-aam
 html/interaction/focus
 html/semantics/interactive-elements
 uievents
+# Added 2026-11-20 with Web Authentication (credential-management is above
+# already): the runner's test_driver virtual authenticators
+# (tests/VirtualAuthenticators.h).
+webauthn

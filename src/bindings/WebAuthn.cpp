@@ -46,6 +46,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <tuple>
 #include <utility>
 #include <vector>
 
@@ -415,6 +416,22 @@ bool read_extensions(Realm::Internals& in, js::Value const& value, auth::Operati
         return false;
     auth::ExtensionInputs& ext = call.extensions;
     bool const create = operation == auth::Operation::Create;
+    // An extension asked of the ceremony it is not defined for is refused,
+    // as Chrome and Firefox refuse it: appid in create() and credProps in
+    // get() with NotSupportedError, Secure Payment Confirmation's payment in
+    // get() with NotAllowedError (it is not supported here at all).
+    for (auto const& [name, wrong_in_create, error] : { std::tuple { "appid", true, "NotSupportedError" },
+             std::tuple { "credProps", false, "NotSupportedError" }, std::tuple { "payment", false, "NotAllowedError" } }) {
+        if (wrong_in_create != create)
+            continue;
+        std::optional<js::Value> const given = dictionary->get(name);
+        if (!given)
+            return false;
+        if (!given->is_undefined()) {
+            refusal = Refusal { error, std::string("The '") + name + "' extension is not valid in " + (create ? "create()." : "get().") };
+            return true;
+        }
+    }
     // appid (§10.1.1, get) and appidExclude (§10.1.2, create): the AppID is
     // checked against the caller once the RP ID is known; kept here.
     if (!create) {
@@ -749,11 +766,15 @@ js::Value extension_results(Realm::Internals& in, PublicKeyCredentialObject cons
         put(*out, "appid", js::Value::boolean(*o.appid));
     if (asked.appid_exclude && o.appid_exclude)
         put(*out, "appidExclude", js::Value::boolean(*o.appid_exclude));
-    if (create && asked.cred_blob && o.cred_blob_stored)
-        put(*out, "credBlob", js::Value::boolean(*o.cred_blob_stored));
-    if (create && asked.cred_props && o.cred_props_rk) {
+    // credBlob: whether the key stored it; false from a key without the
+    // extension, as Chrome answers.
+    if (create && asked.cred_blob)
+        put(*out, "credBlob", js::Value::boolean(o.cred_blob_stored.value_or(false)));
+    if (create && asked.cred_props) {
+        // Its rk only where the client knows it (§10.1.3).
         js::Object* const props = interp.new_object();
-        put(*props, "rk", js::Value::boolean(*o.cred_props_rk));
+        if (o.cred_props_rk)
+            put(*props, "rk", js::Value::boolean(*o.cred_props_rk));
         put(*out, "credProps", js::Value::object(props));
     }
     if (!create && credential.get_cred_blob)
@@ -1294,6 +1315,20 @@ Native credential_operation(js::Interpreter& interp, Args args, bool create)
 
 // ---------- toJSON and the JSON parsers (§5.1.8, §5.1.9, §5.1.10) ----------------------------
 
+// The members a parsed options dictionary has by default when the JSON
+// left them out: a string, or (nullopt) an empty list.
+void put_defaults(Realm::Internals& in, js::Object& out, std::initializer_list<std::pair<char const*, std::optional<char const*>>> defaults)
+{
+    js::Interpreter& interp = in.interpreter;
+    for (auto const& [name, value] : defaults) {
+        std::optional<js::Value> const given = interp.get(out, interp.key(name));
+        if (!given || !given->is_undefined())
+            continue;
+        js::Value const made = value ? in.string(*value) : js::Value::object(interp.new_array(std::vector<js::Value> {}));
+        static_cast<void>(interp.create_data_property(out, interp.key(name), made, false));
+    }
+}
+
 js::Value response_json(Realm::Internals& in, AuthenticatorResponseObject const& response)
 {
     js::Interpreter& interp = in.interpreter;
@@ -1626,7 +1661,9 @@ void install_web_authn(Realm::Internals& in, js::Object& navigator)
             { "extension:appidExclude", true },
             { "extension:credBlob", true },
             { "extension:credProps", true },
-            { "extension:credProtect", true },
+            { "extension:credentialProtectionPolicy", true },
+            { "extension:enforceCredentialProtectionPolicy", true },
+            { "extension:getCredBlob", true },
             { "extension:hmacCreateSecret", true },
             { "extension:largeBlob", true },
             { "extension:minPinLength", true },
@@ -1672,6 +1709,7 @@ void install_web_authn(Realm::Internals& in, js::Object& navigator)
         // Absent from the JSON, a member with a default has it (§5.4).
         if (!interp.get(*out, interp.key("pubKeyCredParams"))->is_object())
             return interp.throw_type_error("Failed to read the 'pubKeyCredParams' property: Required member is undefined.");
+        put_defaults(internals, *out, { { "excludeCredentials", std::nullopt }, { "attestation", "none" }, { "attestationFormats", std::nullopt }, { "hints", std::nullopt } });
         return js::Value::object(out);
     });
     define_operation(interpreter, public_key_constructor, "parseRequestOptionsFromJSON", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
@@ -1690,6 +1728,8 @@ void install_web_authn(Realm::Internals& in, js::Object& navigator)
             && json.nested(options, *out, "extensions", false, [&](js::Value const& from, js::Object& to) { return json.extensions(from, to); });
         if (!ok)
             return std::nullopt;
+        // The dictionary's defaults (§5.5).
+        put_defaults(internals, *out, { { "allowCredentials", std::nullopt }, { "userVerification", "preferred" }, { "hints", std::nullopt } });
         return js::Value::object(out);
     });
     define_promise_operation(interpreter, public_key_constructor, "signalUnknownCredential", 1, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {

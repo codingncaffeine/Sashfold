@@ -192,6 +192,13 @@ public:
         credential.created = ++m_creation_counter;
         m_credentials.push_back(std::move(credential));
     }
+    // The credential with this ID taken off the key (all of them, with none
+    // named); whether one was there.
+    bool remove_credentials(std::optional<std::vector<std::uint8_t>> const& id = std::nullopt)
+    {
+        std::lock_guard lock(m_mutex);
+        return std::erase_if(m_credentials, [&](Credential const& c) { return !id || c.id == *id; }) > 0;
+    }
     std::optional<std::array<std::uint8_t, 16>> pin_hash()
     {
         std::lock_guard lock(m_mutex);

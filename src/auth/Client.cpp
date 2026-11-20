@@ -902,7 +902,10 @@ void KeyWorker::ctap2_create()
             result.credential_id = object->parsed.attested->credential_id;
             ExtensionOutputs& out = result.extensions;
             cbor::Value const* const outputs = object->parsed.extensions ? &*object->parsed.extensions : nullptr;
-            if (ext.cred_props)
+            // credProps' rk is left out when it cannot be known (§10.1.3): a
+            // CTAP 2.0 key that can keep discoverable credentials may keep
+            // every credential so, asked or not.
+            if (ext.cred_props && (rk || ctap21() || !m_info->option_true("rk")))
                 out.cred_props_rk = rk;
             if (ext.appid_exclude)
                 out.appid_exclude = true;

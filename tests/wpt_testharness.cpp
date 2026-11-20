@@ -2,6 +2,7 @@
 #include "a11y/PageSources.h"
 #include "a11y/Semantics.h"
 #include "a11y/Tree.h"
+#include "VirtualAuthenticators.h"
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
 #include "core/Unicode.h"
@@ -126,6 +127,28 @@ window.test_driver_internal.send_keys = function (element, keys) {
         console.log("__sashfold_send_keys\n" + keys);
     });
 };
+(function () {
+    // WebDriver's virtual authenticators, carried out by the runner
+    // (VirtualAuthenticators.h) through the automation channel, which the
+    // accessibility half below takes away from the page afterwards.
+    var automation = window.__sashfold_automation;
+    if (typeof automation !== "function")
+        return;
+    var internal = window.test_driver_internal;
+    function ask(command, parameters) {
+        var answer = JSON.parse(automation("webauthn." + command, null, JSON.stringify(parameters)));
+        if (answer.error)
+            throw new Error(command + ": " + answer.error);
+        return answer.value;
+    }
+    internal.add_virtual_authenticator = async function (config) { return ask("add", config); };
+    internal.remove_virtual_authenticator = async function (id) { ask("remove", { authenticatorId: id }); };
+    internal.add_credential = async function (id, credential) { ask("add_credential", { authenticatorId: id, credential: credential }); };
+    internal.get_credentials = async function (id) { return ask("get_credentials", { authenticatorId: id }); };
+    internal.remove_credential = async function (id, credentialId) { ask("remove_credential", { authenticatorId: id, credentialId: credentialId }); };
+    internal.remove_all_credentials = async function (id) { ask("remove_all_credentials", { authenticatorId: id }); };
+    internal.set_user_verified = async function (id, uv) { ask("set_user_verified", { authenticatorId: id, isUserVerified: uv.isUserVerified }); };
+})();
 )JS";
 
 // The suite's completion callback, in the runner's hands: every result goes
@@ -1051,7 +1074,13 @@ TestResult run_test(Server const& server, std::string const& id)
     double clock = 0;
     std::optional<std::string> report;
     bool stopped = false;
+    // The test's virtual authenticators, and the Web Authentication
+    // ceremonies its pages start on them; they outlive the realm.
+    test::VirtualAuthenticators authenticators;
     bindings::HostHooks hooks;
+    hooks.security_key_ceremony = [&authenticators](bindings::HostHooks::SecurityKeyAsk const&, auth::Request const& request,
+                                      std::function<void(auth::Outcome)> done) { return authenticators.start(request, std::move(done)); };
+    hooks.cancel_security_key_ceremony = [&authenticators](std::uint64_t ceremony, bool by_page) { authenticators.cancel(ceremony, by_page); };
     // The page's Content Security Policy, as a browser keeps one: the
     // headers its .headers file gives, and its <meta> elements' as they
     // appear.
@@ -1165,6 +1194,8 @@ TestResult run_test(Server const& server, std::string const& id)
     a11y::OracleSource accessibility_source(oracle, realm.get());
     std::unique_ptr<a11y::Tree> accessibility;
     realm->install_automation([&](std::string_view command, dom::Node* node, std::string_view argument) -> std::optional<std::string> {
+        if (command.starts_with("webauthn."))
+            return authenticators.command(command.substr(9), argument);
         std::lock_guard<std::mutex> const lock(layout_mutex);
         if (!accessibility)
             accessibility = std::make_unique<a11y::Tree>(*document, &accessibility_source);
@@ -1194,6 +1225,13 @@ TestResult run_test(Server const& server, std::string const& id)
         }
         if (ran)
             continue;
+        // A Web Authentication ceremony at work on a virtual authenticator
+        // answers in real time: it is waited for before the page's clock
+        // jumps to its next timer (the request's own timeout among them).
+        if (authenticators.busy()) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1));
+            continue;
+        }
         std::optional<double> const due = realm->next_timer_due();
         if (!due)
             break;
