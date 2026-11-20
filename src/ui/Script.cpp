@@ -1,4 +1,5 @@
 #include "ui/Script.h"
+#include "a11y/Tree.h"
 #include "ui/ChromeAccessibility.h"
 #include "ui/SpellService.h"
 
@@ -1433,6 +1434,13 @@ struct Runner {
             if (args.size() > 1)
                 until = resolve(args[1]);
             serve_accessibility(*ms, until);
+        } else if (command == "assert-a11y-trees") {
+            // How many accessibility trees this process ever made: none
+            // until an assistive tool shows itself.
+            std::optional<int> const expected = int_arg(0);
+            if (!expected)
+                return fail("assert-a11y-trees <n>");
+            expect_equal("assert-a11y-trees", std::to_string(a11y::Tree::instances()), std::to_string(*expected));
         } else if (command == "print-pixel") {
             // `print-pixel <x> <y>`: what the frame holds there, said and
             // never judged — for whoever is writing a test, to read a

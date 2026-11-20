@@ -108,6 +108,7 @@ sashfold_test(test_cookies)
 sashfold_test(test_hsts)
 sashfold_test(test_confine)
 sashfold_test(test_dbus)
+sashfold_test(test_atspi)
 # The release check and its unpacking; the folder holds archives as GNU tar
 # writes them.
 sashfold_test(test_spell_service)

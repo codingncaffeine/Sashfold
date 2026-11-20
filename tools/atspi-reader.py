@@ -371,6 +371,7 @@ def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--app", default="Sashfold")
     ap.add_argument("--wait", type=float, default=20)
+    ap.add_argument("--start-after", type=float, default=0, help="seconds before asking anything (a tool that comes late)")
     ap.add_argument("--settle", type=float, default=1.0, help="seconds after the app appears before reading")
     ap.add_argument("--max-depth", type=int, default=60)
     ap.add_argument("--stop-file")
@@ -386,6 +387,7 @@ def main():
     args = ap.parse_args()
     global DEEP
     DEEP = args.deep
+    time.sleep(args.start_after)
     started = time.time()
     app = find_app(args.app, args.wait)
     if app is None:

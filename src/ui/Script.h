@@ -64,6 +64,7 @@
 //                        bridge (on the bus the environment names) and run
 //                        the window's loop for real time, until the time is
 //                        up or the file exists: a tool reads the tree meanwhile
+//   assert-a11y-trees <n>   accessibility trees ever made in this process
 //   echo <text>
 
 #include "ui/Browser.h"
