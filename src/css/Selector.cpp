@@ -1296,8 +1296,25 @@ bool matches_simple(SimpleSelector const& simple, dom::Element const& element)
         return element.document().holds_hover(element);
     case SimpleSelector::PseudoKind::Active:
         return element.document().holds_active(element);
-    case SimpleSelector::PseudoKind::Focus:
-        return element.document().focused() == &element;
+    case SimpleSelector::PseudoKind::Focus: {
+        // The focused element, and every shadow host whose shadow tree holds
+        // it (selectors-4 §9.3, CSS Scoping §3.1.1: :focus on a host).
+        dom::Element const* const focused = element.document().focused();
+        if (focused == &element)
+            return true;
+        if (!element.shadow_root())
+            return false;
+        for (dom::Node const* at = focused; at;) {
+            dom::Node const& root = at->root();
+            if (!root.is_shadow_root())
+                return false;
+            dom::Element const& host = static_cast<dom::ShadowRoot const&>(root).host();
+            if (&host == &element)
+                return true;
+            at = &host;
+        }
+        return false;
+    }
     case SimpleSelector::PseudoKind::FocusWithin:
         return element.document().holds_focus(element);
     case SimpleSelector::PseudoKind::FocusVisible:

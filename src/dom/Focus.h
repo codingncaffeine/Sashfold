@@ -31,6 +31,9 @@ struct ElementFacts {
     // A scroll container (overflow scroll or auto on either axis) whose
     // content overflows it, so the reader has something to scroll.
     bool scrollable = false;
+    // An editing host by a rule the markup does not show: the body of a
+    // document in design mode (HTML §6.8.2).
+    bool editing_host = false;
 };
 
 struct Environment {

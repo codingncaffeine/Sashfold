@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<title>-</title>
+<style>body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px } iframe { width: 200px; height: 40px; border: 1px solid }</style>
+<input id=a size=4><input id=b size=4>
+<iframe srcdoc="<input id=c size=4><script>for (const t of ['focus','blur']) c.addEventListener(t, e => parent.postMessage(t + ':c<' + (e.relatedTarget ? e.relatedTarget.id : 'null') + (document.hasFocus() ? '' : '!'), '*'))</script>"></iframe>
+<button id=x>x</button><span id=y tabindex=0>y</span>
+<script>
+var got = [];
+onmessage = m => log(m.data);
+function log(s) { got.push(s); document.title = got.join(' ') }
+for (const id of ['a', 'b', 'x', 'y']) {
+  const element = document.getElementById(id);
+  for (const type of ['focus', 'blur', 'focusin', 'focusout'])
+    element.addEventListener(type, e => log(type + ':' + id + '<' + (e.relatedTarget ? e.relatedTarget.id : 'null') + '@' + document.activeElement.localName));
+}
+// The fixups the script asks for, by the focused element's id.
+x.addEventListener('focus', () => setTimeout(() => { x.remove(); log('removed:' + document.activeElement.localName) }, 20));
+y.addEventListener('focus', () => setTimeout(() => { y.removeAttribute('tabindex'); log('untabbed') }, 20));
+</script>

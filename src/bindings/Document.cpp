@@ -731,10 +731,15 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
             return js::Value::undefined();
         });
     document_getter(in, *document, "activeElement", [](Realm::Internals& internals, dom::Document& d) -> Native {
-        dom::Element const* focused = focused_element(internals);
-        if (focused && focused->is_connected())
-            return js::Value::object(internals.wrap(const_cast<dom::Element&>(*focused)));
-        return internals.realm.wrap_or_null(body_element(d));
+        // The focused element as this document sees it; with none here, the
+        // body, else the root element (HTML §6.6.6).
+        if (&d == internals.document) {
+            if (dom::Element const* const focused = active_element(internals))
+                return js::Value::object(internals.wrap(const_cast<dom::Element&>(*focused)));
+        }
+        if (dom::Node* const body = body_element(d))
+            return internals.realm.wrap_or_null(body);
+        return internals.realm.wrap_or_null(document_element(d));
     });
     document_getter(in, *document, "scrollingElement", [](Realm::Internals& internals, dom::Document& d) -> Native {
         return internals.realm.wrap_or_null(d.quirks_mode == dom::QuirksMode::Yes ? static_cast<dom::Node*>(body_element(d)) : document_element(d));
@@ -1061,7 +1066,11 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
         return from_point(internals, d, args, true);
     });
     document_method(in, *document, "caretRangeFromPoint", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::null(); });
-    document_method(in, *document, "hasFocus", 0, [](Realm::Internals&, dom::Document&, Args) -> Native { return js::Value::boolean(true); });
+    // hasFocus() (HTML §6.6.6): the focus is in this document, or in a frame
+    // of it; a document made by a script and shown nowhere has none.
+    document_method(in, *document, "hasFocus", 0, [](Realm::Internals& internals, dom::Document& d, Args) -> Native {
+        return js::Value::boolean(&d == internals.document && document_has_focus(internals));
+    });
     // The Storage Access API: a document has its cookies when it is the page
     // or on the page's host — the jar is closed to every other frame, the
     // third parties — and asking for them changes nothing here, so a frame

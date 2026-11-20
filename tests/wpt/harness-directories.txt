@@ -180,3 +180,9 @@ core-aam
 dpub-aam
 graphics-aam
 svg-aam
+# Added 2026-11-20 with sequential focus navigation (dom::focus) and the
+# runner's test_driver.send_keys: focus, Tab order, focus events, keyboard
+# activation. shadow-dom/focus is in shadow-dom above already.
+html/interaction/focus
+html/semantics/interactive-elements
+uievents

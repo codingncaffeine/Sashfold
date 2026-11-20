@@ -1,0 +1,40 @@
+# The events of a focus moved by the keyboard (HTML §6.6.4, UI Events
+# §5.2), in the order both engines fire them: blur and focusout at the
+# element that had it — the body the active element meanwhile — then focus
+# and focusin at the one that has it, each relatedTarget the other element
+# within a document and null across a frame's edge; hasFocus() true in the
+# frame that has it. The fixups: a focused element removed leaves the focus
+# to the body with no event; one that stops being focusable (its tabindex
+# taken away) blurs at the next rendering update, and Tab goes on from it.
+resize 800 400
+open focus-events.html
+advance 50 2
+key tab
+assert-title focus:a<null@input focusin:a<null@input
+key tab
+assert-title focus:a<null@input focusin:a<null@input blur:a<b@body focusout:a<b@body focus:b<a@input focusin:b<a@input
+open focus-events.html
+advance 50 2
+key tab
+key tab
+key tab
+assert-focused-id c
+advance 20 2
+assert-title focus:a<null@input focusin:a<null@input blur:a<b@body focusout:a<b@body focus:b<a@input focusin:b<a@input blur:b<null@body focusout:b<null@body focus:c<null
+key tab
+assert-focused-id x
+advance 100 2
+assert-focused-id none
+assert-title focus:a<null@input focusin:a<null@input blur:a<b@body focusout:a<b@body focus:b<a@input focusin:b<a@input blur:b<null@body focusout:b<null@body focus:c<null focus:x<null@button focusin:x<null@button blur:c<null! removed:body
+# Shift+Tab from the page's edge: y, the last stop; its tabindex taken away,
+# it blurs, and Tab goes on from it — out to the toolbar.
+open focus-events.html
+advance 50 2
+key shift+tab
+assert-focused-id y
+assert-title focus:y<null@span focusin:y<null@span
+advance 100 2
+assert-focused-id none
+assert-title focus:y<null@span focusin:y<null@span untabbed blur:y<null@body focusout:y<null@body
+key tab
+assert-chrome-focus back

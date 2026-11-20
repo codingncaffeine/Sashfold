@@ -789,6 +789,13 @@ void scroll_into_view(Realm::Internals& in, dom::Element& element, std::string c
 
 }
 
+// What focus() scrolls (HTML §6.6.6, "scroll into view" with block and
+// inline "nearest").
+void scroll_into_view_nearest(Realm::Internals& in, dom::Element& element)
+{
+    scroll_into_view(in, element, "nearest", "nearest");
+}
+
 // A DOMRectReadOnly or DOMRect: the four numbers in slots, read and written
 // through the prototypes' accessors (Geometry Interfaces §4).
 class RectObject final : public js::Object {

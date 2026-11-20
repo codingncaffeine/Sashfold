@@ -4,6 +4,7 @@
 #include "a11y/Tree.h"
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
+#include "core/Unicode.h"
 #include "css/Stylesheets.h"
 #include "dom/Dom.h"
 #include "html/TreeBuilder.h"
@@ -21,6 +22,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <ctime>
+#include <deque>
 #include <filesystem>
 #include <fstream>
 #include <iostream>
@@ -97,6 +99,34 @@ constexpr int max_pumps = 20000;
 // questions take turns; their scripts run side by side.
 std::mutex layout_mutex;
 constexpr std::string_view results_marker = "__sashfold_results\n";
+
+// The vendor's half of testdriver. The run is automated, so a driver command
+// this runner does not carry out is refused at once (testdriver.js rejects
+// it) instead of waiting for a person until the test times out. send_keys is
+// carried out: WebDriver's Element Send Keys focuses the element (focus(),
+// which leaves a body or another element that takes no focus alone) and the
+// keys go to the console under a marker; the runner types them in a task of
+// its own — trusted keydown and keyup at the focused element, Tab moving the
+// focus through the realm's sequential navigation unless its keydown was
+// canceled — and then settles the promise.
+constexpr std::string_view send_keys_marker = "__sashfold_send_keys\n";
+constexpr std::string_view vendor_script = R"JS(
+window.test_driver_internal.in_automation = true;
+window.__sashfold_key_waiters = [];
+window.__sashfold_keys_done = function () {
+    var settle = window.__sashfold_key_waiters.shift();
+    if (settle)
+        settle();
+};
+window.test_driver_internal.send_keys = function (element, keys) {
+    if (document.activeElement !== element)
+        element.focus();
+    return new Promise(function (resolve) {
+        window.__sashfold_key_waiters.push(resolve);
+        console.log("__sashfold_send_keys\n" + keys);
+    });
+};
+)JS";
 
 // The suite's completion callback, in the runner's hands: every result goes
 // to the console as one line per subtest, the fields escaped.
@@ -557,16 +587,12 @@ public:
             return std::nullopt;
         if (*rel == "resources/testharnessreport.js")
             return Served { std::string(report_script), "text/javascript", {} };
-        // The vendor's half of testdriver: an automated run, so a driver command
-        // this runner does not carry out is refused at once (testdriver.js
-        // rejects it) instead of waiting for a person to click until the test
-        // times out — which a page whose elementsFromPoint finds the element
-        // otherwise does.
-        // The accessibility commands are answered by the engine's model
-        // (a11y/Automation.h), through a function the realm puts on the
-        // window for the vendor script to take.
+        // The vendor's half of testdriver: the runner's own commands
+        // (vendor_script), then the accessibility commands, which the
+        // engine's model answers (a11y/Automation.h) through a function the
+        // realm puts on the window for that script to take.
         if (*rel == "resources/testdriver-vendor.js")
-            return Served { std::string(a11y::testdriver_vendor_script()), "text/javascript", {} };
+            return Served { std::string(vendor_script) + "\n" + std::string(a11y::testdriver_vendor_script()), "text/javascript", {} };
         // The IDL parser every idlharness test loads is served by the
         // suite's server under a name of its own: the file is elsewhere.
         if (*rel == "resources/WebIDLParser.js")
@@ -854,6 +880,110 @@ bool declares_long_timeout(std::string_view body)
     return false;
 }
 
+// The body of a document, else its root element: where keys go with
+// nothing focused.
+dom::Element* key_target_fallback(dom::Document& document)
+{
+    dom::Element* root = nullptr;
+    for (dom::Node* child : document.children()) {
+        if (child->is_element())
+            root = static_cast<dom::Element*>(child);
+    }
+    if (!root)
+        return nullptr;
+    for (dom::Node* child : root->children()) {
+        if (child->is_element() && static_cast<dom::Element*>(child)->is_html("body"))
+            return static_cast<dom::Element*>(child);
+    }
+    return root;
+}
+
+// WebDriver's keys (WebDriver §17.4.2, the normalized key values), typed as
+// a reader would: keydown, keypress for a key that gives a character, keyup,
+// at the focused element of the page (else its body); Tab, when its keydown
+// was not canceled, moves the focus. Shift, Control and Alt are held from
+// where they appear until the NULL key or the end.
+void type_keys(bindings::Realm& realm, dom::Document& document, std::string_view keys)
+{
+    bool shift = false;
+    bool ctrl = false;
+    bool alt = false;
+    for (char32_t const c : decode_utf8(keys)) {
+        if (c == 0xE000) {
+            shift = ctrl = alt = false;
+            continue;
+        }
+        if (c == 0xE008 || c == 0xE050) {
+            shift = true;
+            continue;
+        }
+        if (c == 0xE009 || c == 0xE051) {
+            ctrl = true;
+            continue;
+        }
+        if (c == 0xE00A || c == 0xE052) {
+            alt = true;
+            continue;
+        }
+        bindings::KeyInit init;
+        init.shift = shift;
+        init.ctrl = ctrl;
+        init.alt = alt;
+        bool printable = false;
+        auto const named = [&](char const* name, int code) {
+            init.key = name;
+            init.code = name;
+            init.key_code = code;
+        };
+        switch (c) {
+        case 0xE004: named("Tab", 9); break;
+        case 0xE006:
+        case 0xE007: named("Enter", 13); break;
+        case 0xE00C: named("Escape", 27); break;
+        case 0xE003: named("Backspace", 8); break;
+        case 0xE017: named("Delete", 46); break;
+        case 0xE00D:
+            init.key = " ";
+            init.code = "Space";
+            init.key_code = 32;
+            printable = true;
+            break;
+        case 0xE012: named("ArrowLeft", 37); break;
+        case 0xE013: named("ArrowUp", 38); break;
+        case 0xE014: named("ArrowRight", 39); break;
+        case 0xE015: named("ArrowDown", 40); break;
+        default: {
+            if (c >= 0xE000 && c <= 0xF8FF)
+                continue; // another of WebDriver's keys: not typed here
+            std::string text;
+            append_utf8(text, c);
+            init.key = text;
+            printable = true;
+            if (c < 0x80 && std::isalpha(static_cast<int>(c))) {
+                init.code = std::string("Key") + static_cast<char>(std::toupper(static_cast<int>(c)));
+                init.key_code = std::toupper(static_cast<int>(c));
+            } else if (c >= '0' && c <= '9') {
+                init.code = std::string("Digit") + static_cast<char>(c);
+                init.key_code = static_cast<int>(c);
+            }
+            break;
+        }
+        }
+        auto const target = [&]() -> dom::Node* {
+            dom::Element const* const focused = realm.focused_in_tree();
+            if (focused && &focused->document() == &document)
+                return const_cast<dom::Element*>(focused);
+            return key_target_fallback(document);
+        };
+        bool const proceed = realm.dispatch_key_event(target(), "keydown", init);
+        if (proceed && printable && !ctrl && !alt)
+            realm.dispatch_key_event(target(), "keypress", init);
+        if (proceed && c == 0xE004)
+            realm.sequential_focus(shift);
+        realm.dispatch_key_event(target(), "keyup", init);
+    }
+}
+
 TestResult run_test(Server const& server, std::string const& id)
 {
     TestResult result;
@@ -993,9 +1123,14 @@ TestResult run_test(Server const& server, std::string const& id)
             inner(use);
         };
     }
+    std::deque<std::string> typed_keys; // what send_keys asked for, typed by the event loop below
     hooks.console = [&](std::string_view level, std::string_view message) {
         if (level == "log" && message.starts_with(results_marker)) {
             report = std::string(message.substr(results_marker.size()));
+            return;
+        }
+        if (level == "log" && message.starts_with(send_keys_marker)) {
+            typed_keys.emplace_back(message.substr(send_keys_marker.size()));
             return;
         }
         if (trace)
@@ -1030,7 +1165,16 @@ TestResult run_test(Server const& server, std::string const& id)
     // clock moved to the next timer, until the harness reports, nothing is
     // pending, or the wall-clock deadline passes.
     for (int pump = 0; pump < max_pumps && !report && !stopped; ++pump) {
-        bool const ran = realm->run_pending();
+        bool ran = realm->run_pending();
+        // Keys a test sent are typed in a task of their own, then its
+        // promise is settled, as a driver's round trip would.
+        if (!typed_keys.empty() && !report && !stopped && !realm->interpreter().terminated()) {
+            std::string const keys = std::move(typed_keys.front());
+            typed_keys.pop_front();
+            type_keys(*realm, *document, keys);
+            realm->run("window.__sashfold_keys_done && window.__sashfold_keys_done()", "<testdriver>");
+            ran = true;
+        }
         if (report || stopped || realm->interpreter().terminated())
             break;
         if (std::chrono::steady_clock::now() - started > deadline) {

@@ -1514,6 +1514,10 @@ struct Realm::Internals {
     std::unordered_set<dom::Element const*> selectionchange_queued_at;
     std::unordered_map<dom::Element const*, bool> fallback_checked;
     dom::Element const* fallback_focus = nullptr;
+    // The sequential focus navigation starting point where the host keeps
+    // none (HTML §6.6.3): the element a focus fixup took the focus from;
+    // the page's realm keeps it.
+    dom::Node const* focus_start = nullptr;
     js::Object* location = nullptr;
     // What the Streams interfaces (Streams.js) hand the engine: bytesStream,
     // isReadableStream, isUnusable, readAll. Null until the script has run,
@@ -2133,9 +2137,33 @@ BlobObject* file_object_for(Realm::Internals&, dom::forms::ChosenFile const&);
 void clamp_text_selection_to(Realm::Internals&, dom::Element const&, std::size_t length);
 bool control_checked_of(Realm::Internals&, dom::Element const&);
 void set_control_checked_of(Realm::Internals&, dom::Element const&, bool checked);
-// Focus moves: the hook, the events, the fallback.
+// Focus moves: the hook, the events, the fallback (HtmlElements.cpp).
+// move_focus without options is the focusing steps alone (autofocus, blur,
+// the fixup): nothing scrolled. With them it is element.focus()'s.
+struct FocusOptions {
+    bool prevent_scroll = false;
+    std::optional<bool> focus_visible;
+};
 void move_focus(Realm::Internals&, dom::Element const* element);
+void move_focus(Realm::Internals&, dom::Element const* element, FocusOptions const&);
 void fire_focus_events(Realm::Internals&, dom::Element const* previous, dom::Element const* element);
+void fire_blur_events(Realm::Internals&, dom::Element const& previous, dom::Element const* next);
+void fire_focus_in_events(Realm::Internals&, dom::Element const& element, dom::Element const* previous);
+// Whether an element is a focusable area as dom::focus decides it, with the
+// frame tree's styles.
+bool is_focusable(Realm::Internals&, dom::Element const&);
+// document.activeElement (HTML §6.6.6): the focused element retargeted to
+// this document — a frame's container when the focus is in the frame, a
+// shadow host when it is in its tree; null when the focus is elsewhere.
+dom::Element const* active_element(Realm::Internals&);
+// document.hasFocus(): the focus is in this document or a frame below it.
+bool document_has_focus(Realm::Internals&);
+// The focus fixup rule, at the rendering update: true when it moved the focus.
+bool focus_fixup(Realm::Internals&);
+// Tab where the host has no window of its own (Realm::sequential_focus).
+void sequential_focus(Realm::Internals&, bool backward);
+// scrollIntoView({block: "nearest", inline: "nearest"}) (Node.cpp).
+void scroll_into_view_nearest(Realm::Internals&, dom::Element&);
 // Autofocus (HTML §6.6.7): an inserted tree with [autofocus] in it is a
 // candidate; the candidates are flushed at the end of a turn.
 void note_autofocus_candidates(Realm::Internals&, dom::Node const& inserted);

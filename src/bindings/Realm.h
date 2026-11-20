@@ -603,6 +603,24 @@ public:
     // the one that has it now. Either may be null, or another realm's (a
     // frame's), which is then not this realm's to tell.
     void focus_moved(dom::Element const* previous, dom::Element const* now);
+    // The two halves of such a move, for a host that unfocuses the old
+    // element before it focuses the new one (HTML §6.6.4): blur and
+    // focusout at the element that lost the focus, relatedTarget `next`;
+    // focus and focusin at the one that has it, relatedTarget `previous` —
+    // either only where both are in one document. Fired in the realm of the
+    // element's own document, this one's or a frame's below it.
+    void blurred(dom::Element const& element, dom::Element const* next);
+    void focused(dom::Element const& element, dom::Element const* previous);
+    // Tab (backward: Shift+Tab) where the host has no window of its own —
+    // the test runners: the focus moves to the next stop of the frame tree's
+    // sequential navigation order (dom::focus), shown, with its events; past
+    // the last it leaves the page, and the next Tab comes in at the first.
+    void sequential_focus(bool backward);
+    // The focused element of the page and its frames, as the realm knows it
+    // (the host's, through HostHooks::focused, where it keeps one): an
+    // element of this realm's document or of a frame's; null when the
+    // viewport has the focus.
+    dom::Element const* focused_in_tree();
     // The reader's answer to HostHooks::ask_notification_permission:
     // "granted", "denied" or "default". Every requestPermission() waiting
     // on it is settled with it.

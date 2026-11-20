@@ -1,6 +1,7 @@
 #include "core/Ascii.h"
 #include "core/Unicode.h"
 #include "bindings/NodeSupport.h"
+#include "dom/Focus.h"
 #include "dom/Forms.h"
 
 // The HTML element interfaces (HTML §4): HTMLElement itself and one
@@ -187,48 +188,363 @@ void set_control_checked_of(Realm::Internals& in, dom::Element const& element, b
     in.realm.note_mutation();
 }
 
-dom::Element const* focused_element(Realm::Internals& in)
+// --- Focus (HTML §6.6) ---------------------------------------------------------------
+//
+// A page and its frames have one focused element between them. The host
+// keeps it (hooks.focus, hooks.focused: the shell's, across its frames);
+// where it keeps none — the test runners — each realm of the frame tree
+// holds its own document's and the tree's focus is the one that is set.
+
+namespace {
+
+Realm::Internals& top_internals(Realm::Internals& in)
 {
-    if (in.hooks.focused)
-        return in.hooks.focused();
-    return in.fallback_focus;
+    Realm::Internals* at = &in;
+    while (at->parent_realm)
+        at = at->parent_realm;
+    return *at;
 }
 
-void fire_focus_events(Realm::Internals& in, dom::Element const* previous, dom::Element const* element);
+template<typename Visit>
+void each_realm_in_tree(Realm::Internals& root, Visit const& visit)
+{
+    visit(root);
+    for (ChildFrame& child : root.child_frames) {
+        if (child.realm)
+            each_realm_in_tree(child.realm->internals(), visit);
+    }
+}
+
+// The realm of the frame tree whose document this is; null for none.
+Realm::Internals* realm_of_document(Realm::Internals& in, dom::Document const& document)
+{
+    Realm::Internals* found = nullptr;
+    each_realm_in_tree(top_internals(in), [&](Realm::Internals& realm) {
+        if (!found && realm.document == &document)
+            found = &realm;
+    });
+    return found;
+}
+
+// The container in `in`'s document of the frame that holds `document`, at
+// any depth below; null when the document is no frame's under it.
+dom::Element const* container_holding(Realm::Internals& in, dom::Document const& document)
+{
+    for (ChildFrame& child : in.child_frames) {
+        if (!child.realm)
+            continue;
+        Realm::Internals& inner = child.realm->internals();
+        if (inner.document == &document || container_holding(inner, document))
+            return child.container;
+    }
+    return nullptr;
+}
+
+void record_focus(Realm::Internals& in, dom::Element const* element)
+{
+    // The page's host keeps the focus of its frames too: a frame's realm
+    // has no hooks of its own for it.
+    if (Realm::Internals& top = top_internals(in); top.hooks.focus) {
+        top.hooks.focus(element);
+        return;
+    }
+    each_realm_in_tree(top_internals(in), [](Realm::Internals& realm) { realm.fallback_focus = nullptr; });
+    if (element) {
+        Realm::Internals* const owner = realm_of_document(in, element->document());
+        (owner ? *owner : in).fallback_focus = element;
+    }
+}
+
+// A FocusEvent at an element (UI Events §5.2): composed, so a host hears
+// of the focus of the field inside its shadow tree; blur and focus do not
+// bubble, focusin and focusout do; the relatedTarget is the element the
+// focus came from or goes to, retargeted on the way as dispatch does.
+void fire_focus_event(Realm::Internals& in, dom::Element const& target, std::string_view type, dom::Element const* related)
+{
+    Realm::Internals::HostEntry const host(in.agent);
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
+    js::Interpreter::Roots const roots(in.interpreter);
+    bool const bubbles = type == "focusin" || type == "focusout";
+    EventObject* const event = in.new_event("FocusEvent", type, bubbles, false);
+    in.interpreter.root(js::Value::object(event));
+    event->composed = true;
+    event->is_trusted = true;
+    event->related_target = related ? js::Value::object(in.wrap(const_cast<dom::Element&>(*related))) : js::Value::null();
+    in.dispatch(*event, in.wrap(const_cast<dom::Element&>(target)));
+}
+
+// What the focus rules ask of the frame tree `in` is in: each element's
+// style through its own realm's hooks, the boxes that scroll, the frames'
+// documents and containers.
+dom::focus::Environment focus_environment(Realm::Internals& in)
+{
+    dom::focus::Environment env;
+    Realm::Internals* const top = &top_internals(in);
+    env.facts = [top](dom::Element const& element) {
+        dom::focus::ElementFacts facts;
+        Realm::Internals* const owner = realm_of_document(*top, element.document());
+        if (!owner || !owner->hooks.computed_style) {
+            // No style to ask: the markup's own say, as dom::focus reads it.
+            if (dom::Attr const* const hidden = element.find_attribute("hidden"))
+                facts.display_none = !sashfold::ascii_ci_equals(hidden->value, "until-found");
+            facts.display_contents = element.is_html("slot");
+            return facts;
+        }
+        css::ComputedStyle const* const style = owner->hooks.computed_style(element);
+        if (!style)
+            return facts;
+        facts.display_none = style->display == css::Display::None;
+        facts.display_contents = style->display == css::Display::Contents;
+        facts.visible = style->visibility == css::Visibility::Visible;
+        facts.inert = style->inert;
+        // A document in design mode is edited as its body (else its root).
+        if (owner->design_mode && owner->document && (element.is_html("body") || element.is_html("html"))) {
+            dom::Element const* const body = body_element(*owner->document);
+            facts.editing_host = &element == (body ? body : document_element(*owner->document));
+        }
+        auto const reachable = [](css::Overflow overflow) { return overflow == css::Overflow::Auto || overflow == css::Overflow::Scroll; };
+        if ((reachable(style->overflow_x) || reachable(style->overflow_y)) && owner->hooks.element_scroll
+            && !element.is_html("html") && !element.is_html("body")) {
+            std::optional<ElementScroll> const scroll = owner->hooks.element_scroll(element);
+            facts.scrollable = scroll && scroll->scrolls
+                && ((scroll->range_y > 0 && reachable(style->overflow_y)) || (scroll->range_x > 0 && reachable(style->overflow_x)));
+        }
+        return facts;
+    };
+    env.content_document = [top](dom::Element const& container) -> dom::Document const* {
+        dom::Document const* found = nullptr;
+        each_realm_in_tree(*top, [&](Realm::Internals& realm) {
+            for (ChildFrame& child : realm.child_frames) {
+                if (child.container == &container && child.realm)
+                    found = child.realm->internals().document;
+            }
+        });
+        return found;
+    };
+    env.container_of = [top](dom::Document const& document) -> dom::Element const* {
+        dom::Element const* found = nullptr;
+        each_realm_in_tree(*top, [&](Realm::Internals& realm) {
+            for (ChildFrame& child : realm.child_frames) {
+                if (child.realm && child.realm->internals().document == &document)
+                    found = child.container;
+            }
+        });
+        return found;
+    };
+    return env;
+}
+
+// :focus, :focus-within and :focus-visible follow the focus in the document
+// it is in, and up the frame tree each frame's container is its document's
+// focused element (HTML §6.6.1, the focus chain: activeElement, and
+// :focus-within on the iframe). The documents of the old chain let go first.
+void set_focus_chain(Realm::Internals& in, dom::Element const* previous, dom::Element const* element, bool visible)
+{
+    dom::focus::Environment const env = focus_environment(in);
+    for (dom::Element const* at = previous; at; at = env.container_of(at->document()))
+        const_cast<dom::Document&>(at->document()).set_focused(nullptr, false);
+    bool shown = visible;
+    for (dom::Element const* at = element; at; at = env.container_of(at->document())) {
+        const_cast<dom::Document&>(at->document()).set_focused(at, shown);
+        shown = false; // a container is focused, not shown
+    }
+}
+
+// Whether an element takes typed text: what :focus-visible shows even when
+// the pointer gave the focus (the heuristic Blink and Gecko share).
+bool takes_text_input(dom::Element const& element)
+{
+    if (element.is_html("textarea") || element.is_html("select"))
+        return true;
+    if (element.is_html("input")) {
+        std::string const type = dom::forms::input_type(element);
+        return type != "checkbox" && type != "radio" && type != "submit" && type != "reset" && type != "button"
+            && type != "image" && type != "file" && type != "color" && type != "range" && type != "hidden";
+    }
+    return dom::forms::editing_host_editable(element);
+}
+
+}
+
+dom::Element const* focused_element(Realm::Internals& in)
+{
+    dom::Element const* focused = nullptr;
+    if (Realm::Internals& top = top_internals(in); top.hooks.focused) {
+        focused = top.hooks.focused();
+    } else {
+        each_realm_in_tree(top_internals(in), [&](Realm::Internals& realm) {
+            if (!focused && realm.fallback_focus)
+                focused = realm.fallback_focus;
+        });
+    }
+    // The focused element taken out of its document: its document's
+    // viewport has the focus now, and no event says so (HTML §4.2.?, the
+    // node removing steps: "set the focused area to the viewport").
+    if (focused && !focused->is_connected()) {
+        record_focus(in, nullptr);
+        return nullptr;
+    }
+    return focused;
+}
+
+dom::Element const* active_element(Realm::Internals& in)
+{
+    dom::Element const* focused = focused_element(in);
+    if (!focused || !in.document)
+        return nullptr;
+    // In a frame's document below this one: the frame's container here.
+    if (&focused->document() != in.document) {
+        focused = container_holding(in, focused->document());
+        if (!focused)
+            return nullptr;
+    }
+    // Retargeted against the document: an element of a shadow tree is seen
+    // as the host of the outermost tree it is in (DOM §4.2.2 "retarget").
+    while (focused->root().is_shadow_root())
+        focused = &static_cast<dom::ShadowRoot const&>(focused->root()).host();
+    return focused;
+}
+
+bool document_has_focus(Realm::Internals& in)
+{
+    dom::Element const* const focused = focused_element(in);
+    if (!focused)
+        return in.parent_realm == nullptr; // the page's viewport has it
+    if (&focused->document() == in.document)
+        return true;
+    return in.document && container_holding(in, focused->document()) != nullptr;
+}
+
+bool is_focusable(Realm::Internals& in, dom::Element const& element)
+{
+    return dom::focus::is_focusable_area(element, focus_environment(in));
+}
 
 void move_focus(Realm::Internals& in, dom::Element const* element)
 {
-    dom::Element const* previous = focused_element(in);
+    FocusOptions options;
+    options.prevent_scroll = true;
+    move_focus(in, element, options);
+}
+
+void move_focus(Realm::Internals& in, dom::Element const* element, FocusOptions const& options)
+{
+    dom::Element const* const previous = focused_element(in);
     if (previous == element)
         return;
-    if (in.hooks.focus)
-        in.hooks.focus(element);
-    else
-        in.fallback_focus = element;
-    // :focus and the rest follow it; a focus a script gives after a key
-    // shows itself, after the pointer it does not (but in a text field).
-    in.document->set_focused(element, in.keyboard_modality);
+    // A focus a script gives shows itself after a key, on a field that
+    // takes text, and when the focus it replaces was shown; told outright
+    // by focus({focusVisible}) (HTML §6.6.4, the heuristic both engines use).
+    bool visible = false;
+    if (element) {
+        if (options.focus_visible)
+            visible = *options.focus_visible;
+        else
+            visible = in.keyboard_modality || takes_text_input(*element)
+                || (previous && previous->document().focused() == previous && previous->document().focus_visible());
+    }
     // The page is drawn again whoever moved the focus: :focus restyles and
     // a field lays out its caret (a timer's focus() has no input event
     // behind it to ask for a picture).
     in.realm.note_mutation();
-    fire_focus_events(in, previous, element);
+    // The focus update steps (HTML §6.6.4): the old chain is unfocused and
+    // hears blur and focusout — the document's focused area its viewport
+    // meanwhile, so activeElement is the body there, as in both engines —
+    // then the new chain is focused and hears focus and focusin. A listener
+    // that moves the focus in between has the last word.
+    top_internals(in).focus_start = nullptr;
+    if (previous) {
+        record_focus(in, nullptr);
+        set_focus_chain(in, previous, nullptr, false);
+        if (in.document)
+            in.document->set_focused(nullptr, false);
+        fire_blur_events(in, *previous, element);
+        if (focused_element(in) != nullptr)
+            return;
+    }
+    if (!element)
+        return;
+    record_focus(in, element);
+    set_focus_chain(in, nullptr, element, visible);
+    fire_focus_in_events(in, *element, previous);
+    // Brought into view, to the nearest edge, unless asked not to be.
+    if (!options.prevent_scroll && focused_element(in) == element) {
+        Realm::Internals* const owner = realm_of_document(in, element->document());
+        scroll_into_view_nearest(owner ? *owner : in, const_cast<dom::Element&>(*element));
+    }
 }
 
-// The four events of a move of the focus. All are composed (UI Events
-// §5.2): blur and focus do not bubble, and still reach the host of a shadow
-// tree the element is in, where a component listens for the focus of the
-// field inside it.
+// The events of a move of the focus (HTML §6.6.4 "focus update steps", in
+// the order both engines fire them): blur then focusout at the element
+// that had it, focus then focusin at the one that has it, each in its own
+// document's realm, the relatedTarget the other element where both are in
+// one document, null across documents.
+void fire_blur_events(Realm::Internals& in, dom::Element const& previous, dom::Element const* next)
+{
+    bool const same_document = next && &previous.document() == &next->document();
+    Realm::Internals* const owner = realm_of_document(in, previous.document());
+    if (!owner && &previous.document() != in.document)
+        return;
+    Realm::Internals& realm = owner ? *owner : in;
+    fire_focus_event(realm, previous, "blur", same_document ? next : nullptr);
+    fire_focus_event(realm, previous, "focusout", same_document ? next : nullptr);
+}
+
+void fire_focus_in_events(Realm::Internals& in, dom::Element const& element, dom::Element const* previous)
+{
+    bool const same_document = previous && &previous->document() == &element.document();
+    Realm::Internals* const owner = realm_of_document(in, element.document());
+    if (!owner && &element.document() != in.document)
+        return;
+    Realm::Internals& realm = owner ? *owner : in;
+    fire_focus_event(realm, element, "focus", same_document ? previous : nullptr);
+    fire_focus_event(realm, element, "focusin", same_document ? previous : nullptr);
+}
+
 void fire_focus_events(Realm::Internals& in, dom::Element const* previous, dom::Element const* element)
 {
-    if (previous && &previous->document() == in.document) {
-        in.realm.dispatch_event(const_cast<dom::Element*>(previous), "blur", Realm::EventInit { false, false, true });
-        in.realm.dispatch_event(const_cast<dom::Element*>(previous), "focusout", Realm::EventInit { true, false, true });
-    }
-    if (element && &element->document() == in.document) {
-        in.realm.dispatch_event(const_cast<dom::Element*>(element), "focus", Realm::EventInit { false, false, true });
-        in.realm.dispatch_event(const_cast<dom::Element*>(element), "focusin", Realm::EventInit { true, false, true });
-    }
+    if (previous)
+        fire_blur_events(in, *previous, element);
+    if (element && (!previous || focused_element(in) == element))
+        fire_focus_in_events(in, *element, previous);
+}
+
+bool focus_fixup(Realm::Internals& in)
+{
+    // The focus fixup rule (HTML §6.6.4), at the rendering update: a
+    // focused element of this document that is no longer a focusable area —
+    // disabled, hidden, its tabindex taken away — gives the focus back to
+    // the viewport, with the events of a blur. Tab goes on from where it
+    // was, as both engines keep it.
+    dom::Element const* const focused = focused_element(in);
+    if (!focused || &focused->document() != in.document || is_focusable(in, *focused))
+        return false;
+    move_focus(in, nullptr);
+    if (!focused_element(in) && !in.parent_realm)
+        in.focus_start = focused;
+    return true;
+}
+
+void sequential_focus(Realm::Internals& in, bool backward)
+{
+    Realm::Internals& top = top_internals(in);
+    if (!top.document)
+        return;
+    dom::focus::Environment const env = focus_environment(top);
+    // From the starting point while it stands in the page (a fixup left the
+    // focus there), else from the focus.
+    dom::Node const* from = top.focus_start;
+    if (from && !from->is_connected())
+        from = nullptr;
+    if (!from)
+        from = focused_element(top);
+    dom::Element const* const next = dom::focus::sequential_next(*top.document, from, backward, env);
+    top.focus_start = nullptr;
+    FocusOptions options;
+    options.focus_visible = true;
+    // Past the last stop the focus leaves the document; the next Tab comes
+    // back in at its first.
+    move_focus(top, next, options);
 }
 
 // --- Autofocus (HTML §6.6.7) ------------------------------------------------------------
@@ -1462,16 +1778,24 @@ void install_html_or_svg_element(Realm::Internals& in, js::Object& proto, bool w
     element_accessor(
         in, proto, "tabIndex",
         [](Realm::Internals&, dom::Element& e) -> Native {
-            if (dom::Attr const* attribute = e.find_attribute("tabindex")) {
-                char* end = nullptr;
-                long const value = std::strtol(attribute->value.c_str(), &end, 10);
-                if (end != attribute->value.c_str())
-                    return js::Value::number(static_cast<double>(value));
-            }
-            // HTML's tabIndex getter (§6.6.3): 0 for these, -1 otherwise.
-            bool const focusable = e.is_html("a") || e.is_html("area") || e.is_html("button") || e.is_html("frame")
+            if (std::optional<long> const value = dom::focus::tabindex_value(e))
+                return js::Value::number(static_cast<double>(*value));
+            // HTML's tabIndex getter (§6.6.3): 0 for these — a summary only
+            // when it is its details' summary — and -1 otherwise.
+            bool focusable = e.is_html("a") || e.is_html("area") || e.is_html("button") || e.is_html("frame")
                 || e.is_html("iframe") || e.is_html("input") || e.is_html("object") || e.is_html("select")
-                || e.is_html("textarea") || e.is_html("summary");
+                || e.is_html("textarea") || e.is_svg("a");
+            if (e.is_html("summary")) {
+                dom::Node const* const parent = e.parent();
+                if (parent && parent->is_element() && static_cast<dom::Element const*>(parent)->is_html("details")) {
+                    for (dom::Node const* child : parent->children()) {
+                        if (child->is_element() && static_cast<dom::Element const*>(child)->is_html("summary")) {
+                            focusable = child == &e;
+                            break;
+                        }
+                    }
+                }
+            }
             return js::Value::number(focusable ? 0 : -1);
         },
         [](Realm::Internals& internals, dom::Element& e, js::Value const& value) -> Native {
@@ -1482,17 +1806,56 @@ void install_html_or_svg_element(Realm::Internals& in, js::Object& proto, bool w
             return js::Value::undefined();
         });
     element_getter(in, proto, "dataset", [](Realm::Internals& internals, dom::Element& e) -> Native { return make_dataset(internals, e); });
-    element_method(in, proto, "focus", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
-        // An inert element is no focusable area (HTML §6.6.2): focus() does nothing.
-        if (internals.hooks.computed_style) {
-            if (css::ComputedStyle const* const style = internals.hooks.computed_style(e); style && style->inert)
-                return js::Value::undefined();
+    // focus(options) (HTML §6.6.6): the focusing steps — an element that is
+    // no focusable area (not rendered, disabled, inert, with nothing to make
+    // it one) is left alone, a host that delegates its focus gives it to its
+    // delegate — then, unless preventScroll, scrolled into view; focusVisible
+    // says whether the focus shows.
+    element_method(in, proto, "focus", 0, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        FocusOptions options;
+        js::Value const given = js::argument(args, 0);
+        if (given.is_object()) {
+            std::optional<js::Value> const prevent = internals.interpreter.get(given, "preventScroll");
+            if (!prevent)
+                return std::nullopt;
+            options.prevent_scroll = js::Interpreter::to_boolean(*prevent);
+            std::optional<js::Value> const visible = internals.interpreter.get(given, "focusVisible");
+            if (!visible)
+                return std::nullopt;
+            if (!visible->is_undefined())
+                options.focus_visible = js::Interpreter::to_boolean(*visible);
         }
-        move_focus(internals, &e);
+        dom::focus::Environment const env = focus_environment(internals);
+        dom::Element const* target = &e;
+        if (dom::ShadowRoot const* const shadow = e.shadow_root(); shadow && shadow->delegates_focus) {
+            // Focus already inside the host's tree stays where it is.
+            for (dom::Node const* at = focused_element(internals); at; at = at->parent_or_host()) {
+                if (at == &e)
+                    return js::Value::undefined();
+            }
+            target = dom::focus::focus_delegate(e, env);
+        } else if (!dom::focus::is_focusable_area(e, env)) {
+            target = nullptr;
+        }
+        if (target)
+            move_focus(internals, target, options);
         return js::Value::undefined();
     });
+    // blur() (HTML §6.6.6): the unfocusing steps — the element with the focus
+    // gives it to the viewport; a host gives up a focus inside its tree.
     element_method(in, proto, "blur", 0, [](Realm::Internals& internals, dom::Element& e, Args) -> Native {
-        if (focused_element(internals) == &e)
+        dom::Element const* const focused = focused_element(internals);
+        bool holds = focused == &e;
+        // A host gives up a focus inside its shadow tree (at any depth), not
+        // one on its own slotted children.
+        for (dom::Node const* at = focused; at && !holds && e.shadow_root();) {
+            dom::Node const& root = at->root();
+            if (!root.is_shadow_root())
+                break;
+            at = &static_cast<dom::ShadowRoot const&>(root).host();
+            holds = at == &e;
+        }
+        if (holds)
             move_focus(internals, nullptr);
         return js::Value::undefined();
     });

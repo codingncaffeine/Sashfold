@@ -5461,8 +5461,12 @@ struct Browser::Impl {
                 // control the script takes the focus from is committed.
                 if (owner->controls.edited && owner->controls.edited != element)
                     commit_text_change(*owner);
+                // blur() and the focus fixup leave Tab to go on from where
+                // the focus was, as both engines do.
                 if (element)
                     owner->focus_start = nullptr;
+                else if (owner->controls.focused && owner->controls.focused->is_connected())
+                    owner->focus_start = owner->controls.focused;
                 owner->controls.focused = element;
             }
         };
@@ -12489,23 +12493,39 @@ struct Browser::Impl {
         if (tab.controls.edited && tab.controls.edited != control)
             commit_text_change(tab);
         dom::Element const* const previous = tab.controls.focused;
-        if (previous && previous != control && (!control || &previous->document() != &control->document()))
-            previous->document().set_focused(nullptr, false);
+        if (previous == control) {
+            if (control)
+                control->document().set_focused(control, visible);
+            return;
+        }
         if (control)
             tab.focus_start = nullptr; // Tab goes on from the focus now
-        tab.controls.focused = control;
-        if (control)
-            control->document().set_focused(control, visible);
-        if (previous == control)
+        // The focus update steps (HTML §6.6.4), each in its own document's
+        // realm: the old chain is unfocused and hears blur and focusout while
+        // the viewport has the focus, then the new chain is focused and hears
+        // focus and focusin; the relatedTarget is the other element, where
+        // both are in one document. Up the frame tree each frame's container
+        // is its document's focused element (§6.6.1, the focus chain). A
+        // listener that moves the focus meanwhile has the last word.
+        if (previous) {
+            for (dom::Element const* at = previous; at; at = frame_holding_in(tab.frames, at->document()))
+                at->document().set_focused(nullptr, false);
+            tab.controls.focused = nullptr;
+            bindings::Realm* const from = previous->is_connected() ? realm_for(tab, *previous) : nullptr;
+            if (from) {
+                from->blurred(*previous, control);
+                if (tab.controls.focused)
+                    return;
+            }
+        }
+        if (!control)
             return;
-        // The page hears of it, as it hears of a focus a script gave: the
-        // one that lost it first, each in its own document's realm.
-        bindings::Realm* const from = previous ? realm_for(tab, *previous) : nullptr;
-        bindings::Realm* const to = control ? realm_for(tab, *control) : nullptr;
-        if (from && from != to)
-            from->focus_moved(previous, nullptr);
-        if (to)
-            to->focus_moved(from == to ? previous : nullptr, control);
+        tab.controls.focused = control;
+        control->document().set_focused(control, visible);
+        for (dom::Element const* at = frame_holding_in(tab.frames, control->document()); at; at = frame_holding_in(tab.frames, at->document()))
+            at->document().set_focused(at, false);
+        if (bindings::Realm* const to = realm_for(tab, *control))
+            to->focused(*control, previous);
     }
 
     static std::string utf8_of(std::u32string const& text)
@@ -13888,6 +13908,11 @@ struct Browser::Impl {
             facts.visible = style->visibility == css::Visibility::Visible;
             facts.inert = style->inert;
             facts.scrollable = scrollable->contains(&element);
+            // A document in design mode: its realm says its body is the host.
+            if (element.is_html("body") || element.is_html("html")) {
+                if (bindings::Realm* const realm = realm_for(tab, element))
+                    facts.editing_host = realm->editing_host(const_cast<dom::Element&>(element)) == &element;
+            }
             return facts;
         };
         env.content_document = [&tab](dom::Element const& container) -> dom::Document const* {
@@ -14762,8 +14787,14 @@ struct Browser::Impl {
         }
         // A key scrolls, selects and moves through the page as it is laid
         // out for the window as it is now.
-        if (Tab* const front = active_tab())
+        if (Tab* const front = active_tab()) {
             ensure_fresh(*front);
+            // A focused element a script took out of the page left the
+            // focus to the viewport, and no event said so (HTML's node
+            // removing steps): Tab goes on from the page's edge.
+            if (front->controls.focused && !front->controls.focused->is_connected())
+                front->controls.focused = nullptr;
+        }
         clear_preedit();
         note_activation();
         // Esc leaves a page's full screen before the page or the shell sees

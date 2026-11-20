@@ -318,7 +318,7 @@ bool is_focusable_area(Element const& element, Environment const& env)
     ElementFacts const facts = facts_of(element, env);
     if (facts.inert)
         return false;
-    if (focusable_by_kind(element) || tabindex_value(element))
+    if (focusable_by_kind(element) || facts.editing_host || tabindex_value(element))
         return true;
     // A scroll container with something to scroll and no focusable area
     // inside it takes the focus itself, so the keys can scroll it.

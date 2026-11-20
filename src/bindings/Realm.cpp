@@ -3919,6 +3919,29 @@ void Realm::focus_moved(dom::Element const* previous, dom::Element const* now)
     fire_focus_events(*m_internals, previous, now);
 }
 
+void Realm::blurred(dom::Element const& element, dom::Element const* next)
+{
+    fire_blur_events(*m_internals, element, next);
+}
+
+void Realm::focused(dom::Element const& element, dom::Element const* previous)
+{
+    fire_focus_in_events(*m_internals, element, previous);
+}
+
+void Realm::sequential_focus(bool backward)
+{
+    Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
+    bindings::sequential_focus(in, backward);
+}
+
+dom::Element const* Realm::focused_in_tree()
+{
+    return bindings::focused_element(*m_internals);
+}
+
 bool Realm::dispatch_event(dom::Node* target, std::string_view type, EventInit init)
 {
     Internals& in = *m_internals;
@@ -4310,6 +4333,9 @@ bool Realm::run_pending()
         if (!realm.interpreter.terminated() && update_intersection_observations(realm))
             any = true;
         if (!realm.interpreter.terminated() && update_resize_observations(realm))
+            any = true;
+        // The focus fixup rule, after the observers (HTML §8.1.7.3).
+        if (!realm.interpreter.terminated() && focus_fixup(realm))
             any = true;
         for (ChildFrame& child : realm.child_frames) {
             if (child.realm && self(self, child.realm->internals()))
