@@ -632,8 +632,9 @@ ScriptShaper const& choose_shaper(ScriptCode script, std::uint32_t chosen_gsub_s
             return default_shaper;
         return indic_shaper;
     default:
-        // The Universal Shaping Engine's scripts.
-        if (is_use_script(script))
+        // The Universal Shaping Engine's scripts, when the font knows the
+        // script (as for the Indic scripts above).
+        if (is_use_script(script) && chosen_gsub_script != tag_dflt_script && chosen_gsub_script != tag_latn)
             return use_shaper;
         return default_shaper;
     }
