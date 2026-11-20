@@ -14,8 +14,13 @@ key ctrl+f
 type word
 assert-find 1 of 1
 key Escape
-# Tab passes the inert button by: back from the field (A is first in tree
-# order) it goes round to B.
+# Tab passes the inert button by: back from the field (A, first in tree
+# order, is inert) the focus leaves the page for the toolbar's last
+# button, and Tab from there comes back to the field, then B.
 focus f
 key shift+tab
+assert-chrome-focus menu
+key tab
+assert-focused f
+key tab
 assert-focused b

@@ -1,0 +1,139 @@
+# Sequential focus navigation (HTML §6.6.3, §6.6.5): Tab walks a page's
+# focusable areas in the order every engine gives them — positive tabindex
+# values first, ascending, then the rest in flat-tree order; a negative
+# tabindex, a disabled control, a hidden input, display: none, visibility:
+# hidden, a closed details' contents and an inert subtree left out; one
+# stop per radio group (the checked button, else the first going forward
+# and the last going back); a shadow tree's fields in the host's place with
+# the slotted content where its slot is; nested frames entered and left
+# both ways; a scroll container with nothing focusable inside a stop of its
+# own. Past the page's last stop the focus goes to the toolbar — reload,
+# the address bar, the star, the menu — and from its last back into the
+# page; Shift+Tab the whole way back. Never a trap.
+resize 800 900
+open focus-order.html
+advance 50 2
+assert-focused-id none
+key tab
+assert-focused-id p1
+key tab
+assert-focused-id p2
+key tab
+assert-focused-id l1
+key tab
+assert-focused-id b1
+key tab
+assert-focused-id r2
+key tab
+assert-focused-id h1
+key tab
+assert-focused-id s1
+key tab
+assert-focused-id slotted
+key tab
+assert-focused-id s2
+key tab
+assert-focused-id fa
+key tab
+assert-focused-id fi
+key tab
+assert-focused-id fb
+key tab
+assert-focused-id scroll
+key tab
+assert-focused-id sumc
+key tab
+assert-focused-id sumo
+key tab
+assert-focused-id unfolded
+key tab
+assert-focused-id after
+key tab
+assert-focused-id last
+key tab
+assert-chrome-focus back
+assert-focused-id none
+key tab
+assert-chrome-focus reload
+key tab
+assert-chrome-focus address
+key tab
+assert-chrome-focus star
+key tab
+assert-chrome-focus reader
+key tab
+assert-chrome-focus menu
+key tab
+assert-chrome-focus none
+assert-focused-id p1
+# And back the whole way: into the toolbar from the page's first stop,
+# then from its first stop to the page's last.
+key shift+tab
+assert-chrome-focus menu
+key shift+tab
+key shift+tab
+key shift+tab
+key shift+tab
+key shift+tab
+assert-chrome-focus back
+key shift+tab
+assert-focused-id last
+key shift+tab
+assert-focused-id after
+key shift+tab
+assert-focused-id unfolded
+key shift+tab
+assert-focused-id sumo
+key shift+tab
+assert-focused-id sumc
+key shift+tab
+assert-focused-id scroll
+key shift+tab
+assert-focused-id fb
+key shift+tab
+assert-focused-id fi
+key shift+tab
+assert-focused-id fa
+key shift+tab
+assert-focused-id s2
+key shift+tab
+assert-focused-id slotted
+key shift+tab
+assert-focused-id s1
+key shift+tab
+assert-focused-id h2
+key shift+tab
+assert-focused-id r2
+key shift+tab
+assert-focused-id b1
+key shift+tab
+assert-focused-id l1
+key shift+tab
+assert-focused-id p2
+key shift+tab
+assert-focused-id p1
+key shift+tab
+assert-chrome-focus menu
+
+# The sequential focus navigation starting point: a press on text that
+# takes no focus is where Tab goes on from, either way; so is the target of
+# a move to a fragment, though the link pressed keeps the focus. A page
+# that cancels Tab's keydown keeps the focus where it is (a dialog's trap).
+open data:text/html,<style>body{margin:8px;font-family:"Sashfold Mono";font-size:16px;line-height:20px}</style><a id=a href=%23t>jump</a><p>middle words</p><a id=b href=%23>b</a><p id=t>target words</p><a id=c href=%23>c</a><a id=d href=%23>d</a><script>document.addEventListener('keydown',function(e){if(e.key==='Tab'&&document.activeElement.id==='d')e.preventDefault()})</script>
+click-text middle
+assert-focused-id none
+key tab
+assert-focused-id b
+click-text middle
+key shift+tab
+assert-focused-id a
+click-text jump
+assert-focused-id a
+key tab
+assert-focused-id c
+key tab
+assert-focused-id d
+key tab
+assert-focused-id d
+key shift+tab
+assert-focused-id d

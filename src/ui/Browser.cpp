@@ -19,6 +19,7 @@
 #include "core/Unicode.h"
 #include "css/StyleResolver.h"
 #include "dom/Dom.h"
+#include "dom/Focus.h"
 #include "html/DocumentBase.h"
 #include "html/TreeBuilder.h"
 #include "js/Interpreter.h"
@@ -71,6 +72,7 @@
 #include <set>
 #include <memory>
 #include <thread>
+#include <unordered_set>
 #include <utility>
 
 namespace sashfold::ui {
@@ -746,6 +748,11 @@ struct Browser::Impl {
         // from the last wheel over it; the one the selection is in, with the
         // view the selection's positions index, so a view made again drops it.
         dom::Element const* focus_frame = nullptr;
+        // The sequential focus navigation starting point (HTML §6.6.3):
+        // where a press on content that takes no focus, or a move to a
+        // fragment, left the reader — Tab goes on from there. Checked to be
+        // in the page before it is used.
+        dom::Node const* focus_start = nullptr;
         dom::Element const* scroller_frame = nullptr;
         dom::Element const* selection_frame = nullptr;
         std::weak_ptr<FrameView> selection_view;
@@ -1243,6 +1250,12 @@ struct Browser::Impl {
 
     std::string address;
     bool address_focus = false;
+    // A toolbar button the keyboard is on: Tab past the page's last stop
+    // comes to the toolbar — its buttons and the address bar in the order
+    // they stand — and past its last back into the page, Shift+Tab the
+    // other way (ChromeStop: the toolbar's order).
+    enum class ChromeStop { Back, Forward, Reload, Address, Star, Reader, Menu };
+    std::optional<ChromeStop> chrome_focus;
     bool select_all = false;
     std::size_t caret = 0;
     // An input method's composing text in the shell's own fields (a
@@ -2889,6 +2902,7 @@ struct Browser::Impl {
     {
         question_focus.reset();
         find_focus = false;
+        chrome_focus.reset();
         address_focus = true;
         select_all = select_everything && !address.empty();
         caret = address.size();
@@ -5447,6 +5461,8 @@ struct Browser::Impl {
                 // control the script takes the focus from is committed.
                 if (owner->controls.edited && owner->controls.edited != element)
                     commit_text_change(*owner);
+                if (element)
+                    owner->focus_start = nullptr;
                 owner->controls.focused = element;
             }
         };
@@ -6014,6 +6030,9 @@ struct Browser::Impl {
         tab.document->set_target(target);
         if (!target)
             return;
+        // Tab goes on from the target (HTML §7.4.6.3 "scroll to the
+        // fragment": the sequential focus navigation starting point).
+        tab.focus_start = target;
         // A target inside a box that scrolls needs that box moved as well;
         // its box is read again after each one, having travelled with it. A
         // target with no box of its own — an anchor that is only a name —
@@ -12472,6 +12491,8 @@ struct Browser::Impl {
         dom::Element const* const previous = tab.controls.focused;
         if (previous && previous != control && (!control || &previous->document() != &control->document()))
             previous->document().set_focused(nullptr, false);
+        if (control)
+            tab.focus_start = nullptr; // Tab goes on from the focus now
         tab.controls.focused = control;
         if (control)
             control->document().set_focused(control, visible);
@@ -13800,32 +13821,407 @@ struct Browser::Impl {
         dirty = true;
     }
 
-    // Moves focus to the next (or previous) control in tree order.
-    void focus_neighbor(Tab& tab, bool backwards)
+    // --- Keyboard focus (HTML §6.6) ---------------------------------------------
+
+    // The style an element of the tab was given: its document's, the
+    // page's or a live frame's; null for one that has none.
+    css::ComputedStyle const* style_in_tab(Tab& tab, dom::Element const& element)
     {
-        // Inert controls are not in the order (HTML §6.6.3).
-        std::vector<dom::Element const*> controls = focusable_controls(*tab.document);
-        std::erase_if(controls, [&](dom::Element const* control) {
-            auto const style = tab.styles.find(control);
-            return style != tab.styles.end() && style->second.inert;
-        });
-        if (controls.empty())
-            return;
-        std::size_t index = 0;
-        for (std::size_t i = 0; i < controls.size(); ++i) {
-            if (controls[i] == tab.controls.focused) {
-                index = backwards ? (i + controls.size() - 1) % controls.size()
-                                  : (i + 1) % controls.size();
-                break;
-            }
+        css::StyleMap const* styles = &tab.styles;
+        if (&element.document() != tab.document.get()) {
+            FrameView* const view = view_of(tab, frame_holding_in(tab.frames, element.document()));
+            if (!view)
+                return nullptr;
+            styles = &view->styles;
         }
-        // A text control reached by Tab has its whole value selected, as in
-        // every engine.
-        focus_control(tab, controls[index], true);
-        if (layout::is_text_kind(layout::control_kind(*controls[index]))) {
-            spell_check_control(tab, *controls[index]);
+        auto const it = styles->find(&element);
+        return it == styles->end() ? nullptr : &it->second;
+    }
+
+    // The boxes a reader can scroll: a scroll container with a scrollbar's
+    // way to what it hides (overflow auto or scroll on an axis it overflows),
+    // the root and the body aside, whose scrolling is the page's.
+    static void collect_scrollable(layout::Fragment const& fragment, std::unordered_set<dom::Element const*>& out)
+    {
+        if (fragment.element && fragment.style && !fragment.element->is_html("html") && !fragment.element->is_html("body")) {
+            css::ComputedStyle const& s = *fragment.style;
+            auto const reachable = [](css::Overflow overflow) {
+                return overflow == css::Overflow::Auto || overflow == css::Overflow::Scroll;
+            };
+            if ((fragment.scroll_range_y > 0 && reachable(s.overflow_y)) || (fragment.scroll_range_x > 0 && reachable(s.overflow_x)))
+                out.insert(fragment.element);
+        }
+        for (layout::Fragment const& child : fragment.children)
+            collect_scrollable(child, out);
+    }
+    static void collect_scrollable_frames(DrawnFrames const& frames, std::unordered_set<dom::Element const*>& out)
+    {
+        for (auto const& [element, drawn] : frames) {
+            if (!drawn.view)
+                continue;
+            collect_scrollable(drawn.view->layout.root, out);
+            collect_scrollable_frames(drawn.view->frames, out);
+        }
+    }
+
+    // What the focus rules (dom::focus) ask of a tab: each element's style,
+    // the boxes that scroll, the documents of its live frames. The tab is
+    // laid out as it stands first. The environment holds the tab and is
+    // used before the tab changes.
+    dom::focus::Environment focus_environment(Tab& tab)
+    {
+        ensure_fresh(tab);
+        auto scrollable = std::make_shared<std::unordered_set<dom::Element const*>>();
+        collect_scrollable(tab.layout.root, *scrollable);
+        collect_scrollable_frames(tab.frames, *scrollable);
+        dom::focus::Environment env;
+        env.facts = [this, &tab, scrollable](dom::Element const& element) {
+            dom::focus::ElementFacts facts;
+            css::ComputedStyle const* const style = style_in_tab(tab, element);
+            if (!style) {
+                // Never styled: in no document of the tab that is drawn.
+                facts.display_none = true;
+                return facts;
+            }
+            facts.display_none = style->display == css::Display::None;
+            facts.display_contents = style->display == css::Display::Contents;
+            facts.visible = style->visibility == css::Visibility::Visible;
+            facts.inert = style->inert;
+            facts.scrollable = scrollable->contains(&element);
+            return facts;
+        };
+        env.content_document = [&tab](dom::Element const& container) -> dom::Document const* {
+            FrameView const* const view = view_of(tab, &container);
+            return view ? view->document : nullptr;
+        };
+        env.container_of = [&tab](dom::Document const& document) { return frame_holding_in(tab.frames, document); };
+        return env;
+    }
+
+    // Whether a node is still in the tab: in its document, a shadow tree of
+    // it, or a live frame's document.
+    static bool tab_holds_node(Tab const& tab, dom::Node const* wanted)
+    {
+        auto const in = [wanted](dom::Node const& root) {
+            bool found = false;
+            dom::for_each_shadow_including(root, [&](dom::Node const& node) {
+                if (&node == wanted)
+                    found = true;
+            });
+            return found;
+        };
+        if (!wanted || !tab.document)
+            return false;
+        if (in(*tab.document))
+            return true;
+        auto const in_frames = [&](auto const& self, DrawnFrames const& frames) -> bool {
+            for (auto const& [element, drawn] : frames) {
+                if (drawn.view && drawn.view->document && (in(*drawn.view->document) || self(self, drawn.view->frames)))
+                    return true;
+            }
+            return false;
+        };
+        return in_frames(in_frames, tab.frames);
+    }
+
+    // Where Tab goes on from: the starting point while it is in the page
+    // (set after the focus last moved: a move to a fragment leaves the
+    // focused link behind), else the focused element, else the page's edge.
+    dom::Node const* focus_origin(Tab& tab)
+    {
+        if (tab.focus_start && !tab_holds_node(tab, tab.focus_start))
+            tab.focus_start = nullptr;
+        return tab.focus_start ? tab.focus_start : tab.controls.focused;
+    }
+
+    // Tab and Shift+Tab (HTML §6.6.5): the next stop of the page's order,
+    // into and out of its frames; past its last (first) the focus leaves
+    // the page for the toolbar.
+    void sequential_focus(Tab& tab, bool backward)
+    {
+        if (!tab.document) {
+            leave_page(tab, backward);
+            return;
+        }
+        dom::focus::Environment const env = focus_environment(tab);
+        dom::Element const* const next = dom::focus::sequential_next(*tab.document, focus_origin(tab), backward, env);
+        if (!next) {
+            leave_page(tab, backward);
+            return;
+        }
+        focus_by_keyboard(tab, *next);
+    }
+
+    // The focus put on an element from the keyboard: shown (:focus-visible),
+    // brought into view, a text control's whole value selected as in every
+    // engine.
+    void focus_by_keyboard(Tab& tab, dom::Element const& element)
+    {
+        tab.focus_start = nullptr;
+        focus_control(tab, &element, true);
+        if (tab.controls.focused != &element)
+            return; // a listener moved the focus on
+        if (layout::is_control(element) && layout::is_text_kind(layout::control_kind(element))) {
+            spell_check_control(tab, element);
             select_all_in_control(tab);
         }
+        relayout(tab);
+        reveal_element(tab, element);
+        dirty = true;
+    }
+
+    // Scrolls what it takes to show an element: the boxes that scroll around
+    // it, its frame's document down the frame, the page — each the least
+    // that brings the element's box in, to the nearest edge.
+    void reveal_element(Tab& tab, dom::Element const& element)
+    {
+        dom::Element const* const container = frame_holding_in(tab.frames, element.document());
+        std::vector<FrameStep> const chain = frames_to(tab, container);
+        if (container && chain.empty())
+            return;
+        layout::Fragment const& root = chain.empty() ? tab.layout.root : chain.back().view->layout.root;
+        layout::Fragment const* const box = fragment_for(root, &element);
+        if (!box)
+            return;
+        if (chain.empty()) {
+            std::vector<layout::Fragment const*> scrollers;
+            if (scroll_chain(tab.layout.root, box, nullptr, scrollers) && !scrollers.empty()) {
+                reveal_within_boxes(tab, scrollers, [box] {
+                    return Rect { static_cast<int>(box->x), static_cast<int>(box->y), static_cast<int>(box->width) + 1,
+                        static_cast<int>(box->height) + 1 };
+                });
+            }
+        }
+        // Down the frame, then the frame's box on the page.
+        float top = box->y;
+        float bottom = box->y + box->height;
+        if (!chain.empty()) {
+            FrameView& view = *chain.back().view;
+            int want = view.scroll_y;
+            if (top < static_cast<float>(want))
+                want = static_cast<int>(top);
+            else if (bottom > static_cast<float>(want + view.height))
+                want = static_cast<int>(std::ceil(bottom)) - view.height;
+            scroll_frame_to(tab, chain, want);
+            auto const [ox, oy] = origin_of(chain);
+            top = box->y + oy;
+            bottom = box->y + box->height + oy;
+        }
+        int const viewport = layout_chrome().content.height;
+        if (top < static_cast<float>(tab.scroll_y))
+            set_scroll(tab, static_cast<int>(top));
+        else if (bottom > static_cast<float>(tab.scroll_y + viewport))
+            set_scroll(tab, std::min(static_cast<int>(top), static_cast<int>(std::ceil(bottom)) - viewport));
+    }
+
+    // The focus goes from the page to the toolbar: the page's element lets
+    // go of it, and the shell's first (last) stop takes it — the shell's
+    // own, or the one an engine's page is a tab of.
+    void leave_page(Tab& tab, bool backward)
+    {
+        if (tab.controls.focused)
+            focus_control(tab, nullptr, false);
+        tab.focus_start = nullptr;
+        relayout(tab);
+        dirty = true;
+        if (engine_self) {
+            ask_shell([backward](Impl& shell, std::size_t) { shell.focus_chrome_edge(backward); });
+            return;
+        }
+        focus_chrome_edge(backward);
+    }
+
+    // The page takes the focus from the toolbar: its first stop (last,
+    // going back); a page with none keeps the focus itself, so its keys
+    // scroll it and the next Tab comes back to the toolbar.
+    void enter_page_focus(bool backward)
+    {
+        Tab* const tab = active_tab();
+        if (!tab || !tab->document)
+            return;
+        tab->focus_start = nullptr;
+        dom::focus::Environment const env = focus_environment(*tab);
+        if (dom::Element const* const first = dom::focus::sequential_next(*tab->document, nullptr, backward, env))
+            focus_by_keyboard(*tab, *first);
+        dirty = true;
+    }
+
+    // The toolbar's stops in the order they stand, those that do something
+    // now: back and forward with somewhere to go, reload with a page, the
+    // address bar, the star and the reader's button where they apply, the
+    // menu.
+    std::vector<ChromeStop> chrome_stops()
+    {
+        Tab const* const tab = active_tab();
+        std::vector<ChromeStop> stops;
+        if (can_go(-1))
+            stops.push_back(ChromeStop::Back);
+        if (can_go(+1))
+            stops.push_back(ChromeStop::Forward);
+        if (tab && tab->current())
+            stops.push_back(ChromeStop::Reload);
+        stops.push_back(ChromeStop::Address);
+        if (can_bookmark_page())
+            stops.push_back(ChromeStop::Star);
+        if (reader_available())
+            stops.push_back(ChromeStop::Reader);
+        stops.push_back(ChromeStop::Menu);
+        return stops;
+    }
+
+    void set_chrome_stop(ChromeStop stop)
+    {
+        question_focus.reset();
+        find_focus = false;
+        if (stop == ChromeStop::Address) {
+            chrome_focus.reset();
+            focus_address(true);
+        } else {
+            blur_address();
+            chrome_focus = stop;
+        }
+        dirty = true;
+    }
+
+    void focus_chrome_edge(bool backward)
+    {
+        std::vector<ChromeStop> const stops = chrome_stops();
+        set_chrome_stop(backward ? stops.back() : stops.front());
+    }
+
+    // Tab among the toolbar's stops; past either end, into the page.
+    void chrome_tab(bool backward)
+    {
+        std::vector<ChromeStop> const stops = chrome_stops();
+        std::optional<ChromeStop> const at = address_focus ? std::optional<ChromeStop>(ChromeStop::Address) : chrome_focus;
+        auto const it = at ? std::find(stops.begin(), stops.end(), *at) : stops.end();
+        if (it == stops.end()) {
+            focus_chrome_edge(backward);
+            return;
+        }
+        std::size_t const index = static_cast<std::size_t>(it - stops.begin());
+        if (backward ? index == 0 : index + 1 == stops.size()) {
+            chrome_focus.reset();
+            blur_address();
+            if (pages_in_engines)
+                ask_front([backward](Browser& shell) { shell.m_impl->enter_page_focus(backward); });
+            else
+                enter_page_focus(backward);
+            dirty = true;
+            return;
+        }
+        set_chrome_stop(stops[backward ? index - 1 : index + 1]);
+    }
+
+    // A key while a toolbar button has the keyboard: Tab moves on, the
+    // arrows move along the toolbar, Enter and Space press the button,
+    // Escape gives the focus back to the page. True when it was taken.
+    bool chrome_key(KeyEvent const& key)
+    {
+        if (!chrome_focus || key.ctrl || key.alt)
+            return false;
+        ChromeStop const stop = *chrome_focus;
+        switch (key.key) {
+        case Key::Tab: chrome_tab(key.shift); return true;
+        case Key::Left:
+        case Key::Right: {
+            std::vector<ChromeStop> const stops = chrome_stops();
+            auto const it = std::find(stops.begin(), stops.end(), stop);
+            if (it == stops.end())
+                return true;
+            std::size_t const index = static_cast<std::size_t>(it - stops.begin());
+            if (key.key == Key::Left && index > 0)
+                set_chrome_stop(stops[index - 1]);
+            else if (key.key == Key::Right && index + 1 < stops.size())
+                set_chrome_stop(stops[index + 1]);
+            return true;
+        }
+        case Key::Escape:
+            chrome_focus.reset();
+            dirty = true;
+            return true;
+        case Key::Enter:
+        case Key::Space:
+            switch (stop) {
+            case ChromeStop::Back: go(-1); break;
+            case ChromeStop::Forward: go(+1); break;
+            case ChromeStop::Reload: reload(); break;
+            case ChromeStop::Star: bookmark_page(); break;
+            case ChromeStop::Reader: toggle_reader(); break;
+            case ChromeStop::Menu: open_main_menu(); break;
+            case ChromeStop::Address: break;
+            }
+            // A button whose press leaves it with nothing to do (back at
+            // the first page) lets go of the keyboard to its neighbor.
+            if (chrome_focus) {
+                std::vector<ChromeStop> const stops = chrome_stops();
+                if (std::find(stops.begin(), stops.end(), *chrome_focus) == stops.end())
+                    focus_chrome_edge(false);
+            }
+            dirty = true;
+            return true;
+        default: return true; // the toolbar's keys are its own
+        }
+    }
+
+    Rect chrome_stop_rect(ChromeLayout const& c, ChromeStop stop) const
+    {
+        switch (stop) {
+        case ChromeStop::Back: return c.back_button;
+        case ChromeStop::Forward: return c.forward_button;
+        case ChromeStop::Reload: return c.reload_button;
+        case ChromeStop::Address: return c.address;
+        case ChromeStop::Star: return c.star_button;
+        case ChromeStop::Reader: return c.reader_button;
+        case ChromeStop::Menu: return c.menu_button;
+        }
+        return {};
+    }
+
+    // A press on the page's content that is no control (HTML §6.6.4 "click
+    // focusable", run on mousedown as browsers do): the nearest focusable
+    // area around what was pressed takes the focus, not shown; a press on
+    // content none holds takes the focus away, and is where Tab goes on
+    // from (the sequential focus navigation starting point).
+    void press_focus(int x, int y)
+    {
+        Tab* const tab = active_tab();
+        if (!tab || !tab->document)
+            return;
+        std::optional<std::pair<float, float>> const point = page_point(x, y);
+        std::vector<FrameStep> const chain = point ? frames_at(*tab, point->first, point->second) : std::vector<FrameStep> {};
+        dom::Element const* const target = !point ? nullptr
+            : chain.empty() ? target_at(tab->layout.root, point->first, point->second, tab->styles)
+                            : target_at(chain.back().view->layout.root, chain.back().x, chain.back().y, chain.back().view->styles);
+        dom::Element const* focus_to = nullptr;
+        if (target) {
+            dom::focus::Environment const env = focus_environment(*tab);
+            focus_to = dom::focus::click_focus_target(*target, env);
+            // Inside a host that delegates the focus, a press on what takes
+            // none leaves it where it is in that tree.
+            if (focus_to && tab->controls.focused && focus_to != tab->controls.focused) {
+                for (dom::Node const* at = target; at; at = dom::flat_parent(*at)) {
+                    if (!at->is_element())
+                        continue;
+                    dom::ShadowRoot const* const shadow = static_cast<dom::Element const*>(at)->shadow_root();
+                    if (shadow && shadow->delegates_focus && &tab->controls.focused->root() == shadow) {
+                        focus_to = tab->controls.focused;
+                        break;
+                    }
+                }
+            }
+        }
+        if (!focus_to) {
+            blur_control();
+            tab->focus_start = target;
+            return;
+        }
+        tab->focus_start = nullptr;
+        if (focus_to != tab->controls.focused) {
+            focus_control(*tab, focus_to, false);
+            relayout(*tab);
+        }
+        dirty = true;
     }
 
     // A key while a page control has focus; true when the control took it.
@@ -13836,12 +14232,13 @@ struct Browser::Impl {
             return false;
         using layout::ControlKind;
         dom::Element const& control = *tab->controls.focused;
+        // A link, an element with a tabindex, a frame: no control's keys.
+        if (!layout::is_control(control))
+            return false;
         ControlKind const kind = layout::control_kind(control);
         layout::ControlState& state = state_of(*tab, control);
         bool changed = true;
-        if (key.key == Key::Tab) {
-            focus_neighbor(*tab, key.shift);
-        } else if (key.key == Key::Escape) {
+        if (key.key == Key::Escape) {
             focus_control(*tab, nullptr, false);
         } else if (layout::is_text_kind(kind)) {
             if (key.key == Key::Enter && kind != ControlKind::TextArea) {
@@ -13921,7 +14318,7 @@ struct Browser::Impl {
         if (!tab)
             return;
         dom::Element const& control = *tab->controls.focused;
-        if (!layout::is_text_kind(layout::control_kind(control)) || control.has_attribute("disabled")
+        if (!layout::is_control(control) || !layout::is_text_kind(layout::control_kind(control)) || control.has_attribute("disabled")
             || control.has_attribute("readonly"))
             return;
         field_insert(*tab, control, std::u32string(1, code_point), "insertText");
@@ -13996,6 +14393,10 @@ struct Browser::Impl {
             if (palette_open && hover != Hover::Palette && hover != Hover::PaletteRow)
                 close_palette();
             pressed = hover; // a toolbar button paints itself held until the button comes up
+            if (chrome_focus) {
+                chrome_focus.reset(); // the pointer takes the keyboard's place
+                dirty = true;
+            }
             if (hover != Hover::PermissionAllow && hover != Hover::PermissionBlock && hover != Hover::PermissionClose)
                 question_focus.reset(); // a press elsewhere takes the keyboard with it
             switch (hover) {
@@ -14148,7 +14549,7 @@ struct Browser::Impl {
                 // selection. A control's activation and a link's following
                 // wait for the click, at the release.
                 if (!control_at(x, y)) {
-                    blur_control();
+                    press_focus(x, y);
                     if (!hover_link) {
                         if (Tab* const tab = active_tab())
                             start_selection(*tab, x, y);
@@ -14417,6 +14818,9 @@ struct Browser::Impl {
         } else {
             question_focus.reset();
         }
+        // A toolbar button with the keyboard takes its keys.
+        if (chrome_key(key))
+            return;
         // The page hears a key meant for it — not the shell's own chords —
         // at the focused control, else the document; preventDefault keeps
         // the shell's handling from running.
@@ -14544,6 +14948,22 @@ struct Browser::Impl {
         if (key.key == Key::F5) {
             reload();
             return;
+        }
+        // Tab: from the address bar along the toolbar, in the page through
+        // its order (the page's keydown did not cancel it).
+        if (key.key == Key::Tab && !key.ctrl && !key.alt && !find_focus) {
+            if (address_focus) {
+                chrome_tab(key.shift);
+                return;
+            }
+            if (!pages_in_engines) {
+                if (Tab* const tab = active_tab()) {
+                    sequential_focus(*tab, key.shift);
+                    return;
+                }
+                focus_chrome_edge(key.shift);
+                return;
+            }
         }
         if (find_focus) {
             edit_find(key);
@@ -15191,6 +15611,13 @@ struct Browser::Impl {
             draw_icon(frame, Icon::Chevrons, c.bookmarks_overflow, icon_size(), t.toolbar_text);
         }
         paint_button(c.menu_button, Icon::Menu, true, hover == Hover::MenuButton || main_menu_open);
+        // The toolbar button the keyboard is on wears a ring in the accent.
+        if (chrome_focus && *chrome_focus != ChromeStop::Address) {
+            Rect const button = chrome_stop_rect(c, *chrome_focus);
+            int const ring = std::max(2, static_cast<int>(std::lround(2 * scale)));
+            frame.fill_round_box(Rect { button.x - 1, button.y - 1, button.width + 2, button.height + 2 },
+                t.button_corner_radius + 1, ring, t.accent, Color::rgba(0, 0, 0, 0));
+        }
 
         // Address bar.
         // A field with the focus wears its own colors, which a theme may
@@ -16852,6 +17279,25 @@ bool Browser::can_go_back() const { return m_impl->can_go(-1); }
 bool Browser::can_go_forward() const { return m_impl->can_go(+1); }
 std::string const& Browser::address_text() const { return m_impl->address; }
 bool Browser::address_focused() const { return m_impl->address_focus; }
+
+std::string Browser::chrome_focus_name() const
+{
+    using Stop = Impl::ChromeStop;
+    if (m_impl->address_focus)
+        return "address";
+    if (!m_impl->chrome_focus)
+        return "";
+    switch (*m_impl->chrome_focus) {
+    case Stop::Back: return "back";
+    case Stop::Forward: return "forward";
+    case Stop::Reload: return "reload";
+    case Stop::Address: return "address";
+    case Stop::Star: return "star";
+    case Stop::Reader: return "reader";
+    case Stop::Menu: return "menu";
+    }
+    return "";
+}
 std::string Browser::status_text() const
 {
     // The words at the page's foot are the page's to say, where it is in
@@ -17161,6 +17607,17 @@ std::string Browser::focused_control_name() const
     if (!name)
         name = tab->controls.focused->find_attribute("id");
     return name ? name->value : "";
+}
+
+std::string Browser::focused_element_id() const
+{
+    if (Impl::FrontPage const page = m_impl->front_page())
+        return m_impl->address_focus || m_impl->find_focus || m_impl->chrome_focus ? std::string() : page->focused_element_id();
+    Impl::Tab const* const tab = m_impl->active_tab();
+    if (!tab || !tab->controls.focused)
+        return "";
+    dom::Attr const* const id = tab->controls.focused->find_attribute("id");
+    return id ? id->value : "";
 }
 
 std::string Browser::selected_text() const

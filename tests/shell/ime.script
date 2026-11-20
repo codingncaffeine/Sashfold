@@ -21,9 +21,9 @@ assert-golden goldens/ime-control-typed.png
 preedit xyz
 focus other
 assert-value other
-# Tab back to the first field selects its value, as in every engine; the
-# input method is still told where its focus is.
-key tab
+# Shift+Tab back to the first field selects its value, as in every engine;
+# the input method is still told where its focus is.
+key shift+tab
 assert-text-input on
 
 # The address bar (its selection replaced by what is typed first), and

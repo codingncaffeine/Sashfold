@@ -875,6 +875,9 @@ public:
     bool can_go_forward() const;
     std::string const& address_text() const;
     bool address_focused() const;
+    // The toolbar stop the keyboard is on: "back", "forward", "reload",
+    // "address", "star", "reader", "menu", or "" while the page has it.
+    std::string chrome_focus_name() const;
     std::string status_text() const;
     std::string page_title() const;
     std::string page_text() const; // the laid-out text, runs joined by spaces
@@ -903,6 +906,7 @@ public:
     std::optional<std::string> control_value(std::string const& name) const;
     // The focused control's name, or "" when focus is elsewhere.
     std::string focused_control_name() const; // its name, else its id
+    std::string focused_element_id() const; // the focused element's id, in whichever frame it is
 
     // --- Selection (tests and --script) -------------------------------------
     // The selected page text, lines separated by newlines; "" when none.

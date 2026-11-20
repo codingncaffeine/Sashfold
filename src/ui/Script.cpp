@@ -1032,6 +1032,14 @@ struct Runner {
             bool const focused = browser.address_focused();
             if ((argument == "address") != focused)
                 fail("assert-focus: focus is on the " + std::string(focused ? "address bar" : "page"));
+        } else if (command == "assert-focused-id") {
+            // The focused element by its id, any element, in any frame; "none" for none.
+            std::string const id = browser.focused_element_id();
+            expect_equal("assert-focused-id", id.empty() ? std::string("none") : id, argument);
+        } else if (command == "assert-chrome-focus") {
+            // The toolbar stop the keyboard is on, or "none" while the page has it.
+            std::string const at = browser.chrome_focus_name();
+            expect_equal("assert-chrome-focus", at.empty() ? std::string("none") : at, argument);
         } else if (command == "focus") {
             if (!browser.focus_control(argument))
                 return fail("focus: no control named \"" + argument + "\"");

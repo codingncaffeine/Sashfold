@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<title>-</title>
+<style>
+body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+iframe { width: 300px; height: 70px; border: 1px solid; display: block }
+#scroll { width: 200px; height: 40px; overflow: auto }
+</style>
+<p><a id=l1 href="#target">one</a> <span id=p2 tabindex=2>p2</span> <button id=b1>b1</button>
+<span id=neg tabindex=-1>neg</span> <button id=dis disabled>dis</button> <input id=hid type=hidden>
+<input id=gone style="display:none"> <span id=p1 tabindex=1>p1</span> <span id=unseen tabindex=0 style="visibility:hidden">x</span></p>
+<p><input type=radio name=g id=r1><input type=radio name=g id=r2 checked><input type=radio name=g id=r3>
+<input type=radio name=h id=h1><input type=radio name=h id=h2></p>
+<div id=host><template shadowrootmode=open><input id=s1 size=4><slot></slot><input id=s2 size=4></template><span id=slotted tabindex=0>slotted</span></div>
+<iframe id=f1 srcdoc="<style>body{margin:4px}iframe{width:200px;height:30px;border:1px solid}</style><a id=fa href=#>fa</a><iframe id=f2 srcdoc='<input id=fi size=4>'></iframe><a id=fb href=#>fb</a><script>0</script>"></iframe>
+<div id=scroll><p>one</p><p>two</p><p>three</p><p>four</p></div>
+<details id=closed><summary id=sumc>closed</summary><input id=folded></details>
+<details open><summary id=sumo>open</summary><input id=unfolded size=4></details>
+<p id=target>Target paragraph with <a id=after href="#">after</a>.</p>
+<div inert><a id=inert href="#">inert</a></div>
+<a id=last href="#">last</a>
+<script>0</script>

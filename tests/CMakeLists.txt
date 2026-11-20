@@ -340,6 +340,10 @@ add_test(NAME shell_pdf_frames
 # inert: out of the pointer's, focus's, find's and selection's reach.
 add_test(NAME shell_inert
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/inert.script)
+# Tab and Shift+Tab through a page's focusable areas (shadow trees, nested
+# frames, radio groups, tabindex) and the toolbar's buttons, round and back.
+add_test(NAME shell_focus_order
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/focus-order.script)
 # The keys a page hears: letters, digits, punctuation (key, code, keyCode).
 add_test(NAME shell_key_events
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/key-events.script)
