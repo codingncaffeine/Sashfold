@@ -84,6 +84,94 @@ def make(name, mode, size, options, ext='jp2'):
     pdf('jpx-' + name, image_dict, data, size[0], size[1])
 
 
+def segments(data, at, end):
+    # Marker segments from `at` to the first of `end` (marker values): [(marker, bytes)], and where it stopped.
+    out = []
+    while at + 2 <= len(data):
+        marker = struct.unpack('>H', data[at:at + 2])[0]
+        if marker in end:
+            break
+        length = struct.unpack('>H', data[at + 2:at + 4])[0]
+        out.append((marker, data[at:at + 2 + length]))
+        at += 2 + length
+    return out, at
+
+
+def pack_headers(codestream, where):
+    # Rewrites a codestream made with SOP and EPH markers so its packet
+    # headers move into PPM segments of the main header (where='ppm') or PPT
+    # segments of each tile-part header ('ppt') (T.800 A.7.4, A.7.5). Each
+    # header ends at its EPH (stuffing keeps 0xFF92 out of headers) and each
+    # body runs to the next SOP (0xFF91 cannot occur in coded data); SOP stays
+    # with the body, EPH goes with the header. The segments are split in
+    # awkward places: a PPM's lengths run across segments.
+    main, at = segments(codestream, 2, (0xFF90,))
+    parts = []
+    while at + 12 <= len(codestream) and codestream[at:at + 2] == b'\xff\x90':
+        _, _, isot, psot, tpsot, tnsot = struct.unpack('>HHHIBB', codestream[at:at + 12])
+        header, sod = segments(codestream, at + 12, (0xFF93,))
+        body = codestream[sod + 2:at + psot]
+        headers, bodies = b'', b''
+        starts = [i for i in range(len(body) - 1) if body[i] == 0xFF and body[i + 1] == 0x91]
+        for k, start in enumerate(starts):
+            stop = starts[k + 1] if k + 1 < len(starts) else len(body)
+            eph = body.index(b'\xff\x92', start + 6) + 2
+            headers += body[start + 6:eph]
+            bodies += body[start:start + 6] + body[eph:stop]
+        parts.append((isot, tpsot, tnsot, header, headers, bodies))
+        at += psot
+    out = b'\xff\x4f' + b''.join(seg for _, seg in main)
+    if where == 'ppm':
+        joined = b''.join(struct.pack('>I', len(p[4])) + p[4] for p in parts)
+        cuts = [0, len(joined) // 3 + 1, 2 * len(joined) // 3 + 2, len(joined)]
+        for z in range(3):
+            piece = joined[cuts[z]:cuts[z + 1]]
+            out += struct.pack('>HHB', 0xFF60, 3 + len(piece), z) + piece
+    z_of_tile = {}
+    for isot, tpsot, tnsot, header, headers, bodies in parts:
+        extra = b''
+        if where == 'ppt':
+            for piece in (headers[:len(headers) // 2], headers[len(headers) // 2:]):
+                z = z_of_tile.get(isot, 0)
+                z_of_tile[isot] = z + 1
+                extra += struct.pack('>HHB', 0xFF61, 3 + len(piece), z) + piece
+        head = b''.join(seg for _, seg in header) + extra
+        psot = 12 + len(head) + 2 + len(bodies)
+        out += struct.pack('>HHHIBB', 0xFF90, 10, isot, psot, tpsot, tnsot) + head + b'\xff\x93' + bodies
+    return out + b'\xff\xd9'
+
+
+def poc_to_main(codestream):
+    # A one-tile codestream's tile-part POC moved into the main header,
+    # where it means the same (A.6.6).
+    main, at = segments(codestream, 2, (0xFF90,))
+    _, _, isot, psot, tpsot, tnsot = struct.unpack('>HHHIBB', codestream[at:at + 12])
+    header, sod = segments(codestream, at + 12, (0xFF93,))
+    moved = b''.join(seg for marker, seg in header if marker == 0xFF5F)
+    kept = b''.join(seg for marker, seg in header if marker != 0xFF5F)
+    body = codestream[sod:at + psot]
+    part = struct.pack('>HHHIBB', 0xFF90, 10, isot, 12 + len(kept) + len(body), tpsot, tnsot) + kept + body
+    return b'\xff\x4f' + b''.join(seg for _, seg in main) + moved + part + codestream[at + psot:]
+
+
+def poc_fixtures(size, options):
+    # Progression order changes in a tile-part header (as OpenJPEG writes
+    # them; its tile T1 is tile 0) and the same in the main header.
+    source = os.path.join(work, 'poc.ppm')
+    picture('RGB', size[0], size[1], 7).save(source)
+    tile = os.path.join(out_dir, 'jpx-poc.j2k')
+    subprocess.run(['opj_compress', '-i', source, '-o', tile] + options, check=True, stdout=subprocess.DEVNULL)
+    main = os.path.join(out_dir, 'jpx-poc-main.j2k')
+    open(main, 'wb').write(poc_to_main(open(tile, 'rb').read()))
+    truths = []
+    for name, stream in (('jpx-poc', tile), ('jpx-poc-main', main)):
+        truth = os.path.join(work, name + '.truth.png')
+        subprocess.run(['opj_decompress', '-i', stream, '-o', truth], check=True, stdout=subprocess.DEVNULL)
+        truths.append(Image.open(truth).convert('RGB').tobytes())
+        open(os.path.join(out_dir, name + '.raw'), 'wb').write(truths[-1])
+    assert truths[0] == truths[1], 'OpenJPEG decodes the main-header POC differently'
+
+
 def fixture(name, mode, size, options, ext):
     source = os.path.join(work, name + ('.pgm' if mode == 'L' else '.ppm'))
     picture(mode, size[0], size[1], len(name)).save(source)
@@ -92,6 +180,25 @@ def fixture(name, mode, size, options, ext):
     truth = os.path.join(work, name + '.truth.png')
     subprocess.run(['opj_decompress', '-i', coded, '-o', truth], check=True, stdout=subprocess.DEVNULL)
     open(os.path.join(out_dir, name + '.raw'), 'wb').write(Image.open(truth).convert(mode).tobytes())
+
+
+def packed_fixture(name, where, size, options):
+    # A codestream made with SOP and EPH, its packet headers then moved into
+    # PPM or PPT segments; OpenJPEG decodes the rewritten stream, and its
+    # decoding must equal that of the original.
+    source = os.path.join(work, name + '.ppm')
+    picture('RGB', size[0], size[1], len(name)).save(source)
+    plain = os.path.join(work, name + '-plain.j2k')
+    subprocess.run(['opj_compress', '-i', source, '-o', plain, '-SOP', '-EPH'] + options, check=True, stdout=subprocess.DEVNULL)
+    coded = os.path.join(out_dir, name + '.j2k')
+    open(coded, 'wb').write(pack_headers(open(plain, 'rb').read(), where))
+    truths = []
+    for stream in (plain, coded):
+        truth = os.path.join(work, os.path.basename(stream) + '.truth.png')
+        subprocess.run(['opj_decompress', '-i', stream, '-o', truth], check=True, stdout=subprocess.DEVNULL)
+        truths.append(Image.open(truth).convert('RGB').tobytes())
+    assert truths[0] == truths[1], name + ': OpenJPEG decodes the rewritten stream differently'
+    open(os.path.join(out_dir, name + '.raw'), 'wb').write(truths[1])
 
 
 def signed_fixture(name, size):
@@ -118,8 +225,13 @@ if fixtures:
     fixture('jpx-lossless', 'RGB', (45, 31), ['-n', '3'], 'jp2')
     fixture('jpx-lossy', 'L', (40, 33), ['-n', '4', '-I', '-r', '12'], 'j2k')
     fixture('jpx-modes', 'RGB', (52, 37), ['-n', '3', '-M', '59', '-p', 'RPCL', '-c', '[16,16]', '-t', '30,20', '-SOP', '-EPH'], 'jp2')
+    # Progression order changes: three volumes in three orders over four
+    # layers, each later one reaching packets an earlier one read.
+    poc_fixtures((40, 30), ['-n', '3', '-r', '30,10,3,1', '-POC', 'T1=0,0,2,2,3,RLCP/T1=0,0,4,4,2,CPRL/T1=0,2,4,4,3,LRCP'])
     # Precincts on a tile grid that starts off the precinct grid, position-major.
     fixture('jpx-pcrl-offset', 'RGB', (41, 33), ['-n', '3', '-p', 'PCRL', '-c', '[8,8]', '-d', '5,3', '-T', '1,1', '-t', '13,11'], 'j2k')
+    packed_fixture('jpx-ppm', 'ppm', (36, 28), ['-n', '3', '-r', '20,4,1', '-t', '20,16'])
+    packed_fixture('jpx-ppt', 'ppt', (36, 28), ['-n', '3', '-r', '20,4,1', '-t', '20,16', '-TP', 'R'])
     signed_fixture('jpx-signed', (33, 21))
     import shutil
     shutil.rmtree(work)

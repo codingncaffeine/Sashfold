@@ -7,10 +7,9 @@
 // dequantization (Annex E), the inverse wavelet transforms (Annex F, the
 // reversible 5/3 and the irreversible 9/7, by lifting with symmetric
 // extension) and the component transforms and level shift (Annex G).
-//
-// Not yet read (the picture still decodes where it does not need them,
-// else it is declined): progression order changes (POC), packed packet
-// headers (PPM, PPT). Region of interest (RGN, max-shift) is read.
+// Progression order changes (POC, in the main and tile-part headers),
+// packed packet headers (PPM in the main header, PPT in tile-part headers)
+// and the region of interest (RGN, max-shift) are read.
 
 #include "pdf/JpxTier1.h"
 
@@ -75,6 +74,17 @@ struct Quantization {
     std::vector<std::pair<int, int>> steps; // (exponent, mantissa) per subband, in order
 };
 
+// A progression volume (A.6.6, B.12.2): the packets of layers [0,
+// layer_end), resolutions [r0, r1) and components [c0, c1), in an order.
+struct Progression {
+    int r0 = 0;
+    int c0 = 0;
+    int layer_end = 1;
+    int r1 = 33;
+    int c1 = 0;
+    int order = 0;
+};
+
 struct Defaults {
     int progression = 0; // LRCP, RLCP, RPCL, PCRL, CPRL
     int layers = 1;
@@ -84,7 +94,14 @@ struct Defaults {
     std::vector<CodingStyle> coding; // per component
     std::vector<Quantization> quantization; // per component
     std::vector<int> roi_shift; // per component
+    // Progression order changes: the main header's, or the tile's own,
+    // which replace them (A.6.6). Empty: the one order of COD.
+    std::vector<Progression> poc;
+    bool poc_of_tile = false;
 };
+
+// Packed packet headers (A.7.4, A.7.5): a marker's index and its bytes.
+using PackedSegment = std::pair<int, std::vector<std::uint8_t>>;
 
 struct Codestream {
     int x0 = 0, y0 = 0, x1 = 0, y1 = 0; // the image area
@@ -95,6 +112,12 @@ struct Codestream {
     // and its data, tile-parts in order.
     std::map<int, Defaults> tile_parameters;
     std::map<int, std::vector<std::uint8_t>> tile_data;
+    // PPM segments of the main header, PPT segments of each tile's
+    // tile-part headers, and from them each tile's packet headers, apart
+    // from its packet bodies.
+    std::vector<PackedSegment> ppm;
+    std::map<int, std::vector<PackedSegment>> ppt;
+    std::map<int, std::vector<std::uint8_t>> tile_headers;
 };
 
 int ceil_div(int a, int b)
@@ -147,9 +170,9 @@ bool read_quantization(Reader& r, std::size_t end, Quantization& q)
     return !r.failed && q.style <= 2 && !q.steps.empty();
 }
 
-// Reads the markers of a header (the main one, or a tile-part's into its
-// tile's parameters) up to SOT or SOD.
-bool read_header_markers(Reader& r, Codestream& cs, Defaults& d, bool main)
+// Reads the markers of a header (the main one, or a tile-part's of `tile`
+// into its tile's parameters) up to SOT or SOD.
+bool read_header_markers(Reader& r, Codestream& cs, Defaults& d, bool main, int tile = -1)
 {
     while (!r.failed) {
         if (!r.has(2))
@@ -249,10 +272,50 @@ bool read_header_markers(Reader& r, Codestream& cs, Defaults& d, bool main)
             d.roi_shift[c] = static_cast<int>(shift);
             break;
         }
-        case 0xFF5F: // POC
-        case 0xFF60: // PPM
-        case 0xFF61: // PPT
-            return false;
+        case 0xFF5F: { // POC (A.6.6): progression volumes, 7 or 9 bytes each
+            bool const wide = count > 256;
+            std::size_t const entry = wide ? 9 : 7;
+            if (end == r.at || (end - r.at) % entry != 0)
+                return false;
+            // A tile's own changes replace the main header's (they apply to
+            // the tile alone); its later tile-parts add to them.
+            if (!main && !d.poc_of_tile) {
+                d.poc.clear();
+                d.poc_of_tile = true;
+            }
+            while (r.at + entry <= end && !r.failed) {
+                Progression p;
+                p.r0 = static_cast<int>(r.u8());
+                p.c0 = static_cast<int>(wide ? r.u16() : r.u8());
+                p.layer_end = static_cast<int>(r.u16());
+                p.r1 = static_cast<int>(r.u8());
+                std::uint32_t const ce = wide ? r.u16() : r.u8();
+                p.c1 = ce != 0 ? static_cast<int>(ce) : wide ? 16384 : 256; // 0 is past the last (table A.32)
+                p.order = static_cast<int>(r.u8());
+                if (p.order > 4 || d.poc.size() >= 1024)
+                    return false;
+                d.poc.push_back(p);
+            }
+            break;
+        }
+        case 0xFF60: // PPM (A.7.4): the packet headers of every tile-part, in the main header
+            if (!main || end == r.at)
+                return false;
+            {
+                int const index = static_cast<int>(r.u8());
+                cs.ppm.push_back({ index, std::vector<std::uint8_t>(r.data.begin() + static_cast<std::ptrdiff_t>(r.at),
+                                              r.data.begin() + static_cast<std::ptrdiff_t>(end)) });
+            }
+            break;
+        case 0xFF61: // PPT (A.7.5): a tile's packet headers, in its tile-part headers
+            if (main || tile < 0 || end == r.at)
+                return false;
+            {
+                int const index = static_cast<int>(r.u8());
+                cs.ppt[tile].push_back({ index, std::vector<std::uint8_t>(r.data.begin() + static_cast<std::ptrdiff_t>(r.at),
+                                                    r.data.begin() + static_cast<std::ptrdiff_t>(end)) });
+            }
+            break;
         default:
             break; // COM, TLM, PLM, PLT, CRG: nothing a decoder needs
         }
@@ -273,6 +336,29 @@ std::optional<Codestream> read_codestream(std::span<std::uint8_t const> data)
         return std::nullopt;
     int const tiles_across = ceil_div(cs.x1 - cs.tx0, cs.tw);
     int const tiles_down = ceil_div(cs.y1 - cs.ty0, cs.th);
+    // PPM: the segments in their order (Zppm), joined, then cut into each
+    // tile-part's headers by the length before each (Nppm), which may
+    // run across segments (A.7.4).
+    auto const by_index = [](PackedSegment const& a, PackedSegment const& b) { return a.first < b.first; };
+    std::vector<std::vector<std::uint8_t>> ppm_parts;
+    if (!cs.ppm.empty()) {
+        std::stable_sort(cs.ppm.begin(), cs.ppm.end(), by_index);
+        std::vector<std::uint8_t> joined;
+        for (PackedSegment const& segment : cs.ppm)
+            joined.insert(joined.end(), segment.second.begin(), segment.second.end());
+        cs.ppm.clear();
+        std::size_t at = 0;
+        while (at + 4 <= joined.size()) {
+            std::size_t const n = static_cast<std::size_t>(joined[at]) << 24 | static_cast<std::size_t>(joined[at + 1]) << 16
+                | static_cast<std::size_t>(joined[at + 2]) << 8 | static_cast<std::size_t>(joined[at + 3]);
+            at += 4;
+            std::size_t const take = std::min(n, joined.size() - at);
+            ppm_parts.emplace_back(joined.begin() + static_cast<std::ptrdiff_t>(at), joined.begin() + static_cast<std::ptrdiff_t>(at + take));
+            at += take;
+        }
+    }
+    bool const packed_main = !ppm_parts.empty();
+    std::size_t tile_part = 0; // tile-parts in the order they come, for PPM
     while (r.has(2) && !r.failed) {
         std::uint32_t const marker = r.u16();
         if (marker == 0xFFD9) // EOC
@@ -290,7 +376,7 @@ std::optional<Codestream> read_codestream(std::span<std::uint8_t const> data)
         // A tile's first part may change its parameters; they start as the main ones.
         auto [parameters, fresh] = cs.tile_parameters.try_emplace(tile, cs.main);
         (void)fresh;
-        if (!read_header_markers(r, cs, parameters->second, false) && part == 0)
+        if (!read_header_markers(r, cs, parameters->second, false, tile) && part == 0)
             return std::nullopt;
         if (r.u16() != 0xFF93) // SOD
             return std::nullopt;
@@ -299,8 +385,24 @@ std::optional<Codestream> read_codestream(std::span<std::uint8_t const> data)
             return std::nullopt;
         std::vector<std::uint8_t>& bytes = cs.tile_data[tile];
         bytes.insert(bytes.end(), data.begin() + static_cast<std::ptrdiff_t>(r.at), data.begin() + static_cast<std::ptrdiff_t>(end));
+        if (packed_main) {
+            std::vector<std::uint8_t>& headers = cs.tile_headers[tile];
+            if (tile_part < ppm_parts.size())
+                headers.insert(headers.end(), ppm_parts[tile_part].begin(), ppm_parts[tile_part].end());
+        }
+        ++tile_part;
         r.at = end;
     }
+    // PPT: each tile's segments in their order (Zppt, counted across its tile-parts).
+    if (!packed_main) {
+        for (auto& [tile, segments] : cs.ppt) {
+            std::stable_sort(segments.begin(), segments.end(), by_index);
+            std::vector<std::uint8_t>& headers = cs.tile_headers[tile];
+            for (PackedSegment const& segment : segments)
+                headers.insert(headers.end(), segment.second.begin(), segment.second.end());
+        }
+    }
+    cs.ppt.clear();
     return cs;
 }
 
@@ -507,17 +609,35 @@ int floor_log2(int v)
     return l;
 }
 
+// A tile's packets: their bodies in its tile-part data, their headers there
+// too, or apart in the packed headers of PPM or PPT (A.7.4, A.7.5).
+struct PacketStreams {
+    std::span<std::uint8_t const> data;
+    std::size_t at = 0;
+    std::span<std::uint8_t const> headers;
+    std::size_t header_at = 0;
+    bool packed = false;
+
+    bool exhausted() const { return packed ? header_at >= headers.size() : at >= data.size(); }
+};
+
 // One packet: its header, then its code-blocks' bytes. False on data
 // that cannot be a packet.
-bool read_packet(std::span<std::uint8_t const> data, std::size_t& at, Defaults const& d, TileComponent& tc, int r, int precinct,
-    int layer)
+bool read_packet(PacketStreams& s, Defaults const& d, TileComponent& tc, int r, int precinct, int layer)
 {
     Resolution& res = tc.resolutions[static_cast<std::size_t>(r)];
     if (precinct >= static_cast<int>(res.precincts.size()))
         return true;
+    std::span<std::uint8_t const> const data = s.data;
+    std::size_t& at = s.at;
+    // SOP stays with the body; EPH with the header, wherever that is (A.8.1, A.8.2).
     if (d.sop && at + 6 <= data.size() && data[at] == 0xFF && data[at + 1] == 0x91)
         at += 6;
-    HeaderBits bits { data.subspan(at) };
+    std::span<std::uint8_t const> const header_data = s.packed ? s.headers : s.data;
+    std::size_t& header_at = s.packed ? s.header_at : s.at;
+    if (header_at > header_data.size())
+        return false;
+    HeaderBits bits { header_data.subspan(header_at) };
     struct Contribution {
         CodeBlock* block;
         std::vector<std::pair<int, std::size_t>> segments; // passes, bytes
@@ -585,22 +705,22 @@ bool read_packet(std::span<std::uint8_t const> data, std::size_t& at, Defaults c
         }
     }
     bits.finish();
-    at += bits.at;
-    if (d.eph && at + 2 <= data.size() && data[at] == 0xFF && data[at + 1] == 0x92)
-        at += 2;
+    header_at += bits.at;
+    if (d.eph && header_at + 2 <= header_data.size() && header_data[header_at] == 0xFF && header_data[header_at + 1] == 0x92)
+        header_at += 2;
     // The bodies, in the same order.
     for (Contribution& contribution : contributions) {
         CodeBlock& block = *contribution.block;
         bool continues = !block.segment_passes.empty()
             && block.segment_passes.back() < segment_pass_limit(tc.style.block, block.passes - block.segment_passes.back());
-        for (std::size_t s = 0; s < contribution.segments.size(); ++s) {
-            auto const [passes, bytes] = contribution.segments[s];
+        for (std::size_t segment = 0; segment < contribution.segments.size(); ++segment) {
+            auto const [passes, bytes] = contribution.segments[segment];
             if (at + bytes > data.size())
                 return false;
             block.data.insert(block.data.end(), data.begin() + static_cast<std::ptrdiff_t>(at),
                 data.begin() + static_cast<std::ptrdiff_t>(at + bytes));
             at += bytes;
-            if (s == 0 && continues) {
+            if (segment == 0 && continues) {
                 block.segment_passes.back() += passes;
                 block.segment_bytes.back() += bytes;
             } else {
@@ -613,44 +733,29 @@ bool read_packet(std::span<std::uint8_t const> data, std::size_t& at, Defaults c
     return true;
 }
 
-// The tile's packets in the order its progression says (B.12).
-bool read_packets(std::span<std::uint8_t const> data, Defaults const& d, std::vector<TileComponent>& components,
-    std::vector<Component> const& image_components, int tile_x0, int tile_y0)
+// One progression volume's packets in its order (B.12.1): layers [0, l1),
+// resolutions [r0, r1), components [c0, c1). `packet(c, r, p, l)` reads
+// one, false to stop. False when stopped.
+template<typename Packet, typename Precincts>
+bool read_volume(int progression, int l1, int r0, int r1, int c0, int c1, Packet const& packet, Precincts const& max_precincts,
+    std::vector<TileComponent> const& components, std::vector<Component> const& image_components, int tile_x0, int tile_y0)
 {
-    std::size_t at = 0;
-    int max_levels = 0;
-    for (TileComponent const& tc : components)
-        max_levels = std::max(max_levels, tc.style.levels);
-    auto const packet = [&](int c, int r, int p, int l) {
-        TileComponent& tc = components[static_cast<std::size_t>(c)];
-        if (r > tc.style.levels)
-            return true;
-        return read_packet(data, at, d, tc, r, p, l);
-    };
-    auto const max_precincts = [&](int c, int r) {
-        TileComponent const& tc = components[static_cast<std::size_t>(c)];
-        if (r > tc.style.levels)
-            return 0;
-        return static_cast<int>(tc.resolutions[static_cast<std::size_t>(r)].precincts.size());
-    };
-    int const nc = static_cast<int>(components.size());
-    auto const at_end = [&] { return at >= data.size(); };
-    switch (d.progression) {
+    switch (progression) {
     case 0: // LRCP
-        for (int l = 0; l < d.layers; ++l)
-            for (int r = 0; r <= max_levels; ++r)
-                for (int c = 0; c < nc; ++c)
+        for (int l = 0; l < l1; ++l)
+            for (int r = r0; r < r1; ++r)
+                for (int c = c0; c < c1; ++c)
                     for (int p = 0; p < max_precincts(c, r); ++p)
-                        if (at_end() || !packet(c, r, p, l))
-                            return at_end();
+                        if (!packet(c, r, p, l))
+                            return false;
         return true;
     case 1: // RLCP
-        for (int r = 0; r <= max_levels; ++r)
-            for (int l = 0; l < d.layers; ++l)
-                for (int c = 0; c < nc; ++c)
+        for (int r = r0; r < r1; ++r)
+            for (int l = 0; l < l1; ++l)
+                for (int c = c0; c < c1; ++c)
                     for (int p = 0; p < max_precincts(c, r); ++p)
-                        if (at_end() || !packet(c, r, p, l))
-                            return at_end();
+                        if (!packet(c, r, p, l))
+                            return false;
         return true;
     default:
         break;
@@ -662,10 +767,10 @@ bool read_packets(std::span<std::uint8_t const> data, Defaults const& d, std::ve
         std::int64_t y, x;
     };
     std::vector<Visit> visits;
-    for (int c = 0; c < nc; ++c) {
+    for (int c = c0; c < c1; ++c) {
         TileComponent const& tc = components[static_cast<std::size_t>(c)];
         Component const& ic = image_components[static_cast<std::size_t>(c)];
-        for (int r = 0; r <= tc.style.levels; ++r) {
+        for (int r = r0; r < r1 && r <= tc.style.levels; ++r) {
             Resolution const& res = tc.resolutions[static_cast<std::size_t>(r)];
             int const down = tc.style.levels - r;
             for (int p = 0; p < static_cast<int>(res.precincts.size()); ++p) {
@@ -686,7 +791,7 @@ bool read_packets(std::span<std::uint8_t const> data, Defaults const& d, std::ve
         }
     }
     auto const order = [&](Visit const& a, Visit const& b) {
-        switch (d.progression) {
+        switch (progression) {
         case 2: // RPCL
             if (a.r != b.r)
                 return a.r < b.r;
@@ -715,14 +820,72 @@ bool read_packets(std::span<std::uint8_t const> data, Defaults const& d, std::ve
     };
     std::stable_sort(visits.begin(), visits.end(), order);
     for (Visit const& v : visits) {
-        for (int l = 0; l < d.layers; ++l) {
-            if (at_end() || !packet(v.c, v.r, v.p, l))
-                return at_end();
+        for (int l = 0; l < l1; ++l) {
+            if (!packet(v.c, v.r, v.p, l))
+                return false;
         }
     }
     return true;
 }
 
+// The tile's packets in the order its progression says (B.12): one order
+// over every packet, or the progression volumes of its POC one after
+// another (B.12.2), where a packet a volume reaches again is not read twice:
+// each precinct's layers are read in turn, the next one when a volume
+// comes to it.
+bool read_packets(PacketStreams& s, Defaults const& d, std::vector<TileComponent>& components,
+    std::vector<Component> const& image_components, int tile_x0, int tile_y0)
+{
+    int max_levels = 0;
+    for (TileComponent const& tc : components)
+        max_levels = std::max(max_levels, tc.style.levels);
+    int const nc = static_cast<int>(components.size());
+    // The next layer of each precinct: [component][resolution][precinct].
+    std::vector<std::vector<std::vector<int>>> next_layer(components.size());
+    for (std::size_t c = 0; c < components.size(); ++c) {
+        for (Resolution const& res : components[c].resolutions)
+            next_layer[c].emplace_back(res.precincts.size(), 0);
+    }
+    bool failed = false;
+    // False to stop: the data has run out, or a packet could not be read.
+    auto const packet = [&](int c, int r, int p, int l) {
+        if (s.exhausted())
+            return false;
+        TileComponent& tc = components[static_cast<std::size_t>(c)];
+        if (r > tc.style.levels)
+            return true;
+        int& next = next_layer[static_cast<std::size_t>(c)][static_cast<std::size_t>(r)][static_cast<std::size_t>(p)];
+        if (l != next)
+            return true;
+        ++next;
+        if (!read_packet(s, d, tc, r, p, l)) {
+            failed = true;
+            return false;
+        }
+        return true;
+    };
+    auto const max_precincts = [&](int c, int r) {
+        TileComponent const& tc = components[static_cast<std::size_t>(c)];
+        if (r > tc.style.levels)
+            return 0;
+        return static_cast<int>(tc.resolutions[static_cast<std::size_t>(r)].precincts.size());
+    };
+    std::vector<Progression> volumes = d.poc;
+    if (volumes.empty())
+        volumes.push_back({ 0, 0, d.layers, max_levels + 1, nc, d.progression });
+    for (Progression const& v : volumes) {
+        int const l1 = std::min(v.layer_end, d.layers);
+        int const r0 = v.r0;
+        int const r1 = std::min(v.r1, max_levels + 1);
+        int const c0 = v.c0;
+        int const c1 = std::min(v.c1, nc);
+        if (l1 <= 0 || r0 >= r1 || c0 >= c1)
+            continue;
+        if (!read_volume(v.order, l1, r0, r1, c0, c1, packet, max_precincts, components, image_components, tile_x0, tile_y0))
+            return !failed;
+    }
+    return true;
+}
 // --- Annex F: the inverse wavelet transforms ------------------------------
 
 // One line's synthesis in place: `x` holds the interleaved samples of the
@@ -956,8 +1119,16 @@ bool decode_tile(Codestream const& cs, int tile, Defaults const& d, std::vector<
         }
     }
     auto const found = cs.tile_data.find(tile);
-    if (found != cs.tile_data.end())
-        read_packets(found->second, d, components, cs.components, tx0, ty0);
+    if (found != cs.tile_data.end()) {
+        PacketStreams streams;
+        streams.data = found->second;
+        auto const headers = cs.tile_headers.find(tile);
+        if (headers != cs.tile_headers.end()) {
+            streams.headers = headers->second;
+            streams.packed = true;
+        }
+        read_packets(streams, d, components, cs.components, tx0, ty0);
+    }
     // Tier 1 for every code-block, into its subband.
     std::vector<Segment> segments;
     std::vector<std::int32_t> coefficients;
