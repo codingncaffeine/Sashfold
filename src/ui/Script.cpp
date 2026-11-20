@@ -1006,6 +1006,28 @@ struct Runner {
                 fail("assert-pixel: (" + std::to_string(*x) + ", " + std::to_string(*y) + ") is " + text
                     + ", expected " + args[2]);
             }
+        } else if (command == "assert-ink") {
+            // `assert-ink <#rrggbb> <x> <y> <w> <h> <min> [<max>]`: how many
+            // pixels of the box are that color, give or take the edge of a
+            // glyph (each channel within 64), lies between min and max —
+            // whether a glyph is in a cell, and none is outside it.
+            std::optional<Color> const wanted = !args.empty() ? parse_theme_color(args[0]) : std::nullopt;
+            auto const x = int_arg(1), y = int_arg(2), w = int_arg(3), h = int_arg(4), least = int_arg(5);
+            if (!wanted || !x || !y || !w || !h || !least)
+                return fail("assert-ink: needs #rrggbb x y w h min [max]");
+            int const most = int_arg(6).value_or(1 << 30);
+            Bitmap const& frame = browser.frame();
+            int count = 0;
+            for (int py = std::max(0, *y); py < std::min(frame.height(), *y + *h); ++py) {
+                for (int px = std::max(0, *x); px < std::min(frame.width(), *x + *w); ++px) {
+                    Color const c = frame.pixel(px, py);
+                    if (std::abs(c.r - wanted->r) <= 64 && std::abs(c.g - wanted->g) <= 64 && std::abs(c.b - wanted->b) <= 64)
+                        ++count;
+                }
+            }
+            if (count < *least || count > most)
+                fail("assert-ink: " + std::to_string(count) + " pixels of " + args[0] + " in (" + std::to_string(*x) + ", " + std::to_string(*y) + ") "
+                    + std::to_string(*w) + " x " + std::to_string(*h) + ", expected " + std::to_string(*least) + " to " + std::to_string(most));
         } else if (command == "assert-focus") {
             bool const focused = browser.address_focused();
             if ((argument == "address") != focused)

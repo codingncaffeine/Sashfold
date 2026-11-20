@@ -84,6 +84,12 @@ body.side-open #pages { padding-left: 216px; }
 .fields .f:focus { background: #fff; outline: 2px solid rgba(0, 54, 255, 0.55); outline-offset: -1px; }
 .fields .f.toggle { opacity: 0; cursor: pointer; padding: 0; }
 .fields .f[readonly], .fields .f:disabled { pointer-events: none; opacity: 0; }
+/* A comb field: the box (border, tint, focus ring) is a wrapper that clips;
+   the input inside reaches past its right edge, so the caret after the
+   last cell's character stays in view and the text never scrolls. */
+.fields .comb-box { position: absolute; box-sizing: border-box; overflow: hidden; background: rgba(0, 54, 255, 0.13); }
+.fields .comb-box:focus-within { background: #fff; outline: 2px solid rgba(0, 54, 255, 0.55); outline-offset: -1px; }
+.fields .comb-box .f, .fields .comb-box .f:focus { background: transparent; outline: none; border: 0; white-space: pre; }
 .fields .listbox { overflow: hidden; cursor: default; user-select: none; }
 .fields .listbox .row { white-space: nowrap; overflow: hidden; padding: 0 1px; }
 .fields .listbox .row.on { background: #99c1da; }
@@ -428,8 +434,16 @@ function buildFields(p) {
     if (item.required)
       el.required = true;
     el.dataset.q = item.q;
-    layer.appendChild(el);
-    p.controls.push({ el, item });
+    let box = null;
+    if (item.kind === "text" && item.comb && item.maxLen > 0 && !item.multiline) {
+      box = document.createElement("div");
+      box.className = "comb-box";
+      box.appendChild(el);
+      layer.appendChild(box);
+    } else {
+      layer.appendChild(el);
+    }
+    p.controls.push({ el, item, box });
   }
   placeFields(p);
 }
@@ -437,24 +451,25 @@ function buildFields(p) {
 function placeFields(p) {
   if (!p.controls)
     return;
-  for (const { el, item } of p.controls) {
+  for (const { el, item, box } of p.controls) {
     const r = item.rect;
     const w = (r[2] - r[0]) * zoom;
     const h = (r[3] - r[1]) * zoom;
-    el.style.left = r[0] * zoom + "px";
-    el.style.top = r[1] * zoom + "px";
-    el.style.width = w + "px";
-    el.style.height = h + "px";
+    const outer = box || el;
+    outer.style.left = r[0] * zoom + "px";
+    outer.style.top = r[1] * zoom + "px";
+    outer.style.width = w + "px";
+    outer.style.height = h + "px";
     if (el.classList.contains("toggle"))
       continue;
     // The document's border and background where it gives them; the size
     // of its default appearance, or one that fits the box (12 for several lines).
     const bw = item.bc && item.bw > 0 ? item.bw * zoom : 0;
-    el.style.border = bw ? bw + "px " + (item.style === "D" ? "dashed" : item.style === "U" ? "none" : "solid") + " " + item.bc : "0";
+    outer.style.border = bw ? bw + "px " + (item.style === "D" ? "dashed" : item.style === "U" ? "none" : "solid") + " " + item.bc : "0";
     if (item.style === "U" && bw)
-      el.style.borderBottom = bw + "px solid " + item.bc;
+      outer.style.borderBottom = bw + "px solid " + item.bc;
     if (item.bg)
-      el.style.background = item.bg;
+      outer.style.background = item.bg;
     el.style.color = item.color || "#000";
     el.style.fontFamily = item.family;
     let size = item.size;
@@ -464,19 +479,34 @@ function placeFields(p) {
     el.style.textAlign = item.q === 1 ? "center" : item.q === 2 ? "right" : "left";
     const pad = (item.bc ? item.bw : 0) + 2;
     el.style.padding = (item.multiline ? pad * zoom + "px " : "0 ") + pad * zoom + "px";
-    if (item.comb && item.maxLen > 0) {
-      // One character a cell: the letters spaced to the cell's width, by
-      // the width of a digit measured in the field's font.
-      const cell = w / item.maxLen;
+    if (box) {
+      // One character a cell, as the written appearance puts them: the
+      // cells divide the box inside the border and the padding, each
+      // character centered in its own. In a monospaced font every
+      // character is a digit's width, so the letters spaced by the cell
+      // less that width land cell for cell; the first starts half the
+      // slack into the first cell. The input reaches past the box's right
+      // edge by that half and the caret's width, so the last cell's
+      // character and the caret after it stay where they are.
+      const inset = pad * zoom;
+      const cell = Math.max(0, w - 2 * inset) / item.maxLen;
       el.style.fontFamily = "monospace";
       const probe = document.createElement("span");
       probe.style.cssText = "position:absolute;visibility:hidden;white-space:pre;font-family:monospace;font-size:" + size * zoom + "px";
-      probe.textContent = "0";
+      // Ten digits, for the width of one to a fraction of a pixel.
+      probe.textContent = "0000000000";
       p.fields.appendChild(probe);
-      const digit = probe.offsetWidth || size * zoom * 0.6;
+      const digit = probe.getBoundingClientRect().width / 10 || size * zoom * 0.6;
       probe.remove();
-      el.style.padding = "0";
-      el.style.textIndent = Math.max(0, (cell - digit) / 2) + "px";
+      const slack = (cell - digit) / 2;
+      el.style.left = "0";
+      el.style.top = "0";
+      // Past the box by the slack and the room a field keeps for its caret.
+      el.style.width = w - 2 * bw + Math.max(0, slack) + 12 + "px";
+      el.style.height = h - 2 * bw + "px";
+      el.style.padding = "0 0 0 " + Math.max(0, inset - bw + slack) + "px";
+      el.style.textIndent = "0";
+      el.style.textAlign = "left";
       el.style.letterSpacing = cell - digit + "px";
     }
     if (item.kind === "list") {

@@ -307,6 +307,10 @@ add_test(NAME shell_field_focus_events
 # pressed and redrawn by the page, the download with the values in it.
 add_test(NAME shell_pdf_form
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pdf-form.script)
+# A comb field typed full: a character a cell where the written appearance
+# puts it, never scrolled, the character past MaxLen refused.
+add_test(NAME shell_pdf_comb
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pdf-comb.script)
 # A PDF in an iframe, an embed and an object: the viewer in each, drawn.
 add_test(NAME shell_pdf_frames
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pdf-frames.script)

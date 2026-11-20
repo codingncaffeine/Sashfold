@@ -1,0 +1,31 @@
+# A comb field in the PDF viewer (pdf-form.pdf, the "code" field: MaxLen 5,
+# its box [240 340 380 370]): typed into, one character a cell as the
+# written appearance puts them (the cells divide the box inside its border
+# and padding: 33.5 px each from x 503.75 at zoom 1.25), the field never
+# scrolled when its last cell is filled, and a sixth character refused.
+resize 900 700
+open pdf-form.pdf
+advance 500 6
+assert-value field-12-0 12345
+click 600 198
+key ctrl+a
+type ABCDE
+advance 400 3
+assert-value field-12-0 ABCDE
+# Each cell holds its character (the DA's blue) in its middle ...
+assert-ink #0000ff 513 184 15 28 20
+assert-ink #0000ff 547 184 15 28 20
+assert-ink #0000ff 580 184 15 28 20
+assert-ink #0000ff 614 184 15 28 20
+assert-ink #0000ff 647 184 15 28 20
+# ... and nothing near the lines between the cells.
+assert-ink #0000ff 534 184 6 28 0 0
+assert-ink #0000ff 568 184 6 28 0 0
+assert-ink #0000ff 601 184 6 28 0 0
+assert-ink #0000ff 635 184 6 28 0 0
+# A sixth character: the field is full.
+type F
+advance 400 3
+assert-value field-12-0 ABCDE
+assert-ink #0000ff 513 184 15 28 20
+assert-ink #0000ff 647 184 15 28 20
