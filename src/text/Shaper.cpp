@@ -7,6 +7,7 @@
 #include "text/TrueType.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <bit>
 #include <memory>
@@ -134,6 +135,19 @@ bool is_unicode_mark(GlyphInfo const& g)
 void set_unicode_props(GlyphInfo& g)
 {
     char32_t const c = g.codepoint;
+    if (c < 0x80) {
+        // ASCII: a category, nothing else.
+        static std::array<std::uint8_t, 0x80> const ascii = [] {
+            std::array<std::uint8_t, 0x80> table {};
+            for (char32_t k = 0; k < 0x80; ++k)
+                table[k] = category_index(general_category(k));
+            return table;
+        }();
+        g.category = ascii[c];
+        g.combining_class = 0;
+        g.unicode = 0;
+        return;
+    }
     CharacterProperties const p = character_properties(c);
     g.category = category_index(p.category);
     g.combining_class = 0;
@@ -695,9 +709,12 @@ void collect_features(PlanBuilder& p, std::span<FeatureSetting const> user)
     // The features every script gets (§Shaping: the common and horizontal
     // features).
     for (std::uint32_t tag : { make_tag('a', 'b', 'v', 'm'), make_tag('b', 'l', 'w', 'm'), make_tag('c', 'c', 'm', 'p'),
-             make_tag('l', 'o', 'c', 'l'), make_tag('m', 'a', 'r', 'k'), make_tag('m', 'k', 'm', 'k'),
-             make_tag('r', 'l', 'i', 'g') })
+             make_tag('l', 'o', 'c', 'l'), make_tag('r', 'l', 'i', 'g') })
         p.enable_feature(tag);
+    // A joiner between a mark and its base keeps the mark off it: mark
+    // attachment does not step over ZWJ.
+    p.enable_feature(make_tag('m', 'a', 'r', 'k'), feature_flag::manual_zwj | feature_flag::manual_zwnj);
+    p.enable_feature(make_tag('m', 'k', 'm', 'k'), feature_flag::manual_zwj | feature_flag::manual_zwnj);
     for (std::uint32_t tag : { make_tag('c', 'a', 'l', 't'), make_tag('c', 'l', 'i', 'g'), make_tag('c', 'u', 'r', 's'),
              make_tag('d', 'i', 's', 't'), make_tag('l', 'i', 'g', 'a'), make_tag('r', 'c', 'l', 't') })
         p.enable_feature(tag);
@@ -1135,7 +1152,11 @@ void shape_run(FaceCache const& cache, ShapeRequest const& r, ShapedRun& out)
     set_all_unicode_props(b);
     if (r.beginning_of_text && r.before.empty())
         insert_dotted_circle(b, font);
-    form_clusters(b);
+    bool any_continuation = false;
+    for (GlyphInfo const& g : b.info)
+        any_continuation = any_continuation || is_continuation(g);
+    if (any_continuation)
+        form_clusters(b);
     // A run against its script's direction is shaped in the script's.
     if (r.script != scripts::common && r.script != scripts::inherited && r.script != scripts::unknown
         && script_is_right_to_left(r.script) != target_rtl) {
@@ -1180,14 +1201,16 @@ void shape_run(FaceCache const& cache, ShapeRequest const& r, ShapedRun& out)
 
     // GSUB: every glyph's class from GDEF (or from its character when the
     // font has no classes), then the stages.
-    for (GlyphInfo& g : b.info) {
-        g.props = font.tables.gdef.props_of(g.glyph);
-        g.lig_props = 0;
-    }
-    if (plan->fallback_glyph_classes) {
+    if (!plan->fallback_glyph_classes) {
+        for (GlyphInfo& g : b.info) {
+            g.props = font.tables.gdef.props_of(g.glyph);
+            g.lig_props = 0;
+        }
+    } else {
         for (GlyphInfo& g : b.info) {
             bool const mark = static_cast<GeneralCategory>(g.category) == GeneralCategory::Mn && !otl::is_default_ignorable(g);
             g.props = mark ? otl::glyph_props::mark : otl::glyph_props::base_glyph;
+            g.lig_props = 0;
         }
     }
     apply_stages(*plan, font, b, 0);

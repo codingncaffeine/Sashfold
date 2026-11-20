@@ -326,7 +326,7 @@ void place_around_base(ShapeFont const& font, Buffer& b, std::size_t base, std::
     }
     Extents base_extents = *found;
     base_extents.y_bearing += b.pos[base].y_offset;
-    base_extents.x_bearing = b.pos[base].x_offset;
+    base_extents.x_bearing = 0;
     // The advance, not the ink, is what marks center over: it works for
     // glyphs with no ink too.
     base_extents.width = font.advance(b.info[base].glyph);
@@ -401,23 +401,26 @@ void fallback_recategorize_marks(Plan const&, Buffer& b)
 
 void fallback_position_marks(Plan const&, ShapeFont const& font, Buffer& b, bool adjust_offsets)
 {
-    // Each base with the marks after it, mark by mark.
+    // Each base with the marks after it, mark by mark. A default ignorable
+    // (a joiner, a soft hyphen) between them draws nothing and keeps the
+    // marks on the base before it.
+    auto continues = [&](GlyphInfo const& g) { return is_unicode_mark(g) || otl::is_default_ignorable(g); };
     std::size_t start = 0;
     auto place_cluster = [&](std::size_t from, std::size_t to) {
         if (to - from < 2)
             return;
         for (std::size_t i = from; i < to; ++i) {
-            if (is_unicode_mark(b.info[i]))
+            if (continues(b.info[i]))
                 continue;
             std::size_t j = i + 1;
-            while (j < to && is_unicode_mark(b.info[j]))
+            while (j < to && continues(b.info[j]))
                 ++j;
             place_around_base(font, b, i, j, adjust_offsets);
             i = j - 1;
         }
     };
     for (std::size_t i = 1; i < b.len(); ++i) {
-        if (!is_unicode_mark(b.info[i])) {
+        if (!continues(b.info[i])) {
             place_cluster(start, i);
             start = i;
         }
