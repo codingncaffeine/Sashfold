@@ -1,6 +1,7 @@
 #include "Test.h"
 
 #include "core/Bitmap.h"
+#include "layout/RunGlyphs.h"
 #include "text/Face.h"
 #include "text/FontManager.h"
 #include "text/ShapedText.h"
@@ -141,6 +142,18 @@ int main()
         office->character_edges(left, right);
         CHECK(near(right[1] - left[1], right[2] - left[2]));
         CHECK(near(right[1], left[2]));
+        // A caret inside the ligature stands a third of the way through it.
+        std::vector<float> const carets = layout::caret_stops(*office);
+        CHECK_EQ(carets.size(), 7u);
+        CHECK(near(carets[2] - carets[1], (carets[4] - carets[1]) / 3));
+        CHECK(near(carets[6], office->width));
+        // Parts of a word shaped whole: the ligature goes with the part its
+        // cluster starts in, and the parts' widths add up to the whole's.
+        auto const head = text::part_of(*office, 0, 2);
+        auto const middle = text::part_of(*office, 2, 3);
+        auto const tail = text::part_of(*office, 3, 6);
+        CHECK(near(head->width + middle->width + tail->width, office->width));
+        CHECK(middle->glyphs.empty());
         // letter-spacing: optional ligatures off, a letter's worth after
         // each cluster, so six of them; per glyph would be fewer.
         shaping.letter_spacing = 3;
@@ -173,6 +186,11 @@ int main()
         CHECK(shaped->glyphs.front().cluster >= 2u);
         CHECK_EQ(shaped->glyphs.back().cluster, 0u);
         CHECK_EQ(shaped->right_to_left.size(), word.size());
+        // A caret before the first letter stands at the word's right edge,
+        // after the last at its left.
+        std::vector<float> const carets = layout::caret_stops(*shaped);
+        CHECK(near(carets.front(), shaped->width));
+        CHECK(near(carets.back(), 0));
         // A letter alone takes its isolated form; with the letters around
         // it as context, its medial one.
         std::u32string const lam = U"ل";

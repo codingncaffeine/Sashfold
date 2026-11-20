@@ -49,6 +49,13 @@ std::shared_ptr<text::ShapedText const> shaped_slice(TextRun const&, std::size_t
 // inside a ligature stands part of the way through it.
 std::vector<float> run_character_stops(TextRun const&);
 
+// Where a caret stands at each place in a text, in reading order: in
+// front of character i (its left edge when it reads left to right, its
+// right edge when it reads right to left), and after the last character at
+// that character's far edge. `text.size() + 1` places, from the text's
+// left edge.
+std::vector<float> caret_stops(text::ShapedText const&);
+
 // Whether `run.text` may be cut in front of its character `at`: only at a
 // cluster's edge.
 bool run_cut_allowed(TextRun const&, std::size_t at);

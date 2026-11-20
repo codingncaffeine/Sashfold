@@ -82,6 +82,22 @@ std::vector<float> run_character_stops(TextRun const& run)
     return stops;
 }
 
+std::vector<float> caret_stops(text::ShapedText const& shaped)
+{
+    std::size_t const n = shaped.length;
+    std::vector<float> stops(n + 1, 0.0f);
+    if (n == 0)
+        return stops;
+    std::vector<float> left;
+    std::vector<float> right;
+    shaped.character_edges(left, right);
+    auto const rtl = [&](std::size_t i) { return !shaped.right_to_left.empty() && shaped.right_to_left[i]; };
+    for (std::size_t i = 0; i < n; ++i)
+        stops[i] = rtl(i) ? right[i] : left[i];
+    stops[n] = rtl(n - 1) ? left[n - 1] : right[n - 1];
+    return stops;
+}
+
 bool run_cut_allowed(TextRun const& run, std::size_t at)
 {
     std::size_t const n = run.text.size();

@@ -3343,12 +3343,27 @@ struct Layouter {
             control.pad_top = spec.pad_top;
             control.pad_bottom = spec.pad_bottom;
         }
+        // Where a caret stands at each place in a line of the field: shaped
+        // whole as it is drawn, a ligature's room shared out, a character
+        // that reads right to left met at its right edge (RunGlyphs.h).
         auto const stops_of = [&](std::u32string_view text, float x) {
             std::vector<float> stops;
             stops.reserve(text.size() + 1);
+            if (!fonts_for(style).builtin_alone()) {
+                for (float const stop : caret_stops(*fonts_for(style).shape(text, shaping_for(style, false, true))))
+                    stops.push_back(x + stop);
+                return stops;
+            }
             for (std::size_t i = 0; i <= text.size(); ++i)
                 stops.push_back(x + (i == 0 ? 0.0f : measure(style, text.substr(0, i))));
             return stops;
+        };
+        // The same at one place of a single-line field's shown text.
+        auto const caret_x_at = [&](std::u32string_view text, std::size_t at) {
+            if (fonts_for(style).builtin_alone())
+                return measure(style, text.substr(0, at));
+            std::vector<float> const stops = caret_stops(*fonts_for(style).shape(text, shaping_for(style, false, true)));
+            return stops[std::min(at, stops.size() - 1)];
         };
         std::size_t const sel_start = std::min(spec.full_caret, spec.full_anchor);
         std::size_t const sel_end = std::max(spec.full_caret, spec.full_anchor);
@@ -3504,9 +3519,9 @@ struct Layouter {
                         control.selected.push_back({ stop_at(a), stop_at(b), line_top, line_top + line });
                 }
                 if (spec.caret_visible)
-                    control.focus_x = text_x + measure(style, std::u32string_view(spec.shown).substr(0, spec.caret));
+                    control.focus_x = text_x + caret_x_at(spec.shown, spec.caret);
                 if (spec.caret_visible && !selecting) {
-                    control.caret_x = text_x + measure(style, std::u32string_view(spec.shown).substr(0, spec.caret));
+                    control.caret_x = text_x + caret_x_at(spec.shown, spec.caret);
                     control.caret_top = line_top;
                     control.caret_bottom = line_top + line;
                 }
@@ -3528,8 +3543,8 @@ struct Layouter {
             if (spec.preedit_length > 0) {
                 std::u32string_view const shown(spec.shown);
                 control.preedit_span = std::pair<float, float> {
-                    text_x + measure(style, shown.substr(0, spec.preedit_from)),
-                    text_x + measure(style, shown.substr(0, spec.preedit_from + spec.preedit_length))
+                    text_x + caret_x_at(shown, spec.preedit_from),
+                    text_x + caret_x_at(shown, spec.preedit_from + spec.preedit_length)
                 };
             }
         }
