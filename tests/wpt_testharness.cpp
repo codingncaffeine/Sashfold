@@ -1,6 +1,7 @@
 #include "a11y/Automation.h"
 #include "a11y/PageSources.h"
 #include "a11y/Semantics.h"
+#include "a11y/Tree.h"
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
 #include "css/Stylesheets.h"
@@ -1016,12 +1017,12 @@ TestResult run_test(Server const& server, std::string const& id)
     oracle.set_realm(realm.get());
     // The accessibility model, made when a test first asks it something.
     a11y::OracleSource accessibility_source(oracle, realm.get());
-    std::optional<a11y::Semantics> semantics;
+    std::unique_ptr<a11y::Tree> accessibility;
     realm->install_automation([&](std::string_view command, dom::Node* node, std::string_view argument) -> std::optional<std::string> {
         std::lock_guard<std::mutex> const lock(layout_mutex);
-        if (!semantics)
-            semantics.emplace(&accessibility_source);
-        return a11y::automation_answer(*semantics, nullptr, command, node, argument);
+        if (!accessibility)
+            accessibility = std::make_unique<a11y::Tree>(*document, &accessibility_source);
+        return a11y::automation_answer(accessibility->semantics(), accessibility.get(), command, node, argument);
     });
     html::parse_document_bytes_into(*document, page->body, realm.get());
     realm->document_parsed();

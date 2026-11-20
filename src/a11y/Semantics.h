@@ -10,6 +10,7 @@
 
 #include "a11y/Roles.h"
 #include "dom/Dom.h"
+#include "dom/Forms.h"
 
 #include <cstdint>
 #include <deque>
@@ -60,6 +61,11 @@ public:
     virtual dom::Document* frame_document(dom::Element const&) { return nullptr; }
     // Whether a link's URL is in the reader's history (:visited).
     virtual bool visited(dom::Element const&) { return false; }
+    // A text control's selection as the host keeps it (the caret is its
+    // focus end), in code points of its value; nothing when unknown.
+    virtual std::optional<dom::forms::TextSelection> text_selection(dom::Element const&) { return std::nullopt; }
+    // The viewport's size, CSS px, for the offscreen state.
+    virtual std::optional<Rect> viewport() { return std::nullopt; }
     // A number that moves whenever anything the answers above depend on
     // changes (a restyle, a relayout): what the live tree compares.
     virtual std::uint64_t generation() const { return 0; }

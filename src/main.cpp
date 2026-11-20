@@ -1,3 +1,5 @@
+#include "a11y/PageSources.h"
+#include "a11y/Tree.h"
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
 #include "bindings/Workers.h"
@@ -85,7 +87,7 @@ int usage(char const* program)
               << "       " << program << " --script <file> [--update-goldens] [--width N] [--height N]\n"
               << "       " << program << " --render <file.html|url> [-o out.png] [--width N] [--height N]\n"
               << "                 [--max-height N] [--thumbnail small.png [--thumbnail-width N]]\n"
-              << "                 [--report out.json] [--gaps out.tsv] [--dump-layout] [--no-scripts] [--script-time ms]\n"
+              << "                 [--report out.json] [--gaps out.tsv] [--dump-layout] [--dump-a11y] [--no-scripts] [--script-time ms]\n"
               << "                 [--dump-live-dom prefix]\n"
               << "       " << program << " --bench <file.html|url> [--runs N] [--width N] [--height N] [--report out.json]\n"
               << "       " << program << " --fetch <url>\n"
@@ -121,7 +123,8 @@ int usage(char const* program)
               << "          wrote that the engine dropped (unknown properties, skipped at-rules,\n"
               << "          selectors that do not parse, uncaught script errors, custom and\n"
               << "          unknown elements) as kind, item and hits, --dump-layout prints every\n"
-              << "          laid-out box and text run with its position and size, --dump-live-dom\n"
+              << "          laid-out box and text run with its position and size, --dump-a11y the\n"
+              << "          accessibility tree (roles, names, states, bounds), --dump-live-dom\n"
               << "          writes the document as its scripts left it to <prefix>.html and each\n"
               << "          frame's to <prefix>-frame-N.html. The page's\n"
               << "          scripts run first, their timers on a virtual clock given --script-time\n"
@@ -670,6 +673,7 @@ struct RenderExtras {
     int thumbnail_width = 320;
     int max_height = 0; // a cap on the picture's height; 0 keeps the page's
     bool dump_layout = false; // print the fragment tree after layout
+    bool dump_a11y = false; // print the accessibility tree after layout
     bool scripts = true; // run the page's scripts before laying it out
     double script_time_ms = 3000; // how much virtual time the page's timers get
     std::string gaps; // a census of what the page wrote that the engine dropped
@@ -1179,6 +1183,13 @@ int render_page(std::string const& path, std::string const& output, int viewport
         std::cout << "layout " << viewport_width << "x" << viewport_height << ", page height "
                   << page.page_height << "\n";
         dump_fragments(page.root, 0);
+    }
+    if (extras.dump_a11y) {
+        // The accessibility tree of the page as drawn: roles, names,
+        // states, properties and bounds, a line a node (a11y/Tree.h).
+        a11y::StyleMapSource source(styles, &page.root);
+        a11y::Tree tree(*document, &source);
+        std::cout << "accessibility tree\n" << tree.dump();
     }
     if (!extras.live_dom.empty() && realm) {
         int frames = 0;
@@ -3281,7 +3292,7 @@ int main(int argc, char** argv)
     // The first option met that only a run without a window reads: given
     // with no such run named, the command is a mistyped one.
     std::string windowless_option;
-    static constexpr std::string_view windowless_options[] = { "--dump-layout", "--no-scripts",
+    static constexpr std::string_view windowless_options[] = { "--dump-layout", "--dump-a11y", "--no-scripts",
         "--script-time", "--report", "--gaps", "--dump-live-dom", "--thumbnail", "--thumbnail-width", "--max-height", "-o",
         "--output", "--runs", "--update-goldens" };
 
@@ -3342,6 +3353,8 @@ int main(int argc, char** argv)
             update_goldens = true;
         } else if (arg == "--dump-layout") {
             extras.dump_layout = true;
+        } else if (arg == "--dump-a11y") {
+            extras.dump_a11y = true;
         } else if (arg == "--no-scripts") {
             extras.scripts = false;
         } else if (arg == "--script-time") {

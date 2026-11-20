@@ -164,6 +164,7 @@ add_library(sashfold_core STATIC
   src/a11y/Semantics.cpp
   src/a11y/PageSources.cpp
   src/a11y/Automation.cpp
+  src/a11y/Tree.cpp
   src/layout/Controls.cpp
   src/layout/GridAlgorithm.cpp
   src/layout/Layout.cpp
