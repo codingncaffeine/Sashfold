@@ -82,6 +82,12 @@ fetch "$props/IndicPositionalCategory.txt" IndicPositionalCategory.txt "# IndicP
 # specifications prohibit (tools/gen-vowel-constraints.py reads it).
 fetch "https://raw.githubusercontent.com/microsoft/font-tools/master/USE/IndicShapingInvalidCluster.txt" \
     IndicShapingInvalidCluster.txt "# IndicShapingInvalidCluster"
+# The Universal Shaping Engine specification's overrides of the two Indic
+# properties (tools/gen-use-categories.py reads them).
+fetch "https://raw.githubusercontent.com/microsoft/font-tools/master/USE/IndicSyllabicCategory-Additional.txt" \
+    IndicSyllabicCategory-Additional.txt "# Override values"
+fetch "https://raw.githubusercontent.com/microsoft/font-tools/master/USE/IndicPositionalCategory-Additional.txt" \
+    IndicPositionalCategory-Additional.txt "# Override values"
 dest="$(dirname "$dest")"
 
 echo "Unicode $version data is in $dest"

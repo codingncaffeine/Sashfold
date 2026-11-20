@@ -1,5 +1,5 @@
 // The Indic shaper: Devanagari, Bengali, Gurmukhi, Gujarati, Oriya, Tamil,
-// Telugu, Kannada, Malayalam and Sinhala, as the OpenType script development
+// Telugu, Kannada and Malayalam, as the OpenType script development
 // specifications for them describe ("Developing OpenType Fonts for
 // <script>", both the original 'deva'-style and the second 'dev2'-style
 // script tags). Text is split into syllables by the specifications' cluster
@@ -105,7 +105,6 @@ enum class BlwfMode : std::uint8_t {
 
 enum class BasePosition : std::uint8_t {
     Last, // the last consonant without a below-base or post-base form
-    LastSinhala, // the last consonant not joined to the one before by ZWJ
 };
 
 struct ScriptConfig {
@@ -140,8 +139,6 @@ constexpr ScriptConfig script_configs[] = {
         BlwfMode::PostOnly },
     { script_code('M', 'l', 'y', 'm'), 0x0D4D, true, BasePosition::Last, RephPosition::AfterMain, RephMode::Logical,
         BlwfMode::PreAndPost },
-    { script_code('S', 'i', 'n', 'h'), 0x0DCA, false, BasePosition::LastSinhala, RephPosition::AfterMain,
-        RephMode::Explicit, BlwfMode::PreAndPost },
 };
 
 constexpr ScriptConfig default_config {
@@ -234,7 +231,6 @@ bool is_ra(char32_t c)
     case 0x0C30: // Telugu
     case 0x0CB0: // Kannada
     case 0x0D30: // Malayalam
-    case 0x0DBB: // Sinhala
         return true;
     default:
         return false;
@@ -681,23 +677,6 @@ void reorder_consonant_syllable(IndicPlan const& indic, FormLookups const& forms
                 break;
             }
         } while (i > limit);
-    } else {
-        // Sinhala: the last consonant that is not joined to the one before
-        // it by a ZWJ (which asks for a touching form); every consonant
-        // after the base takes a below-base form.
-        if (!has_reph)
-            base = limit;
-        for (std::size_t i = limit; i < end; ++i) {
-            if (!is_consonant(info[i]))
-                continue;
-            if (limit < i && category(info[i - 1]) == ZWJ)
-                break;
-            base = i;
-        }
-        for (std::size_t i = base + 1; i < end; ++i) {
-            if (is_consonant(info[i]))
-                set_position(info[i], BelowC);
-        }
     }
     // A reph with no consonant after it but its own is that consonant.
     if (has_reph && base == start && limit - base <= 2)
@@ -1165,25 +1144,6 @@ ScriptShaper const indic_shaper {
     .reorder_marks = nullptr,
     .gpos_tag = 0,
     .zero_marks = ZeroMarks::None,
-    .fallback_position = false,
-};
-
-// Sinhala: the Indic model of its specification, with the marks' advances
-// zeroed by their glyph classes before positioning, as the Universal
-// Shaping Engine (which covers Sinhala in current shaping engines) does.
-ScriptShaper const sinhala_shaper {
-    .collect_features = collect_features,
-    .override_features = override_features,
-    .init_plan = init_plan,
-    .preprocess_text = preprocess_text,
-    .postprocess_glyphs = nullptr,
-    .normalization = Normalization::ComposedDiacriticsNoShortCircuit,
-    .decompose = decompose,
-    .compose = compose,
-    .setup_masks = setup_masks,
-    .reorder_marks = nullptr,
-    .gpos_tag = 0,
-    .zero_marks = ZeroMarks::ByGdefEarly,
     .fallback_position = false,
 };
 

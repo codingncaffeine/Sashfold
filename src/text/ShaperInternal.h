@@ -129,7 +129,11 @@ extern ScriptShaper const hebrew_shaper;
 extern ScriptShaper const thai_shaper;
 extern ScriptShaper const hangul_shaper;
 extern ScriptShaper const indic_shaper;
-extern ScriptShaper const sinhala_shaper;
+extern ScriptShaper const use_shaper;
+
+// Whether the Universal Shaping Engine shapes a script: the scripts of its
+// specification's table (ShaperUse.cpp).
+bool is_use_script(ScriptCode);
 
 struct FeatureMap {
     std::uint32_t tag = 0;

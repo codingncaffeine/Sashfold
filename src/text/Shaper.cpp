@@ -631,9 +631,10 @@ ScriptShaper const& choose_shaper(ScriptCode script, std::uint32_t chosen_gsub_s
         if (chosen_gsub_script == tag_dflt_script || chosen_gsub_script == tag_latn)
             return default_shaper;
         return indic_shaper;
-    case script_code('S', 'i', 'n', 'h'):
-        return sinhala_shaper;
     default:
+        // The Universal Shaping Engine's scripts.
+        if (is_use_script(script))
+            return use_shaper;
         return default_shaper;
     }
 }
