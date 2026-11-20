@@ -323,14 +323,22 @@ std::optional<Nv12Picture> H264Decoder::decode(std::span<std::uint8_t const> acc
 {
     std::vector<H264Nal> const nals = m_length_size > 0 ? split_h264_length_prefixed(access_unit, m_length_size) : split_h264_annex_b(access_unit);
     // The unit's slices, cut into pictures where 7.4.1.2.4 says one begins
-    // (a sample may hold both fields of a frame), each read with its sets:
-    // a parameter set ends the picture before it (7.4.1.2.3) and is in
-    // force from there on, so one sent again between two fields with new
-    // contents does not reach back to the first.
+    // (a sample may hold both fields of a frame), each read with its sets.
+    // Sequence parameter sets are taken first (one may follow a picture
+    // set naming it; its contents change only at an IDR picture); a
+    // picture parameter set ends the picture before it (7.4.1.2.3) and is
+    // in force from there on, so one sent again between two fields with
+    // new contents does not reach back to the first.
+    std::vector<H264Nal> sequence_sets;
+    for (H264Nal const& nal : nals) {
+        if (nal.type == 7)
+            sequence_sets.push_back(nal);
+    }
+    take_parameter_sets(sequence_sets);
     std::optional<Nv12Picture> out;
     Picture unit;
     for (H264Nal const& nal : nals) {
-        if (nal.type == 7 || nal.type == 8) {
+        if (nal.type == 8) {
             if (!unit.headers.empty()) {
                 if (std::optional<Nv12Picture> picture = decode_picture(unit))
                     out = std::move(picture);
