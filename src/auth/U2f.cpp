@@ -2,6 +2,7 @@
 
 #include "auth/Attestation.h"
 #include "auth/Cose.h"
+#include "auth/DerWriter.h"
 #include "crypto/Ec.h"
 #include "crypto/Sha2.h"
 
@@ -97,6 +98,10 @@ std::optional<Registration> parse_registration(std::span<std::uint8_t const> dat
     if (signature_length < 8 || signature_length > 72)
         return std::nullopt;
     registration.signature.assign(data.begin() + static_cast<std::ptrdiff_t>(offset), data.end());
+    // Nothing says where the signature ends but its own DER, which must
+    // take exactly the rest.
+    if (!der::parse_ecdsa_signature(registration.signature))
+        return std::nullopt;
     return registration;
 }
 
@@ -108,6 +113,8 @@ std::optional<Authentication> parse_authentication(std::span<std::uint8_t const>
     authentication.user_presence = data[0];
     authentication.counter = std::uint32_t { data[1] } << 24 | std::uint32_t { data[2] } << 16 | std::uint32_t { data[3] } << 8 | data[4];
     authentication.signature.assign(data.begin() + 5, data.end());
+    if (!der::parse_ecdsa_signature(authentication.signature))
+        return std::nullopt;
     return authentication;
 }
 
