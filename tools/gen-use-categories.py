@@ -122,7 +122,12 @@ def use_class(c):
         return 'GB'
     if ajt in ('C', 'D', 'L', 'R') or isc in BASE or (isc in BASE_WHEN_LO and gc == 'Lo'):
         return 'B'
-    if isc in ('Nukta', 'Gemination_Mark', 'Consonant_Killer', 'Symbol_Modifier'):
+    # The specification counts a symbol modifier as a consonant modifier;
+    # engines in browsers let it modify only a symbol (SM, settled by
+    # comparing outputs: one after a consonant gets a dotted circle).
+    if isc == 'Symbol_Modifier':
+        return 'SM'
+    if isc in ('Nukta', 'Gemination_Mark', 'Consonant_Killer'):
         return 'CM'
     if isc == 'Consonant_With_Stacker':
         return 'CS'
@@ -145,6 +150,12 @@ def use_class(c):
     if isc == 'Consonant_Subjoined':
         return 'SUB'
     if isc in ('Vowel', 'Vowel_Dependent', 'Pure_Killer'):
+        return 'V'
+    # A mark with no syllabic category but a position (Tibetan's yar tshes
+    # and mar tshes, its astrological signs below) is placed as a dependent
+    # vowel there, as engines in browsers have it (settled by comparing
+    # outputs: mar tshes reorders before the base like a pre-base vowel).
+    if isc == 'Other' and gc in ('Mn', 'Mc') and positional.get(c, 'NA') != 'NA':
         return 'V'
     if isc in ('Bindu', 'Tone_Mark', 'Cantillation_Mark', 'Register_Shifter', 'Visarga'):
         return 'VM'
@@ -187,6 +198,7 @@ VOWEL_MOD_POSITION = {
 }
 ALLOWED = {
     'CM': ({'Top': 'Abv', 'Bottom': 'Blw'}),
+    'SM': ({'Top': 'Abv', 'Bottom': 'Blw'}),
     'F': ({'Top': 'Abv', 'Bottom': 'Blw', 'Right': 'Pst'}),
     'M': CARDINAL,
     'V': VOWEL_POSITION,
@@ -197,6 +209,7 @@ ALLOWED = {
 # a below one).
 POSITION_FALLBACK = {
     'CM': 'Abv',
+    'SM': 'Abv',
     'F': 'Pst',
     'M': 'Blw',
     'V': 'Abv',
@@ -235,7 +248,7 @@ def use_category(c):
 
 NAMES = ['O', 'B', 'CGJ', 'CMAbv', 'CMBlw', 'CS', 'FAbv', 'FBlw', 'FPst', 'FM', 'G', 'GB', 'H', 'HM', 'HN', 'HR',
          'IND', 'J', 'MPre', 'MAbv', 'MBlw', 'MPst', 'N', 'R', 'RK', 'Rsv', 'S', 'SB', 'SE', 'SUB', 'VPre', 'VAbv',
-         'VBlw', 'VPst', 'VMPre', 'VMAbv', 'VMBlw', 'VMPst', 'VS', 'WJ', 'ZWJ', 'ZWNJ', 'HVM']
+         'VBlw', 'VPst', 'VMPre', 'VMAbv', 'VMBlw', 'VMPst', 'VS', 'WJ', 'ZWJ', 'ZWNJ', 'HVM', 'SMAbv', 'SMBlw']
 
 out_ranges = []
 for c in range(0x110000):

@@ -76,7 +76,7 @@ constexpr auto grammar_names = [] {
 #define USE_CONSONANTS "CMAbv* CMBlw* (([H HVM] B VS? | SUB) CMAbv* CMBlw*)*"
 #define USE_START "[R CS]? [B GB] VS? " USE_CONSONANTS
 #define USE_STANDARD_TAIL                                                                                             \
-    "MPre? MAbv? MBlw? MPst? VPre* VAbv* VBlw* VPst* HVM? VMPre* VMAbv* VMBlw* VMPst* FAbv* FBlw* FPst* FM?"
+    "MPre? MAbv? MBlw? MPst? VPre* VAbv* VBlw* VPst* HVM? VMPre* VMAbv* VMBlw* VMPst* FAbv* FBlw* FPst* FM*"
 #define USE_HIEROGLYPH "(SB* G VS? HR? HM? SE*)"
 
 // A ZWNJ the grammar sees (one before a mark it does not: find_use_syllables)
@@ -84,15 +84,23 @@ constexpr auto grammar_names = [] {
 // cluster of its own.
 #define USE_END " ZWNJ?"
 
+// What follows the base of a standard or virama-terminated cluster.
+#define USE_TAIL USE_CONSONANTS " (" USE_STANDARD_TAIL " | [H HVM RK])"
+// What follows a symbol: its symbol modifiers, or such a tail.
+#define USE_SYMBOL_TAIL "(SMAbv+ SMBlw* | SMBlw+ | " USE_TAIL ")"
+
 struct Grammar {
-    CategoryPattern independent { "[IND O Rsv WJ] VS?" USE_END, grammar_names };
+    // The independent and symbol clusters: a character that is no base,
+    // with the marks after it — which then stand on it, as engines in
+    // browsers have them, rather than on a dotted circle.
+    CategoryPattern independent { "[IND O Rsv WJ] VS? " USE_SYMBOL_TAIL USE_END, grammar_names };
     CategoryPattern standard { USE_START " " USE_STANDARD_TAIL USE_END, grammar_names };
     CategoryPattern virama_terminated { USE_START " [H HVM RK]" USE_END, grammar_names };
     // §Defective clusters: what follows a base in a cluster, with no base.
-    CategoryPattern broken { "(R? " USE_CONSONANTS " (" USE_STANDARD_TAIL " | [H HVM RK]))" USE_END, grammar_names };
+    CategoryPattern broken { "R? " USE_TAIL USE_END, grammar_names };
     CategoryPattern number_joiner_terminated { "N VS? (HN N VS?)* HN" USE_END, grammar_names };
     CategoryPattern numeral { "N VS? (HN N VS?)*" USE_END, grammar_names };
-    CategoryPattern symbol { "[S GB] VS? CMAbv* CMBlw*" USE_END, grammar_names };
+    CategoryPattern symbol { "S VS? " USE_SYMBOL_TAIL USE_END, grammar_names };
     CategoryPattern hieroglyph { USE_HIEROGLYPH " (J " USE_HIEROGLYPH ")* J?" USE_END, grammar_names };
     std::array<SyllableRule, 8> rules { {
         { &standard, StandardCluster },
@@ -158,10 +166,10 @@ void find_use_syllables(Buffer& b)
             }
         }
         if (best == 0) {
+            // §Defective clusters: a mark no rule takes is one alone.
+            GlyphInfo const& first = b.info[seen[k]];
             best = 1;
-            // §Defective clusters: a cluster that starts with a mark.
-            GlyphInfo const& g = b.info[seen[k]];
-            type = is_unicode_mark(g) && category(g) != VS ? BrokenCluster : IndependentCluster;
+            type = is_unicode_mark(first) && category(first) != VS ? BrokenCluster : IndependentCluster;
         }
         std::size_t const end = k + best < total ? seen[k + best] : count;
         mark(start, end, type);
@@ -186,15 +194,17 @@ void reorder(Plan const&, ShapeFont const&, Buffer&);
 
 void collect_features(PlanBuilder& p)
 {
-    // A ZWJ in the text keeps the glyphs around it from forming what they
-    // would without it: the shaper's features do not step over it.
+    // A ZWJ in the text keeps the glyphs around it from forming the
+    // conjuncts and presentation forms they would without it: those
+    // features do not step over it (the composition features before them
+    // do, as engines in browsers have it).
     std::uint32_t const manual_zwj = feature_flag::manual_zwj;
     std::uint32_t const per_syllable = feature_flag::per_syllable | manual_zwj;
     p.add_gsub_pause(setup_syllables);
     // §Default glyph pre-processing group: together, within the cluster.
-    for (std::uint32_t tag : { make_tag('l', 'o', 'c', 'l'), make_tag('c', 'c', 'm', 'p'), make_tag('n', 'u', 'k', 't'),
-             make_tag('a', 'k', 'h', 'n') })
-        p.enable_feature(tag, per_syllable);
+    for (std::uint32_t tag : { make_tag('l', 'o', 'c', 'l'), make_tag('c', 'c', 'm', 'p'), make_tag('n', 'u', 'k', 't') })
+        p.enable_feature(tag, feature_flag::per_syllable);
+    p.enable_feature(make_tag('a', 'k', 'h', 'n'), per_syllable);
     // §Reordering group: 'rphf' and 'pref' each on its own, what they
     // substitute remembered for the reordering.
     p.add_gsub_pause(clear_substitution_flags);
@@ -346,7 +356,7 @@ void reorder(Plan const&, ShapeFont const&, Buffer& b)
     for (std::size_t start = 0; start < b.len();) {
         std::size_t const end = syllable_end(b, start);
         unsigned const type = syllable_type(b.info[start]);
-        if (type == StandardCluster || type == ViramaTerminatedCluster || type == BrokenCluster)
+        if (type != NumeralCluster && type != NumberJoinerTerminatedCluster && type != HieroglyphCluster)
             reorder_syllable(b, start, end);
         start = end;
     }

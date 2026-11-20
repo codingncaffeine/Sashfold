@@ -56,10 +56,12 @@ enum Category : std::uint8_t {
     ZWJ = 40,
     ZWNJ = 41,
     HVM = 42,
+    SMAbv = 43,
+    SMBlw = 44,
 };
 
 inline constexpr char const* category_names[] = {
-    "O", "B", "CGJ", "CMAbv", "CMBlw", "CS", "FAbv", "FBlw", "FPst", "FM", "G", "GB", "H", "HM", "HN", "HR", "IND", "J", "MPre", "MAbv", "MBlw", "MPst", "N", "R", "RK", "Rsv", "S", "SB", "SE", "SUB", "VPre", "VAbv", "VBlw", "VPst", "VMPre", "VMAbv", "VMBlw", "VMPst", "VS", "WJ", "ZWJ", "ZWNJ", "HVM",
+    "O", "B", "CGJ", "CMAbv", "CMBlw", "CS", "FAbv", "FBlw", "FPst", "FM", "G", "GB", "H", "HM", "HN", "HR", "IND", "J", "MPre", "MAbv", "MBlw", "MPst", "N", "R", "RK", "Rsv", "S", "SB", "SE", "SUB", "VPre", "VAbv", "VBlw", "VPst", "VMPre", "VMAbv", "VMBlw", "VMPst", "VS", "WJ", "ZWJ", "ZWNJ", "HVM", "SMAbv", "SMBlw",
 };
 
 struct Range {
@@ -68,7 +70,7 @@ struct Range {
     Category category;
 };
 
-inline constexpr std::array<Range, 1504> ranges { {
+inline constexpr std::array<Range, 1510> ranges { {
     { 0x0021, 0x0023, IND },
     { 0x0024, 0x0024, S },
     { 0x0025, 0x0027, IND },
@@ -421,6 +423,7 @@ inline constexpr std::array<Range, 1504> ranges { {
     { 0x0EBD, 0x0EBD, B },
     { 0x0EC0, 0x0EC4, B },
     { 0x0EC8, 0x0ECB, VMAbv },
+    { 0x0ECC, 0x0ECC, VAbv },
     { 0x0ECD, 0x0ECD, VMAbv },
     { 0x0ECE, 0x0ECE, FM },
     { 0x0ED0, 0x0ED9, B },
@@ -432,6 +435,7 @@ inline constexpr std::array<Range, 1504> ranges { {
     { 0x0F13, 0x0F13, S },
     { 0x0F14, 0x0F14, IND },
     { 0x0F15, 0x0F17, S },
+    { 0x0F18, 0x0F19, VBlw },
     { 0x0F1A, 0x0F1F, S },
     { 0x0F20, 0x0F33, B },
     { 0x0F34, 0x0F34, S },
@@ -440,6 +444,8 @@ inline constexpr std::array<Range, 1504> ranges { {
     { 0x0F37, 0x0F37, FM },
     { 0x0F38, 0x0F38, S },
     { 0x0F39, 0x0F39, CMAbv },
+    { 0x0F3E, 0x0F3E, VPst },
+    { 0x0F3F, 0x0F3F, VPre },
     { 0x0F40, 0x0F47, B },
     { 0x0F49, 0x0F6C, B },
     { 0x0F71, 0x0F71, CMBlw },
@@ -639,7 +645,7 @@ inline constexpr std::array<Range, 1504> ranges { {
     { 0x1B50, 0x1B59, B },
     { 0x1B5A, 0x1B60, IND },
     { 0x1B61, 0x1B6A, S },
-    { 0x1B6B, 0x1B73, CMAbv },
+    { 0x1B6B, 0x1B73, SMAbv },
     { 0x1B74, 0x1B7C, S },
     { 0x1B7D, 0x1B7F, IND },
     { 0x1B80, 0x1B80, VMAbv },
@@ -688,6 +694,8 @@ inline constexpr std::array<Range, 1504> ranges { {
     { 0x1CDC, 0x1CDF, VMBlw },
     { 0x1CE0, 0x1CE0, VMAbv },
     { 0x1CE1, 0x1CE1, VMPst },
+    { 0x1CE2, 0x1CE8, VBlw },
+    { 0x1CED, 0x1CED, VBlw },
     { 0x1CF2, 0x1CF3, IND },
     { 0x1CF4, 0x1CF4, VMAbv },
     { 0x1CF5, 0x1CF6, CS },
