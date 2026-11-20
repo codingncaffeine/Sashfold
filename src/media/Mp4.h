@@ -15,6 +15,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
@@ -139,7 +140,10 @@ private:
         std::uint32_t duration = 0;
         bool key = true;
         std::uint32_t track = 0;
-        std::optional<SampleEncryption> encryption;
+        // How the sample is encrypted; null for a clear one. Held apart: a
+        // file may name sixteen million samples, and each carried the whole
+        // description inline (2.3 GB for a table of clear samples).
+        std::shared_ptr<SampleEncryption const> encryption;
     };
     struct Mdat {
         std::uint64_t offset = 0; // of the payload's first byte in the stream
@@ -163,6 +167,11 @@ private:
     Mp4Init m_init;
     std::uint64_t m_init_segments = 0;
     std::vector<Sample> m_samples; // known, not yet given out, by offset
+    // emit_ready's last look: how many samples waited after it, and the
+    // lowest end among those whose bytes are still to come. Until the
+    // stream reaches that, or more samples are named, a look finds nothing.
+    std::size_t m_samples_looked_at = 0;
+    std::uint64_t m_next_sample_end = 0;
     std::vector<Mp4Frame> m_frames;
     std::vector<std::int64_t> m_fragment_decode_time; // per track index: where the next run begins
     std::vector<std::vector<std::vector<std::uint8_t>>> m_fragment_pssh;

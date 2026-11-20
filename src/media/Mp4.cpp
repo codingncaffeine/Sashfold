@@ -9,13 +9,18 @@
 
 #include <algorithm>
 #include <cstring>
+#include <iterator>
 
 namespace sashfold::media {
 
 namespace {
 
 constexpr std::size_t k_longest_box = std::size_t { 1 } << 28; // a moov or moof larger than this is not one
-constexpr std::size_t k_most_samples = 1u << 24;
+// The samples a plain file's tables may name, all its tracks together: each
+// is held in memory until its bytes come (56 bytes a sample, so 470 MB at
+// the most), and a table can name any number of them in twenty bytes. Eight
+// million is a day and a half of video at sixty frames a second.
+constexpr std::size_t k_most_samples = 1u << 23;
 // Fragments name their samples before the bytes arrive, and a run with no
 // per-sample fields names any number of them in sixteen bytes: what is named
 // and not yet given out is held to this (a real fragment names hundreds).
@@ -925,6 +930,8 @@ bool Mp4Parser::parse_trak(std::span<std::uint8_t const> body, std::uint64_t bod
         }
     }
     std::size_t const count = sizes.size();
+    if (count > k_most_samples - std::min(k_most_samples, m_samples.size()))
+        return false; // with the other tracks', more than is held
     if (count > 0) {
         std::vector<Sample> samples(count);
         for (std::size_t i = 0; i < count; ++i) {
@@ -1058,10 +1065,17 @@ bool Mp4Parser::parse_trak(std::span<std::uint8_t const> body, std::uint64_t bod
             };
             if (!read_sample_encryption(stbl->body, track, {}, count, aux_at, encryptions))
                 return false;
-            for (std::size_t i = 0; i < count; ++i)
-                samples[i].encryption = std::move(encryptions[i]);
+            for (std::size_t i = 0; i < count; ++i) {
+                if (encryptions[i])
+                    samples[i].encryption = std::make_shared<SampleEncryption const>(std::move(*encryptions[i]));
+            }
         }
-        m_samples.insert(m_samples.end(), samples.begin(), samples.end());
+        // Moved, and the whole table taken where it is the first: a long
+        // file's table is not held twice.
+        if (m_samples.empty())
+            m_samples = std::move(samples);
+        else
+            m_samples.insert(m_samples.end(), std::make_move_iterator(samples.begin()), std::make_move_iterator(samples.end()));
     } else if (track.protection) {
         if (!read_seig_descriptions(stbl->body, track.seig))
             return false;
@@ -1242,8 +1256,10 @@ bool Mp4Parser::parse_moof(std::span<std::uint8_t const> body, std::uint64_t moo
             std::vector<std::optional<SampleEncryption>> encryptions;
             if (!read_sample_encryption(box.body, track, own_seig, count, aux_at, encryptions))
                 return false;
-            for (std::size_t i = 0; i < count; ++i)
-                m_samples[first_sample + i].encryption = std::move(encryptions[i]);
+            for (std::size_t i = 0; i < count; ++i) {
+                if (encryptions[i])
+                    m_samples[first_sample + i].encryption = std::make_shared<SampleEncryption const>(std::move(*encryptions[i]));
+            }
         }
         m_fragment_decode_time[track_index] = decode_time;
         previous_traf_end = data_at;
@@ -1258,19 +1274,41 @@ void Mp4Parser::emit_ready()
 {
     if (m_samples.empty())
         return;
+    // A waiting sample can be given out only once samples were named since
+    // the last look, or the stream has come as far as the end of one that
+    // waits. Without this every arriving piece of an mdat walked every
+    // waiting sample: a file that names a million and then trickles in took
+    // seconds over nothing.
+    if (m_samples.size() == m_samples_looked_at && m_stream_offset < m_next_sample_end)
+        return;
+    // The mdats stand in stream order: the one that can hold an offset is
+    // the last that starts at or before it. (Sizes are compared by what is
+    // left of the mdat, so an offset near the top of the range cannot wrap.)
+    auto const holder_of = [this](Sample const& s) -> Mdat const* {
+        auto const after = std::upper_bound(m_mdats.begin(), m_mdats.end(), s.offset,
+            [](std::uint64_t offset, Mdat const& m) { return offset < m.offset; });
+        if (after == m_mdats.begin())
+            return nullptr;
+        Mdat const& m = *std::prev(after);
+        std::uint64_t const start = s.offset - m.offset;
+        return start <= m.bytes.size() && s.size <= m.bytes.size() - start ? &m : nullptr;
+    };
     // Each known sample whose bytes have arrived, in the order they were
-    // named; an mdat is dropped once every sample it holds is out.
-    std::vector<Sample> kept;
-    for (Sample const& s : m_samples) {
-        Mdat const* holder = nullptr;
-        for (Mdat const& m : m_mdats) {
-            if (s.offset >= m.offset && s.offset + s.size <= m.offset + m.bytes.size()) {
-                holder = &m;
-                break;
-            }
-        }
+    // named; the ones that wait are closed up in place.
+    std::size_t kept = 0;
+    std::uint64_t next_end = std::uint64_t(-1);
+    for (std::size_t i = 0; i < m_samples.size(); ++i) {
+        Sample& s = m_samples[i];
+        Mdat const* const holder = holder_of(s);
         if (!holder) {
-            kept.push_back(s);
+            // (An end at or before the stream's place is of bytes that came
+            // outside any mdat: it is waited for no longer.)
+            std::uint64_t const end = s.offset + s.size;
+            if (end >= s.offset && end > m_stream_offset)
+                next_end = std::min(next_end, end);
+            if (kept != i)
+                m_samples[kept] = std::move(s);
+            ++kept;
             continue;
         }
         Mp4Track const* const track = m_init.track(s.track);
@@ -1289,10 +1327,13 @@ void Mp4Parser::emit_ready()
         std::size_t const start = static_cast<std::size_t>(s.offset - holder->offset);
         frame.data.assign(holder->bytes.begin() + static_cast<std::ptrdiff_t>(start),
             holder->bytes.begin() + static_cast<std::ptrdiff_t>(start + s.size));
-        frame.encryption = s.encryption;
+        if (s.encryption)
+            frame.encryption = *s.encryption;
         m_frames.push_back(std::move(frame));
     }
-    m_samples = std::move(kept);
+    m_samples.erase(m_samples.begin() + static_cast<std::ptrdiff_t>(kept), m_samples.end());
+    m_samples_looked_at = m_samples.size();
+    m_next_sample_end = next_end;
     // mdats fully given out, or whose offsets no sample can name any more
     // (every pending sample lies past them), are let go — but for a plain
     // file whose tables may still come: those are kept until the moov.
@@ -1333,6 +1374,8 @@ void Mp4Parser::reset()
     m_mdat_left.reset();
     m_mdats.clear();
     m_samples.clear();
+    m_samples_looked_at = 0;
+    m_next_sample_end = 0;
     m_frames.clear();
     m_stream_offset = 0;
     m_failed = false;
