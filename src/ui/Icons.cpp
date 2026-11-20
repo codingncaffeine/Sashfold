@@ -89,7 +89,15 @@ std::vector<Stroke> const& strokes_of(Icon icon)
     };
     static std::vector<Stroke> const chevrons
         = { line(4, 4.5, 7.5, 8), line(7.5, 8, 4, 11.5), line(8.5, 4.5, 12, 8), line(12, 8, 8.5, 11.5) };
+    // A key on its side: its ring about (5, 8), open only in a narrow
+    // wedge at its right where the shaft leaves it, the shaft running right
+    // to the tip, and two teeth hanging from the shaft's far end.
+    static std::vector<Stroke> const key = {
+        Stroke { u(5), u(8), 0, 0, u(2.75), 8, -1, 8, 1 },
+        line(7.75, 8, 13.5, 8), line(13.5, 8, 13.5, 10.5), line(11.25, 8, 11.25, 10),
+    };
     switch (icon) {
+    case Icon::Key: return key;
     case Icon::Back: return back;
     case Icon::Forward: return forward;
     case Icon::Reload: return reload;

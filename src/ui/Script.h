@@ -52,11 +52,21 @@
 //   palette [<query>]    open the command palette, with the query typed
 //   assert-palette <label>   the highlighted command ("" = closed or no match)
 //   assert-theme <name>  the theme the chrome is drawn with
+//   assert-key-sheet <shows>   a security key sheet over the tab in front
+//                        (KeySheet::shows; nothing: none), waited for a
+//                        few seconds, as its ceremony runs on threads
+//   assert-key-focus <name>    where the sheet's keyboard is
+//   click-key-sheet <button>|account <n>   a click on the sheet
+//   wait-key-requests <n>      until that many requests have not yet
+//                        been told to their pages, then the pages hear
+//   assert-tab-key-request <tab> yes|no   the tab has a request
 //   echo <text>
 
 #include "ui/Browser.h"
 
+#include <functional>
 #include <iosfwd>
+#include <optional>
 #include <string>
 
 namespace sashfold::ui {
@@ -67,7 +77,14 @@ struct ScriptResult {
     bool ok() const { return failures == 0; }
 };
 
+// Commands a test program adds to the language (the security keys a test
+// plugs in, say, which the shipped program has no way to make): called with
+// a command the runner does not know, it answers nullopt when it does not
+// know it either, an empty string when it ran, and otherwise what failed.
+// The runner lets the pages settle after each.
+using ScriptExtension = std::function<std::optional<std::string>(std::string const& command, std::string const& argument)>;
+
 ScriptResult run_script(Browser& browser, std::string const& path, bool update_goldens,
-    std::ostream& out);
+    std::ostream& out, ScriptExtension extension = {});
 
 }

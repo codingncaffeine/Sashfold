@@ -46,7 +46,9 @@
 #include "ui/Downloads.h"
 #include "ui/Icons.h"
 #include "ui/InternalPages.h"
+#include "ui/KeySheet.h"
 #include "ui/Reader.h"
+#include "ui/SecurityKeys.h"
 #include "ui/SourceSet.h"
 #include "ui/ThemeGallery.h"
 #include "ui/ThemeImport.h"
@@ -1210,6 +1212,70 @@ struct Browser::Impl {
         look.font_size = t.font_size / std::max(0.5f, scale);
         look.scale = scale;
         return look;
+    }
+    // Web Authentication (ui/SecurityKeys.h, ui/KeySheet.h): the requests of
+    // every tab, kept by the shell that keeps the chrome (an engine's page
+    // reaches its shell's), and the sheet drawn for the tab in front; the
+    // generation of the requests last drawn.
+    std::shared_ptr<SecurityKeyRequests> security_keys = std::make_shared<SecurityKeyRequests>();
+    KeySheet key_sheet;
+    std::uint64_t key_sheet_seen = 0;
+    // Whose requests are a tab's: its engine, or its document where pages
+    // are not in engines (compared, never read).
+    static void const* key_owner(Tab const& tab)
+    {
+        return tab.engine ? static_cast<void const*>(tab.engine.get()) : static_cast<void const*>(tab.document.get());
+    }
+    // The sheet of the tab in front, brought up to date; false with none.
+    bool front_key_sheet()
+    {
+        Tab const* const front = engine_self ? nullptr : active_tab();
+        std::optional<KeySheetState> const state = front ? security_keys->state_for(key_owner(*front)) : std::nullopt;
+        if (!state)
+            return false;
+        key_sheet.update(*state);
+        key_sheet.layout(layout_chrome().content, layout_chrome().address.x, key_sheet_look());
+        return true;
+    }
+    KeySheetLook key_sheet_look() const
+    {
+        ChooserLook const popup = chooser_look();
+        KeySheetLook look;
+        look.background = popup.background;
+        look.border = popup.border;
+        look.text = popup.text;
+        look.muted = popup.muted;
+        look.highlight = popup.highlight;
+        look.highlight_text = popup.highlight_text;
+        look.accent = popup.accent;
+        look.field_background = popup.field_background;
+        look.danger = theme.insecure_indicator;
+        look.font_size = popup.font_size;
+        look.scale = popup.scale;
+        return look;
+    }
+    // What the reader did on the sheet, told to the requests.
+    void act_on_key_sheet(KeySheetAction const& action)
+    {
+        std::uint64_t const id = key_sheet.id();
+        switch (action.kind) {
+        case KeySheetAction::Kind::None: break;
+        case KeySheetAction::Kind::Cancel: security_keys->dismiss(id); break;
+        case KeySheetAction::Kind::Pin: security_keys->answer_pin(id, action.pin); break;
+        case KeySheetAction::Kind::Account: security_keys->choose_account(id, action.account); break;
+        case KeySheetAction::Kind::Consent: security_keys->consent(id, action.allow); break;
+        }
+        dirty = true;
+    }
+    // A request's sheet changed on a ceremony's thread: drawn again.
+    bool hear_security_keys()
+    {
+        std::uint64_t const now = security_keys->generation();
+        if (now == key_sheet_seen)
+            return false;
+        key_sheet_seen = now;
+        dirty = true;
+        return true;
     }
     std::map<std::string, bool> notification_sites;
     bool notifications_available = false;
@@ -5317,6 +5383,19 @@ struct Browser::Impl {
             return show_notice(document, site, request);
         };
         hooks.close_notification = [this, document](std::uint64_t id) { close_notice(document, id); };
+        // Web Authentication: the ceremony runs on the requests of the shell
+        // that keeps the chrome, its sheet over this tab; the page's realm
+        // ending cancels it through the second hook. A document has the
+        // reader's focus while its tab is the one in front of the window
+        // that has the keyboard.
+        {
+            std::shared_ptr<SecurityKeyRequests> const keys = engine_self ? engine_self->shell->security_keys : security_keys;
+            void const* const owner = engine_self ? static_cast<void const*>(engine_self) : static_cast<void const*>(document);
+            hooks.security_key_ceremony = [keys, owner](bindings::HostHooks::SecurityKeyAsk const& ask, auth::Request const& request,
+                                              std::function<void(auth::Outcome)> done) { return keys->start(owner, ask, request, std::move(done)); };
+            hooks.cancel_security_key_ceremony = [keys](std::uint64_t id, bool by_page) { keys->cancel(id, by_page); };
+            hooks.document_focused = [this, document] { return window_active && page_shown && tab_of(document) == active_tab(); };
+        }
         // A page's element going full screen: only the page in front, and
         // only its own document (a frame is refused before it asks). The
         // page gets the whole window — the chrome is put away — and the
@@ -7052,6 +7131,8 @@ struct Browser::Impl {
                 }
             }
         }
+        // Its security key requests end now, whenever its page's realm does.
+        security_keys->cancel_owner(key_owner(tabs[index]));
         if (pages_in_engines) {
             if (tabs[index].page_fullscreen)
                 window_request = Browser::WindowRequest::ExitFullscreen;
@@ -9849,6 +9930,11 @@ struct Browser::Impl {
         if (builtin_chooser) {
             builtin_chooser->layout(layout_chrome().content, chooser_look());
             builtin_chooser->mouse_move(x, y);
+            dirty = true;
+            return;
+        }
+        if (front_key_sheet() && (key_sheet.bounds().contains(x, y) || layout_chrome().content.contains(x, y))) {
+            key_sheet.mouse_move(x, y);
             dirty = true;
             return;
         }
@@ -14627,6 +14713,14 @@ struct Browser::Impl {
             dirty = true;
             return;
         }
+        // A security key's sheet is modal to its tab: a press on it is its,
+        // and one on the page under it is nobody's.
+        if (front_key_sheet() && (key_sheet.bounds().contains(x, y) || layout_chrome().content.contains(x, y))) {
+            if (button == 1 && key_sheet.bounds().contains(x, y))
+                act_on_key_sheet(key_sheet.mouse_down(x, y));
+            dirty = true;
+            return;
+        }
         update_hover(x, y);
         // A press on a link opens a connection to its origin while the button
         // is still down, as Chromium and Firefox do: the navigation the
@@ -15049,6 +15143,15 @@ struct Browser::Impl {
             builtin_chooser->key(key);
             dirty = true;
             return;
+        }
+        // The keys are a security key sheet's while it is up and the reader
+        // is not in the address bar, the find bar or the palette.
+        if (!address_focus && !find_focus && !palette_open && menus.empty() && front_key_sheet()) {
+            KeySheetAction action;
+            if (key_sheet.key(key, action)) {
+                act_on_key_sheet(action);
+                return;
+            }
         }
         // Escape lets go of a drag: nothing is dropped.
         if (drag_op && key.key == Key::Escape && !pages_in_engines) {
@@ -15594,6 +15697,11 @@ struct Browser::Impl {
             dirty = true;
             return;
         }
+        if (!address_focus && !find_focus && !palette_open && menus.empty() && front_key_sheet()) {
+            key_sheet.text(code_point);
+            dirty = true;
+            return;
+        }
         if (code_point < 0x20 || code_point == 0x7F || hints_active)
             return; // a hint's letters are keys, not text
         // Text while a rich editor composes: the method's commit, one code
@@ -15699,11 +15807,13 @@ struct Browser::Impl {
         // The page's engine painted a video's new picture and nothing else
         // changed: the page's picture is put into the frame again, which the
         // engine has counted, and no paint of the window's is.
-        bool const video_only = pages_in_engines && content_dirty && !content_whole && !dirty && !header_dirty;
+        // A security key's sheet over the page is painted with the window.
+        bool const sheet_over_page = front_key_sheet();
+        bool const video_only = pages_in_engines && content_dirty && !content_whole && !dirty && !header_dirty && !sheet_over_page;
         // The page's picture is new, the chrome is as it was painted, and
         // nothing of the shell's lies over the page: the picture goes into
         // the frame, and the header above it is left as it is.
-        bool const page_alone = pages_in_engines && content_dirty && !dirty && !header_dirty && menus.empty() && !palette_open;
+        bool const page_alone = pages_in_engines && content_dirty && !dirty && !header_dirty && menus.empty() && !palette_open && !sheet_over_page;
         // A picture that moves starts its clock when it is first shown.
         for (ThemeLayers* const surface : { &frame_pictures, &toolbar_pictures, &tab_background_pictures }) {
             for (ThemeLayers::Layer& layer : surface->layers) {
@@ -15824,7 +15934,14 @@ struct Browser::Impl {
             }
             Rect const close = c.tab_close_buttons[i];
             float text_x = static_cast<float>(rect.x + t.padding + 2);
-            if (tabs[i].favicon) {
+            if (!is_active && security_keys->has_request(key_owner(tabs[i]))) {
+                // A tab behind with a security key's request wears a key in
+                // the accent before its title: its sheet shows when it is
+                // the tab in front.
+                int const size = t.tab_icon_size;
+                draw_icon(frame, Icon::Key, Rect { rect.x + t.padding + 2, rect.y + (rect.height - size) / 2, size, size }, size, t.accent);
+                text_x += static_cast<float>(size + t.padding);
+            } else if (tabs[i].favicon) {
                 // The icon before the title, which moves over only when one
                 // decoded, so a page without one paints as it always did.
                 int const size = t.tab_icon_size;
@@ -16374,6 +16491,9 @@ struct Browser::Impl {
             frame.set_clip(std::nullopt);
         }
 
+        // A security key's sheet, under the toolbar over its tab's page.
+        if (front_key_sheet())
+            key_sheet.paint(frame);
         paint_menus(c);
         // The window's own file chooser, over everything (it is modal).
         if (builtin_chooser) {
@@ -16790,6 +16910,33 @@ bool Browser::builtin_chooser_reading() const
     return m_impl->builtin_chooser && m_impl->builtin_chooser->reading();
 }
 
+void Browser::set_security_key_transport(std::shared_ptr<auth::Transport> transport, std::function<void()> wake)
+{
+    m_impl->security_keys->set_transport(std::move(transport));
+    m_impl->security_keys->set_wake(std::move(wake));
+}
+
+std::string Browser::key_sheet_shows() { return m_impl->front_key_sheet() ? m_impl->key_sheet.shows() : std::string(); }
+
+std::string Browser::key_sheet_focus() { return m_impl->front_key_sheet() ? m_impl->key_sheet.focus_name() : std::string("none"); }
+
+std::optional<Rect> Browser::key_sheet_button(std::string_view name)
+{
+    return m_impl->front_key_sheet() ? m_impl->key_sheet.button(name) : std::nullopt;
+}
+
+std::optional<Rect> Browser::key_sheet_account(std::size_t index)
+{
+    return m_impl->front_key_sheet() ? m_impl->key_sheet.account_row(index) : std::nullopt;
+}
+
+bool Browser::tab_has_key_request(std::size_t index) const
+{
+    return index < m_impl->tabs.size() && m_impl->security_keys->has_request(Impl::key_owner(m_impl->tabs[index]));
+}
+
+std::size_t Browser::security_key_requests() const { return m_impl->security_keys->active(); }
+
 void Browser::set_builtin_chooser_folder(std::string folder)
 {
     m_impl->builtin_chooser_folder = std::move(folder);
@@ -17158,7 +17305,8 @@ bool Browser::tick()
     // may have something to do about it in this same step.
     m_impl->hear_spell();
     bool const clipboard_heard = m_impl->hear_clipboard();
-    bool const chooser_heard = m_impl->hear_chooser() || clipboard_heard;
+    bool const keys_heard = m_impl->hear_security_keys();
+    bool const chooser_heard = m_impl->hear_chooser() || clipboard_heard || keys_heard;
     bool const notices_heard = m_impl->hear_notifier() || chooser_heard;
     if (m_impl->page_threads) {
         m_impl->hear_pages();
@@ -17292,6 +17440,7 @@ bool Browser::run_scripts()
     impl.hear_notifier();
     impl.hear_chooser();
     impl.hear_clipboard();
+    impl.hear_security_keys();
     if (impl.page_threads) {
         // The pages' timers are their threads' to run: the shell hears what
         // the pages have said, and keeps its own clockwork.

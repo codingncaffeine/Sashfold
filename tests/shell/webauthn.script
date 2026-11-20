@@ -1,0 +1,233 @@
+# A page's Web Authentication request, from its sheet to the key and back:
+# every state the sheet shows, with software keys the test program plugs
+# into the window (shell_webauthn.cpp says what key-plug and the rest do).
+# The page is https://webauthn.test/webauthn.html, this folder's file.
+open https://webauthn.test/webauthn.html
+assert-title Keys
+
+# No key plugged in: insert one and touch it. The sheet says which site
+# asks (the RP ID), under the toolbar over the page.
+click-text Register
+assert-key-sheet insert-key webauthn.test
+assert-key-focus button cancel
+assert-golden goldens/webauthn-insert.png 0 0 1024 400
+# A key comes, and waits for its touch; touched, the credential is the page's.
+key-plug touch=never
+assert-key-sheet touch-key webauthn.test
+assert-golden goldens/webauthn-touch.png 0 0 1024 400
+key-touch
+assert-key-sheet
+assert-title Keys, register ok none
+assert-key-credentials 1
+
+# Cancel always there: pressed, the page hears NotAllowedError.
+key-unplug
+key-plug touch=never
+click-text Register
+assert-key-sheet touch-key webauthn.test
+click-key-sheet cancel
+assert-key-sheet
+assert-title Keys, register ok none, register NotAllowedError
+# Escape is Cancel.
+click-text Register
+assert-key-sheet touch-key webauthn.test
+key escape
+assert-key-sheet
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError
+# The page's own timeout (at least five minutes, WebAuthn's recommended
+# range) ends it on the page's clock, the sheet with it.
+click-text Register
+assert-key-sheet touch-key webauthn.test
+advance 300000
+assert-key-sheet
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError, register NotAllowedError
+# The page's AbortSignal ends it as AbortError.
+click-text Abort
+assert-key-sheet touch-key webauthn.test
+advance 1000
+assert-key-sheet
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError, register NotAllowedError, soon AbortError
+
+# A key with a PIN, and a site that asks for a discoverable credential with
+# the user verified: the PIN is asked once the key is touched. Wrong twice,
+# then right; the tries left are the key's.
+key-unplug
+key-plug pin=1234 touch=now
+click-text Alice
+assert-key-sheet pin-enter webauthn.test | min 4 | retries 8 | fields 0
+assert-key-focus field 0
+assert-golden goldens/webauthn-pin.png 0 0 1024 400
+type 9999
+assert-key-sheet pin-enter webauthn.test | min 4 | retries 8 | fields 4
+key enter
+assert-key-sheet pin-retry webauthn.test | min 4 | retries 7 | fields 0
+type 8888
+key enter
+assert-key-sheet pin-retry webauthn.test | min 4 | retries 6 | fields 0
+assert-golden goldens/webauthn-pin-retry.png 0 0 1024 400
+# Too short is said on the sheet and not sent to the key.
+type 12
+key enter
+assert-key-sheet pin-retry webauthn.test | min 4 | retries 6 | fields 2 | A PIN has at least 4 characters.
+key backspace
+key backspace
+type 1234
+key enter
+assert-key-sheet
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError, register NotAllowedError, soon AbortError, alice ok none
+assert-key-pin-retries 8
+click-text Bob
+assert-key-sheet pin-enter webauthn.test | min 4 | retries 8 | fields 0
+type 1234
+click-key-sheet continue
+assert-key-sheet
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError, register NotAllowedError, soon AbortError, alice ok none, bob ok none
+assert-key-credentials 2
+
+# Two accounts on the key for this site: the reader chooses, by the keys.
+click-text Sign
+assert-key-sheet pin-enter webauthn.test | min 4 | retries 8 | fields 0
+type 1234
+key enter
+assert-key-sheet account webauthn.test | bob (Bob), alice (Alice)
+assert-key-focus account 0
+assert-golden goldens/webauthn-account.png 0 0 1024 400
+key down
+assert-key-focus account 1
+key tab
+assert-key-focus button cancel
+key shift+tab
+assert-key-focus account 1
+key enter
+assert-key-sheet
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError, register NotAllowedError, soon AbortError, alice ok none, bob ok none, signin ok alice
+# And by the mouse.
+click-text Sign
+assert-key-sheet pin-enter webauthn.test | min 4 | retries 8 | fields 0
+type 1234
+key enter
+assert-key-sheet account webauthn.test | bob (Bob), alice (Alice)
+click-key-sheet account 0
+assert-key-sheet
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError, register NotAllowedError, soon AbortError, alice ok none, bob ok none, signin ok alice, signin ok bob
+
+# This key is already registered: shown until the reader closes it, and
+# only then does the page hear (InvalidStateError).
+click-text Again
+assert-key-sheet already-registered webauthn.test | held
+assert-golden goldens/webauthn-already-registered.png 0 0 1024 400
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError, register NotAllowedError, soon AbortError, alice ok none, bob ok none, signin ok alice, signin ok bob
+click-key-sheet close
+assert-key-sheet
+wait-key-requests 0
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError, register NotAllowedError, soon AbortError, alice ok none, bob ok none, signin ok alice, signin ok bob, again InvalidStateError
+
+# A key that holds none of the credentials asked for.
+click-text Known
+assert-key-sheet not-registered webauthn.test | held
+assert-golden goldens/webauthn-not-registered.png 0 0 1024 400
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError, register NotAllowedError, soon AbortError, alice ok none, bob ok none, signin ok alice, signin ok bob, again InvalidStateError
+key escape
+assert-key-sheet
+wait-key-requests 0
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError, register NotAllowedError, soon AbortError, alice ok none, bob ok none, signin ok alice, signin ok bob, again InvalidStateError, known NotAllowedError
+
+# Attestation asked for: the reader is asked first. Blocked, the page gets
+# the credential anonymized ("none"); allowed, the key's statement.
+click-text Direct
+assert-key-sheet consent webauthn.test | held
+assert-key-focus button allow
+assert-golden goldens/webauthn-consent.png 0 0 1024 400
+click-key-sheet block
+assert-key-sheet
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError, register NotAllowedError, soon AbortError, alice ok none, bob ok none, signin ok alice, signin ok bob, again InvalidStateError, known NotAllowedError, direct ok none
+click-text Direct
+assert-key-sheet consent webauthn.test | held
+key enter
+assert-key-sheet
+assert-title Keys, register ok none, register NotAllowedError, register NotAllowedError, register NotAllowedError, soon AbortError, alice ok none, bob ok none, signin ok alice, signin ok bob, again InvalidStateError, known NotAllowedError, direct ok none, direct ok packed
+
+# A key with no PIN, and a site that needs the user verified: a new PIN is
+# chosen, at least the key's minimum, typed twice.
+key-unplug
+key-plug min-pin=6 touch=now
+open https://webauthn.test/webauthn.html
+click-text Alice
+assert-key-sheet pin-set webauthn.test | min 6 | fields 0,0
+type 12345
+key enter
+assert-key-focus field 1
+type 12345
+key enter
+assert-key-sheet pin-set webauthn.test | min 6 | fields 5,5 | The new PIN needs at least 6 characters.
+assert-golden goldens/webauthn-pin-set.png 0 0 1024 460
+type 6
+key tab
+type 7
+key enter
+assert-key-sheet pin-set webauthn.test | min 6 | fields 6,6 | The two new PINs are not the same.
+key backspace
+type 6
+key enter
+assert-key-sheet
+assert-title Keys, alice ok none
+
+# A request in a tab behind: the tab wears a key, and its sheet shows when
+# it is in front again.
+key-unplug
+key-plug touch=never
+click-text Register
+assert-key-sheet touch-key webauthn.test
+new-tab
+assert-key-sheet
+assert-tab-key-request 0 yes
+assert-tab-key-request 1 no
+assert-golden goldens/webauthn-tab-behind.png 0 0 1024 40
+select-tab 0
+assert-key-sheet touch-key webauthn.test
+# Its tab closed in the middle of it: the request ends with the tab.
+close-tab 0
+wait-key-requests 0
+assert-tabs 1
+assert-key-sheet
+
+# In the light theme.
+palette theme: sashfold light
+key Enter
+assert-theme Sashfold Light
+open https://webauthn.test/webauthn.html
+click-text Register
+assert-key-sheet touch-key webauthn.test
+assert-golden goldens/webauthn-touch-light.png 0 0 1024 400
+key escape
+assert-key-sheet
+key-unplug
+key-plug pin=1234 touch=now
+click-text Alice
+assert-key-sheet pin-enter webauthn.test | min 4 | retries 8 | fields 0
+type 0000
+key enter
+assert-key-sheet pin-retry webauthn.test | min 4 | retries 7 | fields 0
+assert-golden goldens/webauthn-pin-retry-light.png 0 0 1024 400
+type 1234
+key enter
+assert-key-sheet
+click-text Bob
+assert-key-sheet pin-enter webauthn.test | min 4 | retries 8 | fields 0
+type 1234
+key enter
+assert-key-sheet
+click-text Sign
+assert-key-sheet pin-enter webauthn.test | min 4 | retries 8 | fields 0
+type 1234
+key enter
+assert-key-sheet account webauthn.test | bob (Bob), alice (Alice)
+assert-golden goldens/webauthn-account-light.png 0 0 1024 400
+key escape
+assert-key-sheet
+click-text Direct
+assert-key-sheet consent webauthn.test | held
+assert-golden goldens/webauthn-consent-light.png 0 0 1024 400
+key escape
+assert-key-sheet
+assert-title Keys, register NotAllowedError, alice ok none, bob ok none, signin NotAllowedError, direct NotAllowedError

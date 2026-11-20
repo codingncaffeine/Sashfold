@@ -490,6 +490,9 @@ private:
             q.device = m_slot.device.product;
             return q;
         };
+        // A PIN the user has just chosen is the one the token is asked for
+        // with: they are not asked to type it a second time.
+        std::optional<std::string> chosen;
         if (!m_info->option_true("clientPin")) {
             // No PIN yet: one is set first, when the key can have one.
             if (!m_info->options.contains("clientPin") || m_request.operation != Operation::Create) {
@@ -502,6 +505,7 @@ private:
                     return std::nullopt;
                 if (set_pin(protocol, answer->pin)) {
                     m_info->options["clientPin"] = true;
+                    chosen = answer->pin;
                     break;
                 }
                 if (stopped())
@@ -518,6 +522,7 @@ private:
                 return std::nullopt;
             }
             m_info->force_pin_change = false;
+            chosen = answer->new_pin;
         }
         auto left = retries(ctap2::pin_get_retries);
         if (left && *left == 0) {
@@ -526,9 +531,15 @@ private:
         }
         bool wrong = false;
         while (!stopped()) {
-            auto const answer = ask<PinAnswer>([&](Prompt& p, auto callback) {
-                p.ask_pin(question(wrong ? PinQuestion::Kind::Retry : PinQuestion::Kind::Enter, left ? static_cast<int>(*left) : -1), callback);
-            });
+            std::optional<PinAnswer> answer;
+            if (chosen) {
+                answer = PinAnswer { *chosen, {} };
+                chosen.reset();
+            } else {
+                answer = ask<PinAnswer>([&](Prompt& p, auto callback) {
+                    p.ask_pin(question(wrong ? PinQuestion::Kind::Retry : PinQuestion::Kind::Enter, left ? static_cast<int>(*left) : -1), callback);
+                });
+            }
             if (!answer)
                 return std::nullopt;
             auto const shared = key_agreement(protocol);

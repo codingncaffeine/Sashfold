@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<title>Keys</title>
+<body style="margin: 0; background: #ccddee; font: 16px sans-serif">
+<button id="register" style="position: absolute; left: 600px; top: 20px; width: 160px; height: 36px">Register</button>
+<button id="alice" style="position: absolute; left: 600px; top: 70px; width: 160px; height: 36px">Alice</button>
+<button id="bob" style="position: absolute; left: 600px; top: 120px; width: 160px; height: 36px">Bob</button>
+<button id="signin" style="position: absolute; left: 600px; top: 170px; width: 160px; height: 36px">Sign in</button>
+<button id="again" style="position: absolute; left: 600px; top: 220px; width: 160px; height: 36px">Again</button>
+<button id="known" style="position: absolute; left: 600px; top: 270px; width: 160px; height: 36px">Known</button>
+<button id="direct" style="position: absolute; left: 600px; top: 320px; width: 160px; height: 36px">Direct</button>
+<button id="soon" style="position: absolute; left: 600px; top: 370px; width: 160px; height: 36px">Abort soon</button>
+<script>
+var log = [];
+var ids = [];
+function say(what) { log.push(what); document.title = 'Keys, ' + log.join(', '); }
+function bytes(text) { return new TextEncoder().encode(text); }
+// The attestation statement's format, read off the attestation object's
+// CBOR: the "fmt" key and the text string after it.
+function format(buffer) {
+    var text = String.fromCharCode.apply(null, new Uint8Array(buffer));
+    if (text.indexOf('\x63fmt\x64none') >= 0)
+        return 'none';
+    if (text.indexOf('\x63fmt\x66packed') >= 0)
+        return 'packed';
+    if (text.indexOf('\x63fmt\x68fido-u2f') >= 0)
+        return 'fido-u2f';
+    return '?';
+}
+function create(label, user, extra) {
+    var options = {
+        rp: { name: 'Keys' },
+        user: { id: bytes(user), name: user, displayName: user.charAt(0).toUpperCase() + user.slice(1) },
+        challenge: bytes('a challenge of sixteen'),
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }],
+        authenticatorSelection: { residentKey: 'discouraged', userVerification: 'discouraged' },
+        timeout: 1000
+    };
+    for (var name in extra)
+        options[name] = extra[name];
+    var request = { publicKey: options };
+    if (extra.signal) {
+        request.signal = extra.signal;
+        delete options.signal;
+    }
+    navigator.credentials.create(request).then(function (credential) {
+        ids.push(credential.rawId);
+        say(label + ' ok ' + format(credential.response.attestationObject));
+    }, function (error) { say(label + ' ' + error.name); });
+}
+function get(label, extra) {
+    var options = { challenge: bytes('another challenge'), userVerification: 'discouraged' };
+    for (var name in extra)
+        options[name] = extra[name];
+    navigator.credentials.get({ publicKey: options }).then(function (credential) {
+        var handle = credential.response.userHandle ? new TextDecoder().decode(credential.response.userHandle) : '-';
+        say(label + ' ok ' + handle);
+    }, function (error) { say(label + ' ' + error.name); });
+}
+var resident = { residentKey: 'required', userVerification: 'required' };
+document.getElementById('register').addEventListener('click', function () { create('register', 'carol', {}); });
+document.getElementById('alice').addEventListener('click', function () { create('alice', 'alice', { authenticatorSelection: resident }); });
+document.getElementById('bob').addEventListener('click', function () { create('bob', 'bob', { authenticatorSelection: resident }); });
+document.getElementById('signin').addEventListener('click', function () { get('signin', { userVerification: 'preferred' }); });
+document.getElementById('again').addEventListener('click', function () {
+    create('again', 'dave', { excludeCredentials: ids.map(function (id) { return { type: 'public-key', id: id }; }) });
+});
+document.getElementById('known').addEventListener('click', function () {
+    get('known', { allowCredentials: [{ type: 'public-key', id: bytes('a credential no key holds') }] });
+});
+document.getElementById('direct').addEventListener('click', function () { create('direct', 'erin', { attestation: 'direct' }); });
+document.getElementById('soon').addEventListener('click', function () {
+    var controller = new AbortController();
+    create('soon', 'frank', { signal: controller.signal });
+    setTimeout(function () { controller.abort(); }, 1000);
+});
+</script>

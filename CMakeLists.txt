@@ -312,6 +312,8 @@ add_library(sashfold_core STATIC
   src/ui/Forms.cpp
   src/ui/Icons.cpp
   src/ui/InternalPages.cpp
+  src/ui/KeySheet.cpp
+  src/ui/SecurityKeys.cpp
   src/ui/Frames.cpp
   src/ui/PageCompositor.cpp
   src/ui/PageImages.cpp

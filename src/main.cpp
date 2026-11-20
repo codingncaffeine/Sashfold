@@ -1,5 +1,6 @@
 #include "a11y/PageSources.h"
 #include "a11y/Tree.h"
+#include "auth/Transport.h"
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
 #include "bindings/Workers.h"
@@ -2247,6 +2248,9 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // allows: reached in the background, and gone before the browser is.
     std::unique_ptr<platform::Notifier> const notifier = platform::open_notifier("Sashfold", [waker] { waker->wake(); });
     browser.set_notifier(notifier.get());
+    // The security keys plugged into the machine, for the pages' Web
+    // Authentication: found and spoken to on the requests' own threads.
+    browser.set_security_key_transport(auth::system_transport(), [waker] { waker->wake(); });
     // A notice pressed brings the window forward with the desktop's leave.
     browser.set_on_raise_window([&window](std::string const& token) { window->activate(token); });
     // A page's drag that leaves the window is handed to the desktop.

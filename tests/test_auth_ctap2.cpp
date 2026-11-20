@@ -367,21 +367,25 @@ void pin_states(std::uint8_t protocol)
     auto transport4 = std::make_shared<FakeTransport>();
     auto key4 = transport4->plug(bare);
     auto set_prompt = std::make_shared<ScriptedPrompt>();
-    set_prompt->pins = { pin_answer("12"), pin_answer("424242"), pin_answer("424242") };
+    set_prompt->pins = { pin_answer("12"), pin_answer("424242") };
     auto const with_new_pin = registered(transport4, request, set_prompt);
-    CHECK(set_prompt->questions.size() >= 2 && set_prompt->questions[0].kind == PinQuestion::Kind::Set);
+    // The PIN just chosen is the one used: it is not asked for again.
+    CHECK_EQ(set_prompt->questions.size(), std::size_t { 2 });
+    CHECK(set_prompt->questions.size() == 2 && set_prompt->questions[0].kind == PinQuestion::Kind::Set
+        && set_prompt->questions[1].kind == PinQuestion::Kind::Set);
     CHECK(key4->pin_hash() == pin::pin_hash("424242"));
     if (with_new_pin)
         CHECK(parse_attestation_object(with_new_pin->attestation_object)->parsed.user_verified());
 
-    // forcePINChange: the current PIN and a new one, then the new one.
+    // forcePINChange: the current PIN and a new one, which is then used.
     SoftOptions forced = options;
     forced.force_pin_change = true;
     auto transport5 = std::make_shared<FakeTransport>();
     auto key5 = transport5->plug(forced);
     auto change_prompt = std::make_shared<ScriptedPrompt>();
-    change_prompt->pins = { pin_answer("1234", "56785678"), pin_answer("56785678") };
+    change_prompt->pins = { pin_answer("1234", "56785678") };
     CHECK(registered(transport5, request, change_prompt).has_value());
+    CHECK_EQ(change_prompt->questions.size(), std::size_t { 1 });
     CHECK(!change_prompt->questions.empty() && change_prompt->questions[0].kind == PinQuestion::Kind::Change);
     CHECK(key5->pin_hash() == pin::pin_hash("56785678"));
 }

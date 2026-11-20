@@ -39,6 +39,10 @@ namespace sashfold::bindings {
 class WorkerThreads;
 }
 
+namespace sashfold::auth {
+class Transport; // auth/Transport.h
+}
+
 namespace sashfold::media {
 class VideoPipeline; // media/VideoPipeline.h
 }
@@ -482,6 +486,22 @@ public:
     std::optional<std::string> builtin_chooser_shows() const;
     bool builtin_chooser_reading() const;
     void set_builtin_chooser_folder(std::string folder);
+    // Where the window finds security keys for the pages' Web
+    // Authentication requests (auth/Transport.h: the system's, or a
+    // test's), and what wakes the window when a request's sheet changes on
+    // a ceremony's thread. Unset, a request waits for a key that never
+    // comes, as on a machine with none.
+    void set_security_key_transport(std::shared_ptr<auth::Transport> transport, std::function<void()> wake = {});
+    // For scripts: what the sheet over the tab in front shows (KeySheet::
+    // shows; "" with none), where its keyboard is, a button's box by its
+    // name, an account's row; whether tab `index` has a request; and how
+    // many requests have not yet been told to their pages.
+    std::string key_sheet_shows();
+    std::string key_sheet_focus();
+    std::optional<Rect> key_sheet_button(std::string_view name);
+    std::optional<Rect> key_sheet_account(std::size_t index);
+    bool tab_has_key_request(std::size_t index) const;
+    std::size_t security_key_requests() const;
     // What the reader has said of each site's notifications, by its
     // origin: allowed (true) or blocked. The caller gives what the profile
     // holds and hears, through `changed`, when the reader says something

@@ -249,6 +249,7 @@ struct Runner {
     // with their data, and what the window was last told a drop would do.
     std::vector<std::pair<std::string, std::string>> os_drag_offer {};
     std::shared_ptr<std::string> os_drag_answer = std::make_shared<std::string>("none");
+    ScriptExtension extension {}; // the test program's own commands
 
     // Loads, then the scripts they set going, then the loads those queued.
     void settle()
@@ -1416,6 +1417,56 @@ struct Runner {
             }
             out << "find-pixel " << args[0] << ": " << found << " in all" << (found ? ";" : "") << places
                 << (found > 8 ? " ..." : "") << "\n";
+        } else if (command == "assert-key-sheet") {
+            // `assert-key-sheet <what it shows>` (KeySheet::shows; nothing:
+            // no sheet). Its ceremony runs on threads of its own, so the
+            // sheet is waited for, a few seconds at most, as the reader
+            // waits for the key; then the pages take up what came.
+            for (int waited = 0; waited < 2500 && browser.key_sheet_shows() != argument; ++waited) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                browser.tick();
+                browser.run_scripts();
+            }
+            settle();
+            expect_equal("assert-key-sheet", browser.key_sheet_shows(), argument);
+        } else if (command == "assert-key-focus") {
+            expect_equal("assert-key-focus", browser.key_sheet_focus(), argument);
+        } else if (command == "click-key-sheet") {
+            // `click-key-sheet cancel|continue|close|block|allow|field-<n>`
+            // or `click-key-sheet account <n>`: a click where it is drawn.
+            std::optional<Rect> box;
+            if (!args.empty() && args[0] == "account" && args.size() == 2) {
+                if (auto const n = int_arg(1); n && *n >= 0)
+                    box = browser.key_sheet_account(static_cast<std::size_t>(*n));
+            } else {
+                box = browser.key_sheet_button(argument);
+            }
+            if (!box)
+                return fail("click-key-sheet: no " + argument + " on the sheet");
+            click(box->x + box->width / 2, box->y + box->height / 2, 1);
+        } else if (command == "wait-key-requests") {
+            // `wait-key-requests <n>`: until that many security key requests
+            // have not been told to their pages (a few seconds at most).
+            auto const n = int_arg(0);
+            if (!n || *n < 0)
+                return fail("wait-key-requests: needs a count");
+            for (int waited = 0; waited < 2500 && browser.security_key_requests() != static_cast<std::size_t>(*n); ++waited) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(2));
+                browser.tick();
+                browser.run_scripts();
+            }
+            settle();
+            expect_equal("wait-key-requests", std::to_string(browser.security_key_requests()), argument);
+        } else if (command == "assert-tab-key-request") {
+            // `assert-tab-key-request <tab> yes|no`.
+            auto const n = int_arg(0);
+            if (!n || *n < 0 || args.size() != 2)
+                return fail("assert-tab-key-request: needs a tab and yes or no");
+            expect_equal("assert-tab-key-request", browser.tab_has_key_request(static_cast<std::size_t>(*n)) ? "yes" : "no", args[1]);
+        } else if (std::optional<std::string> const extra = extension ? extension(command, argument) : std::nullopt) {
+            if (!extra->empty())
+                return fail(command + ": " + *extra);
+            settle();
         } else {
             fail("unknown command: " + command);
         }
@@ -1425,11 +1476,12 @@ struct Runner {
 } // namespace
 
 ScriptResult run_script(Browser& browser, std::string const& path, bool update_goldens,
-    std::ostream& out)
+    std::ostream& out, ScriptExtension extension)
 {
     std::ifstream file(path);
     Runner runner { browser, std::filesystem::absolute(std::filesystem::path(path)).parent_path(),
         update_goldens, out, {}, 0, 0, {}, {}, std::filesystem::path(path).stem().string() };
+    runner.extension = std::move(extension);
     if (!file) {
         runner.fail("cannot read script " + path);
         return runner.result;

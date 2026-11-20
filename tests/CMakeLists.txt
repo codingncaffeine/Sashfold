@@ -283,6 +283,13 @@ add_test(NAME shell_fullscreen
 # a notice shown, replaced, pressed, closed and dismissed.
 add_test(NAME shell_notifications
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/notifications.script)
+# A page's Web Authentication request and its sheet: every state, with
+# software security keys a program of the tests' own plugs into the window
+# (the shipped browser cannot make one).
+add_executable(shell_webauthn shell_webauthn.cpp)
+target_link_libraries(shell_webauthn PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
+add_test(NAME shell_webauthn
+  COMMAND shell_webauthn --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/webauthn.script --theme ${CMAKE_SOURCE_DIR}/themes/default.json)
 # Typing into rich text: the caret placed by a click, keys made edits the
 # page hears and may cancel, paragraphs split and joined, the arrows,
 # Shift, Ctrl+A, and the page's getSelection() following the reader's.

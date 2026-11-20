@@ -34,6 +34,7 @@ enum class Icon {
     StarFilled, // it is: the same star, filled with its own strokes
     Folder, // a folder of bookmarks
     Chevrons, // two chevrons pointing right: the bookmarks that did not fit on the bar
+    Key, // a key lying on its side, its ring at the left: a security key's request
 };
 
 // The icon `size` device px square, centered in `box`, in `color`.
