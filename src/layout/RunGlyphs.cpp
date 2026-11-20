@@ -40,7 +40,11 @@ text::TextShaping shaping_for(css::ComputedStyle const& style, bool right_to_lef
     css.discretionary_ligatures = !none && (ligatures & V::discretionary_ligatures);
     css.historical_ligatures = !none && (ligatures & V::historical_ligatures);
     css.contextual_alternates = !none && !(ligatures & V::no_contextual);
-    css.letter_spacing = style.letter_spacing != 0;
+    // Optional ligatures are off where the spacing between letters is not
+    // zero, whether letter-spacing or inter-character justification puts
+    // it there (css-text-3 §8.2).
+    bool const justified = style.text_align == css::TextAlign::Justify || style.text_align_last == css::TextAlignLast::Justify;
+    css.letter_spacing = style.letter_spacing != 0 || (justified && style.text_justify == css::TextJustify::InterCharacter);
     text::shaping_features_for_css(css, shaping.features);
     // font-variant-caps and -position: each face is asked whether it has
     // the forms, and what it lacks is synthesized where font-synthesis
@@ -88,7 +92,8 @@ bool same_font_features(css::ComputedStyle const& a, css::ComputedStyle const& b
         || (a.font_feature_settings && b.font_feature_settings && *a.font_feature_settings == *b.font_feature_settings);
     return a.font_kerning == b.font_kerning && same_settings && a.font_variant == b.font_variant
         && a.font_synthesis_small_caps == b.font_synthesis_small_caps && a.font_synthesis_position == b.font_synthesis_position
-        && a.language == b.language && a.font_language_override == b.font_language_override;
+        && a.language == b.language && a.font_language_override == b.font_language_override && a.text_justify == b.text_justify
+        && a.text_align == b.text_align && a.text_align_last == b.text_align_last;
 }
 
 std::u32string logical_text_of(TextRun const& run)

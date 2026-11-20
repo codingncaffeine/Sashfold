@@ -116,6 +116,11 @@ std::vector<std::uint32_t> shaper_glyphs(text::Face const& face, std::u32string_
     return out;
 }
 
+std::u32string office_text()
+{
+    return U"office";
+}
+
 std::string feature_text(std::string_view declaration)
 {
     resolve(std::string("#t { ") + std::string(declaration) + " }", "<p id=t>x</p>");
@@ -380,6 +385,14 @@ int main()
         CHECK(glyphs_of(*none) == glyphs_of(*dejavu.shape(ligated, layout::shaping_for(style_of("f5"), false))));
         CHECK(glyphs_of(*dejavu.shape(ligated, layout::shaping_for(style_of("v6"), false)))
             == glyphs_of(*dejavu.shape(ligated, layout::shaping_for(style_of("f6"), false))));
+        // Justification between letters turns the optional ligatures off,
+        // as letter-spacing does (css-text-3 §8.2); between words it does
+        // not.
+        resolve("#ic { text-align: justify; text-justify: inter-character } #iw { text-align: justify; text-justify: inter-word }",
+            "<p id=ic>a</p><p id=iw>b</p>");
+        CHECK_EQ(dejavu.shape(office_text(), layout::shaping_for(style_of("ic"), false))->glyphs.size(), 6u);
+        CHECK(dejavu.shape(office_text(), layout::shaping_for(style_of("iw"), false))->glyphs.size() < 6u);
+        CHECK(!layout::same_font_features(style_of("ic"), style_of("iw")));
     }
 
     // Small capitals (§6.6): the face's own where it has them; scaled
