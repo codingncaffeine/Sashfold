@@ -589,8 +589,10 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
         std::string const answer = sandbox->request(std::string(body.begin(), body.end()));
         {
             std::lock_guard const lock(handle->mutex);
-            if (handle->document == document)
+            if (handle->document == document) {
                 pdf::apply_script_changes(*document, answer, handle->form_values);
+                ++handle->form_generation; // a script may have changed values: drawn tiles are not reused
+            }
         }
         return answer_text(url, "application/json", answer);
     }
