@@ -1,6 +1,42 @@
 #include "core/Unicode.h"
 
+#include "core/PropertyData.h"
+
+#include <algorithm>
+#include <iterator>
+#include <span>
+#include <string_view>
+
 namespace sashfold {
+
+namespace {
+
+// The ranges of Default_Ignorable_Code_Point among the generated binary
+// properties, found by name once.
+std::span<unicode_properties::CodeRange const> default_ignorable_ranges()
+{
+    static std::span<unicode_properties::CodeRange const> const ranges = [] {
+        for (unicode_properties::BinaryProperty const& property : unicode_properties::binary_properties) {
+            if (std::string_view(property.name) == "Default_Ignorable_Code_Point")
+                return std::span<unicode_properties::CodeRange const>(unicode_properties::binary_property_ranges)
+                    .subspan(property.first_range, property.range_count);
+        }
+        return std::span<unicode_properties::CodeRange const>();
+    }();
+    return ranges;
+}
+
+}
+
+bool is_default_ignorable(char32_t c)
+{
+    if (c < 0xAD)
+        return false;
+    std::span<unicode_properties::CodeRange const> const ranges = default_ignorable_ranges();
+    auto const it = std::upper_bound(ranges.begin(), ranges.end(), static_cast<std::uint32_t>(c),
+        [](std::uint32_t value, unicode_properties::CodeRange const& range) { return value < range.first; });
+    return it != ranges.begin() && static_cast<std::uint32_t>(c) <= std::prev(it)->last;
+}
 
 void append_utf8(std::string& out, char32_t c)
 {

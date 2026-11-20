@@ -211,6 +211,7 @@ private:
         // key is the size in whole px: a page's few emoji sizes decode once.
         std::uint32_t const px = static_cast<std::uint32_t>(std::min(size, 65535.0f));
         std::uint32_t const key = static_cast<std::uint32_t>(glyph) << 16 | px;
+        std::lock_guard<std::mutex> const lock(m_cache_mutex);
         if (auto const it = m_pictures.find(key); it != m_pictures.end())
             return it->second.get();
         std::unique_ptr<Picture> picture;
@@ -233,6 +234,7 @@ private:
     GlyphMask const& mask_for(std::uint16_t glyph, int size_q, bool embolden, bool oblique) const
     {
         MaskKey const key { glyph, size_q, embolden, oblique };
+        std::lock_guard<std::mutex> const lock(m_cache_mutex);
         if (auto const it = m_masks.find(key); it != m_masks.end())
             return it->second;
         GlyphMask mask;
@@ -245,6 +247,12 @@ private:
 
     TrueTypeFont m_font;
     bool m_monospace = false;
+    // A face is shared by every page thread that draws with it, so its two
+    // caches are filled under a lock. A miss is made under it too: the
+    // outline it reads may load a CFF charset, which is itself kept lazily.
+    // Entries are never erased, so what a lookup returns stays valid after
+    // the lock is let go.
+    mutable std::mutex m_cache_mutex;
     mutable std::unordered_map<MaskKey, GlyphMask, MaskKeyHash> m_masks;
     mutable std::unordered_map<std::uint32_t, std::unique_ptr<Picture>> m_pictures; // null: no picture at that size
 };
