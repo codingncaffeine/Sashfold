@@ -35,14 +35,36 @@ text::TextShaping shaping_for(css::ComputedStyle const& style, bool right_to_lef
     css.contextual_alternates = !none && !(ligatures & V::no_contextual);
     css.letter_spacing = style.letter_spacing != 0;
     text::shaping_features_for_css(css, shaping.features);
-    // The other longhands of font-variant (§6.5 to §6.10), then
+    // font-variant-caps and -position: each face is asked whether it has
+    // the forms, and what it lacks is synthesized where font-synthesis
+    // lets it be (§6.5, §6.6).
+    css::FontVariant const& asked = style.font_variant;
+    switch (asked.caps) {
+    case css::FontVariantCaps::Normal: shaping.caps = text::CapsVariant::Normal; break;
+    case css::FontVariantCaps::SmallCaps: shaping.caps = text::CapsVariant::SmallCaps; break;
+    case css::FontVariantCaps::AllSmallCaps: shaping.caps = text::CapsVariant::AllSmallCaps; break;
+    case css::FontVariantCaps::PetiteCaps: shaping.caps = text::CapsVariant::PetiteCaps; break;
+    case css::FontVariantCaps::AllPetiteCaps: shaping.caps = text::CapsVariant::AllPetiteCaps; break;
+    case css::FontVariantCaps::Unicase: shaping.caps = text::CapsVariant::Unicase; break;
+    case css::FontVariantCaps::TitlingCaps: shaping.caps = text::CapsVariant::TitlingCaps; break;
+    }
+    switch (asked.position) {
+    case css::FontVariantPosition::Normal: shaping.position = text::PositionVariant::Normal; break;
+    case css::FontVariantPosition::Sub: shaping.position = text::PositionVariant::Sub; break;
+    case css::FontVariantPosition::Super: shaping.position = text::PositionVariant::Super; break;
+    }
+    shaping.synthesize_small_caps = style.font_synthesis_small_caps;
+    shaping.synthesize_position = style.font_synthesis_position;
+    // The other longhands of font-variant (§6.7 to §6.10), then
     // font-feature-settings last, over everything the other properties
     // asked for (§7.2): a later setting of a tag wins.
-    css::FontVariant const& asked = style.font_variant;
-    if (asked.caps != css::FontVariantCaps::Normal || asked.numeric != 0 || asked.east_asian != 0
-        || asked.position != css::FontVariantPosition::Normal || asked.historical_forms) {
+    if (asked.numeric != 0 || asked.east_asian != 0 || asked.historical_forms) {
+        css::FontVariant rest;
+        rest.numeric = asked.numeric;
+        rest.east_asian = asked.east_asian;
+        rest.historical_forms = asked.historical_forms;
         std::vector<css::FontFeature> variant;
-        css::append_font_variant_features(asked, variant);
+        css::append_font_variant_features(rest, variant);
         for (css::FontFeature const& feature : variant)
             shaping.features.push_back(text::FeatureSetting { feature.tag, feature.value });
     }
@@ -57,7 +79,8 @@ bool same_font_features(css::ComputedStyle const& a, css::ComputedStyle const& b
 {
     bool const same_settings = a.font_feature_settings == b.font_feature_settings
         || (a.font_feature_settings && b.font_feature_settings && *a.font_feature_settings == *b.font_feature_settings);
-    return a.font_kerning == b.font_kerning && same_settings && a.font_variant == b.font_variant;
+    return a.font_kerning == b.font_kerning && same_settings && a.font_variant == b.font_variant
+        && a.font_synthesis_small_caps == b.font_synthesis_small_caps && a.font_synthesis_position == b.font_synthesis_position;
 }
 
 std::u32string logical_text_of(TextRun const& run)

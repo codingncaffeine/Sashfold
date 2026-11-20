@@ -122,4 +122,10 @@ struct CssFontFeatures {
 };
 void shaping_features_for_css(CssFontFeatures const&, std::vector<FeatureSetting>& out);
 
+// Whether the face's GSUB has a feature with this tag in the language
+// system the shaper selects for the script and language: what CSS asks
+// before it synthesizes forms a font lacks (css-fonts-4 §6.6 decides small
+// capitals per font and script, never per character).
+bool face_has_substitution_feature(Face const&, ScriptCode, std::string_view language, std::uint32_t tag);
+
 }

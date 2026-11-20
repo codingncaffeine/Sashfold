@@ -10,6 +10,7 @@
 #include "text/ShapedText.h"
 #include "text/Shaper.h"
 
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <fstream>
@@ -252,19 +253,22 @@ void test_feature_order()
     CHECK(layout::same_font_features(style_of("k"), style_of("k")));
 
     // font-variant's features come before font-feature-settings', which
-    // can turn one of them off again.
-    resolve("#v { font-variant: small-caps tabular-nums; font-feature-settings: \"tnum\" 0 }", "<p id=v>x</p>");
-    std::vector<FeatureSetting> const features = layout::shaping_for(style_of("v"), false).features;
-    std::size_t smcp = features.size();
+    // can turn one of them off again; the caps and the position are asked
+    // of each face as it is met.
+    resolve("#v { font-variant: small-caps tabular-nums super; font-feature-settings: \"tnum\" 0; font-synthesis: none }",
+        "<p id=v>x</p>");
+    TextShaping const variant = layout::shaping_for(style_of("v"), false);
+    std::vector<FeatureSetting> const& features = variant.features;
     std::size_t tnum_on = features.size();
     std::size_t tnum_off = features.size();
     for (std::size_t i = 0; i < features.size(); ++i) {
-        if (features[i].tag == tag("smcp") && features[i].value == 1)
-            smcp = i;
         if (features[i].tag == tag("tnum"))
             (features[i].value ? tnum_on : tnum_off) = i;
     }
-    CHECK(smcp < features.size() && tnum_on < tnum_off && tnum_off == features.size() - 1);
+    CHECK(tnum_on < tnum_off && tnum_off == features.size() - 1);
+    CHECK(variant.caps == text::CapsVariant::SmallCaps);
+    CHECK(variant.position == text::PositionVariant::Super);
+    CHECK(!variant.synthesize_small_caps && !variant.synthesize_position);
 }
 
 }
@@ -337,6 +341,94 @@ int main()
         CHECK(glyphs_of(*none) == glyphs_of(*dejavu.shape(ligated, layout::shaping_for(style_of("f5"), false))));
         CHECK(glyphs_of(*dejavu.shape(ligated, layout::shaping_for(style_of("v6"), false)))
             == glyphs_of(*dejavu.shape(ligated, layout::shaping_for(style_of("f6"), false))));
+    }
+
+    // Small capitals (§6.6): the face's own where it has them; scaled
+    // capitals of the lowercase letters where it does not, unless
+    // font-synthesis-small-caps says none; caseless characters unchanged.
+    {
+        resolve("#s { font-variant: small-caps } #n { font-variant: small-caps; font-synthesis-small-caps: none }"
+                "#a { font-variant: all-small-caps } #u { font-variant: unicase } #p { font-variant: petite-caps }",
+            "<p id=s>a</p><p id=n>b</p><p id=a>c</p><p id=u>d</p><p id=p>e</p>");
+        float const size = 32;
+        auto const at = [&](char const* id) {
+            TextShaping shaping = layout::shaping_for(style_of(id), false);
+            shaping.size = size;
+            return shaping;
+        };
+        TextShaping plain;
+        plain.size = size;
+        std::u32string const word = U"Ab1";
+        // Noto Serif has 'smcp': its glyphs, at full size.
+        auto const own = serif.shape(word, at("s"));
+        CHECK(glyphs_of(*own) == shaper_glyphs(serif_face, word, { FeatureSetting { tag("smcp"), 1 } }));
+        CHECK(own->glyphs.size() == 3u && own->glyphs[1].scale == 1.0f);
+        // Petite capitals it lacks are small capitals.
+        CHECK(glyphs_of(*serif.shape(word, at("p"))) == glyphs_of(*own));
+        // Unicase it lacks: the capitals lowercased, in its small capitals.
+        auto const unicase = serif.shape(U"Ab", at("u"));
+        std::vector<std::uint32_t> const small_a = shaper_glyphs(serif_face, U"a", { FeatureSetting { tag("smcp"), 1 } });
+        CHECK(unicase->glyphs.size() == 2u && small_a.size() == 1u && unicase->glyphs[0].glyph == small_a[0]);
+        CHECK(unicase->glyphs.size() == 2u && unicase->glyphs[1].glyph == shaper_glyphs(serif_face, U"b", {})[0]);
+        // DejaVu Sans has none: "b" is a "B" at seven tenths, "A" and "1"
+        // as they are, and the width follows.
+        auto const made = dejavu.shape(word, at("s"));
+        auto const capitals = dejavu.shape(U"AB1", plain);
+        CHECK_EQ(made->glyphs.size(), 3u);
+        if (made->glyphs.size() == 3u && capitals->glyphs.size() == 3u) {
+            CHECK(made->glyphs[0].glyph == capitals->glyphs[0].glyph && made->glyphs[0].scale == 1.0f);
+            CHECK(made->glyphs[1].glyph == capitals->glyphs[1].glyph && made->glyphs[1].scale == 0.7f);
+            CHECK(made->glyphs[1].cluster == 1u);
+            CHECK(std::fabs(made->glyphs[1].advance - capitals->glyphs[1].advance * 0.7f) < 0.01f);
+            CHECK(made->glyphs[2].glyph == capitals->glyphs[2].glyph && made->glyphs[2].scale == 1.0f);
+        }
+        // Not synthesized when font-synthesis says none.
+        CHECK(glyphs_of(*dejavu.shape(word, at("n"))) == glyphs_of(*dejavu.shape(word, plain)));
+        // all-small-caps: the capitals scaled too.
+        auto const all = dejavu.shape(word, at("a"));
+        CHECK(all->glyphs.size() == 3u && all->glyphs[0].scale == 0.7f && all->glyphs[1].scale == 0.7f && all->glyphs[2].scale == 1.0f);
+    }
+
+    // Super- and subscripts (§6.5): the face's own forms when it has one
+    // for every character of the run; else every character scaled and
+    // moved, so the two never mix.
+    {
+        resolve("#sup { font-variant-position: super } #sub { font-variant-position: sub }"
+                "#none { font-variant-position: super; font-synthesis-position: none }",
+            "<p id=sup>a</p><p id=sub>b</p><p id=none>c</p>");
+        float const size = 32;
+        auto const at = [&](char const* id) {
+            TextShaping shaping = layout::shaping_for(style_of(id), false);
+            shaping.size = size;
+            return shaping;
+        };
+        TextShaping plain;
+        plain.size = size;
+        // Noto Serif has superior figures: its own glyphs, full size, on
+        // the baseline.
+        auto const own = serif.shape(U"123", at("sup"));
+        CHECK(glyphs_of(*own) == shaper_glyphs(serif_face, U"123", { FeatureSetting { tag("sups"), 1 } }));
+        CHECK(glyphs_of(*own) != glyphs_of(*serif.shape(U"123", plain)));
+        CHECK(own->glyphs.size() == 3u && own->glyphs[0].scale == 1.0f && own->glyphs[0].y_offset == 0.0f);
+        // DejaVu Sans has none: the plain glyphs, smaller, raised a third
+        // of an em, or lowered a fifth.
+        auto const made = dejavu.shape(U"x2", at("sup"));
+        auto const normal = dejavu.shape(U"x2", plain);
+        CHECK(glyphs_of(*made) == glyphs_of(*normal));
+        CHECK(made->glyphs.size() == 2u && made->glyphs[0].scale < 0.7f && made->glyphs[0].y_offset < -size / 3.0f + 0.01f);
+        CHECK(made->width < normal->width);
+        auto const lowered = dejavu.shape(U"x2", at("sub"));
+        CHECK(lowered->glyphs.size() == 2u && std::fabs(lowered->glyphs[1].y_offset - size / 5.0f) < 0.01f);
+        // In Noto Serif "1x" has a superior one but no superior x: the run
+        // is synthesized whole.
+        auto const mixed = serif.shape(U"1x", at("sup"));
+        CHECK(glyphs_of(*mixed) == glyphs_of(*serif.shape(U"1x", plain)));
+        CHECK(mixed->glyphs.size() == 2u && mixed->glyphs[0].scale < 1.0f && mixed->glyphs[1].scale < 1.0f);
+        // font-synthesis-position: none: the forms the face has, and the
+        // rest as they are.
+        auto const unsynthesized = serif.shape(U"1x", at("none"));
+        CHECK(glyphs_of(*unsynthesized) == shaper_glyphs(serif_face, U"1x", { FeatureSetting { tag("sups"), 1 } }));
+        CHECK(unsynthesized->glyphs.size() == 2u && unsynthesized->glyphs[1].scale == 1.0f);
     }
     return test::report("font_features");
 }

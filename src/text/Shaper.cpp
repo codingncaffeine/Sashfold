@@ -1310,6 +1310,16 @@ ShapedRun shape(Face const& face, ShapeRequest const& request)
     return out;
 }
 
+bool face_has_substitution_feature(Face const& face, ScriptCode script, std::string_view language, std::uint32_t tag)
+{
+    shaping::FaceCache const* const cache = face.shaping_cache();
+    if (!cache)
+        return false;
+    otl::LayoutTable const& gsub = cache->tables.gsub;
+    shaping::Selection const selected = shaping::select(gsub, opentype_script_tags(script), opentype_language_tag(language));
+    return selected.script != 0 && gsub.find_feature(selected.lang_sys, tag) >= 0;
+}
+
 void shaping_features_for_css(CssFontFeatures const& css, std::vector<FeatureSetting>& out)
 {
     using otl::make_tag;

@@ -32,6 +32,22 @@ namespace sashfold::text {
 
 class Face;
 
+// font-variant-caps and font-variant-position as shaping takes them.
+enum class CapsVariant : std::uint8_t {
+    Normal,
+    SmallCaps,
+    AllSmallCaps,
+    PetiteCaps,
+    AllPetiteCaps,
+    Unicase,
+    TitlingCaps,
+};
+enum class PositionVariant : std::uint8_t {
+    Normal,
+    Sub,
+    Super,
+};
+
 // What besides the text and its fonts decides the glyphs and their places.
 struct TextShaping {
     float size = 16; // px
@@ -51,6 +67,15 @@ struct TextShaping {
     // shaping_features_for_css's, then font-variant's, then
     // font-feature-settings.
     std::vector<FeatureSetting> features;
+    // font-variant-caps and font-variant-position (css-fonts-4 §6.5,
+    // §6.6): the forms asked of each face that has them, ahead of
+    // `features`, and synthesized where a face lacks them unless
+    // font-synthesis says not to. Small capitals are scaled capitals;
+    // super- and subscripts are the glyphs scaled and raised or lowered.
+    CapsVariant caps = CapsVariant::Normal;
+    bool synthesize_small_caps = true;
+    PositionVariant position = PositionVariant::Normal;
+    bool synthesize_position = true;
 };
 
 // One glyph as it is set: its face, its id in that face, the index into
@@ -68,6 +93,9 @@ struct PlacedGlyph {
     float word_space = 0;
     float x_offset = 0;
     float y_offset = 0;
+    // The glyph's size as a part of the text's: below 1 for a synthesized
+    // small capital, superscript or subscript.
+    float scale = 1;
 };
 
 struct ShapedText {

@@ -956,11 +956,12 @@ void paint_vertical_run(Context& context, TextRun const& run)
     auto const draw = [&](Bitmap& onto, float line, float from, Color ink) {
         float y = from;
         for (text::PlacedGlyph const& glyph : shaped->glyphs) {
-            float const advance = glyph.face->advance(glyph.glyph, style.font_size);
+            float const glyph_size = style.font_size * glyph.scale;
+            float const advance = glyph.face->advance(glyph.glyph, glyph_size);
             float const along = clockwise ? y + glyph.x_offset : y - glyph.x_offset - advance;
             float const across = clockwise ? line - glyph.y_offset : line + glyph.y_offset;
             bool const designed = glyph.face->designs_every_style();
-            glyph.face->draw_glyph_turned(onto, glyph.glyph, across, along, style.font_size,
+            glyph.face->draw_glyph_turned(onto, glyph.glyph, across, along, glyph_size,
                 ink, style.drawn_bold(designed), style.drawn_slant(designed), clockwise);
             float step = glyph.advance;
             step += glyph.word_space;
@@ -1052,7 +1053,7 @@ void paint_whole_run(Context& context, TextRun const& run)
             // after a word separator.
             bool const designed = glyph.face->designs_every_style();
             if (onto)
-                glyph.face->draw_glyph(*onto, glyph.glyph, x + glyph.x_offset, line + glyph.y_offset, style.font_size,
+                glyph.face->draw_glyph(*onto, glyph.glyph, x + glyph.x_offset, line + glyph.y_offset, style.font_size * glyph.scale,
                     ink, style.drawn_bold(designed), style.drawn_slant(designed));
             x += glyph.advance;
             x += glyph.word_space;

@@ -10,6 +10,8 @@
 #include <cstring>
 #include <mutex>
 #include <optional>
+#include <span>
+#include <string>
 #include <unordered_map>
 
 namespace sashfold::text {
@@ -193,7 +195,108 @@ struct Set {
     float advance = 0; // px, no spacing
     float x_offset = 0;
     float y_offset = 0; // y down
+    float scale = 1; // of the text's size
 };
+
+// A synthesized small capital is an uppercase glyph at seven tenths of the
+// size: about where the capitals of a face's own small capitals stand,
+// near its x-height (css-fonts-4 §6.6 leaves the size to the user agent).
+constexpr float small_caps_scale = 0.7f;
+
+// Synthesized super- and subscripts (css-fonts-4 §6.5): reduced by a sixth
+// at small sizes and by a third at large ones, as the specification
+// describes type designers doing, and moved by what vertical-align's super
+// and sub move a box by (a third of an em up, a fifth down).
+float position_scale(float size)
+{
+    constexpr float small = 12;
+    constexpr float large = 36;
+    float const t = std::clamp((size - small) / (large - small), 0.0f, 1.0f);
+    return 5.0f / 6.0f + t * (2.0f / 3.0f - 5.0f / 6.0f);
+}
+
+// How the letters of a case a face has no small capitals for are drawn.
+enum class CaseForm : std::uint8_t {
+    Unchanged,
+    ScaledCapitals, // the uppercase glyph, scaled down
+    LowercaseSmallCaps, // lowercased, then the face's own small capitals ('smcp')
+};
+
+// What a face does for font-variant-caps in a script (css-fonts-4 §6.6):
+// the features it is asked for, and how the lowercase and the uppercase
+// letters it lacks the forms for are drawn instead. Petite capitals a face
+// lacks are small capitals, unicase it lacks is small capitals of the
+// uppercase letters lowercased, and titling capitals it lacks are left
+// alone. Whether a face has a form is asked of the face and script, never
+// of the character.
+struct CapsPlan {
+    std::vector<FeatureSetting> features;
+    CaseForm lower = CaseForm::Unchanged;
+    CaseForm upper = CaseForm::Unchanged;
+};
+
+CapsPlan caps_plan(Face const& face, ScriptCode script, TextShaping const& shaping)
+{
+    auto const has = [&](std::uint32_t tag) { return face_has_substitution_feature(face, script, shaping.language, tag); };
+    auto const tag = [](char const (&name)[5]) { return feature_tag(name[0], name[1], name[2], name[3]); };
+    CaseForm const scaled = shaping.synthesize_small_caps ? CaseForm::ScaledCapitals : CaseForm::Unchanged;
+    CapsPlan plan;
+    auto const small_lower = [&] {
+        if (has(tag("smcp")))
+            plan.features.push_back(FeatureSetting { tag("smcp"), 1 });
+        else
+            plan.lower = scaled;
+    };
+    // Uppercase letters as small capitals: the face's own capitals-to-
+    // small-capitals, else its small capitals of the letters lowercased.
+    auto const small_upper = [&](std::uint32_t own) {
+        if (has(own))
+            plan.features.push_back(FeatureSetting { own, 1 });
+        else if (has(tag("smcp")))
+            plan.upper = CaseForm::LowercaseSmallCaps;
+        else
+            plan.upper = scaled;
+    };
+    switch (shaping.caps) {
+    case CapsVariant::Normal: break;
+    case CapsVariant::SmallCaps: small_lower(); break;
+    case CapsVariant::AllSmallCaps:
+        small_upper(tag("c2sc"));
+        small_lower();
+        break;
+    case CapsVariant::PetiteCaps:
+        if (has(tag("pcap")))
+            plan.features.push_back(FeatureSetting { tag("pcap"), 1 });
+        else
+            small_lower();
+        break;
+    case CapsVariant::AllPetiteCaps:
+        if (has(tag("pcap")) && has(tag("c2pc"))) {
+            plan.features.push_back(FeatureSetting { tag("c2pc"), 1 });
+            plan.features.push_back(FeatureSetting { tag("pcap"), 1 });
+        } else {
+            small_upper(tag("c2sc"));
+            small_lower();
+        }
+        break;
+    case CapsVariant::Unicase: small_upper(tag("unic")); break;
+    case CapsVariant::TitlingCaps: plan.features.push_back(FeatureSetting { tag("titl"), 1 }); break;
+    }
+    return plan;
+}
+
+// Which form a character takes under a plan: a lowercase letter is one
+// with an uppercase mapping, an uppercase letter one with a lowercase
+// mapping, by the same simple case mappings text-transform uses; caseless
+// characters never change (§6.6).
+CaseForm form_of(CapsPlan const& plan, char32_t c)
+{
+    if (plan.lower != CaseForm::Unchanged && to_uppercase(c) != c)
+        return plan.lower;
+    if (plan.upper != CaseForm::Unchanged && to_lowercase(c) != c)
+        return plan.upper;
+    return CaseForm::Unchanged;
+}
 
 struct Work {
     FontStack const& stack;
@@ -238,9 +341,167 @@ struct Work {
     // Shapes [start, end) of the text — one script, one direction — in
     // `face`, the `tried`-th candidate, and appends its glyphs in visual
     // order. A cluster the face has no glyph for is shaped again in the
-    // next candidate that has every one of its characters.
+    // next candidate that has every one of its characters. The small
+    // capitals and super- and subscripts the text asks for are the face's
+    // own where it has them and synthesized where it lacks them.
     void piece(std::size_t start, std::size_t end, ScriptCode script, bool rtl, Face const* face, std::size_t tried,
         std::vector<Set>& out)
+    {
+        bool const builtin = !face || &face->layout_face() == &builtin_face() || !face->truetype_font();
+        if (builtin || (shaping.caps == CapsVariant::Normal && shaping.position == PositionVariant::Normal)) {
+            shape_piece(start, end, script, rtl, face, tried, {}, out);
+            return;
+        }
+        if (shaping.position != PositionVariant::Normal) {
+            // §6.5: the face's own forms when it has one for every
+            // character of the run, else every character synthesized, so
+            // that the two never mix.
+            std::uint32_t const tag = shaping.position == PositionVariant::Super ? feature_tag('s', 'u', 'p', 's')
+                                                                                 : feature_tag('s', 'u', 'b', 's');
+            if (!shaping.synthesize_position || has_forms_for_all(start, end, script, rtl, *face, tag)) {
+                FeatureSetting const own[] = { FeatureSetting { tag, 1 } };
+                caps_piece(start, end, script, rtl, face, tried, own, out);
+                return;
+            }
+            float const scale = position_scale(shaping.size);
+            float const shift = shaping.position == PositionVariant::Super ? -shaping.size / 3.0f : shaping.size / 5.0f;
+            TextShaping reduced = shaping;
+            reduced.size = shaping.size * scale;
+            reduced.position = PositionVariant::Normal;
+            std::size_t const from = out.size();
+            again(start, end, script, rtl, face, tried, reduced, nullptr, out);
+            for (std::size_t i = from; i < out.size(); ++i) {
+                out[i].scale *= scale;
+                out[i].y_offset += shift;
+            }
+            return;
+        }
+        caps_piece(start, end, script, rtl, face, tried, {}, out);
+    }
+
+    // Whether the face has its own form, under `tag`, for every character
+    // of [start, end): each glyph of the run shaped with the feature is
+    // another than the one shaped without it.
+    bool has_forms_for_all(std::size_t start, std::size_t end, ScriptCode script, bool rtl, Face const& face, std::uint32_t tag) const
+    {
+        ShapeRequest request;
+        request.text = text.substr(start, end - start);
+        request.script = script;
+        request.language = shaping.language;
+        request.direction = rtl ? TextDirection::RightToLeft : TextDirection::LeftToRight;
+        ShapedRun const plain = shape(face, request);
+        FeatureSetting const on[] = { FeatureSetting { tag, 1 } };
+        request.features = on;
+        ShapedRun const formed = shape(face, request);
+        if (plain.glyphs.size() != formed.glyphs.size() || plain.glyphs.empty())
+            return false;
+        for (std::size_t i = 0; i < plain.glyphs.size(); ++i) {
+            if (plain.glyphs[i].glyph == formed.glyphs[i].glyph)
+                return false;
+        }
+        return true;
+    }
+
+    // font-variant-caps over a piece (§6.6): the face's own forms asked
+    // for, and the letters it lacks them for cut out a cluster at a time
+    // and set as its plan says — capitals scaled down, or the letters
+    // lowercased and set in its small capitals.
+    void caps_piece(std::size_t start, std::size_t end, ScriptCode script, bool rtl, Face const* face, std::size_t tried,
+        std::span<FeatureSetting const> front, std::vector<Set>& out)
+    {
+        if (shaping.caps == CapsVariant::Normal) {
+            shape_piece(start, end, script, rtl, face, tried, front, out);
+            return;
+        }
+        CapsPlan plan = caps_plan(*face, script, shaping);
+        plan.features.insert(plan.features.begin(), front.begin(), front.end());
+        if (plan.lower == CaseForm::Unchanged && plan.upper == CaseForm::Unchanged) {
+            shape_piece(start, end, script, rtl, face, tried, plan.features, out);
+            return;
+        }
+        // Spans of one form, in logical order: a cluster takes its first
+        // character's form, so that a base and its marks stay together.
+        std::vector<std::vector<Set>> spans;
+        std::size_t span_start = start;
+        CaseForm span_form = form_of(plan, text[start]);
+        auto const flush = [&](std::size_t to) {
+            std::vector<Set> span;
+            if (span_form == CaseForm::Unchanged) {
+                shape_piece(span_start, to, script, rtl, face, tried, plan.features, span);
+            } else {
+                TextShaping changed = shaping;
+                changed.caps = CapsVariant::Normal;
+                std::u32string cased(text.substr(span_start, to - span_start));
+                FeatureSetting const smcp[] = { FeatureSetting { feature_tag('s', 'm', 'c', 'p'), 1 } };
+                float scale = 1;
+                if (span_form == CaseForm::ScaledCapitals) {
+                    scale = small_caps_scale;
+                    changed.size = shaping.size * scale;
+                    for (char32_t& c : cased)
+                        c = to_uppercase(c);
+                } else {
+                    for (char32_t& c : cased)
+                        c = to_lowercase(c);
+                }
+                again(span_start, to, script, rtl, face, tried, changed, &cased,
+                    span, span_form == CaseForm::LowercaseSmallCaps ? std::span<FeatureSetting const>(smcp) : std::span<FeatureSetting const>());
+                for (Set& set : span)
+                    set.scale *= scale;
+            }
+            spans.push_back(std::move(span));
+        };
+        for (std::size_t i = start; i < end;) {
+            std::size_t j = i + 1;
+            while (j < end && continues_cluster(text[j], text[j - 1]))
+                ++j;
+            CaseForm const form = form_of(plan, text[i]);
+            if (form != span_form) {
+                flush(i);
+                span_start = i;
+                span_form = form;
+            }
+            i = j;
+        }
+        flush(end);
+        if (rtl)
+            std::reverse(spans.begin(), spans.end());
+        for (std::vector<Set>& span : spans)
+            out.insert(out.end(), span.begin(), span.end());
+    }
+
+    // Shapes [start, end) again under other settings — a smaller size, the
+    // caps or position done with — and the characters `replaced` holds in
+    // their place when given (as many, one for one), with `front` ahead of
+    // the features, which keep the parts of them that reach the span. The
+    // glyphs' clusters point into this text.
+    void again(std::size_t start, std::size_t end, ScriptCode script, bool rtl, Face const* face, std::size_t tried,
+        TextShaping const& changed, std::u32string const* replaced, std::vector<Set>& out,
+        std::span<FeatureSetting const> front = {})
+    {
+        std::u32string const own(replaced ? std::u32string_view(*replaced) : text.substr(start, end - start));
+        TextShaping settings = changed;
+        settings.features.assign(front.begin(), front.end());
+        for (FeatureSetting const& setting : changed.features) {
+            if (setting.global()) {
+                settings.features.push_back(setting);
+                continue;
+            }
+            std::size_t const from = std::max(setting.start, start);
+            std::size_t const to = std::min(setting.end, end);
+            if (from < to)
+                settings.features.push_back(FeatureSetting { setting.tag, setting.value, from - start, to - start });
+        }
+        Work inner { stack, manager, own, {}, {}, settings, false, {}, {}, {}, {} };
+        std::size_t const from = out.size();
+        inner.piece(0, own.size(), script, rtl, face, tried, out);
+        for (std::size_t i = from; i < out.size(); ++i)
+            out[i].cluster += static_cast<std::uint32_t>(start);
+    }
+
+    // shapes [start, end) in `face` as it is, `front` ahead of the
+    // features.
+    void shape_piece(std::size_t start, std::size_t end, ScriptCode script, bool rtl, Face const* face, std::size_t tried,
+        std::span<FeatureSetting const> front, std::vector<Set>& out)
     {
         if (!face || &face->layout_face() == &builtin_face() || !face->truetype_font()) {
             builtin_piece(start, end, rtl, out);
@@ -267,7 +528,7 @@ struct Work {
         request.script = script;
         request.language = shaping.language;
         request.direction = rtl ? TextDirection::RightToLeft : TextDirection::LeftToRight;
-        features.clear();
+        features.assign(front.begin(), front.end());
         for (FeatureSetting const& setting : shaping.features) {
             if (setting.global()) {
                 features.push_back(setting);
@@ -475,6 +736,7 @@ void place(std::vector<Set> const& set, std::u32string_view text, TextShaping co
         placed.x = x;
         placed.x_offset = g.x_offset;
         placed.y_offset = g.y_offset;
+        placed.scale = g.scale;
         placed.advance = last_of_cluster ? g.advance + shaping.letter_spacing : g.advance;
         x += placed.advance;
         if (last_of_cluster && shaping.word_spacing != 0 && g.cluster < text.size() && is_word_separator(text[g.cluster])) {
@@ -602,7 +864,9 @@ std::shared_ptr<ShapedText const> FontStack::shape(std::u32string_view text, Tex
         append_float(key, shaping.size);
         append_float(key, shaping.letter_spacing);
         append_float(key, shaping.word_spacing);
-        key.push_back(static_cast<char32_t>((rtl_base ? 1u : 0u) | (shaping.paragraph ? 2u : 0u)));
+        key.push_back(static_cast<char32_t>((rtl_base ? 1u : 0u) | (shaping.paragraph ? 2u : 0u)
+            | (shaping.synthesize_small_caps ? 4u : 0u) | (shaping.synthesize_position ? 8u : 0u)
+            | static_cast<unsigned>(shaping.caps) << 4 | static_cast<unsigned>(shaping.position) << 8));
         for (char const c : shaping.language)
             key.push_back(static_cast<char32_t>(static_cast<unsigned char>(c)));
         key.push_back(0);
