@@ -348,6 +348,10 @@ add_test(NAME shell_focus_order
 # a frame) and the focus fixups: an element removed, one no longer focusable.
 add_test(NAME shell_focus_events
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/focus-events.script)
+# Keyboard activation: Enter and Space on buttons, links (Ctrl+Enter a tab
+# of its own), summaries, a submit button; arrows in a focused scroll box.
+add_test(NAME shell_focus_activation
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/focus-activation.script)
 # The keys a page hears: letters, digits, punctuation (key, code, keyCode).
 add_test(NAME shell_key_events
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/key-events.script)

@@ -616,6 +616,14 @@ public:
     // sequential navigation order (dom::focus), shown, with its events; past
     // the last it leaves the page, and the next Tab comes in at the first.
     void sequential_focus(bool backward);
+    // The reader activated an element from the keyboard (Enter on a link or
+    // a button, Space on a button, a check box, a summary): a trusted click
+    // at it, detail 0, with no pointer or mouse events before it and the
+    // keys' modifiers, then its activation behavior — the link followed, the
+    // form submitted or reset, the details toggled — unless a listener
+    // canceled it (then false). keyboard_activates says which key activates
+    // what (key as KeyInit::key names it, "Enter" or " ").
+    bool keyboard_click(dom::Element& element, KeyInit const& keys);
     // The focused element of the page and its frames, as the realm knows it
     // (the host's, through HostHooks::focused, where it keeps one): an
     // element of this realm's document or of a frame's; null when the
@@ -857,5 +865,10 @@ public:
 private:
     std::unique_ptr<Internals> m_internals;
 };
+
+// Whether a key activates an element (Realm::keyboard_click): "Enter" a link
+// or a button, " " a button, a check box or a radio button, either a details'
+// summary; not a disabled control.
+bool keyboard_activates(dom::Element const& element, std::string_view key);
 
 }

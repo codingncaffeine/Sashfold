@@ -4309,13 +4309,21 @@ struct Browser::Impl {
     // the page, a frame by name, or a new tab.
     void follow_link()
     {
+        if (hover_link)
+            follow_link_to(net::Url(*hover_link), std::string(hover_link_target), hover_link_frame);
+    }
+
+    // A link followed — the one under the pointer, or one the keyboard
+    // activated — from the document in `link_frame`'s frame (null: the page).
+    void follow_link_to(net::Url const url, std::string const target, dom::Element const* link_frame)
+    {
         Tab* const tab = active_tab();
-        if (!tab || !hover_link)
+        if (!tab)
             return;
-        net::Url const url = *hover_link;
-        std::string const target = hover_link_target;
         // The frames down to the link's own, empty for a link on the page.
-        std::vector<FrameStep> const chain = frames_to(*tab, hover_link_frame);
+        std::vector<FrameStep> const chain = frames_to(*tab, link_frame);
+        if (link_frame && chain.empty())
+            return; // a frame no longer drawn live
         bool const self = target.empty() || ascii_ci_equals(target, "_self");
         if (ascii_ci_equals(target, "_blank")) {
             open_in_front(url);
@@ -14249,6 +14257,84 @@ struct Browser::Impl {
         dirty = true;
     }
 
+    // Enter or Space activating the focused element (Realm::keyboard_click):
+    // its click, then what it does. A link is followed as a click on it is,
+    // by the shell: where its target says, and with Ctrl or Shift as a click
+    // with them — a tab of its own, behind the page with Ctrl, in front with
+    // Shift as well (and with Shift alone, which asks for a window: this
+    // shell's windows are its tabs).
+    void keyboard_activate(Tab& tab, dom::Element const& element, KeyEvent const& key)
+    {
+        bindings::Realm* const realm = realm_for(tab, element);
+        if (!realm)
+            return;
+        script_started = std::chrono::steady_clock::now();
+        auto& target = const_cast<dom::Element&>(element);
+        bool const link = (element.is_html("a") || element.is_html("area")) && element.has_attribute("href");
+        if (link) {
+            bindings::MouseInit init;
+            init.ctrl = key.ctrl;
+            init.shift = key.shift;
+            bool const proceed = realm->dispatch_mouse_event(target, "click", init);
+            ensure_fresh(tab);
+            dirty = true;
+            if (!proceed || !element.is_connected())
+                return;
+            net::Url const base = realm->base_url();
+            std::optional<net::Url> const url = net::parse_url(element.find_attribute("href")->value, &base);
+            if (!url)
+                return;
+            // (The tabs move as one is opened: `tab` is not used after.)
+            if ((key.ctrl || key.shift) && is_navigable_scheme(url->scheme)) {
+                if (key.ctrl && !key.shift)
+                    open_in_new_tab(*url);
+                else
+                    open_in_front(*url);
+                return;
+            }
+            dom::Attr const* const link_target = element.find_attribute("target");
+            follow_link_to(*url, link_target ? link_target->value : std::string(), frame_holding_in(tab.frames, element.document()));
+            return;
+        } else {
+            realm->keyboard_click(target, key_init_for(key));
+            ensure_fresh(tab);
+        }
+        relayout(tab);
+        dirty = true;
+    }
+
+    // A key at a focused element that is no form control: Enter on a link,
+    // Enter or Space on a summary activate it; on anything else the page has
+    // heard the key and the window's own keys (scrolling) go on.
+    bool focused_element_key(Tab& tab, KeyEvent const& key)
+    {
+        dom::Element const* const focused = tab.controls.focused;
+        if (!focused || layout::is_control(*focused) || key.alt || (key.key != Key::Enter && key.key != Key::Space))
+            return false;
+        if (!bindings::keyboard_activates(*focused, key.key == Key::Enter ? "Enter" : " "))
+            return false;
+        keyboard_activate(tab, *focused, key);
+        return true;
+    }
+
+    // The keys scroll the box the focus is in: a focused scrollable region,
+    // or the nearest one around the focused element on the page.
+    void scroll_where_focused(Tab& tab)
+    {
+        dom::Element const* const focused = tab.controls.focused;
+        if (!focused || &focused->document() != tab.document.get())
+            return;
+        std::unordered_set<dom::Element const*> scrollable;
+        collect_scrollable(tab.layout.root, scrollable);
+        for (dom::Node const* at = focused; at; at = dom::flat_parent(*at)) {
+            if (at->is_element() && scrollable.contains(static_cast<dom::Element const*>(at))) {
+                tab.scroller = static_cast<dom::Element const*>(at);
+                tab.scroller_frame = nullptr;
+                return;
+            }
+        }
+    }
+
     // A key while a page control has focus; true when the control took it.
     bool edit_control(KeyEvent const& key)
     {
@@ -14293,8 +14379,11 @@ struct Browser::Impl {
                 }
                 break;
             case ControlKind::Submit:
-                if (key.key == Key::Space || key.key == Key::Enter) {
-                    submit(*tab, control);
+            case ControlKind::Button:
+                // Enter and Space press the button: its click, then what it
+                // does (a submission, a reset) unless the page canceled it.
+                if ((key.key == Key::Space || key.key == Key::Enter) && !key.alt) {
+                    keyboard_activate(*tab, control, key);
                     return true;
                 }
                 changed = false;
@@ -15013,6 +15102,9 @@ struct Browser::Impl {
         Tab* const tab = active_tab();
         if (!tab)
             return;
+        if (focused_element_key(*tab, key))
+            return;
+        scroll_where_focused(*tab);
         // A bare f with nothing focused: labels on the links in view.
         if (key.key == Key::Letter && !key.ctrl && !key.alt && !key.shift
             && (key.letter == U'F' || key.letter == U'f')) {

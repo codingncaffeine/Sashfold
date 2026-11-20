@@ -975,12 +975,23 @@ void type_keys(bindings::Realm& realm, dom::Document& document, std::string_view
                 return const_cast<dom::Element*>(focused);
             return key_target_fallback(document);
         };
+        // Enter activates on keydown, Space on keyup (both engines), what
+        // bindings::keyboard_activates names.
+        auto const activate = [&](std::string_view key) {
+            dom::Node* const at = target();
+            if (at && at->is_element() && !alt && bindings::keyboard_activates(static_cast<dom::Element&>(*at), key))
+                realm.keyboard_click(static_cast<dom::Element&>(*at), init);
+        };
         bool const proceed = realm.dispatch_key_event(target(), "keydown", init);
         if (proceed && printable && !ctrl && !alt)
             realm.dispatch_key_event(target(), "keypress", init);
         if (proceed && c == 0xE004)
             realm.sequential_focus(shift);
-        realm.dispatch_key_event(target(), "keyup", init);
+        if (proceed && init.key == "Enter")
+            activate("Enter");
+        bool const up = realm.dispatch_key_event(target(), "keyup", init);
+        if (proceed && up && init.key == " ")
+            activate(" ");
     }
 }
 

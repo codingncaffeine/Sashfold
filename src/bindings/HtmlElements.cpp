@@ -1755,6 +1755,50 @@ bool dispatch_with_activation(Realm::Internals& in, dom::Element& target, bool b
     return true;
 }
 
+bool Realm::keyboard_click(dom::Element& element, KeyInit const& keys)
+{
+    // A click from the keyboard (HTML §6.4 "fire a synthetic pointer event"
+    // named click with not trusted flag unset, as both engines send it): no
+    // pointer or mouse event before it, detail 0, no coordinates, the keys'
+    // modifiers; then the element's activation behavior unless canceled.
+    Internals& in = *m_internals;
+    Internals::HostEntry const host(in.agent);
+    js::Interpreter::RealmScope const inside(in.interpreter, in.realm_record);
+    MouseInit init;
+    init.ctrl = keys.ctrl;
+    init.shift = keys.shift;
+    init.alt = keys.alt;
+    init.meta = keys.meta;
+    init.detail = 0;
+    return dispatch_with_activation(in, element, true, [&] { return dispatch_mouse_event(element, "click", init); });
+}
+
+bool keyboard_activates(dom::Element const& element, std::string_view key)
+{
+    // Enter follows a link and presses a button (on keydown); Space presses
+    // a button, a check box or a radio button (on keyup); either toggles a
+    // details' summary — as both engines do it.
+    bool const enter = key == "Enter";
+    bool const space = key == " ";
+    if (!enter && !space)
+        return false;
+    if (element.is_html("a") || element.is_html("area"))
+        return enter && element.has_attribute("href");
+    if (element.is_html("button"))
+        return !dom::forms::actually_disabled(element);
+    if (element.is_html("input")) {
+        if (dom::forms::actually_disabled(element))
+            return false;
+        std::string const type = dom::forms::input_type(element);
+        if (type == "submit" || type == "reset" || type == "button" || type == "image" || type == "file")
+            return true;
+        return space && (type == "checkbox" || type == "radio");
+    }
+    if (element.is_html("summary"))
+        return activation_of(element) == Activation::Summary;
+    return false;
+}
+
 bool Realm::submit_requested(dom::Element& form, dom::Element* submitter)
 {
     Internals& in = *m_internals;

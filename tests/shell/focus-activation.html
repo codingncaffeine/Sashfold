@@ -1,0 +1,21 @@
+<!DOCTYPE html>
+<title>-</title>
+<style>
+body { margin: 8px; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+#scroll { width: 200px; height: 40px; overflow: auto } #scroll p { margin: 0 }
+</style>
+<div id=scroll><p>one</p><p>two</p><p>three</p><p>four</p><p>five</p><p>six</p></div>
+<button id=b>press</button>
+<a id=l href="#there">link</a>
+<a id=held href="#held-target">held</a>
+<p id=there>there</p>
+<details id=d><summary id=s>more</summary>hidden words</details>
+<form action="landed.html"><input name=q value=v><input type=submit id=go value=go></form>
+<script>
+var got = [];
+function log(s) { got.push(s); document.title = got.join(' ') }
+b.addEventListener('click', e => log('click:b/' + e.detail + '/' + e.isTrusted + '/' + (e instanceof MouseEvent)));
+b.addEventListener('mousedown', () => log('mousedown:b'));
+held.addEventListener('click', e => { e.preventDefault(); log('canceled:held') });
+d.addEventListener('toggle', () => log('toggle:' + d.open));
+</script>

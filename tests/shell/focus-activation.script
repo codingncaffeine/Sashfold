@@ -1,0 +1,49 @@
+# Keyboard activation (HTML §6.4, as both engines do it): Enter and Space on
+# a button fire its click — trusted, detail 0, no mouse events before it —
+# Enter on a link follows it, unless its click is canceled, Ctrl+Enter
+# opens it in a tab of its own, Enter and Space on a summary toggle its
+# details, Enter on a submit button submits. A focused scrollable region
+# takes the arrows. The scroll box is the first thing on the page, at
+# window y 86..126.
+resize 800 400
+open focus-activation.html
+advance 50 2
+key tab
+assert-focused-id scroll
+key down
+assert-box-scroll 50 100 0 60
+key tab
+assert-focused-id b
+key enter
+assert-title click:b/0/true/true
+key space
+assert-title click:b/0/true/true click:b/0/true/true
+key tab
+assert-focused-id l
+key tab
+assert-focused-id held
+key enter
+assert-title click:b/0/true/true click:b/0/true/true canceled:held
+assert-address-ends focus-activation.html
+key shift+tab
+assert-focused-id l
+key ctrl+enter
+assert-tabs 2
+assert-address-ends focus-activation.html
+# Followed to a fragment: Tab goes on from the target, the summary after it.
+key enter
+assert-address-ends focus-activation.html#there
+key tab
+assert-focused-id s
+key enter
+advance 20 2
+assert-title click:b/0/true/true click:b/0/true/true canceled:held toggle:true
+key space
+advance 20 2
+assert-title click:b/0/true/true click:b/0/true/true canceled:held toggle:true toggle:false
+key tab
+key tab
+assert-focused-id go
+key enter
+advance 50 2
+assert-address-ends landed.html?q=v
