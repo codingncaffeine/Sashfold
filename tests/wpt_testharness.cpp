@@ -60,6 +60,7 @@ namespace {
 constexpr int viewport_width = 800;
 constexpr int viewport_height = 600;
 constexpr std::string_view origin = "http://web-platform.test:8000";
+constexpr std::string_view secure_origin = "https://web-platform.test:8443";
 constexpr std::string_view host_name = "web-platform.test";
 constexpr std::string_view alt_host_name = "not-web-platform.test";
 // A sanitized build runs several times slower, and under a full parallel run
@@ -535,8 +536,12 @@ public:
         return path.substr(1);
     }
 
+    // A test whose name says ".https." is served over HTTPS, as the suite's
+    // server and wptrunner load it: what it tests is a secure context's.
     static std::optional<net::Url> url_for(std::string const& rel)
     {
+        if (rel.find(".https.") != std::string::npos)
+            return net::parse_url(std::string(secure_origin) + "/" + rel);
         return net::parse_url(std::string(origin) + "/" + rel);
     }
 
