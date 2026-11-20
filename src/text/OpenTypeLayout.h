@@ -79,6 +79,14 @@ struct GlyphDigest {
     void add(std::uint32_t glyph);
     void add_range(std::uint32_t first, std::uint32_t last);
     void add_all() { masks = { ~0ull, ~0ull, ~0ull }; }
+    bool intersects(GlyphDigest const& other) const
+    {
+        for (std::size_t k = 0; k < 3; ++k) {
+            if (!(masks[k] & other.masks[k]))
+                return false;
+        }
+        return true;
+    }
     bool may_have(std::uint32_t glyph) const
     {
         for (int k = 0; k < 3; ++k) {
@@ -197,6 +205,15 @@ public:
     std::int64_t max_ops = 0;
     std::size_t max_len = 0;
     unsigned serial = 0;
+    // Every glyph in the buffer, as a digest: a lookup none of whose
+    // glyphs is here is not run at all.
+    GlyphDigest digest;
+    void update_digest()
+    {
+        digest = GlyphDigest {};
+        for (GlyphInfo const& g : info)
+            digest.add(g.glyph);
+    }
 
     void begin(std::size_t length);
     std::size_t len() const { return info.size(); }

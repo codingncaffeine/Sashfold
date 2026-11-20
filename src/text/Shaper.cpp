@@ -7,6 +7,7 @@
 #include "text/TrueType.h"
 
 #include <algorithm>
+#include <atomic>
 #include <bit>
 #include <memory>
 #include <mutex>
@@ -29,9 +30,16 @@ struct FaceCache {
     }
     TrueTypeFont const& font;
     otl::LayoutTables tables;
+    std::uint64_t const serial = next_serial();
     mutable std::mutex mutex;
     mutable std::unordered_map<std::string, std::unique_ptr<Plan const>> plans;
     static constexpr std::size_t plan_bound = 256;
+
+    static std::uint64_t next_serial()
+    {
+        static std::atomic<std::uint64_t> counter { 0 };
+        return ++counter;
+    }
 };
 
 std::uint32_t ShapeFont::nominal_glyph(char32_t c) const
@@ -453,6 +461,19 @@ struct Normalizer {
             = mode != Normalization::Decomposed && mode != Normalization::ComposedDiacriticsNoShortCircuit;
         bool const always_short_circuit = mode == Normalization::None;
         bool all_simple = true;
+        // Text without marks whose every character the font has needs
+        // nothing more than its glyphs.
+        if (might_short_circuit) {
+            bool simple = true;
+            for (GlyphInfo& g : b.info) {
+                if (is_unicode_mark(g) || (g.glyph = font.nominal_glyph(g.codepoint)) == 0) {
+                    simple = false;
+                    break;
+                }
+            }
+            if (simple)
+                return;
+        }
         // Round one: decompose what the font cannot draw as it is, and
         // every base with marks after it, as far as the font can.
         b.clear_output();
@@ -925,6 +946,7 @@ void apply_stages(Plan const& plan, ShapeFont const& font, Buffer& b, int t)
 {
     otl::LayoutTable const& table = t == 0 ? font.tables.gsub : font.tables.gpos;
     otl::ApplyContext c(font.tables, table, b);
+    b.update_digest();
     std::size_t i = 0;
     for (StageMap const& stage : plan.stages[static_cast<std::size_t>(t)]) {
         for (; i < stage.last_lookup && !b.failed; ++i) {
@@ -936,8 +958,10 @@ void apply_stages(Plan const& plan, ShapeFont const& font, Buffer& b, int t)
             c.per_syllable = l.per_syllable;
             c.apply_lookup(l.index);
         }
-        if (stage.pause)
+        if (stage.pause) {
             stage.pause(plan, font, b);
+            b.update_digest();
+        }
     }
 }
 
@@ -1062,8 +1086,18 @@ void shape_run(FaceCache const& cache, ShapeRequest const& r, ShapedRun& out)
     // The plan, made once per script, language, direction and features.
     Plan const* plan = nullptr;
     std::unique_ptr<Plan> uncached;
-    {
-        std::string const key = plan_key(r.script, language, r.direction, r.features);
+    std::string const key = plan_key(r.script, language, r.direction, r.features);
+    // The last plan this thread used, by the cache's serial number (a cache
+    // made later at the same address has another), spares the lock.
+    struct LastPlan {
+        std::uint64_t serial = 0;
+        std::string key;
+        Plan const* plan = nullptr;
+    };
+    thread_local LastPlan last;
+    if (last.serial == cache.serial && last.key == key) {
+        plan = last.plan;
+    } else {
         std::lock_guard<std::mutex> const lock(cache.mutex);
         auto const it = cache.plans.find(key);
         if (it != cache.plans.end()) {
@@ -1078,6 +1112,8 @@ void shape_run(FaceCache const& cache, ShapeRequest const& r, ShapedRun& out)
                 plan = uncached.get();
             }
         }
+        if (!uncached)
+            last = LastPlan { cache.serial, key, plan };
     }
     ShapeFont const font { cache.font, cache.tables };
     ScriptShaper const& shaper = *plan->shaper;

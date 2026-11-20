@@ -1823,7 +1823,7 @@ void ApplyContext::apply_lookup(std::size_t lookup_index)
     if (lookup_index >= table.lookups.size() || buffer.len() == 0 || lookup_mask == 0)
         return;
     Lookup const& lookup = table.lookups[lookup_index];
-    if (lookup.subtables.empty())
+    if (lookup.subtables.empty() || !lookup.digest.intersects(buffer.digest))
         return;
     lookup_props = lookup.props;
     last_base = -1;
@@ -1833,6 +1833,7 @@ void ApplyContext::apply_lookup(std::size_t lookup_index)
         if (!is_gpos())
             buffer.clear_output();
         buffer.idx = 0;
+        bool any = false;
         while (buffer.idx < buffer.len() && !buffer.failed) {
             GlyphInfo const& g = buffer.cur();
             bool applied = false;
@@ -1842,9 +1843,13 @@ void ApplyContext::apply_lookup(std::size_t lookup_index)
                 buffer.next_glyph();
             else
                 buffer.spend();
+            any = any || applied;
         }
-        if (!is_gpos())
+        if (!is_gpos()) {
             buffer.sync();
+            if (any)
+                buffer.update_digest();
+        }
         return;
     }
     // Reverse chaining: last glyph to first, in place.
@@ -1856,6 +1861,7 @@ void ApplyContext::apply_lookup(std::size_t lookup_index)
             apply_at(lookup_index);
     }
     buffer.idx = 0;
+    buffer.update_digest();
 }
 
 void resolve_attachments(Buffer& buffer)

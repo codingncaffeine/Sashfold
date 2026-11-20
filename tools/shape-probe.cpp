@@ -7,8 +7,10 @@
 //
 // Features are comma-separated: "liga" or "+liga" on, "-kern" off,
 // "aalt=2" a value, "smcp[3:5]" a range of the line's characters.
-// --time prints the words per second instead, over every line repeated
-// until a second has passed.
+// --time prints the lines per second instead, over every line repeated
+// until a second has passed; --time-unshaped the same for measuring the
+// lines glyph by glyph with pair kerning, as text was measured before the
+// shaper.
 
 #include "core/Unicode.h"
 #include "text/Face.h"
@@ -72,10 +74,13 @@ std::vector<FeatureSetting> parse_features(std::string const& list)
 int main(int argc, char** argv)
 {
     bool timing = false;
+    bool baseline = false;
     std::vector<std::string> args;
     for (int i = 1; i < argc; ++i) {
         if (std::string(argv[i]) == "--time")
             timing = true;
+        else if (std::string(argv[i]) == "--time-unshaped")
+            timing = baseline = true;
         else
             args.emplace_back(argv[i]);
     }
@@ -107,19 +112,36 @@ int main(int argc, char** argv)
         lines.push_back(decode_utf8(line));
     }
     ShapedRun run;
+    float sink = 0;
     if (timing) {
         auto const start = std::chrono::steady_clock::now();
         std::size_t words = 0;
         double seconds = 0;
         do {
             for (std::u32string const& line : lines) {
+                if (baseline) {
+                    // What measuring costs without shaping: each code
+                    // point's glyph and advance, each pair's kerning.
+                    float width = 0;
+                    std::uint32_t previous = 0;
+                    for (char32_t c : line) {
+                        std::uint32_t const glyph = face->glyph_index(c);
+                        width += face->advance(glyph, 16.0f);
+                        if (previous)
+                            width += face->kerning(previous, glyph, 16.0f);
+                        previous = glyph;
+                    }
+                    sink += width;
+                    continue;
+                }
                 request.text = line;
                 shape(*face, request, run);
             }
             words += lines.size();
             seconds = std::chrono::duration<double>(std::chrono::steady_clock::now() - start).count();
         } while (seconds < 1.0);
-        std::printf("%zu lines in %.3f s: %.0f lines per second\n", words, seconds, static_cast<double>(words) / seconds);
+        std::printf("%zu lines in %.3f s: %.0f lines per second%s\n", words, seconds, static_cast<double>(words) / seconds,
+            sink < 0 ? " " : "");
         return 0;
     }
     std::string out;
