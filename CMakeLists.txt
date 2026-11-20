@@ -161,6 +161,7 @@ add_library(sashfold_core STATIC
   src/css/Animation.cpp
   src/css/CounterStyles.cpp
   src/css/Easing.cpp
+  src/css/FontFeatures.cpp
   src/css/Grid.cpp
   src/css/Interpolation.cpp
   src/css/Transform.cpp

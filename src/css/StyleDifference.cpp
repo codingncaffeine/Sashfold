@@ -46,6 +46,7 @@ bool same(BackgroundPosition const& a, BackgroundPosition const& b);
 bool same(BackgroundSize const& a, BackgroundSize const& b);
 bool same(CounterOp const& a, CounterOp const& b);
 bool same(Shadow const& a, Shadow const& b) { return a == b; }
+bool same(FontFeature const& a, FontFeature const& b) { return a == b; }
 bool same(FilterFunction const& a, FilterFunction const& b) { return a == b; }
 bool same(Transforms const& a, Transforms const& b) { return a == b; }
 bool same(ClipPath const& a, ClipPath const& b);
@@ -442,6 +443,7 @@ std::optional<std::string_view> first_style_difference(ComputedStyle const& a, C
     field("font_synthesis_style", a.font_synthesis_style, b.font_synthesis_style);
     field("font_synthesis_small_caps", a.font_synthesis_small_caps, b.font_synthesis_small_caps);
     field("font_synthesis_position", a.font_synthesis_position, b.font_synthesis_position);
+    field("font_feature_settings", a.font_feature_settings, b.font_feature_settings);
     field("text_transform", a.text_transform, b.text_transform);
     field("text_shadow", a.text_shadow, b.text_shadow);
     field("list_style_type", a.list_style_type, b.list_style_type);

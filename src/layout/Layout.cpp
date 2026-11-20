@@ -4796,7 +4796,7 @@ struct Layouter {
                 ComputedStyle const& b = *other.style;
                 return other.kind == InlineItem::Kind::Word && &fonts_for(b) == &stack && a.font_size == b.font_size
                     && a.letter_spacing == b.letter_spacing && a.word_spacing == b.word_spacing
-                    && a.font_kerning == b.font_kerning && other.aligned == item.aligned && level_of(k) == level;
+                    && same_font_features(a, b) && other.aligned == item.aligned && level_of(k) == level;
             };
             auto const passes = [&](InlineItem const& edge) {
                 if (edge.kind != InlineItem::Kind::BoxStart && edge.kind != InlineItem::Kind::BoxEnd)

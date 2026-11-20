@@ -9,6 +9,7 @@
 #include "core/Unicode.h"
 #include "core/Ascii.h"
 #include "css/Animation.h"
+#include "css/FontFeatures.h"
 #include "css/Parser.h"
 #include "css/StyleResolver.h"
 #include "css/Stylesheets.h"
@@ -951,6 +952,8 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         case FontKerning::None: return "none";
         }
     }
+    if (name == "font-feature-settings")
+        return css::font_feature_settings_text(style.font_feature_settings);
     if (name == "font-synthesis-weight")
         return style.font_synthesis_weight ? "auto" : "none";
     if (name == "font-synthesis-small-caps")
@@ -1368,7 +1371,7 @@ constexpr std::string_view computed_longhands[] = { "align-content", "align-item
     "border-right-width", "border-spacing", "border-top-color", "border-top-left-radius", "border-top-right-radius",
     "border-top-style", "border-top-width", "bottom", "box-shadow", "box-sizing", "clear", "clip-path", "color", "column-gap", "contain", "content",
     "cursor", "direction", "display", "filter", "flex-basis", "flex-direction", "flex-grow", "flex-shrink", "flex-wrap", "float",
-    "font-family", "font-kerning", "font-size", "font-stretch", "font-style", "font-synthesis-position",
+    "font-family", "font-feature-settings", "font-kerning", "font-size", "font-stretch", "font-style", "font-synthesis-position",
     "font-synthesis-small-caps", "font-synthesis-style", "font-synthesis-weight", "font-weight", "grid-auto-columns",
     "grid-auto-flow", "grid-auto-rows", "grid-column-end", "grid-column-start", "grid-row-end", "grid-row-start",
     "grid-template-areas", "grid-template-columns", "grid-template-rows", "height", "hyphenate-character", "hyphens",

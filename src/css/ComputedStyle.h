@@ -775,6 +775,15 @@ enum class FontKerning : std::uint8_t {
     None,
 };
 
+// font-feature-settings (css-fonts-4 §6.12): one OpenType feature tag, its
+// four characters packed big-endian as the font's tables write them, and
+// the value it is set to (0 off, 1 on, n the n-th alternate).
+struct FontFeature {
+    std::uint32_t tag = 0;
+    std::uint32_t value = 1;
+    bool operator==(FontFeature const&) const = default;
+};
+
 // overflow-wrap (css-text-3 §5.5): whether a word too wide for a line is
 // sliced where it must be — break-word and anywhere — or left to overflow
 // (normal). Only anywhere's slices count toward a min-content width.
@@ -1409,6 +1418,10 @@ struct ComputedStyle {
     FontSynthesisStyle font_synthesis_style = FontSynthesisStyle::Auto;
     bool font_synthesis_small_caps = true;
     bool font_synthesis_position = true;
+    // font-feature-settings (css-fonts-4 §6.12): the tags de-duplicated,
+    // the last setting of each kept, in ascending order; null for normal.
+    // Inherited.
+    std::shared_ptr<std::vector<FontFeature> const> font_feature_settings;
     TextTransform text_transform = TextTransform::None;
     // css-text-decor-4 §7: the shadows the text casts (inherited); null for
     // none.

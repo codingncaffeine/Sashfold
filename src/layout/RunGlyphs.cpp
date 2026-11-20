@@ -24,7 +24,20 @@ text::TextShaping shaping_for(css::ComputedStyle const& style, bool right_to_lef
     }
     css.letter_spacing = style.letter_spacing != 0;
     text::shaping_features_for_css(css, shaping.features);
+    // font-feature-settings last, over everything the other properties
+    // asked for (css-fonts-4 §7.2): a later setting of a tag wins.
+    if (style.font_feature_settings) {
+        for (css::FontFeature const& feature : *style.font_feature_settings)
+            shaping.features.push_back(text::FeatureSetting { feature.tag, feature.value });
+    }
     return shaping;
+}
+
+bool same_font_features(css::ComputedStyle const& a, css::ComputedStyle const& b)
+{
+    bool const same_settings = a.font_feature_settings == b.font_feature_settings
+        || (a.font_feature_settings && b.font_feature_settings && *a.font_feature_settings == *b.font_feature_settings);
+    return a.font_kerning == b.font_kerning && same_settings;
 }
 
 std::u32string logical_text_of(TextRun const& run)

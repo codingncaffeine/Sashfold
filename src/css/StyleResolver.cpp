@@ -4,6 +4,7 @@
 #include "core/Bidi.h"
 #include "core/Unicode.h"
 #include "css/Animation.h"
+#include "css/FontFeatures.h"
 #include "css/Grid.h"
 #include "css/Parser.h"
 #include "css/Selector.h"
@@ -4966,7 +4967,7 @@ struct Resolver {
         &ComputedStyle::hyphens, &ComputedStyle::hyphenate_character, &ComputedStyle::line_break,
         &ComputedStyle::overflow_wrap, &ComputedStyle::font_kerning, &ComputedStyle::font_synthesis_weight,
         &ComputedStyle::font_synthesis_style, &ComputedStyle::font_synthesis_small_caps,
-        &ComputedStyle::font_synthesis_position, &ComputedStyle::text_transform, &ComputedStyle::text_shadow, &ComputedStyle::list_style_type,
+        &ComputedStyle::font_synthesis_position, &ComputedStyle::font_feature_settings, &ComputedStyle::text_transform, &ComputedStyle::text_shadow, &ComputedStyle::list_style_type,
         &ComputedStyle::list_style_position, &ComputedStyle::quotes, &ComputedStyle::custom, &ComputedStyle::visibility,
         &ComputedStyle::pointer_events, &ComputedStyle::cursor, &ComputedStyle::inert, &ComputedStyle::border_collapse, &ComputedStyle::border_spacing_horizontal,
         &ComputedStyle::border_spacing_vertical, &ComputedStyle::caption_side, &ComputedStyle::empty_cells,
@@ -5498,6 +5499,7 @@ struct Resolver {
                     to.font_style = from.font_style;
                     to.font_family = from.font_family;
                     to.line_height = from.line_height;
+                    to.font_feature_settings = from.font_feature_settings;
                 },
                 0 },
             { "vertical-align", false, [](S& to, S const& from) { to.vertical_align = from.vertical_align; }, 0 },
@@ -5544,6 +5546,8 @@ struct Resolver {
                     to.font_synthesis_position = from.font_synthesis_position;
                 },
                 0 },
+            { "font-feature-settings", true,
+                [](S& to, S const& from) { to.font_feature_settings = from.font_feature_settings; }, 0 },
             { "text-transform", true,
                 [](S& to, S const& from) { to.text_transform = from.text_transform; }, 0 },
             { "list-style-type", true, [](S& to, S const& from) { to.list_style_type = from.list_style_type; }, 0 },
@@ -8742,6 +8746,8 @@ struct Resolver {
             style.font_weight = weight;
             style.line_height = line_height;
             style.font_family = std::move(families);
+            // What the shorthand cannot set it resets (css-fonts-4 §2.7).
+            style.font_feature_settings = nullptr;
             return;
         }
         if (name == "font-family") {
@@ -9008,6 +9014,10 @@ struct Resolver {
                 style.hyphenate_character.reset();
             else if (values[0]->is_token(Token::Type::String))
                 style.hyphenate_character = std::string(values[0]->token().value);
+            return;
+        }
+        if (name == "font-feature-settings") {
+            parse_font_feature_settings(values, style.font_feature_settings);
             return;
         }
         if (name == "font-kerning") {
@@ -10950,7 +10960,7 @@ ComputedStyle const& perturbed_style_baseline()
                  "stroke-miterlimit: 7; stroke-dasharray: 1 2; stroke-dashoffset: 3; fill-rule: evenodd; "
                  "stop-color: rgb(10, 11, 12); stop-opacity: 0.5; border-spacing: 2px; translate: 1px; "
                  "aspect-ratio: 2; grid-auto-flow: column; border-color: rgb(13, 14, 15); "
-                 "font-variant: small-caps; font-family: monospace; quotes: none; counter-reset: x; "
+                 "font-variant: small-caps; font-feature-settings: \"zero\" 3; font-family: monospace; quotes: none; counter-reset: x; "
                  "counter-increment: x; background-repeat: no-repeat; background-clip: content-box; "
                  "background-origin: content-box; background-size: cover; background-position: 1px 2px; "
                  "background-image: linear-gradient(red, blue);"))

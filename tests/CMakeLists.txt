@@ -120,6 +120,7 @@ sashfold_test(test_connections)
 sashfold_test(test_downloads)
 sashfold_test(test_font_manager)
 sashfold_test(test_shaped_text)
+sashfold_test(test_font_features)
 
 # The script engine.
 sashfold_test(test_js_lexer)

@@ -28,6 +28,11 @@ namespace sashfold::layout {
 // levels resolved from it instead (with that as the base direction).
 text::TextShaping shaping_for(css::ComputedStyle const&, bool right_to_left, bool paragraph = false);
 
+// Whether two styles ask the same of the font features their text is
+// shaped with — font-kerning, font-feature-settings, font-variant and the
+// language: text in both may be shaped as one.
+bool same_font_features(css::ComputedStyle const&, css::ComputedStyle const&);
+
 // The run's characters in reading order: its text, or, for a run drawn
 // right to left, its text back to front with the mirrored brackets put
 // back (layout stores such a run as drawn).
