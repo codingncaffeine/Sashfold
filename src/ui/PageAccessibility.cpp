@@ -150,8 +150,10 @@ private:
             Frame frame;
             frame.view = view;
             frame.source = std::make_unique<a11y::StyleMapSource>(view->styles, &view->layout.root);
+            // The frame's own fragments are in its document's coordinates,
+            // which its scroll moves up the cell.
             frame.dx = x;
-            frame.dy = y;
+            frame.dy = y - static_cast<float>(view->scroll_y);
             // What the frame is now: its view, its picture's count, its
             // place; any of them other than before reads the boxes afresh.
             signature = signature * 1000003u + reinterpret_cast<std::uintptr_t>(view) + drawn.mutations * 31u

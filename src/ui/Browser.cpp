@@ -4678,10 +4678,12 @@ struct Browser::Impl {
             turn.root = &tab.layout.root;
             turn.controls = &tab.controls;
             turn.frames = &tab.frames;
-            // The fragments carry the reader's scrolling (settle_scrolls):
-            // the boxes are read again when it moves, and are where the
-            // content is drawn, so the view's own scroll is none.
+            // The fragments are in page coordinates, with the boxes' own
+            // scrolling and what is fixed or sticks moved for the page's
+            // (settle_scrolls): the boxes are read again when it moves, and
+            // the view says the page's scroll, which the painter takes off.
             turn.layout_generation = profile.relayouts * 1000003u + profile.restyles * 7919u + static_cast<std::uint64_t>(tab.scroll_y);
+            turn.view.scroll_y = static_cast<float>(tab.scroll_y);
             HistoryEntry const* const entry = tab.current();
             bool const loading = tab.navigating.has_value()
                 || std::any_of(pending.begin(), pending.end(), [i](Pending const& load) { return load.tab == i; });
@@ -4769,11 +4771,13 @@ struct Browser::Impl {
             }
             break;
         case Kind::ScrollIntoView:
+            // Its box (page coordinates) brought into the content area when
+            // any of it is outside, its top at the area's top.
             if (layout::Fragment const* const box = fragment_for(tab.layout.root, &element)) {
                 ChromeLayout const c = layout_chrome();
-                float const top = box->y;
+                float const top = box->y - static_cast<float>(tab.scroll_y);
                 if (top < 0 || top + box->height > static_cast<float>(c.content.height))
-                    set_scroll(tab, tab.scroll_y + static_cast<int>(top));
+                    set_scroll(tab, static_cast<int>(box->y));
             }
             break;
         case Kind::SetSelection:
