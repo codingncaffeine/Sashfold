@@ -17,7 +17,41 @@
 #include <unistd.h>
 #endif
 
+#if defined(_WIN32)
+#include <cstdio>
+#include <thread>
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#endif
+
 using namespace sashfold;
+
+#if defined(_WIN32)
+namespace {
+
+// The command interpreter started to exit with 42: its exit code, or -1
+// when no process could be started.
+int run_cmd_exit_42(DWORD flags = 0)
+{
+    wchar_t interpreter[MAX_PATH];
+    if (GetEnvironmentVariableW(L"ComSpec", interpreter, MAX_PATH) == 0)
+        return -2;
+    wchar_t command[] = L"cmd.exe /c exit 42";
+    STARTUPINFOW startup {};
+    startup.cb = sizeof startup;
+    PROCESS_INFORMATION started {};
+    if (!CreateProcessW(interpreter, command, nullptr, nullptr, FALSE, flags, nullptr, nullptr, &startup, &started))
+        return -1;
+    CloseHandle(started.hThread);
+    WaitForSingleObject(started.hProcess, INFINITE);
+    DWORD code = 0;
+    GetExitCodeProcess(started.hProcess, &code);
+    CloseHandle(started.hProcess);
+    return static_cast<int>(code);
+}
+
+}
+#endif
 
 #if defined(__linux__)
 namespace {
@@ -390,6 +424,48 @@ int main()
         CHECK(WIFEXITED(status));
         CHECK_EQ(WIFEXITED(status) ? WEXITSTATUS(status) : -1, 0);
     }
+#elif defined(_WIN32)
+    // Control first: before the right is given up a program starts.
+    CHECK_EQ(run_cmd_exit_42(), 42);
+    // A thread that is running before the job goes on is covered as the
+    // rest of the process is.
+    HANDLE const go = CreateEventW(nullptr, TRUE, FALSE, nullptr);
+    int from_earlier_thread = 0;
+    std::thread earlier([&] {
+        WaitForSingleObject(go, INFINITE);
+        from_earlier_thread = run_cmd_exit_42();
+    });
+    std::string why;
+    bool const given_up = platform::forbid_new_programs(&why);
+    // Wine keeps a job's limit without enforcing it: the call must say so
+    // there, and the rest cannot be tested. On Windows it must hold.
+    HMODULE const ntdll = GetModuleHandleW(L"ntdll.dll");
+    if (!given_up && ntdll != nullptr && GetProcAddress(ntdll, "wine_get_version") != nullptr) {
+        CHECK(!why.empty());
+        CHECK_EQ(run_cmd_exit_42(), 42);
+        SetEvent(go);
+        earlier.join();
+        CloseHandle(go);
+        std::printf("test_confine: no limit held here (%s); the rest is not tested\n", why.c_str());
+        return sashfold::test::report("confine");
+    }
+    CHECK(given_up);
+    CHECK(why.empty());
+    // Starting a program is refused, here and on the earlier thread, and
+    // asking twice changes nothing.
+    CHECK_EQ(run_cmd_exit_42(), -1);
+    SetEvent(go);
+    earlier.join();
+    CloseHandle(go);
+    CHECK_EQ(from_earlier_thread, -1);
+    CHECK(platform::forbid_new_programs(&why));
+    CHECK_EQ(run_cmd_exit_42(), -1);
+    // Leaving the job is refused too.
+    CHECK_EQ(run_cmd_exit_42(CREATE_BREAKAWAY_FROM_JOB), -1);
+    // The writes are not kept anywhere yet, and the call says so.
+    why.clear();
+    CHECK(!platform::keep_writes_to({}, &why));
+    CHECK(!why.empty());
 #else
     std::string why;
     CHECK(!platform::forbid_new_programs(&why));
