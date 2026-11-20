@@ -65,8 +65,9 @@ Harnesses:
   buffer bookkeeping: parameter sets, slice headers, CAVLC and CABAC slice
   data, prediction, reconstruction and the deblocking filter, fed as one
   Annex B stream and then in access units whose lengths the input chooses,
-  pictures capped at 4096 macroblocks (seeds: four pictures each of eight
+  pictures capped at 4096 macroblocks (seeds: four pictures each of ten
   `tools/h264-make-tests.sh` clips — CAVLC, CABAC, every partition, temporal
-  direct, slices, a scaling matrix, intra only, weights); smoke run in CI.
+  direct, slices, a scaling matrix, intra only, weights, and MBAFF frames
+  with CABAC and with CAVLC); smoke run in CI.
 
 Still to come, one per parser as each lands: xkb, tls_records, js_lexer.
