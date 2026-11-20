@@ -326,7 +326,7 @@ hostile = {
     12: b'<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (alive) /Rect [140 100 240 130] /F 4 /P 3 0 R /MK << /BC [0 0 0] /CA (Alive) >> '
         b'/DA (/Helv 0 Tf 0 g) ' + aa(U='this.getField("probe").value = "alive";') + b' >>',
     13: b'<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (bomb) /Rect [260 100 360 130] /F 4 /P 3 0 R /MK << /BC [0 0 0] /CA (Bomb) >> '
-        b'/DA (/Helv 0 Tf 0 g) ' + aa(U='var hoard = []; while (true) hoard.push(new Array(10000).fill(hoard.length));') + b' >>',
+        b'/DA (/Helv 0 Tf 0 g) ' + aa(U='var hoard = []; while (true) hoard.push(new Array(3e+06).fill(hoard.length));') + b' >>',
     50: b'<< /Names [(probe) 51 0 R] >>',
     51: js(probe),
 }
