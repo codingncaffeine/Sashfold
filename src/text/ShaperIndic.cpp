@@ -53,6 +53,7 @@ enum Category : std::uint8_t {
     CM, // consonant medial
     Symbol,
     CS, // consonant with stacker
+    MPst, // a post-base matra a syllable modifier may come before (Gurmukhi ii)
 };
 
 // The order the initial reordering sorts a syllable into.
@@ -339,15 +340,23 @@ Classified classify(ScriptCode script, char32_t c)
     CharacterProperties const p = character_properties(c);
     auto const syllabic = static_cast<IndicSyllabic>(p.indic_syllabic);
     auto const side = static_cast<IndicPosition>(p.indic_position);
+    // A sign written as a letter of its own (a spacing candrabindu, a vedic
+    // anusvara: general category Lo) is a base, as in the Universal
+    // Shaping Engine's derivation of its classes.
+    bool const letter = p.category == GeneralCategory::Lo;
     switch (syllabic) {
     case IndicSyllabic::Bindu:
     case IndicSyllabic::Visarga:
     case IndicSyllabic::Gemination_Mark:
     case IndicSyllabic::Syllable_Modifier:
+        if (letter)
+            return { PLACEHOLDER, BaseC };
         // The Oriya candrabindu is drawn before the below-base forms.
         return { SM, c == 0x0B01 ? BeforeSub : SMVD };
     case IndicSyllabic::Cantillation_Mark:
     case IndicSyllabic::Tone_Mark:
+        if (letter)
+            return { PLACEHOLDER, BaseC };
         return { A, SMVD };
     case IndicSyllabic::Avagraha:
         return { Symbol, End };
@@ -358,7 +367,11 @@ Classified classify(ScriptCode script, char32_t c)
         return { H, End };
     case IndicSyllabic::Pure_Killer:
     case IndicSyllabic::Vowel_Dependent:
-        return { M, matra_position(script, c, side) };
+        // The Oriya sign overline modifies its consonant like a nukta.
+        if (c == 0x0B55)
+            return { N, End };
+        // Gurmukhi ii may follow the bindi or tippi it is written with.
+        return { c == 0x0A40 ? MPst : M, matra_position(script, c, side) };
     case IndicSyllabic::Vowel_Independent:
     case IndicSyllabic::Vowel:
         return { V, BaseC };
@@ -403,6 +416,7 @@ bool is_one_of(GlyphInfo const& g, std::uint32_t flags) { return g.shaper < 32 &
 bool is_consonant(GlyphInfo const& g) { return is_one_of(g, consonant_flags); }
 bool is_joiner(GlyphInfo const& g) { return is_one_of(g, flag(ZWJ) | flag(ZWNJ)); }
 // Ligated by GSUB, and not a component a later substitution split off.
+bool is_matra(GlyphInfo const& g) { return is_one_of(g, flag(M) | flag(MPst)); }
 bool is_ligated(GlyphInfo const& g) { return (g.props & otl::glyph_props::ligated) && !otl::is_multiplied(g); }
 // A virama still standing as itself, not taken into a ligature.
 bool is_halant(GlyphInfo const& g) { return category(g) == H && !is_ligated(g); }
@@ -412,7 +426,7 @@ bool is_halant(GlyphInfo const& g) { return category(g) == H && !is_ligated(g); 
 constexpr std::pair<std::string_view, std::uint8_t> category_names[] = {
     { "X", X }, { "C", C }, { "V", V }, { "N", N }, { "H", H }, { "ZWNJ", ZWNJ }, { "ZWJ", ZWJ }, { "M", M },
     { "SM", SM }, { "A", A }, { "PLACEHOLDER", PLACEHOLDER }, { "DOTTEDCIRCLE", DOTTEDCIRCLE }, { "RS", RS },
-    { "Repha", Repha }, { "Ra", Ra }, { "CM", CM }, { "Symbol", Symbol }, { "CS", CS },
+    { "Repha", Repha }, { "Ra", Ra }, { "CM", CM }, { "Symbol", Symbol }, { "CS", CS }, { "MPst", MPst },
 };
 
 // The syllable structures of the specifications ("Shaping engine: analyze
@@ -424,7 +438,7 @@ constexpr std::pair<std::string_view, std::uint8_t> category_names[] = {
 #define INDIC_Z "[ZWJ ZWNJ]"
 #define INDIC_REPH "(Ra H | Repha)"
 #define INDIC_CN "(" INDIC_C " ZWJ? " INDIC_N ")"
-#define INDIC_MATRA_GROUP "(" INDIC_Z "* M " INDIC_N " H?)"
+#define INDIC_MATRA_GROUP "(" INDIC_Z "* (M | SM? MPst) N? H?)"
 #define INDIC_SYLLABLE_TAIL "((" INDIC_Z "? SM SM? ZWNJ?)? A*)"
 #define INDIC_HALANT_GROUP "(" INDIC_Z "? H (ZWJ N?)?)"
 #define INDIC_FINAL_HALANT_GROUP "(" INDIC_HALANT_GROUP " | H ZWNJ)"
@@ -611,6 +625,14 @@ void reorder_consonant_syllable(IndicPlan const& indic, FormLookups const& forms
     std::vector<GlyphInfo>& info = b.info;
     ScriptConfig const& config = indic.config;
 
+    // Kannada ra + virama + ZWJ asks for the ra's subjoined form under
+    // what precedes it, which fonts make of ra + ZWJ + virama.
+    if (script == knda && start + 3 <= end && category(info[start]) == Ra && category(info[start + 1]) == H
+        && category(info[start + 2]) == ZWJ) {
+        b.merge_clusters(start + 1, start + 3);
+        std::swap(info[start + 1], info[start + 2]);
+    }
+
     // 1. The reph: ra and virama at the start that the font forms into
     // one ('rphf'), or a reph character of its own.
     std::size_t base = end;
@@ -729,6 +751,10 @@ void reorder_consonant_syllable(IndicPlan const& indic, FormLookups const& forms
                     }
                 }
             } else if (position(info[i]) != SMVD) {
+                // A syllable modifier written before its post-base matra
+                // goes where the matra goes.
+                if (category(info[i]) == MPst && i > start && category(info[i - 1]) == SM)
+                    set_position(info[i - 1], position(info[i]));
                 last = position(info[i]);
             }
         }
@@ -744,7 +770,7 @@ void reorder_consonant_syllable(IndicPlan const& indic, FormLookups const& forms
                         set_position(info[j], position(info[i]));
                 }
                 last = i;
-            } else if (category(info[i]) == M) {
+            } else if (is_matra(info[i])) {
                 last = i;
             }
         }
@@ -772,7 +798,7 @@ void reorder_consonant_syllable(IndicPlan const& indic, FormLookups const& forms
         b.reverse_range(first_pre_matra, last_pre_matra + 1);
         std::size_t from = first_pre_matra;
         for (std::size_t j = first_pre_matra; j <= last_pre_matra; ++j) {
-            if (category(info[j]) == M) {
+            if (is_matra(info[j])) {
                 b.reverse_range(from, j + 1);
                 from = j + 1;
             }
@@ -944,7 +970,7 @@ void final_reorder_syllable(IndicPlan const& indic, ScriptCode script, std::uint
         std::size_t new_pos = base == end ? base - 2 : base - 1;
         if (script != mlym && script != taml) {
             for (;;) {
-                while (new_pos > start && !is_one_of(info[new_pos], flag(M) | flag(H)))
+                while (new_pos > start && !is_one_of(info[new_pos], flag(M) | flag(MPst) | flag(H)))
                     --new_pos;
                 if (is_halant(info[new_pos]) && position(info[new_pos]) != PreM) {
                     // A virama followed by ZWJ is part of a half form that
@@ -1034,7 +1060,7 @@ void final_reorder_syllable(IndicPlan const& indic, ScriptCode script, std::uint
                 --new_pos;
             if (is_halant(info[new_pos])) {
                 for (std::size_t i = base + 1; i < new_pos; ++i) {
-                    if (category(info[i]) == M)
+                    if (is_matra(info[i]))
                         --new_pos;
                 }
             }
@@ -1054,7 +1080,7 @@ void final_reorder_syllable(IndicPlan const& indic, ScriptCode script, std::uint
             if (is_ligated(info[i])) {
                 std::size_t new_pos = base;
                 if (script != mlym && script != taml) {
-                    while (new_pos > start && !is_one_of(info[new_pos - 1], flag(M) | flag(H)))
+                    while (new_pos > start && !is_one_of(info[new_pos - 1], flag(M) | flag(MPst) | flag(H)))
                         --new_pos;
                 }
                 if (new_pos > start && is_halant(info[new_pos - 1])) {

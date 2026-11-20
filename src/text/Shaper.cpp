@@ -111,9 +111,10 @@ std::uint8_t shaping_combining_class(char32_t c, std::uint8_t ccc)
     if (ccc == 33)
         return 27;
     switch (ccc) {
-    case 84: // Telugu length marks are drawn as vowel signs, in logical order
+    case 84: // Telugu length marks: vowel signs, sorted before the virama
+        return 4;
     case 91:
-        return 0;
+        return 5;
     case 103: // Thai sara u, sara uu
         return 3;
     case 130: // Tibetan sign i after sign u
