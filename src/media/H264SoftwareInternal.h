@@ -435,6 +435,13 @@ struct Frame {
     int storage_mb(int addr) const { return storage_row(addr) * mb_width + mb_column(addr); }
     int block_base(int addr) const { return storage_row(addr) * 4 * (mb_width * 4) + mb_column(addr) * 4; }
     int block_stride() const { return mb_width * 4; }
+    // The same for the macroblock at column mx, row my of a field or a
+    // frame that is not MBAFF, with no division; and the motion blocks
+    // from one of its rows of macroblocks to the next.
+    int storage_row_at(int my) const { return structure == 0 ? my : my * 2 + (structure - 1); }
+    int storage_mb_at(int mx, int my) const { return storage_row_at(my) * mb_width + mx; }
+    int block_base_at(int mx, int my) const { return storage_row_at(my) * 4 * (mb_width * 4) + mx * 4; }
+    int block_row_step() const { return (structure == 0 ? 4 : 8) * (mb_width * 4); }
 
     // Where a macroblock's samples are: its upper-left luma sample among
     // the rows it is made of — the frame's (structure 0) or one field's (1
@@ -447,12 +454,13 @@ struct Frame {
     Place place(int addr) const
     {
         if (!mbaff)
-            return { (addr % mb_width) * 16, (addr / mb_width) * 16, structure };
+            return place_at(addr % mb_width, addr / mb_width);
         int const pair = addr >> 1, bottom = addr & 1;
         if (mbs[static_cast<std::size_t>(addr)].field)
             return { (pair % mb_width) * 16, (pair / mb_width) * 16, 1 + bottom };
         return { (pair % mb_width) * 16, (pair / mb_width) * 32 + bottom * 16, 0 };
     }
+    Place place_at(int mx, int my) const { return { mx * 16, my * 16, structure }; }
     // 6.4.12: the macroblock holding location (xN, yN) of macroblock
     // `addr` (luma: max 16 by 16; chroma 4:2:0: 8 by 8), and the location
     // inside it — `addr` -1 where there is none: outside the picture, not

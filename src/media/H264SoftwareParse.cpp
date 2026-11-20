@@ -288,8 +288,9 @@ private:
     int nc_chroma(int c, int x2, int y2) const;
     // CABAC.
     bool cabac_block(std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc, bool& coded);
+    template<bool Field>
     static bool cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc,
-        bool field, bool& coded);
+        bool& coded);
     int cbf_inc_luma(int cat, int x4, int y4) const;
     int cbf_inc_dc(int cat, int c) const;
     int cbf_inc_chroma_ac(int c, int x2, int y2) const;
@@ -593,13 +594,16 @@ bool Parser::cabac_block(std::int32_t* levels, int start, int end, int max_coeff
     // stores below could otherwise alias its fields), given back at the end.
     CabacEngine engine = m_cabac.engine();
     std::uint8_t* const contexts = m_cabac.contexts();
-    bool const ok = cabac_block(engine, contexts, levels, start, end, max_coeff, cat, cbf_inc, m_field_mb, coded);
+    // A field macroblock's significance map has contexts of its own (Table 9-34).
+    bool const ok = m_field_mb ? cabac_block<true>(engine, contexts, levels, start, end, max_coeff, cat, cbf_inc, coded)
+                               : cabac_block<false>(engine, contexts, levels, start, end, max_coeff, cat, cbf_inc, coded);
     m_cabac.engine() = engine;
     return ok;
 }
 
+template<bool Field>
 bool Parser::cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc,
-    bool field, bool& coded)
+    bool& coded)
 {
     for (int i = start; i <= end; ++i)
         levels[i] = 0;
@@ -615,21 +619,21 @@ bool Parser::cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32
         coded = true;
     }
     // Table 9-34: the significance map's contexts, frame or field coded.
-    int const sig_base = cat == 5 ? (field ? 436 : 402) : (field ? 277 : 105) + sig_off[cat];
-    int const last_base = cat == 5 ? (field ? 451 : 417) : (field ? 338 : 166) + sig_off[cat];
-    std::uint8_t const* const sig_8x8 = field ? significant_8x8_field : significant_8x8_frame;
+    constexpr int sig_coded = Field ? 277 : 105, last_coded = Field ? 338 : 166;
+    constexpr int sig_8x8_base = Field ? 436 : 402, last_8x8_base = Field ? 451 : 417;
+    constexpr std::uint8_t const* sig_8x8 = Field ? significant_8x8_field : significant_8x8_frame;
     int const count = end - start + 1;
     std::array<bool, 64> significant {};
     int num = count;
     for (int i = 0; i < num - 1; ++i) {
         int sig_ctx, last_ctx;
         if (cat == 5) {
-            sig_ctx = sig_base + sig_8x8[i];
-            last_ctx = last_base + last_significant_8x8[i];
+            sig_ctx = sig_8x8_base + sig_8x8[i];
+            last_ctx = last_8x8_base + last_significant_8x8[i];
         } else {
             int const inc = cat == 3 ? std::min(i, 2) : i;
-            sig_ctx = sig_base + inc;
-            last_ctx = last_base + inc;
+            sig_ctx = sig_coded + sig_off[cat] + inc;
+            last_ctx = last_coded + sig_off[cat] + inc;
         }
         if (engine.decision(contexts[sig_ctx])) {
             significant[static_cast<std::size_t>(i)] = true;
@@ -1063,7 +1067,8 @@ void Parser::mark_skipped()
 void Parser::finish_skip(int addr)
 {
     MbState const& s = state(addr);
-    m_frame.picture->mb_field[static_cast<std::size_t>(m_frame.storage_mb(addr))] = s.field ? 1 : 0;
+    int const storage = m_mbaff ? m_frame.storage_mb(addr) : m_frame.storage_mb_at(m_x, m_y);
+    m_frame.picture->mb_field[static_cast<std::size_t>(storage)] = s.field ? 1 : 0;
     MbSyntax& mb = m_frame.sink->begin(addr);
     mb.kind = s.kind;
     mb.part_pred[0] = s.kind == MbKind::BSkip ? PredDirect : PredL0;
@@ -1474,7 +1479,8 @@ bool Parser::macroblock_layer()
     s.slice = m_slice.number;
     s.field = m_field_mb;
     s.intra4x4_modes.fill(2);
-    m_frame.picture->mb_field[static_cast<std::size_t>(m_frame.storage_mb(m_addr))] = m_field_mb ? 1 : 0;
+    int const storage = m_mbaff ? m_frame.storage_mb(m_addr) : m_frame.storage_mb_at(m_x, m_y);
+    m_frame.picture->mb_field[static_cast<std::size_t>(storage)] = m_field_mb ? 1 : 0;
     m_p8x8ref0 = false;
     MbSyntax& mb = m_frame.sink->begin(m_addr);
     mb.ref_idx[0] = { -1, -1, -1, -1 };

@@ -51,7 +51,8 @@ public:
         , m_x(addr % frame.mb_width)
         , m_y(addr / frame.mb_width)
         , m_bw(frame.block_stride())
-        , m_base(frame.block_base(addr))
+        , m_base(frame.mbaff ? frame.block_base(addr) : frame.block_base_at(m_x, m_y))
+        , m_row_step(frame.block_row_step())
         , m_field_mb(frame.mbs[static_cast<std::size_t>(addr)].field)
         , m_lists(&slice.list)
         , m_poc(slice.current_poc)
@@ -63,6 +64,36 @@ public:
             m_lists = &slice.field_list[static_cast<std::size_t>(m_parity)];
             m_poc = m_parity ? slice.poc_bottom : slice.poc_top;
         }
+    }
+
+    int storage_mb() const { return m_frame.mbaff ? m_frame.storage_mb(m_addr) : m_frame.storage_mb_at(m_x, m_y); }
+
+    // at() outside the macroblock in an MBAFF frame: 6.4.12.2 for the luma
+    // location, then 8.4.1.3.2's scaling between a frame and a field
+    // macroblock.
+    [[gnu::noinline]] Neighbor at_mbaff(int list, int x_n, int y_n) const
+    {
+        Neighbor n;
+        Frame::Location const loc = m_frame.neighbor(m_addr, x_n, y_n, 16, 16, m_slice.number);
+        if (loc.addr < 0)
+            return n;
+        n.available = true;
+        MbState const& s = m_frame.mbs[static_cast<std::size_t>(loc.addr)];
+        if (s.intra)
+            return n;
+        int const i = m_frame.block_base(loc.addr) + (loc.y >> 2) * m_bw + (loc.x >> 2);
+        n.ref = m_pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
+        if (n.ref < 0)
+            return n;
+        n.mv = m_pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
+        if (m_field_mb && !s.field) {
+            n.mv.y = static_cast<std::int16_t>(n.mv.y / 2); // (8-217), (8-218)
+            n.ref *= 2;
+        } else if (!m_field_mb && s.field) {
+            n.mv.y = static_cast<std::int16_t>(n.mv.y * 2); // (8-219), (8-220)
+            n.ref >>= 1;
+        }
+        return n;
     }
 
     bool mb_available(int mx, int my) const
@@ -106,37 +137,15 @@ public:
             }
             return n;
         }
-        if (m_frame.mbaff) {
-            // 6.4.12.2 for the luma location, then 8.4.1.3.2's scaling
-            // between a frame and a field macroblock.
-            Frame::Location const loc = m_frame.neighbor(m_addr, x_n, y_n, 16, 16, m_slice.number);
-            if (loc.addr < 0)
-                return n;
-            n.available = true;
-            MbState const& s = m_frame.mbs[static_cast<std::size_t>(loc.addr)];
-            if (s.intra)
-                return n;
-            int const i = m_frame.block_base(loc.addr) + (loc.y >> 2) * m_bw + (loc.x >> 2);
-            n.ref = m_pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
-            if (n.ref < 0)
-                return n;
-            n.mv = m_pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
-            if (m_field_mb && !s.field) {
-                n.mv.y = static_cast<std::int16_t>(n.mv.y / 2); // (8-217), (8-218)
-                n.ref *= 2;
-            } else if (!m_field_mb && s.field) {
-                n.mv.y = static_cast<std::int16_t>(n.mv.y * 2); // (8-219), (8-220)
-                n.ref >>= 1;
-            }
-            return n;
-        }
+        if (m_frame.mbaff)
+            return at_mbaff(list, x_n, y_n);
         if (!mb_available(mx, my))
             return n;
         n.available = true;
         int const neighbor = my * m_w + mx;
         if (m_frame.mbs[static_cast<std::size_t>(neighbor)].intra)
             return n;
-        int const i = m_frame.block_base(neighbor) + ((by + 4) & 3) * m_bw + ((bx + 4) & 3);
+        int const i = m_base + (my - m_y) * m_row_step + (mx - m_x) * 4 + ((by + 4) & 3) * m_bw + ((bx + 4) & 3);
         n.ref = m_pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
         if (n.ref >= 0)
             n.mv = m_pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
@@ -209,7 +218,7 @@ public:
         std::int32_t pic = -1; // the picture its reference index named (RefEntry::id)
         VertMvScale scale = VertMvScale::OneToOne;
     };
-    Col colocated(int bx, int by) const
+    [[gnu::always_inline]] inline Col colocated(int bx, int by) const
     {
         Col c;
         if (m_slice.list[1].empty() || !m_slice.list[1][0].picture)
@@ -222,6 +231,28 @@ public:
             bx = (bx >> 1) * 3;
             by = (by >> 1) * 3;
         }
+        if (m_slice.structure == 0 && !m_slice.mbaff && col.coding == Coding::Frame) {
+            // A frame from a frame (Table 8-8's FRM, FRM): the same
+            // macroblock and block, kept where this picture keeps its own.
+            int const at = m_y * m_w + m_x;
+            if (col.mb_intra[static_cast<std::size_t>(at)])
+                return c;
+            int const i = m_base + by * m_bw + bx;
+            int const list = col.ref_idx[0][static_cast<std::size_t>(i)] < 0 ? 1 : 0;
+            c.ref = col.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
+            c.mv = col.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
+            c.pic = col.ref_pic[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
+            return c;
+        }
+        return colocated_interlaced(first, bx, by);
+    }
+
+    // colocated() where fields are involved: the current picture is a
+    // field or an MBAFF frame, or the co-located one is.
+    [[gnu::noinline]] Col colocated_interlaced(RefEntry const& first, int bx, int by) const
+    {
+        Col c;
+        Picture const& col = *first.picture;
         int const x_col = bx * 4, y_col = by * 4;
         int const curr = m_addr, w = m_w;
         bool const field_mb = m_frame.mbs[static_cast<std::size_t>(curr)].field;
@@ -436,6 +467,7 @@ private:
     int m_y;
     int m_bw; // motion blocks per row
     int m_base; // the macroblock's first motion block
+    int m_row_step; // motion blocks from one row of macroblocks to the next (not MBAFF)
     bool m_field_mb;
     int m_parity = 0; // an MBAFF field macroblock's: 0 top, 1 bottom
     std::array<std::vector<RefEntry>, 2> const* m_lists; // the lists its reference indices index
@@ -454,7 +486,7 @@ bool uses_list(Pred p, int list) { return p != PredNone && p != PredDirect && (p
 void derive_motion(Frame& frame, Slice const& slice, int addr, MbSyntax const& mb)
 {
     MotionContext ctx(frame, slice, addr);
-    frame.picture->mb_intra[static_cast<std::size_t>(frame.storage_mb(addr))] = 0;
+    frame.picture->mb_intra[static_cast<std::size_t>(ctx.storage_mb())] = 0;
     auto add = [](Mv a, Mv d) { return Mv { static_cast<std::int16_t>(a.x + d.x), static_cast<std::int16_t>(a.y + d.y) }; };
     switch (mb.kind) {
     case MbKind::PSkip: {
@@ -890,9 +922,15 @@ void predict_quadrant(InterTarget const& t, int x4, int y4)
 void inter_predict(Frame& frame, Slice const& slice, int addr)
 {
     InterTarget t(*frame.picture, slice);
-    t.base = frame.block_base(addr);
+    if (frame.mbaff) {
+        t.base = frame.block_base(addr);
+        t.place = frame.place(addr);
+    } else {
+        int const mx = addr % frame.mb_width, my = addr / frame.mb_width;
+        t.base = frame.block_base_at(mx, my);
+        t.place = frame.place_at(mx, my);
+    }
     t.bw = frame.block_stride();
-    t.place = frame.place(addr);
     if (frame.mbaff && t.place.structure != 0) {
         t.mbaff_parity = t.place.structure - 1;
         t.lists = slice.field_list[static_cast<std::size_t>(t.mbaff_parity)].data();
@@ -928,7 +966,7 @@ public:
         , m_x(addr % frame.mb_width)
         , m_y(addr / frame.mb_width)
     {
-        Frame::Place const p = frame.place(addr);
+        Frame::Place const p = frame.mbaff ? frame.place(addr) : frame.place_at(m_x, m_y);
         m_stride = frame.luma_rows_stride(p.structure);
         m_cstride = frame.chroma_rows_stride(p.structure);
         m_luma = frame.luma_rows(p.structure) + static_cast<std::ptrdiff_t>(p.y) * m_stride + p.x;
@@ -1344,40 +1382,50 @@ void predict_16x16(IntraContext const& ic, int mode, int* out)
     // a stream gets DC from what there is (as ffmpeg conceals it).
     if ((mode == 0 && !has_top) || (mode == 1 && !has_left) || (mode == 3 && !(has_top && has_left && ic.luma_available(-1, -1))))
         mode = 2;
-    for (int y = 0; y < 16; ++y)
-        for (int x = 0; x < 16; ++x) {
-            int v = 128;
-            if (mode == 0) {
-                v = ic.luma(x, -1);
-            } else if (mode == 1) {
-                v = ic.luma(-1, y);
-            } else if (mode == 2) {
-                int st = 0, sl = 0;
-                for (int k = 0; k < 16; ++k) {
-                    if (has_top)
-                        st += ic.luma(k, -1);
-                    if (has_left)
-                        sl += ic.luma(-1, k);
-                }
-                if (has_top && has_left)
-                    v = (st + sl + 16) >> 5;
-                else if (has_left)
-                    v = (sl + 8) >> 4;
-                else if (has_top)
-                    v = (st + 8) >> 4;
-            } else {
-                int h = 0, vv = 0;
-                for (int k = 0; k < 8; ++k) {
-                    h += (k + 1) * (ic.luma(8 + k, -1) - ic.luma(6 - k, -1));
-                    vv += (k + 1) * (ic.luma(-1, 8 + k) - ic.luma(-1, 6 - k));
-                }
-                int const a = 16 * (ic.luma(-1, 15) + ic.luma(15, -1));
-                int const b = (5 * h + 32) >> 6;
-                int const c = (5 * vv + 32) >> 6;
-                v = clip1((a + b * (x - 7) + c * (y - 7) + 16) >> 5);
-            }
-            out[y * 16 + x] = v;
+    // The neighbors read once; each mode's terms computed once.
+    int top[16] = {}, left[16] = {};
+    for (int k = 0; k < 16; ++k) {
+        if (has_top)
+            top[k] = ic.luma(k, -1);
+        if (has_left)
+            left[k] = ic.luma(-1, k);
+    }
+    if (mode == 0 || mode == 1) {
+        for (int y = 0; y < 16; ++y)
+            for (int x = 0; x < 16; ++x)
+                out[y * 16 + x] = mode == 0 ? top[x] : left[y];
+        return;
+    }
+    if (mode == 2) {
+        int st = 0, sl = 0;
+        for (int k = 0; k < 16; ++k) {
+            st += top[k];
+            sl += left[k];
         }
+        int v = 128;
+        if (has_top && has_left)
+            v = (st + sl + 16) >> 5;
+        else if (has_left)
+            v = (sl + 8) >> 4;
+        else if (has_top)
+            v = (st + 8) >> 4;
+        std::fill_n(out, 256, v);
+        return;
+    }
+    int const corner = ic.luma(-1, -1);
+    auto top_at = [&](int x) { return x < 0 ? corner : top[x]; };
+    auto left_at = [&](int y) { return y < 0 ? corner : left[y]; };
+    int h = 0, vv = 0;
+    for (int k = 0; k < 8; ++k) {
+        h += (k + 1) * (top_at(8 + k) - top_at(6 - k));
+        vv += (k + 1) * (left_at(8 + k) - left_at(6 - k));
+    }
+    int const a = 16 * (left[15] + top[15]);
+    int const b = (5 * h + 32) >> 6;
+    int const c = (5 * vv + 32) >> 6;
+    for (int y = 0; y < 16; ++y)
+        for (int x = 0; x < 16; ++x)
+            out[y * 16 + x] = clip1((a + b * (x - 7) + c * (y - 7) + 16) >> 5);
 }
 
 // 8.3.4 for 4:2:0.
@@ -1387,20 +1435,26 @@ void predict_chroma(IntraContext const& ic, int comp, int mode, int* out)
     bool const left_all = ic.chroma_left();
     if ((mode == 1 && !left_all) || (mode == 2 && !has_top) || (mode == 3 && !(has_top && left_all && ic.chroma_corner())))
         mode = 0;
-    for (int y = 0; y < 8; ++y)
-        for (int x = 0; x < 8; ++x) {
-            int v = 128;
-            if (mode == 0) {
-                int const xo = x & ~3, yo = y & ~3;
-                // 8.3.4.1: each 4x4 block's own left samples, all there or not.
+    // The neighbors read once; each mode's terms computed once.
+    int top[8] = {}, left[8] = {};
+    for (int k = 0; k < 8; ++k) {
+        if (has_top)
+            top[k] = ic.chroma(comp, k, -1);
+        if (ic.chroma_left_rows(k & ~3, 4))
+            left[k] = ic.chroma(comp, -1, k);
+    }
+    if (mode == 0) {
+        // 8.3.4.1: a DC per 4x4 block, from its own top and left samples
+        // (each side all there or not).
+        for (int yo = 0; yo < 8; yo += 4)
+            for (int xo = 0; xo < 8; xo += 4) {
                 bool const has_left = ic.chroma_left_rows(yo, 4);
                 int st = 0, sl = 0;
                 for (int k = 0; k < 4; ++k) {
-                    if (has_top)
-                        st += ic.chroma(comp, xo + k, -1);
-                    if (has_left)
-                        sl += ic.chroma(comp, -1, yo + k);
+                    st += top[xo + k];
+                    sl += left[yo + k];
                 }
+                int v = 128;
                 if ((xo == 0 && yo == 0) || (xo > 0 && yo > 0)) {
                     if (has_top && has_left)
                         v = (st + sl + 4) >> 3;
@@ -1419,23 +1473,32 @@ void predict_chroma(IntraContext const& ic, int comp, int mode, int* out)
                     else if (has_top)
                         v = (st + 2) >> 2;
                 }
-            } else if (mode == 1) {
-                v = ic.chroma(comp, -1, y);
-            } else if (mode == 2) {
-                v = ic.chroma(comp, x, -1);
-            } else {
-                int h = 0, vv = 0;
-                for (int k = 0; k < 4; ++k) {
-                    h += (k + 1) * (ic.chroma(comp, 4 + k, -1) - ic.chroma(comp, 2 - k, -1));
-                    vv += (k + 1) * (ic.chroma(comp, -1, 4 + k) - ic.chroma(comp, -1, 2 - k));
-                }
-                int const a = 16 * (ic.chroma(comp, -1, 7) + ic.chroma(comp, 7, -1));
-                int const b = (34 * h + 32) >> 6;
-                int const c = (34 * vv + 32) >> 6;
-                v = clip1((a + b * (x - 3) + c * (y - 3) + 16) >> 5);
+                for (int y = yo; y < yo + 4; ++y)
+                    for (int x = xo; x < xo + 4; ++x)
+                        out[y * 8 + x] = v;
             }
-            out[y * 8 + x] = v;
-        }
+        return;
+    }
+    if (mode == 1 || mode == 2) {
+        for (int y = 0; y < 8; ++y)
+            for (int x = 0; x < 8; ++x)
+                out[y * 8 + x] = mode == 1 ? left[y] : top[x];
+        return;
+    }
+    int const corner = ic.chroma(comp, -1, -1);
+    auto top_at = [&](int x) { return x < 0 ? corner : top[x]; };
+    auto left_at = [&](int y) { return y < 0 ? corner : left[y]; };
+    int h = 0, vv = 0;
+    for (int k = 0; k < 4; ++k) {
+        h += (k + 1) * (top_at(4 + k) - top_at(2 - k));
+        vv += (k + 1) * (left_at(4 + k) - left_at(2 - k));
+    }
+    int const a = 16 * (left[7] + top[7]);
+    int const b = (34 * h + 32) >> 6;
+    int const c = (34 * vv + 32) >> 6;
+    for (int y = 0; y < 8; ++y)
+        for (int x = 0; x < 8; ++x)
+            out[y * 8 + x] = clip1((a + b * (x - 3) + c * (y - 3) + 16) >> 5);
 }
 
 void write_block(std::uint8_t* dst, int stride, int const* pred, int size)
@@ -1458,8 +1521,9 @@ bool any_nonzero(std::int32_t const* c, int n)
 void clear_intra_motion(Frame& frame, int addr)
 {
     Picture& pic = *frame.picture;
-    pic.mb_intra[static_cast<std::size_t>(frame.storage_mb(addr))] = 1;
-    int const base = frame.block_base(addr), bw = frame.block_stride();
+    int const mx = addr % frame.mb_width, my = addr / frame.mb_width;
+    pic.mb_intra[static_cast<std::size_t>(frame.mbaff ? frame.storage_mb(addr) : frame.storage_mb_at(mx, my))] = 1;
+    int const base = frame.mbaff ? frame.block_base(addr) : frame.block_base_at(mx, my), bw = frame.block_stride();
     for (int by = 0; by < 4; ++by)
         for (int bx = 0; bx < 4; ++bx) {
             int const i = base + by * bw + bx;

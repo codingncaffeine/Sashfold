@@ -38,7 +38,8 @@ std::uint8_t clip1(int v) { return static_cast<std::uint8_t>(std::clamp(v, 0, 25
 // across a vertical edge, 3 across a horizontal one between field
 // macroblocks; motion differs at a quarter frame sample apart, which
 // vertically is half that for field macroblocks (`mvy_limit` 2).
-int strength(Frame const& f, int mb_p, int mb_q, int bp, int bq, int lp, int lq, bool mb_edge, bool vertical_edge, int mvy_limit, bool mixed = false)
+[[gnu::always_inline]] inline int strength(Frame const& f, int mb_p, int mb_q, int bp, int bq, int lp, int lq, bool mb_edge, bool vertical_edge, int mvy_limit,
+    bool mixed = false)
 {
     MbState const& p = f.mbs[static_cast<std::size_t>(mb_p)];
     MbState const& q = f.mbs[static_cast<std::size_t>(mb_q)];
@@ -156,6 +157,7 @@ void deblock_macroblock(Frame& frame, int mx, int my)
         && (idc != 2 || frame.mbs[static_cast<std::size_t>(addr - 1)].slice == q.slice);
     bool const top = my > 0 && frame.mbs[static_cast<std::size_t>(addr - w)].slice >= 0
         && (idc != 2 || frame.mbs[static_cast<std::size_t>(addr - w)].slice == q.slice);
+    int const base_q = frame.block_base_at(mx, my);
     for (int dir = 0; dir < 2; ++dir) { // 0: vertical edges, 1: horizontal
         int bs[4][4]; // [edge][block along it]
         for (int e = 0; e < 4; ++e) {
@@ -167,7 +169,7 @@ void deblock_macroblock(Frame& frame, int mx, int my)
             if (!mb_edge && q.transform_8x8 && (e & 1))
                 continue;
             int const mb_p = mb_edge ? (dir == 0 ? addr - 1 : addr - w) : addr;
-            int const base_q = frame.block_base(addr), base_p = frame.block_base(mb_p);
+            int const base_p = mb_edge ? (dir == 0 ? base_q - 4 : base_q - frame.block_row_step()) : base_q;
             for (int k = 0; k < 4; ++k) {
                 // Blocks within their macroblocks: q's, and p's across the edge.
                 int const qx = dir == 0 ? e : k, qy = dir == 0 ? k : e;
