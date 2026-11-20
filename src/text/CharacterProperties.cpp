@@ -148,6 +148,15 @@ char32_t arabic_presentation_form(char32_t c, std::uint8_t form)
     return 0;
 }
 
+char32_t arabic_presentation_ligature(char32_t first, char32_t second, std::uint8_t form)
+{
+    for (shaping_data::PresentationForm const& p : shaping_data::presentation_forms) {
+        if (p.first == first && p.second == second && p.form == form)
+            return p.code_point;
+    }
+    return 0;
+}
+
 // --- Itemization ------------------------------------------------------------
 
 namespace {

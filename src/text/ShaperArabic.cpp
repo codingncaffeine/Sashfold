@@ -285,6 +285,7 @@ ScriptShaper const arabic_shaper {
 
 void arabic_fallback_shape(Plan const& plan, ShapeFont const& font, Buffer& b)
 {
+    using otl::make_tag;
     if (!plan.shaper_fallback)
         return;
     // The joining forms from the presentation forms the font maps (the
@@ -306,6 +307,50 @@ void arabic_fallback_shape(Plan const& plan, ShapeFont const& font, Buffer& b)
             g.props |= otl::glyph_props::substituted;
         }
     }
+    // 'rlig': lam and alef as one, from the ligature presentation forms
+    // (<isolated> or <final> of the pair) — isolated when the lam began
+    // the pair, final when a letter joined it from before. Marks between
+    // the two stay, numbered by the component they sat on.
+    std::uint32_t const rlig = plan.one_mask(make_tag('r', 'l', 'i', 'g'));
+    b.clear_output();
+    std::size_t const count = b.len();
+    b.idx = 0;
+    while (b.idx < count && !b.failed) {
+        GlyphInfo const& lam = b.cur();
+        if (lam.codepoint != 0x0644 || !(lam.mask & rlig) || (lam.shaper != Init && lam.shaper != Medi)) {
+            b.next_glyph();
+            continue;
+        }
+        std::size_t j = b.idx + 1;
+        while (j < count && is_unicode_mark(b.info[j]))
+            ++j;
+        if (j >= count || b.info[j].shaper != Fina) {
+            b.next_glyph();
+            continue;
+        }
+        char32_t const ligature = arabic_presentation_ligature(0x0644, b.info[j].codepoint, lam.shaper == Init ? 0 : 1);
+        std::uint32_t const glyph = ligature ? font.nominal_glyph(ligature) : 0;
+        if (!glyph) {
+            b.next_glyph();
+            continue;
+        }
+        unsigned const id = b.next_lig_id();
+        b.merge_clusters(b.idx, j + 1);
+        GlyphInfo& out = b.output_glyph(glyph);
+        out.props = static_cast<std::uint16_t>(otl::glyph_props::ligature | otl::glyph_props::substituted | otl::glyph_props::ligated);
+        otl::set_lig_props_for_ligature(out, id, 2);
+        b.skip_glyph();
+        while (b.idx < j) {
+            otl::set_lig_props_for_mark(b.cur(), id, 1);
+            b.next_glyph();
+        }
+        b.skip_glyph(); // the alef
+        while (b.idx < count && is_unicode_mark(b.cur()) && otl::lig_id(b.cur()) == 0) {
+            otl::set_lig_props_for_mark(b.cur(), id, 2);
+            b.next_glyph();
+        }
+    }
+    b.sync();
 }
 
 }

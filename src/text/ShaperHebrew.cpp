@@ -7,20 +7,52 @@
 
 #include "text/ShaperInternal.h"
 
+#include <algorithm>
+#include <string>
+#include <utility>
+
 namespace sashfold::text::shaping {
 
 namespace {
+
+// The full canonical decomposition of a character.
+void full_decomposition(char32_t c, std::u32string& out, int depth = 0)
+{
+    char32_t first = 0;
+    char32_t second = 0;
+    if (depth > 4 || !canonical_decompose(c, first, second)) {
+        out.push_back(c);
+        return;
+    }
+    full_decomposition(first, out, depth + 1);
+    if (second)
+        full_decomposition(second, out, depth + 1);
+}
+
+// The marks after the letter in canonical order (all the Hebrew points
+// have non-zero classes).
+void canonical_order(std::u32string& s)
+{
+    if (s.size() > 2)
+        std::stable_sort(s.begin() + 1, s.end(),
+            [](char32_t a, char32_t b) { return combining_class(a) < combining_class(b); });
+}
 
 bool compose(Plan const& plan, char32_t a, char32_t b, char32_t& ab)
 {
     ab = canonical_compose(a, b);
     if (ab || plan.has_gpos_mark)
         return ab != 0;
-    // The presentation forms whose canonical decomposition is the pair.
+    // The presentation form canonically equivalent to the pair: shin with
+    // its dot and then dagesh is shin with dagesh and shin dot.
+    std::u32string wanted;
+    full_decomposition(a, wanted);
+    wanted.push_back(b);
+    canonical_order(wanted);
     for (char32_t c = 0xFB1D; c <= 0xFB4E; ++c) {
-        char32_t first = 0;
-        char32_t second = 0;
-        if (canonical_decompose(c, first, second) && first == a && second == b) {
+        std::u32string form;
+        full_decomposition(c, form);
+        if (form.size() > 1 && form == wanted) {
             ab = c;
             return true;
         }

@@ -111,6 +111,8 @@ char32_t canonical_compose(char32_t first, char32_t second);
 // compatibility decomposition is <isolated>, <final>, <initial> or
 // <medial> of it alone: form 0, 1, 2, 3), or 0.
 char32_t arabic_presentation_form(char32_t, std::uint8_t form);
+// The same for a ligature of two letters (lam with alef), or 0.
+char32_t arabic_presentation_ligature(char32_t first, char32_t second, std::uint8_t form);
 
 // The scripts the text's runs are in: a run of one script each, where
 // Common and Inherited characters take the script of what is around them
