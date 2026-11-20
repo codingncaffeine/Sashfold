@@ -615,7 +615,7 @@ void Renderer::end_path()
         return;
     }
     if (m_pending_clip && !m_path.path.segments.empty()) {
-        m_state.clip = canvas::intersect_clip(*m_surface, m_state.clip, m_path.path, *m_pending_clip);
+        m_state.clip = canvas::intersect_clip(*m_surface, m_state.clip, m_path.path, *m_pending_clip, k_shape_antialias);
     } else if (m_pending_clip) {
         // A clip by an empty path clips everything.
         m_state.clip = std::make_shared<canvas::ClipMask const>(
@@ -629,7 +629,7 @@ void Renderer::fill_path(svg::FillRule rule)
 {
     if (m_hidden > 0 || m_path.path.segments.empty() || !m_options.draw)
         return;
-    svg::Mask const coverage = canvas::fill_coverage(*m_surface, m_path.path, rule);
+    svg::Mask const coverage = canvas::fill_coverage(*m_surface, m_path.path, rule, nullptr, k_shape_antialias);
     paint_coverage(coverage, m_state.fill, m_state.fill_alpha);
 }
 
@@ -652,7 +652,7 @@ void Renderer::stroke_path()
     pen.dashes = m_state.dashes;
     pen.dash_offset = static_cast<float>(m_state.dash_phase);
     canvas::DrawState const state = draw_state(m_state.stroke_alpha);
-    svg::Mask const coverage = canvas::stroke_coverage(*m_surface, m_path.path, pen, state);
+    svg::Mask const coverage = canvas::stroke_coverage(*m_surface, m_path.path, pen, state, k_shape_antialias);
     paint_coverage(coverage, m_state.stroke, m_state.stroke_alpha);
 }
 
@@ -734,7 +734,7 @@ void Renderer::paint_pattern(svg::Mask const& coverage, PaintColor const& color,
                     cell.m_state.clip.reset();
                     canvas::PathBuilder box;
                     box.rect(shifted, bx0, by0, bx1 - bx0, by1 - by0);
-                    cell.m_state.clip = canvas::intersect_clip(tile, nullptr, box.path, svg::FillRule::NonZero);
+                    cell.m_state.clip = canvas::intersect_clip(tile, nullptr, box.path, svg::FillRule::NonZero, k_shape_antialias);
                     if (paint_type == 2) {
                         // Uncolored: the cell's own colors are ignored, the pattern's color paints its shapes.
                         cell.m_state.fill.space = ColorSpace::device_gray();
@@ -888,7 +888,7 @@ void Renderer::render_form_into(canvas::Surface& layer, Stream const& form, Dict
         double const y1 = m_doc.resolve(bbox[3]).as_number();
         canvas::PathBuilder box;
         box.rect(placed, x0, y0, x1 - x0, y1 - y0);
-        sub.m_state.clip = canvas::intersect_clip(layer, nullptr, box.path, svg::FillRule::NonZero);
+        sub.m_state.clip = canvas::intersect_clip(layer, nullptr, box.path, svg::FillRule::NonZero, k_shape_antialias);
     }
     Dict const& form_resources = form.dict.has("Resources") ? m_doc.resolve(form.dict.get("Resources")).as_dict() : resources;
     sub.run(m_doc.decode(form), form_resources);
@@ -994,7 +994,7 @@ void Renderer::draw_form(Stream const& form, Dict const& resources, Ref ref)
             double const y0 = m_doc.resolve(bbox[1]).as_number();
             canvas::PathBuilder box;
             box.rect(placed, x0, y0, m_doc.resolve(bbox[2]).as_number() - x0, m_doc.resolve(bbox[3]).as_number() - y0);
-            sub.m_state.clip = canvas::intersect_clip(layer, sub.m_state.clip, box.path, svg::FillRule::NonZero);
+            sub.m_state.clip = canvas::intersect_clip(layer, sub.m_state.clip, box.path, svg::FillRule::NonZero, k_shape_antialias);
         }
         Dict const& form_resources = form.dict.has("Resources") ? m_doc.resolve(form.dict.get("Resources")).as_dict() : resources;
         sub.run(m_doc.decode(form), form_resources);
@@ -1014,7 +1014,7 @@ void Renderer::draw_form(Stream const& form, Dict const& resources, Ref ref)
         double const y0 = m_doc.resolve(bbox[1]).as_number();
         canvas::PathBuilder box;
         box.rect(m_state.ctm, x0, y0, m_doc.resolve(bbox[2]).as_number() - x0, m_doc.resolve(bbox[3]).as_number() - y0);
-        m_state.clip = canvas::intersect_clip(*m_surface, m_state.clip, box.path, svg::FillRule::NonZero);
+        m_state.clip = canvas::intersect_clip(*m_surface, m_state.clip, box.path, svg::FillRule::NonZero, k_shape_antialias);
     }
     Dict const& form_resources = form.dict.has("Resources") ? m_doc.resolve(form.dict.get("Resources")).as_dict() : resources;
     ++m_depth;

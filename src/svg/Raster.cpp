@@ -747,4 +747,159 @@ Mask rasterize(std::vector<Polygon> const& polygons, FillRule rule, int clip_lef
     return mask;
 }
 
+Mask rasterize_exact(std::vector<Polygon> const& polygons, FillRule rule, int clip_left, int clip_top,
+    int clip_right, int clip_bottom)
+{
+    Mask mask;
+    // Each edge top to bottom, with the direction it was drawn in.
+    struct Line {
+        double x0, y0, x1, y1;
+        double direction; // +1 drawn downward, -1 upward
+    };
+    std::vector<Line> lines;
+    double min_x = 0, max_x = 0, min_y = 0, max_y = 0;
+    bool bounded = false;
+    auto const held = [](float v) { return static_cast<double>(std::clamp(v, -1.0e6f, 1.0e6f)); };
+    for (Polygon const& polygon : polygons) {
+        if (polygon.size() < 3)
+            continue;
+        for (std::size_t i = 0; i < polygon.size(); ++i) {
+            Point const a = polygon[i];
+            Point const b = polygon[(i + 1) % polygon.size()];
+            if (!std::isfinite(a.x) || !std::isfinite(a.y) || !std::isfinite(b.x) || !std::isfinite(b.y))
+                return mask;
+            double const ax = held(a.x), ay = held(a.y), bx = held(b.x), by = held(b.y);
+            if (!bounded) {
+                min_x = max_x = ax;
+                min_y = max_y = ay;
+                bounded = true;
+            }
+            min_x = std::min({ min_x, ax, bx });
+            max_x = std::max({ max_x, ax, bx });
+            min_y = std::min({ min_y, ay, by });
+            max_y = std::max({ max_y, ay, by });
+            if (ay == by)
+                continue;
+            if (ay < by)
+                lines.push_back({ ax, ay, bx, by, 1 });
+            else
+                lines.push_back({ bx, by, ax, ay, -1 });
+        }
+    }
+    if (lines.empty())
+        return mask;
+    std::int64_t const left = std::max<std::int64_t>(static_cast<std::int64_t>(std::floor(min_x)), clip_left);
+    std::int64_t const right = std::min<std::int64_t>(static_cast<std::int64_t>(std::ceil(max_x)), clip_right);
+    std::int64_t const top = std::max<std::int64_t>(static_cast<std::int64_t>(std::floor(min_y)), clip_top);
+    std::int64_t const bottom = std::min<std::int64_t>(static_cast<std::int64_t>(std::ceil(max_y)), clip_bottom);
+    std::int64_t const width = right - left;
+    std::int64_t const height = bottom - top;
+    if (width <= 0 || height <= 0 || width * height > 64'000'000)
+        return mask;
+    mask.left = static_cast<int>(left);
+    mask.top = static_cast<int>(top);
+    mask.width = static_cast<int>(width);
+    mask.height = static_cast<int>(height);
+    mask.alpha.assign(static_cast<std::size_t>(width * height), 0);
+
+    // One row's cells: what each edge piece adds to the winding integral of
+    // its own cell (the part of the cell right of it) and, through the
+    // running sum, of every cell right of it (all of its height).
+    std::vector<double> acc(static_cast<std::size_t>(width) + 2, 0.0);
+    double const w = static_cast<double>(width);
+    auto const piece = [&](double xa, double xb, double dy) {
+        double const lo = std::min(xa, xb);
+        if (lo >= w || dy == 0)
+            return;
+        if (std::max(xa, xb) <= 0) {
+            acc[0] += dy; // left of the row: it covers the whole row
+            return;
+        }
+        double const cell = std::floor(lo);
+        double const mid = (xa + xb) / 2 - cell;
+        std::size_t const at = static_cast<std::size_t>(cell);
+        acc[at] += dy * (1 - mid);
+        acc[at + 1] += dy * mid;
+    };
+    // A segment within the row, split where it crosses a column boundary
+    // inside [0, width] (the parts outside need no splitting).
+    auto const segment = [&](double xs, double ys, double xe, double ye, double direction) {
+        if (xs == xe) {
+            piece(xs, xe, (ye - ys) * direction);
+            return;
+        }
+        double const lo = std::min(xs, xe);
+        double const hi = std::max(xs, xe);
+        double const first = std::max(std::floor(lo) + 1, 0.0);
+        double const last = std::min(std::ceil(hi) - 1, w);
+        double const slope = (ye - ys) / (xe - xs);
+        double px = xs;
+        double py = ys;
+        auto const to = [&](double bx) {
+            double const by = ys + (bx - xs) * slope;
+            piece(px, bx, (by - py) * direction);
+            px = bx;
+            py = by;
+        };
+        if (xs < xe) {
+            for (double b = first; b <= last; b += 1)
+                to(b);
+        } else {
+            for (double b = last; b >= first; b -= 1)
+                to(b);
+        }
+        piece(px, xe, (ye - py) * direction);
+    };
+
+    std::sort(lines.begin(), lines.end(), [](Line const& a, Line const& b) { return a.y0 < b.y0; });
+    std::size_t next_line = 0;
+    std::vector<Line const*> active;
+    double const origin_x = static_cast<double>(left);
+    for (std::int64_t row = 0; row < height; ++row) {
+        double const y_top = static_cast<double>(top + row);
+        double const y_bottom = y_top + 1;
+        while (next_line < lines.size() && lines[next_line].y0 < y_bottom) {
+            active.push_back(&lines[next_line]);
+            ++next_line;
+        }
+        std::fill(acc.begin(), acc.end(), 0.0);
+        bool any = false;
+        for (std::size_t i = 0; i < active.size();) {
+            Line const& line = *active[i];
+            if (line.y1 <= y_top) {
+                active[i] = active.back();
+                active.pop_back();
+                continue;
+            }
+            ++i;
+            double const ys = std::max(line.y0, y_top);
+            double const ye = std::min(line.y1, y_bottom);
+            if (ye <= ys)
+                continue;
+            double const slope = (line.x1 - line.x0) / (line.y1 - line.y0);
+            double const xs = line.x0 + (ys - line.y0) * slope - origin_x;
+            double const xe = line.x0 + (ye - line.y0) * slope - origin_x;
+            segment(xs, ys, xe, ye, line.direction);
+            any = true;
+        }
+        if (!any)
+            continue;
+        std::uint8_t* const out = mask.alpha.data() + static_cast<std::size_t>(row * width);
+        double sum = 0;
+        for (std::int64_t x = 0; x < width; ++x) {
+            sum += acc[static_cast<std::size_t>(x)];
+            double const c = std::abs(sum);
+            double coverage = 0;
+            if (rule == FillRule::NonZero) {
+                coverage = std::min(c, 1.0);
+            } else {
+                double const t = std::fmod(c, 2.0);
+                coverage = t > 1 ? 2 - t : t;
+            }
+            out[x] = static_cast<std::uint8_t>(std::lround(coverage * 255));
+        }
+    }
+    return mask;
+}
+
 }

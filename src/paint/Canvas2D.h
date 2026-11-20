@@ -178,10 +178,12 @@ void paint_mask(Surface& surface, svg::Mask const& coverage, Style const& style,
 // the drawing transform's space. Given the state it is drawn with, the
 // coverage reaches past the bitmap as far as a shadow cast from there could
 // fall back onto it.
+// `antialias` picks the edges' anti-aliasing (svg/Raster.h): the 4x4
+// samples web content is drawn with, or exact area for PDF pages.
 svg::Mask fill_coverage(Surface const& surface, svg::Path const& device_path, svg::FillRule rule,
-    DrawState const* state = nullptr);
+    DrawState const* state = nullptr, svg::Antialias antialias = svg::Antialias::Sampled);
 svg::Mask stroke_coverage(Surface const& surface, svg::Path const& device_path, svg::StrokeStyle const& pen,
-    DrawState const& state);
+    DrawState const& state, svg::Antialias antialias = svg::Antialias::Sampled);
 
 // A picture drawn into the rectangle (dx, dy, dw, dh) of the current space
 // from the rectangle (sx, sy, sw, sh) of the source, which the caller has
@@ -194,7 +196,7 @@ void clear_rect(Surface& surface, double x, double y, double w, double h, DrawSt
 
 // The clip region narrowed to a path.
 std::shared_ptr<ClipMask const> intersect_clip(Surface const& surface, std::shared_ptr<ClipMask const> const& clip,
-    svg::Path const& device_path, svg::FillRule rule);
+    svg::Path const& device_path, svg::FillRule rule, svg::Antialias antialias = svg::Antialias::Sampled);
 
 // isPointInPath and isPointInStroke, a point in device pixels.
 bool point_in_path(svg::Path const& device_path, svg::FillRule rule, double x, double y);

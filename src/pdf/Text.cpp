@@ -186,7 +186,7 @@ void Renderer::show_text(std::string const& bytes, Dict const& resources)
     if (shapes.segments.empty())
         return;
     if (fills) {
-        svg::Mask const coverage = canvas::fill_coverage(*m_surface, shapes, svg::FillRule::NonZero);
+        svg::Mask const coverage = canvas::fill_coverage(*m_surface, shapes, svg::FillRule::NonZero, nullptr, k_glyph_antialias);
         paint_coverage(coverage, m_state.fill, m_state.fill_alpha);
     }
     if (strokes) {
@@ -224,7 +224,7 @@ void Renderer::end_text()
     if (m_text_clipping) {
         m_state.clip = m_text_clip.path.segments.empty()
             ? std::make_shared<canvas::ClipMask const>(static_cast<std::size_t>(m_surface->width) * static_cast<std::size_t>(m_surface->height), 0)
-            : canvas::intersect_clip(*m_surface, m_state.clip, m_text_clip.path, svg::FillRule::NonZero);
+            : canvas::intersect_clip(*m_surface, m_state.clip, m_text_clip.path, svg::FillRule::NonZero, k_glyph_antialias);
     }
     m_text_clip = canvas::PathBuilder {};
     m_text_clipping = false;

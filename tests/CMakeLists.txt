@@ -18,6 +18,7 @@ target_link_libraries(test_animated_image PRIVATE sashfold_core sashfold_warning
 add_test(NAME test_animated_image COMMAND test_animated_image ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/animated)
 sashfold_test(test_bmp)
 sashfold_test(test_icc)
+sashfold_test(test_exact_coverage)
 sashfold_test(test_picture_decodes)
 sashfold_test(test_frames)
 sashfold_test(test_a11y)

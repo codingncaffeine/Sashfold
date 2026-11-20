@@ -1242,18 +1242,24 @@ Region raster_region(Surface const& surface, DrawState const* state)
 
 } // namespace
 
-svg::Mask fill_coverage(Surface const& surface, svg::Path const& device_path, svg::FillRule rule, DrawState const* state)
+svg::Mask fill_coverage(Surface const& surface, svg::Path const& device_path, svg::FillRule rule, DrawState const* state,
+    svg::Antialias antialias)
 {
     Region const r = raster_region(surface, state);
-    return svg::rasterize(polygons_of(svg::flatten(device_path, 0.1f)), rule, r.left, r.top, r.right, r.bottom);
+    auto const polygons = polygons_of(svg::flatten(device_path, 0.1f));
+    if (antialias == svg::Antialias::ExactArea)
+        return svg::rasterize_exact(polygons, rule, r.left, r.top, r.right, r.bottom);
+    return svg::rasterize(polygons, rule, r.left, r.top, r.right, r.bottom);
 }
 
 svg::Mask stroke_coverage(Surface const& surface, svg::Path const& device_path, svg::StrokeStyle const& pen,
-    DrawState const& state)
+    DrawState const& state, svg::Antialias antialias)
 {
     Region const r = raster_region(surface, &state);
-    return svg::rasterize(stroke_polygons(device_path, pen, state.transform), svg::FillRule::NonZero, r.left, r.top,
-        r.right, r.bottom);
+    auto const polygons = stroke_polygons(device_path, pen, state.transform);
+    if (antialias == svg::Antialias::ExactArea)
+        return svg::rasterize_exact(polygons, svg::FillRule::NonZero, r.left, r.top, r.right, r.bottom);
+    return svg::rasterize(polygons, svg::FillRule::NonZero, r.left, r.top, r.right, r.bottom);
 }
 
 void draw_image(Surface& surface, Surface const& source, double sx, double sy, double sw, double sh, double dx,
@@ -1307,10 +1313,10 @@ void clear_rect(Surface& surface, double x, double y, double w, double h, DrawSt
 }
 
 std::shared_ptr<ClipMask const> intersect_clip(Surface const& surface, std::shared_ptr<ClipMask const> const& clip,
-    svg::Path const& device_path, svg::FillRule rule)
+    svg::Path const& device_path, svg::FillRule rule, svg::Antialias antialias)
 {
     auto out = std::make_shared<ClipMask>(static_cast<std::size_t>(surface.width) * static_cast<std::size_t>(surface.height), 0);
-    svg::Mask const coverage = fill_coverage(surface, device_path, rule);
+    svg::Mask const coverage = fill_coverage(surface, device_path, rule, nullptr, antialias);
     if (!coverage.empty()) {
         for (int y = std::max(0, coverage.top); y < std::min(surface.height, coverage.top + coverage.height); ++y) {
             for (int x = std::max(0, coverage.left); x < std::min(surface.width, coverage.left + coverage.width); ++x) {

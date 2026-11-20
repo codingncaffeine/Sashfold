@@ -116,6 +116,19 @@ struct Mask {
 Mask rasterize(std::vector<Polygon> const& polygons, FillRule rule, int clip_left, int clip_top,
     int clip_right, int clip_bottom);
 
+// How edges are anti-aliased: by the 4x4 samples of rasterize() (web
+// content: SVG, canvas), or by each pixel's exact covered area (PDF pages,
+// as PDF renderers draw them: a thin stem keeps its weight at any phase).
+enum class Antialias : std::uint8_t { Sampled, ExactArea };
+
+// The same polygons by exact area: for every pixel the integral of the
+// winding number over its square, from each edge's signed area and cover
+// accumulated per cell and summed along the row, then the rule applied to
+// it (nonzero: at most 1; even-odd: folded about each odd count). Exact
+// wherever edges do not cross within a pixel, as other area rasterizers.
+Mask rasterize_exact(std::vector<Polygon> const& polygons, FillRule rule, int clip_left, int clip_top,
+    int clip_right, int clip_bottom);
+
 // The bounding box of a set of polygons; nullopt when there is nothing.
 struct Box {
     float left = 0;

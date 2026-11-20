@@ -20,6 +20,16 @@
 
 namespace sashfold::pdf {
 
+// Glyph outlines (painted, or as a text clip) are anti-aliased by each
+// pixel's exact covered area, so thin stems keep their weight at every
+// phase as other PDF renderers draw them. Fills, strokes and other clips
+// keep the 4x4 samples: against poppler and Ghostscript, which both
+// supersample (poppler also snaps axis-aligned fills to whole pixels),
+// exact area brought text closer on every page measured but moved fills of
+// rectangles and some strokes further away.
+inline constexpr svg::Antialias k_glyph_antialias = svg::Antialias::ExactArea;
+inline constexpr svg::Antialias k_shape_antialias = svg::Antialias::Sampled;
+
 class Font; // Text.cpp's
 
 struct TextState {
