@@ -4319,6 +4319,19 @@ struct Resolver {
     StyleMap const* previous_styles = nullptr;
     float root_font_size = 16;
     float initial_font_size = 16; // `medium`, in device px
+    // The parent's font-weight while an element's declarations are
+    // applied: what bolder and lighter are relative to (css-fonts-4 §2.2),
+    // however many times the cascade applies them.
+    int inherited_weight = 400;
+    // bolder or lighter: the weight the table of css-fonts-4 §2.2 gives
+    // for the parent's.
+    int relative_weight(bool bolder) const
+    {
+        int const w = inherited_weight;
+        if (bolder)
+            return w < 350 ? 400 : w < 550 ? 700 : std::max(w, 900);
+        return w < 100 ? w : w < 550 ? 100 : w < 750 ? 400 : 700;
+    }
     // Rules are matched for five targets at once — the element itself, its
     // ::before, its ::after, its ::first-letter and its ::placeholder — since
     // one selector walk serves all five. Per target and rule: the element (stamp) it last
@@ -6080,6 +6093,7 @@ struct Resolver {
 
     ComputedStyle compute_declaration(ComputedStyle const& base, ComputedStyle const& parent, Declaration const& given)
     {
+        inherited_weight = parent.font_weight;
         ComputedStyle style = base;
         Declaration declaration;
         declaration.name = given.name;
@@ -6199,6 +6213,7 @@ struct Resolver {
         bool with_style_attribute, AnimatedLayers const* layers)
     {
         ComputedStyle style = inherited_from(parent);
+        inherited_weight = parent.font_weight;
         // The element's language: its own declaration, else its parent's.
         if (std::optional<std::string_view> const declared = declared_language(element))
             style.language = *declared;
@@ -8711,14 +8726,8 @@ struct Resolver {
                 style.font_weight = 400;
             else if (is_ident(&value, "bold"))
                 style.font_weight = 700;
-            else if (is_ident(&value, "bolder"))
-                style.font_weight = style.font_weight < 350 ? 400
-                    : style.font_weight < 550               ? 700
-                                                            : 900;
-            else if (is_ident(&value, "lighter"))
-                style.font_weight = style.font_weight < 550 ? 100
-                    : style.font_weight < 750               ? 400
-                                                            : 700;
+            else if (is_ident(&value, "bolder") || is_ident(&value, "lighter"))
+                style.font_weight = relative_weight(is_ident(&value, "bolder"));
             return;
         }
         if (name == "font") {
@@ -8738,7 +8747,7 @@ struct Resolver {
             for (ComponentValue const* value : parts->before) {
                 if (is_ident(value, "small-caps"))
                     small_caps = true;
-                else if (std::optional<int> const percent = value->is_token(Token::Type::Ident)
+                else if (std::optional<int> const percent = value->is_token(Token::Type::Ident) && !is_ident(value, "normal")
                              ? css::font_stretch_percent_of(*value)
                              : std::nullopt)
                     stretch = *percent; // <font-width-css3>: the keywords only
@@ -8748,10 +8757,8 @@ struct Resolver {
                     font_style = FontStyle::Oblique;
                 else if (is_ident(value, "bold"))
                     weight = 700;
-                else if (is_ident(value, "bolder"))
-                    weight = std::min(900, style.font_weight + 300);
-                else if (is_ident(value, "lighter"))
-                    weight = std::max(100, style.font_weight - 300);
+                else if (is_ident(value, "bolder") || is_ident(value, "lighter"))
+                    weight = relative_weight(is_ident(value, "bolder"));
                 else if (value->is_token(Token::Type::Number)
                     && value->token().numeric_value >= 1 && value->token().numeric_value <= 1000)
                     weight = static_cast<int>(value->token().numeric_value);

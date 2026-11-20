@@ -225,6 +225,18 @@ void test_font_variant_values()
     CHECK(style_of("c").font_kerning == css::FontKerning::Auto);
     CHECK_EQ(style_of("c").font_stretch, 75);
     CHECK_EQ(style_of("c").font_size, 12.0f);
+    // The font shorthand's widths and relative weights; bolder and lighter
+    // go by the parent's weight (§2.2), however often the cascade applies
+    // them, so <b> in normal text is 700, not 900.
+    resolve("#n { font: normal normal expanded normal 12px serif } #h { font-weight: 800 } #l { font-weight: lighter }"
+            "#s { font: lighter 12px serif } #k { font-weight: bolder } #m { font: bolder 12px serif }",
+        "<p id=n>x</p><div id=h><p id=l>a</p><p id=s>b</p><p id=k>c</p></div><p id=m>d</p><p><b id=b>e</b></p>");
+    CHECK_EQ(style_of("n").font_stretch, 125);
+    CHECK_EQ(style_of("l").font_weight, 700);
+    CHECK_EQ(style_of("s").font_weight, 700);
+    CHECK_EQ(style_of("k").font_weight, 900);
+    CHECK_EQ(style_of("m").font_weight, 700);
+    CHECK_EQ(style_of("b").font_weight, 700);
     // CSS 3's caps are not the shorthand's: the declaration is dropped.
     resolve("#a { font-variant: ordinal } #c { font: all-small-caps 12px serif }", "<div id=a><p id=c>y</p></div>");
     CHECK_EQ(css::font_variant_text(style_of("c").font_variant), std::string("ordinal"));

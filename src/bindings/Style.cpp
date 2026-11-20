@@ -958,6 +958,51 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         return css::font_variant_text(style.font_variant);
     if (name == "font-language-override")
         return css::font_language_override_text(style.font_language_override);
+    if (name == "font") {
+        // The shorthand (css-fonts-4 §2.7) says what CSS 2's font said, with
+        // font-width's keywords: style, small-caps, weight and width where
+        // they are not normal, the size with the line-height after a slash,
+        // and the families. Longhands it cannot write, or resets it cannot
+        // say, leave it empty, as CSSOM serializes a shorthand that cannot
+        // represent its longhands.
+        FontVariant small_caps;
+        small_caps.caps = FontVariantCaps::SmallCaps;
+        if ((style.font_variant != FontVariant {} && style.font_variant != small_caps) || style.font_feature_settings
+            || style.font_kerning != FontKerning::Auto || !style.font_language_override.empty())
+            return "";
+        struct Width {
+            int percent;
+            char const* keyword;
+        };
+        static constexpr Width widths[] = { { 50, "ultra-condensed" }, { 62, "extra-condensed" }, { 75, "condensed" },
+            { 87, "semi-condensed" }, { 100, "" }, { 112, "semi-expanded" }, { 125, "expanded" }, { 150, "extra-expanded" },
+            { 200, "ultra-expanded" } };
+        char const* width = nullptr;
+        for (Width const& candidate : widths) {
+            if (candidate.percent == style.font_stretch)
+                width = candidate.keyword;
+        }
+        if (!width)
+            return "";
+        std::string out;
+        auto const add = [&](std::string const& word) {
+            if (!word.empty())
+                out += (out.empty() ? "" : " ") + word;
+        };
+        if (style.font_style != FontStyle::Normal)
+            add(computed_property(in, element, style, "font-style", resolved));
+        if (style.font_variant.caps == FontVariantCaps::SmallCaps)
+            add("small-caps");
+        if (style.font_weight != 400)
+            add(std::to_string(style.font_weight));
+        add(width);
+        std::string size = px(style.font_size);
+        if (style.line_height.kind != LineHeight::Kind::Normal)
+            size += " / " + computed_property(in, element, style, "line-height", resolved);
+        add(size);
+        add(computed_property(in, element, style, "font-family", resolved));
+        return out;
+    }
     if (css::is_font_variant_longhand(name))
         return css::font_variant_longhand_text(name, style.font_variant);
     if (name == "font-synthesis-weight")
