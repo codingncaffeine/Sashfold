@@ -507,7 +507,6 @@ bool read_extensions(Realm::Internals& in, js::Value const& value, auth::Operati
         std::optional<Dictionary> const blob = Dictionary::of(interp, *large_blob, "AuthenticationExtensionsLargeBlobInputs");
         if (!blob)
             return false;
-        std::optional<std::optional<bool>> read;
         std::optional<js::Value> const read_value = blob->get("read");
         if (!read_value)
             return false;
