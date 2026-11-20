@@ -201,7 +201,10 @@ bool same(ContentItem const& a, ContentItem const& b)
     return a.kind == b.kind && a.text == b.text && a.fallback == b.fallback && a.style == b.style;
 }
 
-bool same(Content const& a, Content const& b) { return a.kind == b.kind && same(a.items, b.items); }
+bool same(Content const& a, Content const& b)
+{
+    return a.kind == b.kind && same(a.items, b.items) && a.alt.has_value() == b.alt.has_value() && (!a.alt || same(*a.alt, *b.alt));
+}
 
 bool same(ComponentValue const& a, ComponentValue const& b);
 
@@ -264,7 +267,7 @@ bool same(CustomProperties const& a, CustomProperties const& b)
 
 bool same(GeneratedBox const& a, GeneratedBox const& b)
 {
-    return a.text == b.text && !first_style_difference(a.style, b.style);
+    return a.text == b.text && a.alt == b.alt && !first_style_difference(a.style, b.style);
 }
 
 bool same(GeneratedContent const& a, GeneratedContent const& b)

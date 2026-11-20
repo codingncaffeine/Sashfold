@@ -4684,6 +4684,30 @@ struct Resolver {
     // back; quotes: none inserts nothing).
     std::string content_text(dom::Element const& element, ComputedStyle const& pseudo)
     {
+        return items_text(element, pseudo, pseudo.content.items);
+    }
+
+    // The alternative text of a generated box, resolved at the same point
+    // of the walk; its quotation marks, had it any, move no depth.
+    std::optional<std::string> alt_text(dom::Element const& element, ComputedStyle const& pseudo)
+    {
+        if (!pseudo.content.alt)
+            return std::nullopt;
+        int const depth = quote_depth;
+        std::string text = items_text(element, pseudo, *pseudo.content.alt);
+        quote_depth = depth;
+        return text;
+    }
+
+    // Generated boxes resolved at this point of the walk.
+    void resolve_generated(dom::Element const& element, GeneratedBox& box)
+    {
+        box.text = content_text(element, box.style);
+        box.alt = alt_text(element, box.style);
+    }
+
+    std::string items_text(dom::Element const& element, ComputedStyle const& pseudo, std::vector<ContentItem> const& items)
+    {
         QuotePairs const* const pairs = pseudo.quotes.get();
         auto const mark = [&](int depth, bool open) -> std::string {
             if (pairs) {
@@ -4697,7 +4721,7 @@ struct Resolver {
             return open ? "‘" : "’";
         };
         std::string text;
-        for (ContentItem const& item : pseudo.content.items) {
+        for (ContentItem const& item : items) {
             switch (item.kind) {
             case ContentItem::Kind::String:
                 text += item.text;
@@ -4774,9 +4798,9 @@ struct Resolver {
             if (has_before || has_after) {
                 auto boxes = std::make_shared<GeneratedContent>();
                 if (has_before)
-                    boxes->before = GeneratedBox { std::move(*before), {} };
+                    boxes->before = GeneratedBox { std::move(*before), {}, {} };
                 if (has_after)
-                    boxes->after = GeneratedBox { std::move(*after), {} };
+                    boxes->after = GeneratedBox { std::move(*after), {}, {} };
                 generated = boxes.get();
                 style.generated = std::move(boxes);
             }
@@ -4833,7 +4857,7 @@ struct Resolver {
         ++counter_depth;
         if (generated && generated->before) {
             apply_counter_ops(generated->before->style);
-            generated->before->text = content_text(*owner, generated->before->style);
+            resolve_generated(*owner, *generated->before);
         }
         // What is drawn in the node's place: a host's shadow tree, a slot's
         // assigned nodes (the flat tree, css-scoping-1 §2.5).
@@ -4841,7 +4865,7 @@ struct Resolver {
             resolve_tree(*child, *style_for_children);
         if (generated && generated->after) {
             apply_counter_ops(generated->after->style);
-            generated->after->text = content_text(*owner, generated->after->style);
+            resolve_generated(*owner, *generated->after);
         }
         --counter_depth;
         counter_stack.resize(scope);
@@ -6728,7 +6752,17 @@ struct Resolver {
             }
             Content content;
             content.kind = Content::Kind::Items;
+            // What follows a slash is the content's alternative text
+            // (css-content-3 §1.2): strings, attr() and counters only.
+            std::vector<ContentItem>* into = &content.items;
             for (ComponentValue const* value : values) {
+                if (value->is_token(Token::Type::Delim) && value->token().delim == '/') {
+                    if (content.alt || content.items.empty())
+                        return;
+                    content.alt.emplace();
+                    into = &*content.alt;
+                    continue;
+                }
                 ContentItem item;
                 if (value->is_token(Token::Type::String)) {
                     item.text = value->token().value;
@@ -6788,7 +6822,10 @@ struct Resolver {
                 } else {
                     return;
                 }
-                content.items.push_back(std::move(item));
+                if (into != &content.items && item.kind != ContentItem::Kind::String && item.kind != ContentItem::Kind::Attr
+                    && item.kind != ContentItem::Kind::Counter && item.kind != ContentItem::Kind::Counters)
+                    return;
+                into->push_back(std::move(item));
             }
             style.content = std::move(content);
             return;
@@ -10016,6 +10053,12 @@ bool generated_counts(ComputedStyle const& style)
             if (item.kind != ContentItem::Kind::String && item.kind != ContentItem::Kind::Attr)
                 return true;
         }
+        if (pseudo.content.alt) {
+            for (ContentItem const& item : *pseudo.content.alt) {
+                if (item.kind != ContentItem::Kind::String && item.kind != ContentItem::Kind::Attr)
+                    return true;
+            }
+        }
     }
     return false;
 }
@@ -10502,9 +10545,9 @@ struct Updater {
             style.list_item_value = old->list_item_value;
         }
         if (generated && generated->before)
-            generated->before->text = resolver.content_text(element, generated->before->style);
+            resolver.resolve_generated(element, *generated->before);
         if (generated && generated->after)
-            generated->after->text = resolver.content_text(element, generated->after->style);
+            resolver.resolve_generated(element, *generated->after);
 
         // Custom properties settled again to the same values keep the object
         // they had, so that what inherits it sees the same one.

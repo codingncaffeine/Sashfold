@@ -1,3 +1,6 @@
+#include "a11y/Automation.h"
+#include "a11y/PageSources.h"
+#include "a11y/Semantics.h"
 #include "bindings/LayoutOracle.h"
 #include "bindings/Realm.h"
 #include "css/Stylesheets.h"
@@ -558,8 +561,11 @@ public:
         // rejects it) instead of waiting for a person to click until the test
         // times out — which a page whose elementsFromPoint finds the element
         // otherwise does.
+        // The accessibility commands are answered by the engine's model
+        // (a11y/Automation.h), through a function the realm puts on the
+        // window for the vendor script to take.
         if (*rel == "resources/testdriver-vendor.js")
-            return Served { "window.test_driver_internal.in_automation = true;\n", "text/javascript", {} };
+            return Served { std::string(a11y::testdriver_vendor_script()), "text/javascript", {} };
         // The IDL parser every idlharness test loads is served by the
         // suite's server under a name of its own: the file is elsewhere.
         if (*rel == "resources/WebIDLParser.js")
@@ -1008,6 +1014,15 @@ TestResult run_test(Server const& server, std::string const& id)
     };
     auto realm = std::make_unique<bindings::Realm>(*document, *url, std::move(hooks));
     oracle.set_realm(realm.get());
+    // The accessibility model, made when a test first asks it something.
+    a11y::OracleSource accessibility_source(oracle, realm.get());
+    std::optional<a11y::Semantics> semantics;
+    realm->install_automation([&](std::string_view command, dom::Node* node, std::string_view argument) -> std::optional<std::string> {
+        std::lock_guard<std::mutex> const lock(layout_mutex);
+        if (!semantics)
+            semantics.emplace(&accessibility_source);
+        return a11y::automation_answer(*semantics, nullptr, command, node, argument);
+    });
     html::parse_document_bytes_into(*document, page->body, realm.get());
     realm->document_parsed();
     // The event loop on a virtual clock: the tasks and due timers, then the

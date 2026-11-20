@@ -2610,6 +2610,33 @@ void Realm::run_inserted_script(dom::Element& script)
     m_internals->prepare_script(script, false);
 }
 
+void Realm::install_automation(AutomationCommand command)
+{
+    Internals& in = *m_internals;
+    js::Interpreter& interpreter = in.interpreter;
+    js::Heap::NoCollect const guard(interpreter.heap());
+    js::DefinedMethod const defined = define_operation(interpreter, *interpreter.global(), "__sashfold_automation", 1,
+        [command = std::move(command)](js::Interpreter& interp, js::Value const&, Args args) -> Native {
+            Realm::Internals& internals = internals_of(interp);
+            std::optional<std::string> const name = internals.to_utf8(js::argument(args, 0));
+            if (!name)
+                return std::nullopt;
+            dom::Node* node = internals.realm.node_of(js::argument(args, 1));
+            std::string argument;
+            if (args.size() > 2 && !args[2].is_nullish()) {
+                std::optional<std::string> text = internals.to_utf8(args[2]);
+                if (!text)
+                    return std::nullopt;
+                argument = std::move(*text);
+            }
+            std::optional<std::string> const answer = command(*name, node, argument);
+            if (!answer)
+                return js::Value::null();
+            return js::Value::string(interp.string(*answer));
+        });
+    (void)defined;
+}
+
 js::Outcome Realm::run(std::string_view utf8_source, std::string name)
 {
     Internals& in = *m_internals;

@@ -170,6 +170,10 @@ struct Content {
     };
     Kind kind = Kind::Normal;
     std::vector<ContentItem> items;
+    // The alternative text after a slash (css-content-3 §1.2), which the
+    // accessibility tree takes in place of what is drawn: strings,
+    // attr() and counters; nothing when the value has no slash.
+    std::optional<std::vector<ContentItem>> alt;
 };
 
 // The pairs of quotation marks the quotes property names, outermost first;
@@ -1465,6 +1469,7 @@ struct ComputedStyle {
 struct GeneratedBox {
     ComputedStyle style;
     std::string text; // UTF-8
+    std::optional<std::string> alt; // the content's alternative text, resolved as `text` is
 };
 
 struct GeneratedContent {

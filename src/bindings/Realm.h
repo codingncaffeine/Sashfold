@@ -573,6 +573,14 @@ public:
     // Runs global code in this realm; an uncaught exception goes to the
     // console and is counted. `name` is for messages.
     js::Outcome run(std::string_view utf8_source, std::string name);
+    // A WebDriver-like command channel for a host that automates the page
+    // (the test runner's testdriver vendor script): a function
+    // `__sashfold_automation(command, node, argument)` put on the window,
+    // answering with the host's string or null. The vendor script takes it
+    // and deletes it before any test runs, so no test sees it. A host that
+    // automates nothing never calls this.
+    using AutomationCommand = std::function<std::optional<std::string>(std::string_view command, dom::Node* node, std::string_view argument)>;
+    void install_automation(AutomationCommand command);
     // The parser is done: readyState moves to interactive, the deferred
     // scripts run, DOMContentLoaded fires, then load; readyState is
     // complete.

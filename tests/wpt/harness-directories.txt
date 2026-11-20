@@ -169,3 +169,14 @@ input-events
 # Added 2026-11-13 with the transform functions: parsing, computed values,
 # animation and the boxes scripts measure through a transform.
 css/css-transforms
+
+# Added 2026-11-20 with the accessibility model (src/a11y): role
+# computation, accessible names and descriptions, through testdriver's
+# get_computed_role, get_computed_label and accessibility properties.
+accname
+wai-aria
+html-aam
+core-aam
+dpub-aam
+graphics-aam
+svg-aam
