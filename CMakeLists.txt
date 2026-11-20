@@ -65,6 +65,9 @@ if(CMAKE_CXX_COMPILER_ID MATCHES "Clang")
 endif()
 
 add_library(sashfold_core STATIC
+  src/auth/Cbor.cpp
+  src/auth/Cose.cpp
+  src/auth/DerWriter.cpp
   src/bindings/Binary.cpp
   src/bindings/Canvas.cpp
   src/bindings/Cssom.cpp
