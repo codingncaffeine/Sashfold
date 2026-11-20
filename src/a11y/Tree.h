@@ -209,6 +209,10 @@ struct Event {
     std::uint32_t offset = 0;
     std::string text;
     std::string politeness; // "polite" or "assertive"
+    // An Announcement the page asked for (ariaNotify), not a live region's
+    // change: platforms whose readers follow live regions themselves (from
+    // the text and children events, AT-SPI's) say only these.
+    bool notification = false;
 };
 std::string_view event_name(Event::Type);
 

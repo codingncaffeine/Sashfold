@@ -263,7 +263,8 @@ void events()
     CHECK(tree.stale());
     page.refresh();
     tree.update();
-    CHECK_EQ(recorder.list(tree), std::string("state-changed:Store:focused+;focus:Store;"));
+    // The document the focus left hears it first.
+    CHECK_EQ(recorder.list(tree), std::string("state-changed::focused-;state-changed:Store:focused+;focus:Store;"));
 
     // Typing into a field: its value is the host's.
     recorder.events.clear();

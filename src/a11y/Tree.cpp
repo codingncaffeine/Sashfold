@@ -84,6 +84,31 @@ std::optional<double> number(std::optional<std::string_view> text)
     return value;
 }
 
+// Whether an option is the one its select has chosen. Where the host keeps
+// the select's value as the reader chose it (Document::live_value, what
+// forms::control_value reads), the option with that value (its value
+// attribute, else its text, as the select's value is formed); otherwise the
+// markup's selectedness (HTML §4.10.10).
+bool option_chosen(Element const& option)
+{
+    Element const* const select = dom::forms::select_of(option);
+    if (select && !select->has_attribute("multiple") && option.document().live_value) {
+        if (std::optional<std::string> const live = option.document().live_value(*select)) {
+            std::string value;
+            if (dom::Attr const* const given = option.find_attribute("value")) {
+                value = given->value;
+            } else {
+                for (Node const* child : option.children()) {
+                    if (child->is_text())
+                        value += static_cast<dom::Text const&>(*child).data;
+                }
+            }
+            return value == *live;
+        }
+    }
+    return dom::forms::option_selected(option);
+}
+
 bool is_text_field(Element const& element)
 {
     if (element.is_html("textarea"))
@@ -212,6 +237,9 @@ struct Tree::Impl {
     // document noting it.
     std::optional<dom::forms::TextSelection> field_selection;
     Element const* focused_element = nullptr;
+    // The node the focus was on at the last update (0: none yet), which
+    // hears that it lost the focus when it moves on.
+    NodeId focused_node = 0;
 
     NodeId root = 0;
     std::unordered_map<Key, NodeId, KeyHash> ids;
@@ -531,6 +559,15 @@ struct Builder {
                     data.name = collapse_whitespace(text);
                 }
             });
+            // The document's language: its root element's lang (HTML
+            // §3.2.6.2), what the platforms give as the document's locale.
+            for (Node const* child : data.dom->children()) {
+                if (!child->is_element())
+                    continue;
+                if (std::optional<std::string_view> const lang = attribute(static_cast<Element const&>(*child), "lang"))
+                    data.language = std::string(*lang);
+                break;
+            }
             return;
         }
         if (data.kind != NodeData::Kind::Element && data.kind != NodeData::Kind::LineBreak)
@@ -632,7 +669,7 @@ struct Builder {
         if (selectable) {
             if (element.is_html("option")) {
                 set(State::Selectable);
-                set(State::Selected, dom::forms::option_selected(element));
+                set(State::Selected, option_chosen(element));
             } else {
                 std::optional<bool> const selected = semantics.aria_bool(element, "aria-selected");
                 if (selected || role == Role::Option || role == Role::Tab || role == Role::TreeItem)
@@ -880,7 +917,7 @@ struct Builder {
             std::string selected;
             dom::for_each_shadow_including(element, [&](Node const& node) {
                 if (selected.empty() && node.is_element() && static_cast<Element const&>(node).is_html("option")
-                    && dom::forms::option_selected(static_cast<Element const&>(node)))
+                    && option_chosen(static_cast<Element const&>(node)))
                     selected = semantics.name(static_cast<Element const&>(node));
             });
             data.value_text = selected;
@@ -1418,6 +1455,13 @@ void Tree::update()
                 if (found != in.next_by_dom.end())
                     target = found->second;
             }
+            // The node it left, while it is still in the tree, first.
+            if (in.focused_node != 0 && in.focused_node != target && in.next.contains(in.focused_node)) {
+                Event left { Event::Type::StateChanged, in.focused_node };
+                left.state = State::Focused;
+                left.on = false;
+                post(std::move(left));
+            }
             Event focused { Event::Type::StateChanged, target };
             focused.state = State::Focused;
             focused.on = true;
@@ -1443,6 +1487,7 @@ void Tree::update()
                 target = found->second;
         }
         Event event { Event::Type::Announcement, target };
+        event.notification = true;
         event.text = notification.text;
         event.politeness = notification.priority == "high" ? "assertive" : "polite";
         post(std::move(event));
@@ -1478,6 +1523,10 @@ void Tree::update()
     in.root = root_id;
     in.built = true;
     in.focused_element = m_document->focused();
+    {
+        auto const found = in.focused_element ? in.by_dom.find(in.focused_element) : in.by_dom.end();
+        in.focused_node = found != in.by_dom.end() ? found->second : root_id;
+    }
     in.field_selection.reset();
     if (in.focused_element && source && is_text_field(*in.focused_element))
         in.field_selection = source->text_selection(*in.focused_element);

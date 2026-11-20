@@ -274,48 +274,19 @@ Range granule_at(std::string_view text, std::vector<Range> const& lines, std::si
 {
     std::u32string const characters = decode(text);
     offset = std::min(offset, characters.size());
+    // Text.xml, GetStringAtOffset: each unit runs from its start at or
+    // before the offset to the next one's start, so a word holds the spaces
+    // after it (an offset in those spaces gives the word before them), a
+    // sentence its spaces, a line and a paragraph their newline.
     switch (granularity) {
-    case 1: { // the word holding the offset, or the spaces between two
-        if (offset < characters.size() && word_character(characters[offset])) {
-            std::size_t start = offset;
-            while (start > 0 && word_character(characters[start - 1]))
-                --start;
-            std::size_t end = offset;
-            while (end < characters.size() && word_character(characters[end]))
-                ++end;
-            return { start, end };
-        }
-        std::size_t start = offset;
-        while (start > 0 && !word_character(characters[start - 1]))
-            --start;
-        std::size_t end = offset;
-        while (end < characters.size() && !word_character(characters[end]))
-            ++end;
-        return { start, end };
-    }
-    case 2: { // the sentence, without the spaces after it
-        Range const sentence = boundary_at(text, lines, offset, 3);
-        std::size_t end = sentence.end;
-        while (end > sentence.start && space(characters[end - 1]))
-            --end;
-        return { sentence.start, end };
-    }
-    case 3: { // the line, without its newline
-        Range const line = boundary_at(text, lines, offset, 5);
-        std::size_t end = line.end;
-        if (end > line.start && characters[end - 1] == '\n')
-            --end;
-        return { line.start, end };
-    }
-    case 4: { // the paragraph: between newlines
+    case 1: return boundary_at(text, lines, offset, 1);
+    case 2: return boundary_at(text, lines, offset, 3);
+    case 3: return boundary_at(text, lines, offset, 5);
+    case 4: {
         std::vector<Range> const paragraphs = lines_by_newline(text);
         for (Range const& paragraph : paragraphs) {
-            if (offset >= paragraph.start && (offset < paragraph.end || paragraph.end == characters.size())) {
-                std::size_t end = paragraph.end;
-                if (end > paragraph.start && characters[end - 1] == '\n')
-                    --end;
-                return { paragraph.start, end };
-            }
+            if (offset >= paragraph.start && (offset < paragraph.end || paragraph.end == characters.size()))
+                return paragraph;
         }
         return { offset, offset };
     }

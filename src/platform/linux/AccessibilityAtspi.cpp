@@ -4,6 +4,7 @@
 #include "platform/linux/DBus.h"
 
 #include "css/ComputedStyle.h"
+#include "net/Url.h"
 
 #include <algorithm>
 #include <atomic>
@@ -284,6 +285,11 @@ private:
     std::optional<dbus::Reply> collection(dbus::Message const& call);
     std::optional<dbus::Reply> cache(dbus::Message const& call);
     void write_cache_item(dbus::Writer& out, Ref const& ref) const;
+    // Cache.AddAccessible for an object that came and every object below
+    // it, to the tools that read GetItems: what keeps a client's copy of
+    // the tree whole (an object it never heard of is made for one event and
+    // let go of again, which clients say as a defunct object).
+    void add_to_cache(NodeId id);
     void export_interfaces();
 
     // Text helpers, on a node offering Text.
@@ -297,6 +303,8 @@ private:
 
     // Events.
     bool listened(std::string_view interface, std::string_view member, std::string_view detail) const;
+    // Whether any event of that kind is listened for, whatever its detail.
+    bool listened_kind(std::string_view interface, std::string_view member) const;
     void emit(NodeId source, std::string_view interface, std::string_view member, std::string_view detail, std::int32_t detail1,
         std::int32_t detail2, dbus::Value any);
     void emit_text_diff(NodeId id, atspi::FlatText const& before, atspi::FlatText const& after);
@@ -647,6 +655,12 @@ atspi::FlatText AtspiBridge::flat_text_in(Ref const& ref, Snapshot const*, std::
     if (!ref.node)
         return flat;
     NodeData const& node = *ref.node;
+    // A combobox that is no field (a select) reads as its value: the
+    // option chosen, as browsers give it; its options are children only.
+    if (ref.doc && node.role == Role::Combobox && !has(node, State::Editable)) {
+        flat.append_text(node.value_text, ref.id, 0);
+        return flat;
+    }
     // The chrome's node, a field or a leaf: its own text.
     if (!ref.doc || node.children.empty()) {
         flat.append_text(node.text, ref.id, 0);
@@ -751,7 +765,8 @@ std::vector<std::string> AtspiBridge::interfaces_of(Ref const& ref) const
     if (node.role == Role::Cell || node.role == Role::GridCell || node.role == Role::ColumnHeader || node.role == Role::RowHeader)
         add("TableCell");
     if (node.role == Role::ListBox || node.role == Role::Tree || node.role == Role::TreeGrid || node.role == Role::Grid
-        || node.role == Role::TabList || node.role == Role::Menu || node.role == Role::MenuBar || node.role == Role::RadioGroup)
+        || node.role == Role::TabList || node.role == Role::Menu || node.role == Role::MenuBar || node.role == Role::RadioGroup
+        || (node.role == Role::Combobox && ref.doc && !has(node, State::Editable)))
         add("Selection");
     if (ref.doc) {
         if (node.role == Role::RootWebArea && node.parent == 0)
@@ -811,6 +826,17 @@ std::optional<T> AtspiBridge::ask_page(Doc const& doc, std::function<T(a11y::Tre
 bool AtspiBridge::tell_page(Doc const& doc, a11y::Tree::Query query) const { return doc.link->bridge->post(std::move(query)); }
 
 // --- Changes: documents, the window, and their events -----------------------------------------
+
+bool AtspiBridge::listened_kind(std::string_view interface, std::string_view member) const
+{
+    std::string const category = folded(interface.substr(interface.rfind('.') + 1));
+    std::string const kind = folded(member);
+    for (auto const& [bus, key] : m_listeners) {
+        if (key.category.empty() || (key.category == category && (key.kind.empty() || key.kind == kind)))
+            return true;
+    }
+    return false;
+}
 
 bool AtspiBridge::listened(std::string_view interface, std::string_view member, std::string_view detail) const
 {
@@ -919,6 +945,7 @@ void AtspiBridge::take_changes()
             doc.announced = true;
             doc.told = doc.snapshot;
             int const index = static_cast<int>(children_of(find(m_window.content)).size()) - 1;
+            add_to_cache(doc.snapshot->root);
             emit(m_window.content, object_events, "ChildrenChanged", "add", index, 0, dbus::Value::variant(reference_value(doc.snapshot->root)));
             continue;
         }
@@ -947,8 +974,16 @@ void AtspiBridge::emit_text_diff(NodeId id, atspi::FlatText const& before, atspi
             dbus::Value::variant(dbus::Value::string(change.inserted)));
 }
 
-void AtspiBridge::emit_document_events(Doc& doc, std::vector<a11y::Event> const& events)
+void AtspiBridge::emit_document_events(Doc& doc, std::vector<a11y::Event> const& taken)
 {
+    // A focus move is said ahead of what else the same turn changed (the
+    // caret put in the field focused, the box it checked): screen readers
+    // take what follows in the light of where the focus is, as browsers
+    // order them.
+    std::vector<a11y::Event> events = taken;
+    std::ranges::stable_partition(events, [](a11y::Event const& event) {
+        return event.type == a11y::Event::Type::Focus || (event.type == a11y::Event::Type::StateChanged && event.state == State::Focused);
+    });
     constexpr char const* object_events = "org.a11y.atspi.Event.Object";
     Snapshot const* const before = doc.told.get();
     Snapshot const* const after = doc.snapshot.get();
@@ -1079,6 +1114,12 @@ void AtspiBridge::emit_document_events(Doc& doc, std::vector<a11y::Event> const&
             }
             break;
         case Type::Announcement:
+            // What the page asked to be said (ariaNotify). A live region's
+            // change is not said again: screen readers on this platform
+            // follow live regions from their text and children events and
+            // their container-live attributes, as browsers expose them.
+            if (!event.notification)
+                break;
             // AtspiLive: 1 polite, 2 assertive.
             emit(event.node != 0 ? event.node : after->root, object_events, "Announcement", "", event.politeness == "assertive" ? 2 : 1, 0,
                 dbus::Value::variant(dbus::Value::string(event.text)));
@@ -1099,6 +1140,12 @@ void AtspiBridge::emit_document_events(Doc& doc, std::vector<a11y::Event> const&
         docs.push_back(std::move(old));
         return docs;
     }();
+    // Nothing more is worked out for what no tool listens for (and no
+    // client keeps a copy of).
+    if (!m_cache_used && !listened_kind(object_events, "ChildrenChanged"))
+        changed_children.clear();
+    if (!listened_kind(object_events, "TextChanged"))
+        changed_text.clear();
     for (NodeId const id : changed_children) {
         Ref const now = find(id);
         Ref const then = find_in(id, nullptr, before_docs);
@@ -1118,12 +1165,8 @@ void AtspiBridge::emit_document_events(Doc& doc, std::vector<a11y::Event> const&
         }
         for (std::size_t i = 0; i < new_children.size(); ++i) {
             if (std::ranges::find(old_children, new_children[i]) == old_children.end()) {
+                add_to_cache(new_children[i]);
                 emit(id, object_events, "ChildrenChanged", "add", static_cast<std::int32_t>(i), 0, dbus::Value::variant(reference_value(new_children[i])));
-                if (m_cache_used) {
-                    dbus::Writer body;
-                    write_cache_item(body, find(new_children[i]));
-                    m_service->emit(cache_path, "org.a11y.atspi.Cache", "AddAccessible", "((so)(so)(so)iiassusau)", std::move(body));
-                }
             }
         }
     }
@@ -1197,8 +1240,10 @@ void AtspiBridge::emit_chrome_events(std::shared_ptr<Snapshot const> const& befo
                 emit(id, object_events, "ChildrenChanged", "remove", static_cast<std::int32_t>(i), 0, dbus::Value::variant(reference_value(old->children[i])));
         }
         for (std::size_t i = 0; i < node->children.size(); ++i) {
-            if (std::ranges::find(old->children, node->children[i]) == old->children.end())
+            if (std::ranges::find(old->children, node->children[i]) == old->children.end()) {
+                add_to_cache(node->children[i]);
                 emit(id, object_events, "ChildrenChanged", "add", static_cast<std::int32_t>(i), 0, dbus::Value::variant(reference_value(node->children[i])));
+            }
         }
     }
 }
@@ -1451,10 +1496,13 @@ void AtspiBridge::export_interfaces()
                 "=ColumnSpan i r", "=Position (ii) r", "=RowSpan i r", "=Table (so) r" }),
         { { "version", "u" }, { "ColumnSpan", "i" }, { "Position", "(ii)" }, { "RowSpan", "i" }, { "Table", "(so)" } },
         &AtspiBridge::table_cell, &AtspiBridge::table_cell_property);
+    // NAnchors: Hyperlink.xml types it "n", but the protocol's own client
+    // library reads it as "i" and rejects anything else, so it is said as
+    // the clients read it.
     m_hyperlink = make("Hyperlink",
         introspection_of("org.a11y.atspi.Hyperlink",
-            { "GetObject(i)(so)", "GetURI(i)s", "IsValid()b", "=version u r", "=NAnchors n r", "=StartIndex i r", "=EndIndex i r" }),
-        { { "version", "u" }, { "NAnchors", "n" }, { "StartIndex", "i" }, { "EndIndex", "i" } }, &AtspiBridge::hyperlink,
+            { "GetObject(i)(so)", "GetURI(i)s", "IsValid()b", "=version u r", "=NAnchors i r", "=StartIndex i r", "=EndIndex i r" }),
+        { { "version", "u" }, { "NAnchors", "i" }, { "StartIndex", "i" }, { "EndIndex", "i" } }, &AtspiBridge::hyperlink,
         &AtspiBridge::hyperlink_property);
     m_hypertext = make("Hypertext", introspection_of("org.a11y.atspi.Hypertext", { "GetNLinks()i", "GetLink(i)(so)", "GetLinkIndex(i)i", "=version u r" }),
         { { "version", "u" } }, &AtspiBridge::hypertext, nullptr);
@@ -1552,15 +1600,23 @@ std::optional<dbus::Reply> AtspiBridge::accessible(dbus::Message const& call)
     if (member == "GetIndexInParent")
         return returns_int(index_in_parent(ref));
     if (member == "GetRelationSet") {
-        dbus::Reply reply = returns("a(ua(so))");
-        reply.body.array(8, [&] {
-            if (!ref.node)
+        // AtspiRelationType (Accessible.xml): each type once, its targets in
+        // order.
+        std::vector<std::pair<std::uint32_t, std::vector<NodeId>>> set;
+        auto const relate = [&](std::uint32_t type, NodeId target) {
+            if (type == 0 || !find(target))
                 return;
+            auto entry = std::ranges::find_if(set, [type](auto const& one) { return one.first == type; });
+            if (entry == set.end()) {
+                set.push_back({ type, {} });
+                entry = set.end() - 1;
+            }
+            if (std::ranges::find(entry->second, target) == entry->second.end())
+                entry->second.push_back(target);
+        };
+        constexpr std::uint32_t label_for = 1, labelled_by = 2, embeds = 13, embedded_by = 14;
+        if (ref.node) {
             for (auto const& [relation, targets] : ref.node->relations) {
-                std::uint32_t const type = atspi::relation_of(relation);
-                if (type == 0)
-                    continue;
-                std::vector<NodeId> exposed;
                 for (NodeId target : targets) {
                     // A run of text named by a relation stands as its parent.
                     if (ref.doc) {
@@ -1568,15 +1624,44 @@ std::optional<dbus::Reply> AtspiBridge::accessible(dbus::Message const& call)
                         if (node && text_like(*node))
                             target = node->parent;
                     }
-                    if (find(target) && std::ranges::find(exposed, target) == exposed.end())
-                        exposed.push_back(target);
+                    relate(atspi::relation_of(relation), target);
                 }
-                if (exposed.empty())
-                    continue;
+            }
+            // The window embeds the document shown in it, and that document
+            // is embedded by the window: how a screen reader finds the page
+            // of the tab in front.
+            if (ref.frame(m_window)) {
+                for (Doc const& doc : m_docs) {
+                    if (doc.view.shown && doc.announced && doc.snapshot)
+                        relate(embeds, doc.snapshot->root);
+                }
+            }
+            if (ref.doc && ref.node->parent == 0 && ref.doc->view.shown && m_window.chrome)
+                relate(embedded_by, m_window.chrome->root);
+            // A table is labelled by its first caption, which labels it
+            // (HTML-AAM el-table, el-caption).
+            if (ref.doc && (ref.node->role == Role::Table || ref.node->role == Role::Grid || ref.node->role == Role::TreeGrid)) {
+                for (NodeId const child : ref.node->children) {
+                    NodeData const* const node = ref.doc->snapshot->find(child);
+                    if (node && node->role == Role::Caption) {
+                        relate(labelled_by, child);
+                        break;
+                    }
+                }
+            }
+            if (ref.doc && ref.node->role == Role::Caption) {
+                NodeData const* const table = ref.doc->snapshot->find(ref.node->parent);
+                if (table && (table->role == Role::Table || table->role == Role::Grid || table->role == Role::TreeGrid))
+                    relate(label_for, table->id);
+            }
+        }
+        dbus::Reply reply = returns("a(ua(so))");
+        reply.body.array(8, [&] {
+            for (auto const& [type, targets] : set) {
                 reply.body.align(8);
                 reply.body.uint32(type);
                 reply.body.array(8, [&] {
-                    for (NodeId const target : exposed)
+                    for (NodeId const target : targets)
                         write_reference(reply.body, target);
                 });
             }
@@ -1722,6 +1807,10 @@ std::optional<dbus::Reply> AtspiBridge::component(dbus::Message const& call)
             found = next;
             walk = find(next);
         }
+        // A point in the object and in none of its children: the object
+        // itself (its own text is no object), as browsers answer.
+        if (found == 0 && bounds && contains(*bounds, px, py))
+            found = ref.id;
         dbus::Reply reply = returns("(so)");
         if (found != 0)
             write_reference(reply.body, found);
@@ -2045,10 +2134,12 @@ std::vector<std::pair<std::string, std::string>> AtspiBridge::text_attributes(Re
             css::ComputedStyle const* const computed = source->style(static_cast<dom::Element const&>(*holder));
             if (!computed)
                 return out;
-            if (computed->font_family && !computed->font_family->empty())
-                out.emplace_back("family-name", computed->font_family->front());
+            // The family the style names first; with none named, the
+            // engine's default face is its serif (CSS Fonts §5.1).
+            out.emplace_back("family-name", computed->font_family && !computed->font_family->empty() ? computed->font_family->front() : std::string("serif"));
+            // Points (CSS px are 0.75 pt), to a hundredth: 13.333px is 10pt.
             char size[32];
-            std::snprintf(size, sizeof size, "%gpt", static_cast<double>(computed->font_size) * 0.75);
+            std::snprintf(size, sizeof size, "%gpt", std::round(static_cast<double>(computed->font_size) * 75.0) / 100.0);
             out.emplace_back("size", size);
             out.emplace_back("weight", std::to_string(computed->font_weight));
             out.emplace_back("style", computed->font_style == css::FontStyle::Italic ? "italic" : computed->font_style == css::FontStyle::Oblique ? "oblique" : "normal");
@@ -2529,7 +2620,7 @@ std::optional<dbus::Value> AtspiBridge::hyperlink_property(std::string const& pa
     if (property == "version")
         return dbus::Value::uint32(1);
     if (property == "NAnchors")
-        return dbus::Value::int16(1);
+        return dbus::Value::int32(1);
     if (property == "StartIndex" || property == "EndIndex") {
         // Where its embedded object character is in its parent's text.
         Ref const parent = parent_of(ref);
@@ -2558,8 +2649,14 @@ std::optional<dbus::Reply> AtspiBridge::hyperlink(dbus::Message const& call)
             write_null(reply.body);
         return reply;
     }
-    if (call.member == "GetURI")
-        return returns_string(index == 0 ? ref.node->url : std::string());
+    if (call.member == "GetURI") {
+        if (index != 0 || ref.node->url.empty())
+            return returns_string("");
+        // The link's href parsed against its document's URL (URL §4.4).
+        std::optional<net::Url> const base = ref.doc ? net::parse_url(ref.doc->view.url) : std::nullopt;
+        std::optional<net::Url> const resolved = net::parse_url(ref.node->url, base ? &*base : nullptr);
+        return returns_string(resolved ? resolved->serialize() : ref.node->url);
+    }
     if (call.member == "IsValid")
         return returns_bool(true);
     return std::nullopt;
@@ -2839,6 +2936,26 @@ void AtspiBridge::write_cache_item(dbus::Writer& out, Ref const& ref) const
         out.uint32(static_cast<std::uint32_t>(states));
         out.uint32(static_cast<std::uint32_t>(states >> 32));
     });
+}
+
+void AtspiBridge::add_to_cache(NodeId id)
+{
+    if (!m_cache_used)
+        return;
+    Ref const ref = find(id);
+    if (!ref)
+        return;
+    std::vector<NodeId> ids { id };
+    std::vector<NodeId> const below = descendants(ref, true);
+    ids.insert(ids.end(), below.begin(), below.end());
+    for (NodeId const one : ids) {
+        Ref const item = find(one);
+        if (!item)
+            continue;
+        dbus::Writer body;
+        write_cache_item(body, item);
+        m_service->emit(cache_path, "org.a11y.atspi.Cache", "AddAccessible", "((so)(so)(so)iiassusau)", std::move(body));
+    }
 }
 
 std::optional<dbus::Reply> AtspiBridge::cache(dbus::Message const& call)
