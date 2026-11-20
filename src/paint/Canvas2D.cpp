@@ -1635,7 +1635,8 @@ text::FontStack const& stack_for(Font const& font)
 
 struct PlacedGlyph {
     text::FontStack::Glyph glyph;
-    double x = 0; // pen position, text units
+    double x = 0; // where it is drawn: its pen position and offset, text units
+    double y = 0; // its offset down from the baseline, text units
 };
 
 // The glyphs of a run and their pen positions, and the advance of the whole.
@@ -1644,6 +1645,35 @@ std::vector<PlacedGlyph> place(std::u32string_view text, Font const& font, TextL
 {
     std::vector<PlacedGlyph> placed;
     double x = 0;
+    if (!stack.builtin_alone()) {
+        // Shaped (text/ShapedText.h): one paragraph whose base direction
+        // is the context's, its levels resolved, each piece in its face
+        // and script; the control characters take no room and draw nothing.
+        std::u32string kept;
+        kept.reserve(text.size());
+        for (char32_t const c : text) {
+            if (!(c < 0x20 || (c >= 0x7f && c < 0xa0)))
+                kept.push_back(c);
+        }
+        text::TextShaping shaping;
+        shaping.size = font.size;
+        shaping.letter_spacing = layout.letter_spacing;
+        shaping.word_spacing = layout.word_spacing;
+        shaping.direction = layout.rtl ? text::TextDirection::RightToLeft : text::TextDirection::LeftToRight;
+        shaping.paragraph = true;
+        text::CssFontFeatures css;
+        css.kerning = layout.kerning ? text::CssFontFeatures::Kerning::Auto : text::CssFontFeatures::Kerning::None;
+        css.letter_spacing = layout.letter_spacing != 0;
+        text::shaping_features_for_css(css, shaping.features);
+        std::shared_ptr<text::ShapedText const> const shaped = stack.shape(kept, shaping);
+        for (text::PlacedGlyph const& g : shaped->glyphs) {
+            placed.push_back(PlacedGlyph { text::FontStack::Glyph { g.face, g.glyph }, x + static_cast<double>(g.x_offset),
+                static_cast<double>(g.y_offset) });
+            x += static_cast<double>(g.advance) + static_cast<double>(g.word_space);
+        }
+        advance = x;
+        return placed;
+    }
     text::FontStack::Glyph previous { nullptr, 0 };
     // The run in the order it is drawn (UAX #9, one paragraph whose base
     // direction is the context's), a right-to-left character mirrored.
@@ -1664,7 +1694,7 @@ std::vector<PlacedGlyph> place(std::u32string_view text, Font const& font, TextL
         text::FontStack::Glyph const glyph = stack.glyph_for(c);
         if (layout.kerning && previous.face == glyph.face && previous.face)
             x += static_cast<double>(glyph.face->kerning(previous.glyph, glyph.glyph, font.size));
-        placed.push_back(PlacedGlyph { glyph, x });
+        placed.push_back(PlacedGlyph { glyph, x, 0 });
         x += static_cast<double>(glyph.face->advance(glyph.glyph, font.size) + layout.letter_spacing);
         if (c == U' ')
             x += static_cast<double>(layout.word_spacing);
@@ -1741,7 +1771,7 @@ void draw_run(Bitmap& target, std::vector<PlacedGlyph> const& placed, Font const
     auto const size = static_cast<float>(static_cast<double>(font.size) * scale);
     for (PlacedGlyph const& g : placed) {
         g.glyph.face->draw_glyph(target, g.glyph.glyph, static_cast<float>(origin_x + g.x * scale),
-            static_cast<float>(baseline_y), size, Color { 255, 255, 255, 255 }, font.weight >= 600, font.italic);
+            static_cast<float>(baseline_y + g.y * scale), size, Color { 255, 255, 255, 255 }, font.weight >= 600, font.italic);
     }
 }
 

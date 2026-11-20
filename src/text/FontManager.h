@@ -9,6 +9,7 @@
 // built-in face alone: what the reference tests and shell goldens run with.
 
 #include "text/Face.h"
+#include "text/ShapedText.h"
 #include "text/TrueType.h"
 
 #include <cstdint>
@@ -155,13 +156,29 @@ public:
         std::uint32_t glyph;
     };
     Glyph glyph_for(char32_t code_point) const;
-    // The advance of a string at a size, glyph by glyph, each pair the same
-    // face draws side by side kerned as its tables say — unless `kern` is
-    // off (font-kerning: none).
+    // The text shaped in these faces (ShapedText.h): its glyphs, each with
+    // its face and place, and its width. `before` and `after` are the
+    // characters around it in its paragraph, which a joining script's
+    // letters take their forms from. Kept for the next time the same text
+    // is asked for with the same settings and context, as long as the
+    // stack's faces stay what they were. Defined in ShapedText.cpp.
+    std::shared_ptr<ShapedText const> shape(std::u32string_view text, TextShaping const& shaping,
+        std::u32string_view before = {}, std::u32string_view after = {}) const;
+    // The advance of a string at a size, shaped, its kerning off when
+    // `kern` is (font-kerning: none). A paragraph in its own right: its
+    // bidi levels are resolved from its text.
     float measure(std::u32string_view text, float size, bool kern = true) const;
+
+    FontStack();
+    ~FontStack();
+    FontStack(FontStack const&) = delete;
+    FontStack& operator=(FontStack const&) = delete;
 
 private:
     friend class FontManager;
+    // What `shape` keeps (ShapedText.cpp).
+    struct ShapeCache;
+    mutable std::unique_ptr<ShapeCache> m_shapes;
     // A declared face not fetched, ahead of m_faces[before] in the order
     // the faces are asked in.
     struct Waiting {
@@ -186,22 +203,9 @@ private:
     FontRequest m_request; // what it answers, to answer it again when a face comes
     void const* m_owner = nullptr; // the thread's fonts it was resolved against
     std::uint64_t m_serial = 0; // and which set of them
-    // The widths of the short runs it has measured — words, mostly, which
-    // a layout measures again on every pass, glyph by glyph and pair by
-    // pair (WebKit's WidthCache, Gecko's word cache): by size and kerning,
-    // then by the run, looked up without a copy. Emptied when the faces
-    // change (FontManager::fill) and when it grows past its bound; the
-    // stack is its thread's alone, so nothing else touches it.
-    struct RunHash {
-        using is_transparent = void;
-        std::size_t operator()(std::u32string_view run) const { return std::hash<std::u32string_view> {}(run); }
-    };
-    using RunWidths = std::unordered_map<std::u32string, float, RunHash, std::equal_to<>>;
-    static constexpr std::size_t widths_run_limit = 32; // code points: longer runs are measured each time
-    static constexpr std::size_t widths_bound = 16384;
-    mutable std::unordered_map<std::uint64_t, RunWidths> m_widths;
-    mutable std::size_t m_widths_count = 0;
-    std::uint64_t m_faces_filled = 0; // how many times its faces were filled in
+    // How many times its faces were filled in: what was shaped with an
+    // earlier set is not kept.
+    std::uint64_t m_faces_filled = 0;
 };
 
 class FontManager {

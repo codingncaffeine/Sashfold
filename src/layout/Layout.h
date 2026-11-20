@@ -26,6 +26,7 @@ class Node;
 
 namespace sashfold::text {
 class FontStack;
+struct ShapedText;
 }
 
 namespace sashfold::layout {
@@ -66,6 +67,11 @@ struct TextRun {
     dom::Node const* source = nullptr;
     std::uint32_t source_from = 0;
     bool source_reversed = false;
+    // The run's glyphs as layout shaped and measured it (text/ShapedText.h),
+    // its clusters indexing the text in reading order — `text` itself, or
+    // `text` back to front when `source_reversed`. Null when layout left
+    // it to be shaped from `text` (RunGlyphs.h, shaped_of).
+    std::shared_ptr<text::ShapedText const> shaped = nullptr;
 };
 
 struct Fragment {

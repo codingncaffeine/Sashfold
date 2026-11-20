@@ -1400,13 +1400,19 @@ void render_text_element(Context& context, State const& state, dom::Element cons
                 Color color = paint.gradient ? gradient_color_at(*paint.gradient, origin.x, origin.y) : paint.color;
                 float const a = static_cast<float>(color.a) * state.opacity * std::clamp(style.fill_opacity, 0.0f, 1.0f);
                 color.a = static_cast<std::uint8_t>(std::clamp(std::lround(a), 0L, 255L));
+                // Shaped as measured: a paragraph of its own, each glyph at
+                // its pen and offset (text/ShapedText.h).
+                text::TextShaping shaping;
+                shaping.size = size;
+                shaping.paragraph = true;
+                std::shared_ptr<text::ShapedText const> const shaped = fonts.shape(text, shaping);
                 float x = origin.x;
-                for (char32_t const code : text) {
-                    text::FontStack::Glyph const glyph = fonts.glyph_for(code);
+                for (text::PlacedGlyph const& glyph : shaped->glyphs) {
                     bool const designed = glyph.face->designs_every_style();
-                    glyph.face->draw_glyph(context.target, glyph.glyph, x, origin.y, size, color,
-                        style.drawn_bold(designed), style.drawn_slant(designed));
-                    x += glyph.face->advance(glyph.glyph, size);
+                    glyph.face->draw_glyph(context.target, glyph.glyph, x + glyph.x_offset, origin.y + glyph.y_offset,
+                        size, color, style.drawn_bold(designed), style.drawn_slant(designed));
+                    x += glyph.advance;
+                    x += glyph.word_space;
                 }
             }
         }

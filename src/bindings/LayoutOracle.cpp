@@ -3,6 +3,7 @@
 #include "bindings/Internal.h"
 #include "html/DocumentBase.h"
 #include "paint/Painter.h"
+#include "layout/RunGlyphs.h"
 #include "text/FontManager.h"
 
 #include <algorithm>
@@ -261,13 +262,28 @@ ElementScroll scroll_of_box(layout::Fragment const& box, layout::ScrollOffsets c
 
 namespace {
 
-// A run's advance over its first `count` characters, in its own faces.
+// A run's advance over its first `count` characters as drawn, in its own
+// faces: where its character `count` begins (RunGlyphs.h), a cluster's
+// room shared out among its characters. In the built-in face alone, a
+// count times one advance and the spacing, exact as layout's widths are.
 float run_prefix(layout::TextRun const& run, std::size_t count)
 {
     std::u32string_view const prefix = std::u32string_view(run.text).substr(0, std::min(count, run.text.size()));
     float const size = run.style ? run.style->font_size : 16;
-    if (run.fonts)
-        return run.fonts->measure(prefix, size);
+    if (run.fonts && run.style && !run.shaped && run.fonts->builtin_alone()) {
+        float width = run.fonts->measure(prefix, size);
+        if (run.style->letter_spacing != 0 || run.style->word_spacing != 0) {
+            float extra = run.style->letter_spacing * static_cast<float>(prefix.size());
+            for (char32_t const c : prefix) {
+                if (run.style->word_spacing != 0 && text::is_word_separator(c))
+                    extra += run.style->word_spacing;
+            }
+            width += extra;
+        }
+        return width;
+    }
+    if (run.fonts && run.style)
+        return layout::run_character_stops(run)[prefix.size()];
     return static_cast<float>(prefix.size()) * size * 0.6f;
 }
 

@@ -25,6 +25,7 @@
 #include "js/Interpreter.h"
 #include "js/ScriptPreparer.h"
 #include "layout/Layout.h"
+#include "layout/RunGlyphs.h"
 #include "media/FrameDecoder.h"
 #include "paint/Painter.h"
 #include "platform/CaretBlink.h"
@@ -189,6 +190,11 @@ float prefix_width(layout::TextRun const& run, std::size_t count)
     std::u32string_view const text(run.text);
     std::u32string_view const prefix = text.substr(0, std::min(count, text.size()));
     float const size = run.style->font_size;
+    // A run set in more than the built-in face: where its character `count`
+    // begins as shaped and drawn (a cluster's room shared out among its
+    // characters), the spacing in it.
+    if (run.fonts && (run.shaped || !run.fonts->builtin_alone()))
+        return layout::run_character_stops(run)[prefix.size()];
     // A run with no faces of its own is the built-in face's, not the chrome's.
     float width = run.fonts ? run.fonts->measure(prefix, size) : text::SashfoldMono::measure(prefix, size);
     // And the spacing the layout and the painter step after each letter and
@@ -202,21 +208,22 @@ float prefix_width(layout::TextRun const& run, std::size_t count)
     return width;
 }
 
-// A string of the chrome's, glyph by glyph: each from the first face of the
-// stack that has it, a pair the same face draws side by side kerned, a
-// weight the face was not made in drawn heavier.
+// A string of the chrome's, shaped as text_width measures it (a paragraph
+// of its own, text/ShapedText.h): each glyph in the face that has it, at
+// its pen and offset, a weight the face was not made in drawn heavier.
 void draw_text(Bitmap& target, std::u32string_view text, float x, float baseline, float size,
     Color color, bool bold = false)
 {
     text::FontStack const& fonts = chrome_fonts(bold);
-    std::optional<text::FontStack::Glyph> previous;
-    for (char32_t const c : text) {
-        text::FontStack::Glyph const glyph = fonts.glyph_for(c);
-        if (previous && previous->face == glyph.face)
-            x += glyph.face->kerning(previous->glyph, glyph.glyph, size);
-        glyph.face->draw_glyph(target, glyph.glyph, x, baseline, size, color, bold && !glyph.face->is_bold(), false);
-        x += glyph.face->advance(glyph.glyph, size);
-        previous = glyph;
+    text::TextShaping shaping;
+    shaping.size = size;
+    shaping.paragraph = true;
+    std::shared_ptr<text::ShapedText const> const shaped = fonts.shape(text, shaping);
+    for (text::PlacedGlyph const& glyph : shaped->glyphs) {
+        glyph.face->draw_glyph(target, glyph.glyph, x + glyph.x_offset, baseline + glyph.y_offset, size, color,
+            bold && !glyph.face->is_bold(), false);
+        x += glyph.advance;
+        x += glyph.word_space;
     }
 }
 

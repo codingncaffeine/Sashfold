@@ -3,6 +3,7 @@
 #include "core/Unicode.h"
 #include "dom/Dom.h"
 #include "paint/Blur.h"
+#include "layout/RunGlyphs.h"
 #include "paint/Effects.h"
 #include "svg/Svg.h"
 #include "text/Face.h"
@@ -948,18 +949,21 @@ void paint_vertical_run(Context& context, TextRun const& run)
     float const start = run.x + context.dy + (clockwise ? 0.0f : run.width);
     // The run drawn onto a target with its baseline at `line` and its pen
     // starting at `from`: the glyphs, then the decoration line.
+    // The glyphs as shaped along the line, each turned with the line: its
+    // offset along the line goes with the advance, its offset across it
+    // with the ascenders.
+    std::shared_ptr<text::ShapedText const> const shaped = layout::shaped_of(run);
     auto const draw = [&](Bitmap& onto, float line, float from, Color ink) {
         float y = from;
-        for (char32_t const c : run.text) {
-            text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
+        for (text::PlacedGlyph const& glyph : shaped->glyphs) {
             float const advance = glyph.face->advance(glyph.glyph, style.font_size);
-            float const pen = clockwise ? y : y - advance;
+            float const along = clockwise ? y + glyph.x_offset : y - glyph.x_offset - advance;
+            float const across = clockwise ? line - glyph.y_offset : line + glyph.y_offset;
             bool const designed = glyph.face->designs_every_style();
-            glyph.face->draw_glyph_turned(onto, glyph.glyph, line, pen, style.font_size,
+            glyph.face->draw_glyph_turned(onto, glyph.glyph, across, along, style.font_size,
                 ink, style.drawn_bold(designed), style.drawn_slant(designed), clockwise);
-            float step = advance + style.letter_spacing;
-            if (c == U' ')
-                step += style.word_spacing;
+            float step = glyph.advance;
+            step += glyph.word_space;
             y += clockwise ? step : -step;
         }
         if (style.text_decoration == css::TextDecorationLine::None || run.text.empty())
@@ -1021,7 +1025,7 @@ void paint_whole_run(Context& context, TextRun const& run)
 
     if (!run.fonts)
         return;
-    bool const kern = style.font_kerning != css::FontKerning::None;
+    std::shared_ptr<text::ShapedText const> const shaped = layout::shaped_of(run);
     float const start_x = run.x + context.dx;
     // A placeholder wears what ::placeholder gives it, its color at its
     // opacity; given no color of its own, it is the field's at a little over
@@ -1041,22 +1045,17 @@ void paint_whole_run(Context& context, TextRun const& run)
     // Returns the run's width.
     auto const draw = [&](Bitmap* onto, float left, float line, Color ink, Color decoration) {
         float x = left;
-        text::FontStack::Glyph previous { nullptr, 0 };
-        for (char32_t const c : run.text) {
-            text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
-            // The steps layout measured: a pair's kerning before the glyph,
-            // the glyph's advance, a letter's worth of extra room after it,
-            // and a word's worth after a word separator.
-            if (kern && previous.face == glyph.face)
-                x += glyph.face->kerning(previous.glyph, glyph.glyph, style.font_size);
+        for (text::PlacedGlyph const& glyph : shaped->glyphs) {
+            // The steps layout measured: the glyph drawn at the pen and its
+            // offset, the pen moved by its advance (a letter's worth of
+            // extra room in it at a cluster's end), and a word's worth
+            // after a word separator.
             bool const designed = glyph.face->designs_every_style();
             if (onto)
-                glyph.face->draw_glyph(*onto, glyph.glyph, x, line, style.font_size,
+                glyph.face->draw_glyph(*onto, glyph.glyph, x + glyph.x_offset, line + glyph.y_offset, style.font_size,
                     ink, style.drawn_bold(designed), style.drawn_slant(designed));
-            x += glyph.face->advance(glyph.glyph, style.font_size) + style.letter_spacing;
-            if (c == U' ')
-                x += style.word_spacing;
-            previous = glyph;
+            x += glyph.advance;
+            x += glyph.word_space;
         }
         float const width = x - left;
         if (!onto || style.text_decoration == css::TextDecorationLine::None || run.text.empty())
@@ -1115,6 +1114,7 @@ void paint_run(Context& context, TextRun const& run)
                 return;
             TextRun part = run;
             part.text = run.text.substr(kept.from, kept.to - kept.from);
+            part.shaped = layout::shaped_slice(run, kept.from, kept.to);
             part.x += kept.shift;
             paint_whole_run(context, part);
             return;
@@ -1133,24 +1133,7 @@ bool elided(Context const& context, Fragment const& fragment)
 // the last one ends: the pen's steps as `paint_whole_run` takes them.
 std::vector<float> stops_of(TextRun const& run)
 {
-    ComputedStyle const& style = *run.style;
-    bool const kern = style.font_kerning != css::FontKerning::None;
-    std::vector<float> stops;
-    stops.reserve(run.text.size() + 1);
-    float x = 0;
-    text::FontStack::Glyph previous { nullptr, 0 };
-    for (char32_t const c : run.text) {
-        text::FontStack::Glyph const glyph = run.fonts->glyph_for(c);
-        if (kern && previous.face == glyph.face)
-            x += glyph.face->kerning(previous.glyph, glyph.glyph, style.font_size);
-        stops.push_back(x);
-        x += glyph.face->advance(glyph.glyph, style.font_size) + style.letter_spacing;
-        if (c == U' ')
-            x += style.word_spacing;
-        previous = glyph;
-    }
-    stops.push_back(x);
-    return stops;
+    return layout::run_character_stops(run);
 }
 
 // Whether a run may be cut in front of its character `at`: not inside what
@@ -1166,7 +1149,7 @@ bool cut_allowed(TextRun const& run, std::size_t at)
     auto const joins = [](char32_t c) {
         return is_combining_mark(c) || c == 0x200D || (c >= 0xFE00 && c <= 0xFE0F) || (c >= 0x1F3FB && c <= 0x1F3FF);
     };
-    return !joins(later) && earlier != 0x200D;
+    return !joins(later) && earlier != 0x200D && layout::run_cut_allowed(run, at);
 }
 
 // One thing on a line that text-overflow hides or keeps: a run of text, or

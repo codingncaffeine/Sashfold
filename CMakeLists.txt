@@ -180,6 +180,7 @@ add_library(sashfold_core STATIC
   src/layout/Controls.cpp
   src/layout/GridAlgorithm.cpp
   src/layout/Layout.cpp
+  src/layout/RunGlyphs.cpp
   src/layout/TableBorders.cpp
   src/layout/TableStructure.cpp
   src/layout/TableWidths.cpp
@@ -285,6 +286,7 @@ add_library(sashfold_core STATIC
   src/text/OpenTypeLayout.cpp
   src/text/Rasterizer.cpp
   src/text/SashfoldMono.cpp
+  src/text/ShapedText.cpp
   src/text/Shaper.cpp
   src/text/ShaperArabic.cpp
   src/text/ShaperFallback.cpp

@@ -6,6 +6,7 @@
 #include "core/Unicode.h"
 #include "dom/Dom.h"
 #include "layout/GridAlgorithm.h"
+#include "layout/RunGlyphs.h"
 #include "layout/TableBorders.h"
 #include "layout/TableStructure.h"
 #include "layout/TableWidths.h"
@@ -2031,16 +2032,30 @@ struct Layouter {
         return stack;
     }
 
+    // The width of text set in a style, shaped as a paragraph of its own
+    // (its bidi levels resolved from it): for text whose direction the
+    // caller does not know, a control's value, a marker.
     float measure(ComputedStyle const& style, std::u32string_view text) const
     {
-        bool const kern = style.font_kerning != css::FontKerning::None;
-        return fonts_for(style).measure(text, style.font_size, kern) + extra_spacing(style, text);
+        text::FontStack const& stack = fonts_for(style);
+        if (stack.builtin_alone())
+            return stack.measure(text, style.font_size) + extra_spacing(style, text);
+        return stack.shape(text, shaping_for(style, false, true))->width;
     }
 
-    // What letter-spacing and word-spacing add to a run: one letter's worth
-    // after every character, including the last, and one word's worth after
-    // every word separator. The painter steps the same amounts, so a run's
-    // measured width and its drawn width stay the same number.
+    // A piece of a line of one bidi level, shaped as it is drawn, with the
+    // characters around it in its paragraph as context (ShapedText.h).
+    std::shared_ptr<text::ShapedText const> shaped_word(ComputedStyle const& style, std::u32string_view text,
+        std::uint8_t level, std::u32string_view before = {}, std::u32string_view after = {}) const
+    {
+        return fonts_for(style).shape(text, shaping_for(style, (level & 1) != 0), before, after);
+    }
+
+    // What letter-spacing and word-spacing add to a run in the built-in
+    // face: one letter's worth after every character, including the last,
+    // and one word's worth after every word separator (css-text-3 §8.1).
+    // Shaping (ShapedText.cpp) steps the same amounts, so a run's measured
+    // width and its drawn width stay the same number.
     static float extra_spacing(ComputedStyle const& style, std::u32string_view text)
     {
         if (style.letter_spacing == 0 && style.word_spacing == 0)
@@ -2048,7 +2063,7 @@ struct Layouter {
         float extra = style.letter_spacing * static_cast<float>(text.size());
         if (style.word_spacing != 0) {
             for (char32_t const c : text) {
-                if (c == U' ')
+                if (text::is_word_separator(c))
                     extra += style.word_spacing;
             }
         }
@@ -3778,6 +3793,10 @@ struct Layouter {
             // Where the text came from (TextRun::source).
             dom::Node const* source = nullptr;
             std::uint32_t source_from = 0;
+            // The text's glyphs as `width` was measured from them, with its
+            // neighbors as context (TextRun::shaped); null to shape it when
+            // the run is made.
+            std::shared_ptr<text::ShapedText const> shaped;
         };
 
         // An inline box's run along one line: what to paint it as, and where
@@ -4352,6 +4371,11 @@ struct Layouter {
                     mark_positioned(box, *placed.style, content_width, block_rtl, containing_height);
                     out.children.push_back(std::move(box));
                 } else if (!placed.text.empty()) {
+                    // The glyphs the run is drawn with, shaped from its text
+                    // in reading order before that is turned around below.
+                    std::shared_ptr<text::ShapedText const> shaped = std::move(placed.shaped);
+                    if (!shaped && !fonts_for(*placed.style).builtin_alone())
+                        shaped = shaped_word(*placed.style, placed.text, placed.level);
                     // Rule L2 again, this time inside the run: painting walks
                     // a run from its left edge, so one that reads the other
                     // way is drawn with its characters in the other order.
@@ -4371,6 +4395,7 @@ struct Layouter {
                     out.runs.back().source = placed.source;
                     out.runs.back().source_from = placed.source_from;
                     out.runs.back().source_reversed = (placed.level & 1) != 0;
+                    out.runs.back().shaped = std::move(shaped);
                 }
                 entry_left[i] = x;
                 x += width;
@@ -4671,6 +4696,36 @@ struct Layouter {
             }
             return nullptr;
         };
+        // The text around a word in its paragraph, for a word whose letters
+        // may join (a script that joins starts at U+0600): what the words
+        // and spaces next to it end and start with, across the edges of
+        // inline boxes, up to an atomic box, a break or a float.
+        auto const word_context = [&](std::size_t index, std::u32string_view word, std::u32string& before,
+                                      std::u32string& after) {
+            constexpr std::size_t reach = 8;
+            if (std::none_of(word.begin(), word.end(), [](char32_t c) { return c >= 0x0600; }))
+                return;
+            auto const text_of = [](InlineItem const& item) -> bool {
+                return item.kind == InlineItem::Kind::Word || item.kind == InlineItem::Kind::Space;
+            };
+            auto const passes = [](InlineItem const& item) {
+                return item.kind == InlineItem::Kind::BoxStart || item.kind == InlineItem::Kind::BoxEnd;
+            };
+            for (std::size_t k = index; k-- > 0 && before.size() < reach;) {
+                if (passes(items[k]))
+                    continue;
+                if (!text_of(items[k]))
+                    break;
+                before.insert(0, drawn_text(items[k].text));
+            }
+            for (std::size_t k = index + 1; k < items.size() && after.size() < reach; ++k) {
+                if (passes(items[k]))
+                    continue;
+                if (!text_of(items[k]))
+                    break;
+                after += drawn_text(items[k].text);
+            }
+        };
         auto const hyphen_overflows = [&](std::size_t index) {
             InlineItem const* const word = soft_hyphen_before(index);
             return word && past_line_end(line_width + measure(*word->style, hyphen_text(*word->style)));
@@ -4684,7 +4739,13 @@ struct Layouter {
                     continue;
                 if (placed.soft_hyphen) {
                     std::u32string const hyphen = hyphen_text(*placed.style);
-                    float const hyphen_width = measure(*placed.style, hyphen);
+                    float hyphen_width = measure(*placed.style, hyphen);
+                    // Shaped with the text before it, as it is drawn: the
+                    // width is the whole's less what the text had.
+                    if (placed.shaped) {
+                        placed.shaped = shaped_word(*placed.style, placed.text + hyphen, placed.level);
+                        hyphen_width = placed.shaped->width - placed.width;
+                    }
                     placed.text += hyphen;
                     placed.width += hyphen_width;
                     line_width += hyphen_width;
@@ -5013,17 +5074,18 @@ struct Layouter {
             std::u32string word = drawn_text(item.text);
             // How far into the item's text the slices placed so far reached.
             std::uint32_t consumed = 0;
-            // Measured as it is drawn: a run reading right-to-left is drawn
-            // with its characters in the other order and its brackets
-            // mirrored (rules L2 and L4, at flush_line), so its kerning
-            // pairs are the pairs that end up side by side.
-            float width = measure(*item.style, word);
-            if (current_level & 1) {
-                std::u32string drawn(word.rbegin(), word.rend());
-                for (char32_t& code_point : drawn)
-                    code_point = bidi_mirrored(code_point);
-                width = measure(*item.style, drawn);
-            }
+            // Measured as it is drawn: shaped in its level's direction (the
+            // shaper mirrors and orders a right-to-left run, rules L2 and
+            // L4), with the text around it in the paragraph as the context
+            // a joining script's letters take their forms from — across an
+            // element's edge, and across a break inside the word, which is
+            // shaped as if the word were whole (css-text-3 §5.1).
+            std::u32string context_before;
+            std::u32string context_after;
+            word_context(index, word, context_before, context_after);
+            std::shared_ptr<text::ShapedText const> shaped
+                = shaped_word(*item.style, word, current_level, context_before, context_after);
+            float width = shaped->width;
             // The spaces the word ends with (see is_trailing_space): where
             // they begin, what they measure, and how much of that hangs past
             // the line's end — all of it, but under break-spaces.
@@ -5069,8 +5131,15 @@ struct Layouter {
                     if (chosen == std::u32string::npos)
                         break;
                     std::u32string const hyphenated = drawn_text(std::u32string_view(remaining).substr(0, chosen));
-                    float const hyphenated_width = measure(*item.style, hyphenated) + hyphen_width;
+                    float hyphenated_width = measure(*item.style, hyphenated) + hyphen_width;
+                    // The hyphen shaped with the text before it, as drawn.
+                    std::shared_ptr<text::ShapedText const> sliced;
+                    if (!fonts_for(*item.style).builtin_alone()) {
+                        sliced = shaped_word(*item.style, hyphenated + hyphen, current_level, context_before);
+                        hyphenated_width = sliced->width;
+                    }
                     Placed slice(hyphenated + hyphen, item.style, false, hyphenated_width, item.element);
+                    slice.shaped = std::move(sliced);
                     slice.aligned = item.aligned;
                     slice.source = item.source;
                     slice.source_from = item.source_from + consumed;
@@ -5080,7 +5149,9 @@ struct Layouter {
                     consumed += static_cast<std::uint32_t>(chosen + 1);
                     remaining.erase(0, chosen + 1);
                     word = drawn_text(remaining);
-                    width = measure(*item.style, word);
+                    context_before.clear();
+                    shaped = shaped_word(*item.style, word, current_level, {}, context_after);
+                    width = shaped->width;
                     head = trailing_spaces_from(word, mode);
                     tail = tail_width();
                     hang = mode == WhiteSpace::BreakSpaces ? 0.0f : tail;
@@ -5101,6 +5172,7 @@ struct Layouter {
                 while (line.empty() && past_line_end(width - hang)) {
                     std::size_t fit = 0;
                     float fit_width = 0;
+                    std::shared_ptr<text::ShapedText const> sliced;
                     if (fonts_for(*item.style).builtin_alone()) {
                         // Fixed pitch: the count is a division.
                         float const advance = measure(*item.style, U" ");
@@ -5108,24 +5180,38 @@ struct Layouter {
                         fit = std::min(fit, head);
                         fit_width = static_cast<float>(fit) * advance;
                     } else {
-                        for (std::size_t i = 0; i < head; ++i) {
-                            float const glyph_width
-                                = measure(*item.style, std::u32string_view(word).substr(i, 1));
-                            if (fit > 0 && past_line_end(fit_width + glyph_width))
+                        // A whole cluster at a time, never inside one: each
+                        // takes the room its characters have in the word.
+                        std::vector<float> lefts;
+                        std::vector<float> rights;
+                        shaped->character_edges(lefts, rights);
+                        for (std::size_t i = 0; i < head && i < lefts.size();) {
+                            std::size_t const next = std::min(shaped->cluster_end_of(i), head);
+                            float cluster_width = 0;
+                            for (std::size_t c = i; c < next; ++c)
+                                cluster_width += rights[c] - lefts[c];
+                            if (fit > 0 && past_line_end(fit_width + cluster_width))
                                 break;
-                            fit_width += glyph_width;
-                            ++fit;
+                            fit_width += cluster_width;
+                            fit = next;
+                            i = next;
                         }
-                        // Measured whole: the pairs inside the slice kern.
-                        fit_width = measure(*item.style, std::u32string_view(word).substr(0, fit));
+                        // Shaped whole, the rest of the word after it as
+                        // context: what the slice is drawn as.
+                        std::u32string const rest = word.substr(fit) + context_after;
+                        sliced = shaped_word(*item.style, std::u32string_view(word).substr(0, fit), current_level,
+                            context_before, rest);
+                        fit_width = sliced->width;
                     }
                     if (fit >= head) {
                         if (head == word.size())
                             break;
                         fit = head;
                         fit_width = width - tail;
+                        sliced = nullptr;
                     }
                     Placed slice(word.substr(0, fit), item.style, false, fit_width, item.element);
+                    slice.shaped = std::move(sliced);
                     slice.aligned = item.aligned;
                     slice.source = item.source;
                     slice.source_from = item.source_from + consumed;
@@ -5133,14 +5219,18 @@ struct Layouter {
                     line_width += fit_width;
                     flush_line();
                     consumed += static_cast<std::uint32_t>(fit);
+                    context_before += word.substr(0, fit);
                     word = word.substr(fit);
-                    width = measure(*item.style, word);
+                    shaped = shaped_word(*item.style, word, current_level, context_before, context_after);
+                    width = shaped->width;
                     head = trailing_spaces_from(word, mode);
                     tail = tail_width();
                     hang = mode == WhiteSpace::BreakSpaces ? 0.0f : tail;
                 }
             }
             Placed placed(std::move(word), item.style, false, width, item.element);
+            if (!fonts_for(*item.style).builtin_alone())
+                placed.shaped = std::move(shaped);
             placed.aligned = item.aligned;
             placed.hang = hang;
             placed.source = item.source;
@@ -5553,13 +5643,19 @@ struct Layouter {
                 return rtl ? end->x - ellipsis_width < content_x - 0.01f
                            : end->x + end->width + ellipsis_width > right + 0.01f;
             };
+            // Cut a cluster at a time, the rest shaped again as drawn.
             while (!end->text.empty() && (overflows() || end->text.back() == U' ')) {
                 float const before = end->width;
-                end->text.pop_back();
-                end->width = measure(*end->style, end->text);
+                std::size_t keep = end->text.size() - 1;
+                while (keep > 0 && !run_cut_allowed(*end, keep))
+                    --keep;
+                end->text.resize(keep);
+                end->shaped = nullptr;
+                end->width = shaped_of(*end)->width;
                 if (rtl)
                     end->x += before - end->width;
             }
+            end->shaped = nullptr;
             if (rtl) {
                 end->text.insert(end->text.begin(), ellipsis.begin(), ellipsis.end());
                 end->x -= ellipsis_width;
@@ -6635,10 +6731,26 @@ struct Layouter {
                 // hyphen, which the narrowest line has to hold as well.
                 if (hyphenates_after(item))
                     piece += measure(*item.style, hyphen_text(*item.style));
-                if (anywhere) {
+                if (anywhere && fonts_for(*item.style).builtin_alone()) {
                     piece = 0;
                     for (std::size_t i = 0; i < head; ++i)
                         piece = std::max(piece, measure(*item.style, std::u32string_view(word).substr(i, 1)));
+                } else if (anywhere) {
+                    // The widest cluster: a slice never ends inside one.
+                    piece = 0;
+                    std::shared_ptr<text::ShapedText const> const shaped
+                        = fonts_for(*item.style).shape(word, shaping_for(*item.style, false, true));
+                    std::vector<float> lefts;
+                    std::vector<float> rights;
+                    shaped->character_edges(lefts, rights);
+                    for (std::size_t i = 0; i < head && i < lefts.size();) {
+                        std::size_t const next = std::min(shaped->cluster_end_of(i), head);
+                        float cluster_width = 0;
+                        for (std::size_t c = i; c < next; ++c)
+                            cluster_width += rights[c] - lefts[c];
+                        piece = std::max(piece, cluster_width);
+                        i = next;
+                    }
                 }
                 narrowest(piece);
                 add(width);
