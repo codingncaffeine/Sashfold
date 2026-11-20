@@ -10,9 +10,14 @@
 
 #include <cstdint>
 #include <memory>
+#include <mutex>
 #include <string>
 
 namespace sashfold::text {
+
+namespace shaping {
+struct FaceCache;
+}
 
 struct FaceMetrics {
     float ascent; // px above the baseline
@@ -65,6 +70,22 @@ public:
     // draw.
     void draw_glyph_turned(Bitmap& target, std::uint32_t glyph, float baseline_x, float y,
         float size, Color color, bool bold, bool italic, bool clockwise) const;
+
+    // The font behind the face when it is an OpenType file: what the
+    // shaper (Shaper.h) reads the layout tables from. Null for the
+    // built-in face.
+    virtual TrueTypeFont const* truetype_font() const { return nullptr; }
+    // The face that owns the font, for one that only restricts another
+    // (a unicode-range): the shaper's tables are kept on that one.
+    virtual Face const& layout_face() const { return *this; }
+    // What the shaper keeps for this face: its layout tables, parsed on the
+    // first shaping and shared by every thread after, and its plans.
+    // Defined in Shaper.cpp; null when the face has no font file.
+    shaping::FaceCache const* shaping_cache() const;
+
+private:
+    mutable std::once_flag m_shaping_once;
+    mutable std::shared_ptr<shaping::FaceCache const> m_shaping;
 };
 
 // Sashfold Mono as a Face: glyph ids are code points. Its glyph_index is

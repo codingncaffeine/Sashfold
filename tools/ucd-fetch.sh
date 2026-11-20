@@ -73,6 +73,11 @@ fetch "$props/DerivedCoreProperties.txt" DerivedCoreProperties.txt "# DerivedCor
 fetch "$props/PropertyValueAliases.txt" PropertyValueAliases.txt "# PropertyValueAliases"
 fetch "$props/DerivedNormalizationProps.txt" DerivedNormalizationProps.txt "# DerivedNormalizationProps"
 fetch "$props/emoji/emoji-data.txt" emoji-data.txt "# emoji-data"
+# What the text shaper's tables (tools/gen-unicode.cpp --shaping) read
+# beside the files above.
+fetch "$props/ArabicShaping.txt" ArabicShaping.txt "# ArabicShaping"
+fetch "$props/IndicSyllabicCategory.txt" IndicSyllabicCategory.txt "# IndicSyllabicCategory"
+fetch "$props/IndicPositionalCategory.txt" IndicPositionalCategory.txt "# IndicPositionalCategory"
 dest="$(dirname "$dest")"
 
 echo "Unicode $version data is in $dest"

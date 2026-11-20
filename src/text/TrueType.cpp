@@ -457,6 +457,7 @@ bool TrueTypeFont::load_directory(std::uint32_t offset)
             continue; // an empty or absent table is simply not there
         Table const table { table_offset,
             std::min(table_length, static_cast<std::uint32_t>(m_bytes.size() - table_offset)) };
+        m_tables.emplace_back(tag, table);
         switch (tag) {
         case tag_head: m_head = table; break;
         case tag_hhea: m_hhea = table; break;
@@ -1468,6 +1469,38 @@ std::int16_t TrueTypeFont::kerning(std::uint16_t left, std::uint16_t right) cons
     for (std::uint32_t const subtable : m_kern_subtables)
         total += kern_table_adjustment(subtable, left, right);
     return static_cast<std::int16_t>(std::clamp(total, -32768, 32767));
+}
+
+std::span<std::uint8_t const> TrueTypeFont::table(std::uint32_t tag) const
+{
+    for (auto const& [table_tag, table] : m_tables) {
+        if (table_tag == tag)
+            return std::span<std::uint8_t const>(m_bytes.data() + table.offset, table.length);
+    }
+    return {};
+}
+
+std::optional<TrueTypeFont::GlyphBox> TrueTypeFont::glyph_box(std::uint16_t glyph) const
+{
+    if (m_has_glyf) {
+        std::uint32_t offset = 0;
+        std::uint32_t length = 0;
+        if (!glyph_span(glyph, offset, length) || length < 10)
+            return std::nullopt;
+        Reader const reader { m_bytes };
+        GlyphBox box { reader.i16(offset + 2), reader.i16(offset + 4), reader.i16(offset + 6), reader.i16(offset + 8) };
+        // The outline's origin is where hmtx puts the left side bearing;
+        // the box is moved there when the two disagree.
+        std::int16_t const bearing = left_side_bearing(glyph);
+        auto const width = static_cast<std::int32_t>(box.x_max) - box.x_min;
+        box.x_min = bearing;
+        box.x_max = static_cast<std::int16_t>(std::clamp<std::int32_t>(bearing + width, -32768, 32767));
+        return box;
+    }
+    std::optional<GlyphOutline> const shape = outline(glyph);
+    if (!shape || shape->points.empty())
+        return std::nullopt;
+    return GlyphBox { shape->x_min, shape->y_min, shape->x_max, shape->y_max };
 }
 
 bool TrueTypeFont::glyph_span(std::uint16_t glyph, std::uint32_t& offset, std::uint32_t& length) const

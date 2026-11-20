@@ -83,6 +83,7 @@ public:
     }
 
     std::string const& family() const override { return m_font.family_name(); }
+    TrueTypeFont const* truetype_font() const override { return &m_font; }
     bool is_bold() const override { return m_font.is_bold(); }
     bool is_italic() const override { return m_font.is_italic(); }
     bool is_monospace() const override { return m_monospace; }

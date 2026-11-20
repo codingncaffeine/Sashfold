@@ -276,11 +276,19 @@ add_library(sashfold_core STATIC
   src/svg/Raster.cpp
   src/svg/Svg.cpp
   src/text/Cff.cpp
+  src/text/CharacterProperties.cpp
   src/text/Spell.cpp
   src/text/Face.cpp
   src/text/FontManager.cpp
+  src/text/OpenTypeLayout.cpp
   src/text/Rasterizer.cpp
   src/text/SashfoldMono.cpp
+  src/text/Shaper.cpp
+  src/text/ShaperArabic.cpp
+  src/text/ShaperFallback.cpp
+  src/text/ShaperHangul.cpp
+  src/text/ShaperHebrew.cpp
+  src/text/ShaperThai.cpp
   src/text/TrueType.cpp
   src/text/TrueTypeWriter.cpp
   src/text/Woff.cpp
@@ -488,6 +496,12 @@ target_link_libraries(js_probe PRIVATE sashfold_core sashfold_warnings)
 # tool, never shipped.
 add_executable(realm_cost tools/realm-cost.cpp)
 target_link_libraries(realm_cost PRIVATE sashfold_core sashfold_warnings)
+
+# shape_probe shapes lines of text with the engine's shaper and prints the
+# glyphs and positions, or how many lines a second it shapes
+# (tools/shape-probe.cpp): what a comparison with another shaper reads.
+add_executable(shape_probe tools/shape-probe.cpp)
+target_link_libraries(shape_probe PRIVATE sashfold_core sashfold_warnings)
 
 # pdf_probe opens a PDF with the engine's reader and prints what it found:
 # version, pages and their boxes, the title, whether the file was rebuilt;

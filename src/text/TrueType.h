@@ -15,7 +15,9 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace sashfold::text {
@@ -132,6 +134,24 @@ public:
     // outline (no contours) is a valid result: spaces.
     std::optional<GlyphOutline> outline(std::uint16_t glyph) const;
 
+    // The bytes of one table of the face by its tag ('GSUB' as 0x47535542),
+    // clipped to the file; empty when the face has no such table. What the
+    // OpenType Layout reader (OpenTypeLayout.h) parses, bounds-checked there.
+    std::span<std::uint8_t const> table(std::uint32_t tag) const;
+
+    // A glyph's ink box, font units, y up: from the glyf header for a
+    // TrueType glyph (with the left side bearing from hmtx as its left
+    // edge, which is where the outline's origin puts it), from the outline
+    // for a CFF one. nullopt for a glyph with no outline (a space) or a
+    // malformed one. What mark placement without a GPOS table reads.
+    struct GlyphBox {
+        std::int16_t x_min = 0;
+        std::int16_t y_min = 0;
+        std::int16_t x_max = 0;
+        std::int16_t y_max = 0;
+    };
+    std::optional<GlyphBox> glyph_box(std::uint16_t glyph) const;
+
     // A glyph as a picture: the PNG the bitmap strike nearest `size`
     // holds for it, with where the picture sits — in px at the strike's
     // ppem, from the pen: `left` to its left edge, `bottom` from the
@@ -212,6 +232,7 @@ private:
     std::optional<BitmapGlyph> sbix_glyph(Strike const& strike, std::uint16_t glyph) const;
 
     std::vector<std::uint8_t> m_bytes;
+    std::vector<std::pair<std::uint32_t, Table>> m_tables; // every table of the directory, by tag
     Table m_head, m_hhea, m_hmtx, m_maxp, m_loca, m_glyf, m_cmap, m_name, m_os2, m_cff_table, m_kern,
         m_gpos, m_cblc, m_cbdt, m_sbix, m_colr, m_cpal, m_post;
     struct Subtable {

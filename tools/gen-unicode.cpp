@@ -37,8 +37,18 @@
 //   src/core/LineBreakData.h      the Line_Break classes (LB1 applied) with the
 //                                 East_Asian_Width, Pi/Pf and unassigned-
 //                                 pictographic flags UAX #14's rules read
+//
+//   ./gen-unicode --shaping <data-dir> <repo-root> writes, from one version's
+//   files (ucd/p17 as tools/ucd-fetch.sh fetches it):
+//   src/text/ShapingData.h        the text shaper's per-character records
+//                                 (general category, script, joining type,
+//                                 combining class, Indic categories,
+//                                 Extended_Pictographic), Script_Extensions,
+//                                 one-level decompositions, compositions and
+//                                 the Arabic presentation forms
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
@@ -47,6 +57,8 @@
 #include <set>
 #include <sstream>
 #include <string>
+#include <string_view>
+#include <tuple>
 #include <vector>
 
 namespace {
@@ -1337,8 +1349,365 @@ void emit_word_break(std::string const& path, std::vector<std::uint8_t> const& c
     std::cout << "wrote " << path << " (" << runs.size() << " ranges)\n";
 }
 
+// --- The text shaper's character properties ----------------------------------
+//
+// One record per code point of what the OpenType shaper reads: the general
+// category, the script (UAX #24), the Arabic joining type with the two
+// Syriac joining groups the Alaph rules need (ArabicShaping.txt), the
+// canonical combining class, the Indic syllabic and positional categories
+// and Extended_Pictographic — stored as unique records behind a two-stage
+// index. Beside them: Script_Extensions, the direct canonical decompositions
+// and primary compositions, and the Arabic presentation forms the fallback
+// shaping maps to. Everything from the Unicode version of the data directory.
+
+namespace shaping {
+
+std::vector<std::string> const general_categories = { "Cc", "Cf", "Cn", "Co", "Cs", "Ll", "Lm", "Lo", "Lt", "Lu", "Mc",
+    "Me", "Mn", "Nd", "Nl", "No", "Pc", "Pd", "Pe", "Pf", "Pi", "Po", "Ps", "Sc", "Sk", "Sm", "So", "Zl", "Zp", "Zs" };
+
+// Joining types in the order the shaper's enum lists them; the two groups
+// are types of their own because the Syriac rules treat them apart.
+std::vector<std::string> const joining_types = { "U", "L", "R", "D", "C", "T", "ALAPH", "DALATH_RISH" };
+
+std::vector<std::string> const indic_positions = { "Not_Applicable", "Right", "Left", "Visual_Order_Left", "Left_And_Right", "Top",
+    "Bottom", "Top_And_Bottom", "Top_And_Right", "Top_And_Left", "Top_And_Left_And_Right", "Bottom_And_Right",
+    "Bottom_And_Left", "Top_And_Bottom_And_Right", "Top_And_Bottom_And_Left", "Overstruck" };
+
+struct Record {
+    std::uint8_t category = 2; // Cn
+    std::uint8_t script = 0;
+    std::uint8_t joining = 0; // low 3 bits: joining type; 0x80: Extended_Pictographic
+    std::uint8_t combining_class = 0;
+    std::uint8_t indic_syllabic = 0;
+    std::uint8_t indic_position = 0;
+    auto key() const
+    {
+        return std::tuple(category, script, joining, combining_class, indic_syllabic, indic_position);
+    }
+    bool operator<(Record const& other) const { return key() < other.key(); }
+    bool operator==(Record const& other) const { return key() == other.key(); }
+};
+
+std::string label(std::string const& text)
+{
+    std::string out;
+    for (char c : text)
+        out += (std::isalnum(static_cast<unsigned char>(c)) ? c : '_');
+    return out;
+}
+
+void emit(std::string const& path, std::string const& data_dir)
+{
+    constexpr std::size_t code_points = 0x110000;
+    std::vector<Record> records(code_points);
+    std::map<char32_t, std::vector<char32_t>> decomposition; // canonical, one level
+    struct Presentation {
+        char32_t code_point;
+        std::string form; // initial, medial, final, isolated
+        std::vector<char32_t> sequence;
+    };
+    std::vector<Presentation> presentations;
+    {
+        std::ifstream file = open_or_die(data_dir + "/UnicodeData.txt");
+        std::string line;
+        char32_t range_first = 0;
+        while (std::getline(file, line)) {
+            if (line.empty())
+                continue;
+            std::vector<std::string> const fields = split(line, ';');
+            char32_t const c = parse_hex(fields[0]);
+            if (fields[1].ends_with(", First>")) {
+                range_first = c;
+                continue;
+            }
+            char32_t const first = fields[1].ends_with(", Last>") ? range_first : c;
+            auto const category = static_cast<std::uint8_t>(
+                std::find(general_categories.begin(), general_categories.end(), fields[2]) - general_categories.begin());
+            auto const ccc = static_cast<std::uint8_t>(std::stoi(fields[3]));
+            for (char32_t k = first; k <= c; ++k) {
+                records[k].category = category;
+                records[k].combining_class = ccc;
+            }
+            std::string const& mapping = fields[5];
+            if (mapping.empty())
+                continue;
+            if (mapping[0] != '<') {
+                decomposition[c] = parse_hex_sequence(mapping);
+                continue;
+            }
+            std::size_t const close = mapping.find('>');
+            std::string const tag = mapping.substr(1, close - 1);
+            if (tag == "initial" || tag == "medial" || tag == "final" || tag == "isolated")
+                presentations.push_back({ c, tag, parse_hex_sequence(mapping.substr(close + 1)) });
+        }
+    }
+    std::set<char32_t> excluded = load_full_composition_exclusions(data_dir + "/DerivedNormalizationProps.txt");
+
+    std::vector<std::string> script_codes; // ISO 15924, in PropertyValueAliases order
+    std::map<std::string, std::uint8_t> script_of; // every spelling
+    {
+        std::ifstream file = open_or_die(data_dir + "/PropertyValueAliases.txt");
+        std::string line;
+        while (std::getline(file, line)) {
+            if (!line.starts_with("sc "))
+                continue;
+            std::vector<std::string> fields = split(line.substr(0, line.find('#')), ';');
+            for (std::string& field : fields)
+                field = trim(field);
+            auto const id = static_cast<std::uint8_t>(script_codes.size());
+            script_codes.push_back(fields[1]);
+            for (std::size_t k = 1; k < fields.size(); ++k)
+                script_of[fields[k]] = id;
+        }
+    }
+    {
+        std::vector<std::uint8_t> const scripts = load_property(data_dir + "/Scripts.txt",
+            [&](std::string const& name, char32_t) { return script_of.at(name); });
+        for (std::size_t c = 0; c < code_points; ++c)
+            records[c].script = scripts[c];
+    }
+    {
+        // ArabicShaping.txt lists the joining types; a code point it does not
+        // list is T when it is Mn, Me or Cf and U otherwise (the file's own
+        // header says so).
+        for (std::size_t c = 0; c < code_points; ++c) {
+            std::string const& category = general_categories[records[c].category];
+            records[c].joining = (category == "Mn" || category == "Me" || category == "Cf") ? 5 : 0;
+        }
+        std::ifstream file = open_or_die(data_dir + "/ArabicShaping.txt");
+        std::string line;
+        while (std::getline(file, line)) {
+            std::size_t const hash = line.find('#');
+            std::string const body = trim(hash == std::string::npos ? line : line.substr(0, hash));
+            if (body.empty())
+                continue;
+            std::vector<std::string> const fields = split(body, ';');
+            if (fields.size() < 4)
+                continue;
+            char32_t const c = parse_hex(trim(fields[0]));
+            std::string const type = trim(fields[2]);
+            std::string const group = trim(fields[3]);
+            std::uint8_t value = static_cast<std::uint8_t>(
+                std::find(joining_types.begin(), joining_types.end(), type) - joining_types.begin());
+            if (group == "ALAPH")
+                value = 6;
+            else if (group == "DALATH RISH")
+                value = 7;
+            records[c].joining = value;
+        }
+    }
+    {
+        std::vector<std::uint8_t> const pictographic = load_emoji_property(data_dir + "/emoji-data.txt", "Extended_Pictographic");
+        for (std::size_t c = 0; c < code_points; ++c) {
+            if (pictographic[c])
+                records[c].joining |= 0x80;
+        }
+    }
+    std::vector<std::string> syllabic_names { "Other" };
+    {
+        std::vector<std::uint8_t> const syllabic = load_property(data_dir + "/IndicSyllabicCategory.txt",
+            [&](std::string const& name, char32_t) {
+                auto const it = std::find(syllabic_names.begin(), syllabic_names.end(), name);
+                if (it != syllabic_names.end())
+                    return static_cast<std::uint8_t>(it - syllabic_names.begin());
+                syllabic_names.push_back(name);
+                return static_cast<std::uint8_t>(syllabic_names.size() - 1);
+            });
+        std::vector<std::uint8_t> const position = load_property(data_dir + "/IndicPositionalCategory.txt",
+            [&](std::string const& name, char32_t) {
+                auto const it = std::find(indic_positions.begin(), indic_positions.end(), name);
+                if (it == indic_positions.end()) {
+                    std::cerr << "gen-unicode: unknown Indic position " << name << "\n";
+                    std::exit(1);
+                }
+                return static_cast<std::uint8_t>(it - indic_positions.begin());
+            });
+        for (std::size_t c = 0; c < code_points; ++c) {
+            records[c].indic_syllabic = syllabic[c];
+            records[c].indic_position = position[c];
+        }
+    }
+
+    // Unique records, and blocks of indices into them.
+    constexpr unsigned shift = 7;
+    constexpr std::size_t block_size = std::size_t(1) << shift;
+    std::vector<Record> unique = records;
+    std::sort(unique.begin(), unique.end());
+    unique.erase(std::unique(unique.begin(), unique.end()), unique.end());
+    std::vector<std::uint16_t> stage1;
+    std::vector<std::uint16_t> stage2;
+    std::map<std::vector<std::uint16_t>, std::uint16_t> blocks;
+    for (std::size_t base = 0; base < code_points; base += block_size) {
+        std::vector<std::uint16_t> block(block_size);
+        for (std::size_t k = 0; k < block_size; ++k)
+            block[k] = static_cast<std::uint16_t>(
+                std::lower_bound(unique.begin(), unique.end(), records[base + k]) - unique.begin());
+        auto const [it, inserted] = blocks.emplace(block, static_cast<std::uint16_t>(blocks.size()));
+        if (inserted)
+            stage2.insert(stage2.end(), block.begin(), block.end());
+        stage1.push_back(it->second);
+    }
+
+    // Script_Extensions.
+    struct Extension {
+        char32_t first;
+        char32_t last;
+        std::vector<std::uint8_t> scripts;
+    };
+    std::vector<Extension> extensions;
+    {
+        std::ifstream file = open_or_die(data_dir + "/ScriptExtensions.txt");
+        std::string line;
+        while (std::getline(file, line)) {
+            std::size_t const hash = line.find('#');
+            std::string const body = trim(hash == std::string::npos ? line : line.substr(0, hash));
+            if (body.empty())
+                continue;
+            std::vector<std::string> const fields = split(body, ';');
+            if (fields.size() != 2)
+                continue;
+            Extension extension {};
+            parse_code_point_range(trim(fields[0]), extension.first, extension.last);
+            for (std::string const& name : split(trim(fields[1]), ' '))
+                if (!trim(name).empty())
+                    extension.scripts.push_back(script_of.at(trim(name)));
+            extensions.push_back(extension);
+        }
+        std::sort(extensions.begin(), extensions.end(), [](Extension const& a, Extension const& b) { return a.first < b.first; });
+    }
+
+    // Compositions: every two-character canonical decomposition whose
+    // result is not excluded from composition (UAX #15 primary composites).
+    std::vector<std::tuple<char32_t, char32_t, char32_t>> compositions;
+    for (auto const& [composite, parts] : decomposition) {
+        if (parts.size() == 2 && !excluded.contains(composite))
+            compositions.emplace_back(parts[0], parts[1], composite);
+    }
+    std::sort(compositions.begin(), compositions.end());
+
+    std::string version = "unknown";
+    {
+        std::ifstream scripts = open_or_die(data_dir + "/Scripts.txt");
+        std::string first_line;
+        std::getline(scripts, first_line);
+        std::size_t const dash = first_line.find('-');
+        std::size_t const dot_txt = first_line.find(".txt");
+        if (dash != std::string::npos && dot_txt != std::string::npos && dot_txt > dash)
+            version = first_line.substr(dash + 1, dot_txt - dash - 1);
+    }
+    std::ofstream out(path);
+    out << "// GENERATED by tools/gen-unicode.cpp --shaping from the Unicode " << version
+        << " data files. Do not edit.\n"
+        "// The character properties the OpenType shaper reads (src/text/Shaper.h):\n"
+        "// per code point the general category, the script (Scripts.txt), the\n"
+        "// joining type with the Syriac Alaph and Dalath-Rish groups\n"
+        "// (ArabicShaping.txt), the canonical combining class, the Indic\n"
+        "// syllabic and positional categories and Extended_Pictographic, as\n"
+        "// unique records behind a two-stage index; Script_Extensions; the\n"
+        "// one-level canonical decompositions and the primary compositions;\n"
+        "// and the Arabic presentation forms the fallback shaping maps to.\n\n"
+        "#pragma once\n\n#include <cstdint>\n\n";
+    out << "namespace sashfold::text::shaping_data {\n\n";
+    out << "inline constexpr char const* general_category_codes[] = {";
+    for (std::size_t k = 0; k < general_categories.size(); ++k)
+        out << (k ? ", " : " ") << '"' << general_categories[k] << '"';
+    out << " };\n\n";
+    out << "// ISO 15924 codes, indexed by the script numbers the records hold.\n";
+    out << "inline constexpr char const script_codes[][5] = {\n";
+    for (std::size_t k = 0; k < script_codes.size(); ++k)
+        out << (k % 12 == 0 ? "    " : " ") << '"' << script_codes[k] << "\"," << (k % 12 == 11 ? "\n" : "");
+    out << "\n};\n";
+    out << "inline constexpr std::uint8_t script_count = " << script_codes.size() << ";\n\n";
+    out << "// Indic_Syllabic_Category values, indexed by the records' numbers.\n";
+    out << "inline constexpr char const* indic_syllabic_names[] = {\n";
+    for (std::string const& name : syllabic_names)
+        out << "    \"" << name << "\",\n";
+    out << "};\n";
+    out << "enum class IndicSyllabic : std::uint8_t {\n";
+    for (std::string const& name : syllabic_names)
+        out << "    " << label(name) << ",\n";
+    out << "};\n";
+    out << "enum class IndicPosition : std::uint8_t {\n";
+    for (std::string const& name : indic_positions)
+        out << "    " << label(name) << ",\n";
+    out << "};\n\n";
+    out << "struct Record {\n    std::uint8_t category; // index into general_category_codes\n"
+           "    std::uint8_t script; // index into script_codes\n"
+           "    std::uint8_t joining; // low 3 bits U L R D C T ALAPH DALATH_RISH; 0x80 Extended_Pictographic\n"
+           "    std::uint8_t combining_class;\n    std::uint8_t indic_syllabic;\n    std::uint8_t indic_position;\n};\n\n";
+    out << "inline constexpr Record records[] = {\n";
+    for (Record const& r : unique)
+        out << "    { " << unsigned(r.category) << ", " << unsigned(r.script) << ", " << unsigned(r.joining) << ", "
+            << unsigned(r.combining_class) << ", " << unsigned(r.indic_syllabic) << ", " << unsigned(r.indic_position)
+            << " },\n";
+    out << "};\n\n";
+    out << "inline constexpr unsigned record_shift = " << shift << ";\n";
+    out << "inline constexpr std::uint16_t record_blocks[] = {";
+    for (std::size_t k = 0; k < stage1.size(); ++k)
+        out << (k % 24 == 0 ? "\n    " : " ") << stage1[k] << ",";
+    out << "\n};\n";
+    out << "inline constexpr std::uint16_t record_indices[] = {";
+    for (std::size_t k = 0; k < stage2.size(); ++k)
+        out << (k % 24 == 0 ? "\n    " : " ") << stage2[k] << ",";
+    out << "\n};\n\n";
+    std::vector<std::uint8_t> extension_scripts;
+    out << "struct ScriptExtension {\n    char32_t first;\n    char32_t last;\n    std::uint16_t offset;\n"
+           "    std::uint8_t count;\n};\n\n";
+    out << "inline constexpr ScriptExtension script_extensions[] = {\n";
+    for (Extension const& e : extensions) {
+        out << "    { " << hex(e.first) << ", " << hex(e.last) << ", " << extension_scripts.size() << ", "
+            << e.scripts.size() << " },\n";
+        extension_scripts.insert(extension_scripts.end(), e.scripts.begin(), e.scripts.end());
+    }
+    out << "};\n";
+    out << "inline constexpr std::uint8_t script_extension_lists[] = {";
+    for (std::size_t k = 0; k < extension_scripts.size(); ++k)
+        out << (k % 24 == 0 ? "\n    " : " ") << unsigned(extension_scripts[k]) << ",";
+    out << "\n};\n\n";
+    out << "// One-level canonical decompositions, by code point: one or two parts.\n";
+    out << "struct Decomposition {\n    char32_t code_point;\n    char32_t first;\n    char32_t second; // 0 for a singleton\n};\n\n";
+    out << "inline constexpr Decomposition decompositions[] = {\n";
+    for (auto const& [c, parts] : decomposition)
+        out << "    { " << hex(c) << ", " << hex(parts[0]) << ", " << hex(parts.size() > 1 ? parts[1] : 0) << " },\n";
+    out << "};\n\n";
+    out << "// Primary compositions, sorted by the pair.\n";
+    out << "struct Composition {\n    char32_t first;\n    char32_t second;\n    char32_t composite;\n};\n\n";
+    out << "inline constexpr Composition compositions[] = {\n";
+    for (auto const& [a, b, c] : compositions)
+        out << "    { " << hex(a) << ", " << hex(b) << ", " << hex(c) << " },\n";
+    out << "};\n\n";
+    out << "// The Arabic presentation forms with an <initial>, <medial>, <final> or\n"
+           "// <isolated> compatibility decomposition: form 0 isolated, 1 final,\n"
+           "// 2 initial, 3 medial; the sequence is one or two characters.\n";
+    out << "struct PresentationForm {\n    char32_t code_point;\n    std::uint8_t form;\n    char32_t first;\n"
+           "    char32_t second;\n};\n\n";
+    out << "inline constexpr PresentationForm presentation_forms[] = {\n";
+    for (Presentation const& p : presentations) {
+        if (p.sequence.empty() || p.sequence.size() > 2)
+            continue;
+        int const form = p.form == "isolated" ? 0 : p.form == "final" ? 1 : p.form == "initial" ? 2 : 3;
+        out << "    { " << hex(p.code_point) << ", " << form << ", " << hex(p.sequence[0]) << ", "
+            << hex(p.sequence.size() > 1 ? p.sequence[1] : 0) << " },\n";
+    }
+    out << "};\n\n";
+    out << "}\n";
+    std::cout << "wrote " << path << " (" << unique.size() << " records, " << blocks.size() << " blocks)\n";
+}
+
+}
+
 int main(int argc, char** argv)
 {
+    // --shaping <data-dir> <repo-root>: the shaper's character properties
+    // alone, from UnicodeData.txt, PropertyValueAliases.txt, Scripts.txt,
+    // ScriptExtensions.txt, ArabicShaping.txt, IndicSyllabicCategory.txt,
+    // IndicPositionalCategory.txt, DerivedNormalizationProps.txt and
+    // emoji-data.txt of one Unicode version (17.0.0: tools/ucd-fetch.sh
+    // puts them in ucd/p17).
+    if (argc == 4 && std::string_view(argv[1]) == "--shaping") {
+        shaping::emit(std::string(argv[3]) + "/src/text/ShapingData.h", argv[2]);
+        return 0;
+    }
     // --word-break <data-dir> <repo-root>: the word-break table alone, from
     // WordBreakProperty.txt and emoji-data.txt.
     if (argc == 4 && std::string_view(argv[1]) == "--word-break") {

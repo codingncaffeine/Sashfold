@@ -183,6 +183,8 @@ public:
     }
 
     std::string const& family() const override { return m_inner.family(); }
+    TrueTypeFont const* truetype_font() const override { return m_inner.truetype_font(); }
+    Face const& layout_face() const override { return m_inner.layout_face(); }
     bool is_bold() const override { return m_inner.is_bold(); }
     bool is_italic() const override { return m_inner.is_italic(); }
     bool designs_every_style() const override { return m_inner.designs_every_style(); }
