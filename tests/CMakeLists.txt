@@ -73,6 +73,7 @@ sashfold_test(test_round_rect)
 sashfold_test(test_first_letter)
 sashfold_test(test_line_wrap)
 sashfold_test(test_forms)
+sashfold_test(test_focus)
 sashfold_test(test_reader)
 # The bidirectional algorithm. Its own conformance files are 15 MB, so
 # they are downloaded rather than committed (tools/ucd-fetch.sh); with no

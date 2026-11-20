@@ -169,6 +169,7 @@ add_library(sashfold_core STATIC
   src/css/Stylesheets.cpp
   src/css/Tokenizer.cpp
   src/dom/Dom.cpp
+  src/dom/Focus.cpp
   src/dom/Forms.cpp
   src/a11y/Roles.cpp
   src/a11y/Semantics.cpp
