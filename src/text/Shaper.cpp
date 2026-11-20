@@ -604,9 +604,12 @@ ScriptShaper const& choose_shaper(ScriptCode script, std::uint32_t chosen_gsub_s
     case scripts::old_uyghur:
     case scripts::chorasmian:
         // The joining scripts shape as Arabic when the font knows the
-        // script (Arabic always: its fallback needs no font support).
+        // script (Arabic always: its fallback needs no font support);
+        // those but Arabic and Syriac with the Universal Shaping Engine,
+        // whose script table lists them (and which joins them the same).
         if (chosen_gsub_script != tag_dflt_script || script == scripts::arabic)
-            return arabic_shaper;
+            return script == scripts::arabic || script == scripts::syriac || !is_use_script(script) ? arabic_shaper
+                                                                                                    : use_shaper;
         return default_shaper;
     case scripts::hebrew:
         return hebrew_shaper;

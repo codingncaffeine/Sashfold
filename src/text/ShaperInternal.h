@@ -231,6 +231,12 @@ void set_glyph(GlyphInfo&, ShapeFont const&);
 // The fallback shaping of Arabic from the presentation forms in the font's
 // cmap, for fonts with no GSUB for the joining forms (ShaperArabic.cpp).
 void arabic_fallback_shape(Plan const&, ShapeFont const&, Buffer&);
+// The joining form of each letter by the Arabic joining types (Unicode
+// §9.2), with the text before and after the run: per glyph 0 'isol',
+// 1 'fina', 2 'fin2', 3 'fin3', 4 'medi', 5 'med2', 6 'init', 7 none
+// (ShaperArabic.cpp).
+void arabic_joining_forms(Buffer const&, std::u32string_view before, std::u32string_view after,
+    std::vector<std::uint8_t>& forms);
 
 // Mark placement from glyph extents for fonts with no GPOS table
 // (ShaperFallback.cpp): the combining classes recategorized first, the

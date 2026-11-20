@@ -140,7 +140,24 @@ bool is_mongolian_variation_selector(char32_t c)
 
 void setup_masks(Plan const& plan, ShapeFont const&, Buffer& b, std::u32string_view before, std::u32string_view after)
 {
+    thread_local std::vector<std::uint8_t> forms;
+    arabic_joining_forms(b, before, after, forms);
     std::size_t const count = b.len();
+    for (std::size_t i = 0; i < count; ++i) {
+        std::uint8_t const form = forms[i];
+        b.info[i].shaper = form;
+        if (form < None)
+            b.info[i].mask |= plan.shaper_masks[form];
+    }
+}
+
+}
+
+void arabic_joining_forms(Buffer const& b, std::u32string_view before, std::u32string_view after,
+    std::vector<std::uint8_t>& forms)
+{
+    std::size_t const count = b.len();
+    forms.assign(count, None);
     std::size_t previous = static_cast<std::size_t>(-1);
     State state = AfterNonJoining;
     // The text before the run decides how its first letter joins.
@@ -153,14 +170,12 @@ void setup_masks(Plan const& plan, ShapeFont const&, Buffer& b, std::u32string_v
     }
     for (std::size_t i = 0; i < count; ++i) {
         Column const column = column_of(b.info[i].codepoint);
-        if (column == ColTransparent) {
-            b.info[i].shaper = None;
+        if (column == ColTransparent)
             continue;
-        }
         Step const s = step(state, column);
         if (s.previous != None && previous != static_cast<std::size_t>(-1))
-            b.info[previous].shaper = s.previous;
-        b.info[i].shaper = s.current;
+            forms[previous] = s.previous;
+        forms[i] = s.current;
         previous = i;
         state = s.next;
     }
@@ -171,21 +186,18 @@ void setup_masks(Plan const& plan, ShapeFont const&, Buffer& b, std::u32string_v
             continue;
         Step const s = step(state, column);
         if (s.previous != None && previous != static_cast<std::size_t>(-1))
-            b.info[previous].shaper = s.previous;
+            forms[previous] = s.previous;
         break;
     }
     // A Mongolian free variation selector takes its letter's form, so that
     // the font's lookups for the variant see it in the same feature.
     for (std::size_t i = 1; i < count; ++i) {
         if (is_mongolian_variation_selector(b.info[i].codepoint))
-            b.info[i].shaper = b.info[i - 1].shaper;
-    }
-    for (std::size_t i = 0; i < count; ++i) {
-        std::uint8_t const form = b.info[i].shaper;
-        if (form < None)
-            b.info[i].mask |= plan.shaper_masks[form];
+            forms[i] = forms[i - 1];
     }
 }
+
+namespace {
 
 void collect_features(PlanBuilder& p)
 {

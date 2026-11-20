@@ -291,12 +291,39 @@ void setup_topographical_masks(UsePlan const& use, Buffer& b)
     }
 }
 
-void setup_masks(Plan const& plan, ShapeFont const&, Buffer& b, std::u32string_view, std::u32string_view)
+// The scripts whose letters join by their joining types (ArabicShaping.txt).
+bool is_joining_script(ScriptCode script)
+{
+    for (char const* c : { "Adlm", "Chrs", "Mand", "Mani", "Mong", "Nkoo", "Ougr", "Phag", "Phlp", "Rohg", "Sogd" }) {
+        if (script_code(c[0], c[1], c[2], c[3]) == script)
+            return true;
+    }
+    return false;
+}
+
+// §Topographical features for a joining script: each letter's form by the
+// joining types of the letters around it.
+void setup_joining_masks(UsePlan const& use, Buffer& b, std::u32string_view before, std::u32string_view after)
+{
+    thread_local std::vector<std::uint8_t> forms;
+    arabic_joining_forms(b, before, after, forms);
+    // The joining analysis's forms: isol, fina, fin2, fin3, medi, med2, init.
+    static constexpr std::array<Form, 7> form_of { Isol, Fina, Fina, Fina, Medi, Medi, Init };
+    for (std::size_t i = 0; i < b.len(); ++i) {
+        if (forms[i] < form_of.size())
+            b.info[i].mask |= use.form_mask[form_of[forms[i]]];
+    }
+}
+
+void setup_masks(Plan const& plan, ShapeFont const&, Buffer& b, std::u32string_view before, std::u32string_view after)
 {
     for (GlyphInfo& g : b.info)
         g.shaper = use_category(g.codepoint);
     find_use_syllables(b);
-    setup_topographical_masks(use_plan(plan), b);
+    if (is_joining_script(plan.script))
+        setup_joining_masks(use_plan(plan), b, before, after);
+    else
+        setup_topographical_masks(use_plan(plan), b);
 }
 
 // --- The pauses ---------------------------------------------------------------------------
