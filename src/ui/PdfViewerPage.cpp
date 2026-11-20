@@ -67,6 +67,8 @@ body.side-open #pages { padding-left: 216px; }
 #pages { padding: 64px 0 24px; }
 .page { position: relative; background: #fff; margin: 0 auto 8px; box-shadow: 0 2px 6px rgba(0, 0, 0, 0.45); overflow: hidden; }
 .page > img { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.tiles { position: absolute; left: 0; top: 0; width: 100%; height: 100%; }
+.tiles img { position: absolute; }
 .layers { position: absolute; left: 0; top: 0; }
 .text { position: absolute; left: 0; top: 0; color: transparent; line-height: 1; }
 .text span { position: absolute; white-space: pre; cursor: text; }
@@ -160,7 +162,8 @@ body.side-open #pages { padding-left: 216px; }
 const BASE = "sashfold-pdf://@@ID@@/";
 const BAR = 48;
 const GAP = 8;
-const ZOOMS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5];
+// Zoom steps up to 6400%: past the whole picture's size a page is drawn in tiles.
+const ZOOMS = [0.25, 0.33, 0.5, 0.67, 0.75, 0.8, 0.9, 1, 1.1, 1.25, 1.5, 1.75, 2, 2.5, 3, 4, 5, 6, 8, 12, 16, 24, 32, 48, 64];
 let info = null;
 let zoom = 1;
 let mode = "auto";
@@ -182,13 +185,106 @@ function turned() { return rotation % 180 !== 0; }
 function pageWidth(p) { return turned() ? p.h : p.w; }
 function pageHeight(p) { return turned() ? p.w : p.h; }
 function wantedScale() { return Math.round(zoom * (window.devicePixelRatio || 1) * 100) / 100; }
-// A page's picture is at most this many pixels (pdf.js's limit); past it the
-// picture is drawn smaller and stretched to the page's size.
+// A page's whole picture is at most this many pixels; past it the page is
+// zoomed too far to draw whole, and what is in view is drawn sharp in tiles
+// (TILE device pixels square, page/<n>/tile.bmp) over a smaller whole
+// picture of at most BACKDROP_PIXELS stretched to the page's size, which
+// shows until they come and wherever they are not.
 const MAX_PIXELS = 16777216;
+const BACKDROP_PIXELS = 4194304;
+const TILE = 512;
+function tiled(p) { return wantedScale() > Math.sqrt(MAX_PIXELS / Math.max(1, p.w * p.h)) + 1e-9; }
 function pictureScale(p) {
   const wanted = wantedScale();
-  const most = Math.sqrt(MAX_PIXELS / Math.max(1, p.w * p.h));
-  return wanted > most ? Math.floor(most * 100) / 100 : wanted;
+  if (!tiled(p))
+    return wanted;
+  return Math.floor(Math.sqrt(BACKDROP_PIXELS / Math.max(1, p.w * p.h)) * 100) / 100;
+}
+
+// The tiles of a page in view, at the wanted scale: those over the visible
+// part and a tile around it are asked for, the others let go, so what is
+// kept never grows with the zoom.
+function updateTiles(p) {
+  if (!p.visible || !tiled(p)) {
+    dropTiles(p);
+    return;
+  }
+  const scale = wantedScale();
+  const key = scale + "/" + rotation;
+  if (p.tileKey !== key)
+    dropTiles(p);
+  p.tileKey = key;
+  if (!p.tiles) {
+    p.tiles = document.createElement("div");
+    p.tiles.className = "tiles";
+    p.el.insertBefore(p.tiles, p.layers);
+    p.tileMap = new Map();
+  }
+  // The page's picture at the scale in device pixels, sized as the server sizes it.
+  const pw = Math.max(1, Math.ceil(pageWidth(p) * scale - 1e-6));
+  const ph = Math.max(1, Math.ceil(pageHeight(p) * scale - 1e-6));
+  const box = p.el.getBoundingClientRect();
+  if (box.width <= 0 || box.height <= 0)
+    return;
+  const kx = pw / box.width;
+  const ky = ph / box.height;
+  const left = Math.max(0, -box.left);
+  const right = Math.min(box.width, window.innerWidth - box.left);
+  const top = Math.max(0, BAR - box.top);
+  const bottom = Math.min(box.height, window.innerHeight - box.top);
+  const wanted = new Set();
+  if (right > left && bottom > top) {
+    const c0 = Math.max(0, Math.floor(left * kx / TILE) - 1);
+    const c1 = Math.min(Math.ceil(pw / TILE) - 1, Math.floor(right * kx / TILE) + 1);
+    const r0 = Math.max(0, Math.floor(top * ky / TILE) - 1);
+    const r1 = Math.min(Math.ceil(ph / TILE) - 1, Math.floor(bottom * ky / TILE) + 1);
+    for (let r = r0; r <= r1; r++) {
+      for (let c = c0; c <= c1; c++) {
+        const id = c + "," + r;
+        wanted.add(id);
+        if (p.tileMap.has(id))
+          continue;
+        const img = new Image();
+        img.alt = "";
+        img.decoding = "async";
+        img.style.left = (c * TILE / kx) + "px";
+        img.style.top = (r * TILE / ky) + "px";
+        img.style.width = (Math.min(TILE, pw - c * TILE) / kx) + "px";
+        img.style.height = (Math.min(TILE, ph - r * TILE) / ky) + "px";
+        img.src = BASE + "page/" + p.index + "/tile.bmp?scale=" + scale + "&rotate=" + rotation + "&col=" + c + "&row=" + r;
+        p.tiles.appendChild(img);
+        p.tileMap.set(id, img);
+      }
+    }
+  }
+  for (const [id, img] of p.tileMap) {
+    if (!wanted.has(id)) {
+      img.remove();
+      p.tileMap.delete(id);
+    }
+  }
+}
+
+function dropTiles(p) {
+  if (p.tiles)
+    p.tiles.remove();
+  p.tiles = null;
+  p.tileMap = null;
+  p.tileKey = null;
+}
+
+let tilesPending = false;
+function updateVisibleTiles() {
+  if (tilesPending)
+    return;
+  tilesPending = true;
+  requestAnimationFrame(() => {
+    tilesPending = false;
+    for (const p of pages) {
+      if (p.visible)
+        updateTiles(p);
+    }
+  });
 }
 
 function current() {
@@ -242,7 +338,7 @@ function setZoom(value, newMode) {
   const offsetInPage = window.scrollY + BAR - pages[anchor].el.offsetTop;
   const ratio = pages[anchor].el.offsetHeight ? offsetInPage / pages[anchor].el.offsetHeight : 0;
   mode = newMode || "custom";
-  zoom = Math.min(8, Math.max(0.1, value));
+  zoom = Math.min(64, Math.max(0.1, value));
   for (const p of pages)
     size(p);
   showZoom();
@@ -304,6 +400,7 @@ function show(p) {
     p.el.insertBefore(img, p.layers);
     img.src = BASE + "page/" + p.index + ".bmp?scale=" + scale + "&rotate=" + rotation;
   }
+  updateTiles(p);
   if (!p.textAsked) {
     p.textAsked = true;
     json("page/" + p.index + "/text.json").then((items) => { p.items = items; buildText(p); }).catch(() => {});
@@ -315,6 +412,7 @@ function show(p) {
 // The page's picture again: a field the page draws has changed.
 function redraw(p) {
   p.scale = 0;
+  dropTiles(p);
   if (p.visible)
     show(p);
 }
@@ -828,6 +926,7 @@ function hide(p) {
     img.remove();
   p.img = null;
   p.scale = 0;
+  dropTiles(p);
 }
 
 function buildText(p) {
@@ -1247,7 +1346,10 @@ window.addEventListener("resize", () => {
   if (mode !== "custom" && pages.length)
     setZoom(fit(mode), mode);
 });
-window.addEventListener("scroll", () => updateCurrent(), { passive: true });
+window.addEventListener("scroll", () => {
+  updateCurrent();
+  updateVisibleTiles();
+}, { passive: true });
 window.addEventListener("hashchange", () => {
   const wanted = readHash();
   if (wanted.zoom)

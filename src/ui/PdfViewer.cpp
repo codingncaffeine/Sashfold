@@ -566,6 +566,8 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
         {
             std::lock_guard const lock(handle->mutex);
             ok = document != nullptr && apply_field_post(body, handle->form_values);
+            if (ok)
+                ++handle->form_generation; // drawn tiles of the old values are not reused
         }
         return answer_text(url, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
     }
@@ -653,6 +655,42 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
             if (!picture)
                 return answer(url, "text/plain", {}, 404);
             return answer(url, "image/bmp", encode_bmp(*picture));
+        }
+        if (path.size() == 3 && path[2] == "tile.bmp") {
+            // page/<n>/tile.bmp?scale=&rotate=&col=&row=: one tile of
+            // k_pdf_tile pixels square of the page's picture at a scale too
+            // large to draw whole (any zoom the viewer allows); only the
+            // tile's pixels are drawn, and drawn tiles are kept a while.
+            pdf::RenderOptions options;
+            options.scale = std::clamp(std::atof(query_value(url, "scale").c_str()), 0.05, 256.0);
+            int const rotation = std::atoi(query_value(url, "rotate").c_str());
+            options.extra_rotation = ((rotation % 360) + 360) % 360 / 90 * 90;
+            std::int64_t const column = std::strtoll(query_value(url, "col").c_str(), nullptr, 10);
+            std::int64_t const row = std::strtoll(query_value(url, "row").c_str(), nullptr, 10);
+            std::optional<pdf::PixelRect> const region
+                = pdf::tile_rect(pdf::page_pixel_extent(document->page(index), options.scale, options.extra_rotation), k_pdf_tile, column, row);
+            if (!region)
+                return answer(url, "text/plain", {}, 404);
+            pdf::FormValues values;
+            std::uint64_t generation = 0;
+            {
+                std::lock_guard const lock(handle->mutex);
+                values = handle->form_values;
+                generation = handle->form_generation;
+            }
+            options.form_values = &values;
+            options.fields_shown_by_viewer = true;
+            std::string const key = std::to_string(reinterpret_cast<std::uintptr_t>(document.get())) + "/" + std::to_string(index) + "/"
+                + number(options.scale) + "/" + std::to_string(options.extra_rotation) + "/" + std::to_string(column) + "/"
+                + std::to_string(row) + "/" + std::to_string(generation);
+            if (PdfTileCache::Bytes const kept = handle->tiles.find(key))
+                return answer(url, "image/bmp", *kept);
+            std::optional<Bitmap> const picture = pdf::render_page_region(*document, index, options, *region);
+            if (!picture)
+                return answer(url, "text/plain", {}, 404);
+            auto bytes = std::make_shared<std::vector<std::uint8_t> const>(encode_bmp(*picture));
+            handle->tiles.insert(key, bytes);
+            return answer(url, "image/bmp", *bytes);
         }
         if (path.size() == 3 && path[2] == "text.json") {
             std::string out = "[";

@@ -15,6 +15,7 @@
 #include <array>
 #include <atomic>
 #include <cstddef>
+#include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
@@ -65,5 +66,27 @@ canvas::Transform page_to_device(Page const& page, double scale, int extra_rotat
 std::optional<Bitmap> render_page(Document const& doc, std::size_t index, RenderOptions const& options = {});
 
 inline constexpr std::size_t k_max_render_pixels = 100u * 1024u * 1024u;
+
+// A rectangle of a page's picture at a scale, in its pixels (rotation
+// included), which may be far larger than any bitmap: a zoomed page is
+// drawn a tile at a time.
+struct PixelRect {
+    std::int64_t x = 0;
+    std::int64_t y = 0;
+    int width = 0;
+    int height = 0;
+};
+// The page's whole picture size at a scale, in 64 bits (no bitmap is made).
+struct LargePixelSize {
+    std::int64_t width = 0;
+    std::int64_t height = 0;
+};
+LargePixelSize page_pixel_extent(Page const& page, double scale, int extra_rotation = 0);
+// Tile (column, row) of `tile_size` pixels square over that picture, the
+// last ones cut to its edge; nullopt past the edge or for a bad size.
+std::optional<PixelRect> tile_rect(LargePixelSize page, int tile_size, std::int64_t column, std::int64_t row);
+// Only `region` of the page's picture at options.scale drawn: a bitmap the
+// region's size, whatever the page's.
+std::optional<Bitmap> render_page_region(Document const& doc, std::size_t index, RenderOptions const& options, PixelRect region);
 
 }

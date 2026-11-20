@@ -19,6 +19,7 @@ add_test(NAME test_animated_image COMMAND test_animated_image ${CMAKE_CURRENT_SO
 sashfold_test(test_bmp)
 sashfold_test(test_icc)
 sashfold_test(test_exact_coverage)
+sashfold_test(test_pdf_tiles)
 sashfold_test(test_picture_decodes)
 sashfold_test(test_frames)
 sashfold_test(test_a11y)

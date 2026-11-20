@@ -17,6 +17,7 @@
 #include "pdf/Form.h"
 #include "pdf/FormScript.h"
 #include "platform/Print.h"
+#include "ui/PdfTileCache.h"
 
 #include <cstdint>
 #include <functional>
@@ -44,9 +45,12 @@ struct PdfHandle {
     // over the file's values, and written into the copy they download or
     // print (an incremental update; the file itself is never changed).
     pdf::FormValues form_values;
+    std::uint64_t form_generation = 0; // counts changes of form_values
     // The form's scripts, in a sandbox of their own (pdf/FormScript.h),
     // made at the viewer's first request for them.
     std::shared_ptr<pdf::FormSandbox> scripts;
+    // A zoomed page's tiles already drawn, at most 64 MB of them.
+    PdfTileCache tiles { std::size_t { 64 } << 20 };
 };
 
 // The document's bytes with the reader's form values in them (the file's
@@ -81,5 +85,7 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
     std::vector<std::uint8_t> const& body);
 
 inline constexpr char k_pdf_scheme[] = "sashfold-pdf";
+// The side of a zoomed page's tiles, in device pixels (the viewer page's script asks for them by it).
+inline constexpr int k_pdf_tile = 512;
 
 }

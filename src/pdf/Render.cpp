@@ -12,6 +12,7 @@
 #include <cstdio>
 #include <cstring>
 #include <functional>
+#include <limits>
 #include <string>
 #include <unordered_map>
 
@@ -1204,18 +1205,61 @@ std::vector<TextGlyph> page_glyphs(Document const& doc, std::size_t index, doubl
     return glyphs;
 }
 
+LargePixelSize page_pixel_extent(Page const& page, double scale, int extra_rotation)
+{
+    // As page_pixel_size, in doubles to 64 bits: a page at 6400% is past what an int holds in area.
+    int const rotation = (page.rotate + extra_rotation) % 360;
+    double const w = page.crop_box.width() * page.user_unit * scale;
+    double const h = page.crop_box.height() * page.user_unit * scale;
+    auto const pixels = [](double v) {
+        if (!(v > 0))
+            return std::int64_t { 1 };
+        return std::max<std::int64_t>(1, static_cast<std::int64_t>(std::ceil(std::min(v, 1e15) - 1e-6)));
+    };
+    std::int64_t const pw = pixels(w);
+    std::int64_t const ph = pixels(h);
+    return rotation % 180 == 0 ? LargePixelSize { pw, ph } : LargePixelSize { ph, pw };
+}
+
+std::optional<PixelRect> tile_rect(LargePixelSize page, int tile_size, std::int64_t column, std::int64_t row)
+{
+    if (tile_size <= 0 || column < 0 || row < 0)
+        return std::nullopt;
+    std::int64_t const size = tile_size;
+    if (column > page.width / size || row > page.height / size)
+        return std::nullopt;
+    std::int64_t const x = column * size;
+    std::int64_t const y = row * size;
+    if (x >= page.width || y >= page.height)
+        return std::nullopt;
+    return PixelRect { x, y, static_cast<int>(std::min(size, page.width - x)), static_cast<int>(std::min(size, page.height - y)) };
+}
+
 std::optional<Bitmap> render_page(Document const& doc, std::size_t index, RenderOptions const& options)
 {
     if (index >= doc.page_count())
         return std::nullopt;
-    Page const& page = doc.page(index);
-    PixelSize const size = page_pixel_size(page, options.scale, options.extra_rotation);
-    if (static_cast<std::size_t>(size.width) * static_cast<std::size_t>(size.height) > k_max_render_pixels)
+    LargePixelSize const size = page_pixel_extent(doc.page(index), options.scale, options.extra_rotation);
+    if (size.width > std::numeric_limits<int>::max() || size.height > std::numeric_limits<int>::max())
         return std::nullopt;
-    canvas::Surface surface(size.width, size.height);
+    return render_page_region(doc, index, options, PixelRect { 0, 0, static_cast<int>(size.width), static_cast<int>(size.height) });
+}
+
+std::optional<Bitmap> render_page_region(Document const& doc, std::size_t index, RenderOptions const& options, PixelRect region)
+{
+    if (index >= doc.page_count() || region.width <= 0 || region.height <= 0 || region.x < 0 || region.y < 0)
+        return std::nullopt;
+    Page const& page = doc.page(index);
+    if (static_cast<std::size_t>(region.width) * static_cast<std::size_t>(region.height) > k_max_render_pixels)
+        return std::nullopt;
+    canvas::Surface surface(region.width, region.height);
     std::fill(surface.pixels.begin(), surface.pixels.end(), 255); // paper
+    // The page's transform moved so the region's corner is the bitmap's:
+    // device coordinates stay near the bitmap, however far into the page.
+    canvas::Transform const page_ctm = canvas::Transform { 1, 0, 0, 1, -static_cast<double>(region.x), -static_cast<double>(region.y) }.multiply(
+        page_to_device(page, options.scale, options.extra_rotation));
     Renderer renderer(doc, surface, options);
-    renderer.set_initial_ctm(page_to_device(page, options.scale, options.extra_rotation));
+    renderer.set_initial_ctm(page_ctm);
     Dict const& resources = doc.resolve(page.resources).as_dict();
     Object const contents = doc.resolve(page.dict->get("Contents"));
     // Several content streams are one stream, joined with whitespace.
@@ -1241,7 +1285,6 @@ std::optional<Bitmap> render_page(Document const& doc, std::size_t index, Render
         quiet.scale = options.scale;
         quiet.cancel = options.cancel;
         quiet.extra_rotation = options.extra_rotation;
-        canvas::Transform const page_ctm = page_to_device(page, options.scale, options.extra_rotation);
         for (Object const& annotation_ref : doc.resolve(page.dict->get("Annots")).as_array()) {
             Dict const& annotation = doc.resolve(annotation_ref).as_dict();
             if (annotation.empty())
