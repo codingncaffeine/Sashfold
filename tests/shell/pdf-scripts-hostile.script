@@ -1,0 +1,33 @@
+# A hostile PDF's scripts in the viewer (pdf-scripts-hostile.pdf is
+# forms-js-hostile.pdf of tools/pdf-make-form-tests.py): its document
+# script finds no page, network, storage or timers of the page, and the
+# escape through Function's constructor finds only its own realm; a
+# button whose script never ends is stopped by the time limit while the
+# viewer goes on answering (the zoom changes meanwhile), and the realm
+# answers the next button; a button that takes memory without end ends
+# the document's scripts and nothing else. The page is 400 x 200 at zoom
+# 1.25: a point (x, y) of it is at (200 + 1.25 x, 142 + 1.25 (200 - y)).
+resize 900 700
+open pdf-scripts-hostile.pdf
+advance 600 8
+assert-value field-10-0 fetch!ReferenceError;XMLHttpRequest!ReferenceError;document!ReferenceError;window!ReferenceError;escape=undefined;setTimeout!ReferenceError;localStorage!ReferenceError;launchURL=undefined
+assert-value zoom auto
+click 287 248
+key ctrl+=
+advance 100 2
+assert-value zoom 1.5
+key ctrl+-
+advance 100 2
+assert-value zoom 1.25
+advance 1500 10
+assert-console ran too long and was stopped
+click 437 248
+advance 400 5
+assert-value field-10-0 alive
+# The memory bomb: the document's scripts end, the viewer does not.
+click 587 248
+advance 1500 10
+assert-console used too much memory and were stopped
+key ctrl+=
+advance 100 2
+assert-value zoom 1.5

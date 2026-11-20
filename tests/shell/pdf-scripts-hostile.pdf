@@ -1,0 +1,97 @@
+%PDF-1.7
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R /Names << /JavaScript 50 0 R >> /AcroForm << /Fields [10 0 R 11 0 R 12 0 R 13 0 R] /DR << /Font << /Helv 5 0 R >> >> /DA (/Helv 0 Tf 0 g) >> >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [3 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 200] /Resources << /Font << /Helv 5 0 R >> >> /Contents 4 0 R /Annots [10 0 R 11 0 R 12 0 R 13 0 R] >>
+endobj
+4 0 obj
+<<  /Length 20 >>
+stream
+1 g 0 0 400 200 re f
+endstream
+endobj
+5 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>
+endobj
+10 0 obj
+<< /Type /Annot /Subtype /Widget /FT /Tx /T (probe) /Rect [20 150 380 180] /F 4 /P 3 0 R /MK << /BC [0 0 0] >> /DA (/Helv 10 Tf 0 g)   >>
+endobj
+11 0 obj
+<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (loop) /Rect [20 100 120 130] /F 4 /P 3 0 R /MK << /BC [0 0 0] /CA (Loop) >> /DA (/Helv 0 Tf 0 g) /AA << /U << /S /JavaScript /JS (while \(true\) {}) >> >> >>
+endobj
+12 0 obj
+<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (alive) /Rect [140 100 240 130] /F 4 /P 3 0 R /MK << /BC [0 0 0] /CA (Alive) >> /DA (/Helv 0 Tf 0 g) /AA << /U << /S /JavaScript /JS (this.getField\("probe"\).value = "alive";) >> >> >>
+endobj
+13 0 obj
+<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (bomb) /Rect [260 100 360 130] /F 4 /P 3 0 R /MK << /BC [0 0 0] /CA (Bomb) >> /DA (/Helv 0 Tf 0 g) /AA << /U << /S /JavaScript /JS (var hoard = []; while \(true\) hoard.push\(new Array\(10000\).fill\(hoard.length\)\);) >> >> >>
+endobj
+50 0 obj
+<< /Names [(probe) 51 0 R] >>
+endobj
+51 0 obj
+<< /S /JavaScript /JS (var r = []; function tryIt\(name, f\) { try { var v = f\(\); r.push\(name + "=" + \(v === undefined || v === null ? String\(v\) : typeof v\)\); } catch \(e\) { r.push\(name + "!" + e.name\); } } tryIt\("fetch", function \(\) { return fetch\("http://example.com/"\); }\); tryIt\("XMLHttpRequest", function \(\) { return new XMLHttpRequest\(\); }\); tryIt\("document", function \(\) { return document.cookie; }\); tryIt\("window", function \(\) { return window.location; }\); tryIt\("escape", function \(\) { var g = globalThis.constructor.constructor\("return this"\)\(\); return g.document || g.fetch || g.window || g.XMLHttpRequest; }\); tryIt\("setTimeout", function \(\) { return setTimeout\(function \(\) {}, 0\); }\); tryIt\("localStorage", function \(\) { return localStorage.length; }\); tryIt\("launchURL", function \(\) { return app.launchURL\("http://example.com/", true\); }\); this.getField\("probe"\).value = r.join\(";"\);) >>
+endobj
+xref
+0 52
+0000000000 65535 f 
+0000000015 00000 n 
+0000000205 00000 n 
+0000000262 00000 n 
+0000000428 00000 n 
+0000000499 00000 n 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000596 00000 n 
+0000000750 00000 n 
+0000000980 00000 n 
+0000001237 00000 n 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000000000 00000 f 
+0000001536 00000 n 
+0000001582 00000 n 
+trailer
+<< /Size 52 /Root 1 0 R /ID [<000102030405060708090a0b0c0d0e0f> <000102030405060708090a0b0c0d0e0f>] >>
+startxref
+2562
+%%EOF
