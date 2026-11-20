@@ -1219,8 +1219,17 @@ void test_forms_intl(std::string const& fixtures)
     std::string const text = to_utf8(shown_text(*reopened));
     CHECK(text.find(greek) != std::string::npos);
     CHECK(text.find(han) != std::string::npos);
-    CHECK(text.find(emoji) != std::string::npos);
-    CHECK(text.find("A" + han + emoji) != std::string::npos); // the comb, a glyph a cell
+    // The emoji only where the system has a face for it that can be
+    // embedded (one of bitmaps alone cannot: macOS has no other).
+    if (manager.embeddable_face_for(U'\U0001F600', {}).has_value()) {
+        CHECK(text.find(emoji) != std::string::npos);
+        CHECK(text.find("A" + han + emoji) != std::string::npos); // the comb, a glyph a cell
+        if (text.find(emoji) == std::string::npos)
+            std::cerr << "forms-intl: the text read back is: " << text << "\n";
+    } else {
+        std::puts("forms-intl: no embeddable emoji face here, the emoji's text not checked");
+        CHECK(text.find("A" + han) != std::string::npos); // the comb, a glyph a cell
+    }
     // Arabic as presentation forms in visual order, each glyph's text the
     // letter it was made from: the letters come back, right to left.
     std::u32string const letters = decode_utf8(arabic);
