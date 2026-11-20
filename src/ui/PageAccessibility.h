@@ -18,6 +18,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <unordered_map>
 
 namespace sashfold::layout {
 struct Fragment;
@@ -26,6 +27,8 @@ struct ControlStates;
 
 namespace sashfold::ui {
 
+struct DrawnFrame;
+
 class PageAccessibility {
 public:
     struct Turn {
@@ -33,6 +36,9 @@ public:
         css::StyleMap const* styles = nullptr;
         layout::Fragment const* root = nullptr;
         layout::ControlStates const* controls = nullptr; // the fields' carets and selections
+        // The page's frames as last drawn (ui/Frames.h DrawnFrames): the
+        // live ones' documents join the tree under their frames.
+        std::unordered_map<dom::Element const*, DrawnFrame> const* frames = nullptr;
         // A number that moves whenever the styles or the layout were made
         // again: the tree reads boxes afresh then.
         std::uint64_t layout_generation = 0;

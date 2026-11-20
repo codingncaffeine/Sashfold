@@ -4631,6 +4631,15 @@ struct Browser::Impl {
         }
         return false;
     }
+    static bool frames_hold_anywhere(DrawnFrames const& frames, dom::Element const* wanted)
+    {
+        for (auto const& [element, drawn] : frames) {
+            if (drawn.view && drawn.view->document
+                && (holds_anywhere(*drawn.view->document, wanted) || frames_hold_anywhere(drawn.view->frames, wanted)))
+                return true;
+        }
+        return false;
+    }
 
     // Every turn of the thread the pages are on: each tab's tree brought up
     // to date for the bridge while a tool is there (one atomic read while
@@ -4668,6 +4677,7 @@ struct Browser::Impl {
             turn.styles = &tab.styles;
             turn.root = &tab.layout.root;
             turn.controls = &tab.controls;
+            turn.frames = &tab.frames;
             // The fragments carry the reader's scrolling (settle_scrolls):
             // the boxes are read again when it moves, and are where the
             // content is drawn, so the view's own scroll is none.
@@ -4692,7 +4702,8 @@ struct Browser::Impl {
         // An action may open or close tabs: each is done only where its
         // element is still in the page of the tab at that place.
         for (auto& [index, action] : actions) {
-            if (index >= tabs.size() || !tabs[index].document || !holds_anywhere(*tabs[index].document, action.element))
+            if (index >= tabs.size() || !tabs[index].document
+                || !(holds_anywhere(*tabs[index].document, action.element) || frames_hold_anywhere(tabs[index].frames, action.element)))
                 continue;
             do_accessibility_action(tabs[index], action);
         }

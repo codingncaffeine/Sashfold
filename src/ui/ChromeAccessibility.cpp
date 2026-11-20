@@ -244,15 +244,17 @@ platform::WindowState ChromeAccessibility::build(Browser& browser, bool window_a
                     add(key, menu, Role::Separator, std::string(), c.menus[level].rows[i]);
                     continue;
                 }
-                bool const submenu = label.starts_with('>');
-                if (submenu)
-                    label.erase(0, 1);
-                bool const checked = label.starts_with('*');
-                if (checked)
-                    label.erase(0, 1);
+                // Browser::menu_text: "(label)" disabled, "*" ahead of a
+                // checked one, " >" after one with a submenu.
                 bool const disabled = label.size() >= 2 && label.front() == '(' && label.back() == ')';
                 if (disabled)
                     label = label.substr(1, label.size() - 2);
+                bool const checked = label.starts_with('*');
+                if (checked)
+                    label.erase(0, 1);
+                bool const submenu = label.ends_with(" >");
+                if (submenu)
+                    label.erase(label.size() - 2);
                 a11y::States states = disabled ? bit(State::Disabled) : 0;
                 if (checked)
                     states |= bit(State::Checkable) | bit(State::Checked);

@@ -234,6 +234,10 @@ private:
     void emit_document_events(Doc& doc, std::vector<a11y::Event> const& events);
     void emit_chrome_events(std::shared_ptr<Snapshot const> const& before, std::vector<a11y::Event> const& events);
     void diff_children(Ref const& before_parent, Ref const& after_parent, NodeId parent);
+    // The chrome's node with the focus (0: none of the chrome's has it),
+    // and the focused node of the page in front (its root when none is).
+    NodeId chrome_focus(Snapshot const* chrome) const;
+    NodeId shown_page_focus() const;
 
     Ref find(NodeId id) const;
     Ref find_in(NodeId id, Snapshot const* chrome, std::vector<Doc> const& docs) const;
@@ -691,7 +695,7 @@ atspi::Context AtspiBridge::context_of(Ref const& ref) const
     context.has_text = offers_text(ref);
     context.editable_text = ref.node && has(*ref.node, State::Editable) && ref.node->role != Role::RootWebArea;
     if (ref.doc && ref.node) {
-        context.unrendered = !ref.node->bounds && ref.node->role != Role::RootWebArea;
+        context.unrendered = !window_bounds(ref);
         if (NodeData const* const parent = ref.doc->snapshot->find(ref.node->parent)) {
             context.parent_role = parent->role;
             if (NodeData const* const grandparent = ref.doc->snapshot->find(parent->parent))
@@ -713,6 +717,9 @@ atspi::StateSet AtspiBridge::states_of(Ref const& ref) const
     if (ref.app || !ref.node)
         return 0;
     atspi::StateSet states = atspi::states_of(*ref.node, context_of(ref));
+    // While the chrome has the focus no node of a page has it.
+    if (ref.doc && chrome_focus(m_window.chrome.get()) != 0)
+        states &= ~atspi::bit(atspi::state::focused);
     // A document that is loading is busy.
     if (ref.doc && ref.node->role == Role::RootWebArea && ref.doc->view.loading)
         states |= atspi::bit(atspi::state::busy);
@@ -788,6 +795,9 @@ std::optional<a11y::Rect> AtspiBridge::window_bounds(Ref const& ref) const
     // viewport), as every browser answers for its document object.
     if (ref.doc && ref.node->role == Role::RootWebArea && ref.node->parent == 0)
         return a11y::Rect { m_window.content_x, m_window.content_y, m_window.content_width, m_window.content_height };
+    // A frame's document: its frame's box.
+    if (ref.doc && ref.node->role == Role::RootWebArea && !ref.node->bounds)
+        return window_bounds(find(ref.node->parent));
     if (!ref.node->bounds)
         return std::nullopt;
     a11y::Rect rect = *ref.node->bounds;
@@ -867,6 +877,31 @@ void AtspiBridge::emit(NodeId source, std::string_view interface, std::string_vi
     m_service->emit(path_of(source), std::string(interface), std::string(member), "siiva{sv}", std::move(body));
 }
 
+NodeId AtspiBridge::chrome_focus(Snapshot const* chrome) const
+{
+    if (!chrome)
+        return 0;
+    for (auto const& [id, node] : chrome->nodes) {
+        if (has(*node, State::Focused))
+            return id;
+    }
+    return 0;
+}
+
+NodeId AtspiBridge::shown_page_focus() const
+{
+    for (Doc const& doc : m_docs) {
+        if (!doc.view.shown || !doc.announced || !doc.snapshot)
+            continue;
+        for (auto const& [id, node] : doc.snapshot->nodes) {
+            if (has(*node, State::Focused) && !text_like(*node))
+                return id;
+        }
+        return doc.snapshot->root;
+    }
+    return 0;
+}
+
 void AtspiBridge::take_changes()
 {
     std::vector<std::shared_ptr<AccessibleDocument>> adding;
@@ -889,6 +924,7 @@ void AtspiBridge::take_changes()
         m_window = std::move(*window);
         if (m_window.chrome && !m_window_announced) {
             m_window_announced = true;
+            add_to_cache(m_window.chrome->root);
             emit(app_id, object_events, "ChildrenChanged", "add", 0, 0, dbus::Value::variant(reference_value(m_window.chrome->root)));
             emit(m_window.chrome->root, "org.a11y.atspi.Event.Window", "Create", "", 0, 0, dbus::Value::variant(dbus::Value::int32(0)));
         }
@@ -899,8 +935,21 @@ void AtspiBridge::take_changes()
             if (old_title != m_window.title && before)
                 emit(m_window.chrome->root, object_events, "PropertyChange", "accessible-name", 0, 0, dbus::Value::variant(dbus::Value::string(m_window.title)));
         }
-        if (before && m_window.chrome)
+        if (before && m_window.chrome) {
+            // The focus between the chrome and the page in front: the
+            // page's focused node loses it when the chrome takes it, and
+            // has it again when the chrome lets go.
+            bool const chrome_had = chrome_focus(before.get()) != 0;
+            bool const chrome_has = chrome_focus(m_window.chrome.get()) != 0;
+            NodeId const page_focus = chrome_had != chrome_has ? shown_page_focus() : 0;
+            if (page_focus != 0 && chrome_has)
+                emit(page_focus, object_events, "StateChanged", "focused", 0, 0, dbus::Value::variant(dbus::Value::int32(0)));
             emit_chrome_events(before, window_events);
+            if (page_focus != 0 && !chrome_has) {
+                emit(page_focus, object_events, "StateChanged", "focused", 1, 0, dbus::Value::variant(dbus::Value::int32(0)));
+                emit(page_focus, "org.a11y.atspi.Event.Focus", "Focus", "", 0, 0, dbus::Value::variant(dbus::Value::int32(0)));
+            }
+        }
     }
     // Documents that came: under the content node, said so.
     for (std::shared_ptr<AccessibleDocument>& link : adding) {
@@ -1190,10 +1239,9 @@ void AtspiBridge::emit_chrome_events(std::shared_ptr<Snapshot const> const& befo
         NodeData const* const old = before->find(event.node);
         switch (event.type) {
         case Type::Focus:
-            if (!node)
-                break;
-            emit(event.node, object_events, "StateChanged", "focused", 1, 0, dbus::Value::variant(dbus::Value::int32(0)));
-            emit(event.node, "org.a11y.atspi.Event.Focus", "Focus", "", 0, 0, dbus::Value::variant(dbus::Value::int32(0)));
+            // Its focused state is an event of its own in the list.
+            if (node)
+                emit(event.node, "org.a11y.atspi.Event.Focus", "Focus", "", 0, 0, dbus::Value::variant(dbus::Value::int32(0)));
             break;
         case Type::StateChanged: {
             auto const [name, number] = atspi::state_of_event(event.state, node);
@@ -1202,7 +1250,8 @@ void AtspiBridge::emit_chrome_events(std::shared_ptr<Snapshot const> const& befo
             break;
         }
         case Type::NameChanged:
-            if (node)
+            // The window's own name is its title, said with the window.
+            if (node && event.node != m_window.chrome->root)
                 emit(event.node, object_events, "PropertyChange", "accessible-name", 0, 0, dbus::Value::variant(dbus::Value::string(node->name)));
             break;
         case Type::TextInserted:
