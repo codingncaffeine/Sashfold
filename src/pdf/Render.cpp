@@ -281,6 +281,12 @@ void Renderer::op(std::string const& name, std::vector<Object>& operands, Dict c
             || name == "sc" || name == "SC" || name == "scn" || name == "SCN"))
         return;
     auto const num = [&](std::size_t i) { return i < operands.size() ? operands[i].as_number(0) : 0.0; };
+    // An operand read as a whole number: one no int holds (a fuzzed 3e33, a
+    // NaN) counts as zero, the default of every operator that takes one.
+    auto const whole = [&](std::size_t i) {
+        double const v = num(i);
+        return v >= -2147483648.0 && v <= 2147483647.0 ? static_cast<int>(v) : 0;
+    };
     std::size_t const n = operands.size();
     char const c0 = name.empty() ? 0 : name[0];
     switch (name.size()) {
@@ -304,13 +310,13 @@ void Renderer::op(std::string const& name, std::vector<Object>& operands, Dict c
             return;
         case 'J':
             if (n >= 1) {
-                int const cap = static_cast<int>(num(0));
+                int const cap = whole(0);
                 m_state.cap = cap == 1 ? svg::LineCap::Round : cap == 2 ? svg::LineCap::Square : svg::LineCap::Butt;
             }
             return;
         case 'j':
             if (n >= 1) {
-                int const join = static_cast<int>(num(0));
+                int const join = whole(0);
                 m_state.join = join == 1 ? svg::LineJoin::Round : join == 2 ? svg::LineJoin::Bevel : svg::LineJoin::Miter;
             }
             return;

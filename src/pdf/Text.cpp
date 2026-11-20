@@ -44,7 +44,9 @@ void Renderer::text_operator(std::string const& name, std::vector<Object>& opera
     } else if (name == "Ts") {
         ts.rise = num(0);
     } else if (name == "Tr") {
-        ts.render_mode = static_cast<int>(num(0));
+        // A mode no int holds (a fuzzed 3e33, a NaN) is the default, fill.
+        double const mode = num(0);
+        ts.render_mode = mode >= -2147483648.0 && mode <= 2147483647.0 ? static_cast<int>(mode) : 0;
     } else if (name == "Tf") {
         if (operands.size() >= 2)
             set_font(operands[0].as_name(), num(1), resources);
