@@ -633,6 +633,11 @@ ScriptShaper const& choose_shaper(ScriptCode script, std::uint32_t chosen_gsub_s
         return indic_shaper;
     case script_code('K', 'h', 'm', 'r'):
         return khmer_shaper;
+    case script_code('M', 'y', 'm', 'r'):
+        // The Myanmar model of its specification is for fonts with the
+        // 'mym2' tag; fonts made under 'mymr' (or for no script) expect
+        // the text as it is.
+        return chosen_gsub_script == make_tag('m', 'y', 'm', '2') ? myanmar_shaper : default_shaper;
     default:
         // The Universal Shaping Engine's scripts, when the font knows the
         // script (as for the Indic scripts above).

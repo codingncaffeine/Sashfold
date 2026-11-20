@@ -388,6 +388,10 @@ std::uint32_t opentype_language_tag(std::string_view bcp47)
         { "th", "THA " }, { "ti", "TGY " }, { "tk", "TKM " }, { "tl", "TGL " }, { "tr", "TRK " },
         { "tt", "TAT " }, { "ug", "UYG " }, { "uk", "UKR " }, { "ur", "URD " }, { "uz", "UZB " },
         { "vi", "VIT " }, { "yi", "JII " }, { "yo", "YBA " },
+        // ISO 639-2 and 639-3 codes of languages written in the scripts
+        // with syllable shapers, whose fonts carry their own forms.
+        { "ban", "BAN " }, { "bug", "BUG " }, { "ksw", "KSW " }, { "mni", "MNI " }, { "mnw", "MON " },
+        { "new", "NEW " }, { "sat", "SAT " }, { "shn", "SHN " }, { "su", "SUN " },
     };
     for (Entry const& e : entries) {
         if (primary == e.iso)

@@ -131,6 +131,7 @@ extern ScriptShaper const hangul_shaper;
 extern ScriptShaper const indic_shaper;
 extern ScriptShaper const use_shaper;
 extern ScriptShaper const khmer_shaper;
+extern ScriptShaper const myanmar_shaper;
 
 // Whether the Universal Shaping Engine shapes a script: the scripts of its
 // specification's table (ShaperUse.cpp).
