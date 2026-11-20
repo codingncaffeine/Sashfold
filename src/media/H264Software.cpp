@@ -413,9 +413,9 @@ public:
             return false;
         H264Sps const& sps = *info.sps;
         H264Pps const& pps = *info.pps;
-        // What is written here: frames, fields and MBAFF frames, 4:2:0 at 8
-        // to 14 bits (7.4.2.1.1's range), one slice group.
-        if (sps.chroma_format_idc != 1 || sps.separate_colour_plane || sps.bit_depth_luma < 8 || sps.bit_depth_luma > 14
+        // What is written here: frames, fields and MBAFF frames, 4:2:0 and
+        // 4:2:2 at 8 to 14 bits (7.4.2.1.1's range), one slice group.
+        if ((sps.chroma_format_idc != 1 && sps.chroma_format_idc != 2) || sps.separate_colour_plane || sps.bit_depth_luma < 8 || sps.bit_depth_luma > 14
             || sps.bit_depth_chroma < 8 || sps.bit_depth_chroma > 14 || pps.num_slice_groups != 1 || sps.pic_width_in_mbs <= 0
             || sps.pic_height_in_map_units <= 0 || static_cast<long long>(sps.pic_width_in_mbs) * sps.frame_height_in_mbs() > m_max_macroblocks)
             return false;

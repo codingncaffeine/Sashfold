@@ -78,4 +78,12 @@ PIX=yuv420p10le make hi10-cavlc 176x96 "${x264[@]}" -bf 2 -x264-params "cabac=0:
 PIX=yuv420p10le make hi10-weighted 176x96 "${x264[@]}" -bf 2 -vf "fade=in:0:20" -x264-params "weightp=2:weightb=1:ref=3"
 PIX=yuv420p10le make hi10-low-qp 176x96 -c:v libx264 -crf 2 -g 12 -bf 2 -x264-params "deblock=-2,-1"
 PIX=yuv420p10le woven hi10-mbaff 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1"
+# High 4:2:2: its 2x4 chroma DC, chroma prediction and vectors, and the
+# filtering of its taller chroma, at 8 and 10 bits, with each coder.
+PIX=yuv422p make hi422-cabac 176x96 "${x264[@]}" -bf 2 -x264-params "8x8dct=1:ref=2"
+PIX=yuv422p make hi422-cavlc 176x96 "${x264[@]}" -bf 2 -x264-params "cabac=0:8x8dct=0:partitions=all:subme=7"
+PIX=yuv422p10le make hi422-10-weighted 176x96 "${x264[@]}" -bf 2 -vf "fade=in:0:20" -x264-params "weightp=2:ref=3:8x8dct=1"
+PIX=yuv422p10le make hi422-10-intra 176x96 -c:v libx264 -crf 12 -g 1 -x264-params "keyint=1:cabac=0"
+PIX=yuv422p10le woven hi422-10-mbaff 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1"
+PIX=yuv422p woven hi422-mbaff-cavlc 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1:cabac=0:8x8dct=1"
 ls -la "$out"

@@ -294,7 +294,7 @@ void deblock_macroblock(Frame& frame, int mx, int my)
 namespace {
 
 // The macroblock of MBAFF pair column `px` holding frame row `row` (luma,
-// or chroma with `rows` 16 to a pair), and the row inside it.
+// 32 rows to a pair, or chroma, `rows` to a pair), and the row inside it.
 std::pair<int, int> mbaff_mb_at(Frame const& f, int px, int row, int rows)
 {
     int const pair = (row / rows) * f.mb_width + px, r = row % rows;
@@ -330,7 +330,11 @@ void deblock_mbaff(Frame& frame, int addr)
     bool const field = q.field;
     int const dy = field ? 2 : 1;
     int const x_i = 16 * px, y_i = field ? 32 * py + bottom : 32 * py + 16 * bottom;
-    int const y_p = (y_i + 1) / 2; // chroma
+    // The chroma: 4:2:0's rows are half the luma's, 4:2:2's and 4:4:4's as
+    // many; 4:4:4's chroma is filtered as luma is (8-450).
+    int const format = frame.chroma_format;
+    int const y_p = format == 1 ? (y_i + 1) / 2 : y_i;
+    int const chroma_rows = frame.mb_chroma_height, chroma_pair_rows = 2 * chroma_rows;
     int const mvy_limit = field ? 2 : 4;
     // 8.7, step 2: which macroblock edges are filtered.
     bool const left = px > 0 && (idc != 2 || frame.neighbor(addr, -1, 0, 16, 16, q.slice).addr >= 0);
@@ -373,29 +377,36 @@ void deblock_mbaff(Frame& frame, int addr)
             if (alpha != 0 && beta != 0)
                 filter_line(&luma[static_cast<std::size_t>((y_i + dy * k) * stride + x_i + 4 * e)], 1, b, alpha, beta, index_a, false, shift_y, frame.luma_max);
         }
-        if (e & 1)
+        // Chroma: 4:2:0's and 4:2:2's vertical edges at chroma columns 0
+        // and 4 (luma's 0 and 2), 4:4:4's at luma's.
+        if (format == 0 || (format != 3 && (e & 1)))
             continue;
         for (int c = 0; c < 2; ++c) {
             P* const plane = pic.plane<P>(1 + c);
-            for (int k = 0; k < 8; ++k) {
-                int const luma_line = field ? 2 * k : 4 * (k >> 1) + (k & 1);
+            for (int k = 0; k < chroma_rows; ++k) {
+                // The luma line of the chroma line's own field (8.7.2):
+                // 4:2:0 halves the rows of a field.
+                int const luma_line = format != 1 ? k : (field ? 2 * k : 4 * (k >> 1) + (k & 1));
                 int const b = bs[static_cast<std::size_t>(luma_line)];
                 if (b == 0)
                     continue;
                 int const row = y_p + dy * k;
-                int const p_mb = e == 0 ? mbaff_mb_at(frame, px - 1, row, 16).first : addr;
+                int const p_mb = e == 0 ? mbaff_mb_at(frame, px - 1, row, chroma_pair_rows).first : addr;
                 MbState const& p = frame.mbs[static_cast<std::size_t>(p_mb)];
                 int alpha, beta, index_a;
                 thresholds((p.qpc[static_cast<std::size_t>(c)] + q.qpc[static_cast<std::size_t>(c)] + 1) >> 1, alpha, beta, index_a, true);
+                int const x = format == 3 ? x_i + 4 * e : x_i / 2 + 2 * e;
                 if (alpha != 0 && beta != 0)
-                    filter_line(&plane[static_cast<std::size_t>(row * cstride + x_i / 2 + 2 * e)], 1, b, alpha, beta, index_a, true, shift_c, frame.chroma_max);
+                    filter_line(&plane[static_cast<std::size_t>(row * cstride + x)], 1, b, alpha, beta, index_a, format != 3, shift_c, frame.chroma_max);
             }
         }
     }
 
     // Horizontal edges: each a row of luma (and chroma) samples `step`
     // apart vertically from q0 at row `q_row`, against macroblock `mb_p`.
-    auto horizontal = [&](int e, int q_row, int q_crow, int step, int mb_p, int p_row, bool mb_edge, bool mixed_edge) {
+    // `q_crow` -1: no chroma edge here; `luma_edge` false: a chroma edge
+    // alone (4:2:2's rows 4 and 12 under the 8x8 transform).
+    auto horizontal = [&](int e, int q_row, int q_crow, int step, int mb_p, int p_row, bool mb_edge, bool mixed_edge, bool luma_edge = true) {
         std::array<int, 4> bs {};
         for (int k = 0; k < 4; ++k)
             bs[static_cast<std::size_t>(k)] = strength(frame, mb_p, addr, block_of(mb_p, k, p_row >> 2), base_q + e * bw + k, (p_row >> 2) * 4 + k, e * 4 + k,
@@ -405,7 +416,7 @@ void deblock_mbaff(Frame& frame, int addr)
         MbState const& p = frame.mbs[static_cast<std::size_t>(mb_p)];
         int alpha, beta, index_a;
         thresholds((p.qp + q.qp + 1) >> 1, alpha, beta, index_a, false);
-        if (alpha != 0 && beta != 0) {
+        if (luma_edge && alpha != 0 && beta != 0) {
             for (int i = 0; i < 16; ++i) {
                 int const b = bs[static_cast<std::size_t>(i >> 2)];
                 if (b != 0)
@@ -419,29 +430,45 @@ void deblock_mbaff(Frame& frame, int addr)
             thresholds((p.qpc[static_cast<std::size_t>(c)] + q.qpc[static_cast<std::size_t>(c)] + 1) >> 1, alpha, beta, index_a, true);
             if (alpha == 0 || beta == 0)
                 continue;
-            for (int i = 0; i < 8; ++i) {
-                int const b = bs[static_cast<std::size_t>(i >> 1)];
+            // The chroma samples along the edge: 4:4:4's as luma's, the others' half as many.
+            int const across = format == 3 ? 16 : 8, half = format == 3 ? 2 : 1;
+            int const x = format == 3 ? x_i : x_i / 2;
+            for (int i = 0; i < across; ++i) {
+                int const b = bs[static_cast<std::size_t>(i >> half)];
                 if (b != 0)
-                    filter_line(&plane[static_cast<std::size_t>(q_crow * cstride + x_i / 2 + i)], step * cstride, b, alpha, beta, index_a, true, shift_c,
+                    filter_line(&plane[static_cast<std::size_t>(q_crow * cstride + x + i)], step * cstride, b, alpha, beta, index_a, format != 3, shift_c,
                         frame.chroma_max);
             }
         }
     };
+    int const top_crow = format == 0 ? -1 : y_p;
     if (top) {
         int const above = 2 * (pair - w);
         if (!field && bottom == 0 && frame.mbs[static_cast<std::size_t>(above)].field) {
             // A frame macroblock under a field pair: its rows of each parity against that field's macroblock.
             for (int parity = 0; parity < 2; ++parity)
-                horizontal(0, y_i + parity, y_p + parity, 2, above + parity, 15, true, true);
+                horizontal(0, y_i + parity, top_crow < 0 ? -1 : top_crow + parity, 2, above + parity, 15, true, true);
         } else {
             auto const [p_mb, p_row] = mbaff_mb_at(frame, px, y_i - dy, 32);
-            horizontal(0, y_i, y_p, dy, p_mb, p_row, true, mixed(p_mb));
+            horizontal(0, y_i, top_crow, dy, p_mb, p_row, true, mixed(p_mb));
         }
     }
     for (int e = 1; e < 4; ++e) {
-        if (q.transform_8x8 && (e & 1))
+        bool const luma_edge = !(q.transform_8x8 && (e & 1));
+        // The chroma edge of luma edge e: 4:2:0's at chroma row 4 (e 2),
+        // 4:2:2's at rows 4, 8 and 12 (each e, the 8x8 transform or not),
+        // 4:4:4's as luma's.
+        int crow = -1;
+        if (format == 1 && e == 2)
+            crow = y_p + dy * 4;
+        else if (format == 2 || (format == 3 && luma_edge))
+            crow = y_p + dy * 4 * e;
+        if (!luma_edge) {
+            if (crow >= 0)
+                horizontal(e, y_i + dy * 4 * e, crow, dy, addr, 4 * e - 1, false, false, false);
             continue;
-        horizontal(e, y_i + dy * 4 * e, (e & 1) ? -1 : y_p + dy * 2 * e, dy, addr, 4 * e - 1, false, false);
+        }
+        horizontal(e, y_i + dy * 4 * e, crow, dy, addr, 4 * e - 1, false, false);
     }
 }
 

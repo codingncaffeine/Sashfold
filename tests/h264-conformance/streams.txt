@@ -127,3 +127,11 @@ HCAMFF1_HHI_B     # High, MBAFF, CABAC
 HVLCMFF0_Sony_B   # High, field pictures and MBAFF frames, CAVLC
 HCHP3_HHI_A       # High, field pictures and MBAFF frames, CABAC, hierarchical B
 HPCAMAPALQ_BRCM_B # High, field pictures and MBAFF frames, CABAC, scaling matrices
+# High 4:2:2 (the professional profiles' streams that ship a reconstruction;
+# the others are held to ffmpeg's decoding instead).
+Hi422FR10_SONY_A  # High 4:2:2, 8 bits, CABAC, I
+Hi422FR11_SONY_A  # High 4:2:2, 8 bits, CABAC, I and P
+Hi422FR12_SONY_A  # High 4:2:2, 8 bits, CABAC, I, P and B
+Hi422FR13_SONY_A  # High 4:2:2, 10 bits, CABAC, I
+Hi422FR14_SONY_A  # High 4:2:2, 10 bits, CABAC, I and P
+Hi422FR15_SONY_A  # High 4:2:2, 10 bits, CABAC, I, P and B
