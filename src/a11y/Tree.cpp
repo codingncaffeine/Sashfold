@@ -1158,6 +1158,20 @@ struct Builder {
                     all_cells.push_back(cell_id);
             }
         }
+        // The headers by the columns and rows they cover, so that finding a
+        // cell's is a look at its own column and row.
+        std::unordered_map<int, std::vector<NodeId>> column_headers;
+        std::unordered_map<int, std::vector<NodeId>> row_headers;
+        for (NodeId cell_id : all_cells) {
+            NodeData const& cell = in.next[cell_id];
+            if (cell.role == Role::ColumnHeader) {
+                for (int c = 0; c < cell.column_span; ++c)
+                    column_headers[cell.column_index + c].push_back(cell_id);
+            } else if (cell.role == Role::RowHeader) {
+                for (int r = 0; r < cell.row_span; ++r)
+                    row_headers[cell.row_index + r].push_back(cell_id);
+            }
+        }
         for (NodeId cell_id : all_cells) {
             NodeData& cell = in.next[cell_id];
             auto const& cell_element = static_cast<Element const&>(*cell.dom);
@@ -1169,15 +1183,17 @@ struct Builder {
                 }
                 continue;
             }
-            for (NodeId other_id : all_cells) {
-                if (other_id == cell_id)
-                    continue;
-                NodeData const& other = in.next[other_id];
-                bool const same_column = other.column_index <= cell.column_index && cell.column_index < other.column_index + other.column_span;
-                bool const same_row = other.row_index <= cell.row_index && cell.row_index < other.row_index + other.row_span;
-                if ((other.role == Role::ColumnHeader && same_column && other.row_index < cell.row_index)
-                    || (other.role == Role::RowHeader && same_row && other.column_index < cell.column_index))
-                    cell.header_cells.push_back(other_id);
+            if (auto const found = column_headers.find(cell.column_index); found != column_headers.end()) {
+                for (NodeId header : found->second) {
+                    if (header != cell_id && in.next[header].row_index < cell.row_index)
+                        cell.header_cells.push_back(header);
+                }
+            }
+            if (auto const found = row_headers.find(cell.row_index); found != row_headers.end()) {
+                for (NodeId header : found->second) {
+                    if (header != cell_id && in.next[header].column_index < cell.column_index)
+                        cell.header_cells.push_back(header);
+                }
             }
         }
     }

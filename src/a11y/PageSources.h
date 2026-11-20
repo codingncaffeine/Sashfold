@@ -10,6 +10,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 
 namespace sashfold::layout {
@@ -35,6 +36,7 @@ public:
         m_styles = &styles;
         m_root = root;
         ++m_generation;
+        m_index.reset();
     }
     css::ComputedStyle const* style(dom::Element const&) override;
     std::optional<Rect> box(dom::Element const&) override;
@@ -43,9 +45,16 @@ public:
     std::uint64_t generation() const override { return m_generation; }
 
 private:
+    // Where each element's box and each text node's runs are, found in one
+    // walk of the fragments the first time a box is asked for: a tree of
+    // every node asks for every box, which a walk per question makes
+    // quadratic.
+    struct Index;
+    Index const& index();
     css::StyleMap const* m_styles;
     layout::Fragment const* m_root;
     std::uint64_t m_generation = 1;
+    std::shared_ptr<Index> m_index;
 };
 
 class OracleSource final : public PageSource {
