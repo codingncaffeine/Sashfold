@@ -42,8 +42,10 @@ Harnesses:
   scripts with and without features (seed: the fonts of
   `corpus/truetype/`, or any font file).
 - `pdf.cpp` — the PDF reader's file layer: cross-reference tables and streams,
-  the rebuild, object streams, the security handler, every filter (seeds: a
-  hand-written file and an AES-128 one from tools/pdf-make-encrypted.py).
+  the rebuild, object streams, the security handler, every filter, ICC
+  profiles (seeds: a hand-written file and an AES-128 one from
+  tools/pdf-make-encrypted.py, a page in an ICCBased space, and two synthetic
+  profiles written by `test_icc --dump`).
 - `png.cpp` — the PNG decoder: chunks, filters, interlace, palettes (seed: a
   small render by our own encoder); smoke run in CI.
 - `gif.cpp` — the GIF decoder: blocks, color tables, LZW, interlace (seed:

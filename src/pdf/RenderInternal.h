@@ -54,6 +54,7 @@ struct GraphicsState {
     double fill_alpha = 1;
     double stroke_alpha = 1;
     canvas::Composite blend = canvas::Composite::SourceOver;
+    RenderingIntent intent = RenderingIntent::RelativeColorimetric; // ri, /RI (§8.6.5.8)
     TextState text;
 };
 

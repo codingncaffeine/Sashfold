@@ -9,6 +9,7 @@
 // so a sharp mask over a coarse picture keeps its edge.
 
 #include "paint/Canvas2D.h"
+#include "pdf/ColorSpace.h"
 #include "pdf/Document.h"
 
 #include <optional>
@@ -24,9 +25,10 @@ struct DecodedImage {
 inline constexpr std::size_t k_max_image_pixels = 64u * 1024u * 1024u;
 
 // An image XObject's stream, or an inline image's dictionary (keys
-// expanded already) and data. `resources` resolves a named color space.
+// expanded already) and data. `resources` resolves a named color space;
+// `intent` is the rendering intent the colors go to sRGB by.
 std::optional<DecodedImage> decode_image(Document const& doc, Dict const& dict, ImageBytes const& bytes,
-    Dict const* resources, int depth = 0);
+    Dict const* resources, int depth = 0, RenderingIntent intent = RenderingIntent::RelativeColorimetric);
 
 // The full key for an inline image's abbreviated one ("W" → "Width").
 std::string expand_inline_image_key(std::string const& key);

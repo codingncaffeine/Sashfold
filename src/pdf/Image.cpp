@@ -250,7 +250,7 @@ Object expand_inline_image_value(std::string const& key, Object const& value)
 }
 
 std::optional<DecodedImage> decode_image(Document const& doc, Dict const& dict, ImageBytes const& bytes, Dict const* resources,
-    int depth)
+    int depth, RenderingIntent intent)
 {
     if (depth > 2)
         return std::nullopt;
@@ -343,7 +343,8 @@ std::optional<DecodedImage> decode_image(Document const& doc, Dict const& dict, 
     out.surface = canvas::Surface(width, height);
 
     // A lookup for one component of eight bits or fewer: every possible
-    // sample turned to RGB once. Otherwise per pixel, with the last color kept.
+    // sample turned to RGB once. Otherwise a source row at a time through
+    // the space's conversion of many colors (a profile's fast transform).
     bool const lookup = comps == 1 && raw.bits <= 8;
     std::vector<std::array<std::uint8_t, 3>> table;
     if (lookup) {
@@ -351,42 +352,49 @@ std::optional<DecodedImage> decode_image(Document const& doc, Dict const& dict, 
         for (std::size_t v = 0; v < table.size(); ++v) {
             float const in = lows[0] + static_cast<float>(v) / max * (highs[0] - lows[0]);
             float rgb[3];
-            space->to_rgb(&in, rgb);
+            space->to_rgb_by(&in, rgb, intent);
             for (int k = 0; k < 3; ++k)
-                table[v][static_cast<std::size_t>(k)] = static_cast<std::uint8_t>(std::lround(rgb[k] * 255));
+                table[v][static_cast<std::size_t>(k)] = static_cast<std::uint8_t>(std::lround(std::clamp(rgb[k], 0.0f, 1.0f) * 255));
         }
     }
-    bool const plain_rgb = space->family() == ColorSpace::Family::RGB && raw.bits == 8 && lows[0] == 0 && highs[0] == 1
+    bool const plain_rgb = space.get() == ColorSpace::device_rgb().get() && raw.bits == 8 && lows[0] == 0 && highs[0] == 1
         && lows[1] == 0 && highs[1] == 1 && lows[2] == 0 && highs[2] == 1;
-    std::array<unsigned, 32> last_raw {};
-    std::array<std::uint8_t, 3> last_rgb {};
-    bool have_last = false;
+    std::size_t const row_width = static_cast<std::size_t>(raw.width);
+    std::vector<float> row_in;
+    std::vector<std::uint8_t> row_rgb;
+    if (!lookup && !plain_rgb) {
+        row_in.resize(row_width * static_cast<std::size_t>(comps));
+        row_rgb.resize(row_width * 3);
+    }
+    int converted_row = -1;
     for (int y = 0; y < height; ++y) {
         int const sy = height == raw.height ? y : std::min(raw.height - 1, static_cast<int>(static_cast<long long>(y) * raw.height / height));
+        if (!lookup && !plain_rgb && sy != converted_row) {
+            for (int sx = 0; sx < raw.width; ++sx) {
+                float* const in = row_in.data() + static_cast<std::size_t>(sx) * static_cast<std::size_t>(comps);
+                for (int c = 0; c < comps; ++c) {
+                    auto const cc = static_cast<std::size_t>(c);
+                    in[c] = lows[cc] + static_cast<float>(raw.at(sx, sy, c)) / max * (highs[cc] - lows[cc]);
+                }
+            }
+            space->to_rgb8(row_in.data(), row_width, row_rgb.data(), intent);
+            converted_row = sy;
+        }
         for (int x = 0; x < width; ++x) {
             int const sx = width == raw.width ? x : std::min(raw.width - 1, static_cast<int>(static_cast<long long>(x) * raw.width / width));
             std::array<std::uint8_t, 3> rgb {};
             std::array<unsigned, 32> values {};
-            for (int c = 0; c < comps; ++c)
-                values[static_cast<std::size_t>(c)] = raw.at(sx, sy, c);
+            if (lookup || plain_rgb || !color_key.empty()) {
+                for (int c = 0; c < comps; ++c)
+                    values[static_cast<std::size_t>(c)] = raw.at(sx, sy, c);
+            }
             if (lookup) {
                 rgb = table[values[0]];
             } else if (plain_rgb) {
                 rgb = { static_cast<std::uint8_t>(values[0]), static_cast<std::uint8_t>(values[1]), static_cast<std::uint8_t>(values[2]) };
-            } else if (have_last && std::equal(values.begin(), values.begin() + comps, last_raw.begin())) {
-                rgb = last_rgb;
             } else {
-                std::array<float, 32> in {};
-                for (int c = 0; c < comps; ++c)
-                    in[static_cast<std::size_t>(c)] = lows[static_cast<std::size_t>(c)]
-                        + static_cast<float>(values[static_cast<std::size_t>(c)]) / max * (highs[static_cast<std::size_t>(c)] - lows[static_cast<std::size_t>(c)]);
-                float out_rgb[3];
-                space->to_rgb(in.data(), out_rgb);
-                for (int k = 0; k < 3; ++k)
-                    rgb[static_cast<std::size_t>(k)] = static_cast<std::uint8_t>(std::lround(std::clamp(out_rgb[k], 0.0f, 1.0f) * 255));
-                last_raw = values;
-                last_rgb = rgb;
-                have_last = true;
+                std::uint8_t const* const p = row_rgb.data() + static_cast<std::size_t>(sx) * 3;
+                rgb = { p[0], p[1], p[2] };
             }
             int alpha = 255;
             if (!color_key.empty()) {
@@ -404,7 +412,7 @@ std::optional<DecodedImage> decode_image(Document const& doc, Dict const& dict, 
                     // The colors were premultiplied against the matte: undo it.
                     float a = static_cast<float>(alpha) / 255;
                     float matte_rgb[3] = { 0, 0, 0 };
-                    space->to_rgb(mask->matte.data(), matte_rgb);
+                    space->to_rgb_by(mask->matte.data(), matte_rgb, intent);
                     for (int k = 0; k < 3; ++k) {
                         float const c = static_cast<float>(rgb[static_cast<std::size_t>(k)]) / 255;
                         float const unmatted = matte_rgb[k] + (c - matte_rgb[k]) / a;

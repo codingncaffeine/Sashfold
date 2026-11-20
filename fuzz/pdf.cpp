@@ -3,9 +3,11 @@
 // streams, the security handler), then every page's resources and content
 // streams resolved and decoded and the page drawn small; and the raw bytes
 // alone through each filter, the CCITT fax decoder in each of its modes,
-// the JBIG2 and JPEG 2000 decoders, the Type 1 font reader and the CMap parser.
+// the JBIG2 and JPEG 2000 decoders, the ICC profile reader and its
+// transforms, the Type 1 font reader and the CMap parser.
 // No crash, no hang, no sanitizer finding.
 
+#include "paint/Icc.h"
 #include "pdf/CMap.h"
 #include "pdf/Document.h"
 #include "pdf/Filters.h"
@@ -34,6 +36,18 @@ extern "C" int LLVMFuzzerTestOneInput(std::uint8_t const* data, std::size_t size
         }
     }
     (void)sashfold::pdf::decode_jpx(input, 1u << 20);
+    // The bytes as an ICC profile (an ICCBased stream), through every intent.
+    if (auto const profile = sashfold::icc::Profile::parse(input)) {
+        float const values[8] = { 0, 0.25f, 0.5f, 0.75f, 1, 0.1f, 0.9f, 0.4f };
+        for (int intent = 0; intent < 4; ++intent) {
+            if (auto const transform = profile->transform(static_cast<sashfold::icc::Intent>(intent))) {
+                std::uint8_t rgb[6];
+                transform->to_srgb8(values, 2, rgb);
+                float one[3];
+                transform->to_srgb(values + 4, one);
+            }
+        }
+    }
     // JBIG2: the bytes as the page's stream, and as the globals before a
     // page stream made of them again.
     (void)sashfold::pdf::decode_jbig2(input, {}, 97, 64);

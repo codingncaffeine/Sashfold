@@ -265,24 +265,24 @@ void parse_mesh(Document const& doc, Stream const& stream, Shading& shading)
     }
 }
 
-std::array<float, 3> to_rgb_values(Shading const& shading, float const* values)
+std::array<float, 3> to_rgb_values(Shading const& shading, float const* values, RenderingIntent intent)
 {
     std::array<float, 3> rgb {};
-    shading.rgb_of(values, rgb.data());
+    shading.rgb_of(values, rgb.data(), intent);
     return rgb;
 }
 
 } // namespace
 
-void Shading::rgb_of(float const* values, float* rgb) const
+void Shading::rgb_of(float const* values, float* rgb, RenderingIntent intent) const
 {
     if (function) {
         std::array<float, 32> out {};
         function->evaluate(values, out.data());
-        space->to_rgb(out.data(), rgb);
+        space->to_rgb_by(out.data(), rgb, intent);
         return;
     }
-    space->to_rgb(values, rgb);
+    space->to_rgb_by(values, rgb, intent);
 }
 
 std::shared_ptr<Shading const> parse_shading(Document const& doc, Object const& object_in, Dict const* resources)
@@ -351,7 +351,7 @@ std::shared_ptr<Shading const> parse_shading(Document const& doc, Object const& 
 }
 
 void paint_shading(canvas::Surface& layer, Shading const& shading, canvas::Transform const& to_device, std::array<int, 4> area,
-    bool use_background)
+    bool use_background, RenderingIntent intent)
 {
     int const x0 = std::max(0, area[0]);
     int const y0 = std::max(0, area[1]);
@@ -380,7 +380,7 @@ void paint_shading(canvas::Surface& layer, Shading const& shading, canvas::Trans
     std::array<float, 3> background_rgb {};
     bool const fill_background = use_background && shading.background;
     if (fill_background)
-        shading.space->to_rgb(shading.background->data(), background_rgb.data());
+        shading.space->to_rgb_by(shading.background->data(), background_rgb.data(), intent);
     auto const in_bbox = [&](DPoint p) {
         if (!shading.bbox)
             return true;
@@ -397,7 +397,7 @@ void paint_shading(canvas::Surface& layer, Shading const& shading, canvas::Trans
             float const t = static_cast<float>(shading.domain[0] + (shading.domain[1] - shading.domain[0]) * i / (k_colors - 1));
             std::array<float, 32> out {};
             sampled.evaluate(t, out.data());
-            shading.space->to_rgb(out.data(), colors[static_cast<std::size_t>(i)].data());
+            shading.space->to_rgb_by(out.data(), colors[static_cast<std::size_t>(i)].data(), intent);
         }
         auto const color_at = [&](double s) { return colors[static_cast<std::size_t>(std::clamp(static_cast<int>(std::lround(s * (k_colors - 1))), 0, k_colors - 1))]; };
         auto const& c = shading.coords;
@@ -498,7 +498,7 @@ void paint_shading(canvas::Surface& layer, Shading const& shading, canvas::Trans
                 if (in[0] != last_in[0] || in[1] != last_in[1]) {
                     std::array<float, 32> out {};
                     shading.function->evaluate(in, out.data());
-                    shading.space->to_rgb(out.data(), last_rgb.data());
+                    shading.space->to_rgb_by(out.data(), last_rgb.data(), intent);
                     last_in[0] = in[0];
                     last_in[1] = in[1];
                 }
@@ -543,7 +543,7 @@ void paint_shading(canvas::Surface& layer, Shading const& shading, canvas::Trans
                     values_at[kk] = static_cast<float>(w0 * static_cast<double>(v[0]->color[kk]) + w1 * static_cast<double>(v[1]->color[kk])
                         + w2 * static_cast<double>(v[2]->color[kk]));
                 }
-                std::array<float, 3> const rgb = to_rgb_values(shading, values_at.data());
+                std::array<float, 3> const rgb = to_rgb_values(shading, values_at.data(), intent);
                 put(x, y, rgb.data());
             }
         }

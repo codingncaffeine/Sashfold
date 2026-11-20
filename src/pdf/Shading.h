@@ -41,7 +41,7 @@ struct Shading {
 
     int color_values() const { return function ? 1 : space->components(); }
     // sRGB of a point's color values (or t through the function).
-    void rgb_of(float const* values, float* rgb) const;
+    void rgb_of(float const* values, float* rgb, RenderingIntent intent = RenderingIntent::RelativeColorimetric) const;
 };
 
 std::shared_ptr<Shading const> parse_shading(Document const& doc, Object const& object, Dict const* resources);
@@ -51,6 +51,6 @@ std::shared_ptr<Shading const> parse_shading(Document const& doc, Object const& 
 // pixels), shading space mapped by `to_device`. `use_background` fills
 // what the shading leaves with its /Background, as a pattern does.
 void paint_shading(canvas::Surface& layer, Shading const& shading, canvas::Transform const& to_device,
-    std::array<int, 4> area, bool use_background);
+    std::array<int, 4> area, bool use_background, RenderingIntent intent = RenderingIntent::RelativeColorimetric);
 
 }

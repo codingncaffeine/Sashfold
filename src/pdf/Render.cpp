@@ -59,11 +59,11 @@ std::optional<canvas::Composite> blend_of(Document const& doc, Object const& obj
     return it->second;
 }
 
-Color to_color(PaintColor const& color)
+Color to_color(PaintColor const& color, RenderingIntent intent)
 {
     float rgb[3] = { 0, 0, 0 };
     if (color.space)
-        color.space->to_rgb(color.components.data(), rgb);
+        color.space->to_rgb_by(color.components.data(), rgb, intent);
     return Color::rgb(static_cast<std::uint8_t>(std::lround(std::clamp(rgb[0], 0.0f, 1.0f) * 255)),
         static_cast<std::uint8_t>(std::lround(std::clamp(rgb[1], 0.0f, 1.0f) * 255)),
         static_cast<std::uint8_t>(std::lround(std::clamp(rgb[2], 0.0f, 1.0f) * 255)));
@@ -492,8 +492,11 @@ void Renderer::op(std::string const& name, std::vector<Object>& operands, Dict c
             }
             return;
         }
-        if (name == "ri")
+        if (name == "ri") {
+            if (n >= 1)
+                m_state.intent = rendering_intent(operands[0].as_name());
             return;
+        }
         if (name == "CS") {
             if (n >= 1)
                 set_color_space(m_state.stroke, operands[0], resources);
@@ -662,7 +665,7 @@ void Renderer::paint_coverage(svg::Mask const& coverage, PaintColor const& color
         return;
     }
     canvas::Style style;
-    style.color = to_color(color);
+    style.color = to_color(color, m_state.intent);
     canvas::DrawState state = draw_state(alpha);
     state.transform = canvas::Transform {};
     canvas::paint_mask(*m_surface, coverage, style, state);
@@ -691,7 +694,7 @@ void Renderer::paint_pattern(svg::Mask const& coverage, PaintColor const& color,
         std::shared_ptr<Shading const> const shading = parse_shading(m_doc, dict.get("Shading"), nullptr);
         if (!shading)
             return;
-        paint_shading(layer, *shading, placement, mask_area(coverage), true);
+        paint_shading(layer, *shading, placement, mask_area(coverage), true, m_state.intent);
     } else if (type == 1) {
         Stream const* const stream = pattern.as_stream();
         if (!stream || m_depth >= k_max_form_depth)
@@ -745,7 +748,7 @@ void Renderer::paint_pattern(svg::Mask const& coverage, PaintColor const& color,
             PaintColor base;
             base.space = color.space->pattern_base();
             base.components = color.components;
-            Color const c = base.space ? to_color(base) : Color::rgb(0, 0, 0);
+            Color const c = base.space ? to_color(base, m_state.intent) : Color::rgb(0, 0, 0);
             for (std::size_t i = 0; i + 3 < tile.pixels.size(); i += 4) {
                 unsigned const a = tile.pixels[i + 3];
                 tile.pixels[i] = static_cast<std::uint8_t>((c.r * a + 127) / 255);
@@ -786,7 +789,7 @@ void Renderer::shade(std::string const& name, Dict const& resources)
     if (!shading)
         return;
     canvas::Surface layer(m_surface->width, m_surface->height);
-    paint_shading(layer, *shading, m_state.ctm, { 0, 0, m_surface->width, m_surface->height }, false);
+    paint_shading(layer, *shading, m_state.ctm, { 0, 0, m_surface->width, m_surface->height }, false, m_state.intent);
     composite_layer(layer, m_state.fill_alpha, m_state.blend, effective_clip());
 }
 
@@ -849,6 +852,9 @@ void Renderer::set_extgstate(Dict const& gs, Dict const& resources)
         } else if (key == "BM") {
             if (auto const blend = blend_of(m_doc, value))
                 m_state.blend = *blend;
+        } else if (key == "RI") {
+            if (value.is_name())
+                m_state.intent = rendering_intent(value.as_name());
         } else if (key == "SMask") {
             if (!m_options.draw)
                 continue;
@@ -1029,7 +1035,10 @@ void Renderer::draw_image(Dict const& dict, ImageBytes const& bytes, Dict const&
         return;
     if (dict.has("OC") && !content_visible(dict.get("OC")))
         return;
-    std::optional<DecodedImage> image = decode_image(m_doc, dict, bytes, &resources);
+    // An image's own /Intent, else the graphics state's (§8.6.5.8).
+    Object const own_intent = m_doc.resolve(dict.get("Intent"));
+    RenderingIntent const intent = own_intent.is_name() ? rendering_intent(own_intent.as_name()) : m_state.intent;
+    std::optional<DecodedImage> image = decode_image(m_doc, dict, bytes, &resources, 0, intent);
     if (!image || image->surface.width <= 0 || image->surface.height <= 0)
         return;
     int const w = image->surface.width;
@@ -1059,7 +1068,7 @@ void Renderer::draw_image(Dict const& dict, ImageBytes const& bytes, Dict const&
             paint_pattern(coverage, m_state.fill, m_state.fill_alpha);
             return;
         }
-        Color const c = to_color(m_state.fill);
+        Color const c = to_color(m_state.fill, m_state.intent);
         for (std::size_t i = 0; i + 3 < image->surface.pixels.size(); i += 4) {
             unsigned const a = image->surface.pixels[i + 3];
             image->surface.pixels[i] = static_cast<std::uint8_t>((c.r * a + 127) / 255);

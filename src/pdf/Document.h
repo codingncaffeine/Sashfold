@@ -23,6 +23,10 @@
 #include <string>
 #include <vector>
 
+namespace sashfold::icc {
+class Profile;
+}
+
 namespace sashfold::pdf {
 
 class Font;
@@ -104,6 +108,11 @@ public:
     // and shared by every render (defined in Font.cpp).
     std::shared_ptr<Font const> font(Object const& font) const;
 
+    // An ICCBased stream's profile (or a reference to the stream) parsed
+    // once per reference and shared by every render (defined in
+    // ColorSpace.cpp); null when it cannot be used.
+    std::shared_ptr<icc::Profile const> icc_profile(Object const& stream) const;
+
     struct Entry {
         enum class Type : std::uint8_t { Free, Offset, Compressed };
         Type type = Type::Free;
@@ -155,6 +164,8 @@ private:
     mutable std::map<int, std::shared_ptr<ObjectStream const>> m_object_streams;
     mutable std::mutex m_font_mutex;
     mutable std::map<Ref, std::shared_ptr<Font const>> m_fonts;
+    mutable std::mutex m_icc_mutex;
+    mutable std::map<Ref, std::shared_ptr<icc::Profile const>> m_icc_profiles;
 };
 
 }

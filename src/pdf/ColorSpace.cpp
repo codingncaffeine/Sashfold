@@ -60,38 +60,29 @@ class Lab final : public ColorSpace {
 public:
     std::array<float, 3> white { 0.9505f, 1.0f, 1.089f };
     std::array<float, 4> range { -100, 100, -100, 100 };
+    icc::Mat3 to_pcs = icc::bradford({ 0.9505, 1.0, 1.089 }, icc::k_d50);
 
     Lab()
     {
         m_family = Family::Lab;
         m_components = 3;
     }
+    void set_white(std::array<float, 3> const& w)
+    {
+        white = w;
+        to_pcs = icc::bradford({ static_cast<double>(w[0]), static_cast<double>(w[1]), static_cast<double>(w[2]) }, icc::k_d50);
+    }
     void to_rgb(float const* in, float* rgb) const override
     {
-        float const l = std::clamp(in[0], 0.0f, 100.0f);
-        float const a = std::clamp(in[1], range[0], range[1]);
-        float const b = std::clamp(in[2], range[2], range[3]);
-        float const m = (l + 16) / 116;
-        float const fl = m + a / 500;
-        float const fn = m - b / 200;
-        auto const g = [](float x) { return x >= 6.0f / 29 ? x * x * x : 108.0f / 841 * (x - 4.0f / 29); };
-        float const x = white[0] * g(fl);
-        float const y = white[1] * g(m);
-        float const z = white[2] * g(fn);
-        // XYZ (scaled to D65 by the white point's ratio, a von Kries-style
-        // adaptation on the diagonal) to linear sRGB, then the sRGB curve.
-        float const xs = x * 0.9505f / white[0];
-        float const ys = y * 1.0f / white[1];
-        float const zs = z * 1.089f / white[2];
-        float const lin[3] = {
-            3.2406f * xs - 1.5372f * ys - 0.4986f * zs,
-            -0.9689f * xs + 1.8758f * ys + 0.0415f * zs,
-            0.0557f * xs - 0.2040f * ys + 1.0570f * zs,
-        };
-        for (int i = 0; i < 3; ++i) {
-            float const v = clamp01(lin[i]);
-            rgb[i] = v <= 0.0031308f ? 12.92f * v : 1.055f * std::pow(v, 1 / 2.4f) - 0.055f;
-        }
+        // §8.6.5.4: CIELAB relative to the space's white, which is adapted
+        // to the D50 PCS by Bradford (as a profile's white is), then sRGB.
+        double const l = static_cast<double>(std::clamp(in[0], 0.0f, 100.0f));
+        double const a = static_cast<double>(std::clamp(in[1], range[0], range[1]));
+        double const b = static_cast<double>(std::clamp(in[2], range[2], range[3]));
+        icc::Vec3 const xyz = icc::lab_to_xyz({ l, a, b }, { static_cast<double>(white[0]), static_cast<double>(white[1]), static_cast<double>(white[2]) });
+        icc::Vec3 const linear = icc::pcs_to_linear_srgb(icc::transform_by(to_pcs, xyz));
+        for (std::size_t i = 0; i < 3; ++i)
+            rgb[i] = static_cast<float>(icc::srgb_encode(linear[i]));
     }
     void initial_color(float* out) const override
     {
@@ -111,11 +102,96 @@ public:
     }
 };
 
+// ICCBased (§8.6.5.5): the profile by the intent, components kept to /Range.
+class IccBased final : public ColorSpace {
+public:
+    std::shared_ptr<icc::Profile const> profile;
+    std::array<float, 32> range_low {};
+    std::array<float, 32> range_high {};
+
+    IccBased(int n, bool lab)
+    {
+        m_family = lab ? Family::Lab : n == 1 ? Family::Gray : n == 3 ? Family::RGB : Family::CMYK;
+        m_components = n;
+        for (std::size_t i = 0; i < 32; ++i)
+            range_high[i] = 1;
+    }
+    void to_rgb(float const* in, float* rgb) const override { to_rgb_by(in, rgb, RenderingIntent::RelativeColorimetric); }
+    void to_rgb_by(float const* in, float* rgb, RenderingIntent intent) const override
+    {
+        std::array<float, 32> kept {};
+        keep(in, kept.data());
+        if (auto const t = profile->transform(intent)) {
+            t->to_srgb(kept.data(), rgb);
+            return;
+        }
+        rgb[0] = rgb[1] = rgb[2] = 0;
+    }
+    void to_rgb8(float const* in, std::size_t count, std::uint8_t* rgb, RenderingIntent intent) const override
+    {
+        auto const t = profile->transform(intent);
+        if (!t) {
+            ColorSpace::to_rgb8(in, count, rgb, intent);
+            return;
+        }
+        // Kept to the range in chunks, then the whole run through the transform.
+        std::size_t const n = static_cast<std::size_t>(m_components);
+        std::array<float, 1024> kept;
+        std::size_t const per = kept.size() / n;
+        for (std::size_t start = 0; start < count; start += per) {
+            std::size_t const run = std::min(per, count - start);
+            for (std::size_t i = 0; i < run; ++i)
+                keep(in + (start + i) * n, kept.data() + i * n);
+            t->to_srgb8(kept.data(), run, rgb + start * 3);
+        }
+    }
+    void initial_color(float* out) const override
+    {
+        // Every component 0, kept within the range (§8.6.5.5).
+        for (std::size_t i = 0; i < static_cast<std::size_t>(m_components); ++i)
+            out[i] = std::clamp(0.0f, range_low[i], range_high[i]);
+    }
+    void default_decode(int, int index, float& low, float& high) const override
+    {
+        // Table 90: an ICCBased image's default /Decode is its /Range.
+        low = range_low[static_cast<std::size_t>(index)];
+        high = range_high[static_cast<std::size_t>(index)];
+    }
+
+private:
+    void keep(float const* in, float* out) const
+    {
+        for (std::size_t i = 0; i < static_cast<std::size_t>(m_components); ++i) {
+            float const v = std::isfinite(in[i]) ? in[i] : 0.0f;
+            out[i] = std::clamp(v, range_low[i], range_high[i]);
+        }
+    }
+};
+
+// CalGray and CalRGB (§8.6.5.2, §8.6.5.3): each a gamma per component and a
+// matrix to XYZ under the space's white, which is adapted to D50.
+class Calibrated final : public ColorSpace {
+public:
+    std::shared_ptr<icc::Transform const> transform;
+
+    explicit Calibrated(int n)
+    {
+        m_family = n == 1 ? Family::Gray : Family::RGB;
+        m_components = n;
+    }
+    void to_rgb(float const* in, float* rgb) const override { transform->to_srgb(in, rgb); }
+    void to_rgb8(float const* in, std::size_t count, std::uint8_t* rgb, RenderingIntent) const override
+    {
+        transform->to_srgb8(in, count, rgb);
+    }
+};
+
 class Indexed final : public ColorSpace {
 public:
     std::shared_ptr<ColorSpace const> base;
     int hival = 0;
-    std::vector<float> rgb_table; // (hival + 1) * 3, the lookup already converted
+    std::vector<float> rgb_table; // (hival + 1) * 3, the lookup already converted by the default intent
+    std::vector<float> base_values; // (hival + 1) * the base's components, for other intents
 
     Indexed()
     {
@@ -128,6 +204,15 @@ public:
         rgb[0] = rgb_table[static_cast<std::size_t>(index) * 3];
         rgb[1] = rgb_table[static_cast<std::size_t>(index) * 3 + 1];
         rgb[2] = rgb_table[static_cast<std::size_t>(index) * 3 + 2];
+    }
+    void to_rgb_by(float const* in, float* rgb, RenderingIntent intent) const override
+    {
+        if (intent == RenderingIntent::RelativeColorimetric) {
+            to_rgb(in, rgb);
+            return;
+        }
+        int const index = std::clamp(static_cast<int>(std::lround(in[0])), 0, hival);
+        base->to_rgb_by(base_values.data() + static_cast<std::size_t>(index) * static_cast<std::size_t>(base->components()), rgb, intent);
     }
     void default_decode(int bits, int, float& low, float& high) const override
     {
@@ -144,7 +229,8 @@ public:
     std::shared_ptr<Function const> transform;
     bool all = false; // Separation /All: every colorant, so the tint is a gray's opposite
 
-    void to_rgb(float const* in, float* rgb) const override
+    void to_rgb(float const* in, float* rgb) const override { to_rgb_by(in, rgb, RenderingIntent::RelativeColorimetric); }
+    void to_rgb_by(float const* in, float* rgb, RenderingIntent intent) const override
     {
         if (all) {
             float const v = 1 - clamp01(in[0]);
@@ -156,7 +242,7 @@ public:
             transform->evaluate(in, out.data());
         }
         if (alternate && transform && transform->outputs() >= alternate->components()) {
-            alternate->to_rgb(out.data(), rgb);
+            alternate->to_rgb_by(out.data(), rgb, intent);
             return;
         }
         // No usable transform: show the tint as a gray, as viewers do.
@@ -182,6 +268,43 @@ public:
 };
 
 } // namespace
+
+RenderingIntent rendering_intent(std::string const& name)
+{
+    if (name == "Perceptual")
+        return RenderingIntent::Perceptual;
+    if (name == "Saturation")
+        return RenderingIntent::Saturation;
+    if (name == "AbsoluteColorimetric")
+        return RenderingIntent::AbsoluteColorimetric;
+    return RenderingIntent::RelativeColorimetric;
+}
+
+void ColorSpace::to_rgb_by(float const* in, float* rgb, RenderingIntent) const
+{
+    to_rgb(in, rgb);
+}
+
+void ColorSpace::to_rgb8(float const* in, std::size_t count, std::uint8_t* rgb, RenderingIntent intent) const
+{
+    // One color at a time, the last one kept: pictures repeat their colors.
+    std::size_t const n = static_cast<std::size_t>(m_components);
+    std::array<float, 32> last {};
+    std::array<std::uint8_t, 3> last_rgb {};
+    bool have_last = false;
+    for (std::size_t i = 0; i < count; ++i) {
+        float const* px = in + i * n;
+        if (!have_last || !std::equal(px, px + n, last.begin())) {
+            float out[3];
+            to_rgb_by(px, out, intent);
+            for (std::size_t k = 0; k < 3; ++k)
+                last_rgb[k] = static_cast<std::uint8_t>(std::lround(clamp01(out[k]) * 255));
+            std::copy(px, px + n, last.begin());
+            have_last = true;
+        }
+        std::copy(last_rgb.begin(), last_rgb.end(), rgb + i * 3);
+    }
+}
 
 void ColorSpace::initial_color(float* out) const
 {
@@ -259,6 +382,57 @@ void cmyk_to_rgb(float c, float m, float y, float k, float* rgb)
 
 class ColorSpaceParser {
 public:
+    // CalGray or CalRGB from its dictionary; null without a usable white point.
+    static std::shared_ptr<ColorSpace const> calibrated(Document const& doc, Dict const& dict, int n)
+    {
+        auto const numbers = [&](char const* key, std::size_t count, double fallback) {
+            std::array<double, 9> out {};
+            out.fill(fallback);
+            Object const value = doc.resolve(dict.get(key));
+            if (count == 1 && value.is_number()) {
+                out[0] = value.as_number(fallback);
+            } else {
+                Array const& list = value.as_array();
+                if (list.size() == count) {
+                    for (std::size_t i = 0; i < count; ++i)
+                        out[i] = doc.resolve(list[i]).as_number(fallback);
+                }
+            }
+            for (double& v : out)
+                v = std::isfinite(v) ? v : fallback;
+            return out;
+        };
+        auto const w = numbers("WhitePoint", 3, -1);
+        icc::Vec3 const white { w[0], w[1], w[2] };
+        if (!(white[0] > 0 && white[1] > 0 && white[2] > 0))
+            return nullptr;
+        auto const b = numbers("BlackPoint", 3, 0);
+        icc::Vec3 black { std::max(0.0, b[0]), std::max(0.0, b[1]), std::max(0.0, b[2]) };
+        auto const gamma = numbers("Gamma", static_cast<std::size_t>(n), 1);
+        std::vector<icc::Curve> curves;
+        for (std::size_t i = 0; i < static_cast<std::size_t>(n); ++i)
+            curves.push_back(icc::Curve::gamma(gamma[i] > 0 ? gamma[i] : 1));
+        // XYZ under the space's white: CalGray's is the white times A^G;
+        // CalRGB's /Matrix lists the columns X Y Z of A, then B, then C.
+        icc::Mat3 m {};
+        if (n == 1) {
+            m = { white[0], 0, 0, white[1], 0, 0, white[2], 0, 0 };
+        } else {
+            auto const matrix = numbers("Matrix", 9, 0);
+            bool const given = doc.resolve(dict.get("Matrix")).as_array().size() == 9;
+            for (std::size_t r = 0; r < 3; ++r) {
+                for (std::size_t c = 0; c < 3; ++c)
+                    m[r * 3 + c] = given ? matrix[c * 3 + r] : (r == c ? 1 : 0);
+            }
+        }
+        icc::Mat3 const adapt = icc::bradford(white, icc::k_d50);
+        auto space = std::make_shared<Calibrated>(n);
+        space->transform = icc::Transform::shaper_matrix(std::move(curves), icc::multiply(adapt, m), icc::transform_by(adapt, black));
+        if (!space->transform)
+            return nullptr;
+        return space;
+    }
+
     static std::shared_ptr<ColorSpace const> parse(Document const& doc, Object const& object_in, Dict const* resources,
         int depth)
     {
@@ -267,6 +441,7 @@ public:
         Object const object = doc.resolve(object_in);
         if (object.is_name()) {
             std::string const& name = object.as_name();
+            // A bare CalGray or CalRGB has no white point: the device space.
             if (name == "DeviceGray" || name == "G" || name == "CalGray")
                 return ColorSpace::device_gray();
             if (name == "DeviceRGB" || name == "RGB" || name == "CalRGB")
@@ -290,14 +465,41 @@ public:
         std::string const family = doc.resolve(array[0]).as_name();
         if (array.size() == 1)
             return parse(doc, array[0], resources, depth + 1);
-        if (family == "CalGray")
-            return ColorSpace::device_gray();
-        if (family == "CalRGB")
-            return ColorSpace::device_rgb();
+        if (family == "CalGray" || family == "CalRGB") {
+            int const n = family == "CalGray" ? 1 : 3;
+            if (auto space = calibrated(doc, doc.resolve(array[1]).as_dict(), n))
+                return space;
+            return n == 1 ? ColorSpace::device_gray() : ColorSpace::device_rgb();
+        }
         if (family == "ICCBased") {
             Object const stream = doc.resolve(array[1]);
             Dict const& dict = stream.as_dict();
             std::int64_t const n = doc.resolve(dict.get("N")).as_int(0);
+            std::shared_ptr<icc::Profile const> const profile = doc.icc_profile(array[1]);
+            if (profile && profile->channels() == n && profile->transform(RenderingIntent::RelativeColorimetric)) {
+                bool const lab = profile->data_space() == icc::DataSpace::Lab;
+                auto space = std::make_shared<IccBased>(static_cast<int>(n), lab);
+                space->profile = profile;
+                if (lab) {
+                    // A Lab profile's components are L*, a*, b* (§8.6.5.5 asks
+                    // /Range to say so; without one, their whole range).
+                    space->range_low = { 0, -128, -128 };
+                    space->range_high = { 100, 127, 127 };
+                }
+                Array const& range = doc.resolve(dict.get("Range")).as_array();
+                if (static_cast<std::int64_t>(range.size()) == 2 * n) {
+                    for (std::size_t i = 0; i < static_cast<std::size_t>(n); ++i) {
+                        double const low = doc.resolve(range[2 * i]).as_number(0);
+                        double const high = doc.resolve(range[2 * i + 1]).as_number(1);
+                        if (std::isfinite(low) && std::isfinite(high) && low <= high) {
+                            space->range_low[i] = static_cast<float>(low);
+                            space->range_high[i] = static_cast<float>(high);
+                        }
+                    }
+                }
+                return space;
+            }
+            // A profile that cannot be used: the alternate, else the device space of N.
             if (dict.has("Alternate")) {
                 auto alternate = parse(doc, dict.get("Alternate"), resources, depth + 1);
                 if (alternate && alternate->components() == n)
@@ -316,10 +518,11 @@ public:
             Dict const& dict = doc.resolve(array[1]).as_dict();
             Array const& white = doc.resolve(dict.get("WhitePoint")).as_array();
             if (white.size() == 3) {
+                std::array<float, 3> w {};
                 for (std::size_t i = 0; i < 3; ++i)
-                    lab->white[i] = static_cast<float>(doc.resolve(white[i]).as_number(static_cast<double>(lab->white[i])));
-                if (lab->white[0] <= 0 || lab->white[1] <= 0 || lab->white[2] <= 0)
-                    lab->white = { 0.9505f, 1.0f, 1.089f };
+                    w[i] = static_cast<float>(doc.resolve(white[i]).as_number(static_cast<double>(lab->white[i])));
+                if (w[0] > 0 && w[1] > 0 && w[2] > 0 && std::isfinite(w[0]) && std::isfinite(w[1]) && std::isfinite(w[2]))
+                    lab->set_white(w);
             }
             Array const& range = doc.resolve(dict.get("Range")).as_array();
             if (range.size() == 4) {
@@ -345,17 +548,18 @@ public:
                 table.assign(lookup.as_string().begin(), lookup.as_string().end());
             int const n = indexed->base->components();
             indexed->rgb_table.resize(static_cast<std::size_t>(indexed->hival + 1) * 3);
-            std::array<float, 32> comps {};
+            indexed->base_values.resize(static_cast<std::size_t>(indexed->hival + 1) * static_cast<std::size_t>(n));
             for (int i = 0; i <= indexed->hival; ++i) {
+                float* const comps = indexed->base_values.data() + static_cast<std::size_t>(i) * static_cast<std::size_t>(n);
                 for (int j = 0; j < n; ++j) {
                     std::size_t const at = static_cast<std::size_t>(i) * static_cast<std::size_t>(n) + static_cast<std::size_t>(j);
                     float low = 0;
                     float high = 1;
                     indexed->base->default_decode(8, j, low, high);
                     float const v = at < table.size() ? static_cast<float>(table[at]) / 255.0f : 0;
-                    comps[static_cast<std::size_t>(j)] = low + v * (high - low);
+                    comps[j] = low + v * (high - low);
                 }
-                indexed->base->to_rgb(comps.data(), &indexed->rgb_table[static_cast<std::size_t>(i) * 3]);
+                indexed->base->to_rgb(comps, &indexed->rgb_table[static_cast<std::size_t>(i) * 3]);
             }
             return indexed;
         }
@@ -400,6 +604,34 @@ public:
 std::shared_ptr<ColorSpace const> ColorSpace::parse(Document const& doc, Object const& object, Dict const* resources, int depth)
 {
     return ColorSpaceParser::parse(doc, object, resources, depth);
+}
+
+std::shared_ptr<icc::Profile const> Document::icc_profile(Object const& stream_object) const
+{
+    // A file may name thousands of profiles: the first ones are kept.
+    constexpr std::size_t k_kept = 64;
+    auto const parse = [&] {
+        Stream const* const stream = resolve(stream_object).as_stream();
+        if (!stream)
+            return std::shared_ptr<icc::Profile const> {};
+        std::vector<std::uint8_t> const bytes = decode(*stream);
+        return icc::Profile::parse(bytes);
+    };
+    if (!stream_object.is_ref())
+        return parse();
+    Ref const ref = stream_object.as_ref();
+    {
+        std::lock_guard const lock(m_icc_mutex);
+        auto const it = m_icc_profiles.find(ref);
+        if (it != m_icc_profiles.end())
+            return it->second;
+    }
+    // Parsed outside the lock; the first one stored stands.
+    std::shared_ptr<icc::Profile const> parsed = parse();
+    std::lock_guard const lock(m_icc_mutex);
+    if (m_icc_profiles.size() >= k_kept)
+        return parsed;
+    return m_icc_profiles.emplace(ref, std::move(parsed)).first->second;
 }
 
 }

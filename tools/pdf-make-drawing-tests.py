@@ -177,6 +177,97 @@ q /SM gs 0 0.6 0 rg 160 160 130 130 re f Q
                b'/S sh', compress=False),
 })
 
+# 10. Color management: ICCBased spaces whose profiles are written here
+# byte by byte (no profile file is shipped) — a wide-gamut matrix/TRC RGB
+# profile, a CMYK print profile of lut16Type tables with a B2A0, a cut
+# profile that falls back to its /Alternate — rendering intents by ri and
+# by an image's /Intent, an ICCBased CMYK image; CalRGB, CalGray and Lab.
+def s15(v):
+    return struct.pack('>i', int(round(v * 65536)))
+
+def icc_profile(cls, space, pcs, tags, version=0x02100000):
+    table_end = 128 + 4 + 12 * len(tags)
+    data = b''
+    entries = []
+    for name, body in tags:
+        while len(data) % 4:
+            data += b'\0'
+        entries.append((name, table_end + len(data), len(body)))
+        data += body
+    while len(data) % 4:
+        data += b'\0'
+    header = struct.pack('>III', table_end + len(data), 0, version) + cls + space + pcs
+    header = header.ljust(36, b'\0') + b'acsp'
+    header = header.ljust(68, b'\0') + s15(0.9642) + s15(1.0) + s15(0.8249)
+    out = header.ljust(128, b'\0') + struct.pack('>I', len(tags))
+    for name, offset, size in entries:
+        out += name + struct.pack('>II', offset, size)
+    return out + data
+
+def icc_xyz(x, y, z):
+    return b'XYZ \0\0\0\0' + s15(x) + s15(y) + s15(z)
+
+def icc_gamma(g):
+    return b'curv\0\0\0\0' + struct.pack('>IH', 1, int(round(g * 256)))
+
+def icc_lut16(ins, outs, grid, node):
+    # Identity tables of two entries around a grid; the first input varies slowest.
+    body = b'mft2\0\0\0\0' + bytes([ins, outs, grid, 0]) + b''.join(s15(1 if i % 4 == 0 else 0) for i in range(9))
+    body += struct.pack('>HH', 2, 2) + struct.pack('>HH', 0, 65535) * ins
+    for n in range(grid ** ins):
+        index, rest = [], n
+        for _ in range(ins):
+            index.append(rest % grid)
+            rest //= grid
+        values = node([i / (grid - 1) for i in reversed(index)])
+        body += b''.join(struct.pack('>H', int(round(min(1, max(0, o)) * 65535))) for o in values)
+    return body + struct.pack('>HH', 0, 65535) * outs
+
+def lab16(l, a, b):
+    # Legacy 16-bit CIELAB, normalized (ICC.1 Annex A).
+    return [l / 100 * 65280 / 65535, (a + 128) * 256 / 65535, (b + 128) * 256 / 65535]
+
+def cmyk_node(v, lightness):
+    c, m, y, k = v
+    l = lightness * (1 - 0.85 * k) * (1 - 0.35 * c - 0.45 * m - 0.1 * y + 0.12 * c * m)
+    return lab16(min(100, max(0, l)), min(127, max(-128, 70 * m - 40 * c - 5 * y)), min(127, max(-128, 85 * y - 50 * c + 10 * m)))
+
+wide_rgb = icc_profile(b'mntr', b'RGB ', b'XYZ ', [
+    (b'wtpt', icc_xyz(0.9642, 1, 0.8249)), (b'rXYZ', icc_xyz(0.6097, 0.3111, 0.0195)),
+    (b'gXYZ', icc_xyz(0.2053, 0.6257, 0.0609)), (b'bXYZ', icc_xyz(0.1492, 0.0632, 0.7446)),
+    (b'rTRC', icc_gamma(2.2)), (b'gTRC', icc_gamma(2.2)), (b'bTRC', icc_gamma(2.2))])
+print_cmyk = icc_profile(b'prtr', b'CMYK', b'Lab ', [
+    (b'wtpt', icc_xyz(0.95, 1, 0.8)),
+    (b'A2B0', icc_lut16(4, 3, 5, lambda v: cmyk_node(v, 100))),
+    (b'A2B1', icc_lut16(4, 3, 5, lambda v: cmyk_node(v, 96))),
+    (b'B2A0', icc_lut16(3, 4, 2, lambda v: [0.6 * (1 - v[0] * 65535 / 65280)] * 3 + [0.9 * (1 - v[0] * 65535 / 65280)]))])
+cmyk_ramp = bytes(b for y in range(64) for x in range(64) for b in (x * 4, y * 4, (x + y) * 2, 0 if x < 48 else 160))
+pdf('icc', b'''
+/W cs 1 0 0 sc 10 230 60 60 re f
+0 1 0 sc 80 230 60 60 re f
+0.5 0.5 0.5 sc 150 230 60 60 re f
+/Broken cs 0 0 1 sc 220 230 60 60 re f
+/P cs 0.3 0.6 0.1 0.2 sc 10 160 60 60 re f
+/Perceptual ri 0.3 0.6 0.1 0.2 sc 80 160 60 60 re f
+/AbsoluteColorimetric ri 0.3 0.6 0.1 0.2 sc 150 160 60 60 re f
+/RelativeColorimetric ri 0 0 0 1 sc 220 160 60 60 re f
+/CR cs 0.8 0.3 0.2 sc 10 90 60 60 re f
+/CG cs 0.5 sc 80 90 60 60 re f
+/L cs 60 40 -30 sc 150 90 60 60 re f
+q 130 0 0 70 10 10 cm /Im Do Q
+q 130 0 0 70 150 10 cm /ImP Do Q
+''', resources=b'''<< /ColorSpace << /W [/ICCBased 10 0 R] /P [/ICCBased 11 0 R] /Broken [/ICCBased 12 0 R]
+ /CR [/CalRGB << /WhitePoint [0.9505 1 1.089] /Gamma [1.8 1.8 1.8] /Matrix [0.4497 0.2446 0.0252 0.3163 0.672 0.1412 0.1845 0.0833 0.9227] >>]
+ /CG [/CalGray << /WhitePoint [0.9505 1 1.089] /Gamma 2.2 >>]
+ /L [/Lab << /WhitePoint [0.9642 1 0.8249] /Range [-128 127 -128 127] >>] >>
+ /XObject << /Im 13 0 R /ImP 14 0 R >> >>''', extra_objects={
+    10: stream(b'/N 3 /Alternate /DeviceRGB', wide_rgb),
+    11: stream(b'/N 4 /Alternate /DeviceCMYK', print_cmyk),
+    12: stream(b'/N 3 /Alternate /DeviceRGB', wide_rgb[:60]),
+    13: stream(b'/Type /XObject /Subtype /Image /Width 64 /Height 64 /BitsPerComponent 8 /ColorSpace [/ICCBased 11 0 R]', cmyk_ramp),
+    14: stream(b'/Type /XObject /Subtype /Image /Width 64 /Height 64 /BitsPerComponent 8 /Intent /Perceptual /ColorSpace [/ICCBased 11 0 R]', cmyk_ramp),
+})
+
 # 9. Forms and optional content: a form drawn twice under different matrices; a hidden layer.
 pdf('forms', b'''
 q 1 0 0 1 20 20 cm /F Do Q
