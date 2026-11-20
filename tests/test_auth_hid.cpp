@@ -108,12 +108,17 @@ void channel_and_commands()
     noise.join();
 
     // LOCK: the other channel is told the device is busy until it ends.
-    CHECK(device.lock(1, in(1000)));
+    // (Held for ten seconds and let go by hand, so that a slow machine
+    // cannot run the lock out before the other channel has asked.)
+    CHECK(device.lock(10, in(1000)));
     auto const busy = other.transact(ctaphid::cmd_ping, std::vector<std::uint8_t> { 1 }, in(300));
     CHECK(busy.failure == HidFailure::Busy);
     CHECK(key.stats().busy_errors.load() > 0);
     CHECK(device.lock(0, in(1000)));
-    CHECK(other.ping(std::vector<std::uint8_t> { 1, 2, 3 }, in(1000)));
+    // Whatever was still on its way to the other channel when it gave up
+    // is not taken for the next answer.
+    CHECK(other.ping(std::vector<std::uint8_t> { 1, 2, 3 }, in(2000)));
+    CHECK(other.ping(std::vector<std::uint8_t> { 4, 5, 6, 7 }, in(2000)));
     // A device that is busy for a while: the client asks again and gets through.
     CHECK(device.lock(1, in(1000)));
     auto const start = Clock::now();
@@ -160,8 +165,17 @@ void keepalive_cancel_timeout()
     // Nobody touches and nobody cancels: the client's deadline ends it.
     auto const timed = device.transact(ctaphid::cmd_cbor, selection, in(300));
     CHECK(timed.failure == HidFailure::Timeout);
-    // The device is still waiting for the touch from that request; a
-    // resynchronizing INIT frees the channel.
+    // The device is still waiting for the touch from that request, and
+    // answers it when the touch comes: an answer to nothing the client
+    // waits for any more. CTAPHID gives an answer no mark of its request,
+    // so the next transaction would take it for its own; the client brings
+    // the channel back in step first, and the ping gets the ping's answer
+    // whether the late one had arrived by then or not.
+    key.set_touch(TouchPlan::after(0));
+    CHECK(device.ping(std::vector<std::uint8_t> { 7, 7, 7 }, in(3000)));
+    CHECK(device.ping(std::vector<std::uint8_t> { 8 }, in(3000)));
+    key.set_touch(TouchPlan::never());
+    // A new channel is there for the asking as well.
     CHECK(device.init(in(1000)));
 
     // A slow key: "processing" keepalives come first.

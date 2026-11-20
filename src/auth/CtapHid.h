@@ -179,6 +179,11 @@ public:
 private:
     bool send(std::uint32_t cid, std::uint8_t command, std::span<std::uint8_t const> payload);
     HidConnection::Read read(std::vector<std::uint8_t>& packet, std::chrono::steady_clock::time_point deadline);
+    // Brings the channel back in step after a transaction that ended with
+    // its answer perhaps still to come (CTAP 2.1 §11.2.9.1.3): INIT on our
+    // own channel, which makes the device drop what it was doing there, and
+    // everything read until that INIT's own answer is thrown away.
+    bool resynchronize(std::chrono::steady_clock::time_point deadline);
 
     std::unique_ptr<HidConnection> m_connection;
     DeviceInfo m_info;
@@ -188,6 +193,11 @@ private:
     std::array<std::uint8_t, 3> m_device_version {};
     std::uint8_t m_capabilities = 0;
     bool m_gone = false;
+    // The last transaction ended without its answer (a timeout, a cancel,
+    // an answer that made no sense): the answer may still come, and CTAPHID
+    // has nothing by which to tell it from the next transaction's. The
+    // channel is resynchronized before it is used again.
+    bool m_stale = false;
     NonceSource m_nonce_source = nullptr;
 };
 

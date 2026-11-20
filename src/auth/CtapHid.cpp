@@ -93,6 +93,8 @@ constexpr auto read_slice = std::chrono::milliseconds(50);
 constexpr auto cancel_grace = std::chrono::milliseconds(1000);
 // How long a busy device is left before it is asked again.
 constexpr auto busy_retry = std::chrono::milliseconds(60);
+// How long the answer to a resynchronizing INIT is waited for.
+constexpr auto resync_wait = std::chrono::milliseconds(1000);
 
 }
 
@@ -181,12 +183,55 @@ bool CtapHidDevice::init(Clock::time_point deadline, CancelFlag const* cancel)
     }
 }
 
+bool CtapHidDevice::resynchronize(Clock::time_point deadline)
+{
+    std::array<std::uint8_t, 8> nonce {};
+    if (m_nonce_source != nullptr)
+        m_nonce_source(nonce);
+    else
+        platform::fill_random(nonce);
+    if (!send(m_cid, ctaphid::cmd_init, nonce))
+        return false;
+    // A device answers INIT at once, whatever it was doing.
+    Clock::time_point const until = std::min(deadline, Clock::now() + resync_wait);
+    ctaphid::Assembler assembler(m_report_size);
+    std::vector<std::uint8_t> packet;
+    while (true) {
+        auto const result = read(packet, until);
+        if (result == HidConnection::Read::Gone)
+            return false;
+        if (result == HidConnection::Read::Timeout) {
+            if (Clock::now() >= until)
+                return false;
+            continue;
+        }
+        if (packet.size() < m_report_size || ctaphid::packet_cid(packet) != m_cid)
+            continue;
+        auto const step = assembler.take(packet);
+        if (step == ctaphid::Assembler::Step::Spurious || step == ctaphid::Assembler::Step::NeedMore)
+            continue;
+        // Anything but this INIT's own answer is of the transaction left
+        // behind (an INIT sent when it was cancelled included).
+        bool const ours = step == ctaphid::Assembler::Step::Done && assembler.command() == ctaphid::cmd_init
+            && assembler.payload().size() >= nonce.size() && std::equal(nonce.begin(), nonce.end(), assembler.payload().begin());
+        assembler.reset();
+        if (ours) {
+            m_stale = false;
+            return true;
+        }
+    }
+}
+
 HidResponse CtapHidDevice::transact(std::uint8_t command, std::span<std::uint8_t const> payload, Clock::time_point deadline,
     CancelFlag const* cancel, Keepalive const& keepalive)
 {
     HidResponse response;
     if (payload.size() > ctaphid::max_payload(m_report_size)) {
         response.failure = HidFailure::TooLarge;
+        return response;
+    }
+    if (m_stale && !resynchronize(deadline)) {
+        response.failure = m_gone ? HidFailure::Gone : HidFailure::Timeout;
         return response;
     }
     if (!send(m_cid, command, payload)) {
@@ -196,6 +241,7 @@ HidResponse CtapHidDevice::transact(std::uint8_t command, std::span<std::uint8_t
     ctaphid::Assembler assembler(m_report_size);
     std::vector<std::uint8_t> packet;
     bool cancel_sent = false;
+    bool busy_seen = false;
     Clock::time_point effective_deadline = deadline;
     while (true) {
         if (cancel != nullptr && cancel->load() && !cancel_sent) {
@@ -211,6 +257,7 @@ HidResponse CtapHidDevice::transact(std::uint8_t command, std::span<std::uint8_t
                 std::array<std::uint8_t, 8> nonce {};
                 platform::fill_random(nonce);
                 send(m_cid, ctaphid::cmd_init, nonce);
+                m_stale = true; // that INIT's answer, and perhaps the request's, are still to come
                 response.failure = m_gone ? HidFailure::Gone : HidFailure::Cancelled;
                 return response;
             }
@@ -222,7 +269,11 @@ HidResponse CtapHidDevice::transact(std::uint8_t command, std::span<std::uint8_t
         }
         if (result == HidConnection::Read::Timeout) {
             if (Clock::now() >= effective_deadline) {
-                response.failure = cancel_sent ? HidFailure::Cancelled : HidFailure::Timeout;
+                // The answer may still come, after this transaction is
+                // over. A device that said it was busy and has not
+                // answered the asking since is busy still, not silent.
+                m_stale = true;
+                response.failure = cancel_sent ? HidFailure::Cancelled : busy_seen ? HidFailure::Busy : HidFailure::Timeout;
                 return response;
             }
             continue;
@@ -233,6 +284,7 @@ HidResponse CtapHidDevice::transact(std::uint8_t command, std::span<std::uint8_t
         if (step == ctaphid::Assembler::Step::Spurious || step == ctaphid::Assembler::Step::NeedMore)
             continue;
         if (step == ctaphid::Assembler::Step::Malformed) {
+            m_stale = true;
             response.failure = HidFailure::Malformed;
             return response;
         }
@@ -247,6 +299,7 @@ HidResponse CtapHidDevice::transact(std::uint8_t command, std::span<std::uint8_t
             std::uint8_t const code = assembler.payload().empty() ? ctaphid::err_other : assembler.payload()[0];
             if (code == ctaphid::err_channel_busy && !cancel_sent) {
                 // Another channel holds the device: ask again shortly.
+                busy_seen = true;
                 if (Clock::now() + busy_retry >= deadline) {
                     response.failure = HidFailure::Busy;
                     return response;
@@ -272,6 +325,7 @@ HidResponse CtapHidDevice::transact(std::uint8_t command, std::span<std::uint8_t
             return response;
         }
         if (answered != command) {
+            m_stale = true;
             response.failure = HidFailure::Malformed;
             return response;
         }
