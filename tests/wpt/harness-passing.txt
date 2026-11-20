@@ -29073,13 +29073,29 @@ core-aam/role/roles-contextual.html	role-map-region-aria-labelledby-non-existing
 core-aam/role/roles-contextual.html	role-map-region-nameless
 core-aam/role/roles-contextual.html	role-map-region-title
 core-aam/role/roles-contextual.html	role-map-region-title-empty
+credential-management/credentialscontainer-create-basics.https.html	navigator.credentials.create() aborted with custom reason
+credential-management/credentialscontainer-create-basics.https.html	navigator.credentials.create() aborted with different objects
 credential-management/credentialscontainer-create-basics.https.html	navigator.credentials.create() with bogus data
+credential-management/credentialscontainer-create-basics.https.html	navigator.credentials.create() with bogus publicKey data
 credential-management/credentialscontainer-create-basics.https.html	navigator.credentials.create() with both PasswordCredentialData and FederatedCredentialData
 credential-management/credentialscontainer-create-basics.https.html	navigator.credentials.create() with empty argument.
 credential-management/credentialscontainer-create-basics.https.html	navigator.credentials.create() with no argument.
+credential-management/credentialscontainer-frame-basics.https.html	navigator.credentials should be undefined in documents generated from `data:` URLs.
 credential-management/credentialscontainer-get-basics.https.html	Calling navigator.credentials.get() with invalid combinations of credential types.
 credential-management/credentialscontainer-get-basics.https.html	Calling navigator.credentials.get() without a valid matching interface.
+credential-management/credentialscontainer-get-basics.https.html	navigator.credentials.get() aborted with custom reason
+credential-management/credentialscontainer-get-basics.https.html	navigator.credentials.get() aborted with different objects
 credential-management/credentialscontainer-prevent-silent-access.https.html	navigator.credentials.preventSilentAccess() resolves with undefined.
+credential-management/historical.https.html	Credential.willRequestConditionalCreation should not exist
+credential-management/idlharness.https.window.html	Credential interface object length
+credential-management/idlharness.https.window.html	Credential interface object name
+credential-management/idlharness.https.window.html	Credential interface: attribute id
+credential-management/idlharness.https.window.html	Credential interface: attribute type
+credential-management/idlharness.https.window.html	Credential interface: existence and properties of interface object
+credential-management/idlharness.https.window.html	Credential interface: existence and properties of interface prototype object
+credential-management/idlharness.https.window.html	Credential interface: existence and properties of interface prototype object's "constructor" property
+credential-management/idlharness.https.window.html	Credential interface: existence and properties of interface prototype object's @@unscopables property
+credential-management/idlharness.https.window.html	Credential interface: operation isConditionalMediationAvailable()
 credential-management/idlharness.https.window.html	CredentialsContainer interface object length
 credential-management/idlharness.https.window.html	CredentialsContainer interface object name
 credential-management/idlharness.https.window.html	CredentialsContainer interface: calling create(optional CredentialCreationOptions) on navigator.credentials with too few arguments must throw TypeError
@@ -29131,6 +29147,9 @@ credential-management/idlharness.https.window.html	PasswordCredential includes C
 credential-management/idlharness.https.window.html	Stringification of navigator.credentials
 credential-management/idlharness.https.window.html	idl_test setup
 credential-management/idlharness.https.window.html	idl_test validation
+credential-management/otpcredential-get-basics.https.html	Should abort request
+credential-management/otpcredential-get-basics.https.html	Should abort request with reason
+credential-management/require_securecontext.html	Credential Management must not be accessible in insecure contexts
 css/css-animations/AnimationEffect-getComputedTiming.tentative.html	Negative delay of a new animation
 css/css-animations/AnimationEffect-getComputedTiming.tentative.html	Positive delay of a new animation
 css/css-animations/AnimationEffect-getComputedTiming.tentative.html	Progress of a non-integral repeating zero-duration animation with reversing direction
@@ -35319,6 +35338,211 @@ css/css-font-loading/idlharness.https.html	Stringification of fontFace
 css/css-font-loading/idlharness.https.html	WorkerGlobalScope includes FontFaceSource: member names are unique
 css/css-font-loading/idlharness.https.html	WorkerGlobalScope includes WindowOrWorkerGlobalScope: member names are unique
 css/css-font-loading/idlharness.https.html	idl_test validation
+css/css-fonts/parsing/font-computed.html	Property font value '100 extra-condensed small-caps 20%/1.2 cursive'
+css/css-fonts/parsing/font-computed.html	Property font value '100 italic semi-condensed small-caps xx-large/1.2 fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value '100 italic small-caps 10px/normal Menu'
+css/css-fonts/parsing/font-computed.html	Property font value '100 italic xx-small serif'
+css/css-fonts/parsing/font-computed.html	Property font value '100 normal italic small-caps 20%/1.2 monospace'
+css/css-fonts/parsing/font-computed.html	Property font value '100 semi-expanded normal italic medium/normal monospace'
+css/css-fonts/parsing/font-computed.html	Property font value '900 10px/normal cursive'
+css/css-fonts/parsing/font-computed.html	Property font value '900 expanded normal small-caps xx-large/1.2 Menu'
+css/css-fonts/parsing/font-computed.html	Property font value '900 italic normal medium/normal sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value '900 normal normal small-caps xx-large/1.2 serif'
+css/css-fonts/parsing/font-computed.html	Property font value '900 normal semi-condensed smaller fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value '900 small-caps italic xx-small cursive'
+css/css-fonts/parsing/font-computed.html	Property font value '900 small-caps ultra-condensed italic 10px/normal serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'bold extra-condensed 20%/1.2 sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'bold italic normal normal xx-large/1.2 cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'bold normal 20%/1.2 fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'bold normal semi-expanded normal 10px/normal monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'bold semi-condensed small-caps italic xx-small monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'bold small-caps italic normal medium/normal fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'bold small-caps normal smaller Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'bolder italic extra-condensed xx-small sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'bolder normal expanded italic 20%/1.2 Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'bolder normal italic smaller cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'bolder normal small-caps normal medium/normal serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'bolder small-caps italic expanded xx-large/1.2 monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'bolder ultra-expanded italic normal smaller serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'expanded 100 xx-large/1.2 monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'expanded bolder small-caps xx-large/1.2 Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'expanded italic small-caps normal xx-large/1.2 cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'expanded normal bolder italic xx-large/1.2 sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'expanded normal italic small-caps xx-large/1.2 serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'expanded small-caps normal italic xx-large/1.2 fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'extra-condensed italic normal normal 20%/1.2 Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'extra-condensed lighter normal small-caps 20%/1.2 sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'extra-condensed normal normal small-caps 20%/1.2 fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'extra-condensed normal small-caps italic 20%/1.2 monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'extra-condensed small-caps italic 900 20%/1.2 serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic 100 normal small-caps 20%/1.2 sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic 10px/normal fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic 900 ultra-expanded normal smaller serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic bold small-caps xx-small fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic bold ultra-condensed small-caps 10px/normal sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic bolder small-caps normal medium/normal monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic extra-condensed 100 20%/1.2 fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic extra-condensed 20%/1.2 cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic lighter normal normal 10px/normal serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic lighter small-caps expanded xx-large/1.2 Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic normal 20%/1.2 monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic normal bold xx-small serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic normal bolder normal medium/normal sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic normal lighter small-caps xx-large/1.2 cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic normal normal 100 xx-large/1.2 sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic normal normal small-caps medium/normal serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic normal semi-condensed smaller monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic normal semi-expanded normal 10px/normal Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic normal small-caps 900 20%/1.2 Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic normal small-caps normal 10px/normal monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic normal small-caps smaller fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic semi-condensed bold small-caps xx-small Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic semi-condensed normal normal xx-small monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic semi-expanded normal small-caps medium/normal Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic small-caps condensed normal medium/normal fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic small-caps extra-condensed xx-small cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic small-caps lighter normal 20%/1.2 serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic small-caps normal medium/normal cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic small-caps normal normal xx-large/1.2 fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic small-caps normal ultra-expanded smaller Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic small-caps semi-condensed 900 xx-large/1.2 monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic small-caps xx-small sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic ultra-condensed small-caps lighter 10px/normal cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'italic ultra-expanded small-caps normal smaller sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'lighter italic condensed normal medium/normal cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'lighter italic normal ultra-expanded smaller monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'lighter normal italic normal 10px/normal fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'lighter normal normal normal xx-small Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'lighter normal small-caps italic xx-large/1.2 sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'lighter semi-condensed normal normal xx-small fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'lighter small-caps normal italic 20%/1.2 serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'lighter ultra-condensed italic small-caps 10px/normal sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal 100 medium/normal cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal 100 normal ultra-expanded 20%/1.2 serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal 100 semi-condensed normal xx-small fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal 900 normal xx-large/1.2 fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal 900 semi-expanded italic medium/normal monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal bold expanded small-caps xx-large/1.2 Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal bold italic normal xx-small cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal bold small-caps italic 10px/normal serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal bolder italic small-caps medium/normal fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal bolder normal italic smaller Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal bolder small-caps extra-condensed 20%/1.2 sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal expanded bold normal xx-large/1.2 serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal extra-condensed normal italic 20%/1.2 cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal extra-condensed small-caps normal 20%/1.2 fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal italic 10px/normal sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal italic 900 semi-condensed xx-large/1.2 serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal italic expanded normal smaller cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal italic extra-expanded small-caps 10px/normal fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal italic lighter normal xx-small Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal italic normal 20%/1.2 cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal italic normal 900 medium/normal Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal italic normal small-caps xx-small monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal italic small-caps bold 10px/normal cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal italic small-caps condensed 20%/1.2 fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal italic small-caps normal smaller sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal italic ultra-expanded bold 20%/1.2 monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal lighter italic ultra-condensed xx-large/1.2 monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal medium/normal sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal bold italic 10px/normal serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal bolder small-caps 20%/1.2 sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal expanded normal medium/normal monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal extra-expanded italic xx-large/1.2 Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal italic bolder smaller Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal italic medium/normal cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal italic normal xx-large/1.2 fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal normal italic 10px/normal Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal normal normal smaller monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal normal ultra-condensed xx-small sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal semi-expanded xx-small fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal small-caps 20%/1.2 serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal small-caps condensed xx-large/1.2 monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal small-caps italic xx-small cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal small-caps lighter medium/normal fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal ultra-condensed 100 smaller serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal normal xx-large/1.2 cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal semi-condensed normal bolder xx-small monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal semi-condensed small-caps 100 xx-small Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal semi-expanded italic medium/normal Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal small-caps 100 medium/normal sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal small-caps 900 normal xx-large/1.2 cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal small-caps bolder condensed smaller monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal small-caps extra-expanded lighter xx-small sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal small-caps italic 10px/normal monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal small-caps italic extra-condensed xx-small serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal small-caps italic normal 20%/1.2 Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal small-caps normal italic xx-large/1.2 sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal small-caps normal normal medium/normal serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal small-caps normal ultra-condensed smaller fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal small-caps semi-condensed 10px/normal Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal ultra-condensed normal normal 10px/normal sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal ultra-condensed small-caps 10px/normal cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal ultra-expanded italic lighter smaller sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal ultra-expanded lighter small-caps smaller cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'normal ultra-expanded normal smaller serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'semi-condensed 900 italic normal xx-small fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'semi-condensed italic normal 100 xx-small serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'semi-condensed normal italic xx-small Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'semi-condensed small-caps bolder normal xx-small cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'semi-condensed small-caps normal xx-small sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'semi-expanded bold italic small-caps medium/normal monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'semi-expanded italic small-caps medium/normal sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'semi-expanded medium/normal Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'semi-expanded normal bold normal medium/normal serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'semi-expanded small-caps lighter italic medium/normal fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'semi-expanded small-caps normal normal medium/normal cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps 100 semi-expanded italic medium/normal monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps 900 italic normal 10px/normal serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps 900 normal xx-small cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps bold italic extra-condensed 20%/1.2 sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps bold normal normal medium/normal fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps bolder normal italic xx-large/1.2 monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps expanded xx-large/1.2 Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps extra-condensed normal 900 20%/1.2 cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps italic 900 medium/normal cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps italic bold normal xx-large/1.2 fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps italic expanded smaller Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps italic normal 10px/normal Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps italic normal semi-condensed xx-small sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps italic smaller monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps italic ultra-expanded lighter 20%/1.2 serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps lighter semi-condensed normal xx-small fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps normal 100 smaller fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps normal 900 normal 10px/normal monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps normal bold italic 20%/1.2 Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps normal extra-condensed italic xx-large/1.2 cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps normal italic lighter xx-large/1.2 sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps normal italic normal medium/normal serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps normal normal bolder 20%/1.2 monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps normal normal italic 10px/normal fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps normal normal normal smaller cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps normal ultra-condensed normal medium/normal sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps normal ultra-expanded xx-small serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps normal xx-large/1.2 serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps semi-condensed italic normal xx-small monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps semi-expanded italic bold medium/normal Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps ultra-condensed normal italic 10px/normal sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps ultra-expanded 100 italic smaller sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'small-caps ultra-expanded normal normal smaller serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'ultra-condensed bolder normal italic 10px/normal serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'ultra-condensed italic bolder normal 10px/normal Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'ultra-condensed italic normal 10px/normal monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'ultra-condensed normal normal italic 10px/normal cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'ultra-condensed normal small-caps normal 10px/normal fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'ultra-expanded 100 small-caps italic smaller serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'ultra-expanded italic bold smaller monospace'
+css/css-fonts/parsing/font-computed.html	Property font value 'ultra-expanded italic smaller fantasy'
+css/css-fonts/parsing/font-computed.html	Property font value 'ultra-expanded normal normal normal smaller sans-serif'
+css/css-fonts/parsing/font-computed.html	Property font value 'ultra-expanded normal small-caps smaller cursive'
+css/css-fonts/parsing/font-computed.html	Property font value 'ultra-expanded small-caps italic smaller Menu'
+css/css-fonts/parsing/font-computed.html	Property font value 'xx-small serif'
+css/css-fonts/parsing/font-computed.html	caption should be a supported system font.
+css/css-fonts/parsing/font-computed.html	icon should be a supported system font.
+css/css-fonts/parsing/font-computed.html	menu should be a supported system font.
+css/css-fonts/parsing/font-computed.html	message-box should be a supported system font.
+css/css-fonts/parsing/font-computed.html	small-caption should be a supported system font.
+css/css-fonts/parsing/font-computed.html	status-bar should be a supported system font.
 css/css-fonts/parsing/font-face-metric-overrides.html	Check that ascent-override: 0% is valid
 css/css-fonts/parsing/font-face-metric-overrides.html	Check that ascent-override: 100000000000% is valid
 css/css-fonts/parsing/font-face-metric-overrides.html	Check that ascent-override: 110% is valid
@@ -35407,6 +35631,14 @@ css/css-fonts/parsing/font-family-valid.html	e.style['font-family'] = "Helvetica
 css/css-fonts/parsing/font-family-valid.html	e.style['font-family'] = "\\"Serif\\"" should set the property value
 css/css-fonts/parsing/font-family-valid.html	e.style['font-family'] = "\\"inherit\\", \\"serif\\"" should set the property value
 css/css-fonts/parsing/font-family-valid.html	e.style['font-family'] = "serif, sans-serif, cursive, fantasy, monospace, system-ui" should set the property value
+css/css-fonts/parsing/font-feature-settings-computed.html	Property font-feature-settings value '"PKRN"'
+css/css-fonts/parsing/font-feature-settings-computed.html	Property font-feature-settings value '"c2sc"'
+css/css-fonts/parsing/font-feature-settings-computed.html	Property font-feature-settings value '"dlig"'
+css/css-fonts/parsing/font-feature-settings-computed.html	Property font-feature-settings value '"dlig", "smcp", "dlig" 0'
+css/css-fonts/parsing/font-feature-settings-computed.html	Property font-feature-settings value '"liga" 0'
+css/css-fonts/parsing/font-feature-settings-computed.html	Property font-feature-settings value '"smcp"'
+css/css-fonts/parsing/font-feature-settings-computed.html	Property font-feature-settings value '"tnum", "hist"'
+css/css-fonts/parsing/font-feature-settings-computed.html	Property font-feature-settings value 'normal'
 css/css-fonts/parsing/font-feature-settings-valid.html	e.style['font-feature-settings'] = "'c2sc'" should set the property value
 css/css-fonts/parsing/font-feature-settings-valid.html	e.style['font-feature-settings'] = "\\"PKRN\\"" should set the property value
 css/css-fonts/parsing/font-feature-settings-valid.html	e.style['font-feature-settings'] = "\\"\\\\22\\\\22\\\\22\\\\22\\"" should set the property value
@@ -35419,6 +35651,11 @@ css/css-fonts/parsing/font-kerning-computed.html	Property font-kerning value 'no
 css/css-fonts/parsing/font-kerning-valid.html	e.style['font-kerning'] = "auto" should set the property value
 css/css-fonts/parsing/font-kerning-valid.html	e.style['font-kerning'] = "none" should set the property value
 css/css-fonts/parsing/font-kerning-valid.html	e.style['font-kerning'] = "normal" should set the property value
+css/css-fonts/parsing/font-language-override-computed.html	Property font-language-override value '" en "'
+css/css-fonts/parsing/font-language-override-computed.html	Property font-language-override value '"ENG "'
+css/css-fonts/parsing/font-language-override-computed.html	Property font-language-override value '"KSW"'
+css/css-fonts/parsing/font-language-override-computed.html	Property font-language-override value '"en  "'
+css/css-fonts/parsing/font-language-override-computed.html	Property font-language-override value 'normal'
 css/css-fonts/parsing/font-language-override-valid.html	e.style['font-language-override'] = "\\"1 %\\"" should set the property value
 css/css-fonts/parsing/font-language-override-valid.html	e.style['font-language-override'] = "\\"APPH\\"" should set the property value
 css/css-fonts/parsing/font-language-override-valid.html	e.style['font-language-override'] = "\\"KSW\\"" should set the property value
@@ -35550,6 +35787,13 @@ css/css-fonts/parsing/font-valid.html	status-bar should be a supported system fo
 css/css-fonts/parsing/font-variant-alternates-valid.html	e.style['font-variant-alternates'] = "character-variant(more, than, one)" should set the property value
 css/css-fonts/parsing/font-variant-alternates-valid.html	e.style['font-variant-alternates'] = "styleset(more, than, one) character-variant(more, than, one)" should set the property value
 css/css-fonts/parsing/font-variant-alternates-valid.html	e.style['font-variant-alternates'] = "styleset(more, than, one)" should set the property value
+css/css-fonts/parsing/font-variant-caps-computed.html	Property font-variant-caps value 'all-petite-caps'
+css/css-fonts/parsing/font-variant-caps-computed.html	Property font-variant-caps value 'all-small-caps'
+css/css-fonts/parsing/font-variant-caps-computed.html	Property font-variant-caps value 'normal'
+css/css-fonts/parsing/font-variant-caps-computed.html	Property font-variant-caps value 'petite-caps'
+css/css-fonts/parsing/font-variant-caps-computed.html	Property font-variant-caps value 'small-caps'
+css/css-fonts/parsing/font-variant-caps-computed.html	Property font-variant-caps value 'titling-caps'
+css/css-fonts/parsing/font-variant-caps-computed.html	Property font-variant-caps value 'unicase'
 css/css-fonts/parsing/font-variant-caps-valid.html	e.style['font-variant-caps'] = "all-petite-caps" should set the property value
 css/css-fonts/parsing/font-variant-caps-valid.html	e.style['font-variant-caps'] = "all-small-caps" should set the property value
 css/css-fonts/parsing/font-variant-caps-valid.html	e.style['font-variant-caps'] = "normal" should set the property value
@@ -35557,6 +35801,18 @@ css/css-fonts/parsing/font-variant-caps-valid.html	e.style['font-variant-caps'] 
 css/css-fonts/parsing/font-variant-caps-valid.html	e.style['font-variant-caps'] = "small-caps" should set the property value
 css/css-fonts/parsing/font-variant-caps-valid.html	e.style['font-variant-caps'] = "titling-caps" should set the property value
 css/css-fonts/parsing/font-variant-caps-valid.html	e.style['font-variant-caps'] = "unicase" should set the property value
+css/css-fonts/parsing/font-variant-east-asian-computed.html	Property font-variant-east-asian value 'full-width'
+css/css-fonts/parsing/font-variant-east-asian-computed.html	Property font-variant-east-asian value 'jis04'
+css/css-fonts/parsing/font-variant-east-asian-computed.html	Property font-variant-east-asian value 'jis78 proportional-width'
+css/css-fonts/parsing/font-variant-east-asian-computed.html	Property font-variant-east-asian value 'jis78'
+css/css-fonts/parsing/font-variant-east-asian-computed.html	Property font-variant-east-asian value 'jis83'
+css/css-fonts/parsing/font-variant-east-asian-computed.html	Property font-variant-east-asian value 'jis90'
+css/css-fonts/parsing/font-variant-east-asian-computed.html	Property font-variant-east-asian value 'normal'
+css/css-fonts/parsing/font-variant-east-asian-computed.html	Property font-variant-east-asian value 'proportional-width'
+css/css-fonts/parsing/font-variant-east-asian-computed.html	Property font-variant-east-asian value 'ruby'
+css/css-fonts/parsing/font-variant-east-asian-computed.html	Property font-variant-east-asian value 'simplified full-width ruby'
+css/css-fonts/parsing/font-variant-east-asian-computed.html	Property font-variant-east-asian value 'simplified'
+css/css-fonts/parsing/font-variant-east-asian-computed.html	Property font-variant-east-asian value 'traditional'
 css/css-fonts/parsing/font-variant-east-asian-valid.html	e.style['font-variant-east-asian'] = "full-width" should set the property value
 css/css-fonts/parsing/font-variant-east-asian-valid.html	e.style['font-variant-east-asian'] = "jis04" should set the property value
 css/css-fonts/parsing/font-variant-east-asian-valid.html	e.style['font-variant-east-asian'] = "jis78 proportional-width" should set the property value
@@ -35572,6 +35828,16 @@ css/css-fonts/parsing/font-variant-emoji-valid.html	e.style['font-variant-emoji'
 css/css-fonts/parsing/font-variant-emoji-valid.html	e.style['font-variant-emoji'] = "normal" should set the property value
 css/css-fonts/parsing/font-variant-emoji-valid.html	e.style['font-variant-emoji'] = "text" should set the property value
 css/css-fonts/parsing/font-variant-emoji-valid.html	e.style['font-variant-emoji'] = "unicode" should set the property value
+css/css-fonts/parsing/font-variant-ligatures-computed.html	Property font-variant-ligatures value 'common-ligatures'
+css/css-fonts/parsing/font-variant-ligatures-computed.html	Property font-variant-ligatures value 'contextual'
+css/css-fonts/parsing/font-variant-ligatures-computed.html	Property font-variant-ligatures value 'discretionary-ligatures'
+css/css-fonts/parsing/font-variant-ligatures-computed.html	Property font-variant-ligatures value 'historical-ligatures'
+css/css-fonts/parsing/font-variant-ligatures-computed.html	Property font-variant-ligatures value 'no-common-ligatures'
+css/css-fonts/parsing/font-variant-ligatures-computed.html	Property font-variant-ligatures value 'no-contextual'
+css/css-fonts/parsing/font-variant-ligatures-computed.html	Property font-variant-ligatures value 'no-discretionary-ligatures'
+css/css-fonts/parsing/font-variant-ligatures-computed.html	Property font-variant-ligatures value 'no-historical-ligatures'
+css/css-fonts/parsing/font-variant-ligatures-computed.html	Property font-variant-ligatures value 'none'
+css/css-fonts/parsing/font-variant-ligatures-computed.html	Property font-variant-ligatures value 'normal'
 css/css-fonts/parsing/font-variant-ligatures-valid.html	e.style['font-variant-ligatures'] = "common-ligatures" should set the property value
 css/css-fonts/parsing/font-variant-ligatures-valid.html	e.style['font-variant-ligatures'] = "contextual" should set the property value
 css/css-fonts/parsing/font-variant-ligatures-valid.html	e.style['font-variant-ligatures'] = "discretionary-ligatures" should set the property value
@@ -35582,6 +35848,17 @@ css/css-fonts/parsing/font-variant-ligatures-valid.html	e.style['font-variant-li
 css/css-fonts/parsing/font-variant-ligatures-valid.html	e.style['font-variant-ligatures'] = "no-historical-ligatures" should set the property value
 css/css-fonts/parsing/font-variant-ligatures-valid.html	e.style['font-variant-ligatures'] = "none" should set the property value
 css/css-fonts/parsing/font-variant-ligatures-valid.html	e.style['font-variant-ligatures'] = "normal" should set the property value
+css/css-fonts/parsing/font-variant-numeric-computed.html	Property font-variant-numeric value 'diagonal-fractions'
+css/css-fonts/parsing/font-variant-numeric-computed.html	Property font-variant-numeric value 'lining-nums proportional-nums stacked-fractions ordinal slashed-zero'
+css/css-fonts/parsing/font-variant-numeric-computed.html	Property font-variant-numeric value 'lining-nums'
+css/css-fonts/parsing/font-variant-numeric-computed.html	Property font-variant-numeric value 'normal'
+css/css-fonts/parsing/font-variant-numeric-computed.html	Property font-variant-numeric value 'oldstyle-nums tabular-nums diagonal-fractions'
+css/css-fonts/parsing/font-variant-numeric-computed.html	Property font-variant-numeric value 'oldstyle-nums'
+css/css-fonts/parsing/font-variant-numeric-computed.html	Property font-variant-numeric value 'ordinal'
+css/css-fonts/parsing/font-variant-numeric-computed.html	Property font-variant-numeric value 'proportional-nums'
+css/css-fonts/parsing/font-variant-numeric-computed.html	Property font-variant-numeric value 'slashed-zero'
+css/css-fonts/parsing/font-variant-numeric-computed.html	Property font-variant-numeric value 'stacked-fractions'
+css/css-fonts/parsing/font-variant-numeric-computed.html	Property font-variant-numeric value 'tabular-nums'
 css/css-fonts/parsing/font-variant-numeric-valid.html	e.style['font-variant-numeric'] = "diagonal-fractions" should set the property value
 css/css-fonts/parsing/font-variant-numeric-valid.html	e.style['font-variant-numeric'] = "lining-nums" should set the property value
 css/css-fonts/parsing/font-variant-numeric-valid.html	e.style['font-variant-numeric'] = "normal" should set the property value
@@ -35593,6 +35870,9 @@ css/css-fonts/parsing/font-variant-numeric-valid.html	e.style['font-variant-nume
 css/css-fonts/parsing/font-variant-numeric-valid.html	e.style['font-variant-numeric'] = "slashed-zero" should set the property value
 css/css-fonts/parsing/font-variant-numeric-valid.html	e.style['font-variant-numeric'] = "stacked-fractions" should set the property value
 css/css-fonts/parsing/font-variant-numeric-valid.html	e.style['font-variant-numeric'] = "tabular-nums" should set the property value
+css/css-fonts/parsing/font-variant-position-computed.html	Property font-variant-position value 'normal'
+css/css-fonts/parsing/font-variant-position-computed.html	Property font-variant-position value 'sub'
+css/css-fonts/parsing/font-variant-position-computed.html	Property font-variant-position value 'super'
 css/css-fonts/parsing/font-variant-position-valid.html	e.style['font-variant-position'] = "normal" should set the property value
 css/css-fonts/parsing/font-variant-position-valid.html	e.style['font-variant-position'] = "sub" should set the property value
 css/css-fonts/parsing/font-variant-position-valid.html	e.style['font-variant-position'] = "super" should set the property value
@@ -35647,21 +35927,44 @@ css/css-fonts/parsing/font-variation-settings-valid.html	e.style['font-variation
 css/css-fonts/parsing/font-variation-settings-valid.html	e.style['font-variation-settings'] = "\\"wght\\" 700" should set the property value
 css/css-fonts/parsing/font-variation-settings-valid.html	e.style['font-variation-settings'] = "\\"wght\\" 700, \\"XHGT\\" 0.7" should set the property value
 css/css-fonts/parsing/font-variation-settings-valid.html	e.style['font-variation-settings'] = "normal" should set the property value
+css/css-fonts/parsing/font-weight-computed.html	1 made bolder computes to 400
+css/css-fonts/parsing/font-weight-computed.html	1 made lighter computes to 1
+css/css-fonts/parsing/font-weight-computed.html	100 made bolder computes to 400
 css/css-fonts/parsing/font-weight-computed.html	100 made lighter computes to 100
+css/css-fonts/parsing/font-weight-computed.html	1000 made bolder computes to 1000
+css/css-fonts/parsing/font-weight-computed.html	1000 made lighter computes to 700
+css/css-fonts/parsing/font-weight-computed.html	200 made bolder computes to 400
 css/css-fonts/parsing/font-weight-computed.html	200 made lighter computes to 100
+css/css-fonts/parsing/font-weight-computed.html	300 made bolder computes to 400
 css/css-fonts/parsing/font-weight-computed.html	300 made lighter computes to 100
+css/css-fonts/parsing/font-weight-computed.html	349 made bolder computes to 400
 css/css-fonts/parsing/font-weight-computed.html	349 made lighter computes to 100
+css/css-fonts/parsing/font-weight-computed.html	350 made bolder computes to 700
 css/css-fonts/parsing/font-weight-computed.html	350 made lighter computes to 100
+css/css-fonts/parsing/font-weight-computed.html	400 made bolder computes to 700
 css/css-fonts/parsing/font-weight-computed.html	400 made lighter computes to 100
+css/css-fonts/parsing/font-weight-computed.html	50 made bolder computes to 400
+css/css-fonts/parsing/font-weight-computed.html	50 made lighter computes to 50
+css/css-fonts/parsing/font-weight-computed.html	500 made bolder computes to 700
 css/css-fonts/parsing/font-weight-computed.html	500 made lighter computes to 100
+css/css-fonts/parsing/font-weight-computed.html	549 made bolder computes to 700
 css/css-fonts/parsing/font-weight-computed.html	549 made lighter computes to 100
 css/css-fonts/parsing/font-weight-computed.html	550 made bolder computes to 900
+css/css-fonts/parsing/font-weight-computed.html	550 made lighter computes to 400
 css/css-fonts/parsing/font-weight-computed.html	600 made bolder computes to 900
+css/css-fonts/parsing/font-weight-computed.html	600 made lighter computes to 400
 css/css-fonts/parsing/font-weight-computed.html	700 made bolder computes to 900
+css/css-fonts/parsing/font-weight-computed.html	700 made lighter computes to 400
 css/css-fonts/parsing/font-weight-computed.html	749 made bolder computes to 900
+css/css-fonts/parsing/font-weight-computed.html	749 made lighter computes to 400
 css/css-fonts/parsing/font-weight-computed.html	750 made bolder computes to 900
+css/css-fonts/parsing/font-weight-computed.html	750 made lighter computes to 700
 css/css-fonts/parsing/font-weight-computed.html	800 made bolder computes to 900
+css/css-fonts/parsing/font-weight-computed.html	800 made lighter computes to 700
 css/css-fonts/parsing/font-weight-computed.html	900 made bolder computes to 900
+css/css-fonts/parsing/font-weight-computed.html	900 made lighter computes to 700
+css/css-fonts/parsing/font-weight-computed.html	950 made bolder computes to 950
+css/css-fonts/parsing/font-weight-computed.html	950 made lighter computes to 700
 css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '1'
 css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '100'
 css/css-fonts/parsing/font-weight-computed.html	Property font-weight value '1000'
@@ -40554,6 +40857,10 @@ css/css-transitions/KeyframeEffect-target.tentative.html	effect.target from the 
 css/css-transitions/KeyframeEffect-target.tentative.html	effect.target should return the same CSSPseudoElement object each time
 css/css-transitions/all-interpolates-same-as-explicit-property.html	transition:all interpolates the same as transition:the-actual-property
 css/css-transitions/all-interpolates-same-as-explicit-property.html	transition:all interpolates the same as transition:the-actual-property 1
+css/css-transitions/all-interpolates-same-as-explicit-property.html	transition:all interpolates the same as transition:the-actual-property 10
+css/css-transitions/all-interpolates-same-as-explicit-property.html	transition:all interpolates the same as transition:the-actual-property 11
+css/css-transitions/all-interpolates-same-as-explicit-property.html	transition:all interpolates the same as transition:the-actual-property 12
+css/css-transitions/all-interpolates-same-as-explicit-property.html	transition:all interpolates the same as transition:the-actual-property 13
 css/css-transitions/all-interpolates-same-as-explicit-property.html	transition:all interpolates the same as transition:the-actual-property 14
 css/css-transitions/all-interpolates-same-as-explicit-property.html	transition:all interpolates the same as transition:the-actual-property 18
 css/css-transitions/all-interpolates-same-as-explicit-property.html	transition:all interpolates the same as transition:the-actual-property 2
@@ -45000,13 +45307,6 @@ css/cssom/font-family-serialization-001.html	Specified: quoted 'unset' stays quo
 css/cssom/font-family-serialization-001.html	Specified: single-digit family name stays quoted
 css/cssom/font-family-serialization-001.html	Specified: single-word family name
 css/cssom/font-family-serialization-001.html	Specified: three-word family name serializes unquoted
-css/cssom/font-variant-shorthand-serialization.html	CSS-wide keyword in one longhand
-css/cssom/font-variant-shorthand-serialization.html	CSS-wide keyword in shorthand
-css/cssom/font-variant-shorthand-serialization.html	font-variant-ligatures: none serialization with non-default value for another longhand
-css/cssom/font-variant-shorthand-serialization.html	font-variant: none serialization
-css/cssom/font-variant-shorthand-serialization.html	font-variant: normal serialization
-css/cssom/font-variant-shorthand-serialization.html	font-variant: normal with non-default longhands
-css/cssom/font-variant-shorthand-serialization.html	font: menu serialization
 css/cssom/getComputedStyle-animations-replaced-into-ib-split.html	getComputedStyle() should return animation styles for nodes just inserted into the document, even if they're in an IB-split
 css/cssom/getComputedStyle-detached-subtree.html	getComputedStyle returns no style for descendant outside the flat tree
 css/cssom/getComputedStyle-detached-subtree.html	getComputedStyle returns no style for detached element
@@ -328121,6 +328421,9 @@ web-animations/animation-model/animation-types/accumulation-per-property-001.htm
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	column-gap: length of rem
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	counter-increment (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	counter-reset (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	cursor (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	cursor: "pointer" onto "wait"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	cursor: "wait" onto "pointer"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	empty-cells (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	fill-opacity (type: opacity) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	fill-rule (type: discrete) has testAccumulation function
@@ -328157,9 +328460,15 @@ web-animations/animation-model/animation-types/accumulation-per-property-001.htm
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-family (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-family: "helvetica" onto "verdana"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-family: "verdana" onto "helvetica"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-feature-settings (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-feature-settings: ""liga" 5" onto "normal"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-feature-settings: "normal" onto ""liga" 5"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-kerning (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-kerning: "auto" onto "normal"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-kerning: "normal" onto "auto"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-language-override (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-language-override: ""eng"" onto "normal"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-language-override: "normal" onto ""eng""
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-stretch (type: percentage) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-stretch: percentage
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-style (type: discrete) has testAccumulation function
@@ -328168,6 +328477,24 @@ web-animations/animation-model/animation-types/accumulation-per-property-001.htm
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-synthesis (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-synthesis: "none" onto "weight style"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-synthesis: "weight style" onto "none"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-alternates (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-alternates: "stylistic(unknown)" onto "swash(unknown)"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-alternates: "swash(unknown)" onto "stylistic(unknown)"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-caps (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-caps: "small-caps" onto "unicase"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-caps: "unicase" onto "small-caps"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-east-asian (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-east-asian: "full-width" onto "proportional-width"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-east-asian: "proportional-width" onto "full-width"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-ligatures (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-ligatures: "common-ligatures" onto "no-common-ligatures"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-ligatures: "no-common-ligatures" onto "common-ligatures"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-numeric (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-numeric: "lining-nums" onto "oldstyle-nums"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-numeric: "oldstyle-nums" onto "lining-nums"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-position (type: discrete) has testAccumulation function
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-position: "sub" onto "super"
+web-animations/animation-model/animation-types/accumulation-per-property-001.html	font-variant-position: "super" onto "sub"
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	gap (type: discrete) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	gap (type: length) has testAccumulation function
 web-animations/animation-model/animation-types/accumulation-per-property-001.html	gap: "normal" onto "200px"
@@ -328449,6 +328776,9 @@ web-animations/animation-model/animation-types/addition-per-property-001.html	co
 web-animations/animation-model/animation-types/addition-per-property-001.html	column-gap: length of rem
 web-animations/animation-model/animation-types/addition-per-property-001.html	counter-increment (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	counter-reset (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	cursor (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	cursor: "pointer" onto "wait"
+web-animations/animation-model/animation-types/addition-per-property-001.html	cursor: "wait" onto "pointer"
 web-animations/animation-model/animation-types/addition-per-property-001.html	empty-cells (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	fill-opacity (type: opacity) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	fill-rule (type: discrete) has testAddition function
@@ -328484,9 +328814,15 @@ web-animations/animation-model/animation-types/addition-per-property-001.html	fl
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-family (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-family: "helvetica" onto "verdana"
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-family: "verdana" onto "helvetica"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-feature-settings (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-feature-settings: ""liga" 5" onto "normal"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-feature-settings: "normal" onto ""liga" 5"
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-kerning (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-kerning: "auto" onto "normal"
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-kerning: "normal" onto "auto"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-language-override (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-language-override: ""eng"" onto "normal"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-language-override: "normal" onto ""eng""
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-stretch (type: percentage) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-stretch: percentage
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-style (type: discrete) has testAddition function
@@ -328495,6 +328831,24 @@ web-animations/animation-model/animation-types/addition-per-property-001.html	fo
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-synthesis (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-synthesis: "none" onto "weight style"
 web-animations/animation-model/animation-types/addition-per-property-001.html	font-synthesis: "weight style" onto "none"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-alternates (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-alternates: "stylistic(unknown)" onto "swash(unknown)"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-alternates: "swash(unknown)" onto "stylistic(unknown)"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-caps (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-caps: "small-caps" onto "unicase"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-caps: "unicase" onto "small-caps"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-east-asian (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-east-asian: "full-width" onto "proportional-width"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-east-asian: "proportional-width" onto "full-width"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-ligatures (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-ligatures: "common-ligatures" onto "no-common-ligatures"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-ligatures: "no-common-ligatures" onto "common-ligatures"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-numeric (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-numeric: "lining-nums" onto "oldstyle-nums"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-numeric: "oldstyle-nums" onto "lining-nums"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-position (type: discrete) has testAddition function
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-position: "sub" onto "super"
+web-animations/animation-model/animation-types/addition-per-property-001.html	font-variant-position: "super" onto "sub"
 web-animations/animation-model/animation-types/addition-per-property-001.html	gap (type: discrete) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	gap (type: length) has testAddition function
 web-animations/animation-model/animation-types/addition-per-property-001.html	gap: "normal" onto "200px"
@@ -328790,6 +329144,10 @@ web-animations/animation-model/animation-types/interpolation-per-property-001.ht
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	column-gap (type: length) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	counter-increment (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	counter-reset (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	cursor (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	cursor uses discrete animation when animating between "pointer" and "wait" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	cursor uses discrete animation when animating between "pointer" and "wait" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	cursor uses discrete animation when animating between "pointer" and "wait" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	empty-cells (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	fill-opacity (type: opacity) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	fill-rule (type: discrete) has testInterpolation function
@@ -328826,10 +329184,18 @@ web-animations/animation-model/animation-types/interpolation-per-property-001.ht
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-family uses discrete animation when animating between "helvetica" and "verdana" with effect easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-family uses discrete animation when animating between "helvetica" and "verdana" with keyframe easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-family uses discrete animation when animating between "helvetica" and "verdana" with linear easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-feature-settings (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-feature-settings uses discrete animation when animating between ""liga" 5" and "normal" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-feature-settings uses discrete animation when animating between ""liga" 5" and "normal" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-feature-settings uses discrete animation when animating between ""liga" 5" and "normal" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-kerning (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-kerning uses discrete animation when animating between "auto" and "normal" with effect easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-kerning uses discrete animation when animating between "auto" and "normal" with keyframe easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-kerning uses discrete animation when animating between "auto" and "normal" with linear easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-language-override (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-language-override uses discrete animation when animating between ""eng"" and "normal" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-language-override uses discrete animation when animating between ""eng"" and "normal" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-language-override uses discrete animation when animating between ""eng"" and "normal" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-stretch (type: percentage) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-stretch supports animating as a percentage
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-style (type: discrete) has testInterpolation function
@@ -328840,6 +329206,30 @@ web-animations/animation-model/animation-types/interpolation-per-property-001.ht
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-synthesis uses discrete animation when animating between "none" and "weight style" with effect easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-synthesis uses discrete animation when animating between "none" and "weight style" with keyframe easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-synthesis uses discrete animation when animating between "none" and "weight style" with linear easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-alternates (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-alternates uses discrete animation when animating between "swash(unknown)" and "stylistic(unknown)" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-alternates uses discrete animation when animating between "swash(unknown)" and "stylistic(unknown)" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-alternates uses discrete animation when animating between "swash(unknown)" and "stylistic(unknown)" with linear easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-caps (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-caps uses discrete animation when animating between "small-caps" and "unicase" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-caps uses discrete animation when animating between "small-caps" and "unicase" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-caps uses discrete animation when animating between "small-caps" and "unicase" with linear easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-east-asian (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-east-asian uses discrete animation when animating between "full-width" and "proportional-width" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-east-asian uses discrete animation when animating between "full-width" and "proportional-width" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-east-asian uses discrete animation when animating between "full-width" and "proportional-width" with linear easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-ligatures (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-ligatures uses discrete animation when animating between "common-ligatures" and "no-common-ligatures" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-ligatures uses discrete animation when animating between "common-ligatures" and "no-common-ligatures" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-ligatures uses discrete animation when animating between "common-ligatures" and "no-common-ligatures" with linear easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-numeric (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-numeric uses discrete animation when animating between "lining-nums" and "oldstyle-nums" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-numeric uses discrete animation when animating between "lining-nums" and "oldstyle-nums" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-numeric uses discrete animation when animating between "lining-nums" and "oldstyle-nums" with linear easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-position (type: discrete) has testInterpolation function
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-position uses discrete animation when animating between "sub" and "super" with effect easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-position uses discrete animation when animating between "sub" and "super" with keyframe easing
+web-animations/animation-model/animation-types/interpolation-per-property-001.html	font-variant-position uses discrete animation when animating between "sub" and "super" with linear easing
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	gap (type: discrete) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	gap (type: length) has testInterpolation function
 web-animations/animation-model/animation-types/interpolation-per-property-001.html	grid-area (type: discrete) has testInterpolation function
@@ -330604,6 +330994,495 @@ web-share/idlharness.https.window.html	Partial interface mixin NavigatorID: memb
 web-share/idlharness.https.window.html	idl_test setup
 web-share/idlharness.https.window.html	idl_test validation
 web-share/share-file-url-with-base-tag.https.html	canShare() rejects file:// URLs even with a file: base URL
+webauthn/createcredential-abort.https.html	navigator.credentials.create() after abort reason
+webauthn/createcredential-abort.https.html	navigator.credentials.create() after abort reason with Error
+webauthn/createcredential-abort.https.html	navigator.credentials.create() after abort without reason
+webauthn/createcredential-abort.https.html	navigator.credentials.create() before abort reason
+webauthn/createcredential-abort.https.html	navigator.credentials.create() before abort reason with Error
+webauthn/createcredential-abort.https.html	navigator.credentials.create() before abort without reason
+webauthn/createcredential-attachment.https.html	navigator.credentials.create() with ble authenticator, attachment as cross-platform
+webauthn/createcredential-attachment.https.html	navigator.credentials.create() with nfc authenticator, attachment as cross-platform
+webauthn/createcredential-attachment.https.html	navigator.credentials.create() with usb authenticator, attachment as cross-platform
+webauthn/createcredential-badargs-authnrselection.https.html	Bad AuthenticatorSelectionCriteria: authenticatorSelection is empty string
+webauthn/createcredential-badargs-authnrselection.https.html	Bad AuthenticatorSelectionCriteria: authenticatorSelection is string
+webauthn/createcredential-badargs-challenge.https.html	Bad challenge: challenge is empty Array
+webauthn/createcredential-badargs-challenge.https.html	Bad challenge: challenge is empty object
+webauthn/createcredential-badargs-challenge.https.html	Bad challenge: challenge is null
+webauthn/createcredential-badargs-challenge.https.html	Bad challenge: challenge is string
+webauthn/createcredential-badargs-challenge.https.html	Bad challenge: challenge missing
+webauthn/createcredential-badargs-challenge.https.html	Clean up the test environment
+webauthn/createcredential-badargs-rp.https.html	Bad rp id: id is host + port
+webauthn/createcredential-badargs-rp.https.html	Bad rp: id is empty String
+webauthn/createcredential-badargs-rp.https.html	Bad rp: id is invalid domain (has space)
+webauthn/createcredential-badargs-rp.https.html	Bad rp: id is invalid domain (starts with dash)
+webauthn/createcredential-badargs-rp.https.html	Bad rp: id is invalid domain (starts with number)
+webauthn/createcredential-badargs-rp.https.html	Bad rp: id is null
+webauthn/createcredential-badargs-rp.https.html	Bad rp: rp is empty object
+webauthn/createcredential-badargs-rp.https.html	Bad rp: rp is string
+webauthn/createcredential-badargs-rp.https.html	Bad rp: rp missing
+webauthn/createcredential-badargs-rp.https.html	Bad rp: rp null
+webauthn/createcredential-badargs-rp.https.html	Clean up the test environment
+webauthn/createcredential-badargs-rp.https.html	rp missing name
+webauthn/createcredential-badargs-user.https.html	Bad user: ArrayBuffer id is too long (65 bytes)
+webauthn/createcredential-badargs-user.https.html	Bad user: Float32Array id is too long (68 bytes)
+webauthn/createcredential-badargs-user.https.html	Bad user: Float64Array id is too long (72 bytes)
+webauthn/createcredential-badargs-user.https.html	Bad user: Int16Array id is too long (66 bytes)
+webauthn/createcredential-badargs-user.https.html	Bad user: Int32Array id is too long (68 bytes)
+webauthn/createcredential-badargs-user.https.html	Bad user: displayName is undefined
+webauthn/createcredential-badargs-user.https.html	Bad user: id is empty Array
+webauthn/createcredential-badargs-user.https.html	Bad user: id is empty String
+webauthn/createcredential-badargs-user.https.html	Bad user: id is null
+webauthn/createcredential-badargs-user.https.html	Bad user: id is object
+webauthn/createcredential-badargs-user.https.html	Bad user: id is too long (65 bytes)
+webauthn/createcredential-badargs-user.https.html	Bad user: id is undefined
+webauthn/createcredential-badargs-user.https.html	Bad user: user is empty object
+webauthn/createcredential-badargs-user.https.html	Bad user: user is string
+webauthn/createcredential-badargs-user.https.html	Bad user: user missing
+webauthn/createcredential-badargs-user.https.html	Clean up the test environment
+webauthn/createcredential-badargs-user.https.html	user missing name
+webauthn/createcredential-clientdata.https.html	Clean up the test environment
+webauthn/createcredential-clientdata.https.html	navigator.credentials.create() has valid clientData
+webauthn/createcredential-cross-origin-iframe.https.sub.html	create() in cross-origin iframe fails without permissions policy
+webauthn/createcredential-excludecredentials.https.html	Bad excludeCredentials: empty object
+webauthn/createcredential-excludecredentials.https.html	Bad excludeCredentials: string
+webauthn/createcredential-excludecredentials.https.html	Clean up the test environment
+webauthn/createcredential-excludecredentials.https.html	exclude existing credential
+webauthn/createcredential-excludecredentials.https.html	exclude random (non-existing) credential
+webauthn/createcredential-excludecredentials.https.html	excludeCredentials empty array
+webauthn/createcredential-excludecredentials.https.html	excludeCredentials missing
+webauthn/createcredential-extensions.https.html	Bad extensions: extensions is string
+webauthn/createcredential-extensions.https.html	Clean up the test environment
+webauthn/createcredential-extensions.https.html	appid in create request
+webauthn/createcredential-extensions.https.html	empty appid in create request
+webauthn/createcredential-extensions.https.html	extensions is a nonsensical JSON string
+webauthn/createcredential-extensions.https.html	navigator.credentials.create() with prf requested but no support in authenticator
+webauthn/createcredential-extensions.https.html	null appid in create request
+webauthn/createcredential-getpublickey.https.html	Clean up the test environment
+webauthn/createcredential-getpublickey.https.html	WebAuthn getPublicKey
+webauthn/createcredential-hints.https.html	Clean up the test environment
+webauthn/createcredential-hints.https.html	WebAuthn createWithHints
+webauthn/createcredential-large-blob-not-supported.https.html	Clean up the test environment
+webauthn/createcredential-large-blob-not-supported.https.html	navigator.credentials.create() with largeBlob.read set
+webauthn/createcredential-large-blob-not-supported.https.html	navigator.credentials.create() with largeBlob.support not set and not supported by authenticator
+webauthn/createcredential-large-blob-not-supported.https.html	navigator.credentials.create() with largeBlob.support set to preferred and not supported by authenticator
+webauthn/createcredential-large-blob-not-supported.https.html	navigator.credentials.create() with largeBlob.write set
+webauthn/createcredential-large-blob-supported.https.html	Clean up the test environment
+webauthn/createcredential-large-blob-supported.https.html	navigator.credentials.create() with largeBlob.support not set and supported by authenticator
+webauthn/createcredential-large-blob-supported.https.html	navigator.credentials.create() with largeBlob.support set to preferred and supported by authenticator
+webauthn/createcredential-large-blob-supported.https.html	navigator.credentials.create() with largeBlob.support set to required and supported by authenticator
+webauthn/createcredential-minpinlength.https.html	Clean up the test environment
+webauthn/createcredential-passing.https.html	Absurdly large challenge
+webauthn/createcredential-passing.https.html	Clean up the test environment
+webauthn/createcredential-passing.https.html	DataView challenge
+webauthn/createcredential-passing.https.html	DataView user id
+webauthn/createcredential-passing.https.html	EC256 pubKeyCredParams
+webauthn/createcredential-passing.https.html	Float32Array challenge
+webauthn/createcredential-passing.https.html	Float32Array user id
+webauthn/createcredential-passing.https.html	Float64Array challenge
+webauthn/createcredential-passing.https.html	Int16Array challenge
+webauthn/createcredential-passing.https.html	Int16Array user id
+webauthn/createcredential-passing.https.html	Int32Array challenge
+webauthn/createcredential-passing.https.html	Int32Array user id
+webauthn/createcredential-passing.https.html	Int8Array user id
+webauthn/createcredential-passing.https.html	SelectEC256 pubKeyCredParams from a list
+webauthn/createcredential-passing.https.html	Uint8Array user id
+webauthn/createcredential-passing.https.html	attestation parameter: attestation is "direct"
+webauthn/createcredential-passing.https.html	attestation parameter: attestation is "indirect"
+webauthn/createcredential-passing.https.html	attestation parameter: attestation is "none"
+webauthn/createcredential-passing.https.html	attestation parameter: attestation is "noneofyourbusiness"
+webauthn/createcredential-passing.https.html	attestation parameter: attestation is empty array
+webauthn/createcredential-passing.https.html	attestation parameter: attestation is empty object
+webauthn/createcredential-passing.https.html	attestation parameter: attestation is empty string
+webauthn/createcredential-passing.https.html	attestation parameter: attestation is null
+webauthn/createcredential-passing.https.html	attestation parameter: attestation is undefined
+webauthn/createcredential-passing.https.html	authenticatorSelection attachment empty object
+webauthn/createcredential-passing.https.html	authenticatorSelection attachment empty string
+webauthn/createcredential-passing.https.html	authenticatorSelection attachment null
+webauthn/createcredential-passing.https.html	authenticatorSelection attachment undefined
+webauthn/createcredential-passing.https.html	authenticatorSelection attachment unknown value
+webauthn/createcredential-passing.https.html	authenticatorSelection default values
+webauthn/createcredential-passing.https.html	authenticatorSelection is empty object
+webauthn/createcredential-passing.https.html	authenticatorSelection is undefined
+webauthn/createcredential-passing.https.html	authenticatorSelection residentKey false
+webauthn/createcredential-passing.https.html	authenticatorSelection residentKey undefined
+webauthn/createcredential-passing.https.html	authenticatorSelection userVerification discouraged
+webauthn/createcredential-passing.https.html	authenticatorSelection userVerification empty object
+webauthn/createcredential-passing.https.html	authenticatorSelection userVerification empty string
+webauthn/createcredential-passing.https.html	authenticatorSelection userVerification null
+webauthn/createcredential-passing.https.html	authenticatorSelection userVerification undefined
+webauthn/createcredential-passing.https.html	authenticatorSelection userVerification unknown value
+webauthn/createcredential-passing.https.html	extensions are dict of empty strings
+webauthn/createcredential-passing.https.html	extensions are empty object
+webauthn/createcredential-passing.https.html	extensions undefined
+webauthn/createcredential-passing.https.html	max length user id
+webauthn/createcredential-passing.https.html	passing credentials.create() with default arguments
+webauthn/createcredential-passing.https.html	passing credentials.create() with no timeout
+webauthn/createcredential-passing.https.html	passing credentials.create() with rpId (hostname)
+webauthn/createcredential-passing.https.html	pubKeyCredParams is empty Array
+webauthn/createcredential-passing.https.html	pubKeyCredParams with unknown value
+webauthn/createcredential-passing.https.html	very short user id
+webauthn/createcredential-prf.https.html	Clean up the test environment
+webauthn/createcredential-prf.https.html	navigator.credentials.create() with nonsensical evalByCredential
+webauthn/createcredential-prf.https.html	navigator.credentials.create() with prf requested
+webauthn/createcredential-pubkeycredparams.https.html	Bad pubKeyCredParams: first param has bad alg (0)
+webauthn/createcredential-pubkeycredparams.https.html	Bad pubKeyCredParams: first param has bad alg (42)
+webauthn/createcredential-pubkeycredparams.https.html	Bad pubKeyCredParams: first param has bad type ("")
+webauthn/createcredential-pubkeycredparams.https.html	Bad pubKeyCredParams: first param has bad type ("something-else")
+webauthn/createcredential-pubkeycredparams.https.html	Bad pubKeyCredParams: first param has bad type (empty object)
+webauthn/createcredential-pubkeycredparams.https.html	Bad pubKeyCredParams: first param has bad type (null)
+webauthn/createcredential-pubkeycredparams.https.html	Bad pubKeyCredParams: pubKeyCredParams is null
+webauthn/createcredential-pubkeycredparams.https.html	Bad pubKeyCredParams: pubKeyCredParams is string
+webauthn/createcredential-pubkeycredparams.https.html	Bad pubKeyCredParams: pubKeyCredParams is undefined
+webauthn/createcredential-pubkeycredparams.https.html	Clean up the test environment
+webauthn/createcredential-resident-key.https.html	CTAP 2.0 with resident key support: navigator.credentials.create() with credProps extension, rk=discouraged
+webauthn/createcredential-resident-key.https.html	CTAP 2.0 with resident key support: navigator.credentials.create() with credProps extension, rk=preferred
+webauthn/createcredential-resident-key.https.html	CTAP 2.0 with resident key support: navigator.credentials.create() with credProps extension, rk=required
+webauthn/createcredential-resident-key.https.html	CTAP 2.0 without resident key support: navigator.credentials.create() with credProps extension, rk=discouraged
+webauthn/createcredential-resident-key.https.html	CTAP 2.0 without resident key support: navigator.credentials.create() with credProps extension, rk=preferred
+webauthn/createcredential-resident-key.https.html	CTAP 2.0 without resident key support: navigator.credentials.create() with credProps extension, rk=required
+webauthn/createcredential-resident-key.https.html	CTAP 2.1 with resident key support: navigator.credentials.create() with credProps extension, rk=discouraged
+webauthn/createcredential-resident-key.https.html	CTAP 2.1 with resident key support: navigator.credentials.create() with credProps extension, rk=preferred
+webauthn/createcredential-resident-key.https.html	CTAP 2.1 with resident key support: navigator.credentials.create() with credProps extension, rk=required
+webauthn/createcredential-resident-key.https.html	CTAP 2.1 without resident key support: navigator.credentials.create() with credProps extension, rk=discouraged
+webauthn/createcredential-resident-key.https.html	CTAP 2.1 without resident key support: navigator.credentials.create() with credProps extension, rk=preferred
+webauthn/createcredential-resident-key.https.html	CTAP 2.1 without resident key support: navigator.credentials.create() with credProps extension, rk=required
+webauthn/createcredential-resident-key.https.html	U2F: navigator.credentials.create() with credProps extension, rk=discouraged
+webauthn/createcredential-resident-key.https.html	U2F: navigator.credentials.create() with credProps extension, rk=preferred
+webauthn/createcredential-resident-key.https.html	U2F: navigator.credentials.create() with credProps extension, rk=required
+webauthn/credblob-not-supported.https.html	creation requesting credBlob without authenticator support
+webauthn/credblob-supported.https.html	assertion with credBlob
+webauthn/credblob-supported.https.html	assertion without credBlob
+webauthn/getclientcapabilities.https.html	Capabilities keys are known
+webauthn/getclientcapabilities.https.html	Capabilities object has sorted keys and boolean values
+webauthn/getcredential-abort.https.html	navigator.credentials.get() after abort reason
+webauthn/getcredential-abort.https.html	navigator.credentials.get() after abort reason with Error
+webauthn/getcredential-abort.https.html	navigator.credentials.get() after abort without reason
+webauthn/getcredential-abort.https.html	navigator.credentials.get() before abort reason
+webauthn/getcredential-abort.https.html	navigator.credentials.get() before abort reason with Error
+webauthn/getcredential-abort.https.html	navigator.credentials.get() before abort without reason
+webauthn/getcredential-allowcredentials.https.html	Clean up the test environment
+webauthn/getcredential-allowcredentials.https.html	navigator.credentials.get() with empty allowCredentials.
+webauthn/getcredential-allowcredentials.https.html	navigator.credentials.get() with mixing allowCredentials with first unknown type.
+webauthn/getcredential-allowcredentials.https.html	navigator.credentials.get() with mixing allowCredentials with last unknown type.
+webauthn/getcredential-allowcredentials.https.html	navigator.credentials.get() with public-key allowCredentials.
+webauthn/getcredential-allowcredentials.https.html	navigator.credentials.get() with unknown allowCredentials.
+webauthn/getcredential-attachment.https.html	navigator.credentials.get() with ble authenticator, attachment as cross-platform
+webauthn/getcredential-attachment.https.html	navigator.credentials.get() with nfc authenticator, attachment as cross-platform
+webauthn/getcredential-attachment.https.html	navigator.credentials.get() with usb authenticator, attachment as cross-platform
+webauthn/getcredential-badargs-rpid.https.html	Bad rpId: empty string
+webauthn/getcredential-badargs-rpid.https.html	Bad rpId: host + port
+webauthn/getcredential-badargs-rpid.https.html	Bad rpId: invalid domain (has space)
+webauthn/getcredential-badargs-rpid.https.html	Bad rpId: invalid domain (starts with dash)
+webauthn/getcredential-badargs-rpid.https.html	Bad rpId: invalid domain (starts with number)
+webauthn/getcredential-badargs-rpid.https.html	Bad rpId: null
+webauthn/getcredential-badargs-rpid.https.html	Clean up the test environment
+webauthn/getcredential-badargs-userverification.https.html	Bad userVerification: "required"
+webauthn/getcredential-badargs-userverification.https.html	Clean up the test environment
+webauthn/getcredential-extensions.https.html	Bad extensions: extensions is string
+webauthn/getcredential-extensions.https.html	Clean up the test environment
+webauthn/getcredential-extensions.https.html	Payment extension is only supported at registration
+webauthn/getcredential-extensions.https.html	credProps is only supported at registration
+webauthn/getcredential-extensions.https.html	extension ID too long
+webauthn/getcredential-extensions.https.html	extensions is empty Array
+webauthn/getcredential-extensions.https.html	extensions is empty ArrayBuffer
+webauthn/getcredential-extensions.https.html	extensions is null
+webauthn/getcredential-extensions.https.html	ignored extension
+webauthn/getcredential-extensions.https.html	navigator.credentials.get() with prf requested but no support in authenticator
+webauthn/getcredential-hints.https.html	Clean up the test environment
+webauthn/getcredential-hints.https.html	navigator.credentials.get with hints
+webauthn/getcredential-large-blob-not-supported.https.html	Clean up the test environment
+webauthn/getcredential-large-blob-not-supported.https.html	navigator.credentials.get() with largeBlob.read and largeBlob.write set
+webauthn/getcredential-large-blob-not-supported.https.html	navigator.credentials.get() with largeBlob.read set without authenticator support
+webauthn/getcredential-large-blob-not-supported.https.html	navigator.credentials.get() with largeBlob.support set
+webauthn/getcredential-large-blob-not-supported.https.html	navigator.credentials.get() with largeBlob.write set without authenticator support
+webauthn/getcredential-large-blob-supported.https.html	Clean up the test environment
+webauthn/getcredential-large-blob-supported.https.html	navigator.credentials.get() with largeBlob.read set with no blob on authenticator
+webauthn/getcredential-nested-frame.https.html	Setup: create a credential to test with
+webauthn/getcredential-nested-frame.https.html	navigator.credentials.get({publicKey}) in a javascript url should should succeed.
+webauthn/getcredential-nested-frame.https.html	navigator.credentials.get({publicKey}) in srcdoc should succeed.
+webauthn/getcredential-passing.https.html	Clean up the test environment
+webauthn/getcredential-passing.https.html	authenticatorSelection userVerification discouraged
+webauthn/getcredential-passing.https.html	authenticatorSelection userVerification empty object
+webauthn/getcredential-passing.https.html	authenticatorSelection userVerification empty string
+webauthn/getcredential-passing.https.html	authenticatorSelection userVerification null
+webauthn/getcredential-passing.https.html	authenticatorSelection userVerification preferred
+webauthn/getcredential-passing.https.html	authenticatorSelection userVerification undefined
+webauthn/getcredential-passing.https.html	authenticatorSelection userVerification unknown value
+webauthn/getcredential-passing.https.html	extensions are dict of empty strings
+webauthn/getcredential-passing.https.html	extensions are empty object
+webauthn/getcredential-passing.https.html	extensions undefined
+webauthn/getcredential-passing.https.html	passing credentials.create() with no timeout
+webauthn/getcredential-passing.https.html	passing credentials.get() with default args
+webauthn/getcredential-passing.https.html	passing credentials.get() with rpId (hostname)
+webauthn/getcredential-passing.https.html	rpId undefined
+webauthn/getcredential-prf.https.html	Clean up the test environment
+webauthn/getcredential-prf.https.html	navigator.credentials.get() using credential ID with one evaluation point
+webauthn/getcredential-prf.https.html	navigator.credentials.get() using credential ID with two evaluation points
+webauthn/getcredential-prf.https.html	navigator.credentials.get() using invalid base64url credential ID
+webauthn/getcredential-prf.https.html	navigator.credentials.get() with Uint8Array credential ID not in allowedCredentials
+webauthn/getcredential-prf.https.html	navigator.credentials.get() with an empty allow list but also using evalByCredential
+webauthn/getcredential-prf.https.html	navigator.credentials.get() with credential ID not in allowedCredentials
+webauthn/getcredential-prf.https.html	navigator.credentials.get() with single evaluation point
+webauthn/getcredential-prf.https.html	navigator.credentials.get() with two distinct evaluation points
+webauthn/getcredential-prf.https.html	navigator.credentials.get() with two equal evaluation points
+webauthn/getcredential-rk-passing.https.html	Clean up the test environment
+webauthn/getcredential-rk-passing.https.html	empty allowCredentials
+webauthn/getcredential-rk-passing.https.html	undefined allowCredentials
+webauthn/getcredential-ui-mode-immediate.https.html	Immediate mediation fails without user activation
+webauthn/idlharness-manual.https.window.html	AuthenticatorAssertionResponse interface object length
+webauthn/idlharness-manual.https.window.html	AuthenticatorAssertionResponse interface object name
+webauthn/idlharness-manual.https.window.html	AuthenticatorAssertionResponse interface: attribute authenticatorData
+webauthn/idlharness-manual.https.window.html	AuthenticatorAssertionResponse interface: attribute signature
+webauthn/idlharness-manual.https.window.html	AuthenticatorAssertionResponse interface: attribute userHandle
+webauthn/idlharness-manual.https.window.html	AuthenticatorAssertionResponse interface: existence and properties of interface object
+webauthn/idlharness-manual.https.window.html	AuthenticatorAssertionResponse interface: existence and properties of interface prototype object
+webauthn/idlharness-manual.https.window.html	AuthenticatorAssertionResponse interface: existence and properties of interface prototype object's "constructor" property
+webauthn/idlharness-manual.https.window.html	AuthenticatorAssertionResponse interface: existence and properties of interface prototype object's @@unscopables property
+webauthn/idlharness-manual.https.window.html	AuthenticatorAttestationResponse interface object length
+webauthn/idlharness-manual.https.window.html	AuthenticatorAttestationResponse interface object name
+webauthn/idlharness-manual.https.window.html	AuthenticatorAttestationResponse interface: attribute attestationObject
+webauthn/idlharness-manual.https.window.html	AuthenticatorAttestationResponse interface: existence and properties of interface object
+webauthn/idlharness-manual.https.window.html	AuthenticatorAttestationResponse interface: existence and properties of interface prototype object
+webauthn/idlharness-manual.https.window.html	AuthenticatorAttestationResponse interface: existence and properties of interface prototype object's "constructor" property
+webauthn/idlharness-manual.https.window.html	AuthenticatorAttestationResponse interface: existence and properties of interface prototype object's @@unscopables property
+webauthn/idlharness-manual.https.window.html	AuthenticatorAttestationResponse interface: operation getAuthenticatorData()
+webauthn/idlharness-manual.https.window.html	AuthenticatorAttestationResponse interface: operation getPublicKey()
+webauthn/idlharness-manual.https.window.html	AuthenticatorAttestationResponse interface: operation getPublicKeyAlgorithm()
+webauthn/idlharness-manual.https.window.html	AuthenticatorAttestationResponse interface: operation getTransports()
+webauthn/idlharness-manual.https.window.html	AuthenticatorResponse interface object length
+webauthn/idlharness-manual.https.window.html	AuthenticatorResponse interface object name
+webauthn/idlharness-manual.https.window.html	AuthenticatorResponse interface: attribute clientDataJSON
+webauthn/idlharness-manual.https.window.html	AuthenticatorResponse interface: existence and properties of interface object
+webauthn/idlharness-manual.https.window.html	AuthenticatorResponse interface: existence and properties of interface prototype object
+webauthn/idlharness-manual.https.window.html	AuthenticatorResponse interface: existence and properties of interface prototype object's "constructor" property
+webauthn/idlharness-manual.https.window.html	AuthenticatorResponse interface: existence and properties of interface prototype object's @@unscopables property
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[2]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[2]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[3]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[3]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[4]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[4]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[5]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[5]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[6]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[6]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[2]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[2]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[3]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[3]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[4]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[4]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[5]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[5]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[6]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[6]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[2]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[2]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[3]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[3]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[4]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[4]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[5]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[5]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[6]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[6]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[2]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[2]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[3]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[3]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[4]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[4]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[5]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[5]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[6]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[6]: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary CredentialCreationOptions: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary CredentialCreationOptions: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary CredentialCreationOptions[2]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary CredentialCreationOptions[3]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary CredentialRequestOptions: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary CredentialRequestOptions: original dictionary defined
+webauthn/idlharness-manual.https.window.html	Partial dictionary CredentialRequestOptions[2]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial dictionary CredentialRequestOptions[3]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial interface PublicKeyCredential: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial interface PublicKeyCredential: original interface defined
+webauthn/idlharness-manual.https.window.html	Partial interface PublicKeyCredential[2]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial interface PublicKeyCredential[2]: original interface defined
+webauthn/idlharness-manual.https.window.html	Partial interface PublicKeyCredential[3]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial interface PublicKeyCredential[3]: original interface defined
+webauthn/idlharness-manual.https.window.html	Partial interface PublicKeyCredential[4]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial interface PublicKeyCredential[4]: original interface defined
+webauthn/idlharness-manual.https.window.html	Partial interface PublicKeyCredential[5]: member names are unique
+webauthn/idlharness-manual.https.window.html	Partial interface PublicKeyCredential[5]: original interface defined
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface object length
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface object name
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: attribute authenticatorAttachment
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: attribute rawId
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: attribute response
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: existence and properties of interface object
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: existence and properties of interface prototype object
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: existence and properties of interface prototype object's "constructor" property
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: existence and properties of interface prototype object's @@unscopables property
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: operation getClientCapabilities()
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: operation getClientExtensionResults()
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: operation isConditionalMediationAvailable()
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: operation isUserVerifyingPlatformAuthenticatorAvailable()
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: operation parseCreationOptionsFromJSON(PublicKeyCredentialCreationOptionsJSON)
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: operation parseRequestOptionsFromJSON(PublicKeyCredentialRequestOptionsJSON)
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: operation signalAllAcceptedCredentials(AllAcceptedCredentialsOptions)
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: operation signalCurrentUserDetails(CurrentUserDetailsOptions)
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: operation signalUnknownCredential(UnknownCredentialOptions)
+webauthn/idlharness-manual.https.window.html	PublicKeyCredential interface: operation toJSON()
+webauthn/idlharness-manual.https.window.html	idl_test validation
+webauthn/idlharness.https.window.html	AuthenticatorAssertionResponse interface object length
+webauthn/idlharness.https.window.html	AuthenticatorAssertionResponse interface object name
+webauthn/idlharness.https.window.html	AuthenticatorAssertionResponse interface: attribute authenticatorData
+webauthn/idlharness.https.window.html	AuthenticatorAssertionResponse interface: attribute signature
+webauthn/idlharness.https.window.html	AuthenticatorAssertionResponse interface: attribute userHandle
+webauthn/idlharness.https.window.html	AuthenticatorAssertionResponse interface: existence and properties of interface object
+webauthn/idlharness.https.window.html	AuthenticatorAssertionResponse interface: existence and properties of interface prototype object
+webauthn/idlharness.https.window.html	AuthenticatorAssertionResponse interface: existence and properties of interface prototype object's "constructor" property
+webauthn/idlharness.https.window.html	AuthenticatorAssertionResponse interface: existence and properties of interface prototype object's @@unscopables property
+webauthn/idlharness.https.window.html	AuthenticatorAttestationResponse interface object length
+webauthn/idlharness.https.window.html	AuthenticatorAttestationResponse interface object name
+webauthn/idlharness.https.window.html	AuthenticatorAttestationResponse interface: attribute attestationObject
+webauthn/idlharness.https.window.html	AuthenticatorAttestationResponse interface: existence and properties of interface object
+webauthn/idlharness.https.window.html	AuthenticatorAttestationResponse interface: existence and properties of interface prototype object
+webauthn/idlharness.https.window.html	AuthenticatorAttestationResponse interface: existence and properties of interface prototype object's "constructor" property
+webauthn/idlharness.https.window.html	AuthenticatorAttestationResponse interface: existence and properties of interface prototype object's @@unscopables property
+webauthn/idlharness.https.window.html	AuthenticatorAttestationResponse interface: operation getAuthenticatorData()
+webauthn/idlharness.https.window.html	AuthenticatorAttestationResponse interface: operation getPublicKey()
+webauthn/idlharness.https.window.html	AuthenticatorAttestationResponse interface: operation getPublicKeyAlgorithm()
+webauthn/idlharness.https.window.html	AuthenticatorAttestationResponse interface: operation getTransports()
+webauthn/idlharness.https.window.html	AuthenticatorResponse interface object length
+webauthn/idlharness.https.window.html	AuthenticatorResponse interface object name
+webauthn/idlharness.https.window.html	AuthenticatorResponse interface: attribute clientDataJSON
+webauthn/idlharness.https.window.html	AuthenticatorResponse interface: existence and properties of interface object
+webauthn/idlharness.https.window.html	AuthenticatorResponse interface: existence and properties of interface prototype object
+webauthn/idlharness.https.window.html	AuthenticatorResponse interface: existence and properties of interface prototype object's "constructor" property
+webauthn/idlharness.https.window.html	AuthenticatorResponse interface: existence and properties of interface prototype object's @@unscopables property
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[2]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[2]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[3]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[3]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[4]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[4]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[5]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[5]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[6]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputsJSON[6]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[2]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[2]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[3]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[3]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[4]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[4]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[5]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[5]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[6]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientInputs[6]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[2]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[2]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[3]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[3]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[4]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[4]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[5]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[5]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[6]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputsJSON[6]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[2]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[2]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[3]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[3]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[4]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[4]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[5]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[5]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[6]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary AuthenticationExtensionsClientOutputs[6]: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary CredentialCreationOptions: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary CredentialCreationOptions: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary CredentialCreationOptions[2]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary CredentialCreationOptions[3]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary CredentialRequestOptions: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary CredentialRequestOptions: original dictionary defined
+webauthn/idlharness.https.window.html	Partial dictionary CredentialRequestOptions[2]: member names are unique
+webauthn/idlharness.https.window.html	Partial dictionary CredentialRequestOptions[3]: member names are unique
+webauthn/idlharness.https.window.html	Partial interface PublicKeyCredential: member names are unique
+webauthn/idlharness.https.window.html	Partial interface PublicKeyCredential: original interface defined
+webauthn/idlharness.https.window.html	Partial interface PublicKeyCredential[2]: member names are unique
+webauthn/idlharness.https.window.html	Partial interface PublicKeyCredential[2]: original interface defined
+webauthn/idlharness.https.window.html	Partial interface PublicKeyCredential[3]: member names are unique
+webauthn/idlharness.https.window.html	Partial interface PublicKeyCredential[3]: original interface defined
+webauthn/idlharness.https.window.html	Partial interface PublicKeyCredential[4]: member names are unique
+webauthn/idlharness.https.window.html	Partial interface PublicKeyCredential[4]: original interface defined
+webauthn/idlharness.https.window.html	Partial interface PublicKeyCredential[5]: member names are unique
+webauthn/idlharness.https.window.html	Partial interface PublicKeyCredential[5]: original interface defined
+webauthn/idlharness.https.window.html	PublicKeyCredential interface object length
+webauthn/idlharness.https.window.html	PublicKeyCredential interface object name
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: attribute authenticatorAttachment
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: attribute rawId
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: attribute response
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: existence and properties of interface object
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: existence and properties of interface prototype object
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: existence and properties of interface prototype object's "constructor" property
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: existence and properties of interface prototype object's @@unscopables property
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: operation getClientCapabilities()
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: operation getClientExtensionResults()
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: operation isConditionalMediationAvailable()
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: operation isUserVerifyingPlatformAuthenticatorAvailable()
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: operation parseCreationOptionsFromJSON(PublicKeyCredentialCreationOptionsJSON)
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: operation parseRequestOptionsFromJSON(PublicKeyCredentialRequestOptionsJSON)
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: operation signalAllAcceptedCredentials(AllAcceptedCredentialsOptions)
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: operation signalCurrentUserDetails(CurrentUserDetailsOptions)
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: operation signalUnknownCredential(UnknownCredentialOptions)
+webauthn/idlharness.https.window.html	PublicKeyCredential interface: operation toJSON()
+webauthn/idlharness.https.window.html	idl_test setup
+webauthn/idlharness.https.window.html	idl_test validation
+webauthn/isuserverifyingplatformauthenticatoravailable.https.html	No platform authenticator
+webauthn/isuserverifyingplatformauthenticatoravailable.https.html	Non-user-verifying platform authenticator
+webauthn/public-key-credential-creation-options-from-json.https.window.html	parseCreationOptionsFromJSON()
+webauthn/public-key-credential-creation-options-from-json.https.window.html	parseCreationOptionsFromJSON() throws EncodingError
+webauthn/public-key-credential-creation-options-from-json.https.window.html	parseCreationOptionsFromJSON() with duplicated hints
+webauthn/public-key-credential-creation-options-from-json.https.window.html	parseCreationOptionsFromJSON() with extensions
+webauthn/public-key-credential-request-options-from-json.https.window.html	parseRequestOptionsFromJSON()
+webauthn/public-key-credential-request-options-from-json.https.window.html	parseRequestOptionsFromJSON() with extensions
+webauthn/public-key-credential-to-json.https.window.html	toJSON()
+webauthn/securecontext.http.html	no navigator.credentials.create in non-secure context
+webauthn/securecontext.https.html	navigator.credentials.create exists in secure context
+webauthn/signal-all-accepted-credentials.https.html	signalAllAcceptedCredentials does not remove a credential for a different user id
+webauthn/signal-all-accepted-credentials.https.html	signalAllAcceptedCredentials does not remove a credential if present on the list
+webauthn/signal-all-accepted-credentials.https.html	signalAllAcceptedCredentials fails with SecurityError for invalid RP IDs
+webauthn/signal-all-accepted-credentials.https.html	signalAllAcceptedCredentials fails with TypeError for invalid credential base64url
+webauthn/signal-all-accepted-credentials.https.html	signalAllAcceptedCredentials fails with TypeError for invalid userId base64url
+webauthn/signal-all-accepted-credentials.https.html	signalAllAcceptedCredentials with recognized and unrecognized credentials keeps the existing credential
+webauthn/signal-current-user-details.https.html	signalCurrentUserDetails fails with SecurityError for invalid RP IDs
+webauthn/signal-current-user-details.https.html	signalCurrentUserDetails fails with TypeError for invalid userId base64url
+webauthn/signal-unknown-credential.https.html	signalUnknownCredential does not remove a credential that does not match the ID
+webauthn/signal-unknown-credential.https.html	signalUnknownCredential fails with SecurityError for invalid RP IDs
+webauthn/signal-unknown-credential.https.html	signalUnknownCredential fails with TypeError for invalid base64url
+webauthn/storecredential.https.html	navigator.credentials.store() throws NotAllowedError with a public key credential
+webauthn/webauthn-testdriver-basic.https.html	Clean up the test environment
+webauthn/webauthn-testdriver-basic.https.html	Create a credential
+webauthn/webauthn-testdriver-basic.https.html	Get an assertion
+webauthn/webauthn-testdriver-basic.https.html	Set up the test environment
 webmessaging/broadcastchannel/basics.any.html	BroadcastChannel constructor called as normal function
 webmessaging/broadcastchannel/basics.any.html	Closing a channel in onmessage prevents already queued tasks from firing onmessage events
 webmessaging/broadcastchannel/basics.any.html	closing and creating channels during message delivery works correctly
