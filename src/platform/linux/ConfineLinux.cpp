@@ -220,7 +220,9 @@ std::size_t threads_running()
 
 }
 
-bool keep_writes_to(std::vector<std::string> const& folders, std::string* why_not)
+bool keep_writes_to(std::vector<std::string> const& folders, std::string* why_not) { return keep_writes_to(folders, {}, why_not); }
+
+bool keep_writes_to(std::vector<std::string> const& folders, std::vector<std::string> const& kept_devices, std::string* why_not)
 {
     long const version = syscall(call_create_ruleset, nullptr, 0, ask_version);
     if (version < 1)
@@ -262,6 +264,10 @@ bool keep_writes_to(std::vector<std::string> const& folders, std::string* why_no
     // machine lacks is no loss.
     for (char const* const device : written_devices)
         allow(device, false);
+    // The caller's devices: each node by itself, never the folder it is in
+    // (a rule on /dev would cover every device and /dev/shm's files too).
+    for (std::string const& device : kept_devices)
+        allow(device.c_str(), false);
     if (DIR* const devices = opendir("/dev")) {
         while (dirent const* const entry = readdir(devices)) {
             for (char const* const family : written_device_families) {

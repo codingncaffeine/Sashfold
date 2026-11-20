@@ -30,6 +30,9 @@
 #include "platform/Notifier.h"
 #include "platform/Tls.h"
 #include "platform/Window.h"
+#if defined(__linux__)
+#include "platform/linux/FidoHidLinux.h"
+#endif
 #include "text/Face.h"
 #include "text/FontManager.h"
 #include "text/SashfoldMono.h"
@@ -3527,7 +3530,9 @@ int main(int argc, char** argv)
         std::error_code error;
         keep_folder(std::filesystem::absolute(file, error).parent_path());
     };
-    auto const keep_writes = [&] {
+    // The window also keeps the security keys plugged in now writable
+    // (platform/linux/FidoHidLinux.h says how a later one is reached).
+    auto const keep_writes = [&](bool security_keys) {
         // The instruments named in the environment write where they say.
         for (char const* const name : { "SASHFOLD_JIT_DUMP", "SASHFOLD_EVAL_TRACE_DIR", "SASHFOLD_NET_TRACE_DIR" }) {
             if (char const* const folder = std::getenv(name); folder != nullptr && *folder)
@@ -3543,14 +3548,19 @@ int main(int argc, char** argv)
         if (char const* const confine = std::getenv("SASHFOLD_CONFINE"); confine != nullptr && confine[0] == '0')
             return;
         std::string why_not;
-        if (!platform::keep_writes_to(writable, &why_not) && std::getenv("SASHFOLD_CONFINE") != nullptr)
+        std::vector<std::string> devices;
+#if defined(__linux__)
+        if (security_keys)
+            devices = platform::security_key_nodes();
+#endif
+        if (!platform::keep_writes_to(writable, devices, &why_not) && std::getenv("SASHFOLD_CONFINE") != nullptr)
             std::cerr << "confine: writes are not kept to the run's folders: " << why_not << "\n";
     };
     if (mode == "--render") {
         keep_folder_of(output);
         for (std::string const* const file : { &extras.report, &extras.gaps, &extras.thumbnail, &extras.live_dom })
             keep_folder_of(*file);
-        keep_writes();
+        keep_writes(false);
         return render_page(input, output, width ? width : 800, height ? height : 720, extras);
     }
     if (mode == "--bench")
@@ -3591,7 +3601,7 @@ int main(int argc, char** argv)
         if (step.command == "dump-dom" || step.command == "dump-layout")
             keep_folder_of(step.argument);
     }
-    keep_writes();
+    keep_writes(true);
     platform::MemoryWatch::start(memory_ceiling_mb >= 0
             ? static_cast<std::size_t>(memory_ceiling_mb) * 1024u * 1024u
             : platform::memory_ceiling_for(platform::physical_memory_bytes()));

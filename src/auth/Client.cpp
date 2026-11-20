@@ -1283,6 +1283,9 @@ void Ceremony::State::run()
     deadline = Clock::now() + request.timeout;
     int next_id = 0;
     bool first = true;
+    bool look = true; // the transport says keys came or went
+    Clock::time_point last_look;
+    std::vector<DeviceInfo> present;
     while (true) {
         {
             std::unique_lock lock(mutex);
@@ -1298,9 +1301,11 @@ void Ceremony::State::run()
             break;
         }
         // Keys that came: a worker each. A key whose worker ended (pulled
-        // out, or it could not be opened) is tried again when it reappears.
-        auto const present = transport->devices();
-        {
+        // out, or not yet open to us) is tried again on the next look —
+        // when the transport reports a change, and every second besides.
+        if (look || Clock::now() - last_look >= std::chrono::seconds(1)) {
+            present = transport->devices();
+            last_look = Clock::now();
             std::lock_guard lock(mutex);
             for (auto const& device : present) {
                 bool known = false;
@@ -1316,7 +1321,12 @@ void Ceremony::State::run()
                 raw->thread = std::thread([self = shared_from_this(), raw] { self->run_key(*raw); });
             }
         }
-        if (first || (!someone_won() && keys_present() == 0 && shown != PromptState::InsertKey)) {
+        bool showing_insert = false;
+        {
+            std::lock_guard lock(prompt_mutex);
+            showing_insert = shown == PromptState::InsertKey;
+        }
+        if (first || (!someone_won() && keys_present() == 0 && !showing_insert)) {
             if (present.empty() || keys_present() == 0) {
                 PromptInfo info;
                 info.state = PromptState::InsertKey;
@@ -1326,7 +1336,7 @@ void Ceremony::State::run()
         }
         // Wait for keys to come or go, the outcome, a cancel or the end.
         auto const slice = std::min<Clock::duration>(deadline - Clock::now(), std::chrono::milliseconds(100));
-        transport->wait_for_change(std::chrono::duration_cast<std::chrono::milliseconds>(slice) + std::chrono::milliseconds(1));
+        look = transport->wait_for_change(std::chrono::duration_cast<std::chrono::milliseconds>(slice) + std::chrono::milliseconds(1));
     }
     {
         std::lock_guard lock(mutex);

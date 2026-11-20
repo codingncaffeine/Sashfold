@@ -43,4 +43,9 @@ bool forbid_new_programs(std::string* why_not = nullptr);
 // first asking left.
 bool keep_writes_to(std::vector<std::string> const& folders, std::string* why_not = nullptr);
 
+// The same, and with `devices` — nodes the browser opens to speak to, a
+// security key's say — kept writable each as one file (written, never made
+// or removed). A device that has gone by now is no loss.
+bool keep_writes_to(std::vector<std::string> const& folders, std::vector<std::string> const& devices, std::string* why_not = nullptr);
+
 }

@@ -18,4 +18,9 @@ bool keep_writes_to(std::vector<std::string> const&, std::string* why_not)
     return false;
 }
 
+bool keep_writes_to(std::vector<std::string> const& folders, std::vector<std::string> const&, std::string* why_not)
+{
+    return keep_writes_to(folders, why_not);
+}
+
 }

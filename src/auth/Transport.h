@@ -68,7 +68,8 @@ public:
     // Waits up to `timeout` for devices to come or go. True when something
     // may have changed (the caller then asks devices() again); false when
     // the time ran out with nothing seen. A transport that cannot watch
-    // answers true after the timeout, so callers poll.
+    // answers true after the timeout, so callers look again; the None
+    // transport, which never has a key, answers false.
     virtual bool wait_for_change(std::chrono::milliseconds timeout) = 0;
 };
 
