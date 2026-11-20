@@ -1,0 +1,35 @@
+# Planted-fault controls for tests/shell/keysettings.script: the main menu's security key settings close on Escape, end when a page's request comes, ask the PIN again when the key stops taking the token, say the tries left after a wrong PIN, and delete a passkey only after the reader confirms.
+# Run by tools/shell-controls.sh, which says what each line means.
+script tests/shell/keysettings.script
+args --theme {root}/themes/default.json
+binary shell_webauthn
+
+# Escape does nothing on the sheet.
+control escape
+file src/ui/KeySettings.cpp
+fails 15 154 263
+plant s~    case Key::Escape: close\(\); return true;~    case Key::Escape: return true;~
+
+# A page's request comes and the settings stay open over it.
+control pagerequest
+file src/ui/Browser.cpp
+fails 234
+plant s~        if \(key_settings\.shown\(\) && security_keys->active\(\) > 0\) \{~        if (key_settings.shown() \&\& security_keys->active() > 1000) {~
+
+# A token the key no longer takes leaves the reader at the key's first view, not at the PIN.
+control expired
+file src/ui/KeySettings.cpp
+fails 144 148 149 150 151 152
+plant s~    case Outcome::TokenExpired:\n        go\(View::Unlock\);~    case Outcome::TokenExpired:\n        go(View::Home);~
+
+# A wrong PIN is said without the tries the key has left.
+control retries
+file src/auth/KeyManagement.cpp
+fails 69 71 107 165 168
+plant s~        outcome\(Outcome::PinWrong, left && left->left \? static_cast<int>\(\*left->left\) : -1\);~        outcome(Outcome::PinWrong, -1);~
+
+# Delete takes the passkey off the key at once, with no confirmation.
+control confirm
+file src/ui/KeySettings.cpp
+fails 117 118 119 121 122 125 127 129 130 132 133 134 135 136 137 138 142 143 144 145 148 149 150 151 218 260 261
+plant s~            m_deleting = m_state\.passkeys\[m_selected\];\n            go\(View::ConfirmDelete\);~            m_session->remove(m_state.passkeys[m_selected].credential);~

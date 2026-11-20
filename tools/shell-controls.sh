@@ -9,6 +9,7 @@
 #
 #   script tests/shell/frame.script
 #   args --theme tests/shell/frame-theme.json
+#   binary shell_webauthn
 #
 #   control ring
 #   file src/core/Bitmap.cpp
@@ -16,7 +17,12 @@
 #   plant s~the text as it stands~the text with the fault~
 #
 # In `args`, a path under tests/ is taken from the source tree, and {build}
-# is the build folder (a file the build writes, like the test font).
+# is the build folder (a file the build writes, like the test font), {root}
+# the source tree's root (a file outside tests/, like a theme in themes/).
+# `binary` (optional) names the build target that runs the script instead of
+# the browser: a test program of the tests' own that drives the same --script
+# runner with commands of its own (shell_webauthn plugs software security
+# keys into the window). It is built with the browser for every control.
 # `plant` is a perl substitution over the whole file (\n between lines), its
 # delimiter never inside its texts. Its text must be found exactly once.
 # A control MATCHES when the planted tree builds,
@@ -82,9 +88,16 @@ matched=0
 total=0
 touched=()
 
-# run_control <script> <args> <name> <file> <predicted> <plant> → prints one line, returns 0 on MATCH
+# The program a control runs: the browser, or the test program `binary` names.
+program_of() {
+    local target=$1
+    if [ -z "$target" ]; then echo "$binary"; return; fi
+    if [ -x "$root/$build/tests/$target" ]; then echo "$root/$build/tests/$target"; else echo "$root/$build/$target"; fi
+}
+
+# run_control <script> <args> <name> <file> <predicted> <plant> [binary target] → prints one line, returns 0 on MATCH
 run_control() {
-    local script=$1 args=$2 name=$3 file=$4 predicted=$5 plant=$6
+    local script=$1 args=$2 name=$3 file=$4 predicted=$5 plant=$6 target=${7:-}
     restore
     hold "$file"
     local known=0
@@ -98,7 +111,8 @@ run_control() {
     count=$(PLANT="$plant" perl -0pi -e 'our $c = 0; my $p = $ENV{PLANT}; my @part = split /\Q@{[substr($p, 1, 1)]}\E/, $p, -1; my $flags = $part[3] // ""; $flags =~ s/[^msix]//g; my $re = (length $flags ? "(?$flags)" : "") . $part[1]; $c++ while $_ =~ /$re/g; if ($c == 1) { eval "\$_ =~ $p"; die $@ if $@; } END { print STDERR $c }' "$root/$file" 2>&1 >/dev/null)
     if [ "$count" != "1" ]; then echo "CONTROL $name: the plant did not land once (its text is found $count times) in $file"; return 1; fi
     if cmp -s "$root/$file" "$keep/$file"; then echo "CONTROL $name: the source is unchanged"; return 1; fi
-    if ! cmake --build "$root/$build" --target sashfold sashfold_test_sans > "$logs/$name.build.log" 2>&1; then
+    # shellcheck disable=SC2086
+    if ! cmake --build "$root/$build" --target sashfold sashfold_test_sans $target > "$logs/$name.build.log" 2>&1; then
         echo "CONTROL $name: the planted tree did not BUILD ($logs/$name.build.log)"; return 1
     fi
     # Run from the logs folder, with the script and what its arguments name
@@ -107,8 +121,12 @@ run_control() {
     # arguments is the build folder, for a file the build writes.
     local there_args=${args//tests\//$root/tests/}
     there_args=${there_args//\{build\}/$root/$build}
+    there_args=${there_args//\{root\}/$root}
     # shellcheck disable=SC2086
-    (cd "$logs" && "$binary" --script "$root/$script" $there_args --downloads "$root/$build/test-downloads") > "$logs/$name.run.log" 2>&1
+    local program
+    program=$(program_of "$target")
+    # shellcheck disable=SC2086
+    (cd "$logs" && "$program" --script "$root/$script" $there_args --downloads "$root/$build/test-downloads") > "$logs/$name.run.log" 2>&1
     local rc=$?
     local got
     got=$(grep -o "^FAIL line [0-9]*" "$logs/$name.run.log" | awk '{print $3}' | tr '\n' ' ' | sed 's/ $//')
@@ -119,13 +137,13 @@ run_control() {
 }
 
 # Reads a .controls file into parallel arrays.
-names=(); sources=(); predictions=(); plants=(); scripts=(); arguments=()
+names=(); sources=(); predictions=(); plants=(); scripts=(); arguments=(); targets=()
 read_controls() {
-    local path=$1 script="" args="" name="" file="" fails="" plant=""
+    local path=$1 script="" args="" target="" name="" file="" fails="" plant=""
     flush() {
         [ -z "$name" ] && return 0
         if [ -z "$script" ] || [ -z "$file" ] || [ -z "$plant" ]; then echo "$path: control $name lacks a script, a file or a plant"; exit 2; fi
-        names+=("$name"); sources+=("$file"); predictions+=("$fails"); plants+=("$plant"); scripts+=("$script"); arguments+=("$args")
+        names+=("$name"); sources+=("$file"); predictions+=("$fails"); plants+=("$plant"); scripts+=("$script"); arguments+=("$args"); targets+=("$target")
         name=""; file=""; fails=""; plant=""
     }
     while IFS= read -r line || [ -n "$line" ]; do
@@ -133,6 +151,7 @@ read_controls() {
         "#"*|"") ;;
         "script "*) script=${line#script } ;;
         "args "*) args=${line#args } ;;
+        "binary "*) target=${line#binary } ;;
         "control "*) flush; name=${line#control } ;;
         "file "*) file=${line#file } ;;
         "fails "*) fails=${line#fails } ;;
@@ -147,17 +166,17 @@ if [ ${#names[@]} -eq 0 ]; then echo "no controls to run"; exit 2; fi
 
 if [ $self_test -eq 1 ]; then
     ok=1
-    run_control "${scripts[0]}" "${arguments[0]}" "selftest-as-written" "${sources[0]}" "${predictions[0]}" "${plants[0]}" || ok=0
-    out=$(run_control "${scripts[0]}" "${arguments[0]}" "selftest-wrong-prediction" "${sources[0]}" "999999" "${plants[0]}"); echo "$out"
+    run_control "${scripts[0]}" "${arguments[0]}" "selftest-as-written" "${sources[0]}" "${predictions[0]}" "${plants[0]}" "${targets[0]}" || ok=0
+    out=$(run_control "${scripts[0]}" "${arguments[0]}" "selftest-wrong-prediction" "${sources[0]}" "999999" "${plants[0]}" "${targets[0]}"); echo "$out"
     case "$out" in *MISMATCH*) ;; *) ok=0 ;; esac
-    out=$(run_control "${scripts[0]}" "${arguments[0]}" "selftest-no-such-text" "${sources[0]}" "1" 's~THIS TEXT IS NOWHERE IN THE SOURCE~x~'); echo "$out"
+    out=$(run_control "${scripts[0]}" "${arguments[0]}" "selftest-no-such-text" "${sources[0]}" "1" 's~THIS TEXT IS NOWHERE IN THE SOURCE~x~' "${targets[0]}"); echo "$out"
     case "$out" in *"did not land"*) ;; *) ok=0 ;; esac
-    out=$(run_control "${scripts[0]}" "${arguments[0]}" "selftest-text-found-twice" "${sources[0]}" "1" 's~;\n~; \n~'); echo "$out"
+    out=$(run_control "${scripts[0]}" "${arguments[0]}" "selftest-text-found-twice" "${sources[0]}" "1" 's~;\n~; \n~' "${targets[0]}"); echo "$out"
     case "$out" in *"did not land"*) ;; *) ok=0 ;; esac
 else
     for i in "${!names[@]}"; do
         total=$((total + 1))
-        run_control "${scripts[$i]}" "${arguments[$i]}" "${names[$i]}" "${sources[$i]}" "${predictions[$i]}" "${plants[$i]}" && matched=$((matched + 1))
+        run_control "${scripts[$i]}" "${arguments[$i]}" "${names[$i]}" "${sources[$i]}" "${predictions[$i]}" "${plants[$i]}" "${targets[$i]}" && matched=$((matched + 1))
     done
 fi
 
@@ -169,7 +188,9 @@ for file in "${touched[@]:-}"; do
     cmp -s "$root/$file" "$keep/$file" || { echo "NOT RESTORED: $file"; clean=0; }
 done
 [ $clean -eq 1 ] && forget
-cmake --build "$root/$build" --target sashfold > "$logs/restore.build.log" 2>&1 || { echo "the restored tree did not build"; clean=0; }
+# shellcheck disable=SC2046
+cmake --build "$root/$build" --target sashfold $(printf '%s\n' "${targets[@]}" | sort -u) > "$logs/restore.build.log" 2>&1 \
+    || { echo "the restored tree did not build"; clean=0; }
 if [ $self_test -eq 1 ]; then
     [ $ok -eq 1 ] && [ $clean -eq 1 ] && echo "RUNNER SELF-TEST: ok (a match, a mismatch, a plant that landed nowhere and one whose text is there more than once each told apart; source restored)" && exit 0
     echo "RUNNER SELF-TEST: FAILED"; exit 1
