@@ -384,10 +384,18 @@ public:
     void on_event(Event const&) override;
     void on_published() override;
 
+    // Page thread, before the tree goes: the bridge lets go of it. The
+    // bridge's thread may hold the Bridge for longer (a shared pointer):
+    // from then on its snapshot stays the last one, and a query posted is
+    // dropped — never run against a tree that is gone.
+    void detach();
+
     // Any thread.
     std::vector<Event> take_events();
     std::shared_ptr<Snapshot const> snapshot() const;
-    void post(Tree::Query query);
+    // False when the tree is gone and the query was dropped.
+    bool post(Tree::Query query);
+    bool detached() const;
     std::size_t dropped() const { return m_dropped.load(std::memory_order_relaxed); }
 
 private:

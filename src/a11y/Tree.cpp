@@ -1857,7 +1857,21 @@ Bridge::Bridge(Tree& tree, std::function<void()> wake, std::size_t capacity)
 
 Bridge::~Bridge()
 {
-    m_tree->set_observer(nullptr);
+    detach();
+}
+
+void Bridge::detach()
+{
+    std::lock_guard<std::mutex> const lock(m_lock);
+    if (m_tree)
+        m_tree->set_observer(nullptr);
+    m_tree = nullptr;
+}
+
+bool Bridge::detached() const
+{
+    std::lock_guard<std::mutex> const lock(m_lock);
+    return m_tree == nullptr;
 }
 
 void Bridge::on_event(Event const& event)
@@ -1879,7 +1893,8 @@ void Bridge::on_event(Event const& event)
 void Bridge::on_published()
 {
     std::lock_guard<std::mutex> const lock(m_lock);
-    m_snapshot = m_tree->snapshot();
+    if (m_tree)
+        m_snapshot = m_tree->snapshot();
 }
 
 std::vector<Event> Bridge::take_events()
@@ -1896,9 +1911,15 @@ std::shared_ptr<Snapshot const> Bridge::snapshot() const
     return m_snapshot;
 }
 
-void Bridge::post(Tree::Query query)
+bool Bridge::post(Tree::Query query)
 {
+    // Under the lock, so that the tree cannot go between the check and
+    // the post (Tree::post only queues and wakes: it does not block).
+    std::lock_guard<std::mutex> const lock(m_lock);
+    if (!m_tree)
+        return false;
     m_tree->post(std::move(query));
+    return true;
 }
 
 }

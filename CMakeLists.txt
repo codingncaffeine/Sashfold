@@ -241,6 +241,7 @@ add_library(sashfold_core STATIC
   src/platform/PulseProtocol.cpp
   src/platform/MemoryWatch.cpp
   src/platform/Notifier.cpp
+  src/platform/Accessibility.cpp
   src/platform/FileChooser.cpp
   src/platform/HostCache.cpp
   src/platform/Tls.cpp
@@ -384,7 +385,8 @@ if(WIN32)
   target_sources(sashfold_core PRIVATE src/platform/win32/ClipboardWin32.cpp src/platform/win32/RandomWin32.cpp src/platform/win32/NetWin32.cpp src/platform/win32/TlsWin32.cpp src/platform/win32/MemoryWin32.cpp src/platform/win32/ExecutableMemoryWin32.cpp
     src/platform/win32/WindowWin32.cpp src/platform/win32/FontsWin32.cpp src/platform/AudioNone.cpp src/media/Vp9AcceleratorNone.cpp src/media/H264AcceleratorNone.cpp
     src/platform/win32/ConfineWin32.cpp src/platform/win32/NotifierWin32.cpp src/platform/win32/CaretBlinkWin32.cpp
-    src/platform/win32/FileChooserWin32.cpp src/platform/win32/PrintWin32.cpp src/platform/FidoHidNone.cpp)
+    src/platform/win32/FileChooserWin32.cpp src/platform/win32/PrintWin32.cpp src/platform/FidoHidNone.cpp
+    src/platform/AccessibilityNone.cpp)
   target_link_libraries(sashfold_core PUBLIC ws2_32 secur32 user32 gdi32 bcrypt ole32 shell32 uuid advapi32 imm32 comdlg32)
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
   # The Wayland window speaks the wire protocol over the compositor's socket
@@ -395,12 +397,14 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Linux")
     src/media/linux/Vp9Accelerators.cpp src/media/linux/VulkanVideo.cpp src/media/linux/Vp9Vulkan.cpp src/media/linux/Vp9Vaapi.cpp
     src/media/linux/H264Accelerators.cpp src/media/linux/H264Vulkan.cpp src/media/linux/H264Vaapi.cpp
     src/platform/linux/ConfineLinux.cpp src/platform/linux/DBus.cpp src/platform/linux/NotifierDBus.cpp src/platform/linux/CaretBlinkLinux.cpp
-    src/platform/linux/FileChooserPortal.cpp src/platform/linux/PrintPortal.cpp src/platform/linux/FidoHidLinux.cpp)
+    src/platform/linux/FileChooserPortal.cpp src/platform/linux/PrintPortal.cpp src/platform/linux/FidoHidLinux.cpp
+    src/platform/linux/AccessibilityAtspi.cpp src/platform/linux/AtspiMap.cpp src/platform/linux/AtspiText.cpp)
 else()
   target_sources(sashfold_core PRIVATE src/platform/posix/ClipboardPosix.cpp src/platform/posix/RandomPosix.cpp src/platform/posix/NetPosix.cpp src/platform/posix/TlsPosix.cpp src/platform/posix/MemoryPosix.cpp src/platform/posix/ExecutableMemoryPosix.cpp
     src/platform/posix/WindowPosix.cpp src/platform/posix/FontsPosix.cpp src/platform/AudioNone.cpp src/media/Vp9AcceleratorNone.cpp src/media/H264AcceleratorNone.cpp
     src/platform/ConfineNone.cpp src/platform/NotifierNone.cpp src/platform/CaretBlinkDefault.cpp
-    src/platform/FileChooserNone.cpp src/platform/PrintNone.cpp src/platform/FidoHidNone.cpp)
+    src/platform/FileChooserNone.cpp src/platform/PrintNone.cpp src/platform/FidoHidNone.cpp
+    src/platform/AccessibilityNone.cpp)
 endif()
 if(NOT WIN32)
   # The memory watch's thread (platform/MemoryWatch): the one thread the
