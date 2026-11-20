@@ -77,6 +77,66 @@ std::optional<std::vector<std::uint8_t>> aes_ctr(Aes const& aes, AesBlock const&
     return out;
 }
 
+AesCtrStream::AesCtrStream(Aes const& aes, AesBlock const& counter, std::size_t counter_bits)
+    : m_aes(&aes)
+    , m_counter(counter)
+    , m_counter_bits(counter_bits == 0 || counter_bits > 128 ? 128 : counter_bits)
+{
+}
+
+void AesCtrStream::step()
+{
+    m_keystream = m_aes->encrypt(m_counter);
+    m_used = 0;
+    // Add one to the low m_counter_bits bits; a carry out of them is lost.
+    unsigned carry = 1;
+    for (std::size_t bit_base = 0; bit_base < m_counter_bits && carry != 0; bit_base += 8) {
+        std::size_t const index = 15 - bit_base / 8;
+        std::size_t const width = m_counter_bits - bit_base < 8 ? m_counter_bits - bit_base : 8;
+        unsigned const mask = (1u << width) - 1u;
+        unsigned const field = (m_counter[index] & mask) + carry;
+        carry = field >> width;
+        m_counter[index] = static_cast<std::uint8_t>((m_counter[index] & ~mask) | (field & mask));
+    }
+}
+
+void AesCtrStream::apply(std::span<std::uint8_t> data)
+{
+    for (std::uint8_t& byte : data) {
+        if (m_used == 16)
+            step();
+        byte = static_cast<std::uint8_t>(byte ^ m_keystream[m_used++]);
+    }
+}
+
+void AesCtrStream::next_block()
+{
+    m_used = 16;
+}
+
+void aes_cbc_encrypt_blocks(Aes const& aes, AesBlock& chain, std::span<std::uint8_t> data)
+{
+    for (std::size_t offset = 0; offset + 16 <= data.size(); offset += 16) {
+        AesBlock block {};
+        for (std::size_t i = 0; i < 16; ++i)
+            block[i] = static_cast<std::uint8_t>(data[offset + i] ^ chain[i]);
+        chain = aes.encrypt(block);
+        std::memcpy(data.data() + offset, chain.data(), 16);
+    }
+}
+
+void aes_cbc_decrypt_blocks(Aes const& aes, AesBlock& chain, std::span<std::uint8_t> data)
+{
+    for (std::size_t offset = 0; offset + 16 <= data.size(); offset += 16) {
+        AesBlock block {};
+        std::memcpy(block.data(), data.data() + offset, 16);
+        AesBlock const plain = aes.decrypt(block);
+        for (std::size_t i = 0; i < 16; ++i)
+            data[offset + i] = static_cast<std::uint8_t>(plain[i] ^ chain[i]);
+        chain = block;
+    }
+}
+
 namespace {
 
 constexpr std::uint8_t default_iv[8] = { 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6, 0xa6 };

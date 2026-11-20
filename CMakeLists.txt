@@ -174,6 +174,7 @@ add_library(sashfold_core STATIC
   src/media/Wav.cpp
   src/media/WebM.cpp
   src/media/Mp4.cpp
+  src/media/Cenc.cpp
   src/media/H264.cpp
   src/media/H264Data.cpp
   src/media/H264Decoder.cpp

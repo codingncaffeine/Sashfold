@@ -11,6 +11,8 @@
 // records come out as the track's codec_private: H.264's avcC (14496-15),
 // AAC's AudioSpecificConfig from the esds (14496-14), VP9's vpcC.
 
+#include "media/Cenc.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -19,6 +21,31 @@
 #include <vector>
 
 namespace sashfold::media {
+
+// A protected track's scheme (ISO/IEC 23001-7 §8, 14496-12 §8.12): the
+// sample entry is an 'encv' or 'enca' whose 'sinf' names the original
+// format ('frma'), the scheme ('schm') and, in the 'tenc', what every
+// sample is encrypted with unless a 'seig' sample group says otherwise.
+struct Mp4Protection {
+    std::uint32_t scheme = 0; // 'cenc', 'cens', 'cbc1', 'cbcs'
+    bool is_protected = true;
+    std::uint8_t per_sample_iv_size = 0; // 0, 8 or 16; 0: the constant IV
+    KeyId key_id {};
+    std::vector<std::uint8_t> constant_iv;
+    std::uint8_t crypt_byte_block = 0;
+    std::uint8_t skip_byte_block = 0;
+};
+
+// A 'seig' sample group's description (23001-7 §6): the same fields, for
+// the samples the group holds (key rotation).
+struct Mp4SeigEntry {
+    bool is_protected = false;
+    std::uint8_t per_sample_iv_size = 0;
+    KeyId key_id {};
+    std::vector<std::uint8_t> constant_iv;
+    std::uint8_t crypt_byte_block = 0;
+    std::uint8_t skip_byte_block = 0;
+};
 
 struct Mp4Track {
     enum class Kind { Video,
@@ -46,6 +73,10 @@ struct Mp4Track {
     // presentation starts, in the track's timescale (a negative value is an
     // empty edit, a delay before the first sample).
     std::int64_t edit_media_time = 0;
+    // For an encrypted track: its scheme and defaults, and the 'seig'
+    // groups its sample table describes (a fragment may add its own).
+    std::optional<Mp4Protection> protection;
+    std::vector<Mp4SeigEntry> seig;
 };
 
 struct Mp4Init {
@@ -53,6 +84,9 @@ struct Mp4Init {
     std::optional<double> duration_seconds;
     std::vector<Mp4Track> tracks;
     bool fragmented = false; // an mvex says fragments follow
+    // The moov's 'pssh' boxes, each whole: the "cenc" initialization data
+    // Encrypted Media Extensions hands the page (the concatenation).
+    std::vector<std::vector<std::uint8_t>> pssh;
 
     Mp4Track const* track(std::uint32_t id) const;
 };
@@ -64,6 +98,9 @@ struct Mp4Frame {
     std::uint64_t duration_ns = 0;
     bool key = false;
     std::vector<std::uint8_t> data; // H.264: length-prefixed NAL units as the file has them
+    // How the sample is encrypted, for a protected one; `data` is then the
+    // ciphertext as the file has it.
+    std::optional<SampleEncryption> encryption;
 };
 
 class Mp4Parser {
@@ -79,6 +116,10 @@ public:
     // The frames read since the last call, in decode order per track, as
     // the file holds them.
     std::vector<Mp4Frame> take_frames();
+
+    // The 'pssh' boxes of each moof read since the last call (a fragment
+    // carrying initialization data of its own), each list in box order.
+    std::vector<std::vector<std::vector<std::uint8_t>>> take_fragment_pssh();
 
     // True between boxes at the top level: nothing held back.
     bool at_segment_boundary() const;
@@ -98,6 +139,7 @@ private:
         std::uint32_t duration = 0;
         bool key = true;
         std::uint32_t track = 0;
+        std::optional<SampleEncryption> encryption;
     };
     struct Mdat {
         std::uint64_t offset = 0; // of the payload's first byte in the stream
@@ -105,10 +147,10 @@ private:
     };
 
     bool parse_available();
-    bool parse_moov(std::span<std::uint8_t const> body);
-    bool parse_trak(std::span<std::uint8_t const> body);
+    bool parse_moov(std::span<std::uint8_t const> body, std::uint64_t body_offset);
+    bool parse_trak(std::span<std::uint8_t const> body, std::uint64_t body_offset);
     bool parse_sample_entry(std::span<std::uint8_t const> box, Mp4Track& track);
-    bool parse_moof(std::span<std::uint8_t const> body, std::uint64_t moof_offset);
+    bool parse_moof(std::span<std::uint8_t const> body, std::uint64_t moof_offset, std::size_t header_size);
     void emit_ready();
     std::int64_t to_ns(std::int64_t ticks, std::uint32_t timescale) const;
 
@@ -123,6 +165,7 @@ private:
     std::vector<Sample> m_samples; // known, not yet given out, by offset
     std::vector<Mp4Frame> m_frames;
     std::vector<std::int64_t> m_fragment_decode_time; // per track index: where the next run begins
+    std::vector<std::vector<std::vector<std::uint8_t>>> m_fragment_pssh;
     bool m_failed = false;
 };
 

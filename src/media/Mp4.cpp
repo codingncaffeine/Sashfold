@@ -172,6 +172,326 @@ bool read_esds(std::span<std::uint8_t const> esds, std::uint8_t& object_type, st
     return true;
 }
 
+// --- Common Encryption (ISO/IEC 23001-7) ---------------------------------------------------
+
+// A box with its header, as a 'pssh' is handed on whole.
+std::span<std::uint8_t const> whole_box(Box const& box)
+{
+    return { box.body.data() - box.header_size, box.header_size + box.body.size() };
+}
+
+KeyId key_id_at(std::uint8_t const* p)
+{
+    KeyId id {};
+    std::memcpy(id.data(), p, id.size());
+    return id;
+}
+
+// The fields a 'tenc' (§8.2) and a 'seig' entry (§6) share, from the byte
+// that holds the pattern: crypt and skip, isProtected, Per_Sample_IV_Size,
+// KID and, for a protected entry without per-sample IVs, the constant IV.
+// How many bytes it took, or nothing when it does not fit.
+std::optional<std::size_t> read_encryption_fields(std::span<std::uint8_t const> d, Mp4SeigEntry& out)
+{
+    if (d.size() < 20)
+        return std::nullopt;
+    out.crypt_byte_block = d[1] >> 4;
+    out.skip_byte_block = d[1] & 15;
+    out.is_protected = d[2] != 0;
+    out.per_sample_iv_size = d[3];
+    if (out.per_sample_iv_size != 0 && out.per_sample_iv_size != 8 && out.per_sample_iv_size != 16)
+        return std::nullopt;
+    out.key_id = key_id_at(d.data() + 4);
+    std::size_t at = 20;
+    if (out.is_protected && out.per_sample_iv_size == 0) {
+        if (at >= d.size())
+            return std::nullopt;
+        std::size_t const size = d[at++];
+        if ((size != 8 && size != 16) || at + size > d.size())
+            return std::nullopt;
+        out.constant_iv.assign(d.begin() + static_cast<std::ptrdiff_t>(at), d.begin() + static_cast<std::ptrdiff_t>(at + size));
+        at += size;
+    }
+    return at;
+}
+
+// The 'sinf' of an 'encv' or 'enca' (14496-12 §8.12): the original format,
+// and the scheme with the 'tenc' defaults when the scheme is Common
+// Encryption's. Nothing when there is no usable one.
+std::optional<std::string> read_sinf(std::span<std::uint8_t const> children, std::optional<Mp4Protection>& protection)
+{
+    std::optional<Box> const sinf = find_child(children, "sinf");
+    if (!sinf)
+        return std::nullopt;
+    std::optional<Box> const frma = find_child(sinf->body, "frma");
+    if (!frma || frma->body.size() < 4)
+        return std::nullopt;
+    std::string const original(reinterpret_cast<char const*>(frma->body.data()), 4);
+    std::optional<Box> const schm = find_child(sinf->body, "schm");
+    std::optional<Box> const schi = find_child(sinf->body, "schi");
+    std::optional<Box> const tenc = schi ? find_child(schi->body, "tenc") : std::nullopt;
+    int version = 0;
+    std::uint32_t flags = 0;
+    std::span<std::uint8_t const> d;
+    if (!schm || !full_box(schm->body, version, flags, d) || d.size() < 8)
+        return original;
+    std::uint32_t const scheme = be32(d.data());
+    if (scheme != scheme_cenc && scheme != scheme_cens && scheme != scheme_cbc1 && scheme != scheme_cbcs)
+        return original;
+    if (!tenc || !full_box(tenc->body, version, flags, d))
+        return original;
+    Mp4SeigEntry fields;
+    if (!read_encryption_fields(d, fields))
+        return original;
+    Mp4Protection made;
+    made.scheme = scheme;
+    made.is_protected = fields.is_protected;
+    made.per_sample_iv_size = fields.per_sample_iv_size;
+    made.key_id = fields.key_id;
+    made.constant_iv = std::move(fields.constant_iv);
+    // A version 0 'tenc' has no pattern: its second byte is reserved.
+    if (version >= 1) {
+        made.crypt_byte_block = fields.crypt_byte_block;
+        made.skip_byte_block = fields.skip_byte_block;
+    }
+    protection = std::move(made);
+    return original;
+}
+
+// The 'seig' descriptions of an 'sgpd' (14496-12 §8.9.3), in order.
+bool read_seig_descriptions(std::span<std::uint8_t const> parent, std::vector<Mp4SeigEntry>& out)
+{
+    return for_each_child(parent, [&](Box const& box) {
+        if (box.type != "sgpd")
+            return true;
+        int version = 0;
+        std::uint32_t flags = 0;
+        std::span<std::uint8_t const> d;
+        if (!full_box(box.body, version, flags, d) || d.size() < 8)
+            return false;
+        if (std::string(reinterpret_cast<char const*>(d.data()), 4) != "seig")
+            return true;
+        std::size_t at = 4;
+        std::uint32_t default_length = 0;
+        if (version == 1) {
+            default_length = be32(d.data() + at);
+            at += 4;
+        } else if (version >= 2) {
+            at += 4; // default_sample_description_index
+        }
+        if (at + 4 > d.size())
+            return false;
+        std::uint32_t const count = be32(d.data() + at);
+        at += 4;
+        for (std::uint32_t i = 0; i < count; ++i) {
+            std::size_t length = default_length;
+            if (version == 1 && default_length == 0) {
+                if (at + 4 > d.size())
+                    return false;
+                length = be32(d.data() + at);
+                at += 4;
+            }
+            if (at > d.size())
+                return false;
+            Mp4SeigEntry entry;
+            std::span<std::uint8_t const> const rest = d.subspan(at, length != 0 ? std::min(length, d.size() - at) : d.size() - at);
+            std::optional<std::size_t> const used = read_encryption_fields(rest, entry);
+            if (!used)
+                return false;
+            at += length != 0 ? length : *used;
+            out.push_back(std::move(entry));
+        }
+        return true;
+    });
+}
+
+// The 'seig' group description index of each of `count` samples, from the
+// container's 'sbgp' (14496-12 §8.9.2); zero for a sample no group holds.
+bool read_seig_groups(std::span<std::uint8_t const> parent, std::size_t count, std::vector<std::uint32_t>& out)
+{
+    out.assign(count, 0);
+    return for_each_child(parent, [&](Box const& box) {
+        if (box.type != "sbgp")
+            return true;
+        int version = 0;
+        std::uint32_t flags = 0;
+        std::span<std::uint8_t const> d;
+        if (!full_box(box.body, version, flags, d) || d.size() < 8)
+            return false;
+        if (std::string(reinterpret_cast<char const*>(d.data()), 4) != "seig")
+            return true;
+        std::size_t at = version == 1 ? 8 : 4;
+        if (at + 4 > d.size())
+            return false;
+        std::uint32_t const entries = be32(d.data() + at);
+        at += 4;
+        if (d.size() < at + std::size_t { entries } * 8)
+            return false;
+        std::size_t sample = 0;
+        for (std::uint32_t e = 0; e < entries && sample < count; ++e) {
+            std::uint32_t const n = be32(d.data() + at + e * 8);
+            std::uint32_t const index = be32(d.data() + at + e * 8 + 4);
+            for (std::uint32_t k = 0; k < n && sample < count; ++k)
+                out[sample++] = index;
+        }
+        return true;
+    });
+}
+
+// One sample's auxiliary information (§7.2.2): its IV, then, when there is
+// more, its subsample map.
+bool read_aux_entry(std::span<std::uint8_t const> d, std::size_t iv_size, bool has_subsamples, std::vector<std::uint8_t>& iv,
+    std::vector<Subsample>& subsamples, std::size_t& used)
+{
+    if (iv_size > d.size())
+        return false;
+    iv.assign(d.begin(), d.begin() + static_cast<std::ptrdiff_t>(iv_size));
+    std::size_t at = iv_size;
+    if (has_subsamples) {
+        if (at + 2 > d.size())
+            return false;
+        std::size_t const count = be16(d.data() + at);
+        at += 2;
+        if (at + count * 6 > d.size())
+            return false;
+        subsamples.resize(count);
+        for (std::size_t i = 0; i < count; ++i) {
+            subsamples[i].clear_bytes = be16(d.data() + at);
+            subsamples[i].protected_bytes = be32(d.data() + at + 2);
+            at += 6;
+        }
+    }
+    used = at;
+    return true;
+}
+
+// How each of `count` samples of a sample table or a track fragment is
+// encrypted, from the track's defaults, the 'seig' groups the samples are
+// in, and their auxiliary information — the 'senc' box when there is one,
+// else what 'saiz' and 'saio' point at, which `aux_at` reads by offset.
+// Nothing for a sample in the clear. False when the boxes do not hold
+// together.
+template<typename AuxAt>
+bool read_sample_encryption(std::span<std::uint8_t const> parent, Mp4Track const& track, std::vector<Mp4SeigEntry> const& own_seig,
+    std::size_t count, AuxAt&& aux_at, std::vector<std::optional<SampleEncryption>>& out)
+{
+    out.assign(count, std::nullopt);
+    if (!track.protection || count == 0)
+        return true;
+    Mp4Protection const& protection = *track.protection;
+    std::vector<std::uint32_t> groups;
+    if (!read_seig_groups(parent, count, groups))
+        return false;
+    // Each sample's fields: the track's, or its group's.
+    std::vector<Mp4SeigEntry> fields(count);
+    for (std::size_t i = 0; i < count; ++i) {
+        std::uint32_t const group = groups[i];
+        Mp4SeigEntry const* entry = nullptr;
+        if (group > 0x10000 && group - 0x10001 < own_seig.size())
+            entry = &own_seig[group - 0x10001];
+        else if (group > 0 && group <= 0x10000 && group - 1 < track.seig.size())
+            entry = &track.seig[group - 1];
+        else if (group != 0)
+            return false;
+        if (entry) {
+            fields[i] = *entry;
+        } else {
+            fields[i].is_protected = protection.is_protected;
+            fields[i].per_sample_iv_size = protection.per_sample_iv_size;
+            fields[i].key_id = protection.key_id;
+            fields[i].constant_iv = protection.constant_iv;
+            fields[i].crypt_byte_block = protection.crypt_byte_block;
+            fields[i].skip_byte_block = protection.skip_byte_block;
+        }
+    }
+    auto const iv_size_of = [&](std::size_t i) -> std::size_t { return fields[i].is_protected ? fields[i].per_sample_iv_size : 0; };
+
+    std::vector<std::vector<std::uint8_t>> ivs(count);
+    std::vector<std::vector<Subsample>> maps(count);
+    if (std::optional<Box> const senc = find_child(parent, "senc")) {
+        int version = 0;
+        std::uint32_t flags = 0;
+        std::span<std::uint8_t const> d;
+        if (!full_box(senc->body, version, flags, d) || d.size() < 4)
+            return false;
+        std::size_t const samples = be32(d.data());
+        if (samples < count)
+            return false;
+        std::size_t at = 4;
+        for (std::size_t i = 0; i < count; ++i) {
+            std::size_t used = 0;
+            if (!read_aux_entry(d.subspan(at), iv_size_of(i), flags & 0x2, ivs[i], maps[i], used))
+                return false;
+            at += used;
+        }
+    } else if (std::optional<Box> const saiz = find_child(parent, "saiz")) {
+        std::optional<Box> const saio = find_child(parent, "saio");
+        if (!saio)
+            return false;
+        int version = 0;
+        std::uint32_t flags = 0;
+        std::span<std::uint8_t const> d;
+        if (!full_box(saiz->body, version, flags, d))
+            return false;
+        std::size_t at = flags & 1 ? 8 : 0;
+        if (at + 5 > d.size())
+            return false;
+        std::uint8_t const default_size = d[at];
+        std::size_t const samples = be32(d.data() + at + 1);
+        at += 5;
+        if (samples < count || (default_size == 0 && at + count > d.size()))
+            return false;
+        std::vector<std::size_t> sizes(count, default_size);
+        if (default_size == 0) {
+            for (std::size_t i = 0; i < count; ++i)
+                sizes[i] = d[at + i];
+        }
+        int offset_version = 0;
+        std::uint32_t offset_flags = 0;
+        std::span<std::uint8_t const> o;
+        if (!full_box(saio->body, offset_version, offset_flags, o))
+            return false;
+        std::size_t p = offset_flags & 1 ? 8 : 0;
+        if (p + 4 > o.size())
+            return false;
+        std::uint32_t const entries = be32(o.data() + p);
+        p += 4;
+        // One offset: the information of every sample, one after another.
+        if (entries != 1 || p + (offset_version == 1 ? 8 : 4) > o.size())
+            return false;
+        std::uint64_t offset = offset_version == 1 ? be64(o.data() + p) : be32(o.data() + p);
+        for (std::size_t i = 0; i < count; ++i) {
+            if (sizes[i] > 0) {
+                std::optional<std::span<std::uint8_t const>> const bytes = aux_at(offset, sizes[i]);
+                if (!bytes)
+                    return false;
+                std::size_t used = 0;
+                if (!read_aux_entry(*bytes, iv_size_of(i), sizes[i] > iv_size_of(i), ivs[i], maps[i], used))
+                    return false;
+            }
+            offset += sizes[i];
+        }
+    }
+
+    for (std::size_t i = 0; i < count; ++i) {
+        if (!fields[i].is_protected)
+            continue;
+        SampleEncryption made;
+        made.scheme = protection.scheme;
+        made.key_id = fields[i].key_id;
+        made.iv = fields[i].per_sample_iv_size > 0 ? std::move(ivs[i]) : fields[i].constant_iv;
+        made.subsamples = std::move(maps[i]);
+        // The pattern is the pattern schemes' alone ('cenc' and 'cbc1'
+        // encrypt every protected byte or block).
+        if (protection.scheme == scheme_cens || protection.scheme == scheme_cbcs) {
+            made.crypt_byte_block = fields[i].crypt_byte_block;
+            made.skip_byte_block = fields[i].skip_byte_block;
+        }
+        out[i] = std::move(made);
+    }
+    return true;
+}
+
 } // namespace
 
 Mp4Track const* Mp4Init::track(std::uint32_t id) const
@@ -277,10 +597,10 @@ bool Mp4Parser::parse_available()
             return true;
         std::uint64_t const box_offset = m_stream_offset;
         if (box->type == "moov") {
-            if (!parse_moov(box->body))
+            if (!parse_moov(box->body, box_offset + box->header_size))
                 return false;
         } else if (box->type == "moof") {
-            if (!parse_moof(box->body, box_offset))
+            if (!parse_moof(box->body, box_offset, box->header_size))
                 return false;
         }
         // ftyp, styp, sidx, free, skip, uuid, meta: passed over.
@@ -290,7 +610,7 @@ bool Mp4Parser::parse_available()
     }
 }
 
-bool Mp4Parser::parse_moov(std::span<std::uint8_t const> body)
+bool Mp4Parser::parse_moov(std::span<std::uint8_t const> body, std::uint64_t body_offset)
 {
     Mp4Init init;
     std::optional<Box> const mvhd = find_child(body, "mvhd");
@@ -315,7 +635,12 @@ bool Mp4Parser::parse_moov(std::span<std::uint8_t const> body)
     m_init = std::move(init);
     bool ok = for_each_child(body, [&](Box const& box) {
         if (box.type == "trak")
-            return parse_trak(box.body);
+            return parse_trak(box.body, body_offset + static_cast<std::uint64_t>(box.body.data() - body.data()));
+        if (box.type == "pssh") {
+            std::span<std::uint8_t const> const whole = whole_box(box);
+            m_init.pssh.emplace_back(whole.begin(), whole.end());
+            return true;
+        }
         if (box.type == "mvex") {
             m_init.fragmented = true;
             return for_each_child(box.body, [&](Box const& child) {
@@ -356,25 +681,34 @@ bool Mp4Parser::parse_sample_entry(std::span<std::uint8_t const> box_bytes, Mp4T
         return false;
     track.sample_entry = entry->type;
     std::span<std::uint8_t const> const d = entry->body;
+    // A protected entry is the original one renamed, with a 'sinf' among
+    // its children saying what it was (14496-12 §8.12).
+    std::string type = entry->type;
     if (track.kind == Mp4Track::Kind::Video) {
         if (d.size() < 78)
             return false;
         track.width = be16(d.data() + 24);
         track.height = be16(d.data() + 26);
         std::span<std::uint8_t const> const children = d.subspan(78);
-        if (entry->type == "avc1" || entry->type == "avc3") {
+        if (type == "encv") {
+            std::optional<std::string> const original = read_sinf(children, track.protection);
+            if (!original)
+                return true;
+            type = *original;
+        }
+        if (type == "avc1" || type == "avc3") {
             track.codec_id = "V_H264";
             if (std::optional<Box> const avcc = find_child(children, "avcC"))
                 track.codec_private.assign(avcc->body.begin(), avcc->body.end());
-        } else if (entry->type == "hvc1" || entry->type == "hev1") {
+        } else if (type == "hvc1" || type == "hev1") {
             track.codec_id = "V_H265";
             if (std::optional<Box> const hvcc = find_child(children, "hvcC"))
                 track.codec_private.assign(hvcc->body.begin(), hvcc->body.end());
-        } else if (entry->type == "vp09") {
+        } else if (type == "vp09") {
             track.codec_id = "V_VP9";
             if (std::optional<Box> const vpcc = find_child(children, "vpcC"))
                 track.codec_private.assign(vpcc->body.begin(), vpcc->body.end());
-        } else if (entry->type == "av01") {
+        } else if (type == "av01") {
             track.codec_id = "V_AV1";
             if (std::optional<Box> const av1c = find_child(children, "av1C"))
                 track.codec_private.assign(av1c->body.begin(), av1c->body.end());
@@ -395,7 +729,13 @@ bool Mp4Parser::parse_sample_entry(std::span<std::uint8_t const> box_bytes, Mp4T
         if (children_at > d.size())
             return false;
         std::span<std::uint8_t const> const children = d.subspan(children_at);
-        if (entry->type == "mp4a") {
+        if (type == "enca") {
+            std::optional<std::string> const original = read_sinf(children, track.protection);
+            if (!original)
+                return true;
+            type = *original;
+        }
+        if (type == "mp4a") {
             std::uint8_t object_type = 0;
             std::vector<std::uint8_t> specific;
             if (std::optional<Box> const esds = find_child(children, "esds"); esds && read_esds(esds->body, object_type, specific)) {
@@ -417,11 +757,11 @@ bool Mp4Parser::parse_sample_entry(std::span<std::uint8_t const> box_bytes, Mp4T
                     track.codec_id = "A_MP3";
                 }
             }
-        } else if (entry->type == "Opus") {
+        } else if (type == "Opus") {
             track.codec_id = "A_OPUS";
             if (std::optional<Box> const dops = find_child(children, "dOps"))
                 track.codec_private.assign(dops->body.begin(), dops->body.end());
-        } else if (entry->type == "fLaC") {
+        } else if (type == "fLaC") {
             track.codec_id = "A_FLAC";
         }
         return true;
@@ -429,7 +769,7 @@ bool Mp4Parser::parse_sample_entry(std::span<std::uint8_t const> box_bytes, Mp4T
     return true;
 }
 
-bool Mp4Parser::parse_trak(std::span<std::uint8_t const> body)
+bool Mp4Parser::parse_trak(std::span<std::uint8_t const> body, std::uint64_t body_offset)
 {
     Mp4Track track;
     std::optional<Box> const tkhd = find_child(body, "tkhd");
@@ -701,13 +1041,33 @@ bool Mp4Parser::parse_trak(std::span<std::uint8_t const> body)
             if (sample < count)
                 return false; // samples no chunk holds
         }
+        // A protected track's samples, each with how it is encrypted: the
+        // table's 'senc', or its 'saiz' and 'saio' pointing (by offset in
+        // the file) at information in this track's boxes.
+        if (track.protection) {
+            if (!read_seig_descriptions(stbl->body, track.seig))
+                return false;
+            std::vector<std::optional<SampleEncryption>> encryptions;
+            auto const aux_at = [&](std::uint64_t offset, std::size_t size) -> std::optional<std::span<std::uint8_t const>> {
+                if (offset < body_offset || offset - body_offset > body.size() || size > body.size() - (offset - body_offset))
+                    return std::nullopt;
+                return body.subspan(static_cast<std::size_t>(offset - body_offset), size);
+            };
+            if (!read_sample_encryption(stbl->body, track, {}, count, aux_at, encryptions))
+                return false;
+            for (std::size_t i = 0; i < count; ++i)
+                samples[i].encryption = std::move(encryptions[i]);
+        }
         m_samples.insert(m_samples.end(), samples.begin(), samples.end());
+    } else if (track.protection) {
+        if (!read_seig_descriptions(stbl->body, track.seig))
+            return false;
     }
     m_init.tracks.push_back(std::move(track));
     return true;
 }
 
-bool Mp4Parser::parse_moof(std::span<std::uint8_t const> body, std::uint64_t moof_offset)
+bool Mp4Parser::parse_moof(std::span<std::uint8_t const> body, std::uint64_t moof_offset, std::size_t header_size)
 {
     if (m_init.tracks.empty())
         return false; // no initialization segment: nothing to read the runs by
@@ -715,7 +1075,14 @@ bool Mp4Parser::parse_moof(std::span<std::uint8_t const> body, std::uint64_t moo
         m_fragment_decode_time.assign(m_init.tracks.size(), 0);
     std::uint64_t previous_traf_end = moof_offset; // for a run with no base of its own
     bool first_traf = true;
-    return for_each_child(body, [&](Box const& box) {
+    std::uint64_t const body_offset = moof_offset + header_size;
+    std::vector<std::vector<std::uint8_t>> pssh;
+    bool const read = for_each_child(body, [&](Box const& box) {
+        if (box.type == "pssh") {
+            std::span<std::uint8_t const> const whole = whole_box(box);
+            pssh.emplace_back(whole.begin(), whole.end());
+            return true;
+        }
         if (box.type != "traf")
             return true;
         std::optional<Box> const tfhd = find_child(box.body, "tfhd");
@@ -785,6 +1152,7 @@ bool Mp4Parser::parse_moof(std::span<std::uint8_t const> body, std::uint64_t moo
                 decode_time = be32(t.data());
         }
         std::uint64_t data_at = base;
+        std::size_t const first_sample = m_samples.size();
         bool ok = for_each_child(box.body, [&](Box const& run) {
             if (run.type != "trun")
                 return true;
@@ -853,10 +1221,34 @@ bool Mp4Parser::parse_moof(std::span<std::uint8_t const> body, std::uint64_t moo
         });
         if (!ok)
             return false;
+        // A protected track's samples, each with how it is encrypted: the
+        // fragment's 'senc', or what its 'saiz' and 'saio' point at — by
+        // offsets from the same base the runs' data offsets count from
+        // (23001-7 §7.1), here in this moof.
+        if (track.protection) {
+            std::vector<Mp4SeigEntry> own_seig;
+            if (!read_seig_descriptions(box.body, own_seig))
+                return false;
+            auto const aux_at = [&](std::uint64_t offset, std::size_t size) -> std::optional<std::span<std::uint8_t const>> {
+                std::uint64_t const where = base + offset;
+                if (where < body_offset || where - body_offset > body.size() || size > body.size() - (where - body_offset))
+                    return std::nullopt;
+                return body.subspan(static_cast<std::size_t>(where - body_offset), size);
+            };
+            std::size_t const count = m_samples.size() - first_sample;
+            std::vector<std::optional<SampleEncryption>> encryptions;
+            if (!read_sample_encryption(box.body, track, own_seig, count, aux_at, encryptions))
+                return false;
+            for (std::size_t i = 0; i < count; ++i)
+                m_samples[first_sample + i].encryption = std::move(encryptions[i]);
+        }
         m_fragment_decode_time[track_index] = decode_time;
         previous_traf_end = data_at;
         return true;
     });
+    if (read && !pssh.empty())
+        m_fragment_pssh.push_back(std::move(pssh));
+    return read;
 }
 
 void Mp4Parser::emit_ready()
@@ -894,6 +1286,7 @@ void Mp4Parser::emit_ready()
         std::size_t const start = static_cast<std::size_t>(s.offset - holder->offset);
         frame.data.assign(holder->bytes.begin() + static_cast<std::ptrdiff_t>(start),
             holder->bytes.begin() + static_cast<std::ptrdiff_t>(start + s.size));
+        frame.encryption = s.encryption;
         m_frames.push_back(std::move(frame));
     }
     m_samples = std::move(kept);
@@ -915,6 +1308,13 @@ std::vector<Mp4Frame> Mp4Parser::take_frames()
 {
     std::vector<Mp4Frame> out = std::move(m_frames);
     m_frames.clear();
+    return out;
+}
+
+std::vector<std::vector<std::vector<std::uint8_t>>> Mp4Parser::take_fragment_pssh()
+{
+    std::vector<std::vector<std::vector<std::uint8_t>>> out = std::move(m_fragment_pssh);
+    m_fragment_pssh.clear();
     return out;
 }
 

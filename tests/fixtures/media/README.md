@@ -31,3 +31,9 @@ a line as `pts_ms,duration_ms,size,flags`:
 
 ffprobe takes the Opus codec delay (6.5 ms) off the audio times; the blocks
 in the file begin at 0.
+
+`eme/` holds the encrypted media fixtures, written by
+`tools/eme-make-tests.sh eme` (ffmpeg's 'cenc' muxer, and
+`tools/cenc-to-cbcs.py` with the openssl command for 'cbcs'); the script
+checks that ffmpeg's own decryption of each encrypted file gives the clear
+file's packets before test_eme compares ours to them.

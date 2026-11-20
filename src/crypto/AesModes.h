@@ -24,6 +24,36 @@ std::optional<std::vector<std::uint8_t>> aes_cbc_decrypt(Aes const& aes, AesBloc
 std::optional<std::vector<std::uint8_t>> aes_ctr(Aes const& aes, AesBlock const& counter, std::size_t counter_bits,
     std::span<std::uint8_t const> data);
 
+// CTR as a running keystream (§6.5), for data handed over in pieces that
+// together form one message — Common Encryption's protected byte ranges,
+// one counter stream across a sample's subsamples. The low `counter_bits`
+// bits of the block count up and wrap without carrying into the rest.
+class AesCtrStream {
+public:
+    AesCtrStream(Aes const& aes, AesBlock const& counter, std::size_t counter_bits);
+    // XORs the next bytes of the keystream into `data`.
+    void apply(std::span<std::uint8_t> data);
+    // Drops what is left of the current keystream block: the next byte
+    // begins a new counter value (a byte-range pattern that works in whole
+    // blocks).
+    void next_block();
+
+private:
+    void step();
+
+    Aes const* m_aes;
+    AesBlock m_counter {};
+    AesBlock m_keystream {};
+    std::size_t m_used = 16; // bytes of m_keystream already taken
+    std::size_t m_counter_bits = 128;
+};
+
+// CBC over whole blocks with no padding, in place (§6.2): `data` is a
+// multiple of 16 bytes, `chain` the IV going in and the last ciphertext
+// block coming out, so a message cut into pieces chains across them.
+void aes_cbc_encrypt_blocks(Aes const& aes, AesBlock& chain, std::span<std::uint8_t> data);
+void aes_cbc_decrypt_blocks(Aes const& aes, AesBlock& chain, std::span<std::uint8_t> data);
+
 // RFC 3394 §2.2.1 and §2.2.2 with the default IV A6A6A6A6A6A6A6A6: the data
 // is a multiple of 8 bytes, at least 16; the wrapped form is 8 bytes longer.
 // Unwrapping answers nullopt when the integrity check fails.
