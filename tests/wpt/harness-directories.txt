@@ -66,6 +66,10 @@ html/canvas/element
 # fixtures under /media are not checked out, so the failing rows there
 # name codecs and text tracks before anything else.
 media-source
+# Added 2026-11-20 with Encrypted Media Extensions and the Clear Key key
+# system: the clearkey-* files are the measure; the drm-* files name no key
+# system (the page is to fill one in) and end as an unsupported one does.
+encrypted-media
 html/semantics/embedded-content/media-elements
 html/semantics/embedded-content/the-video-element
 html/semantics/embedded-content/the-audio-element

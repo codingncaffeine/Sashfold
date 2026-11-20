@@ -11,8 +11,9 @@
 // refused), credentials (Credential Management, nothing stored); and the
 // operations getGamepads (none), share and canShare (no share target),
 // setAppBadge and clearAppBadge (no badge to show), and
-// requestMediaKeySystemAccess (Encrypted Media, no key system).
+// requestMediaKeySystemAccess (Encrypted Media, answered in Eme.cpp).
 
+#include "bindings/Eme.h"
 #include "js/Runtime.h"
 #include "net/Url.h"
 
@@ -818,23 +819,9 @@ void install_navigator_operations(Realm::Internals& in, js::Object& navigator)
             return resolved_promise(interp, js::Value::undefined());
         });
     }
-    // Encrypted Media: no key system is known (§3.1.1 step 6).
+    // Encrypted Media (Eme.cpp): the Clear Key key system.
     define_promise_operation(interpreter, navigator, "requestMediaKeySystemAccess", 2, [](js::Interpreter& interp, js::Value const&, Args args) -> Native {
-        Realm::Internals& internals = internals_of(interp);
-        std::optional<std::string> const key_system = internals.to_utf8(js::argument(args, 0));
-        if (!key_system)
-            return std::nullopt;
-        if (key_system->empty())
-            return reject_type_error(internals, "Failed to execute 'requestMediaKeySystemAccess' on 'Navigator': The keySystem parameter is empty.");
-        js::Interpreter::Roots const roots(interp);
-        js::Value const configurations = js::argument(args, 1);
-        interp.root(configurations);
-        std::optional<std::vector<js::Value>> const list = interp.iterable_to_list(configurations);
-        if (!list)
-            return rejected_promise(interp, interp.take_exception());
-        if (list->empty())
-            return reject_type_error(internals, "Failed to execute 'requestMediaKeySystemAccess' on 'Navigator': The supportedConfigurations parameter is empty.");
-        return reject_with(internals, "NotSupportedError", "Unsupported keySystem or supportedConfigurations.");
+        return as_promise(interp, request_media_key_system_access(interp, args));
     });
 }
 

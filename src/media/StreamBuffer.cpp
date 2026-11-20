@@ -105,6 +105,20 @@ WebmTrack describe(Mp4Track const& track)
     out.channels = track.channels;
     if (track.default_sample_duration > 0 && track.timescale > 0)
         out.default_duration_ns = static_cast<std::uint64_t>(static_cast<double>(track.default_sample_duration) * 1e9 / track.timescale);
+    if (track.protection) {
+        out.encrypted = true;
+        out.key_id.assign(track.protection->key_id.begin(), track.protection->key_id.end());
+    }
+    return out;
+}
+
+// The "cenc" initialization data of a run of 'pssh' boxes: their
+// concatenation (the Initialization Data Format Registry's "cenc").
+std::vector<std::uint8_t> concatenated(std::vector<std::vector<std::uint8_t>> const& boxes)
+{
+    std::vector<std::uint8_t> out;
+    for (std::vector<std::uint8_t> const& box : boxes)
+        out.insert(out.end(), box.begin(), box.end());
     return out;
 }
 
@@ -171,6 +185,11 @@ StreamBuffer::Appended StreamBuffer::append(std::span<std::uint8_t const> bytes)
             m_inits_seen = m_webm.init_segments();
             result.ok = take_init(m_webm.init().tracks, m_webm.init().duration_seconds) && result.ok;
             result.init_segment = result.ok;
+            // Each encrypted track's key ID: "webm" initialization data.
+            for (WebmTrack const& track : m_webm.init().tracks) {
+                if (track.encrypted)
+                    m_init_data.push_back({ "webm", track.key_id });
+            }
         }
         // The frames read before a fault are still the stream's.
         for (WebmFrame& frame : m_webm.take_frames()) {
@@ -192,7 +211,11 @@ StreamBuffer::Appended StreamBuffer::append(std::span<std::uint8_t const> bytes)
                 tracks.push_back(describe(track));
             result.ok = take_init(tracks, m_mp4.init().duration_seconds) && result.ok;
             result.init_segment = result.ok;
+            if (!m_mp4.init().pssh.empty())
+                m_init_data.push_back({ "cenc", concatenated(m_mp4.init().pssh) });
         }
+        for (std::vector<std::vector<std::uint8_t>> const& boxes : m_mp4.take_fragment_pssh())
+            m_init_data.push_back({ "cenc", concatenated(boxes) });
         for (Mp4Frame& frame : m_mp4.take_frames()) {
             for (Track& track : m_tracks) {
                 if (track.description.number == frame.track) {
@@ -203,6 +226,7 @@ StreamBuffer::Appended StreamBuffer::append(std::span<std::uint8_t const> bytes)
                         as_webm.duration_ns = frame.duration_ns;
                     as_webm.key = frame.key;
                     as_webm.data = std::move(frame.data);
+                    as_webm.encryption = std::move(frame.encryption);
                     file(track, std::move(as_webm), frame.decode_time_ns);
                     result.frames = true;
                     break;
@@ -321,6 +345,8 @@ void StreamBuffer::file(Track& track, WebmFrame&& frame, std::int64_t decode_tim
     track.bytes -= erase_with_dependents(track, from, to);
 
     coded.data = std::move(frame.data);
+    if (frame.encryption)
+        coded.encryption = std::make_shared<SampleEncryption const>(std::move(*frame.encryption));
     track.bytes += coded.data.size();
     track.longest_frame_ns = std::max(track.longest_frame_ns, coded.duration_ns);
     m_group_end = std::max(m_group_end, to_seconds(end_ns));

@@ -81,6 +81,7 @@ add_library(sashfold_core STATIC
   src/bindings/Intersection.cpp
   src/bindings/LayoutOracle.cpp
   src/bindings/Media.cpp
+  src/bindings/Eme.cpp
   src/bindings/Mutations.cpp
   src/bindings/Navigator.cpp
   src/bindings/Node.cpp
@@ -175,6 +176,7 @@ add_library(sashfold_core STATIC
   src/media/WebM.cpp
   src/media/Mp4.cpp
   src/media/Cenc.cpp
+  src/media/ClearKey.cpp
   src/media/H264.cpp
   src/media/H264Data.cpp
   src/media/H264Decoder.cpp

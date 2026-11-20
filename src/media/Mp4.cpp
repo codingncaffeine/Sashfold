@@ -691,9 +691,12 @@ bool Mp4Parser::parse_sample_entry(std::span<std::uint8_t const> box_bytes, Mp4T
         track.height = be16(d.data() + 26);
         std::span<std::uint8_t const> const children = d.subspan(78);
         if (type == "encv") {
+            // "At least one protection scheme information box must occur
+            // in a protected sample entry" (§8.12.1.1): a stream without
+            // one is malformed.
             std::optional<std::string> const original = read_sinf(children, track.protection);
             if (!original)
-                return true;
+                return false;
             type = *original;
         }
         if (type == "avc1" || type == "avc3") {
@@ -732,7 +735,7 @@ bool Mp4Parser::parse_sample_entry(std::span<std::uint8_t const> box_bytes, Mp4T
         if (type == "enca") {
             std::optional<std::string> const original = read_sinf(children, track.protection);
             if (!original)
-                return true;
+                return false;
             type = *original;
         }
         if (type == "mp4a") {

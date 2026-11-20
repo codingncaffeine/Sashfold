@@ -67,7 +67,17 @@ void VideoPipeline::push(std::int64_t time_ns, std::vector<std::uint8_t> data)
 {
     {
         std::lock_guard const lock(m_mutex);
-        m_queue.push_back({ time_ns, std::move(data) });
+        m_queue.push_back({ time_ns, std::move(data), nullptr, {} });
+    }
+    m_wake.notify_all();
+}
+
+void VideoPipeline::push(std::int64_t time_ns, std::vector<std::uint8_t> data, std::shared_ptr<SampleEncryption const> encryption,
+    std::array<std::uint8_t, 16> const& key)
+{
+    {
+        std::lock_guard const lock(m_mutex);
+        m_queue.push_back({ time_ns, std::move(data), std::move(encryption), key });
     }
     m_wake.notify_all();
 }
@@ -318,7 +328,7 @@ void VideoPipeline::run()
             m_decoder->reset();
             continue;
         }
-        Coded const coded = std::move(m_queue.front());
+        Coded coded = std::move(m_queue.front());
         m_queue.pop_front();
         m_decoded_to_ns = coded.time_ns;
         m_busy = true;
@@ -332,7 +342,15 @@ void VideoPipeline::run()
         lock.unlock();
 
         Counts counts;
-        FrameDecoder::Result result = m_decoder->decode(coded.data, wanted);
+        // An encrypted frame is taken back to the clear here, off the
+        // page's thread, just before it is decoded; one whose description
+        // does not fit it is a frame that cannot be decoded.
+        bool const clear = !coded.encryption || decrypt_sample(*coded.encryption, coded.key, coded.data);
+        FrameDecoder::Result result;
+        if (clear)
+            result = m_decoder->decode(coded.data, wanted);
+        else
+            result.ok = false;
         counts.decoded = result.decoded;
         counts.skipped = result.skipped;
         if (!result.ok)

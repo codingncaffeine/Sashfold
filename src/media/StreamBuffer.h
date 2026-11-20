@@ -17,8 +17,10 @@
 #include <cstdint>
 #include <limits>
 #include <map>
+#include <memory>
 #include <optional>
 #include <span>
+#include <string>
 #include <utility>
 #include <vector>
 
@@ -44,6 +46,17 @@ struct CodedFrame {
     std::int64_t duration_ns = 0;
     bool duration_estimated = false; // no duration on the wire: the distance between frames
     bool key = false;
+    std::vector<std::uint8_t> data;
+    // How the frame is encrypted, for a protected one (`data` is then the
+    // ciphertext): shared, as the frame is handed to a decoding thread.
+    std::shared_ptr<SampleEncryption const> encryption;
+};
+
+// Initialization data met in the stream (Encrypted Media Extensions §7.3.1):
+// its format's name in the Initialization Data Format Registry ("cenc",
+// "webm") and the bytes.
+struct InitData {
+    std::string type;
     std::vector<std::uint8_t> data;
 };
 
@@ -101,6 +114,8 @@ public:
     bool evict(double current_time, std::size_t incoming);
 
     bool has_init() const { return m_inits_seen > 0; }
+    // The initialization data read since the last call, in stream order.
+    std::vector<InitData> take_init_data() { return std::exchange(m_init_data, {}); }
     // The stream's duration as its header says, if it does.
     std::optional<double> duration_seconds() const { return m_duration_seconds; }
     enum class Container { Unknown,
@@ -144,6 +159,7 @@ private:
     WebmParser m_webm;
     Mp4Parser m_mp4;
     std::uint64_t m_inits_seen = 0;
+    std::vector<InitData> m_init_data;
     std::optional<double> m_duration_seconds;
     std::vector<Track> m_tracks;
     double m_group_end = 0;

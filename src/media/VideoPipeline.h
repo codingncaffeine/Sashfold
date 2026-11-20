@@ -16,11 +16,13 @@
 // on, however long the page's thread is kept by its scripts.
 
 #include "core/Bitmap.h"
+#include "media/Cenc.h"
 #include "media/FrameDecoder.h"
 #include "media/PlaybackClock.h"
 #include "media/Vp9Accelerator.h"
 #include "media/Yuv.h"
 
+#include <array>
 #include <chrono>
 #include <condition_variable>
 #include <cstdint>
@@ -69,6 +71,10 @@ public:
     // ending in the frame it shows — in decoding order. After a flush the
     // first must be a key frame.
     void push(std::int64_t time_ns, std::vector<std::uint8_t> data);
+    // An encrypted frame (Common Encryption), with the key it is decrypted
+    // with on the pipeline's thread before it is decoded.
+    void push(std::int64_t time_ns, std::vector<std::uint8_t> data, std::shared_ptr<SampleEncryption const> encryption,
+        std::array<std::uint8_t, 16> const& key);
     // Where playback is, and how far ahead of it pictures are made: a frame
     // is decoded once its time is before `until_ns`, and one whose picture
     // a later frame due by `now_ns` would replace is decoded without being
@@ -133,6 +139,8 @@ private:
     struct Coded {
         std::int64_t time_ns;
         std::vector<std::uint8_t> data;
+        std::shared_ptr<SampleEncryption const> encryption;
+        std::array<std::uint8_t, 16> key;
     };
 
     void run();

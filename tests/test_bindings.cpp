@@ -5368,7 +5368,10 @@ void test_navigator_objects()
         "watch id true | cap true true true true | rtc false | novideo TypeError | neither TypeError | type TypeError | param TypeError | none TypeError"
         " | enc false | est true 0 | persisted false | persist false | perm denied geolocation true true | permbad TypeError | permnone TypeError"
         " | devices 0 | gum NotAllowedError | gum0 TypeError | gdm NotAllowedError | wake NotAllowedError | wakebad TypeError | cred NotSupportedError"
-        " | store TypeError | silent undefined | share AbortError | badge | eme NotSupportedError | emeempty TypeError | emenone TypeError"
+        // (A key system not supported is refused after the configurations
+        // are looked at in parallel, EME §3.1.1.1 step 6: after the
+        // arguments refused at once.)
+        " | store TypeError | silent undefined | share AbortError | badge | emeempty TypeError | emenone TypeError | eme NotSupportedError"
         " | geo 1 true User denied Geolocation | watch 1");
     CHECK_EQ(page->console, std::string(""));
 }

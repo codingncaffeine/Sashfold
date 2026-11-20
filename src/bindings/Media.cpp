@@ -1,11 +1,14 @@
 #include "bindings/Internal.h"
 #include "bindings/NodeSupport.h"
 
+#include "bindings/Eme.h"
 #include "bindings/Fetching.h"
 
 #include "core/Bitmap.h"
 #include "core/TraceClock.h"
+#include "js/Runtime.h"
 #include "media/AudioDecoder.h"
+#include "media/ClearKey.h"
 #include "media/FrameDecoder.h"
 #include "media/StreamBuffer.h"
 #include "media/VideoPipeline.h"
@@ -17,6 +20,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
 #include <deque>
 #include <iostream>
 #include <limits>
@@ -54,6 +58,7 @@ constexpr std::size_t preroll_pictures = 3;
 // Coded frames are handed to the pipeline this far ahead of the position,
 // and pictures made this far ahead: a frame's picture is ready before its
 // time comes, and a page that stops appending still has a second of it.
+constexpr std::int64_t nanoseconds = 1'000'000'000;
 constexpr std::int64_t handover_ahead_ns = 1'000'000'000;
 constexpr std::int64_t pictures_ahead_ns = 250'000'000;
 constexpr double time_update_ms = 250;
@@ -264,6 +269,17 @@ public:
     std::uint64_t picture_frames = 0;
     double last_video_trace = 0;
 
+    // Encrypted Media (EME §7): the MediaKeys set on the element and the
+    // keys its sessions hold, read as frames are handed to the decoders;
+    // whether setMediaKeys is under way; whether playback waits for a key;
+    // the initialization data an encrypted event has been fired for since
+    // the last load.
+    js::Value media_keys = js::Value::null();
+    std::shared_ptr<media::KeyStore const> keys;
+    bool attaching_media_keys = false;
+    bool waiting_for_key = false;
+    std::vector<media::InitData> init_data_seen;
+
     void trace(js::Tracer& tracer) override;
 };
 
@@ -344,6 +360,7 @@ void MediaStateObject::trace(js::Tracer& tracer)
     tracer.visit(video_tracks);
     for (auto const& [id, callback] : frame_callbacks)
         tracer.visit(callback);
+    tracer.visit(media_keys);
 }
 
 void SourceBufferObject::trace(js::Tracer& tracer)
@@ -592,6 +609,8 @@ void stream_media(Realm::Internals& in, MediaStateObject& state);
 std::optional<double> heard_position(MediaStateObject const& state);
 bool stream_played_out(MediaStateObject const& state);
 StreamBuffer::Track const* audio_track(MediaStateObject const& state);
+StreamBuffer::Track const* video_track(MediaStateObject const& state);
+std::optional<double> first_locked_frame(MediaStateObject const& state, double position);
 void open_video(Realm::Internals& in, MediaStateObject& state);
 void present_video(Realm::Internals& in, MediaStateObject& state);
 void publish_clock(Realm::Internals& in, MediaStateObject& state);
@@ -783,6 +802,9 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
     // ended MediaSource has; one still arriving in parts has.
     bool const source_ended = (state.source != nullptr && state.source->ready == MediaSourceObject::Ended)
         || (state.file_buffer != nullptr && state.file_complete);
+    // Where the first frame that cannot be decrypted yet lies (EME §7.3):
+    // playback goes no further than it until its key comes.
+    std::optional<double> const locked = first_locked_frame(state, state.position);
 
     // While the element advances, what has been heard is the clock
     // everything else keeps to, as in every browser.
@@ -794,6 +816,8 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
             target = std::max(from, *heard);
         TimeRange const* const range = media::range_at(buffered, from, true);
         double limit = range != nullptr ? range->end : from;
+        if (locked)
+            limit = std::min(limit, std::max(*locked, from));
         if (!std::isnan(state.duration))
             limit = std::min(limit, state.duration);
         if (heard && source_ended && limit - target < 0.1 && stream_played_out(state))
@@ -820,6 +844,27 @@ void update_media(Realm::Internals& in, MediaStateObject& state)
             ready = HaveCurrentData;
     } else if (media::range_at(buffered, position, true) != nullptr) {
         ready = HaveCurrentData; // at the very end of what is buffered: the last picture, nothing after it
+    }
+    // A frame that cannot be decrypted ends what is ready where it lies.
+    // Reached, playback waits for its key ("Queue a waitingforkey Event",
+    // EME §7.3.4): the ready state falls to HAVE_CURRENT_DATA when the
+    // frame at the position can be shown, to HAVE_METADATA when it cannot,
+    // and the element says it waits. A key that comes lets it go on
+    // ("Attempt to Resume Playback If Necessary", §7.3.5).
+    bool waiting = false;
+    if (range != nullptr && locked && *locked < range->end) {
+        double const ahead = *locked - position;
+        int const reachable = ahead <= 0 ? HaveMetadata : ahead >= enough_ahead_seconds ? HaveEnoughData : ahead > future_ahead_seconds ? HaveFutureData : HaveCurrentData;
+        ready = std::min(ready, reachable);
+        waiting = reachable <= HaveCurrentData;
+    }
+    if (waiting && !state.waiting_for_key) {
+        state.waiting_for_key = true;
+        trace("waiting for a key at " + std::to_string(*locked));
+        queue_element_event(in, state, "waitingforkey");
+    } else if (!waiting && state.waiting_for_key) {
+        state.waiting_for_key = false;
+        trace("the key came: playback goes on");
     }
 
     if (state.seeking && (range != nullptr || at_end)) {
@@ -1047,6 +1092,143 @@ void restart_device(MediaStateObject& state)
     state.fed_frames = std::min(static_cast<std::size_t>(state.position * static_cast<double>(state.sound->rate)), state.sound->frames());
 }
 
+// --- Encrypted media on the element (EME §7.3) ----------------------------------------------
+
+// The key a frame is decrypted with: none for a frame in the clear, nor for
+// an encrypted one whose key the element's MediaKeys does not hold yet.
+std::optional<media::ContentKey> key_for(MediaStateObject const& state, media::CodedFrame const& frame)
+{
+    if (!frame.encryption || !state.keys)
+        return std::nullopt;
+    return state.keys->find(frame.encryption->key_id);
+}
+
+// How far ahead of the position a frame that cannot be decrypted holds
+// playback back: as far as the ready state looks.
+constexpr double locked_horizon_seconds = enough_ahead_seconds + 0.1;
+
+// When the first frame playback needs from `position` on cannot be
+// decrypted yet: its presentation time — for the video, the earliest
+// picture decoded from it on, as the frames after it in decoding order
+// lean on it, and the video's decoding starts at the key frame before the
+// position. Nothing when every frame within the horizon can be.
+std::optional<double> first_locked_frame(MediaStateObject const& state, double position)
+{
+    StreamBuffer::Track const* const video = video_track(state);
+    StreamBuffer::Track const* const audio = audio_track(state);
+    bool const any = (video && !video->frames.empty() && video->description.encrypted) || (audio && !audio->frames.empty() && audio->description.encrypted);
+    if (!any)
+        return std::nullopt;
+    auto const position_ns = static_cast<std::int64_t>(position * static_cast<double>(nanoseconds));
+    auto const horizon_ns = position_ns + static_cast<std::int64_t>(locked_horizon_seconds * static_cast<double>(nanoseconds));
+    // Key IDs looked up once a call: frames share a handful.
+    std::vector<std::pair<std::vector<std::uint8_t>, bool>> known;
+    auto const locked = [&](media::CodedFrame const& frame) {
+        if (!frame.encryption)
+            return false;
+        if (!state.keys)
+            return true;
+        for (auto const& [id, have] : known) {
+            if (id == frame.encryption->key_id)
+                return !have;
+        }
+        bool const have = state.keys->find(frame.encryption->key_id).has_value();
+        known.emplace_back(frame.encryption->key_id, have);
+        return !have;
+    };
+    std::optional<std::int64_t> earliest;
+    if (video && video->description.encrypted) {
+        auto it = video->frames.upper_bound(position_ns);
+        if (it != video->frames.begin())
+            --it;
+        while (it != video->frames.begin() && !it->second.key)
+            --it;
+        if (it != video->frames.end()) {
+            for (auto order = video->decode_order.lower_bound(it->second.decode_time_ns); order != video->decode_order.end(); ++order) {
+                if (order->second >= horizon_ns && order->first >= horizon_ns)
+                    break;
+                auto const frame = video->frames.find(order->second);
+                if (frame == video->frames.end() || !locked(frame->second))
+                    continue;
+                // The pictures decoded from here on: the earliest of the
+                // next few shown.
+                std::int64_t first = frame->first;
+                int seen = 0;
+                for (auto after = order; after != video->decode_order.end() && seen < 16; ++after, ++seen)
+                    first = std::min(first, after->second);
+                earliest = first;
+                break;
+            }
+        }
+    }
+    if (audio && audio->description.encrypted) {
+        auto it = audio->frames.upper_bound(position_ns);
+        if (it != audio->frames.begin())
+            --it;
+        for (; it != audio->frames.end() && it->first < horizon_ns; ++it) {
+            if (locked(it->second)) {
+                earliest = std::min(earliest.value_or(it->first), it->first);
+                break;
+            }
+        }
+    }
+    if (!earliest)
+        return std::nullopt;
+    return static_cast<double>(*earliest) / static_cast<double>(nanoseconds);
+}
+
+js::Value array_buffer_of(js::Interpreter& interp, std::span<std::uint8_t const> bytes)
+{
+    std::optional<js::ArrayBufferObject*> const buffer = js::allocate_array_buffer(interp, nullptr, static_cast<double>(bytes.size()), std::nullopt);
+    if (!buffer)
+        return js::Value::null();
+    if (!bytes.empty())
+        std::memcpy((*buffer)->data(), bytes.data(), bytes.size());
+    return js::Value::object(*buffer);
+}
+
+// "Initialization Data Encountered" (EME §7.3.1): an encrypted event at the
+// element for each initialization data the stream carries, once for each
+// one met since the last load; its type and bytes are given only for media
+// of the document's own origin (or CORS-approved), as the page could read
+// those bytes itself. `now` fires them at once, for a caller that is the
+// task the stream was parsed in (an append, whose update and updateend
+// come after: MSE's segment parser loop queues the encrypted event first).
+void initialization_data_encountered(Realm::Internals& in, MediaStateObject& state, std::vector<media::InitData> found, bool readable, bool now)
+{
+    for (media::InitData& data : found) {
+        bool const seen = std::any_of(state.init_data_seen.begin(), state.init_data_seen.end(),
+            [&](media::InitData const& each) { return each.type == data.type && each.data == data.data; });
+        if (seen)
+            continue;
+        state.init_data_seen.push_back(data);
+        trace("encrypted: " + data.type + " initialization data, " + std::to_string(data.data.size()) + " bytes");
+        std::optional<std::vector<std::uint8_t>> bytes;
+        std::string type;
+        if (readable) {
+            type = data.type;
+            bytes = std::move(data.data);
+        }
+        auto held = std::make_shared<js::Persistent>(in.interpreter.heap(), js::Value::object(state.wrapper));
+        auto fire_encrypted = [&in, held, type = std::move(type), bytes = std::move(bytes)] {
+            Realm::Internals::Entry const entry(in);
+            js::Interpreter& interp = in.interpreter;
+            js::Interpreter::Roots const roots(interp);
+            js::Value const init_data = bytes ? interp.root(array_buffer_of(interp, *bytes)) : js::Value::null();
+            js::Value const init_data_type = interp.root(in.string(type));
+            EventObject* event = in.new_event("MediaEncryptedEvent", "encrypted", false, false);
+            interp.root(js::Value::object(event));
+            event->members = { init_data_type, init_data };
+            event->is_trusted = true;
+            in.dispatch(*event, held->value().as_object());
+        };
+        if (now)
+            fire_encrypted();
+        else
+            in.post_task(std::move(fire_encrypted));
+    }
+}
+
 // --- A MediaSource's sound, decoded as it plays ---------------------------------------------
 
 // The Opus track among the element's buffers, if it has one.
@@ -1064,7 +1246,6 @@ StreamBuffer::Track const* audio_track(MediaStateObject const& state)
     return nullptr;
 }
 
-constexpr std::int64_t nanoseconds = 1'000'000'000;
 constexpr unsigned stream_rate = 48000;
 constexpr std::size_t stream_channels = 2;
 
@@ -1128,7 +1309,22 @@ void feed_stream(MediaStateObject& state, StreamBuffer::Track const& track)
             state.next_audio_ns = it->first;
             continue;
         }
-        media::AudioDecoder::Result const result = state.audio->decode(it->second.data, state.pending);
+        // An encrypted packet is decrypted here, where the sound is decoded;
+        // one whose key has not come waits for it, and the speakers run dry
+        // (EME §7.3.4). One whose description does not fit it cannot be
+        // read, and is concealed as any packet that cannot be.
+        std::vector<std::uint8_t> clear;
+        std::span<std::uint8_t const> packet = it->second.data;
+        if (it->second.encryption) {
+            std::optional<media::ContentKey> const key = key_for(state, it->second);
+            if (!key)
+                return;
+            clear = it->second.data;
+            if (!media::decrypt_sample(*it->second.encryption, *key, clear))
+                clear.clear();
+            packet = clear;
+        }
+        media::AudioDecoder::Result const result = state.audio->decode(packet, state.pending);
         if (result.ok)
             state.packets_decoded++;
         else
@@ -1351,13 +1547,26 @@ void present_video(Realm::Internals& in, MediaStateObject& state)
             continue;
         if (frame->first >= position_ns + ahead_ns)
             break;
+        // An encrypted frame goes with its key, to be decrypted on the
+        // pipeline's thread; one whose key has not come holds back it and
+        // every frame after it (EME §7.3.4), so nothing the decoder could
+        // not read is ever handed to it.
+        std::optional<media::ContentKey> key;
+        if (frame->second.encryption) {
+            key = key_for(state, frame->second);
+            if (!key)
+                break;
+        }
         // What takes the place of frames taken back begins with a key
         // frame, or the decoder cannot go on from what it holds.
         if (std::exchange(state.video_needs_key, false) && !frame->second.key) {
             state.video_started = false;
             break;
         }
-        state.video->push(frame->first, frame->second.data);
+        if (key)
+            state.video->push(frame->first, frame->second.data, frame->second.encryption, *key);
+        else
+            state.video->push(frame->first, frame->second.data);
         state.next_video_decode_ns = it->first + 1;
         state.next_video_ns = std::max(state.next_video_ns, frame->first + 1);
         ++handed;
@@ -1732,6 +1941,13 @@ void take_media_parts(Realm::Internals& in, MediaStateObject& state)
             fail_load(in, state, "No decoder is available for this source.");
             return;
         }
+        // A file of another origin keeps its initialization data to itself
+        // (EME §7.3.1: CORS-same-origin media only).
+        std::vector<media::InitData> found = state.file_buffer->take_init_data();
+        if (!found.empty()) {
+            bool const same_origin = fetch->url.serialize_origin() == in.origin_url.serialize_origin() && fetch->url.serialize_origin() != "null";
+            initialization_data_encountered(in, state, std::move(found), same_origin, false);
+        }
     }
     if (!wave.empty() && finished) {
         std::optional<media::Sound> decoded = media::decode_wav(wave);
@@ -1965,6 +2181,8 @@ void run_load(Realm::Internals& in, MediaStateObject& state)
     state.video_awaiting = false;
     state.next_video_ns = 0;
     state.video_needs_key = false;
+    state.waiting_for_key = false;
+    state.init_data_seen.clear();
     if (state.picture) {
         state.picture.reset();
         state.picture_shape++;
@@ -2131,6 +2349,11 @@ void buffer_changed(Realm::Internals& in, SourceBufferObject& buffer, bool init_
         }
     }
     update_media(in, *state);
+    // What a script appended is the script's own to read: the
+    // initialization data in it is always given (EME §7.3.1).
+    std::vector<media::InitData> found = buffer.buffer.take_init_data();
+    if (!found.empty())
+        initialization_data_encountered(in, *state, std::move(found), true, true);
 }
 
 // --- SourceBuffer ---------------------------------------------------------------------------
@@ -2904,6 +3127,59 @@ void install_media_element(Realm::Internals& in)
         trace("canPlayType " + *type + " -> " + std::to_string(support));
         return internals.string(support == 2 ? "probably" : support == 1 ? "maybe" : "");
     });
+    // Encrypted Media (EME §7): the MediaKeys the element decrypts with.
+    element_getter(in, element, "mediaKeys", [](Realm::Internals& internals, dom::Element& e) -> Native { return live_state_of(internals, e).media_keys; });
+    element_promise_method(in, element, "setMediaKeys", 1, [](Realm::Internals& internals, dom::Element& e, Args args) -> Native {
+        js::Interpreter& interp = internals.interpreter;
+        MediaStateObject& state = live_state_of(internals, e);
+        js::Value const given = js::argument(args, 0);
+        if (!given.is_null() && !media_keys_store(given))
+            return as_promise(interp, interp.throw_type_error("Failed to execute 'setMediaKeys' on 'HTMLMediaElement': parameter 1 is not of type 'MediaKeys'."));
+        // §7.2.1 steps 1 to 3.
+        if (given.is_object() && state.media_keys.is_object() && given.as_object() == state.media_keys.as_object())
+            return resolved_promise(interp, js::Value::undefined());
+        if (state.attaching_media_keys)
+            return rejected_promise(interp, dom_exception_value(internals, "InvalidStateError", "The element's MediaKeys are being set already."));
+        state.attaching_media_keys = true;
+        std::optional<js::PromiseCapability> const capability
+            = js::new_promise_capability(interp, js::Value::object(interp.intrinsics().promise_constructor));
+        if (!capability)
+            return std::nullopt;
+        js::Interpreter::Roots const roots(interp);
+        interp.root(capability->promise);
+        auto held_state = std::make_shared<js::Persistent>(interp.heap(), js::Value::object(&state));
+        auto held_keys = std::make_shared<js::Persistent>(interp.heap(), given);
+        auto resolve = std::make_shared<js::Persistent>(interp.heap(), capability->resolve);
+        auto reject = std::make_shared<js::Persistent>(interp.heap(), capability->reject);
+        // Step 5, in parallel and then in a task.
+        internals.post_task([&internals, held_state, held_keys, resolve, reject] {
+            Realm::Internals::Entry const entry(internals);
+            js::Interpreter& inner = internals.interpreter;
+            js::Interpreter::Roots const task_roots(inner);
+            auto& target = *static_cast<MediaStateObject*>(held_state->value().as_object());
+            js::Value const keys = held_keys->value();
+            target.attaching_media_keys = false;
+            // A MediaKeys is one element's at a time (step 5.1).
+            if (keys.is_object() && !claim_media_keys(keys, &target)) {
+                js::Value const reason = inner.root(dom_exception_value(internals, "QuotaExceededError", "The MediaKeys object is already in use by another media element."));
+                js::Value const arguments[] = { reason };
+                internals.call_reporting(reject->value(), js::Value::undefined(), arguments, "setMediaKeys()");
+                return;
+            }
+            // Step 5.2: the element stops decrypting with the old ones;
+            // what is decoded already stays decoded.
+            if (target.media_keys.is_object())
+                release_media_keys(target.media_keys, &target);
+            target.media_keys = keys;
+            target.keys = media_keys_store(keys);
+            trace(keys.is_object() ? "setMediaKeys: a MediaKeys is set" : "setMediaKeys: none");
+            // Step 5.3: "Attempt to Resume Playback If Necessary".
+            media_keys_changed(internals, &target);
+            js::Value const arguments[] = { js::Value::undefined() };
+            internals.call_reporting(resolve->value(), js::Value::undefined(), arguments, "setMediaKeys()");
+        });
+        return capability->promise;
+    });
     for (auto const& [name, value] : { std::pair { "NETWORK_EMPTY", 0 }, std::pair { "NETWORK_IDLE", 1 }, std::pair { "NETWORK_LOADING", 2 },
              std::pair { "NETWORK_NO_SOURCE", 3 }, std::pair { "HAVE_NOTHING", 0 }, std::pair { "HAVE_METADATA", 1 },
              std::pair { "HAVE_CURRENT_DATA", 2 }, std::pair { "HAVE_FUTURE_DATA", 3 }, std::pair { "HAVE_ENOUGH_DATA", 4 } })
@@ -3445,9 +3721,20 @@ int media_type_support(std::string_view type)
     return type_support(type);
 }
 
+void media_keys_changed(Realm::Internals& in, js::Object* element_state)
+{
+    auto* const state = dynamic_cast<MediaStateObject*>(element_state);
+    if (state == nullptr || state->wrapper->detached())
+        return;
+    // The frames held back are looked at again: update_media lets
+    // playback go on past those that can be decrypted now.
+    update_media(in, *state);
+}
+
 void install_media(Realm::Internals& in)
 {
     install_media_element(in);
+    install_eme(in);
     install_text_track_cues(in);
     if (playback_enabled()) {
         install_source_buffer(in);
