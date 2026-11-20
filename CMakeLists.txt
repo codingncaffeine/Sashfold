@@ -242,6 +242,8 @@ add_library(sashfold_core STATIC
   src/pdf/Font.cpp
   src/pdf/FontEmbed.cpp
   src/pdf/Form.cpp
+  src/pdf/FormScript.cpp
+  src/pdf/FormScriptPrelude.cpp
   src/pdf/Writer.cpp
   src/media/Ps.cpp
   src/media/Sbr.cpp

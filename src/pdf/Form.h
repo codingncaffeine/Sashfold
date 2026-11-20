@@ -31,6 +31,15 @@ struct FormValue {
     std::string text; // UTF-8
     std::vector<std::string> selections; // list boxes: export values
     std::string state; // check boxes and radio groups
+    // What the field's scripts made of it (FormScript.h): the text shown
+    // when a format action gives one other than the value, the field
+    // hidden or shown, its text color as operators ("1 0 0 rg").
+    std::optional<std::string> formatted = std::nullopt;
+    std::optional<bool> hidden = std::nullopt;
+    std::optional<std::string> text_color = std::nullopt;
+    // Set by the document's own scripts (a calculation): written even into
+    // a read-only field, which the reader cannot change but a script may.
+    bool by_script = false;
 };
 using FormValues = std::map<Ref, FormValue>;
 

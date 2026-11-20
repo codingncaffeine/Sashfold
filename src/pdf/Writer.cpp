@@ -310,7 +310,7 @@ Bytes save_with_form_values(Document const& doc, FormValues const& values)
     for (auto const& [field_ref, widgets] : widgets_by_field) {
         FormValue const& value = values.at(field_ref);
         FormField const& first = widgets.front();
-        if (first.read_only())
+        if (first.read_only() && !value.by_script)
             continue;
         Dict field_dict = doc.resolve(Object::ref(field_ref)).as_dict();
         if (field_dict.empty())
@@ -342,6 +342,12 @@ Bytes save_with_form_values(Document const& doc, FormValues const& values)
                 Dict ap;
                 ap.set("N", Object::ref(stream_ref));
                 widget_dict.set("AP", Object::dict(std::move(ap)));
+            }
+            if (value.hidden) {
+                // A script hid or showed the field: the Hidden flag (§12.5.3).
+                auto flags = static_cast<std::uint32_t>(doc.resolve(widget_dict.get("F")).as_int(0));
+                flags = *value.hidden ? (flags | 2u) : (flags & ~2u);
+                widget_dict.set("F", Object::integer(flags));
             }
             if (merged)
                 field_dict = widget_dict;

@@ -220,4 +220,115 @@ intl = {
     16: b'<< /Type /Annot /Subtype /Widget /FT /Tx /T (rtl) /Q 2 /Rect [20 30 380 60] /F 4 /MK << /BC [0 0 0] >> /DA (/Helv 12 Tf 0 g) >>',
 }
 pdf('forms-intl', intl)
-print('wrote forms, forms-xrefstream, forms-rc4, forms-need, forms-intl into', out_dir)
+
+
+def lit(text):
+    if any(ord(c) > 0x7E for c in text):
+        return utf16(text)  # a text string beyond ASCII: UTF-16BE with its mark
+    return b'(' + text.encode('latin-1').replace(b'\\', b'\\\\').replace(b'(', b'\\(').replace(b')', b'\\)') + b')'
+
+
+def js(source):
+    return b'<< /S /JavaScript /JS ' + lit(source) + b' >>'
+
+
+def aa(**triggers):
+    return b'/AA << ' + b' '.join(b'/' + k.encode() + b' ' + js(v) for k, v in triggers.items()) + b' >>'
+
+
+def text_field(num, name, rect, extra=b'', da=b'/Helv 10 Tf 0 g', **triggers):
+    return (b'<< /Type /Annot /Subtype /Widget /FT /Tx /T ' + lit(name) + b' /Rect [' + b' '.join(b'%d' % v for v in rect)
+            + b'] /F 4 /P 3 0 R /MK << /BC [0 0 0] >> /DA (' + da + b') ' + extra + b' ' + (aa(**triggers) if triggers else b'') + b' >>')
+
+
+# Field scripts (Acrobat forms JavaScript): an order form of quantity x
+# price rows, a subtotal, a tax at a rate and a total (AFSimple_Calculate
+# and custom calculations, in /CO order), number formats in four
+# separator styles with currency, a percent, a date, a time, a phone
+# number, keystroke filters (digits only, upper case), a validated range,
+# a check box that shows a hidden field, a reset button, two fields
+# calculated from each other (the loop a single pass ends), and the
+# document's own script and open action. The page lists the fields last
+# to first, so only the calculation order puts the total after its parts.
+NUM = 'AFNumber_Format(2, 0, 0, 0, "$", true);'
+fields_js = [
+    (10, text_field(10, 'qty1', [20, 450, 80, 470], K='AFNumber_Keystroke(0, 1, 0, 0, "", true);', F='AFNumber_Format(0, 1, 0, 0, "", true);')),
+    (11, text_field(11, 'price1', [90, 450, 190, 470], K='AFNumber_Keystroke(2, 0, 0, 0, "$", true);', F=NUM)),
+    (12, text_field(12, 'line1', [200, 450, 300, 470], b'/Ff 1', C='event.value = this.getField("qty1").value * this.getField("price1").value;', F=NUM)),
+    (13, text_field(13, 'qty2', [20, 420, 80, 440], K='AFNumber_Keystroke(0, 1, 0, 0, "", true);', F='AFNumber_Format(0, 1, 0, 0, "", true);')),
+    (14, text_field(14, 'price2', [90, 420, 190, 440], K='AFNumber_Keystroke(2, 0, 0, 0, "$", true);', F=NUM)),
+    (15, text_field(15, 'line2', [200, 420, 300, 440], b'/Ff 1', C='event.value = lineTotal(2);', F=NUM)),
+    (16, text_field(16, 'subtotal', [200, 390, 300, 410], b'/Ff 1', C='AFSimple_Calculate("SUM", new Array("line1", "line2"));', F=NUM)),
+    (17, text_field(17, 'rate', [90, 360, 190, 380], b'/V (0.08)', K='AFPercent_Keystroke(1, 0);', F='AFPercent_Format(1, 0);',
+                    V='AFRange_Validate(true, 0, true, 1);')),
+    (18, text_field(18, 'tax', [200, 360, 300, 380], b'/Ff 1', C='event.value = this.getField("subtotal").value * this.getField("rate").value;',
+                    F='AFNumber_Format(2, 2, 0, 0, " €", false);')),
+    (19, text_field(19, 'total', [200, 330, 300, 350], b'/Ff 1', C='AFSimple_Calculate("SUM", "subtotal, tax");', F='AFNumber_Format(2, 0, 2, 0, "$", true);')),
+    (20, text_field(20, 'date', [20, 290, 140, 310], F='AFDate_FormatEx("dd.mm.yyyy");', K='AFDate_KeystrokeEx("dd.mm.yyyy");')),
+    (21, text_field(21, 'time', [150, 290, 250, 310], F='AFTime_Format(1);', K='AFTime_Keystroke(1);')),
+    (22, text_field(22, 'phone', [260, 290, 380, 310], F='AFSpecial_Format(2);', K='AFSpecial_Keystroke(2);')),
+    (23, text_field(23, 'digits', [20, 250, 140, 270], K='if (!event.willCommit) event.rc = /^[0-9]*$/.test(event.change);')),
+    (24, text_field(24, 'upper', [150, 250, 250, 270], K='event.change = event.change.toUpperCase();')),
+    (25, text_field(25, 'percent', [260, 250, 380, 270], V='AFRange_Validate(true, 0, true, 100);')),
+    (26, b'<< /Type /Annot /Subtype /Widget /FT /Btn /T (show) /V /Off /AS /Off /Rect [20 210 40 230] /F 4 /P 3 0 R /MK << /BC [0 0 0] >> '
+         b'/AP << /N << /Yes 40 0 R /Off 41 0 R >> >> ' + aa(U='this.getField("extra").display = event.target.value == "Off" ? display.hidden : display.visible;') + b' >>'),
+    (27, text_field(27, 'extra', [50, 210, 250, 230], b'/V (shown by the box)').replace(b'/F 4', b'/F 6')),
+    (28, b'<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (reset) /Rect [260 210 380 230] /F 4 /P 3 0 R /MK << /BC [0 0 0] /BG [0.8 0.8 0.8] /CA (Reset) >> '
+         b'/DA (/Helv 0 Tf 0 g) /A << /S /ResetForm /Fields [(digits) (upper) 10 0 R] >> >>'),
+    (29, text_field(29, 'loopA', [20, 170, 140, 190], C='event.value = (Number(this.getField("loopB").value) || 0) + 1;')),
+    (30, text_field(30, 'loopB', [150, 170, 250, 190], C='event.value = (Number(this.getField("loopA").value) || 0) + 1;')),
+    (31, text_field(31, 'euro', [260, 170, 380, 190], F='AFNumber_Format(2, 3, 0, 0, "", false);')),
+    (32, text_field(32, 'status', [20, 130, 380, 150])),
+]
+js_objects = {
+    1: b'<< /Type /Catalog /Pages 2 0 R /Names << /JavaScript 50 0 R >> /OpenAction ' + js('this.getField("status").value = "opened " + docReady;')
+       + b' /AcroForm << /Fields [' + b' '.join(b'%d 0 R' % n for n, _ in reversed(fields_js)) + b'] /CO [12 0 R 15 0 R 16 0 R 18 0 R 19 0 R 29 0 R 30 0 R] '
+       b'/DR << /Font << /Helv 5 0 R >> >> /DA (/Helv 0 Tf 0 g) >> >>',
+    2: b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    3: b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 500] /Resources << /Font << /Helv 5 0 R >> >> /Contents 4 0 R '
+       b'/Annots [' + b' '.join(b'%d 0 R' % n for n, _ in reversed(fields_js)) + b'] >>',
+    4: (b'<< >>', b'1 g 0 0 400 500 re f'),
+    5: b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+    40: (b'<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] >>', b'0 0 1 rg 3 3 14 14 re f'),
+    41: (b'<< /Type /XObject /Subtype /Form /BBox [0 0 20 20] >>', b'0.7 g 3 3 14 14 re f'),
+    50: b'<< /Names [(lines) 51 0 R] >>',
+    51: js('var docReady = "yes"; function lineTotal(n) { return this.getField("qty" + n).value * this.getField("price" + n).value; }'),
+}
+for n, body in fields_js:
+    js_objects[n] = body
+pdf('forms-js', js_objects)
+
+# A document whose scripts reach for what the sandbox does not have: each
+# probe's outcome written into the field "probe"; a button whose script
+# never ends, one that takes memory without end, and one that answers
+# after them.
+probe = ('var r = []; function tryIt(name, f) { try { var v = f(); r.push(name + "=" + (v === undefined || v === null ? String(v) : typeof v)); } '
+         'catch (e) { r.push(name + "!" + e.name); } } '
+         'tryIt("fetch", function () { return fetch("http://example.com/"); }); '
+         'tryIt("XMLHttpRequest", function () { return new XMLHttpRequest(); }); '
+         'tryIt("document", function () { return document.cookie; }); '
+         'tryIt("window", function () { return window.location; }); '
+         'tryIt("escape", function () { var g = globalThis.constructor.constructor("return this")(); return g.document || g.fetch || g.window || g.XMLHttpRequest; }); '
+         'tryIt("setTimeout", function () { return setTimeout(function () {}, 0); }); '
+         'tryIt("localStorage", function () { return localStorage.length; }); '
+         'tryIt("launchURL", function () { return app.launchURL("http://example.com/", true); }); '
+         'this.getField("probe").value = r.join(";");')
+hostile = {
+    1: b'<< /Type /Catalog /Pages 2 0 R /Names << /JavaScript 50 0 R >> /AcroForm << /Fields [10 0 R 11 0 R 12 0 R 13 0 R] '
+       b'/DR << /Font << /Helv 5 0 R >> >> /DA (/Helv 0 Tf 0 g) >> >>',
+    2: b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    3: b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 200] /Resources << /Font << /Helv 5 0 R >> >> /Contents 4 0 R /Annots [10 0 R 11 0 R 12 0 R 13 0 R] >>',
+    4: (b'<< >>', b'1 g 0 0 400 200 re f'),
+    5: b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+    10: text_field(10, 'probe', [20, 150, 380, 180]),
+    11: b'<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (loop) /Rect [20 100 120 130] /F 4 /P 3 0 R /MK << /BC [0 0 0] /CA (Loop) >> '
+        b'/DA (/Helv 0 Tf 0 g) ' + aa(U='while (true) {}') + b' >>',
+    12: b'<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (alive) /Rect [140 100 240 130] /F 4 /P 3 0 R /MK << /BC [0 0 0] /CA (Alive) >> '
+        b'/DA (/Helv 0 Tf 0 g) ' + aa(U='this.getField("probe").value = "alive";') + b' >>',
+    13: b'<< /Type /Annot /Subtype /Widget /FT /Btn /Ff 65536 /T (bomb) /Rect [260 100 360 130] /F 4 /P 3 0 R /MK << /BC [0 0 0] /CA (Bomb) >> '
+        b'/DA (/Helv 0 Tf 0 g) ' + aa(U='var hoard = []; while (true) hoard.push(new Array(10000).fill(hoard.length));') + b' >>',
+    50: b'<< /Names [(probe) 51 0 R] >>',
+    51: js(probe),
+}
+pdf('forms-js-hostile', hostile)
+print('wrote forms, forms-xrefstream, forms-rc4, forms-need, forms-intl, forms-js, forms-js-hostile into', out_dir)

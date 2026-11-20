@@ -1052,12 +1052,16 @@ Appearance widget_appearance(Document const& doc, FormField const& field, FormVa
     FormFonts& embedded = fonts_in ? *fonts_in : *own_fonts;
     TextSetter setter(doc, field.da.font_name, field.font_family, embedded);
     bool text_set = false;
+    // The text's color: a script's (a format showing negatives in red), else the /DA's.
+    std::string const text_color = value.text_color ? *value.text_color : field.da.color_operators;
 
     switch (field.kind) {
     case FormField::Kind::Text:
     case FormField::Kind::ComboBox: {
-        std::string text_utf8 = value.text;
-        if (field.kind == FormField::Kind::ComboBox) {
+        // The formatted text where a format action gave one (§12.7.5.3:
+        // the value stays in /V, the appearance shows the formatted text).
+        std::string text_utf8 = value.formatted ? *value.formatted : value.text;
+        if (field.kind == FormField::Kind::ComboBox && !value.formatted) {
             // The display text of the chosen export value.
             for (auto const& [export_value, display] : field.options) {
                 if (export_value == value.text) {
@@ -1096,7 +1100,7 @@ Appearance widget_appearance(Document const& doc, FormField const& field, FormVa
         }
         std::vector<std::u32string> const lines = wrap_lines(setter, text, size, inner_w, multiline);
         content += "/Tx BMC q " + number(frame.inset) + " " + number(frame.inset) + " " + number(inner_w) + " " + number(inner_h) + " re W n\n";
-        content += show_lines(setter, text, size, field.da.color_operators, lines, frame.inset, frame.height - frame.inset, inner_w, inner_h,
+        content += show_lines(setter, text, size, text_color, lines, frame.inset, frame.height - frame.inset, inner_w, inner_h,
             field.quadding, !multiline, field.comb(), field.max_len);
         content += "Q EMC\n";
         break;
