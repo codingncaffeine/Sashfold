@@ -100,7 +100,7 @@ public:
         if (mx < 0 || my < 0 || mx >= m_w)
             return false;
         int const a = my * m_w + mx;
-        return a != m_addr && m_frame.mbs[static_cast<std::size_t>(a)].slice == m_slice.number;
+        return a != m_addr && a >= m_slice.first_addr && m_frame.mbs[static_cast<std::size_t>(a)].slice == m_slice.number;
     }
 
     // The motion of list `list` at luma location (x_n, y_n) relative to the
@@ -1032,7 +1032,7 @@ public:
     int chroma_rows() const { return m_chroma_rows; }
     bool mb_ok(int mx, int my) const
     {
-        if (mx < 0 || my < 0 || mx >= m_frame.mb_width || my >= m_frame.mb_height)
+        if (mx < 0 || my < 0 || mx >= m_frame.mb_width || my >= m_frame.mb_height || my * m_frame.mb_width + mx < m_slice.first_addr)
             return false;
         MbState const& s = m_frame.mbs[static_cast<std::size_t>(my * m_frame.mb_width + mx)];
         if (s.slice != m_slice.number)

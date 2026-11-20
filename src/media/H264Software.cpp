@@ -199,6 +199,19 @@ public:
     void publish(Counter& counter, int now)
     {
         counter.value.store(now, std::memory_order_seq_cst);
+        wake(counter);
+    }
+
+    // The same for a count several threads add to.
+    void add(Counter& counter, int delta)
+    {
+        counter.value.fetch_add(delta, std::memory_order_seq_cst);
+        wake(counter);
+    }
+
+private:
+    void wake(Counter& counter)
+    {
         if (counter.sleepers.load(std::memory_order_seq_cst) > 0) {
             {
                 std::lock_guard lock(m_mutex);
@@ -206,6 +219,8 @@ public:
             m_wake.notify_all();
         }
     }
+
+public:
 
 private:
     std::mutex m_mutex;
@@ -382,6 +397,98 @@ private:
     Progress m_progress;
 };
 
+// The deblocking of a picture whose slices are decoded side by side, its
+// rows (MBAFF: of pairs) taken by the threads in order once they and the
+// rows under them are reconstructed (no prediction then reads a filtered
+// sample), each filtered two units behind the row above (8.7's raster
+// order, as WavefrontSink does). The slices' threads count each row's
+// reconstructed macroblocks; when the last slice is done every row counts
+// as whole (a broken slice's macroblocks never come).
+class DeblockRows {
+public:
+    explicit DeblockRows(Frame& frame)
+        : m_frame(frame)
+        , m_per(frame.mbaff ? 2 : 1)
+        , m_width(frame.mb_width)
+        , m_height(frame.mb_height / m_per)
+        , m_deblocked(std::make_unique<Counter[]>(static_cast<std::size_t>(m_height)))
+        , m_reconstructed(std::make_unique<Counter[]>(static_cast<std::size_t>(m_height)))
+    {
+    }
+
+    // A slice's thread: macroblock `addr` is reconstructed.
+    void reconstructed(int addr) { m_progress.add(m_reconstructed[static_cast<std::size_t>((addr / m_per) / m_width)], 1); }
+    // The last slice is done.
+    void all_reconstructed()
+    {
+        for (int row = 0; row < m_height; ++row)
+            m_progress.publish(m_reconstructed[static_cast<std::size_t>(row)], m_width * m_per);
+    }
+
+    void work()
+    {
+        for (;;) {
+            int const row = m_next.fetch_add(1, std::memory_order_relaxed);
+            if (row >= m_height)
+                return;
+            for (int r = row; r <= std::min(row + 1, m_height - 1); ++r)
+                m_progress.wait_at_least(m_reconstructed[static_cast<std::size_t>(r)], m_width * m_per);
+            for (int x = 0; x < m_width; ++x) {
+                if (row > 0)
+                    m_progress.wait_at_least(m_deblocked[static_cast<std::size_t>(row - 1)], std::min(x + 2, m_width));
+                if (m_per == 2)
+                    deblock_pair(m_frame, row * m_width + x);
+                else
+                    deblock_macroblock(m_frame, x, row);
+                m_progress.publish(m_deblocked[static_cast<std::size_t>(row)], x + 1);
+            }
+        }
+    }
+
+private:
+    Frame& m_frame;
+    int m_per;
+    int m_width;
+    int m_height;
+    std::unique_ptr<Counter[]> m_deblocked;
+    std::unique_ptr<Counter[]> m_reconstructed; // per row: macroblocks reconstructed
+    std::atomic<int> m_next { 0 };
+    Progress m_progress;
+};
+
+// One slice thread's macroblocks reconstructed as soon as parsed, each
+// counted for the deblocking.
+class CountingSink final : public MacroblockSink {
+public:
+    CountingSink(Frame& frame, DeblockRows& rows)
+        : m_frame(frame)
+        , m_rows(rows)
+    {
+    }
+    MbSyntax& begin(int) override
+    {
+        m_mb.reset(m_frame.chroma_format != 1);
+        return m_mb;
+    }
+    void end(Slice const& slice, int mb_addr) override
+    {
+        reconstruct_macroblock(m_frame, slice, mb_addr, m_mb);
+        m_rows.reconstructed(mb_addr);
+    }
+
+private:
+    Frame& m_frame;
+    DeblockRows& m_rows;
+    MbSyntax m_mb;
+};
+
+// A slice to decode side by side: the slice, its RBSP, and where its data begins.
+struct SliceJob {
+    Slice const* slice = nullptr;
+    std::vector<std::uint8_t> rbsp;
+    std::size_t start = 0;
+};
+
 class SoftwareH264 final : public H264Accelerator {
 public:
     SoftwareH264(int max_macroblocks, int threads)
@@ -525,29 +632,46 @@ public:
 
         // Threads where the picture has rows enough and its slices come in raster order.
         bool in_order = true;
-        int last_first = -1;
-        for (H264SliceHeader const& h : info.headers) {
+        int last_first = -1, count = 0;
+        // Each slice's first macroblock, and where the next begins.
+        int const per = mbaff ? 2 : 1;
+        frame.slice_first.assign(info.slices.size(), 0);
+        std::vector<int> ends(info.slices.size(), 1 << 30);
+        int previous = -1;
+        for (std::size_t i = 0; i < info.headers.size() && i < info.slices.size(); ++i) {
+            H264SliceHeader const& h = info.headers[i];
             if (!of_plane(h))
                 continue;
             in_order = in_order && h.first_mb_in_slice > last_first;
             last_first = h.first_mb_in_slice;
+            frame.slice_first[i] = h.first_mb_in_slice * per;
+            if (previous >= 0)
+                ends[static_cast<std::size_t>(previous)] = frame.slice_first[i];
+            previous = static_cast<int>(i);
+            ++count;
         }
+        bool const threaded = m_thread_count > 1 && in_order && mb_h / per >= 4;
+        // Several slices are decoded side by side, a thread to a slice at a
+        // time — their parsing and prediction never look into another
+        // slice (7.4.3, 6.4.1's availability) — and the picture filtered
+        // after; one slice is decoded as a wavefront of rows.
+        bool const side_by_side = threaded && count >= 2;
         std::optional<WavefrontSink> wavefront;
         std::optional<DirectSink> direct;
-        if (m_thread_count > 1 && in_order && mb_h / (mbaff ? 2 : 1) >= 4) {
-            if (!m_pool)
-                m_pool = std::make_unique<WorkerPool>(m_thread_count - 1);
+        if (threaded && !m_pool)
+            m_pool = std::make_unique<WorkerPool>(m_thread_count - 1);
+        if (threaded && !side_by_side) {
             wavefront.emplace(frame, m_thread_count + 2);
-            frame.sink = &*wavefront;
             m_pool->start([&wavefront] { wavefront->work(); });
-        } else {
+        } else if (!side_by_side) {
             direct.emplace(frame);
-            frame.sink = &*direct;
         }
+        MacroblockSink* const sink = wavefront ? static_cast<MacroblockSink*>(&*wavefront) : (direct ? &*direct : nullptr);
 
         // Each slice kept until the picture is done: the threads reconstruct from it.
         std::vector<Slice> slices;
         slices.reserve(info.slices.size());
+        std::vector<SliceJob> jobs; // side by side: each slice with its data
         bool any = false;
         for (std::size_t i = 0; i < info.slices.size() && i < info.headers.size(); ++i) {
             H264SliceHeader const& h = info.headers[i];
@@ -558,6 +682,9 @@ public:
             slice.pps = &pps;
             slice.header = &h;
             slice.number = static_cast<int>(i);
+            slice.first_addr = frame.slice_first[i];
+            if (side_by_side)
+                slice.end_addr = ends[i];
             slice.type = h.slice_type == H264SliceType::SP ? H264SliceType::P : (h.slice_type == H264SliceType::SI ? H264SliceType::I : h.slice_type);
             if (h.slice_type == H264SliceType::SP || h.slice_type == H264SliceType::SI)
                 continue; // the Extended profile's switching slices are not written
@@ -603,14 +730,20 @@ public:
             frame.slice_beta[i] = h.slice_beta_offset_div2 * 2;
             frame.slice_disable[i] = h.disable_deblocking_filter_idc;
 
-            std::vector<std::uint8_t> const rbsp = h264_rbsp(info.slices[i]);
+            std::vector<std::uint8_t> rbsp = h264_rbsp(info.slices[i]);
             if (h.header_bits < 8)
                 continue;
+            if (side_by_side) {
+                jobs.push_back({ &slice, std::move(rbsp), static_cast<std::size_t>(h.header_bits - 8) });
+                continue;
+            }
             BitReader reader(rbsp.data(), rbsp.size(), static_cast<std::size_t>(h.header_bits - 8));
-            if (decode_slice_data(frame, slice, reader))
+            if (decode_slice_data(frame, slice, reader, *sink))
                 any = true;
         }
-        if (wavefront) {
+        if (side_by_side) {
+            any = decode_side_by_side(frame, jobs);
+        } else if (wavefront) {
             wavefront->parsed_all();
             wavefront->work();
             m_pool->wait();
@@ -705,6 +838,41 @@ public:
     }
 
 private:
+    // The picture's slices, each parsed and reconstructed whole by one of
+    // the threads (the next slice not yet taken, each with its own
+    // macroblock in flight); a thread with no slice left filters rows
+    // whose macroblocks, and the next row's, are all reconstructed. A
+    // slice reads no macroblock before its first (Slice::first_addr) and
+    // writes none past the next's first (end_addr), so the slices' threads
+    // share nothing they write; the filter reads a row only once its
+    // count (and the next row's) says it is whole.
+    bool decode_side_by_side(Frame& frame, std::vector<SliceJob>& jobs)
+    {
+        std::atomic<std::size_t> next { 0 };
+        std::atomic<std::size_t> done { 0 };
+        std::atomic<bool> any { false };
+        DeblockRows rows(frame);
+        auto work = [&] {
+            CountingSink sink(frame, rows);
+            for (;;) {
+                std::size_t const k = next.fetch_add(1, std::memory_order_relaxed);
+                if (k >= jobs.size())
+                    break;
+                SliceJob& job = jobs[k];
+                BitReader reader(job.rbsp.data(), job.rbsp.size(), job.start);
+                if (decode_slice_data(frame, *job.slice, reader, sink))
+                    any.store(true, std::memory_order_relaxed);
+                if (done.fetch_add(1, std::memory_order_acq_rel) + 1 == jobs.size())
+                    rows.all_reconstructed();
+            }
+            rows.work();
+        };
+        m_pool->start(work);
+        work();
+        m_pool->wait();
+        return any.load(std::memory_order_relaxed);
+    }
+
     LevelScales const& scales_for(H264Pps const& pps)
     {
         auto found = m_scales.find(pps.id);

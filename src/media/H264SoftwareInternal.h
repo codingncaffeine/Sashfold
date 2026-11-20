@@ -379,6 +379,13 @@ struct Slice {
     H264Pps const* pps = nullptr;
     H264SliceHeader const* header = nullptr;
     int number = 0;
+    // Its first macroblock's address in the picture (MBAFF: the pair's
+    // top one): no macroblock before it is its, so none is read to find
+    // out — another slice's may be being written on another thread.
+    int first_addr = 0;
+    // Where the next slice begins: decoded side by side, a slice that runs
+    // on into it (a broken stream's) stops there.
+    int end_addr = 1 << 30;
     H264SliceType type = H264SliceType::I;
     int qp = 26; // SliceQPY
     std::array<std::vector<RefEntry>, 2> list;
@@ -484,8 +491,8 @@ public:
 // field of it), seen as the picture's own rows of macroblocks.
 struct Frame {
     Picture* picture = nullptr;
-    MacroblockSink* sink = nullptr;
     std::vector<MbState> mbs; // per macroblock address of the picture
+    std::vector<int> slice_first; // per slice number: Slice::first_addr
     std::vector<int> slice_alpha; // per slice number: FilterOffsetA, FilterOffsetB, disable_deblocking_filter_idc
     std::vector<int> slice_beta;
     std::vector<int> slice_disable;
@@ -608,7 +615,10 @@ struct Frame {
     };
     Location neighbor(int addr, int x_n, int y_n, int max_w, int max_h, int slice) const
     {
-        auto available = [&](int a) { return a >= 0 && a < static_cast<int>(mbs.size()) && mbs[static_cast<std::size_t>(a)].slice == slice; };
+        // In the slice: at or after its first macroblock (looked at first,
+        // so no other slice's macroblock is read) and decoded by it.
+        int const first = slice >= 0 && static_cast<std::size_t>(slice) < slice_first.size() ? slice_first[static_cast<std::size_t>(slice)] : 0;
+        auto available = [&](int a) { return a >= first && a < static_cast<int>(mbs.size()) && mbs[static_cast<std::size_t>(a)].slice == slice; };
         if (y_n > max_h - 1 || (x_n > max_w - 1 && y_n >= 0))
             return {};
         if (!mbaff) {
@@ -712,8 +722,10 @@ struct Frame {
     int chroma_rows_stride(int s) const { return picture->chroma_width << (s != 0 ? 1 : 0); }
 };
 
-// The decoding of one slice's macroblocks, from its data's first bit.
-bool decode_slice_data(Frame& frame, Slice const& slice, BitReader& reader);
+// The decoding of one slice's macroblocks, from its data's first bit,
+// each handed to `sink` (the frame's, or the slice's own where slices
+// are decoded side by side).
+bool decode_slice_data(Frame& frame, Slice const& slice, BitReader& reader, MacroblockSink& sink);
 
 // An intra macroblock's motion as later parsing and pictures read it: no
 // reference in either list. Set as soon as the macroblock is parsed.

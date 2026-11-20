@@ -173,8 +173,9 @@ struct Vlc {
 
 class Parser {
 public:
-    Parser(Frame& frame, Slice const& slice, BitReader& reader)
+    Parser(Frame& frame, Slice const& slice, BitReader& reader, MacroblockSink& sink)
         : m_frame(frame)
+        , m_sink(sink)
         , m_slice(slice)
         , m_reader(reader)
         , m_sps(*slice.sps)
@@ -190,7 +191,7 @@ public:
 
 private:
     // Neighbors (6.4.9 in fields and frames; 6.4.12.2's in MBAFF frames).
-    bool available(int addr) const { return addr >= 0 && m_frame.mbs[static_cast<std::size_t>(addr)].slice == m_slice.number; }
+    bool available(int addr) const { return addr >= m_slice.first_addr && m_frame.mbs[static_cast<std::size_t>(addr)].slice == m_slice.number; }
     Frame::Location neighbor(int x, int y, int max = 16) const { return m_frame.neighbor(m_addr, x, y, max, max, m_slice.number); }
     int mb_a() const
     {
@@ -307,6 +308,7 @@ private:
     void put4x4(std::int32_t* out, std::int32_t const* list, int start, int count);
 
     Frame& m_frame;
+    MacroblockSink& m_sink;
     Slice const& m_slice;
     BitReader& m_reader;
     H264Sps const& m_sps;
@@ -997,7 +999,7 @@ bool Parser::run()
     bool prev_skipped = false;
     m_pending_skip = -1;
     while (more) {
-        if (m_addr >= total)
+        if (m_addr >= total || m_addr >= m_slice.end_addr)
             return false;
         bool const top = (m_addr & 1) == 0;
         if (m_mbaff) {
@@ -1122,11 +1124,11 @@ void Parser::finish_skip(int addr)
     MbState const& s = state(addr);
     int const storage = m_mbaff ? m_frame.storage_mb(addr) : m_frame.storage_mb_at(m_x, m_y);
     m_frame.picture->mb_field[static_cast<std::size_t>(storage)] = s.field ? 1 : 0;
-    MbSyntax& mb = m_frame.sink->begin(addr);
+    MbSyntax& mb = m_sink.begin(addr);
     mb.kind = s.kind;
     mb.part_pred[0] = s.kind == MbKind::BSkip ? PredDirect : PredL0;
     derive_motion(m_frame, m_slice, addr, mb);
-    m_frame.sink->end(m_slice, addr);
+    m_sink.end(m_slice, addr);
 }
 
 void Parser::finish_pending_skip()
@@ -1575,7 +1577,7 @@ bool Parser::macroblock_layer()
     int const storage = m_mbaff ? m_frame.storage_mb(m_addr) : m_frame.storage_mb_at(m_x, m_y);
     m_frame.picture->mb_field[static_cast<std::size_t>(storage)] = m_field_mb ? 1 : 0;
     m_p8x8ref0 = false;
-    MbSyntax& mb = m_frame.sink->begin(m_addr);
+    MbSyntax& mb = m_sink.begin(m_addr);
     mb.ref_idx[0] = { -1, -1, -1, -1 };
     mb.ref_idx[1] = { -1, -1, -1, -1 };
     int raw = 0;
@@ -1610,7 +1612,7 @@ bool Parser::macroblock_layer()
         m_prev_qp_delta_nonzero = false;
         m_prev_addr = m_addr;
         clear_intra_motion(m_frame, m_addr);
-        m_frame.sink->end(m_slice, m_addr);
+        m_sink.end(m_slice, m_addr);
         return !m_reader.overrun();
     }
     bool no_sub_less_than_8x8 = true;
@@ -1746,15 +1748,15 @@ bool Parser::macroblock_layer()
     m_prev_addr = m_addr;
     if (s.intra)
         clear_intra_motion(m_frame, m_addr);
-    m_frame.sink->end(m_slice, m_addr);
+    m_sink.end(m_slice, m_addr);
     return !m_reader.overrun();
 }
 
 }
 
-bool decode_slice_data(Frame& frame, Slice const& slice, BitReader& reader)
+bool decode_slice_data(Frame& frame, Slice const& slice, BitReader& reader, MacroblockSink& sink)
 {
-    Parser parser(frame, slice, reader);
+    Parser parser(frame, slice, reader, sink);
     return parser.run();
 }
 
