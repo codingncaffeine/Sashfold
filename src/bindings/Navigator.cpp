@@ -8,7 +8,7 @@
 // (Media Session — kept, shown nowhere yet), storage (Storage Standard),
 // permissions (Permissions), geolocation (Geolocation, refused), mediaDevices
 // (Media Capture and Streams, no devices), wakeLock (Screen Wake Lock,
-// refused), credentials (Credential Management, nothing stored); and the
+// refused), credentials (Credential Management, WebAuthn.cpp); and the
 // operations getGamepads (none), share and canShare (no share target),
 // setAppBadge and clearAppBadge (no badge to show), and
 // requestMediaKeySystemAccess (Encrypted Media, answered in Eme.cpp).
@@ -766,29 +766,6 @@ void install_wake_lock(Realm::Internals& in, js::Object& navigator)
     define_same_object(in, navigator, "wakeLock", "WakeLock");
 }
 
-void install_credentials(Realm::Internals& in, js::Object& navigator)
-{
-    js::Object* container = define_interface(in, "CredentialsContainer", nullptr);
-    // No credential type is written: a request for one is refused as a
-    // browser refuses a type it has not got (NotSupportedError).
-    for (std::string_view const name : { "get", "create" }) {
-        define_promise_operation(in.interpreter, *container, name, 0, [name](js::Interpreter& interp, js::Value const&, Args args) -> Native {
-            Realm::Internals& internals = internals_of(interp);
-            js::Value const options = js::argument(args, 0);
-            if (!options.is_undefined() && !options.is_object())
-                return reject_type_error(internals, "Failed to execute '" + std::string(name) + "' on 'CredentialsContainer': parameter 1 is not of type 'Credential" + (name == "get" ? "Request" : "Creation") + "Options'.");
-            return reject_with(internals, "NotSupportedError", "No credential type is supported.");
-        });
-    }
-    define_promise_operation(in.interpreter, *container, "store", 1, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-        return reject_type_error(internals_of(interp), "Failed to execute 'store' on 'CredentialsContainer': parameter 1 is not of type 'Credential'.");
-    });
-    define_promise_operation(in.interpreter, *container, "preventSilentAccess", 0, [](js::Interpreter& interp, js::Value const&, Args) -> Native {
-        return resolved_promise(interp, js::Value::undefined());
-    });
-    define_same_object(in, navigator, "credentials", "CredentialsContainer");
-}
-
 void install_navigator_operations(Realm::Internals& in, js::Object& navigator)
 {
     js::Interpreter& interpreter = in.interpreter;
@@ -837,7 +814,7 @@ void install_navigator_objects(Realm::Internals& in, js::Object& navigator)
     install_geolocation(in, navigator);
     install_media_devices(in, navigator);
     install_wake_lock(in, navigator);
-    install_credentials(in, navigator);
+    install_web_authn(in, navigator);
     install_navigator_operations(in, navigator);
 }
 

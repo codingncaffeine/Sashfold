@@ -729,6 +729,9 @@ void signal_abort(Realm::Internals& in, AbortSignalObject& signal, js::Value con
     in.interpreter.root(reason);
     signal.aborted = true;
     signal.reason = reason.is_undefined() ? abort_error(in, "signal is aborted without reason") : reason;
+    std::vector<std::function<void()>> const algorithms = std::exchange(signal.abort_algorithms, {});
+    for (std::function<void()> const& algorithm : algorithms)
+        algorithm();
     EventObject* event = in.new_event("Event", "abort", false, false);
     in.interpreter.root(js::Value::object(event));
     event->is_trusted = true;

@@ -581,6 +581,10 @@ public:
     // follows, held so that they live as long as it does; and on a source,
     // the dependents to abort with it. Both strong: the heap has no weak
     // edge, and a signal is small.
+    // Its abort algorithms (DOM §3.2.3 "add"): what the operations that
+    // follow it do when it aborts, run before its event. Each holds no
+    // heap value, only the native state it stops.
+    std::vector<std::function<void()>> abort_algorithms;
     bool dependent = false;
     std::vector<js::Value> sources;
     std::vector<js::Value> dependents;
@@ -1267,6 +1271,11 @@ struct Realm::Internals {
     };
     std::vector<NotificationAsk> notification_asks;
     std::map<std::uint64_t, js::Object*> shown_notifications;
+    // WebAuthn.cpp: the navigator.credentials.create() and .get() calls that
+    // are waiting for a ceremony, by the realm's number for each.
+    struct CredentialCall;
+    std::map<std::uint64_t, std::shared_ptr<CredentialCall>> credential_calls;
+    std::uint64_t next_credential_call = 1;
     // The document's active view transition (css-view-transitions-1 §9),
     // from startViewTransition until it is skipped (Document.cpp).
     js::Object* active_view_transition = nullptr;
@@ -2070,6 +2079,13 @@ void install_broadcast_channel(Realm::Internals&);
 // Notifications.cpp: Notification, with the permission denied.
 void install_notifications(Realm::Internals&);
 void trace_notifications(Realm::Internals&, js::Tracer&);
+// WebAuthn.cpp: navigator.credentials (Credential Management) with the
+// public-key credential type of Web Authentication, put on the navigator
+// of a secure context; the waiting calls a collection keeps; and a document
+// unloading, whose ceremonies are cancelled and whose calls are forgotten.
+void install_web_authn(Realm::Internals&, js::Object& navigator);
+void trace_web_authn(Realm::Internals&, js::Tracer&);
+void end_credential_calls(Realm::Internals&);
 // What the reader has said of this document's notifications: the host's
 // word for a page's own document in a secure context, "denied" for the rest.
 std::string notification_permission(Realm::Internals&);

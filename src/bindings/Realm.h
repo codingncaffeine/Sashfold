@@ -46,6 +46,11 @@ namespace sashfold::idb {
 class Storage; // storage/IndexedDb.h
 }
 
+namespace sashfold::auth {
+struct Request; // auth/Client.h
+struct Outcome;
+}
+
 namespace sashfold::media {
 class VideoPipeline; // media/VideoPipeline.h
 }
@@ -369,6 +374,31 @@ struct HostHooks {
     // becomes of it comes back through Realm::notification_event.
     std::function<std::uint64_t(NotificationRequest const&)> show_notification;
     std::function<void(std::uint64_t id)> close_notification;
+
+    // Web Authentication (bindings/WebAuthn.cpp). A ceremony the page's
+    // navigator.credentials.create() or .get() asks for, its options already
+    // validated and its client data hashed: the host finds the keys (its
+    // transport), shows the reader what the ceremony asks of them (its
+    // prompt), and names the ceremony (0: it cannot run one). `done` is
+    // called once, on any thread, with what came of it; the realm carries
+    // it to the page's thread. `site` is what the reader is shown: the RP
+    // ID, never page-chosen text. Unset, no ceremony runs: the page waits
+    // out its timeout and is told NotAllowedError, as with no key present.
+    struct SecurityKeyAsk {
+        std::string site; // the RP ID
+        std::string origin; // the caller's origin, serialized
+        bool cross_origin = false;
+    };
+    std::function<std::uint64_t(SecurityKeyAsk const& ask, auth::Request const& request, std::function<void(auth::Outcome)> done)>
+        security_key_ceremony;
+    // The page's AbortSignal (by_page) or its timeout, the document going
+    // away (not by_page): the ceremony is cancelled, its prompt closed.
+    std::function<void(std::uint64_t id, bool by_page)> cancel_security_key_ceremony;
+    // Whether the document's window has the reader's focus — the tab in
+    // front of the window that has the keyboard — which create() and get()
+    // require of a page (Chrome and Firefox refuse an unfocused document
+    // with NotAllowedError). Unset, every document has it.
+    std::function<bool()> document_focused;
 
     // Dedicated workers (HTML §10.2, Workers.h). With `worker_threads`, each
     // worker a document here starts runs on a thread of its own, and all it

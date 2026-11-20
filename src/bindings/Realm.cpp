@@ -2440,6 +2440,7 @@ Realm::~Realm()
     // it made go with it.
     in.workers.clear();
     abort_websockets(in);
+    end_credential_calls(in);
     std::erase_if(in.agent.blob_urls, [&in](auto const& entry) { return entry.second.document == in.document; });
     in.media_source_urls.clear();
     // Its frames end first, while this realm and the agent are whole.
@@ -3106,6 +3107,7 @@ void Realm::Internals::reuse_frame_window(ChildFrame& frame, FrameDocument answe
     std::erase_if(agent.tasks, [&window](Task const& task) { return task.owner == &window; });
     terminate_workers(window);
     abort_websockets(window);
+    end_credential_calls(window);
     std::erase_if(agent.blob_urls, [&window](auto const& entry) { return entry.second.document == window.document; });
     window.media_source_urls.clear();
     // The old document stays alive with the realm, so no wrapper into it, and
@@ -4488,6 +4490,7 @@ void Realm::trace_roots(js::Tracer& tracer)
     trace_canvases(in, tracer);
     trace_fullscreen(in, tracer);
     trace_notifications(in, tracer);
+    trace_web_authn(in, tracer);
     trace_indexeddb(in, tracer);
     for (auto const& [name, member] : in.cross_origin_members) {
         if (member.value)

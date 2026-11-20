@@ -179,6 +179,8 @@ sashfold_test(test_auth_client)
 sashfold_test(test_auth_extensions)
 sashfold_test(test_auth_hidraw)
 sashfold_test(test_auth_fuzz)
+# Web Authentication's script interface on those keys (bindings/WebAuthn.cpp).
+sashfold_test(test_webauthn)
 sashfold_test(test_bindings)
 sashfold_test(test_realm_lazy)
 sashfold_test(test_canvas)

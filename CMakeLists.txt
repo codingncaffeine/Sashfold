@@ -68,6 +68,7 @@ add_library(sashfold_core STATIC
   src/auth/Attestation.cpp
   src/auth/Cbor.cpp
   src/auth/Client.cpp
+  src/auth/ClientData.cpp
   src/auth/Cose.cpp
   src/auth/Ctap2.cpp
   src/auth/CtapHid.cpp
@@ -97,6 +98,7 @@ add_library(sashfold_core STATIC
   src/bindings/Node.cpp
   src/bindings/Origin.cpp
   src/bindings/WebCrypto.cpp
+  src/bindings/WebAuthn.cpp
   src/bindings/FileReader.cpp
   src/bindings/SvgElements.cpp
   src/bindings/WebSockets.cpp
