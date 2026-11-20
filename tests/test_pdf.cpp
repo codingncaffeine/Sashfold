@@ -1268,6 +1268,91 @@ void test_forms_intl(std::string const& fixtures)
     }
 }
 
+// Signature fields as the browsers' viewers treat them: a signed one shows
+// its own appearance (NeedAppearances or not), an unsigned one an empty
+// box; neither is validated or signed. Saving a filled form appends an
+// update, so the bytes the signature covers are the same bytes after it.
+// A rich text field edited as plain text gets its /RV written again.
+void test_forms_sign(std::string const& fixtures)
+{
+    pdf::Document::Status status {};
+    Bytes const original = read_file(fixtures + "/forms/forms-sign.pdf");
+    auto const doc = pdf::Document::open(original, "", status);
+    CHECK(doc && status == pdf::Document::Status::Ok);
+    if (!doc)
+        return;
+    std::vector<pdf::FormField> const fields = pdf::page_fields(*doc, 0);
+    CHECK_EQ(fields.size(), std::size_t { 3 });
+    if (fields.size() != 3)
+        return;
+    using Kind = pdf::FormField::Kind;
+    CHECK(fields[0].kind == Kind::Signature && fields[0].has_appearance && fields[1].kind == Kind::Signature && !fields[1].has_appearance);
+    CHECK(pdf::need_appearances(*doc));
+    // Device y is 200 - PDF y. The signed field's blue frame; the unsigned
+    // one's red border and nothing in it.
+    auto const check_signatures = [&](pdf::Document const& d) {
+        std::optional<Bitmap> const picture = pdf::render_page(d, 0, {});
+        CHECK(near(picture, 23, 67, 0, 0, 255, 8));
+        CHECK(near(picture, 100, 45, 255, 255, 255, 8));
+        CHECK(near(picture, 220, 45, 255, 0, 0, 40));
+        CHECK(near(picture, 300, 45, 255, 255, 255, 8));
+    };
+    check_signatures(*doc);
+
+    // The bytes a signature covers, by its /ByteRange.
+    auto const signed_bytes = [](pdf::Document const& d, Bytes const& file) -> std::optional<Bytes> {
+        for (pdf::FormField const& field : pdf::page_fields(d, 0)) {
+            if (field.kind != pdf::FormField::Kind::Signature)
+                continue;
+            pdf::Dict const widget = d.resolve(pdf::Object::ref(field.field)).as_dict();
+            pdf::Dict const sig = d.resolve(widget.get("V")).as_dict();
+            pdf::Array const& range = d.resolve(sig.get("ByteRange")).as_array();
+            if (range.size() != 4)
+                continue;
+            Bytes covered;
+            for (std::size_t i = 0; i < 4; i += 2) {
+                auto const at = static_cast<std::size_t>(d.resolve(range[i]).as_int(0));
+                auto const length = static_cast<std::size_t>(d.resolve(range[i + 1]).as_int(0));
+                if (at + length > file.size())
+                    return std::nullopt;
+                covered.insert(covered.end(), file.begin() + static_cast<std::ptrdiff_t>(at), file.begin() + static_cast<std::ptrdiff_t>(at + length));
+            }
+            return covered;
+        }
+        return std::nullopt;
+    };
+    std::optional<Bytes> const before = signed_bytes(*doc, original);
+    CHECK(before && before->size() + 1026 == original.size()); // all of the file but the /Contents string
+
+    pdf::FormValues values;
+    values[fields[2].field].text = "New plain\ntext & more";
+    Bytes const saved = pdf::save_with_form_values(*doc, values);
+    CHECK(saved.size() > original.size() && std::equal(original.begin(), original.end(), saved.begin()));
+    auto const reopened = pdf::Document::open(saved, "", status);
+    CHECK(reopened && status == pdf::Document::Status::Ok);
+    if (!reopened)
+        return;
+    std::optional<Bytes> const after = signed_bytes(*reopened, saved);
+    CHECK(after && before && *after == *before);
+    // A byte of the signed range changed is seen: the check is not blind.
+    Bytes tampered = saved;
+    tampered[40] ^= 1;
+    std::optional<Bytes> const changed = signed_bytes(*reopened, tampered);
+    CHECK(changed && before && *changed != *before);
+    check_signatures(*reopened);
+
+    // The rich text field: /V the new text, /RV that text, not the old.
+    for (pdf::FormField const& field : pdf::page_fields(*reopened, 0)) {
+        if (field.name != "note")
+            continue;
+        CHECK(field.value.text == "New plain\ntext & more");
+        pdf::Dict const dict = reopened->resolve(pdf::Object::ref(field.field)).as_dict();
+        std::string const rv = pdf::text_string_to_utf8(reopened->resolve(dict.get("RV")).as_string());
+        CHECK(rv.find("<p>New plain</p><p>text &amp; more</p>") != std::string::npos);
+        CHECK(rv.find("Old") == std::string::npos);
+    }
+}
+
 // JBIG2 made by our own encoder (tools/pdf-make-jbig2-tests.py --fixtures),
 // every file of which jbig2dec decodes to the picture it was given: a
 // small picture in each coding of the standard (generic region templates,
@@ -1415,6 +1500,7 @@ int main(int argc, char** argv)
         test_annotations(argv[1]);
         test_forms(argv[1]);
         test_forms_intl(argv[1]);
+        test_forms_sign(argv[1]);
         test_jpx(argv[1]);
         test_std14_widths(std::string(argv[1]) + "/../../shell/pdf-viewer.pdf");
     }

@@ -1461,7 +1461,10 @@ void Renderer::draw_annotation(Dict const& annotation, Ref annotation_ref, canva
                     value = &it->second;
             }
             bool const buttons = field->kind == FormField::Kind::CheckBox || field->kind == FormField::Kind::Radio;
-            bool const synthesize = !field->has_appearance || (!buttons && (value != nullptr || need_appearances(m_doc)));
+            // A signature's appearance is the signer's: shown as it is,
+            // NeedAppearances or not (viewers neither redraw nor sign it).
+            bool const signature = field->kind == FormField::Kind::Signature;
+            bool const synthesize = !field->has_appearance || (!buttons && !signature && (value != nullptr || need_appearances(m_doc)));
             if (synthesize) {
                 Appearance const made = widget_appearance(m_doc, *field, value);
                 if (made.content.empty())

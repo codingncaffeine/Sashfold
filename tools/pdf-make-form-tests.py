@@ -331,4 +331,37 @@ hostile = {
     51: js(probe),
 }
 pdf('forms-js-hostile', hostile)
-print('wrote forms, forms-xrefstream, forms-rc4, forms-need, forms-intl, forms-js, forms-js-hostile into', out_dir)
+
+# Signatures and rich text: a signed field (its /V a signature dictionary
+# whose /ByteRange covers the whole file but its /Contents, as a signer
+# writes one, and an appearance of its own), an unsigned one with a red
+# border and no appearance, and a rich-text field (/Ff bit 26) whose /RV
+# says the same as its /V in XHTML. NeedAppearances is set: a viewer
+# makes the text fields' appearances, never a signed field's.
+sign = {
+    1: b'<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [10 0 R 11 0 R 12 0 R] /SigFlags 3 /NeedAppearances true '
+       b'/DR << /Font << /Helv 5 0 R >> >> /DA (/Helv 0 Tf 0 g) >> >>',
+    2: b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    3: b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 200] /Resources << /Font << /Helv 5 0 R >> >> /Contents 4 0 R /Annots [10 0 R 11 0 R 12 0 R] >>',
+    4: (b'<< >>', b'1 g 0 0 400 200 re f'),
+    5: b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+    10: b'<< /Type /Annot /Subtype /Widget /FT /Sig /T (signed) /V 20 0 R /Rect [20 130 200 180] /F 4 /P 3 0 R /AP << /N 21 0 R >> >>',
+    11: b'<< /Type /Annot /Subtype /Widget /FT /Sig /T (unsigned) /Rect [220 130 380 180] /F 4 /P 3 0 R /MK << /BC [1 0 0] >> >>',
+    12: b'<< /Type /Annot /Subtype /Widget /FT /Tx /T (note) /Ff 33554432 /V (Old rich text) '
+        b'/RV (<?xml version="1.0"?><body xmlns="http://www.w3.org/1999/xhtml"><p><b>Old</b> rich text</p></body>) '
+        b'/DS (font: Helvetica 12pt) /Rect [20 60 380 100] /F 4 /P 3 0 R /MK << /BC [0 0 0] >> /DA (/Helv 12 Tf 0 g) >>',
+    20: b'<< /Type /Sig /Filter /Adobe.PPKLite /SubFilter /adbe.pkcs7.detached /Name (Signer) /M (D:20260101000000Z) '
+        b'/ByteRange [0 0000000000 0000000000 0000000000] /Contents <' + b'0' * 1024 + b'> >>',
+    21: (b'<< /Type /XObject /Subtype /Form /BBox [0 0 180 50] >>', b'0 0 1 rg 0 0 180 50 re f 1 g 10 10 160 30 re f'),
+}
+pdf('forms-sign', sign)
+# The byte range, written in place: everything but the /Contents string.
+path = os.path.join(out_dir, 'forms-sign.pdf')
+data = bytearray(open(path, 'rb').read())
+contents = data.index(b'/Contents <' + b'0' * 16) + len(b'/Contents ')
+after = data.index(b'>', contents) + 1
+byte_range = b'[0 %010d %010d %010d]' % (contents, after, len(data) - after)
+at = data.index(b'[0 0000000000 0000000000 0000000000]')
+data[at:at + len(byte_range)] = byte_range
+open(path, 'wb').write(bytes(data))
+print('wrote forms, forms-xrefstream, forms-rc4, forms-need, forms-intl, forms-js, forms-js-hostile, forms-sign into', out_dir)

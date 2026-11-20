@@ -257,6 +257,31 @@ Object value_object(FormField const& field, FormValue const& value)
     }
 }
 
+// Plain text as a rich text string (§12.7.3.4): an XHTML body, a
+// paragraph per line, the text escaped.
+std::string rich_text_of(std::string const& text)
+{
+    std::string out = "<?xml version=\"1.0\"?><body xmlns=\"http://www.w3.org/1999/xhtml\" xmlns:xfa=\"http://www.xfa.org/schema/xfa-data/1.0/\" "
+                      "xfa:spec=\"2.1\"><p>";
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        char const c = text[i];
+        switch (c) {
+        case '&': out += "&amp;"; break;
+        case '<': out += "&lt;"; break;
+        case '>': out += "&gt;"; break;
+        case '"': out += "&quot;"; break;
+        case '\r':
+            if (i + 1 < text.size() && text[i + 1] == '\n')
+                ++i;
+            out += "</p><p>";
+            break;
+        case '\n': out += "</p><p>"; break;
+        default: out.push_back(c);
+        }
+    }
+    return out + "</p></body>";
+}
+
 // The AcroForm's default resources (§12.7.3) with fonts added: the
 // AcroForm written again where it is an object of its own, else the
 // catalog that holds it.
@@ -316,6 +341,12 @@ Bytes save_with_form_values(Document const& doc, FormValues const& values)
         if (field_dict.empty())
             continue;
         field_dict.set("V", value_object(first, value));
+        if (first.kind == FormField::Kind::Text && field_dict.has("RV")) {
+            // A rich text field edited as plain text, as the browsers'
+            // viewers edit one: its rich value (§12.7.3.4) written again
+            // from the new text, so no reader shows the stale one.
+            field_dict.set("RV", Object::string(utf8_to_text_string(rich_text_of(value.text))));
+        }
         bool const buttons = first.kind == FormField::Kind::CheckBox || first.kind == FormField::Kind::Radio;
         for (FormField const& widget : widgets) {
             bool const merged = widget.widget == field_ref;
