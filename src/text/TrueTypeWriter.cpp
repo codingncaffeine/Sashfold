@@ -998,6 +998,8 @@ std::vector<std::uint8_t> write_truetype(FontDescription const& font)
         entries.push_back({ make_tag('C', 'O', 'L', 'R'), &colr.bytes });
         entries.push_back({ make_tag('C', 'P', 'A', 'L'), &cpal.bytes });
     }
+    for (auto const& [tag, bytes] : font.extra_tables)
+        entries.push_back({ tag, &bytes });
     std::sort(entries.begin(), entries.end(), [](Entry const& a, Entry const& b) { return a.tag < b.tag; });
     Buffer file;
     auto const table_count = static_cast<std::uint16_t>(entries.size());

@@ -100,6 +100,9 @@ struct FontDescription {
     WriterBitmapTable bitmap_table = WriterBitmapTable::Cbdt;
     std::vector<WriterColorGlyph> color_glyphs; // none writes no COLR or CPAL
     std::vector<WriterPaletteColor> palette;
+    // Tables written as they are, by tag (GDEF, GSUB, ...): what a test of
+    // the layout tables builds by hand.
+    std::vector<std::pair<std::uint32_t, std::vector<std::uint8_t>>> extra_tables;
 };
 
 // A complete TTF: OS/2, cmap (formats 4 and 12), glyf, head, hhea, hmtx,

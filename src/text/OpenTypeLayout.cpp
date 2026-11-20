@@ -340,7 +340,7 @@ void parse_layout_table(LayoutTable& t, bool gpos)
         lookup.props = flag;
         if (flag & lookup_flag::use_mark_filtering_set)
             lookup.props |= static_cast<std::uint32_t>(b.u16(at + 6 + subtables * 2)) << 16;
-        for (std::uint32_t s = 0; s < subtables; ++s) {
+        for (std::uint32_t s = 0; s < subtables && b.has(at + 6 + s * 2, 2); ++s) {
             std::uint32_t sub = b.offset16(at, at + 6 + s * 2);
             if (sub == 0)
                 continue;
@@ -1116,7 +1116,7 @@ bool apply_ligature_subst(ApplyContext& c, Bytes const& b, std::uint32_t at)
     if (set == 0)
         return false;
     std::uint32_t const ligatures = b.u16(set);
-    for (std::uint32_t l = 0; l < ligatures; ++l) {
+    for (std::uint32_t l = 0; l < ligatures && b.has(set + 2 + l * 2, 2); ++l) {
         std::uint32_t const ligature = b.offset16(set, set + 2 + l * 2);
         if (ligature == 0)
             continue;
@@ -1273,7 +1273,7 @@ bool apply_context(ApplyContext& c, Bytes const& b, std::uint32_t at)
         if (set == 0)
             return false;
         std::uint32_t const rules = b.u16(set);
-        for (std::uint32_t r = 0; r < rules; ++r) {
+        for (std::uint32_t r = 0; r < rules && b.has(set + 2 + r * 2, 2); ++r) {
             std::uint32_t const rule_at = b.offset16(set, set + 2 + r * 2);
             if (rule_at == 0)
                 continue;
@@ -1346,7 +1346,7 @@ bool apply_chain_context(ApplyContext& c, Bytes const& b, std::uint32_t at)
         if (set == 0)
             return false;
         std::uint32_t const rules = b.u16(set);
-        for (std::uint32_t r = 0; r < rules; ++r) {
+        for (std::uint32_t r = 0; r < rules && b.has(set + 2 + r * 2, 2); ++r) {
             std::uint32_t const rule_at = b.offset16(set, set + 2 + r * 2);
             if (rule_at == 0)
                 continue;
