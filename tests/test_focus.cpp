@@ -161,8 +161,9 @@ int main()
             return it == facts.end() ? focus::ElementFacts {} : it->second;
         };
         // A scroller with nothing focusable inside is a stop; one holding a
-        // link is not (the link is); display: contents has no box.
-        CHECK_EQ(ids(focus::navigation_order(*document, env)), std::string("a4 scroller a5 a6"));
+        // link is not (the link is); an element of display: contents has no
+        // box and is a stop all the same (css-display-4 §2.5).
+        CHECK_EQ(ids(focus::navigation_order(*document, env)), std::string("a4 scroller a5 contents a6"));
     }
 
     // --- Shadow trees and slots: scopes ordered on their own ---------------

@@ -292,7 +292,8 @@ bool is_rendered_for_focus(Element const& element, Environment const& env)
         return false;
     ElementFacts const own = facts_of(element, env);
     // An area has no box of its own: its image's map gives it its place.
-    if (!element.is_html("area") && (own.display_contents || !own.visible))
+    // A slot is only ever the owner of a scope of the order, never a stop.
+    if (!element.is_html("area") && (!own.visible || (own.display_contents && element.is_html("slot"))))
         return false;
     Node const* node = &element;
     while (node && node->is_element()) {

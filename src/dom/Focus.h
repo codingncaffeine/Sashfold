@@ -55,9 +55,12 @@ std::optional<long> tabindex_value(Element const& element);
 // plaintext-only state on an element whose parent is not editable.
 bool is_editing_host(Element const& element);
 
-// Being rendered (HTML §15.1) as focus asks it: the element has a box — no
-// flat-tree ancestor or itself display: none, itself not display: contents,
-// not inside a closed <details> but for its summary, and visible.
+// Being rendered (HTML §15.1) as focus asks it: no flat-tree ancestor or the
+// element itself is display: none, it is not inside a closed <details> but
+// for its summary, and it is visible. An element of display: contents has
+// no box of its own and stays focusable all the same (css-display-4 §2.5:
+// the value must not change what the element is to focus); a slot, which
+// is display: contents by the UA sheet, is a scope's owner and no area.
 bool is_rendered_for_focus(Element const& element, Environment const& env);
 
 // A focusable area (HTML §6.6.2): what focus() and a press can focus —
