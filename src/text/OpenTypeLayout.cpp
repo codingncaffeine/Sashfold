@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <bit>
 #include <cmath>
+#include <unordered_map>
 #include <utility>
 
 namespace sashfold::text::otl {
@@ -117,17 +118,24 @@ void GlyphDigest::add_range(std::uint32_t first, std::uint32_t last)
 
 namespace {
 
-void add_coverage(GlyphDigest& digest, Bytes const& b, std::uint32_t coverage)
+// `budget` bounds the entries read over a whole table: past it a coverage
+// is taken to cover everything, which costs speed and never correctness.
+void add_coverage(GlyphDigest& digest, Bytes const& b, std::uint32_t coverage, std::size_t& budget)
 {
     std::uint16_t const format = coverage ? b.u16(coverage) : 0;
+    std::uint32_t const count = b.u16(coverage + 2);
+    if ((format == 1 || format == 2) && count > budget) {
+        digest.add_all();
+        return;
+    }
+    if (format == 1 || format == 2)
+        budget -= count;
     if (format == 1) {
-        std::uint32_t const count = b.u16(coverage + 2);
         for (std::uint32_t k = 0; k < count && b.has(coverage + 4 + k * 2, 2); ++k)
             digest.add(b.u16(coverage + 4 + k * 2));
         return;
     }
     if (format == 2) {
-        std::uint32_t const count = b.u16(coverage + 2);
         for (std::uint32_t k = 0; k < count && b.has(coverage + 4 + k * 6, 6); ++k) {
             std::uint16_t const first = b.u16(coverage + 4 + k * 6);
             std::uint16_t const last = b.u16(coverage + 4 + k * 6 + 2);
@@ -329,18 +337,33 @@ void parse_layout_table(LayoutTable& t, bool gpos)
     std::uint32_t const count = b.u16(t.lookup_list);
     t.lookups.resize(count);
     std::uint16_t const extension_type = gpos ? 9 : 7;
+    // Tables may be shared: a lookup or a coverage several offsets name is
+    // read once, so the work stays within the size of the table however
+    // a hostile one points into itself.
+    std::unordered_map<std::uint32_t, std::uint32_t> lookup_at; // offset -> first lookup there
+    std::unordered_map<std::uint32_t, GlyphDigest> coverage_digests;
+    // Overlapping tables can still claim more subtables and coverage
+    // entries than the table holds bytes: both are bounded, far above what
+    // any real font has.
+    std::size_t subtable_budget = std::size_t(1) << 20;
+    std::size_t coverage_budget = std::size_t(1) << 22;
     for (std::uint32_t k = 0; k < count; ++k) {
         Lookup& lookup = t.lookups[k];
         std::uint32_t const at = b.offset16(t.lookup_list, t.lookup_list + 2 + k * 2);
         if (at == 0)
             continue;
+        if (auto const seen = lookup_at.find(at); seen != lookup_at.end()) {
+            lookup = t.lookups[seen->second];
+            continue;
+        }
+        lookup_at.emplace(at, k);
         lookup.type = b.u16(at);
         std::uint16_t const flag = b.u16(at + 2);
         std::uint32_t const subtables = b.u16(at + 4);
         lookup.props = flag;
         if (flag & lookup_flag::use_mark_filtering_set)
             lookup.props |= static_cast<std::uint32_t>(b.u16(at + 6 + subtables * 2)) << 16;
-        for (std::uint32_t s = 0; s < subtables && b.has(at + 6 + s * 2, 2); ++s) {
+        for (std::uint32_t s = 0; s < subtables && b.has(at + 6 + s * 2, 2) && subtable_budget > 0; ++s, --subtable_budget) {
             std::uint32_t sub = b.offset16(at, at + 6 + s * 2);
             if (sub == 0)
                 continue;
@@ -355,7 +378,15 @@ void parse_layout_table(LayoutTable& t, bool gpos)
                     continue;
             }
             lookup.subtables.push_back(Lookup::Subtable { type, sub });
-            add_coverage(lookup.digest, b, first_coverage(b, gpos, type, sub));
+            std::uint32_t const coverage = first_coverage(b, gpos, type, sub);
+            auto found = coverage_digests.find(coverage);
+            if (found == coverage_digests.end()) {
+                GlyphDigest digest;
+                add_coverage(digest, b, coverage, coverage_budget);
+                found = coverage_digests.emplace(coverage, digest).first;
+            }
+            for (std::size_t m = 0; m < 3; ++m)
+                lookup.digest.masks[m] |= found->second.masks[m];
         }
         if (!lookup.subtables.empty()) {
             lookup.type = lookup.subtables.front().type;
@@ -480,7 +511,9 @@ void Buffer::begin(std::size_t length)
     pos.clear();
     serial = 0;
     max_len = std::max<std::size_t>(length * 64, 16384);
-    max_ops = static_cast<std::int64_t>(std::max<std::size_t>(length * 4096, 65536));
+    // Real fonts spend at most a few hundred per character (each subtable
+    // tried, each rule matched): this is many times that.
+    max_ops = static_cast<std::int64_t>(std::max<std::size_t>(length * 8192, 65536));
 }
 
 void Buffer::sync()
@@ -1120,6 +1153,8 @@ bool apply_ligature_subst(ApplyContext& c, Bytes const& b, std::uint32_t at)
         std::uint32_t const ligature = b.offset16(set, set + 2 + l * 2);
         if (ligature == 0)
             continue;
+        if (!buffer.spend())
+            return false;
         std::uint16_t const lig_glyph = b.u16(ligature);
         unsigned const count = b.u16(ligature + 2);
         if (count == 0)
@@ -1217,7 +1252,7 @@ bool item_matches(Bytes const& b, RuleMatchers const& m, std::uint32_t class_def
 
 bool apply_rule(ApplyContext& c, Bytes const& b, RuleMatchers const& m, Rule const& rule)
 {
-    if (rule.input_count == 0 || rule.input_count > max_context_length)
+    if (rule.input_count == 0 || rule.input_count > max_context_length || !c.buffer.spend())
         return false;
     Buffer& buffer = c.buffer;
     // Coverage rules list the first input glyph too; glyph and class
@@ -1796,6 +1831,8 @@ bool ApplyContext::apply_at(std::size_t lookup_index)
         return false;
     Lookup const& lookup = table.lookups[lookup_index];
     for (Lookup::Subtable const& subtable : lookup.subtables) {
+        if (!buffer.spend())
+            return false;
         if (apply_subtable(*this, subtable.type, subtable.offset))
             return true;
     }

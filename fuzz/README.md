@@ -37,6 +37,10 @@ Harnesses:
 - `truetype.cpp` — the TrueType reader: table directory, cmap, glyf,
   composites (seed: a small Sashfold Mono from `gen_font --seed`); smoke run
   in CI.
+- `otl.cpp` — the text shaper: a font from the input, its GDEF, GSUB,
+  GPOS, kern and cmap tables applied by shaping fixed strings in eight
+  scripts with and without features (seed: the fonts of
+  `corpus/truetype/`, or any font file).
 - `pdf.cpp` — the PDF reader's file layer: cross-reference tables and streams,
   the rebuild, object streams, the security handler, every filter (seeds: a
   hand-written file and an AES-128 one from tools/pdf-make-encrypted.py).
