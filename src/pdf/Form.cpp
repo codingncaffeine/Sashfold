@@ -697,7 +697,10 @@ FormFonts::FormFonts(Document const& doc, std::function<Ref()> allocate)
     // The names the form's resources already use are not taken again.
     Dict const acroform = doc.resolve(doc.catalog().get("AcroForm")).as_dict();
     Dict const dr = doc.resolve(acroform.get("DR")).as_dict();
-    for (auto const& [name, font] : doc.resolve(dr.get("Font")).as_dict().entries())
+    // (Held by name: a compiler without C++23's extended lifetimes in a
+    // range-for frees a temporary dictionary before the loop reads it.)
+    Dict const fonts = doc.resolve(dr.get("Font")).as_dict();
+    for (auto const& [name, font] : fonts.entries())
         m_taken.insert(name);
 }
 
