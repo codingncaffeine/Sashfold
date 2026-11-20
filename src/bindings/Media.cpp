@@ -279,6 +279,10 @@ public:
     bool attaching_media_keys = false;
     bool waiting_for_key = false;
     std::vector<media::InitData> init_data_seen;
+    // The pipeline's counts when the first decrypted frame since the
+    // pictures last began was handed over: frames that fail to decode from
+    // there on, with no picture made, are media that cannot be decoded.
+    std::optional<media::VideoPipeline::Counts> decrypted_from;
 
     void trace(js::Tracer& tracer) override;
 };
@@ -611,6 +615,8 @@ bool stream_played_out(MediaStateObject const& state);
 StreamBuffer::Track const* audio_track(MediaStateObject const& state);
 StreamBuffer::Track const* video_track(MediaStateObject const& state);
 std::optional<double> first_locked_frame(MediaStateObject const& state, double position);
+void end_of_stream(Realm::Internals& in, MediaSourceObject& source, std::string_view error);
+void source_failed(Realm::Internals& in, MediaStateObject& state, int code, std::string_view message);
 void open_video(Realm::Internals& in, MediaStateObject& state);
 void present_video(Realm::Internals& in, MediaStateObject& state);
 void publish_clock(Realm::Internals& in, MediaStateObject& state);
@@ -1533,6 +1539,7 @@ void present_video(Realm::Internals& in, MediaStateObject& state)
         state.next_video_decode_ns = it->second.decode_time_ns;
         state.video_needs_key = false;
         state.video_started = true;
+        state.decrypted_from.reset();
         trace("pictures start at " + std::to_string(state.position) + " from the key frame at "
             + std::to_string(static_cast<double>(it->first) / 1e9));
     }
@@ -1563,13 +1570,32 @@ void present_video(Realm::Internals& in, MediaStateObject& state)
             state.video_started = false;
             break;
         }
-        if (key)
+        if (key) {
+            if (!state.decrypted_from)
+                state.decrypted_from = state.video->counts();
             state.video->push(frame->first, frame->second.data, frame->second.encryption, *key);
-        else
+        } else
             state.video->push(frame->first, frame->second.data);
         state.next_video_decode_ns = it->first + 1;
         state.next_video_ns = std::max(state.next_video_ns, frame->first + 1);
         ++handed;
+    }
+    // Decrypted frames the decoder cannot read, not one of them decoded: a key that is not the content's (Clear Key's licenses carry no
+    // check of their own, so a wrong key decrypts to noise), or a stream
+    // whose encryption is not what it says. That is media that cannot be
+    // decoded (HTML §4.8.11.5, MEDIA_ERR_DECODE; MSE's end of stream with a
+    // decode error): the noise is never shown.
+    if (state.decrypted_from && state.error.is_null()) {
+        media::VideoPipeline::Counts const now_counts = state.video->counts();
+        if (now_counts.failed >= state.decrypted_from->failed + 3 && now_counts.decoded == state.decrypted_from->decoded) {
+            trace("decrypted frames do not decode: a decode error");
+            state.decrypted_from.reset();
+            if (state.source != nullptr && state.source->ready == MediaSourceObject::Open)
+                end_of_stream(in, *state.source, "decode");
+            else
+                source_failed(in, state, 3, "The decrypted media could not be decoded.");
+            return;
+        }
     }
     if (state.clock) {
         // The host shows the pictures as they come due, whatever this

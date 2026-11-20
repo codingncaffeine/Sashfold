@@ -317,8 +317,11 @@ void test_clear_key_playback()
     std::size_t shown = 0;
     for (std::optional<Bytes> const& picture : garbled.pictures)
         shown += picture.has_value() ? 1 : 0;
-    std::cerr << "test_eme_playback: with a wrong key: " << garbled.log << "; " << shown << " of " << garbled.pictures.size()
-              << " pictures shown, error " << wrong.string("String(v.error && v.error.code)") << "\n";
+    // The decoder reads none of the noise: no picture is shown at all, and
+    // the element ends with a decode error (MEDIA_ERR_DECODE).
+    CHECK_EQ(shown, 0u);
+    CHECK_EQ(wrong.string("String(v.error && v.error.code)"), "3");
+    CHECK(garbled.log.find("error 3") != std::string::npos);
     for (std::size_t i = 0; i < garbled.pictures.size() && i < expected.pictures.size(); ++i) {
         if (garbled.pictures[i] && expected.pictures[i])
             CHECK(*garbled.pictures[i] != *expected.pictures[i]);
