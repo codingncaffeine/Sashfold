@@ -81,3 +81,44 @@ brcm_freh4        # High, fields, CABAC, 8x8 transform, spatial direct
 brcm_freh6        # High, fields, CAVLC, 8x8 transform, B
 brcm_freh10       # High, fields, CABAC, temporal direct
 brcm_freh11       # High, fields, CABAC, B
+freh7_b           # High, fields, CABAC
+HCAFF1_HHI_B      # High, PAFF, CABAC
+HPCAFL_BRCM_C     # High, fields, CABAC, 8x8 transform
+HPCAFLNL_BRCM_C   # High, fields, CABAC, no deblocking
+# MBAFF frames (mb_adaptive_frame_field_flag): pairs of macroblocks coded
+# as two frame or two field macroblocks, alone or mixed with field pictures.
+CAMA1_Sony_C      # MBAFF, CABAC, I only
+CAMA1_TOSHIBA_B   # MBAFF, CABAC
+cama1_vtc_c       # field pictures first, then MBAFF, CABAC, B
+cama2_vtc_b       # field pictures first, then MBAFF, CABAC, B
+CAMA3_Sand_E      # MBAFF, CABAC, B
+cama3_vtc_b       # field pictures first, then MBAFF, CABAC, B
+CAMACI3_Sony_C    # MBAFF, CABAC, constrained intra prediction
+CAMANL1_TOSHIBA_B # MBAFF, CABAC, no deblocking
+CAMANL2_TOSHIBA_B # MBAFF, CABAC, no deblocking
+CAMANL3_Sand_E    # MBAFF, CABAC, B, no deblocking
+CAMASL3_Sony_B    # MBAFF, CABAC, several slices
+CAMP_MOT_MBAFF_L30 # MBAFF, CABAC, B, level 3
+CAMP_MOT_MBAFF_L31 # MBAFF, CABAC, B, level 3.1
+CANLMA2_Sony_C    # MBAFF, CABAC, I and P, no deblocking
+CANLMA3_Sony_C    # MBAFF, CABAC, no deblocking
+CAPAMA3_Sand_F    # field pictures and MBAFF frames, CABAC, B
+cabac_mot_mbaff0_full    # MBAFF, CABAC, B
+cavlc_mot_mbaff0_full_B  # MBAFF, CAVLC, B
+CVCANLMA2_Sony_C  # MBAFF, CAVLC and CABAC, no deblocking
+CVMA1_Sony_D      # MBAFF, CAVLC, I only
+CVMA1_TOSHIBA_B   # MBAFF, CAVLC
+CVMANL1_TOSHIBA_B # MBAFF, CAVLC, no deblocking
+CVMANL2_TOSHIBA_B # MBAFF, CAVLC, no deblocking
+CVMAPAQP3_Sony_E  # field pictures and MBAFF frames, CAVLC, QP changes
+CVMAQP2_Sony_G    # MBAFF, CAVLC, QP changes
+CVMAQP3_Sony_D    # MBAFF, CAVLC, B, QP changes
+MR9_BT_B          # field pictures and MBAFF frames, CABAC, several references
+brcm_freh5        # High, MBAFF, CABAC, 8x8 transform
+FREXT01_JVC_D     # High, MBAFF, CABAC
+FREXT02_JVC_C     # High, MBAFF, CAVLC
+FRExt2_Panasonic_C # High, field pictures and MBAFF frames, CAVLC
+FRExt4_Panasonic_B # High, field pictures and MBAFF frames, CABAC
+HCAMFF1_HHI_B     # High, MBAFF, CABAC
+HCHP3_HHI_A       # High, field pictures and MBAFF frames, CABAC, hierarchical B
+HPCAMAPALQ_BRCM_B # High, field pictures and MBAFF frames, CABAC, scaling matrices

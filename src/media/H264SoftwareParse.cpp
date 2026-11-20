@@ -188,10 +188,21 @@ public:
     bool run();
 
 private:
-    // Neighbors (6.4.9, frames only).
+    // Neighbors (6.4.9 in fields and frames; 6.4.12.2's in MBAFF frames).
     bool available(int addr) const { return addr >= 0 && m_frame.mbs[static_cast<std::size_t>(addr)].slice == m_slice.number; }
-    int mb_a() const { return m_x > 0 && available(m_addr - 1) ? m_addr - 1 : -1; }
-    int mb_b() const { return m_y > 0 && available(m_addr - m_width) ? m_addr - m_width : -1; }
+    Frame::Location neighbor(int x, int y, int max = 16) const { return m_frame.neighbor(m_addr, x, y, max, max, m_slice.number); }
+    int mb_a() const
+    {
+        if (m_mbaff)
+            return neighbor(-1, 0).addr;
+        return m_x > 0 && available(m_addr - 1) ? m_addr - 1 : -1;
+    }
+    int mb_b() const
+    {
+        if (m_mbaff)
+            return neighbor(0, -1).addr;
+        return m_y > 0 && available(m_addr - m_width) ? m_addr - m_width : -1;
+    }
     MbState const& state(int addr) const { return m_frame.mbs[static_cast<std::size_t>(addr)]; }
     MbState& current() { return m_frame.mbs[static_cast<std::size_t>(m_addr)]; }
     // The 4x4 luma block left of / above raster block (x4, y4) of the
@@ -200,6 +211,10 @@ private:
     {
         if (x4 > 0)
             return { m_addr, y4 * 4 + x4 - 1 };
+        if (m_mbaff) {
+            Frame::Location const n = neighbor(-1, y4 * 4);
+            return { n.addr, (n.y >> 2) * 4 + (n.x >> 2) };
+        }
         int const a = mb_a();
         return { a, y4 * 4 + 3 };
     }
@@ -207,12 +222,59 @@ private:
     {
         if (y4 > 0)
             return { m_addr, (y4 - 1) * 4 + x4 };
+        if (m_mbaff) {
+            Frame::Location const n = neighbor(x4 * 4, -1);
+            return { n.addr, (n.y >> 2) * 4 + (n.x >> 2) };
+        }
         int const b = mb_b();
         return { b, 12 + x4 };
     }
+    // The same for a 4x4 chroma block (x2, y2) of 4:2:0: block index 0 to 3.
+    std::pair<int, int> left_chroma(int x2, int y2) const
+    {
+        if (x2 > 0)
+            return { m_addr, y2 * 2 };
+        if (m_mbaff) {
+            Frame::Location const n = neighbor(-1, y2 * 4, 8);
+            return { n.addr, (n.y >> 2) * 2 + (n.x >> 2) };
+        }
+        return { mb_a(), y2 * 2 + 1 };
+    }
+    std::pair<int, int> above_chroma(int x2, int y2) const
+    {
+        if (y2 > 0)
+            return { m_addr, x2 };
+        if (m_mbaff) {
+            Frame::Location const n = neighbor(x2 * 4, -1, 8);
+            return { n.addr, (n.y >> 2) * 2 + (n.x >> 2) };
+        }
+        return { mb_b(), 2 + x2 };
+    }
+    // 7.4.5.1: how many reference indices list `list` offers the current
+    // macroblock — twice the slice's for an MBAFF field macroblock, whose
+    // indices count fields.
+    int active_references(int list) const
+    {
+        int const active = list == 0 ? m_header.num_ref_idx_l0_active : m_header.num_ref_idx_l1_active;
+        return m_mbaff && m_field_mb ? active * 2 : active;
+    }
+    // Whether the current macroblock is a frame one beside a field one (or
+    // the other way round): MBAFF's vertical motion and reference index
+    // scale between them.
+    int field_relation(int addr) const
+    {
+        if (!m_mbaff || addr < 0)
+            return 0;
+        bool const cur = m_frame.mbs[static_cast<std::size_t>(m_addr)].field, n = state(addr).field;
+        return cur == n ? 0 : (cur ? 1 : -1); // 1: current field, neighbor frame; -1: the reverse
+    }
 
     bool macroblock_layer();
-    void skip_macroblock();
+    void mark_skipped();
+    void finish_skip(int addr);
+    void finish_pending_skip();
+    bool inferred_field() const;
+    bool read_field_flag();
     bool mb_pred(MbSyntax& mb);
     bool sub_mb_pred(MbSyntax& mb);
     bool residual(MbSyntax& mb);
@@ -258,6 +320,9 @@ private:
     // The current macroblock is a field macroblock: its coefficients come
     // in the field scans (8.5.6, 8.5.7) with the field-coded contexts.
     bool m_field_mb = false;
+    bool m_mbaff = false;
+    bool m_pair_field = false; // MBAFF: the current pair's mb_field_decoding_flag (read or inferred)
+    int m_pending_skip = -1; // MBAFF: a skipped top macroblock waiting for its pair's flag
     std::uint8_t const* m_scan4 = zigzag4x4;
     std::uint8_t const* m_scan8 = zigzag8x8;
     void set_field_mb(bool field)
@@ -362,8 +427,9 @@ int Parser::nc_chroma(int c, int x2, int y2) const
         return static_cast<int>(s.total_coeff[static_cast<std::size_t>(16 + c * 4 + idx)]);
     };
     bool ha = false, hb = false;
-    int const na = x2 > 0 ? n_of(m_addr, y2 * 2, ha) : n_of(mb_a(), y2 * 2 + 1, ha);
-    int const nb = y2 > 0 ? n_of(m_addr, x2, hb) : n_of(mb_b(), 2 + x2, hb);
+    std::pair<int, int> const left = left_chroma(x2, y2), above = above_chroma(x2, y2);
+    int const na = n_of(left.first, left.second, ha);
+    int const nb = n_of(above.first, above.second, hb);
     if (ha && hb)
         return (na + nb + 1) >> 1;
     return ha ? na : (hb ? nb : 0);
@@ -516,9 +582,8 @@ int Parser::cbf_inc_chroma_ac(int c, int x2, int y2) const
         bool const has = !s.skip && s.kind != MbKind::IPCM && (s.cbp >> 4) == 2;
         return cbf_cond(addr, has, (s.cbf >> (16 + c * 4 + idx)) & 1);
     };
-    int const a = x2 > 0 ? cond(m_addr, y2 * 2) : cond(mb_a(), y2 * 2 + 1);
-    int const b = y2 > 0 ? cond(m_addr, x2) : cond(mb_b(), 2 + x2);
-    return a + 2 * b;
+    std::pair<int, int> const left = left_chroma(x2, y2), above = above_chroma(x2, y2);
+    return cond(left.first, left.second) + 2 * cond(above.first, above.second);
 }
 
 // 7.3.5.3.3 with 9.3.3.1.1.9 and 9.3.3.1.3: residual_block_cabac.
@@ -619,7 +684,9 @@ int Parser::cabac_ref_idx(int list, int x4, int y4)
         if (s.skip || s.intra)
             return 0;
         int const b8 = (n.second >> 3) * 2 + ((n.second & 3) >> 1);
-        return s.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(b8)] > 0 ? 1 : 0;
+        // (9-12): a field neighbor of a frame macroblock counts fields.
+        int const zero_up_to = field_relation(n.first) < 0 ? 1 : 0;
+        return s.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(b8)] > zero_up_to ? 1 : 0;
     };
     int const inc = cond(left4(x4, y4)) + 2 * cond(above4(x4, y4));
     if (!m_cabac.decision(54 + inc))
@@ -645,7 +712,11 @@ int Parser::cabac_mvd(int list, int comp, int x4, int y4)
         if (s.skip || s.intra)
             return 0;
         Mv const& m = s.mvd[static_cast<std::size_t>(list)][static_cast<std::size_t>(n.second)];
-        return comp == 0 ? static_cast<int>(m.x) : static_cast<int>(m.y);
+        if (comp == 0)
+            return static_cast<int>(m.x);
+        // (9-15), (9-16): vertical differences between frame and field macroblocks.
+        int const relation = field_relation(n.first);
+        return relation < 0 ? m.y * 2 : (relation > 0 ? m.y / 2 : static_cast<int>(m.y));
     };
     int const sum = abs_of(left4(x4, y4)) + abs_of(above4(x4, y4));
     int const inc = sum < 3 ? 0 : (sum > 32 ? 2 : 1);
@@ -860,14 +931,29 @@ bool Parser::run()
         m_cabac.init_engine(m_reader);
     }
     int const total = static_cast<int>(m_frame.mbs.size());
-    m_addr = m_header.first_mb_in_slice;
+    m_mbaff = m_slice.mbaff;
+    // 7.3.4: in MBAFF frames the slice starts at a pair, and its addresses
+    // count the pairs' macroblocks top then bottom.
+    m_addr = m_header.first_mb_in_slice * (m_mbaff ? 2 : 1);
     bool more = true;
     int skip_run = -1;
+    bool prev_skipped = false;
+    m_pending_skip = -1;
     while (more) {
         if (m_addr >= total)
             return false;
-        m_x = m_addr % m_width;
-        m_y = m_addr / m_width;
+        bool const top = (m_addr & 1) == 0;
+        if (m_mbaff) {
+            // The pair's mb_field_decoding_flag until one is read: 7.4.4's inference.
+            if (top)
+                m_pair_field = inferred_field();
+            set_field_mb(m_pair_field);
+            current().field = m_pair_field;
+        } else {
+            m_x = m_addr % m_width;
+            m_y = m_addr / m_width;
+        }
+        bool skipped = false;
         if (m_slice.type != H264SliceType::I) {
             if (!m_cabac_mode) {
                 if (skip_run < 0) {
@@ -877,44 +963,88 @@ bool Parser::run()
                 }
                 if (skip_run > 0) {
                     --skip_run;
-                    skip_macroblock();
-                    ++m_addr;
-                    if (skip_run == 0) {
-                        more = m_reader.more_rbsp_data();
-                        if (!more)
-                            break;
-                    }
-                    continue;
+                    skipped = true;
+                } else {
+                    skip_run = -1;
                 }
-                skip_run = -1;
             } else {
                 auto cond = [&](int addr) { return addr >= 0 && !state(addr).skip ? 1 : 0; };
                 int const base = m_slice.type == H264SliceType::B ? 24 : 11;
                 // the macroblock is not yet marked; its neighbors decide
                 m_frame.mbs[static_cast<std::size_t>(m_addr)].slice = -1;
-                bool const skipped = m_cabac.decision(base + cond(mb_a()) + cond(mb_b())) != 0;
-                if (skipped) {
-                    skip_macroblock();
-                    more = !m_cabac.terminate();
-                    ++m_addr;
-                    continue;
-                }
+                skipped = m_cabac.decision(base + cond(mb_a()) + cond(mb_b())) != 0;
             }
         }
-        if (!macroblock_layer())
-            return false;
-        if (!m_cabac_mode)
-            more = m_reader.more_rbsp_data();
-        else
-            more = !m_cabac.terminate();
+        if (skipped) {
+            mark_skipped();
+            // A skipped top macroblock waits for the pair's flag, which
+            // its bottom one may still carry (7.4.4's note).
+            if (m_mbaff && top) {
+                m_pending_skip = m_addr;
+            } else {
+                finish_pending_skip();
+                finish_skip(m_addr);
+            }
+            if (!m_cabac_mode)
+                more = skip_run > 0 || m_reader.more_rbsp_data();
+            else
+                more = (m_mbaff && top) || !m_cabac.terminate();
+        } else {
+            if (m_mbaff && (top || prev_skipped)) {
+                m_pair_field = read_field_flag();
+                set_field_mb(m_pair_field);
+                current().field = m_pair_field;
+                if (m_pending_skip >= 0)
+                    m_frame.mbs[static_cast<std::size_t>(m_pending_skip)].field = m_pair_field;
+            }
+            finish_pending_skip();
+            if (!macroblock_layer())
+                return false;
+            if (!m_cabac_mode)
+                more = m_reader.more_rbsp_data();
+            else
+                more = (m_mbaff && top) || !m_cabac.terminate();
+        }
         if (m_reader.overrun() || (m_cabac_mode && m_cabac.overrun()))
             return false;
+        prev_skipped = skipped;
         ++m_addr;
     }
+    finish_pending_skip();
     return true;
 }
 
-void Parser::skip_macroblock()
+// 7.4.4: an MBAFF pair's field decoding flag where it carries none: its
+// left neighbor's in the slice, else the one above's, else frame.
+bool Parser::inferred_field() const
+{
+    int const pair = m_addr >> 1, px = pair % m_width;
+    if (px > 0 && available(m_addr - 2))
+        return state(m_addr - 2).field;
+    if (pair >= m_width && available(2 * (pair - m_width)))
+        return state(2 * (pair - m_width)).field;
+    return false;
+}
+
+// mb_field_decoding_flag: u(1), or a bin whose context counts the field
+// pairs left of and above this one (9.3.3.1.1.2).
+bool Parser::read_field_flag()
+{
+    if (!m_cabac_mode)
+        return m_reader.bit() != 0;
+    int const pair = m_addr >> 1, px = pair % m_width;
+    int inc = 0;
+    if (px > 0 && available(m_addr - 2 - (m_addr & 1)) && state(m_addr - 2 - (m_addr & 1)).field)
+        ++inc;
+    int const above = 2 * (pair - m_width);
+    if (pair >= m_width && available(above) && state(above).field)
+        ++inc;
+    return m_cabac.decision(70 + inc) != 0;
+}
+
+// A skipped macroblock's state, for its neighbors' parsing; its motion
+// and samples follow in finish_skip().
+void Parser::mark_skipped()
 {
     MbState& s = current();
     s = MbState {};
@@ -926,13 +1056,28 @@ void Parser::skip_macroblock()
     s.direct_16x16 = b;
     s.qp = m_qp;
     s.intra4x4_modes.fill(2);
-    MbSyntax& mb = m_frame.sink->begin(m_addr);
-    mb.kind = s.kind;
-    mb.part_pred[0] = b ? PredDirect : PredL0;
     m_prev_addr = m_addr;
     m_prev_qp_delta_nonzero = false;
-    derive_motion(m_frame, m_slice, m_addr, mb);
-    m_frame.sink->end(m_slice, m_addr);
+}
+
+void Parser::finish_skip(int addr)
+{
+    MbState const& s = state(addr);
+    m_frame.picture->mb_field[static_cast<std::size_t>(m_frame.storage_mb(addr))] = s.field ? 1 : 0;
+    MbSyntax& mb = m_frame.sink->begin(addr);
+    mb.kind = s.kind;
+    mb.part_pred[0] = s.kind == MbKind::BSkip ? PredDirect : PredL0;
+    derive_motion(m_frame, m_slice, addr, mb);
+    m_frame.sink->end(m_slice, addr);
+}
+
+void Parser::finish_pending_skip()
+{
+    if (m_pending_skip < 0)
+        return;
+    int const addr = m_pending_skip;
+    m_pending_skip = -1;
+    finish_skip(addr);
 }
 
 bool Parser::mb_pred(MbSyntax& mb)
@@ -977,10 +1122,13 @@ bool Parser::mb_pred(MbSyntax& mb)
                 if (ns.kind != MbKind::I4x4 && ns.kind != MbKind::I8x8)
                     return 2;
                 if (n == 4 && ns.kind == MbKind::I4x4 && nb.first != m_addr) {
-                    // 8-72: the 4x4 block n = 1 (A) or 2 (B) of the 8x8 block holding the neighbor.
+                    // 8-72: the 4x4 block n = 1 (A) or 2 (B) of the 8x8 block
+                    // holding the neighbor — n = 3 for the third 8x8 block of
+                    // an MBAFF frame macroblock beside a field pair.
                     int const nx = nb.second & 3, ny = nb.second >> 2;
                     int const bx = (nx >> 1) * 2, by = (ny >> 1) * 2;
-                    int const pick = is_a ? by * 4 + bx + 1 : (by + 1) * 4 + bx;
+                    bool const third = is_a && m_mbaff && !m_field_mb && ns.field && i == 2;
+                    int const pick = third ? (by + 1) * 4 + bx + 1 : (is_a ? by * 4 + bx + 1 : (by + 1) * 4 + bx);
                     return ns.intra4x4_modes[static_cast<std::size_t>(pick)];
                 }
                 return ns.intra4x4_modes[static_cast<std::size_t>(nb.second)];
@@ -1044,7 +1192,7 @@ bool Parser::mb_pred(MbSyntax& mb)
         }
     };
     for (int list = 0; list < 2; ++list) {
-        int const active = list == 0 ? m_header.num_ref_idx_l0_active : m_header.num_ref_idx_l1_active;
+        int const active = active_references(list);
         for (int p = 0; p < parts; ++p) {
             int value = -1;
             if (uses_list(mb.part_pred[static_cast<std::size_t>(p)], list)) {
@@ -1134,7 +1282,7 @@ bool Parser::sub_mb_pred(MbSyntax& mb)
         s.sub_direct[static_cast<std::size_t>(i)] = info.pred == PredDirect ? 1 : 0;
     }
     for (int list = 0; list < 2; ++list) {
-        int const active = list == 0 ? m_header.num_ref_idx_l0_active : m_header.num_ref_idx_l1_active;
+        int const active = active_references(list);
         for (int i = 0; i < 4; ++i) {
             Pred const p = mb.part_pred[static_cast<std::size_t>(i)];
             int value = -1;
@@ -1326,6 +1474,7 @@ bool Parser::macroblock_layer()
     s.slice = m_slice.number;
     s.field = m_field_mb;
     s.intra4x4_modes.fill(2);
+    m_frame.picture->mb_field[static_cast<std::size_t>(m_frame.storage_mb(m_addr))] = m_field_mb ? 1 : 0;
     m_p8x8ref0 = false;
     MbSyntax& mb = m_frame.sink->begin(m_addr);
     mb.ref_idx[0] = { -1, -1, -1, -1 };
@@ -1413,8 +1562,15 @@ bool Parser::macroblock_layer()
                         return 0;
                     return 1;
                 };
-                int const a = bx > 0 ? cond(m_addr, b8 - 1, true) : cond(mb_a(), b8 + 1, false);
-                int const b = by > 0 ? cond(m_addr, b8 - 2, true) : cond(mb_b(), b8 + 2, false);
+                // 6.4.11.2: the 8x8 blocks left of and above this one.
+                auto outside = [&](int x, int y) {
+                    if (!m_mbaff)
+                        return x < 0 ? cond(mb_a(), b8 + 1, false) : cond(mb_b(), b8 + 2, false);
+                    Frame::Location const n = neighbor(x, y);
+                    return cond(n.addr, (n.y >> 3) * 2 + (n.x >> 3), false);
+                };
+                int const a = bx > 0 ? cond(m_addr, b8 - 1, true) : outside(-1, by * 8);
+                int const b = by > 0 ? cond(m_addr, b8 - 2, true) : outside(bx * 8, -1);
                 cbp |= m_cabac.decision(73 + a + 2 * b) << b8;
             }
             auto ccond = [&](int addr, int bin) {

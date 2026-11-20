@@ -3,9 +3,12 @@
 #include "media/H264SoftwareInternal.h"
 
 #include <algorithm>
+#include <array>
 #include <cstddef>
 #include <cstdint>
 #include <cstdlib>
+#include <tuple>
+#include <utility>
 #include <vector>
 
 namespace sashfold::media::h264sw {
@@ -35,7 +38,7 @@ std::uint8_t clip1(int v) { return static_cast<std::uint8_t>(std::clamp(v, 0, 25
 // across a vertical edge, 3 across a horizontal one between field
 // macroblocks; motion differs at a quarter frame sample apart, which
 // vertically is half that for field macroblocks (`mvy_limit` 2).
-int strength(Frame const& f, int mb_p, int mb_q, int bp, int bq, int lp, int lq, bool mb_edge, bool vertical_edge, int mvy_limit)
+int strength(Frame const& f, int mb_p, int mb_q, int bp, int bq, int lp, int lq, bool mb_edge, bool vertical_edge, int mvy_limit, bool mixed = false)
 {
     MbState const& p = f.mbs[static_cast<std::size_t>(mb_p)];
     MbState const& q = f.mbs[static_cast<std::size_t>(mb_q)];
@@ -44,6 +47,9 @@ int strength(Frame const& f, int mb_p, int mb_q, int bp, int bq, int lp, int lq,
     Picture const& pic = *f.picture;
     if (((p.nonzero >> lp) & 1) || ((q.nonzero >> lq) & 1))
         return 2;
+    // An MBAFF edge between a frame pair and a field pair (mixedModeEdgeFlag).
+    if (mixed)
+        return 1;
     auto pic_of = [&](int list, int b) { return pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(b)] >= 0 ? pic.ref_pic[static_cast<std::size_t>(list)][static_cast<std::size_t>(b)] : -2; };
     std::int32_t const p0 = pic_of(0, bp), p1 = pic_of(1, bp), q0 = pic_of(0, bq), q1 = pic_of(1, bq);
     int const np = (p0 != -2) + (p1 != -2), nq = (q0 != -2) + (q1 != -2);
@@ -219,8 +225,164 @@ void deblock_macroblock(Frame& frame, int mx, int my)
     }
 }
 
+namespace {
+
+// The macroblock of MBAFF pair column `px` holding frame row `row` (luma,
+// or chroma with `rows` 16 to a pair), and the row inside it.
+std::pair<int, int> mbaff_mb_at(Frame const& f, int px, int row, int rows)
+{
+    int const pair = (row / rows) * f.mb_width + px, r = row % rows;
+    int const top = 2 * pair;
+    if (f.mbs[static_cast<std::size_t>(top)].field)
+        return { top + (r & 1), r >> 1 };
+    return { top + r / (rows / 2), r % (rows / 2) };
+}
+
+// 8.7 for one macroblock of an MBAFF frame, in the frame's own rows: a
+// field macroblock's edges run along its field's rows (8.7.1's dy of 2),
+// a vertical edge meets whichever macroblock of the pair beside holds the
+// row, so its strength is taken line by line (8.7.2.1, mixedModeEdgeFlag),
+// and a frame macroblock under a field pair filters its top edge twice,
+// once against each field (8.7, step 3c).
+void deblock_mbaff(Frame& frame, int addr)
+{
+    Picture& pic = *frame.picture;
+    MbState const& q = frame.mbs[static_cast<std::size_t>(addr)];
+    if (q.slice < 0)
+        return;
+    int const idc = frame.slice_disable[static_cast<std::size_t>(q.slice)];
+    if (idc == 1)
+        return;
+    int const off_a = frame.slice_alpha[static_cast<std::size_t>(q.slice)];
+    int const off_b = frame.slice_beta[static_cast<std::size_t>(q.slice)];
+    int const w = frame.mb_width, bw = frame.block_stride();
+    int const stride = pic.width, cstride = pic.width / 2;
+    int const pair = addr >> 1, px = pair % w, py = pair / w, bottom = addr & 1;
+    bool const field = q.field;
+    int const dy = field ? 2 : 1;
+    int const x_i = 16 * px, y_i = field ? 32 * py + bottom : 32 * py + 16 * bottom;
+    int const y_p = (y_i + 1) / 2; // chroma
+    int const mvy_limit = field ? 2 : 4;
+    // 8.7, step 2: which macroblock edges are filtered.
+    bool const left = px > 0 && (idc != 2 || frame.neighbor(addr, -1, 0, 16, 16, q.slice).addr >= 0);
+    bool const top = !(py == 0 && (field || bottom == 0)) && (idc != 2 || frame.neighbor(addr, 0, -1, 16, 16, q.slice).addr >= 0);
+    int const base_q = frame.block_base(addr);
+    auto block_of = [&](int mb, int x4, int y4) { return frame.block_base(mb) + y4 * bw + x4; };
+    auto mixed = [&](int mb_p) { return (mb_p >> 1) != pair && frame.mbs[static_cast<std::size_t>(mb_p)].field != field; };
+    auto thresholds = [&](int qp_av, int& alpha, int& beta, int& index_a) {
+        index_a = std::clamp(qp_av + off_a, 0, 51);
+        alpha = alpha_table[index_a];
+        beta = beta_table[std::clamp(qp_av + off_b, 0, 51)];
+    };
+
+    // Vertical edges: luma lines k = 0..15 each with its own p macroblock
+    // and strength; chroma lines take the strength of the luma line of
+    // their field (8.7.2).
+    for (int e = 0; e < 4; ++e) {
+        if (e == 0 ? !left : (q.transform_8x8 && (e & 1)))
+            continue;
+        std::array<int, 16> bs {};
+        std::array<int, 16> mb_p {};
+        for (int k = 0; k < 16; ++k) {
+            int row_p = k;
+            mb_p[static_cast<std::size_t>(k)] = addr;
+            if (e == 0)
+                std::tie(mb_p[static_cast<std::size_t>(k)], row_p) = mbaff_mb_at(frame, px - 1, y_i + dy * k, 32);
+            int const p_mb = mb_p[static_cast<std::size_t>(k)];
+            int const px4 = e == 0 ? 3 : e - 1;
+            bs[static_cast<std::size_t>(k)] = strength(frame, p_mb, addr, block_of(p_mb, px4, row_p >> 2), base_q + (k >> 2) * bw + e, (row_p >> 2) * 4 + px4,
+                (k >> 2) * 4 + e, e == 0, true, mvy_limit, e == 0 && mixed(p_mb));
+        }
+        for (int k = 0; k < 16; ++k) {
+            int const b = bs[static_cast<std::size_t>(k)];
+            if (b == 0)
+                continue;
+            MbState const& p = frame.mbs[static_cast<std::size_t>(mb_p[static_cast<std::size_t>(k)])];
+            int alpha, beta, index_a;
+            thresholds((p.qp + q.qp + 1) >> 1, alpha, beta, index_a);
+            if (alpha != 0 && beta != 0)
+                filter_line(&pic.y[static_cast<std::size_t>((y_i + dy * k) * stride + x_i + 4 * e)], 1, b, alpha, beta, index_a, false);
+        }
+        if (e & 1)
+            continue;
+        for (int c = 0; c < 2; ++c) {
+            std::vector<std::uint8_t>& plane = c == 0 ? pic.cb : pic.cr;
+            for (int k = 0; k < 8; ++k) {
+                int const luma_line = field ? 2 * k : 4 * (k >> 1) + (k & 1);
+                int const b = bs[static_cast<std::size_t>(luma_line)];
+                if (b == 0)
+                    continue;
+                int const row = y_p + dy * k;
+                int const p_mb = e == 0 ? mbaff_mb_at(frame, px - 1, row, 16).first : addr;
+                MbState const& p = frame.mbs[static_cast<std::size_t>(p_mb)];
+                int alpha, beta, index_a;
+                thresholds((p.qpc[static_cast<std::size_t>(c)] + q.qpc[static_cast<std::size_t>(c)] + 1) >> 1, alpha, beta, index_a);
+                if (alpha != 0 && beta != 0)
+                    filter_line(&plane[static_cast<std::size_t>(row * cstride + x_i / 2 + 2 * e)], 1, b, alpha, beta, index_a, true);
+            }
+        }
+    }
+
+    // Horizontal edges: each a row of luma (and chroma) samples `step`
+    // apart vertically from q0 at row `q_row`, against macroblock `mb_p`.
+    auto horizontal = [&](int e, int q_row, int q_crow, int step, int mb_p, int p_row, bool mb_edge, bool mixed_edge) {
+        std::array<int, 4> bs {};
+        for (int k = 0; k < 4; ++k)
+            bs[static_cast<std::size_t>(k)] = strength(frame, mb_p, addr, block_of(mb_p, k, p_row >> 2), base_q + e * bw + k, (p_row >> 2) * 4 + k, e * 4 + k,
+                mb_edge, false, mvy_limit, mixed_edge);
+        if ((bs[0] | bs[1] | bs[2] | bs[3]) == 0)
+            return;
+        MbState const& p = frame.mbs[static_cast<std::size_t>(mb_p)];
+        int alpha, beta, index_a;
+        thresholds((p.qp + q.qp + 1) >> 1, alpha, beta, index_a);
+        if (alpha != 0 && beta != 0) {
+            for (int i = 0; i < 16; ++i) {
+                int const b = bs[static_cast<std::size_t>(i >> 2)];
+                if (b != 0)
+                    filter_line(&pic.y[static_cast<std::size_t>(q_row * stride + x_i + i)], step * stride, b, alpha, beta, index_a, false);
+            }
+        }
+        if (q_crow < 0)
+            return;
+        for (int c = 0; c < 2; ++c) {
+            std::vector<std::uint8_t>& plane = c == 0 ? pic.cb : pic.cr;
+            thresholds((p.qpc[static_cast<std::size_t>(c)] + q.qpc[static_cast<std::size_t>(c)] + 1) >> 1, alpha, beta, index_a);
+            if (alpha == 0 || beta == 0)
+                continue;
+            for (int i = 0; i < 8; ++i) {
+                int const b = bs[static_cast<std::size_t>(i >> 1)];
+                if (b != 0)
+                    filter_line(&plane[static_cast<std::size_t>(q_crow * cstride + x_i / 2 + i)], step * cstride, b, alpha, beta, index_a, true);
+            }
+        }
+    };
+    if (top) {
+        int const above = 2 * (pair - w);
+        if (!field && bottom == 0 && frame.mbs[static_cast<std::size_t>(above)].field) {
+            // A frame macroblock under a field pair: its rows of each parity against that field's macroblock.
+            for (int parity = 0; parity < 2; ++parity)
+                horizontal(0, y_i + parity, y_p + parity, 2, above + parity, 15, true, true);
+        } else {
+            auto const [p_mb, p_row] = mbaff_mb_at(frame, px, y_i - dy, 32);
+            horizontal(0, y_i, y_p, dy, p_mb, p_row, true, mixed(p_mb));
+        }
+    }
+    for (int e = 1; e < 4; ++e) {
+        if (q.transform_8x8 && (e & 1))
+            continue;
+        horizontal(e, y_i + dy * 4 * e, (e & 1) ? -1 : y_p + dy * 2 * e, dy, addr, 4 * e - 1, false, false);
+    }
+}
+
+}
+
 void deblock_picture(Frame& frame)
 {
+    if (frame.mbaff) {
+        for (int addr = 0; addr < static_cast<int>(frame.mbs.size()); ++addr)
+            deblock_mbaff(frame, addr);
+        return;
+    }
     for (int my = 0; my < frame.mb_height; ++my)
         for (int mx = 0; mx < frame.mb_width; ++mx)
             deblock_macroblock(frame, mx, my);

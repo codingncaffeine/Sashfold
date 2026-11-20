@@ -52,7 +52,17 @@ public:
         , m_y(addr / frame.mb_width)
         , m_bw(frame.block_stride())
         , m_base(frame.block_base(addr))
+        , m_field_mb(frame.mbs[static_cast<std::size_t>(addr)].field)
+        , m_lists(&slice.list)
+        , m_poc(slice.current_poc)
     {
+        // An MBAFF field macroblock predicts from fields (8.4.2.1), and its
+        // order counts are its field's (8.4.1.2.3, 8.4.3).
+        if (frame.mbaff && m_field_mb) {
+            m_parity = addr & 1;
+            m_lists = &slice.field_list[static_cast<std::size_t>(m_parity)];
+            m_poc = m_parity ? slice.poc_bottom : slice.poc_top;
+        }
     }
 
     bool mb_available(int mx, int my) const
@@ -63,11 +73,14 @@ public:
         return a != m_addr && m_frame.mbs[static_cast<std::size_t>(a)].slice == m_slice.number;
     }
 
-    // The motion of list `list` at 4x4 block (bx, by) relative to the
-    // current macroblock (6.4.11.7 with 8.4.1.3.2's rules).
-    Neighbor at(int list, int bx, int by) const
+    // The motion of list `list` at luma location (x_n, y_n) relative to the
+    // current macroblock (6.4.11.7 with 8.4.1.3.2's rules): A is (x - 1, y),
+    // B (x, y - 1), C (x + width, y - 1), D (x - 1, y - 1) of a partition at
+    // (x, y) — the exact row matters to an MBAFF field neighbor.
+    Neighbor at(int list, int x_n, int y_n) const
     {
         Neighbor n;
+        int const bx = x_n >> 2, by = y_n >> 2;
         int mx = m_x, my = m_y;
         if (by < 0) {
             my -= 1;
@@ -93,6 +106,30 @@ public:
             }
             return n;
         }
+        if (m_frame.mbaff) {
+            // 6.4.12.2 for the luma location, then 8.4.1.3.2's scaling
+            // between a frame and a field macroblock.
+            Frame::Location const loc = m_frame.neighbor(m_addr, x_n, y_n, 16, 16, m_slice.number);
+            if (loc.addr < 0)
+                return n;
+            n.available = true;
+            MbState const& s = m_frame.mbs[static_cast<std::size_t>(loc.addr)];
+            if (s.intra)
+                return n;
+            int const i = m_frame.block_base(loc.addr) + (loc.y >> 2) * m_bw + (loc.x >> 2);
+            n.ref = m_pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
+            if (n.ref < 0)
+                return n;
+            n.mv = m_pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
+            if (m_field_mb && !s.field) {
+                n.mv.y = static_cast<std::int16_t>(n.mv.y / 2); // (8-217), (8-218)
+                n.ref *= 2;
+            } else if (!m_field_mb && s.field) {
+                n.mv.y = static_cast<std::int16_t>(n.mv.y * 2); // (8-219), (8-220)
+                n.ref >>= 1;
+            }
+            return n;
+        }
         if (!mb_available(mx, my))
             return n;
         n.available = true;
@@ -111,11 +148,11 @@ public:
     // 8.4.1.3: the motion vector predictor. shape: 0 any, 1 16x8, 2 8x16.
     Mv predict(int list, int ref, int x4, int y4, int w4, int shape, int part) const
     {
-        Neighbor a = at(list, x4 - 1, y4);
-        Neighbor b = at(list, x4, y4 - 1);
-        Neighbor c = at(list, x4 + w4, y4 - 1);
+        Neighbor a = at(list, x4 * 4 - 1, y4 * 4);
+        Neighbor b = at(list, x4 * 4, y4 * 4 - 1);
+        Neighbor c = at(list, (x4 + w4) * 4, y4 * 4 - 1);
         if (!c.available)
-            c = at(list, x4 - 1, y4 - 1);
+            c = at(list, x4 * 4 - 1, y4 * 4 - 1);
         if (shape == 1) {
             if (part == 0 && b.ref == ref)
                 return b.mv;
@@ -146,8 +183,9 @@ public:
     void store(int x4, int y4, int w4, int h4, int list, int ref, Mv mv)
     {
         std::int32_t pic = -1;
-        if (ref >= 0 && static_cast<std::size_t>(ref) < m_slice.list[static_cast<std::size_t>(list)].size())
-            pic = m_slice.list[static_cast<std::size_t>(list)][static_cast<std::size_t>(ref)].id();
+        std::vector<RefEntry> const& l = (*m_lists)[static_cast<std::size_t>(list)];
+        if (ref >= 0 && static_cast<std::size_t>(ref) < l.size())
+            pic = l[static_cast<std::size_t>(ref)].id();
         for (int y = y4; y < y4 + h4; ++y)
             for (int x = x4; x < x4 + w4; ++x) {
                 int const i = m_base + y * m_bw + x;
@@ -195,8 +233,8 @@ public:
         if (m_slice.structure != 0) {
             col_parity = first.structure == 2 ? 1 : 0;
         } else if (col_is_fields) {
-            int const top_diff = std::abs(col.poc_top - m_slice.current_poc);
-            int const bottom_diff = std::abs(col.poc_bottom - m_slice.current_poc);
+            int const top_diff = std::abs(first.poc_top - m_slice.current_poc);
+            int const bottom_diff = std::abs(first.poc_bottom - m_slice.current_poc);
             col_parity = field_mb ? (curr & 1) : (top_diff < bottom_diff ? 0 : 1);
         }
         // The co-located macroblock's motion row and column (Picture), and yM.
@@ -238,8 +276,8 @@ public:
             if (!field_mb && !x_field) {
                 mbaff_mb(curr);
             } else if (!field_mb) {
-                int const top_diff = std::abs(col.poc_top - m_slice.current_poc);
-                int const bottom_diff = std::abs(col.poc_bottom - m_slice.current_poc);
+                int const top_diff = std::abs(first.poc_top - m_slice.current_poc);
+                int const bottom_diff = std::abs(first.poc_bottom - m_slice.current_poc);
                 mbaff_mb(2 * (curr / 2) + (top_diff < bottom_diff ? 0 : 1)); // (8-182)
                 y_m = 8 * (curr % 2) + 4 * (y_col / 8);
                 c.scale = VertMvScale::FldToFrm;
@@ -270,6 +308,19 @@ public:
     {
         auto const& l0 = m_slice.list[0];
         std::int32_t const serial = c.pic >> 2;
+        if (m_frame.mbaff && m_field_mb) {
+            // A field macroblock of a frame: the frame (or pair) of list 0
+            // holding the picture, then its field of the parity asked for.
+            for (std::size_t k = 0; k < l0.size(); ++k) {
+                if (!l0[k].picture || l0[k].picture->serial != serial)
+                    continue;
+                int const frame_index = static_cast<int>(k) << 1;
+                if (c.scale == VertMvScale::FrmToFld)
+                    return frame_index;
+                return frame_index + ((c.pic & 3) - 1 == m_parity ? 0 : 1);
+            }
+            return 0;
+        }
         for (std::size_t k = 0; k < l0.size(); ++k) {
             if (!l0[k].picture)
                 continue;
@@ -299,7 +350,7 @@ public:
                     m_done = 0;
                     Neighbor const a = at(list, -1, 0);
                     Neighbor const b = at(list, 0, -1);
-                    Neighbor c = at(list, 4, -1);
+                    Neighbor c = at(list, 16, -1);
                     if (!c.available)
                         c = at(list, -1, -1);
                     m_spatial_ref[list] = min_positive(a.ref, min_positive(b.ref, c.ref));
@@ -350,10 +401,12 @@ public:
                 else if (c.scale == VertMvScale::FldToFrm)
                     c.mv.y = static_cast<std::int16_t>(c.mv.y * 2);
                 Mv mv0, mv1;
-                if (static_cast<std::size_t>(ref0) < m_slice.list[0].size() && !m_slice.list[1].empty()) {
-                    RefEntry const& p0 = m_slice.list[0][static_cast<std::size_t>(ref0)];
-                    RefEntry const& p1 = m_slice.list[1][0];
-                    int const tb = std::clamp(m_slice.current_poc - p0.poc, -128, 127);
+                std::vector<RefEntry> const& l0 = (*m_lists)[0];
+                std::vector<RefEntry> const& l1 = (*m_lists)[1];
+                if (static_cast<std::size_t>(ref0) < l0.size() && !l1.empty()) {
+                    RefEntry const& p0 = l0[static_cast<std::size_t>(ref0)];
+                    RefEntry const& p1 = l1[0];
+                    int const tb = std::clamp(m_poc - p0.poc, -128, 127);
                     int const td = std::clamp(p1.poc - p0.poc, -128, 127);
                     if (p0.long_term || td == 0) {
                         mv0 = c.mv;
@@ -383,6 +436,10 @@ private:
     int m_y;
     int m_bw; // motion blocks per row
     int m_base; // the macroblock's first motion block
+    bool m_field_mb;
+    int m_parity = 0; // an MBAFF field macroblock's: 0 top, 1 bottom
+    std::array<std::vector<RefEntry>, 2> const* m_lists; // the lists its reference indices index
+    int m_poc; // PicOrderCnt of the current picture, or of the macroblock's field
     std::uint32_t m_done = 0;
     bool m_spatial_ready = false;
     bool m_direct_zero = false;
@@ -877,6 +934,8 @@ public:
         m_luma = frame.luma_rows(p.structure) + static_cast<std::ptrdiff_t>(p.y) * m_stride + p.x;
         for (int c = 0; c < 2; ++c)
             m_chroma[c] = frame.chroma_rows(c, p.structure) + static_cast<std::ptrdiff_t>(p.y / 2) * m_cstride + p.x / 2;
+        if (frame.mbaff)
+            gather_mbaff_neighbors(addr);
     }
     bool mb_ok(int mx, int my) const
     {
@@ -896,15 +955,49 @@ public:
             return false;
         if (x >= 0 && y >= 0)
             return (m_done >> ((y >> 2) * 4 + (x >> 2))) & 1;
+        if (m_mbaff)
+            return x < 0 ? (y < 0 ? m_corner_ok : m_left_ok[y]) : m_top_ok[x];
         int const mx = m_x + (x < 0 ? -1 : (x >= 16 ? 1 : 0));
         int const my = m_y + (y < 0 ? -1 : 0);
         return mb_ok(mx, my);
     }
-    int luma(int x, int y) const { return m_luma[static_cast<std::ptrdiff_t>(y) * m_stride + x]; }
-    bool chroma_left() const { return mb_ok(m_x - 1, m_y); }
-    bool chroma_top() const { return mb_ok(m_x, m_y - 1); }
-    bool chroma_corner() const { return mb_ok(m_x - 1, m_y - 1); }
-    int chroma(int c, int x, int y) const { return m_chroma[c][static_cast<std::ptrdiff_t>(y) * m_cstride + x]; }
+    // The n samples left of a block at (xo, yo), all of them: in an MBAFF
+    // frame they may come from both macroblocks of the pair beside.
+    bool left_available(int xo, int yo, int n) const
+    {
+        if (!m_mbaff || xo > 0)
+            return luma_available(xo - 1, yo);
+        for (int k = 0; k < n; ++k) {
+            if (!m_left_ok[yo + k])
+                return false;
+        }
+        return true;
+    }
+    int luma(int x, int y) const
+    {
+        if (m_mbaff && (x < 0 || y < 0))
+            return x < 0 ? (y < 0 ? m_corner : m_left[y]) : m_top[x];
+        return m_luma[static_cast<std::ptrdiff_t>(y) * m_stride + x];
+    }
+    bool chroma_left() const { return m_mbaff ? chroma_left_rows(0, 8) : mb_ok(m_x - 1, m_y); }
+    bool chroma_left_rows(int yo, int n) const
+    {
+        if (!m_mbaff)
+            return mb_ok(m_x - 1, m_y);
+        for (int k = 0; k < n; ++k) {
+            if (!m_chroma_left_ok[yo + k])
+                return false;
+        }
+        return true;
+    }
+    bool chroma_top() const { return m_mbaff ? m_chroma_top_ok : mb_ok(m_x, m_y - 1); }
+    bool chroma_corner() const { return m_mbaff ? m_chroma_corner_ok : mb_ok(m_x - 1, m_y - 1); }
+    int chroma(int c, int x, int y) const
+    {
+        if (m_mbaff && (x < 0 || y < 0))
+            return x < 0 ? (y < 0 ? m_chroma_corner[c] : m_chroma_left[c][y]) : m_chroma_top[c][x];
+        return m_chroma[c][static_cast<std::ptrdiff_t>(y) * m_cstride + x];
+    }
     void done(int x4, int y4, int w4, int h4)
     {
         for (int y = y4; y < y4 + h4; ++y)
@@ -918,6 +1011,59 @@ public:
     int chroma_stride() const { return m_cstride; }
 
 private:
+    // 8.3.1.2 and its kin in an MBAFF frame: each neighboring sample where
+    // 6.4.12.2 puts it — the left column may alternate between the two
+    // macroblocks of the pair beside, the row above may be a field's —
+    // each available as its own macroblock is.
+    void gather_mbaff_neighbors(int addr)
+    {
+        m_mbaff = true;
+        auto usable = [&](Frame::Location const& n) {
+            if (n.addr < 0)
+                return false;
+            return m_frame.mbs[static_cast<std::size_t>(n.addr)].intra || !m_slice.pps->constrained_intra_pred;
+        };
+        auto luma_at = [&](Frame::Location const& n) {
+            Frame::Place const p = m_frame.place(n.addr);
+            return static_cast<int>(m_frame.luma_rows(p.structure)[static_cast<std::ptrdiff_t>(p.y + n.y) * m_frame.luma_rows_stride(p.structure) + p.x + n.x]);
+        };
+        auto chroma_at = [&](int c, Frame::Location const& n) {
+            Frame::Place const p = m_frame.place(n.addr);
+            return static_cast<int>(
+                m_frame.chroma_rows(c, p.structure)[static_cast<std::ptrdiff_t>(p.y / 2 + n.y) * m_frame.chroma_rows_stride(p.structure) + p.x / 2 + n.x]);
+        };
+        auto luma_location = [&](int x, int y) { return m_frame.neighbor(addr, x, y, 16, 16, m_slice.number); };
+        auto chroma_location = [&](int x, int y) { return m_frame.neighbor(addr, x, y, 8, 8, m_slice.number); };
+        for (int y = 0; y < 16; ++y) {
+            Frame::Location const n = luma_location(-1, y);
+            m_left_ok[y] = usable(n);
+            m_left[y] = m_left_ok[y] ? luma_at(n) : 0;
+        }
+        for (int x = 0; x < 24; ++x) {
+            Frame::Location const n = luma_location(x, -1);
+            m_top_ok[x] = usable(n);
+            m_top[x] = m_top_ok[x] ? luma_at(n) : 0;
+        }
+        Frame::Location const corner = luma_location(-1, -1);
+        m_corner_ok = usable(corner);
+        m_corner = m_corner_ok ? luma_at(corner) : 0;
+        Frame::Location const chroma_corner = chroma_location(-1, -1);
+        m_chroma_corner_ok = usable(chroma_corner);
+        m_chroma_top_ok = true;
+        for (int k = 0; k < 8; ++k) {
+            Frame::Location const left = chroma_location(-1, k);
+            Frame::Location const above = chroma_location(k, -1);
+            m_chroma_left_ok[k] = usable(left);
+            m_chroma_top_ok = m_chroma_top_ok && usable(above);
+            for (int c = 0; c < 2; ++c) {
+                m_chroma_left[c][k] = m_chroma_left_ok[k] ? chroma_at(c, left) : 0;
+                m_chroma_top[c][k] = usable(above) ? chroma_at(c, above) : 0;
+            }
+        }
+        for (int c = 0; c < 2; ++c)
+            m_chroma_corner[c] = m_chroma_corner_ok ? chroma_at(c, chroma_corner) : 0;
+    }
+
     Frame& m_frame;
     Slice const& m_slice;
     int m_x;
@@ -927,6 +1073,20 @@ private:
     int m_stride = 0;
     int m_cstride = 0;
     std::uint32_t m_done = 0;
+    // MBAFF: the neighboring samples, gathered (gather_mbaff_neighbors).
+    bool m_mbaff = false;
+    std::array<int, 16> m_left {};
+    std::array<int, 24> m_top {};
+    int m_corner = 0;
+    std::array<bool, 16> m_left_ok {};
+    std::array<bool, 24> m_top_ok {};
+    bool m_corner_ok = false;
+    std::array<std::array<int, 8>, 2> m_chroma_left {};
+    std::array<std::array<int, 8>, 2> m_chroma_top {};
+    std::array<int, 2> m_chroma_corner {};
+    std::array<bool, 8> m_chroma_left_ok {};
+    bool m_chroma_top_ok = false;
+    bool m_chroma_corner_ok = false;
 };
 
 // 8.3.1.2: a 4x4 block's prediction into `out` (raster 4x4).
@@ -934,7 +1094,7 @@ void predict_4x4(IntraContext const& ic, int xo, int yo, int mode, int* out)
 {
     int top[8] = {}, left[4] = {}, corner = 0;
     bool const has_top = ic.luma_available(xo, yo - 1);
-    bool const has_left = ic.luma_available(xo - 1, yo);
+    bool const has_left = ic.left_available(xo, yo, 4);
     bool const has_corner = ic.luma_available(xo - 1, yo - 1);
     bool const has_tr = ic.luma_available(xo + 4, yo - 1);
     if (has_top)
@@ -1040,7 +1200,7 @@ void predict_4x4(IntraContext const& ic, int xo, int yo, int mode, int* out)
 void predict_8x8(IntraContext const& ic, int xo, int yo, int mode, int* out)
 {
     bool const has_top = ic.luma_available(xo, yo - 1);
-    bool const has_left = ic.luma_available(xo - 1, yo);
+    bool const has_left = ic.left_available(xo, yo, 8);
     bool const has_corner = ic.luma_available(xo - 1, yo - 1);
     bool const has_tr = ic.luma_available(xo + 8, yo - 1);
     int p_top[16] = {}, p_left[8] = {}, p_corner = 0;
@@ -1179,7 +1339,7 @@ void predict_8x8(IntraContext const& ic, int xo, int yo, int mode, int* out)
 void predict_16x16(IntraContext const& ic, int mode, int* out)
 {
     bool const has_top = ic.luma_available(0, -1);
-    bool const has_left = ic.luma_available(-1, 0);
+    bool const has_left = ic.left_available(0, 0, 16);
     // A mode whose samples are not there is no conforming stream's; such
     // a stream gets DC from what there is (as ffmpeg conceals it).
     if ((mode == 0 && !has_top) || (mode == 1 && !has_left) || (mode == 3 && !(has_top && has_left && ic.luma_available(-1, -1))))
@@ -1224,14 +1384,16 @@ void predict_16x16(IntraContext const& ic, int mode, int* out)
 void predict_chroma(IntraContext const& ic, int comp, int mode, int* out)
 {
     bool const has_top = ic.chroma_top();
-    bool const has_left = ic.chroma_left();
-    if ((mode == 1 && !has_left) || (mode == 2 && !has_top) || (mode == 3 && !(has_top && has_left && ic.chroma_corner())))
+    bool const left_all = ic.chroma_left();
+    if ((mode == 1 && !left_all) || (mode == 2 && !has_top) || (mode == 3 && !(has_top && left_all && ic.chroma_corner())))
         mode = 0;
     for (int y = 0; y < 8; ++y)
         for (int x = 0; x < 8; ++x) {
             int v = 128;
             if (mode == 0) {
                 int const xo = x & ~3, yo = y & ~3;
+                // 8.3.4.1: each 4x4 block's own left samples, all there or not.
+                bool const has_left = ic.chroma_left_rows(yo, 4);
                 int st = 0, sl = 0;
                 for (int k = 0; k < 4; ++k) {
                     if (has_top)

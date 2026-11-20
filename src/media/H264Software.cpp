@@ -384,8 +384,6 @@ public:
             return false;
         bool const field = info.field_pic;
         bool const mbaff = !field && sps.mb_adaptive_frame_field;
-        if (mbaff)
-            return false;
         int const structure = field ? (info.bottom_field ? 2 : 1) : 0;
         int const mb_w = sps.pic_width_in_mbs, frame_mb_h = sps.frame_height_in_mbs();
         Picture& pic = m_pictures[static_cast<std::size_t>(info.slot)];
@@ -480,16 +478,25 @@ public:
                         r.structure = e.structure;
                         r.long_term = e.long_term;
                         r.poc = e.poc;
+                        r.poc_top = e.poc_top;
+                        r.poc_bottom = e.poc_bottom;
                         slice.list[list].push_back(r);
                     }
                 }
+                if (mbaff)
+                    field_lists(slice);
             }
             if (slice.type == H264SliceType::P)
                 slice.weighted_mode = pps.weighted_pred ? 1 : 0;
             else if (is_b)
                 slice.weighted_mode = pps.weighted_bipred_idc;
-            if (slice.weighted_mode == 2)
+            if (slice.weighted_mode == 2) {
                 implicit_weights(slice);
+                if (mbaff) {
+                    for (std::size_t parity = 0; parity < 2; ++parity)
+                        field_implicit_weights(slice, parity);
+                }
+            }
             frame.slice_alpha[i] = h.slice_alpha_c0_offset_div2 * 2;
             frame.slice_beta[i] = h.slice_beta_offset_div2 * 2;
             frame.slice_disable[i] = h.disable_deblocking_filter_idc;
@@ -554,25 +561,63 @@ private:
         return s;
     }
 
+    // 8.4.3: the implicit weights of one pair of references.
+    static std::array<int, 2> implicit_weight(int current_poc, RefEntry const& p0, RefEntry const& p1)
+    {
+        int const tb = std::clamp(current_poc - p0.poc, -128, 127);
+        int const td = std::clamp(p1.poc - p0.poc, -128, 127);
+        std::array<int, 2> w { 32, 32 };
+        if (td != 0 && !p0.long_term && !p1.long_term) {
+            int const tx = (16384 + std::abs(td / 2)) / td;
+            int const dsf = std::clamp((tb * tx + 32) >> 6, -1024, 1023);
+            if ((dsf >> 2) >= -64 && (dsf >> 2) <= 128)
+                w = { 64 - (dsf >> 2), dsf >> 2 };
+        }
+        return w;
+    }
+
     // 8.4.2.3.1: implicit weights for every pair of references.
     static void implicit_weights(Slice& slice)
     {
         slice.implicit.assign(32 * 32, { 32, 32 });
         for (std::size_t r0 = 0; r0 < slice.list[0].size() && r0 < 32; ++r0)
-            for (std::size_t r1 = 0; r1 < slice.list[1].size() && r1 < 32; ++r1) {
-                RefEntry const& p0 = slice.list[0][r0];
-                RefEntry const& p1 = slice.list[1][r1];
-                int const tb = std::clamp(slice.current_poc - p0.poc, -128, 127);
-                int const td = std::clamp(p1.poc - p0.poc, -128, 127);
-                std::array<int, 2> w { 32, 32 };
-                if (td != 0 && !p0.long_term && !p1.long_term) {
-                    int const tx = (16384 + std::abs(td / 2)) / td;
-                    int const dsf = std::clamp((tb * tx + 32) >> 6, -1024, 1023);
-                    if ((dsf >> 2) >= -64 && (dsf >> 2) <= 128)
-                        w = { 64 - (dsf >> 2), dsf >> 2 };
+            for (std::size_t r1 = 0; r1 < slice.list[1].size() && r1 < 32; ++r1)
+                slice.implicit[r0 * 32 + r1] = implicit_weight(slice.current_poc, slice.list[0][r0], slice.list[1][r1]);
+    }
+
+    // 8.4.2.1: an MBAFF field macroblock's lists, per its parity — each
+    // frame entry i given as its field of that parity (2i) and the other (2i + 1).
+    static void field_lists(Slice& slice)
+    {
+        for (std::size_t parity = 0; parity < 2; ++parity) {
+            for (std::size_t list = 0; list < 2; ++list) {
+                std::vector<RefEntry>& out = slice.field_list[parity][list];
+                out.clear();
+                for (RefEntry const& frame : slice.list[list]) {
+                    for (int same = 1; same >= 0; --same) {
+                        RefEntry f = frame;
+                        int const field = same ? static_cast<int>(parity) : 1 - static_cast<int>(parity);
+                        f.structure = 1 + field;
+                        f.poc = field == 0 ? frame.poc_top : frame.poc_bottom;
+                        out.push_back(f);
+                    }
                 }
-                slice.implicit[r0 * 32 + r1] = w;
             }
+        }
+    }
+
+    // 8.4.3 for an MBAFF field macroblock: the implicit weights from the
+    // counts of its field and of the fields its indices name.
+    static void field_implicit_weights(Slice& slice, std::size_t parity)
+    {
+        std::vector<std::array<int, 2>>& table = slice.field_implicit[parity];
+        table.assign(64 * 64, { 32, 32 });
+        int const current = parity == 0 ? slice.poc_top : slice.poc_bottom;
+        auto const& l0 = slice.field_list[parity][0];
+        auto const& l1 = slice.field_list[parity][1];
+        for (std::size_t r0 = 0; r0 < l0.size() && r0 < 64; ++r0)
+            for (std::size_t r1 = 0; r1 < l1.size() && r1 < 64; ++r1)
+                table[r0 * 64 + r1] = implicit_weight(current, l0[r0], l1[r1]);
     }
 
     std::string m_device = "software (Sashfold's own H.264 decoder)";

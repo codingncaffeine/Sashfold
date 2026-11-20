@@ -9,8 +9,9 @@
 //   H264SoftwareResidual.cpp scaling and the inverse transforms (8.5)
 //   H264SoftwareDeblock.cpp  the deblocking filter (8.7)
 //   H264Software.cpp         a picture's slices, and the accelerator around them
-// Frames and fields, 8 bits, 4:2:0 — what the profiles the web serves
-// carry. A field is decoded into every other row of its frame.
+// Frames, fields and MBAFF frames, 8 bits, 4:2:0 — what the profiles the
+// web serves carry. A field is decoded into every other row of its frame,
+// and so is an MBAFF field macroblock into its pair's.
 
 #include "media/H264.h"
 #include "media/H264Accelerator.h"
@@ -251,6 +252,8 @@ struct RefEntry {
     int structure = 0; // 0 the frame, 1 its top field, 2 its bottom field
     bool long_term = false;
     int poc = 0;
+    int poc_top = 0; // its frame's fields' counts, as the buffer has them marked
+    int poc_bottom = 0;
     // What the deblocking and the colocated motion compare: the frame and
     // the field told apart.
     std::int32_t id() const { return picture ? picture->serial * 4 + structure : -1; }
@@ -450,6 +453,114 @@ struct Frame {
             return { (pair % mb_width) * 16, (pair / mb_width) * 16, 1 + bottom };
         return { (pair % mb_width) * 16, (pair / mb_width) * 32 + bottom * 16, 0 };
     }
+    // 6.4.12: the macroblock holding location (xN, yN) of macroblock
+    // `addr` (luma: max 16 by 16; chroma 4:2:0: 8 by 8), and the location
+    // inside it — `addr` -1 where there is none: outside the picture, not
+    // decoded yet, or of a slice other than `slice`. Table 6-3 in fields
+    // and frames, Table 6-4 in MBAFF frames (a field macroblock's rows
+    // meeting a frame pair's, or the other way round).
+    struct Location {
+        int addr = -1;
+        int x = 0;
+        int y = 0;
+    };
+    Location neighbor(int addr, int x_n, int y_n, int max_w, int max_h, int slice) const
+    {
+        auto available = [&](int a) { return a >= 0 && a < static_cast<int>(mbs.size()) && mbs[static_cast<std::size_t>(a)].slice == slice; };
+        if (y_n > max_h - 1 || (x_n > max_w - 1 && y_n >= 0))
+            return {};
+        if (!mbaff) {
+            int const mx = addr % mb_width + (x_n < 0 ? -1 : (x_n >= max_w ? 1 : 0));
+            int const my = addr / mb_width + (y_n < 0 ? -1 : 0);
+            if (mx < 0 || mx >= mb_width || my < 0)
+                return {};
+            int const a = my * mb_width + mx;
+            if (a != addr && !available(a))
+                return {};
+            return { a, (x_n + max_w) % max_w, (y_n + max_h) % max_h };
+        }
+        int const pair = addr >> 1, px = pair % mb_width, py = pair / mb_width;
+        // The top macroblock of the pair dx, dy pairs away (6.4.10), or -1.
+        auto pair_at = [&](int dx, int dy) {
+            int const x = px + dx, y = py + dy;
+            if (x < 0 || x >= mb_width || y < 0)
+                return -1;
+            int const a = 2 * (y * mb_width + x);
+            return available(a) ? a : -1;
+        };
+        auto frame_pair = [&](int a) { return !mbs[static_cast<std::size_t>(a)].field; };
+        bool const cur_frame = !mbs[static_cast<std::size_t>(addr)].field;
+        bool const top = (addr & 1) == 0;
+        int n = -1, y_m = y_n;
+        if (x_n < 0 && y_n < 0) {
+            if (cur_frame && top) {
+                int const d = pair_at(-1, -1);
+                n = d < 0 ? -1 : d + 1;
+            } else if (cur_frame) {
+                int const a = pair_at(-1, 0);
+                if (a >= 0 && frame_pair(a)) {
+                    n = a;
+                } else if (a >= 0) {
+                    n = a + 1;
+                    y_m = (y_n + max_h) >> 1;
+                }
+            } else {
+                int const d = pair_at(-1, -1);
+                if (d >= 0 && top && frame_pair(d)) {
+                    n = d + 1;
+                    y_m = 2 * y_n;
+                } else if (d >= 0) {
+                    n = top ? d : d + 1;
+                }
+            }
+        } else if (x_n < 0) {
+            int const a = pair_at(-1, 0);
+            if (a < 0)
+                return {};
+            bool const a_frame = frame_pair(a);
+            if (cur_frame) {
+                if (a_frame) {
+                    n = top ? a : a + 1;
+                } else {
+                    n = a + (y_n % 2);
+                    y_m = top ? y_n >> 1 : (y_n + max_h) >> 1;
+                }
+            } else if (a_frame) {
+                n = y_n < max_h / 2 ? a : a + 1;
+                y_m = (y_n << 1) + (top ? 0 : 1) - (y_n < max_h / 2 ? 0 : max_h);
+            } else {
+                n = top ? a : a + 1;
+            }
+        } else if (x_n < max_w) {
+            if (y_n >= 0) {
+                n = addr;
+            } else if (cur_frame && !top) {
+                n = addr - 1;
+            } else {
+                int const b = pair_at(0, -1);
+                if (b >= 0 && !cur_frame && top && frame_pair(b)) {
+                    n = b + 1;
+                    y_m = 2 * y_n;
+                } else if (b >= 0) {
+                    n = !cur_frame && top ? b : b + 1;
+                }
+            }
+        } else {
+            if (cur_frame && !top)
+                return {};
+            int const c = pair_at(1, -1);
+            if (c >= 0 && !cur_frame && top && frame_pair(c)) {
+                n = c + 1;
+                y_m = 2 * y_n;
+            } else if (c >= 0) {
+                n = !cur_frame && top ? c : c + 1;
+            }
+        }
+        if (n < 0)
+            return {};
+        return { n, (x_n + max_w) % max_w, (y_m + max_h) % max_h };
+    }
+
     // The rows of a structure: the frame's, or every other one of them.
     std::uint8_t* luma_rows(int s) const { return picture->y.data() + (s == 2 ? picture->width : 0); }
     std::uint8_t* chroma_rows(int c, int s) const { return (c == 0 ? picture->cb : picture->cr).data() + (s == 2 ? picture->width / 2 : 0); }
