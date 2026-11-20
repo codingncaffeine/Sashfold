@@ -213,10 +213,13 @@ void Document::note_style_removal(Element const& element)
     m_style_removals.push_back({ m_style_clock, &element });
     // A state held by what left the tree goes with it: it may be adopted
     // by another document, and freed there.
+    bool const focus_left = m_focused && holds(m_focused, element);
     for (Element const** held : { &m_hovered, &m_active, &m_focused, &m_target, &m_fullscreen }) {
         if (*held && holds(*held, element))
             *held = nullptr;
     }
+    if (focus_left && focus_listener)
+        focus_listener(nullptr);
 }
 
 namespace {
@@ -291,6 +294,8 @@ void Document::set_focused(Element const* element, bool visible)
         const_cast<Element*>(element)->mark_style_self();
     m_focused = element;
     m_focus_visible = visible;
+    if (focus_listener)
+        focus_listener(element);
 }
 
 bool Document::holds(Element const* held, Element const& element)

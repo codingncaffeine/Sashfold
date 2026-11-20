@@ -43,6 +43,10 @@ namespace sashfold::media {
 class VideoPipeline; // media/VideoPipeline.h
 }
 
+namespace sashfold::dom {
+class Element; // dom/Dom.h
+}
+
 namespace sashfold::ui {
 
 class SpellService;
@@ -907,6 +911,19 @@ public:
     // The focused control's name, or "" when focus is elsewhere.
     std::string focused_control_name() const; // its name, else its id
     std::string focused_element_id() const; // the focused element's id, in whichever frame it is
+    // The page's focused element, in its own document or a frame's (its
+    // document() says which); null when nothing in the page has the focus
+    // or a toolbar control has it. In a shell whose pages are in engines,
+    // asked of the engine's Browser, on the engine's thread.
+    dom::Element const* focused_element() const;
+    // Moves the focus to an element of the page in front as an assistive
+    // tool or the keyboard does (HTML §6.6.4 focusing steps): shown, its
+    // events fired, scrolled into view; a delegatesFocus host gives it to
+    // its delegate. False when the element is no focusable area of the page.
+    bool focus_element(dom::Element const& element);
+    // focus_element on the page's element with this id (the --script
+    // handle; in a shell whose pages are in engines, done in the engine).
+    bool focus_element_with_id(std::string const& id);
 
     // --- Selection (tests and --script) -------------------------------------
     // The selected page text, lines separated by newlines; "" when none.

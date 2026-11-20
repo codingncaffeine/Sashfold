@@ -17732,6 +17732,47 @@ std::string Browser::focused_control_name() const
     return name ? name->value : "";
 }
 
+dom::Element const* Browser::focused_element() const
+{
+    if (m_impl->address_focus || m_impl->find_focus || m_impl->chrome_focus)
+        return nullptr;
+    Impl::Tab const* const tab = m_impl->active_tab();
+    if (!tab || !tab->controls.focused || !tab->controls.focused->is_connected())
+        return nullptr;
+    return tab->controls.focused;
+}
+
+bool Browser::focus_element(dom::Element const& element)
+{
+    Impl::Tab* const tab = m_impl->active_tab();
+    if (!tab || !tab->document || !Impl::tab_holds_node(*tab, &element))
+        return false;
+    dom::focus::Environment const env = m_impl->focus_environment(*tab);
+    dom::Element const* target = &element;
+    if (dom::ShadowRoot const* const shadow = element.shadow_root(); shadow && shadow->delegates_focus)
+        target = dom::focus::focus_delegate(element, env);
+    else if (!dom::focus::is_focusable_area(element, env))
+        target = nullptr;
+    if (!target)
+        return false;
+    m_impl->chrome_focus.reset();
+    m_impl->blur_address();
+    m_impl->focus_by_keyboard(*tab, *target);
+    return true;
+}
+
+bool Browser::focus_element_with_id(std::string const& id)
+{
+    if (m_impl->front_page()) {
+        bool focused = false;
+        m_impl->call_front([&focused, &id](Browser& page) { focused = page.focus_element_with_id(id); });
+        return focused;
+    }
+    Impl::Tab const* const tab = m_impl->active_tab();
+    dom::Element const* const element = tab && tab->document ? element_by_id(*tab->document, id) : nullptr;
+    return element && focus_element(*element);
+}
+
 std::string Browser::focused_element_id() const
 {
     if (Impl::FrontPage const page = m_impl->front_page())

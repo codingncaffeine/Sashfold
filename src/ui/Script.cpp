@@ -1036,6 +1036,17 @@ struct Runner {
             // The focused element by its id, any element, in any frame; "none" for none.
             std::string const id = browser.focused_element_id();
             expect_equal("assert-focused-id", id.empty() ? std::string("none") : id, argument);
+        } else if (command == "focus-element") {
+            // `focus-element <id>`: the focus moved there as an assistive
+            // tool moves it (Browser::focus_element); `focus-element <id>
+            // refused` asserts it is no focusable area and stays unfocused.
+            std::size_t const gap = argument.find(' ');
+            std::string const id = argument.substr(0, gap);
+            bool const refused = gap != std::string::npos && argument.substr(gap + 1) == "refused";
+            bool const focused = browser.focus_element_with_id(id);
+            settle();
+            if (focused == refused)
+                fail("focus-element: \"" + id + "\" was " + (focused ? "focused" : "refused"));
         } else if (command == "assert-chrome-focus") {
             // The toolbar stop the keyboard is on, or "none" while the page has it.
             std::string const at = browser.chrome_focus_name();

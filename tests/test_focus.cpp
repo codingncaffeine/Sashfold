@@ -255,5 +255,24 @@ int main()
         CHECK_EQ(walk(*top, env, true), std::string("t3 empty t2 m2 i2 i1 m1 t1"));
     }
 
+    // --- The notification an accessibility model hears ----------------------
+    {
+        auto const document = parse(R"(<div><input id=one><input id=two></div>)");
+        std::vector<std::string> heard;
+        document->focus_listener = [&](dom::Element const* now) { heard.push_back(id_of(now)); };
+        auto* const one = const_cast<dom::Element*>(find(*document, "one"));
+        auto* const two = const_cast<dom::Element*>(find(*document, "two"));
+        document->set_focused(one, true);
+        document->set_focused(one, false); // the same element: no change to tell
+        document->set_focused(two, true);
+        two->remove(); // the focused element leaves the tree: the viewport has it
+        document->set_focused(one, false);
+        document->set_focused(nullptr, false);
+        std::string all;
+        for (std::string const& id : heard)
+            all += (all.empty() ? "" : " ") + id;
+        CHECK_EQ(all, std::string("one two (none) one (none)"));
+    }
+
     return test::report("focus");
 }

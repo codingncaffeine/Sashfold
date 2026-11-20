@@ -20,3 +20,11 @@ assert-pixel 19 108 #202020
 click 50 108
 assert-focused-id l
 assert-pixel 19 108 #202020
+# Focus moved as an assistive tool moves it (Browser::focus_element): a
+# focusable area takes it, shown; an element that is none is refused.
+open data:text/html,<style>body{margin:0;background:%23202020}span{display:inline-block;margin:20px;width:60px;height:20px}</style><span id=s tabindex=-1></span><div id=plain>text</div>
+focus-element plain refused
+assert-focused-id none
+focus-element s
+assert-focused-id s
+assert-pixel 19 108 #0060df

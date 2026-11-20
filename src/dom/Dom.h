@@ -476,6 +476,12 @@ public:
     void set_focused(Element const* element, bool visible);
     void set_target(Element const* element) { set_one_state(m_target, element); }
     void set_fullscreen(Element const* element) { set_one_state(m_fullscreen, element); }
+    // Told each time this document's focused element changes — a focus
+    // moved by the reader, a script, the shell, a frame's container taking
+    // the focus chain, the focused element leaving the tree — with the one
+    // focused now (null: the viewport). Where an accessibility model hears
+    // of focus; called on the thread that owns the document.
+    std::function<void(Element const*)> focus_listener;
     // Whether the element or one inside it is hovered, pressed, focused.
     bool holds_hover(Element const& element) const { return holds(m_hovered, element); }
     bool holds_active(Element const& element) const { return holds(m_active, element); }
