@@ -436,6 +436,12 @@ public:
     bool is_gpos() const { return table.gpos; }
 };
 
+// Whether a GSUB lookup substitutes exactly this glyph sequence with no
+// context around it: its match starts at the first glyph and takes them
+// all. What a syllable shaper asks to learn which forms a font has (a
+// reph for ra + virama, a below-base form for virama + consonant).
+bool would_substitute(LayoutTables const&, std::size_t lookup_index, std::span<std::uint32_t const> glyphs);
+
 // After GPOS: every mark and cursive attachment resolved to an offset from
 // the pen (§GPOS: an attached glyph's offset is relative to what it hangs
 // from), for a buffer in logical order shaped in `right_to_left` or not.

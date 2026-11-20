@@ -614,6 +614,19 @@ ScriptShaper const& choose_shaper(ScriptCode script, std::uint32_t chosen_gsub_s
         return thai_shaper;
     case scripts::hangul:
         return hangul_shaper;
+    case script_code('D', 'e', 'v', 'a'):
+    case script_code('B', 'e', 'n', 'g'):
+    case script_code('G', 'u', 'r', 'u'):
+    case script_code('G', 'u', 'j', 'r'):
+    case script_code('O', 'r', 'y', 'a'):
+    case script_code('T', 'a', 'm', 'l'):
+    case script_code('T', 'e', 'l', 'u'):
+    case script_code('K', 'n', 'd', 'a'):
+    case script_code('M', 'l', 'y', 'm'):
+        // The Indic model of the script development specifications.
+        return indic_shaper;
+    case script_code('S', 'i', 'n', 'h'):
+        return sinhala_shaper;
     default:
         return default_shaper;
     }

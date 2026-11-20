@@ -290,6 +290,8 @@ add_library(sashfold_core STATIC
   src/text/ShaperFallback.cpp
   src/text/ShaperHangul.cpp
   src/text/ShaperHebrew.cpp
+  src/text/ShaperIndic.cpp
+  src/text/ShaperSyllabic.cpp
   src/text/ShaperThai.cpp
   src/text/TrueType.cpp
   src/text/TrueTypeWriter.cpp

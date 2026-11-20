@@ -11,6 +11,7 @@
 
 #include <array>
 #include <cstdint>
+#include <memory>
 #include <string_view>
 #include <vector>
 
@@ -127,6 +128,8 @@ extern ScriptShaper const arabic_shaper;
 extern ScriptShaper const hebrew_shaper;
 extern ScriptShaper const thai_shaper;
 extern ScriptShaper const hangul_shaper;
+extern ScriptShaper const indic_shaper;
+extern ScriptShaper const sinhala_shaper;
 
 struct FeatureMap {
     std::uint32_t tag = 0;
@@ -209,6 +212,9 @@ struct Plan {
     // features' masks; and whether the Arabic fallback shaping runs.
     std::array<std::uint32_t, 8> shaper_masks {};
     bool shaper_fallback = false;
+    // A syllable shaper's own settings for the plan: the Indic script's
+    // rules and its features' masks (made by its init_plan).
+    std::shared_ptr<void const> shaper_data;
 };
 
 // Helpers the shapers share with the pipeline.

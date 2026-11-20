@@ -78,6 +78,10 @@ fetch "$props/emoji/emoji-data.txt" emoji-data.txt "# emoji-data"
 fetch "$props/ArabicShaping.txt" ArabicShaping.txt "# ArabicShaping"
 fetch "$props/IndicSyllabicCategory.txt" IndicSyllabicCategory.txt "# IndicSyllabicCategory"
 fetch "$props/IndicPositionalCategory.txt" IndicPositionalCategory.txt "# IndicPositionalCategory"
+# The independent vowel + dependent vowel sequences the script development
+# specifications prohibit (tools/gen-vowel-constraints.py reads it).
+fetch "https://raw.githubusercontent.com/microsoft/font-tools/master/USE/IndicShapingInvalidCluster.txt" \
+    IndicShapingInvalidCluster.txt "# IndicShapingInvalidCluster"
 dest="$(dirname "$dest")"
 
 echo "Unicode $version data is in $dest"

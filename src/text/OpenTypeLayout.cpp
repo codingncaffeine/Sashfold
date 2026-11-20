@@ -903,10 +903,18 @@ bool match_input(ApplyContext& c, unsigned count, Match const& matches, std::siz
     return true;
 }
 
+// A feature applied per syllable sees no context outside the syllable of
+// the glyph it applies at, either.
+std::uint8_t context_syllable(ApplyContext const& c)
+{
+    return c.per_syllable && c.buffer.idx < c.buffer.len() ? c.buffer.cur().syllable : 0;
+}
+
 template<typename Match>
 bool match_backtrack(ApplyContext& c, unsigned count, Match const& matches, std::size_t& start)
 {
     Walker walker(c, true);
+    walker.syllable = context_syllable(c);
     std::size_t i = c.buffer.backtrack_len();
     for (unsigned k = 0; k < count; ++k) {
         if (!walker.prev(i, [&](GlyphInfo const& g) { return matches(g, k); }))
@@ -920,6 +928,7 @@ template<typename Match>
 bool match_lookahead(ApplyContext& c, unsigned count, Match const& matches, std::size_t from, std::size_t& end)
 {
     Walker walker(c, true);
+    walker.syllable = context_syllable(c);
     std::size_t i = from - 1;
     for (unsigned k = 0; k < count; ++k) {
         if (!walker.next(i, [&](GlyphInfo const& g) { return matches(g, k); }))
@@ -1854,6 +1863,38 @@ bool ApplyContext::recurse(std::size_t lookup_index)
     ++nesting_left;
     lookup_props = saved;
     return applied;
+}
+
+bool would_substitute(LayoutTables const& tables, std::size_t lookup_index, std::span<std::uint32_t const> glyphs)
+{
+    LayoutTable const& gsub = tables.gsub;
+    if (glyphs.empty() || glyphs.size() > max_context_length || lookup_index >= gsub.lookups.size())
+        return false;
+    Lookup const& lookup = gsub.lookups[lookup_index];
+    if (lookup.reverse || lookup.subtables.empty() || !lookup.digest.may_have(glyphs[0]))
+        return false;
+    thread_local Buffer b;
+    b.info.clear();
+    b.begin(glyphs.size());
+    b.max_ops = 4096;
+    for (std::uint32_t glyph : glyphs) {
+        GlyphInfo g;
+        g.glyph = glyph;
+        g.mask = ~0u;
+        g.props = tables.gdef.has_glyph_classes() ? tables.gdef.props_of(glyph) : glyph_props::base_glyph;
+        b.info.push_back(g);
+    }
+    b.clear_output();
+    b.idx = 0;
+    ApplyContext c(tables, gsub, b);
+    c.lookup_mask = ~0u;
+    c.lookup_props = lookup.props;
+    c.nesting_left = max_nesting;
+    // Applies to exactly these glyphs: the match starts at the first and
+    // consumes them all, with nothing before or after them to match context
+    // against.
+    return c.glyph_matches_props(b.info[0], lookup.props) && c.apply_at(lookup_index) && !b.failed
+        && b.idx == glyphs.size();
 }
 
 void ApplyContext::apply_lookup(std::size_t lookup_index)
