@@ -287,6 +287,45 @@ void write_tests(std::string& why)
         }
         CHECK_EQ(exit_code_of(child), 0);
     }
+    // A security key's node, as the window keeps one (main.cpp's
+    // keep_writes with security_key_nodes()): a stand-in file here, never a
+    // real device. Kept, it opens for reading and writing as the hidraw
+    // transport opens a key (platform/linux/FidoHidLinux.cpp) and takes a
+    // report; a node beside it that was not kept opens for reading only, as
+    // a key plugged in later is opened, and nothing is made beside them.
+    {
+        std::string const kept_node = outside + "/hidraw-stand-in";
+        std::string const later_node = outside + "/hidraw-later";
+        CHECK(can_make(kept_node));
+        CHECK(can_make(later_node));
+        pid_t const child = fork();
+        if (child == 0) {
+            if (!platform::keep_writes_to({ inside }, { kept_node }))
+                _exit(1);
+            int const key = open(kept_node.c_str(), O_RDWR | O_CLOEXEC);
+            if (key < 0)
+                _exit(2);
+            unsigned char report[65] = { 0 };
+            report[1] = 0xff;
+            bool const sent = write(key, report, sizeof report) == static_cast<ssize_t>(sizeof report);
+            close(key);
+            if (!sent)
+                _exit(3);
+            errno = 0;
+            if (!refused(open(later_node.c_str(), O_RDWR | O_CLOEXEC) < 0))
+                _exit(4);
+            int const reading = open(later_node.c_str(), O_RDONLY | O_CLOEXEC);
+            if (reading < 0)
+                _exit(5);
+            close(reading);
+            _exit(refused_to_make(outside + "/beside-the-node") && can_make(inside + "/after-the-node") ? 0 : 6);
+        }
+        CHECK_EQ(exit_code_of(child), 0);
+        CHECK_EQ(fs::file_size(kept_node, error), std::uintmax_t { 65 });
+        CHECK(!fs::exists(outside + "/beside-the-node"));
+        fs::remove(kept_node, error);
+        fs::remove(later_node, error);
+    }
     {
         pid_t const child = fork();
         if (child == 0)
