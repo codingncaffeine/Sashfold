@@ -47,3 +47,22 @@ assert-focused-id go
 key enter
 advance 50 2
 assert-address-ends landed.html?q=v
+# A radio group: Tab comes to the checked button, the arrows move along the
+# group round its ends, focusing and checking each with its click; Tab
+# leaves the group whole.
+open data:text/html,<title>-</title><input id=before><input type=radio name=g id=r1 value=1><input type=radio name=g id=r2 value=2 checked><input type=radio name=g id=r3 value=3><input id=after><script>var got=[];for(const r of document.querySelectorAll('[type=radio]'))r.addEventListener('click',()=>{got.push('click:'+r.id);document.title=got.join(' ')})</script>
+key tab
+key tab
+assert-focused-id r2
+key right
+assert-focused-id r3
+assert-title click:r3
+key down
+assert-focused-id r1
+key left
+assert-focused-id r3
+assert-title click:r3 click:r1 click:r3
+key tab
+assert-focused-id after
+key shift+tab
+assert-focused-id r3

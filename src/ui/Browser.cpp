@@ -14362,22 +14362,47 @@ struct Browser::Impl {
             switch (kind) {
             case ControlKind::Checkbox:
             case ControlKind::Radio:
+            {
                 // Space: as a click — the state set ahead of the click event,
                 // back if the page cancels it, input and change after.
-                if (key.key == Key::Space) {
-                    std::optional<PreActivation> const pre = pre_activate(*tab, control);
-                    bindings::Realm* const realm = realm_for(*tab, control);
+                auto const click_box = [&](dom::Element const& box) {
+                    std::optional<PreActivation> const pre = pre_activate(*tab, box);
+                    bindings::Realm* const realm = realm_for(*tab, box);
                     bool proceed = true;
                     if (realm)
-                        proceed = realm->dispatch_event(const_cast<dom::Element*>(&control), "click", bindings::Realm::EventInit { true, true, true });
+                        proceed = realm->dispatch_event(const_cast<dom::Element*>(&box), "click", bindings::Realm::EventInit { true, true, true });
                     if (pre && !proceed)
                         undo_pre_activation(*tab, *pre);
                     else if (pre && pre->changed)
-                        fire_input_and_change(*tab, control);
+                        fire_input_and_change(*tab, box);
+                };
+                bool const arrow = key.key == Key::Left || key.key == Key::Right || key.key == Key::Up || key.key == Key::Down;
+                if (key.key == Key::Space) {
+                    click_box(control);
+                } else if (kind == ControlKind::Radio && arrow && !key.ctrl && !key.alt) {
+                    // The arrows move along the radio group, round at its
+                    // ends, focusing and checking the button they come to —
+                    // with its click, as every engine does (HTML §4.10.5.1.15).
+                    dom::focus::Environment const env = focus_environment(*tab);
+                    std::vector<dom::Element const*> group;
+                    dom::forms::each_in_radio_group(control, [&](dom::Element const& member) {
+                        if (&member == &control || dom::focus::is_focusable_area(member, env))
+                            group.push_back(&member);
+                    });
+                    auto const at = std::find(group.begin(), group.end(), &control);
+                    if (group.size() > 1 && at != group.end()) {
+                        std::size_t const index = static_cast<std::size_t>(at - group.begin());
+                        bool const back = key.key == Key::Left || key.key == Key::Up;
+                        dom::Element const& next = *group[back ? (index + group.size() - 1) % group.size() : (index + 1) % group.size()];
+                        focus_by_keyboard(*tab, next);
+                        if (tab->controls.focused == &next)
+                            click_box(next);
+                    }
                 } else {
                     changed = false;
                 }
                 break;
+            }
             case ControlKind::Submit:
             case ControlKind::Button:
                 // Enter and Space press the button: its click, then what it
