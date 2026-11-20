@@ -248,6 +248,25 @@ struct Work {
         request.beginning_of_text = start == 0 && before.empty();
         request.end_of_text = end == text.size() && after.empty();
         shape(*face, request, run);
+        // A run shaped against its script's direction (a bidi override:
+        // Latin at an odd level, Hebrew at an even one) comes back in the
+        // script's own order: its clusters are put in the order the run
+        // reads, each cluster's glyphs kept as they are.
+        if (run.glyphs.size() > 1) {
+            std::uint32_t const first = run.glyphs.front().cluster;
+            std::uint32_t const last = run.glyphs.back().cluster;
+            if ((rtl && first < last) || (!rtl && first > last)) {
+                std::reverse(run.glyphs.begin(), run.glyphs.end());
+                for (std::size_t i = 0; i < run.glyphs.size();) {
+                    std::size_t j = i + 1;
+                    while (j < run.glyphs.size() && run.glyphs[j].cluster == run.glyphs[i].cluster)
+                        ++j;
+                    std::reverse(run.glyphs.begin() + static_cast<std::ptrdiff_t>(i),
+                        run.glyphs.begin() + static_cast<std::ptrdiff_t>(j));
+                    i = j;
+                }
+            }
+        }
         float const scale = shaping.size / static_cast<float>(run.units_per_em == 0 ? 1000 : run.units_per_em);
         std::size_t const length = end - start;
         // Which characters' clusters came out with a missing glyph.

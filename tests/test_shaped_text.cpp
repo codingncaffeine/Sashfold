@@ -194,6 +194,23 @@ int main()
         CHECK(stack.shape(lam, rtl)->glyphs[0].glyph == alone->glyphs[0].glyph);
     }
 
+    // --- A run against its script's direction (bidi-override) --------------------------
+    {
+        // Latin at an odd level reads right to left: "abcd" drawn "dcba";
+        // Hebrew at an even level left to right, as written.
+        TextShaping rtl;
+        rtl.size = size;
+        rtl.direction = text::TextDirection::RightToLeft;
+        auto const latin_rtl = stack.shape(U"abcd", rtl);
+        CHECK_EQ(latin_rtl->glyphs.front().cluster, 3u);
+        auto const hebrew_rtl = stack.shape(U"אבגד", rtl);
+        CHECK_EQ(hebrew_rtl->glyphs.front().cluster, 3u);
+        TextShaping ltr;
+        ltr.size = size;
+        auto const hebrew_ltr = stack.shape(U"אבגד", ltr);
+        CHECK_EQ(hebrew_ltr->glyphs.front().cluster, 0u);
+    }
+
     // --- A paragraph: levels resolved, faces by cluster, fallback ------------------------
     {
         TextShaping paragraph;
