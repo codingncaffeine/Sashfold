@@ -138,6 +138,16 @@ char32_t canonical_compose(char32_t first, char32_t second)
     return it->composite;
 }
 
+char32_t arabic_presentation_form(char32_t c, std::uint8_t form)
+{
+    // Few enough to search; the first in code point order wins.
+    for (shaping_data::PresentationForm const& p : shaping_data::presentation_forms) {
+        if (p.first == c && p.second == 0 && p.form == form)
+            return p.code_point;
+    }
+    return 0;
+}
+
 // --- Itemization ------------------------------------------------------------
 
 namespace {

@@ -107,6 +107,11 @@ bool canonical_decompose(char32_t, char32_t& first, char32_t& second);
 // The primary composite of two characters (Hangul included), or 0.
 char32_t canonical_compose(char32_t first, char32_t second);
 
+// The Arabic presentation form of a letter (the character whose
+// compatibility decomposition is <isolated>, <final>, <initial> or
+// <medial> of it alone: form 0, 1, 2, 3), or 0.
+char32_t arabic_presentation_form(char32_t, std::uint8_t form);
+
 // The scripts the text's runs are in: a run of one script each, where
 // Common and Inherited characters take the script of what is around them
 // — marks the script of their base, a closing bracket the script its
