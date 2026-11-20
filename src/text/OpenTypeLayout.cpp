@@ -650,8 +650,9 @@ bool ApplyContext::glyph_matches_props(GlyphInfo const& g, std::uint32_t props) 
     if (glyph & props & lookup_flag::ignore_flags)
         return false;
     if (glyph & glyph_props::mark) {
+        // A font with no GDEF has no sets to filter by: every mark is in.
         if (props & lookup_flag::use_mark_filtering_set)
-            return tables.gdef.mark_set_covers(props >> 16, g.glyph);
+            return !tables.gdef.bytes.size || tables.gdef.mark_set_covers(props >> 16, g.glyph);
         if (props & lookup_flag::mark_attachment_type)
             return (props & lookup_flag::mark_attachment_type) == (glyph & lookup_flag::mark_attachment_type);
     }
