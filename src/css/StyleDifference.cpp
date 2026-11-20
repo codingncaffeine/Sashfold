@@ -446,6 +446,8 @@ std::optional<std::string_view> first_style_difference(ComputedStyle const& a, C
     field("font_synthesis_position", a.font_synthesis_position, b.font_synthesis_position);
     field("font_feature_settings", a.font_feature_settings, b.font_feature_settings);
     field("font_variant", a.font_variant, b.font_variant);
+    field("font_language_override", a.font_language_override, b.font_language_override);
+    field("language", a.language, b.language);
     field("text_transform", a.text_transform, b.text_transform);
     field("text_shadow", a.text_shadow, b.text_shadow);
     field("list_style_type", a.list_style_type, b.list_style_type);

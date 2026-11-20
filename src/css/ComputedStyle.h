@@ -1490,6 +1490,16 @@ struct ComputedStyle {
     // font-variant and its longhands (css-fonts-4 §6.4 to §6.11).
     // Inherited.
     FontVariant font_variant;
+    // font-language-override (css-fonts-4 §6.13): the OpenType language
+    // system tag the fonts are shaped with instead of the one the
+    // element's language maps to, its trailing spaces dropped; empty for
+    // normal. Inherited.
+    std::string font_language_override;
+    // The element's language (HTML §3.2.6.2): its xml:lang or lang
+    // attribute, or its parent's language when it has neither; what a
+    // font's language system (`locl` forms) is chosen by. Empty when
+    // nothing says. Not a property: handed down the tree.
+    std::string language;
     TextTransform text_transform = TextTransform::None;
     // css-text-decor-4 §7: the shadows the text casts (inherited); null for
     // none.

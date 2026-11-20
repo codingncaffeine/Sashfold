@@ -4967,7 +4967,8 @@ struct Resolver {
         &ComputedStyle::hyphens, &ComputedStyle::hyphenate_character, &ComputedStyle::line_break,
         &ComputedStyle::overflow_wrap, &ComputedStyle::font_kerning, &ComputedStyle::font_synthesis_weight,
         &ComputedStyle::font_synthesis_style, &ComputedStyle::font_synthesis_small_caps,
-        &ComputedStyle::font_synthesis_position, &ComputedStyle::font_feature_settings, &ComputedStyle::font_variant, &ComputedStyle::text_transform, &ComputedStyle::text_shadow, &ComputedStyle::list_style_type,
+        &ComputedStyle::font_synthesis_position, &ComputedStyle::font_feature_settings, &ComputedStyle::font_variant, &ComputedStyle::font_language_override,
+        &ComputedStyle::language, &ComputedStyle::text_transform, &ComputedStyle::text_shadow, &ComputedStyle::list_style_type,
         &ComputedStyle::list_style_position, &ComputedStyle::quotes, &ComputedStyle::custom, &ComputedStyle::visibility,
         &ComputedStyle::pointer_events, &ComputedStyle::cursor, &ComputedStyle::inert, &ComputedStyle::border_collapse, &ComputedStyle::border_spacing_horizontal,
         &ComputedStyle::border_spacing_vertical, &ComputedStyle::caption_side, &ComputedStyle::empty_cells,
@@ -5503,6 +5504,7 @@ struct Resolver {
                     to.font_variant = from.font_variant;
                     to.font_feature_settings = from.font_feature_settings;
                     to.font_kerning = from.font_kerning;
+                    to.font_language_override = from.font_language_override;
                 },
                 0 },
             { "vertical-align", false, [](S& to, S const& from) { to.vertical_align = from.vertical_align; }, 0 },
@@ -5552,6 +5554,8 @@ struct Resolver {
             { "font-feature-settings", true,
                 [](S& to, S const& from) { to.font_feature_settings = from.font_feature_settings; }, 0 },
             { "font-variant", true, [](S& to, S const& from) { to.font_variant = from.font_variant; }, 0 },
+            { "font-language-override", true,
+                [](S& to, S const& from) { to.font_language_override = from.font_language_override; }, 0 },
             { "font-variant-ligatures", true,
                 [](S& to, S const& from) { to.font_variant.ligatures = from.font_variant.ligatures; }, 0 },
             { "font-variant-caps", true, [](S& to, S const& from) { to.font_variant.caps = from.font_variant.caps; }, 0 },
@@ -6195,6 +6199,9 @@ struct Resolver {
         bool with_style_attribute, AnimatedLayers const* layers)
     {
         ComputedStyle style = inherited_from(parent);
+        // The element's language: its own declaration, else its parent's.
+        if (std::optional<std::string_view> const declared = declared_language(element))
+            style.language = *declared;
         // A border's initial width is medium (css-backgrounds-3 §3.3), and it
         // is kept as declared through the cascade whatever the style is then:
         // a width written while the style is none survives a style set later,
@@ -8782,6 +8789,7 @@ struct Resolver {
                 style.font_variant.caps = FontVariantCaps::SmallCaps;
             style.font_feature_settings = nullptr;
             style.font_kerning = FontKerning::Auto;
+            style.font_language_override.clear();
             return;
         }
         if (name == "font-family") {
@@ -9056,6 +9064,10 @@ struct Resolver {
         }
         if (name == "font-variant") {
             parse_font_variant(values, style.font_variant);
+            return;
+        }
+        if (name == "font-language-override") {
+            parse_font_language_override(values, style.font_language_override);
             return;
         }
         if (is_font_variant_longhand(name)) {
@@ -11003,7 +11015,7 @@ ComputedStyle const& perturbed_style_baseline()
                  "stop-color: rgb(10, 11, 12); stop-opacity: 0.5; border-spacing: 2px; translate: 1px; "
                  "aspect-ratio: 2; grid-auto-flow: column; border-color: rgb(13, 14, 15); "
                  "font-variant: no-common-ligatures small-caps historical-forms oldstyle-nums jis78 super; "
-                 "font-feature-settings: \"zero\" 3; font-family: monospace; quotes: none; counter-reset: x; "
+                 "font-feature-settings: \"zero\" 3; font-language-override: \"TRK\"; font-family: monospace; quotes: none; counter-reset: x; "
                  "counter-increment: x; background-repeat: no-repeat; background-clip: content-box; "
                  "background-origin: content-box; background-size: cover; background-position: 1px 2px; "
                  "background-image: linear-gradient(red, blue);"))

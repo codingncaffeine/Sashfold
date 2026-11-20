@@ -956,6 +956,8 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         return css::font_feature_settings_text(style.font_feature_settings);
     if (name == "font-variant")
         return css::font_variant_text(style.font_variant);
+    if (name == "font-language-override")
+        return css::font_language_override_text(style.font_language_override);
     if (css::is_font_variant_longhand(name))
         return css::font_variant_longhand_text(name, style.font_variant);
     if (name == "font-synthesis-weight")
@@ -1375,7 +1377,7 @@ constexpr std::string_view computed_longhands[] = { "align-content", "align-item
     "border-right-width", "border-spacing", "border-top-color", "border-top-left-radius", "border-top-right-radius",
     "border-top-style", "border-top-width", "bottom", "box-shadow", "box-sizing", "clear", "clip-path", "color", "column-gap", "contain", "content",
     "cursor", "direction", "display", "filter", "flex-basis", "flex-direction", "flex-grow", "flex-shrink", "flex-wrap", "float",
-    "font-family", "font-feature-settings", "font-kerning", "font-size", "font-stretch", "font-style", "font-synthesis-position",
+    "font-family", "font-feature-settings", "font-kerning", "font-language-override", "font-size", "font-stretch", "font-style", "font-synthesis-position",
     "font-synthesis-small-caps", "font-synthesis-style", "font-synthesis-weight", "font-variant-alternates",
     "font-variant-caps", "font-variant-east-asian", "font-variant-ligatures", "font-variant-numeric",
     "font-variant-position", "font-weight", "grid-auto-columns",

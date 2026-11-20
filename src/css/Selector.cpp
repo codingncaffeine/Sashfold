@@ -1224,11 +1224,8 @@ bool default_button(dom::Element const& element)
 std::string language_of(dom::Element const& element)
 {
     for (dom::Element const* ancestor = &element; ancestor; ancestor = element_parent(*ancestor)) {
-        for (dom::Attr const& attribute : ancestor->attributes()) {
-            if ((attribute.local_name == "lang" && attribute.namespace_uri.empty())
-                || (attribute.local_name == "lang" && attribute.namespace_uri == "http://www.w3.org/XML/1998/namespace"))
-                return lowercased(attribute.value);
-        }
+        if (std::optional<std::string_view> const declared = declared_language(*ancestor))
+            return lowercased(*declared);
     }
     return {};
 }
@@ -1765,6 +1762,20 @@ bool matches(SelectorList const& list, dom::Element const& element, Specificity*
 bool takes_text(dom::Element const& element)
 {
     return element.is_html("textarea") || (element.is_html("input") && takes_placeholder(input_type(element)));
+}
+
+std::optional<std::string_view> declared_language(dom::Element const& element)
+{
+    std::optional<std::string_view> plain;
+    for (dom::Attr const& attribute : element.attributes()) {
+        if (attribute.local_name != "lang")
+            continue;
+        if (attribute.namespace_uri == "http://www.w3.org/XML/1998/namespace")
+            return std::string_view(attribute.value);
+        if (attribute.namespace_uri.empty())
+            plain = attribute.value;
+    }
+    return plain;
 }
 
 }

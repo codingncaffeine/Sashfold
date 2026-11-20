@@ -19,6 +19,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace sashfold::dom {
@@ -249,5 +250,11 @@ bool element_in_state(SimpleSelector::PseudoKind kind, dom::Element const& eleme
 // A field a reader types text into: a textarea, or an input of a type that
 // takes a placeholder.
 bool takes_text(dom::Element const& element);
+
+// The language an element itself declares (HTML §3.2.6.2): its lang
+// attribute in the XML namespace, else its lang attribute in no namespace;
+// nullopt when it has neither. An empty value is a declaration too: the
+// language is unknown from there down.
+std::optional<std::string_view> declared_language(dom::Element const& element);
 
 }

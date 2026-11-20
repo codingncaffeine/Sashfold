@@ -18,6 +18,13 @@ text::TextShaping shaping_for(css::ComputedStyle const& style, bool right_to_lef
     shaping.word_spacing = style.word_spacing;
     shaping.direction = right_to_left ? text::TextDirection::RightToLeft : text::TextDirection::LeftToRight;
     shaping.paragraph = paragraph;
+    // The language system the fonts are shaped with (css-fonts-4 §7.2):
+    // the element's language, or the tag font-language-override names in
+    // its place, spelled the way the shaper takes an OpenType tag.
+    if (!style.font_language_override.empty())
+        shaping.language = "x-ot-" + style.font_language_override;
+    else
+        shaping.language = style.language;
     text::CssFontFeatures css;
     switch (style.font_kerning) {
     case css::FontKerning::Auto: css.kerning = text::CssFontFeatures::Kerning::Auto; break;
@@ -80,7 +87,8 @@ bool same_font_features(css::ComputedStyle const& a, css::ComputedStyle const& b
     bool const same_settings = a.font_feature_settings == b.font_feature_settings
         || (a.font_feature_settings && b.font_feature_settings && *a.font_feature_settings == *b.font_feature_settings);
     return a.font_kerning == b.font_kerning && same_settings && a.font_variant == b.font_variant
-        && a.font_synthesis_small_caps == b.font_synthesis_small_caps && a.font_synthesis_position == b.font_synthesis_position;
+        && a.font_synthesis_small_caps == b.font_synthesis_small_caps && a.font_synthesis_position == b.font_synthesis_position
+        && a.language == b.language && a.font_language_override == b.font_language_override;
 }
 
 std::u32string logical_text_of(TextRun const& run)

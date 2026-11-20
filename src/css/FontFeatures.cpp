@@ -92,6 +92,36 @@ bool parse_font_feature_settings(std::vector<ComponentValue const*> const& value
     return true;
 }
 
+bool parse_font_language_override(std::vector<ComponentValue const*> const& values, std::string& out)
+{
+    if (values.size() != 1)
+        return false;
+    if (is_ident(values[0], "normal")) {
+        out.clear();
+        return true;
+    }
+    if (!values[0]->is_token(Token::Type::String))
+        return false;
+    std::string tag = values[0]->token().value;
+    if (tag.empty() || tag.size() > 4)
+        return false;
+    for (char const c : tag) {
+        unsigned char const byte = static_cast<unsigned char>(c);
+        if (byte < 0x20 || byte > 0x7E)
+            return false;
+    }
+    while (!tag.empty() && tag.back() == ' ')
+        tag.pop_back();
+    // All spaces is the tag of four spaces, written as one.
+    out = tag.empty() ? std::string(" ") : tag;
+    return true;
+}
+
+std::string font_language_override_text(std::string const& tag)
+{
+    return tag.empty() ? "normal" : css_string_text(tag);
+}
+
 std::string css_string_text(std::string_view text)
 {
     std::string out = "\"";

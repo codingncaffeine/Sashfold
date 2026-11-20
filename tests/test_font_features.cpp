@@ -101,11 +101,11 @@ std::vector<std::uint32_t> glyphs_of(text::ShapedText const& shaped)
 
 // The shaper's own glyphs for a run in one face with these features.
 std::vector<std::uint32_t> shaper_glyphs(text::Face const& face, std::u32string_view text, std::vector<FeatureSetting> const& features,
-    std::string_view language = {})
+    std::string_view language = {}, text::ScriptCode script = text::scripts::latin)
 {
     text::ShapeRequest request;
     request.text = text;
-    request.script = text::scripts::latin;
+    request.script = script;
     request.language = language;
     request.features = features;
     request.beginning_of_text = true;
@@ -234,6 +234,44 @@ void test_font_variant_values()
     CHECK(!css::supports_condition_text_matches("font-variant: sub super"));
 }
 
+// font-language-override (§6.13) and the element's language (HTML
+// §3.2.6.2), which the fonts' language systems are chosen by.
+void test_language_values()
+{
+    auto const override_text = [](std::string_view value) {
+        resolve("#t { font-language-override: " + std::string(value) + " }", "<p id=t>x</p>");
+        return css::font_language_override_text(style_of("t").font_language_override);
+    };
+    CHECK_EQ(override_text("normal"), std::string("normal"));
+    CHECK_EQ(override_text("\"KSW\""), std::string("\"KSW\""));
+    CHECK_EQ(override_text("\"ENG \""), std::string("\"ENG\""));
+    CHECK_EQ(override_text("\" en \""), std::string("\" en\""));
+    CHECK_EQ(override_text("\"1 %\""), std::string("\"1 %\""));
+    for (char const* wrong : { "auto", "normal \"ksw\"", "\"turkish\"", "\"x\xC3\xB8x\"", "\"\"", "\"ENG  \"", "SRB" })
+        CHECK_EQ(override_text(wrong), std::string("normal"));
+    CHECK(css::supports_condition_text_matches("font-language-override: normal"));
+    CHECK(!css::supports_condition_text_matches("font-language-override: \"turkish\""));
+    // Inherited; the font shorthand resets it.
+    resolve("#a { font-language-override: \"SRB\" } #c { font: 12px serif }", "<div id=a><p id=b>x</p><p id=c>y</p></div>");
+    CHECK_EQ(style_of("b").font_language_override, std::string("SRB"));
+    CHECK(style_of("c").font_language_override.empty());
+
+    // The language: the nearest lang above, an empty one saying it is
+    // unknown; in foreign content xml:lang over lang.
+    resolve("", "<div id=a lang=sr><p id=b>x<span id=c lang=\"\">y</span></p></div><p id=d>z</p>"
+                "<svg id=e lang=fr xml:lang=sr-Latn><text id=f>t</text></svg>");
+    CHECK_EQ(style_of("a").language, std::string("sr"));
+    CHECK_EQ(style_of("b").language, std::string("sr"));
+    CHECK_EQ(style_of("c").language, std::string(""));
+    CHECK_EQ(style_of("d").language, std::string(""));
+    CHECK_EQ(style_of("f").language, std::string("sr-Latn"));
+    // The shaping asks for the language, or the override in its place.
+    CHECK_EQ(layout::shaping_for(style_of("b"), false).language, std::string("sr"));
+    resolve("#b { font-language-override: \"TRK\" }", "<div lang=sr><p id=b>x</p></div>");
+    CHECK_EQ(layout::shaping_for(style_of("b"), false).language, std::string("x-ot-TRK"));
+    CHECK_EQ(text::opentype_language_tag(layout::shaping_for(style_of("b"), false).language), text::script_code('T', 'R', 'K', ' '));
+}
+
 // The features a style's text is shaped with: what font-kerning and the
 // ligature switches ask for first, font-feature-settings last (§7.2).
 void test_feature_order()
@@ -277,6 +315,7 @@ int main()
 {
     test_font_feature_settings_values();
     test_font_variant_values();
+    test_language_values();
     test_feature_order();
 
     // --- Real fonts: the glyphs the shaper gives for the same features -----------------
@@ -387,6 +426,25 @@ int main()
         // all-small-caps: the capitals scaled too.
         auto const all = dejavu.shape(word, at("a"));
         CHECK(all->glyphs.size() == 3u && all->glyphs[0].scale == 0.7f && all->glyphs[1].scale == 0.7f && all->glyphs[2].scale == 1.0f);
+    }
+
+    // The language reaches the shaper: Serbian Cyrillic italics take their
+    // own forms ('locl' in the font's SRB language system), from lang or
+    // from font-language-override; the text's language alone does not.
+    {
+        resolve("#sr { font-language-override: normal } #ov { font-language-override: \"SRB\" } #mk { }",
+            "<p id=ru lang=ru>a</p><p id=sr lang=sr-Cyrl>b</p><p id=ov lang=ru>c</p><p id=mk lang=mk>d</p><p id=none>e</p>");
+        std::u32string const cyrillic = U"бгдпт";
+        auto const set = [&](char const* id) { return glyphs_of(*serif.shape(cyrillic, layout::shaping_for(style_of(id), false))); };
+        std::vector<std::uint32_t> const russian = set("ru");
+        std::vector<std::uint32_t> const serbian = set("sr");
+        CHECK(serbian != russian);
+        CHECK(serbian == shaper_glyphs(serif_face, cyrillic, {}, "sr", text::scripts::cyrillic));
+        CHECK(russian == shaper_glyphs(serif_face, cyrillic, {}, "", text::scripts::cyrillic));
+        CHECK(set("none") == russian);
+        CHECK(set("ov") == serbian);
+        CHECK(set("mk") == shaper_glyphs(serif_face, cyrillic, {}, "mk", text::scripts::cyrillic));
+        CHECK(set("mk") != russian);
     }
 
     // Super- and subscripts (§6.5): the face's own forms when it has one

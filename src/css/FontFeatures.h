@@ -50,6 +50,13 @@ std::string font_variant_text(FontVariant const&);
 // and super- and subscripts the font lacks are synthesized by the caller.
 void append_font_variant_features(FontVariant const&, std::vector<FontFeature>& out);
 
+// font-language-override: normal | <string> (§6.13), the string an
+// OpenType language system tag: one to four characters from U+20 to U+7E,
+// padded with spaces to four. Kept with its trailing spaces dropped (the
+// shortest serialization), empty for normal.
+bool parse_font_language_override(std::vector<ComponentValue const*> const& values, std::string& out);
+std::string font_language_override_text(std::string const&);
+
 // A string as CSSOM §2.1 serializes one: in double quotes, a quote or a
 // backslash escaped, control characters as code points.
 std::string css_string_text(std::string_view);
