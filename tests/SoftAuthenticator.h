@@ -241,14 +241,14 @@ private:
         packet[5] = static_cast<std::uint8_t>(payload.size() >> 8);
         packet[6] = static_cast<std::uint8_t>(payload.size());
         std::size_t offset = std::min(payload.size(), size - 7);
-        std::memcpy(packet.data() + 7, payload.data(), offset);
+        std::copy_n(payload.begin(), offset, packet.begin() + 7);
         m_link->device_write(packet);
         for (std::uint8_t seq = 0; offset < payload.size(); ++seq) {
             std::fill(packet.begin(), packet.end(), 0);
             put_cid();
             packet[4] = seq;
             std::size_t const chunk = std::min(payload.size() - offset, size - 5);
-            std::memcpy(packet.data() + 5, payload.data() + offset, chunk);
+            std::copy_n(payload.begin() + static_cast<std::ptrdiff_t>(offset), chunk, packet.begin() + 5);
             offset += chunk;
             m_link->device_write(packet);
         }
