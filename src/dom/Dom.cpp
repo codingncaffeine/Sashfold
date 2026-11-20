@@ -521,6 +521,27 @@ void Document::adopt(Node& node)
         // The old document's stamps mean nothing on this one's clock; the
         // insertion that follows marks the whole subtree as new anyway.
         current->m_style_marks = {};
+        // What the accessibility semantics keep by element goes with it.
+        if (current->is_element()) {
+            auto const* element = static_cast<Element const*>(current);
+            if (auto found = old.aria_element_references.find(element); found != old.aria_element_references.end()) {
+                aria_element_references[element] = std::move(found->second);
+                old.aria_element_references.erase(found);
+            }
+            if (auto found = old.internals_aria.find(element); found != old.internals_aria.end()) {
+                internals_aria[element] = std::move(found->second);
+                old.internals_aria.erase(found);
+            }
+        }
+    }
+    // An element reference only ever names an element of its own document:
+    // one that moved away is let go of on both sides, so that none is read
+    // after the document that owns it has ended.
+    for (Document* side : { this, &old }) {
+        for (auto& [element, lists] : side->aria_element_references) {
+            for (auto& [name, elements] : lists)
+                std::erase_if(elements, [side](Element* target) { return target->m_document != side; });
+        }
     }
     // A range with a boundary among the moved nodes is this document's to keep
     // now, and stays the old one's only while a boundary is still its.

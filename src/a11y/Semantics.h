@@ -149,20 +149,12 @@ public:
     std::string rendered_text(dom::Text const&);
 
     // An attribute's value, the ElementInternals defaults (ARIA §10.2,
-    // "default semantics") standing in when the element has none.
+    // "default semantics", dom::Document::internals_aria) standing in when
+    // the element has none.
     std::optional<std::string_view> aria(dom::Element const&, std::string_view attribute);
     // aria-* true/false tokens: true when the value is "true" (ASCII case-
     // insensitive), false for "false", nothing for absent or other values.
     std::optional<bool> aria_bool(dom::Element const&, std::string_view attribute);
-
-    // The element-reference attributes a script set (ARIAMixin's
-    // ariaLabelledByElements and the like): the bindings keep them, and
-    // say so here, keyed by element and content attribute name.
-    using ElementReferences = std::function<std::optional<std::vector<dom::Element*>>(dom::Element const&, std::string_view attribute)>;
-    void set_element_references(ElementReferences references) { m_references = std::move(references); }
-    // ElementInternals' role and ARIA properties (default semantics).
-    using InternalsDefaults = std::function<std::optional<std::string>(dom::Element const&, std::string_view attribute)>;
-    void set_internals_defaults(InternalsDefaults defaults) { m_internals = std::move(defaults); }
 
     // Forgets every cached answer (IDs, ownership): call after the tree or
     // its attributes changed. The caches also check the document's versions.
@@ -189,8 +181,6 @@ private:
     void build_owners(dom::Document const& document);
 
     PageSource* m_source = nullptr;
-    ElementReferences m_references;
-    InternalsDefaults m_internals;
     // Caches, valid for the document versions they were made at.
     dom::Document const* m_cached_document = nullptr;
     std::uint64_t m_tree_version = ~std::uint64_t { 0 };
@@ -200,8 +190,6 @@ private:
     std::unordered_map<dom::Node const*, std::unordered_map<std::string, dom::Element*>> m_ids;
     std::unordered_map<dom::Element const*, std::vector<dom::Element const*>> m_labels;
     bool m_labels_built = false;
-    // What the internals hook answered, kept while the views on it are used.
-    std::deque<std::string> m_internals_strings;
     NameSource m_last_source = NameSource::None;
     std::unordered_map<dom::Element const*, dom::Element*> m_owner_of;
     std::unordered_map<dom::Element const*, std::vector<dom::Element*>> m_owned;

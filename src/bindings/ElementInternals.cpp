@@ -69,8 +69,18 @@ public:
             tracer.visit(entry.file);
         tracer.visit(states);
         tracer.visit(validity);
+        for (js::Object* reference : references)
+            tracer.visit(reference);
     }
+    // ARIAMixin's element-reference attributes as the internals hold them:
+    // the element, or the frozen array of elements, each was set to (null
+    // until set), in the order of reference_names.
+    std::array<js::Object*, 9> references {};
 };
+
+constexpr std::string_view reference_names[] = { "ariaActiveDescendantElement", "ariaActionsElements", "ariaControlsElements",
+    "ariaDescribedByElements", "ariaDetailsElements", "ariaErrorMessageElements", "ariaFlowToElements", "ariaLabelledByElements",
+    "ariaOwnsElements" };
 
 // A CustomStateSet: the element's custom states, kept by the document
 // (dom::Document::custom_states) where :state() reads them.
@@ -363,14 +373,33 @@ Native internals_aria_set(js::Interpreter& interp, js::Value const& this_value, 
     js::NativeFunction const* const accessor = interp.active_native();
     std::uint32_t const index = accessor != nullptr && accessor->spec() != nullptr ? accessor->spec()->datum : 0;
     js::Value const given = js::argument(args, 0);
-    if (given.is_null()) {
-        self->aria[index].reset();
-        return js::Value::undefined();
+    std::optional<std::string> text;
+    if (!given.is_null()) {
+        text = internals_of(interp).to_utf8(given);
+        if (!text)
+            return std::nullopt;
     }
-    std::optional<std::string> const text = internals_of(interp).to_utf8(given);
-    if (!text)
-        return std::nullopt;
-    self->aria[index] = *text;
+    self->aria[index] = text;
+    // The element's default semantics, where the accessibility model reads
+    // them (dom::Document::internals_aria), by the content attribute's name.
+    if (dom::Element* element = self->element()) {
+        std::string_view const property = aria_names[index];
+        std::string attribute = property == "role" ? std::string("role") : "aria-" + std::string(property.substr(4));
+        for (char& c : attribute) {
+            if (c >= 'A' && c <= 'Z')
+                c = static_cast<char>(c - 'A' + 'a');
+        }
+        auto& defaults = element->document().internals_aria;
+        if (text) {
+            defaults[element][attribute] = *text;
+        } else if (auto found = defaults.find(element); found != defaults.end()) {
+            found->second.erase(attribute);
+            if (found->second.empty())
+                defaults.erase(found);
+        }
+        element->mark_style_self();
+        element->document().note_state_change();
+    }
     return js::Value::undefined();
 }
 
@@ -576,6 +605,56 @@ void install_internals_interface(Realm::Internals& in)
     });
     for (std::size_t i = 0; i < std::size(aria_names); ++i)
         define_plain_attribute(interpreter, *proto, aria_names[i], internals_aria_get, internals_aria_set, MemberKind::Plain, static_cast<std::uint32_t>(i));
+    // The element-reference attributes: what was set, kept as given (an
+    // element, or a frozen array of them), null until then.
+    for (std::size_t i = 0; i < std::size(reference_names); ++i) {
+        bool const list = i != 0;
+        define_attribute(
+            interpreter, *proto, reference_names[i],
+            [i](js::Interpreter& interp, js::Value const& this_value, Args) -> Native {
+                ElementInternalsObject* const self = internals_this(this_value);
+                if (self == nullptr)
+                    return interp.throw_type_error("Illegal invocation");
+                js::Object* const held = self->references[i];
+                return held ? js::Value::object(held) : js::Value::null();
+            },
+            [i, list](js::Interpreter& interp, js::Value const& this_value, Args args) -> Native {
+                ElementInternalsObject* const self = internals_this(this_value);
+                if (self == nullptr)
+                    return interp.throw_type_error("Illegal invocation");
+                Realm::Internals& internals = internals_of(interp);
+                js::Value const given = js::argument(args, 0);
+                if (given.is_nullish()) {
+                    self->references[i] = nullptr;
+                    return js::Value::undefined();
+                }
+                auto const is_element = [&](js::Value const& value) {
+                    dom::Node const* node = internals.realm.node_of(value);
+                    return node && node->is_element();
+                };
+                if (!list) {
+                    if (!is_element(given))
+                        return interp.throw_type_error("The value is not an Element");
+                    self->references[i] = given.as_object();
+                    return js::Value::undefined();
+                }
+                std::optional<std::vector<js::Value>> const items = interp.iterable_to_list(given);
+                if (!items)
+                    return std::nullopt;
+                js::Interpreter::Roots const roots(interp);
+                js::ArrayObject* array = interp.new_array();
+                interp.root(js::Value::object(array));
+                for (js::Value const& item : *items) {
+                    if (!is_element(item))
+                        return interp.throw_type_error("An item is not an Element");
+                    array->push(item);
+                }
+                if (!js::set_integrity_level(interp, *array, true))
+                    return std::nullopt;
+                self->references[i] = array;
+                return js::Value::undefined();
+            });
+    }
 }
 
 // attachInternals() (§4.13.7.1): once per element, for an autonomous

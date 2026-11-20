@@ -280,6 +280,8 @@ bool Tree::stale() const
         return true;
     if (in.focused_element != m_document->focused())
         return true;
+    if (!m_document->aria_notifications.empty())
+        return true;
     // A text node's data changing moves no version: the style marks it
     // leaves on its way up to the document say it.
     Node::StyleMarks const& marks = m_document->style_marks();
@@ -1415,6 +1417,21 @@ void Tree::update()
             post(std::move(event));
         }
     }
+    // What the page asked to be said (ariaNotify), in the order asked: at
+    // its element's node, or the document's.
+    for (dom::Document::AriaNotification const& notification : m_document->aria_notifications) {
+        NodeId target = root_id;
+        if (notification.element) {
+            auto const found = in.next_by_dom.find(notification.element);
+            if (found != in.next_by_dom.end())
+                target = found->second;
+        }
+        Event event { Event::Type::Announcement, target };
+        event.text = notification.text;
+        event.politeness = notification.priority == "high" ? "assertive" : "polite";
+        post(std::move(event));
+    }
+    m_document->aria_notifications.clear();
 
     // Keep the new tree; forget the ids of the nodes that went.
     for (auto const& [id, data] : in.next) {

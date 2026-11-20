@@ -513,6 +513,23 @@ public:
     };
     std::unordered_map<Element const*, InternalsValidity> internals_validity;
     std::unordered_map<Element const*, std::vector<std::string>> custom_states;
+    // What the accessibility semantics read that is not in the tree, kept
+    // the same way: ElementInternals' role and ARIA properties (ARIA §10.2,
+    // the element's default semantics, which its own attributes override),
+    // by content attribute name ("role", "aria-label"); the elements an
+    // ARIAMixin element-reference attribute was given from script
+    // (ariaLabelledByElements = [...], HTML §2.6.1 "explicitly set
+    // attr-elements"), by content attribute name; and the announcements
+    // ariaNotify() asked for (the last few, for an accessibility tree to
+    // take when it next updates). Whoever writes them marks the element.
+    std::unordered_map<Element const*, std::unordered_map<std::string, std::string>> internals_aria;
+    std::unordered_map<Element const*, std::unordered_map<std::string, std::vector<Element*>>> aria_element_references;
+    struct AriaNotification {
+        Element const* element = nullptr; // null: the document itself
+        std::string text;
+        std::string priority; // "normal" or "high"
+    };
+    std::vector<AriaNotification> aria_notifications;
     // The form-associated custom elements (HTML §4.13.4): autonomous custom
     // elements whose class said formAssociated, from the moment they are
     // theirs. They are listed, labelable, resettable and submittable, and

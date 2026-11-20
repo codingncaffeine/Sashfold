@@ -249,7 +249,6 @@ void Semantics::invalidate()
     m_roles.clear();
     m_labels.clear();
     m_labels_built = false;
-    m_internals_strings.clear();
 }
 
 void Semantics::refresh_caches(dom::Document const& document)
@@ -297,17 +296,52 @@ Element* Semantics::element_by_id(Node const& scope, std::string_view id)
     return it == found->second.end() ? nullptr : it->second;
 }
 
+static bool reference_in_scope(Element const& element, Element const& candidate)
+{
+    // HTML §2.6.1: an explicitly set element counts when it is a descendant
+    // of one of the element's shadow-including ancestors: in the element's
+    // own tree, or in a tree the element's tree is inside.
+    Node const& candidate_root = candidate.root();
+    for (Node const* root = &element.root();;) {
+        if (root == &candidate_root)
+            return true;
+        if (!root->is_shadow_root())
+            return false;
+        root = &static_cast<dom::ShadowRoot const&>(*root).host().root();
+    }
+}
+
+static std::optional<std::vector<Element*>> explicit_references(Element const& element, std::string_view name)
+{
+    // The elements a script set stand while the content attribute is absent
+    // or the empty string the setter wrote; any other value written since is
+    // the author's IDs again.
+    std::optional<std::string_view> const value = attribute(element, name);
+    if (value && !value->empty())
+        return std::nullopt;
+    auto const& all = element.document().aria_element_references;
+    auto const found = all.find(&element);
+    if (found == all.end())
+        return std::nullopt;
+    auto const list = found->second.find(std::string(name));
+    if (list == found->second.end())
+        return std::nullopt;
+    std::vector<Element*> out;
+    for (Element* candidate : list->second) {
+        if (reference_in_scope(element, *candidate))
+            out.push_back(candidate);
+    }
+    return out;
+}
+
 std::vector<Element*> Semantics::idrefs(Element const& element, std::string_view name)
 {
+    if (std::optional<std::vector<Element*>> set = explicit_references(element, name))
+        return std::move(*set);
     std::vector<Element*> out;
     std::optional<std::string_view> const value = attribute(element, name);
-    if (!value) {
-        if (m_references) {
-            if (std::optional<std::vector<Element*>> set = m_references(element, name))
-                return std::move(*set);
-        }
+    if (!value)
         return out;
-    }
     for (std::string_view const token : role_tokens(*value)) {
         if (Element* found = element_by_id(element, token)) {
             if (std::find(out.begin(), out.end(), found) == out.end())
@@ -319,14 +353,11 @@ std::vector<Element*> Semantics::idrefs(Element const& element, std::string_view
 
 Element* Semantics::idref(Element const& element, std::string_view name)
 {
+    if (std::optional<std::vector<Element*>> set = explicit_references(element, name))
+        return set->empty() ? nullptr : set->front();
     std::optional<std::string_view> const value = attribute(element, name);
-    if (!value) {
-        if (m_references) {
-            if (std::optional<std::vector<Element*>> set = m_references(element, name); set && !set->empty())
-                return set->front();
-        }
+    if (!value)
         return nullptr;
-    }
     return element_by_id(element, collapse_whitespace(*value));
 }
 
@@ -343,7 +374,7 @@ void Semantics::build_owners(dom::Document const& document)
     dom::for_each_shadow_including(static_cast<Node const&>(document), [&](Node const& node) {
         if (node.is_element()) {
             auto const& element = static_cast<Element const&>(node);
-            if (element.has_attribute("aria-owns") || (m_references && m_references(element, "aria-owns")))
+            if (element.has_attribute("aria-owns"))
                 owners.push_back(&element);
         }
     });
@@ -427,13 +458,17 @@ std::optional<std::string_view> Semantics::aria(Element const& element, std::str
 {
     if (std::optional<std::string_view> const value = attribute(element, name))
         return value;
-    if (m_internals) {
-        if (std::optional<std::string> value = m_internals(element, name)) {
-            m_internals_strings.push_back(std::move(*value));
-            return std::string_view(m_internals_strings.back());
-        }
-    }
-    return std::nullopt;
+    // ElementInternals' default semantics, under the element's own.
+    auto const& defaults = element.document().internals_aria;
+    if (defaults.empty())
+        return std::nullopt;
+    auto const found = defaults.find(&element);
+    if (found == defaults.end())
+        return std::nullopt;
+    auto const value = found->second.find(std::string(name));
+    if (value == found->second.end())
+        return std::nullopt;
+    return std::string_view(value->second);
 }
 
 std::optional<bool> Semantics::aria_bool(Element const& element, std::string_view name)
@@ -613,14 +648,7 @@ bool Semantics::disabled(Element const& element)
 
 std::optional<Role> Semantics::explicit_role(Element const& element)
 {
-    std::optional<std::string_view> value = attribute(element, "role");
-    std::string internals_value;
-    if (!value && m_internals) {
-        if (std::optional<std::string> from = m_internals(element, "role")) {
-            internals_value = std::move(*from);
-            value = internals_value;
-        }
-    }
+    std::optional<std::string_view> const value = aria(element, "role");
     if (!value)
         return std::nullopt;
     for (std::string_view const token : role_tokens(*value)) {
@@ -1154,7 +1182,7 @@ std::string Semantics::name_from_content(Element const& element, NameContext& co
     out += pseudo_text(element, true);
     // The elements the element's aria-actions names are actions of it, not
     // part of its name (ARIA 1.3 aria-actions).
-    std::vector<Element*> const actions = element.has_attribute("aria-actions") || m_references ? idrefs(element, "aria-actions") : std::vector<Element*> {};
+    std::vector<Element*> const actions = idrefs(element, "aria-actions");
     for (Node* child : content_children(element)) {
         if (child->is_element() && std::find(actions.begin(), actions.end(), child) != actions.end())
             continue;

@@ -483,6 +483,7 @@ void install_document(Realm::Internals& in, js::Object& node_prototype)
     // page sees the chain a browser gives it; neither can be constructed.
     define_interface(in, "HTMLDocument", document);
     define_interface(in, "XMLDocument", document);
+    install_document_aria_notify(in, *document);
 
     // ParentNode over the document, and the on<type> handlers: HTML's
     // GlobalEventHandlers, then the document's own (HTML §8.1.8.2, the

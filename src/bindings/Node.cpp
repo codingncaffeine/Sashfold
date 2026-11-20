@@ -2184,6 +2184,7 @@ void install_nodes(Realm::Internals& in)
 
     js::Object* element = define_interface(in, "Element", node);
     install_element(in, *element);
+    install_aria_mixin(in, *element);
     // Element's own handlers: the Fullscreen API's pair (with the prefixed
     // names pages still write) and the clipboard's before- events. HTML's
     // GlobalEventHandlers belong to the HTML, SVG and MathML element

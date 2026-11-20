@@ -1753,6 +1753,9 @@ void install_events(Realm::Internals&); // Events.cpp
 // by their members, Touch, TouchList, FileList, DataTransfer (Events.cpp).
 void install_event_interfaces(Realm::Internals&);
 void install_nodes(Realm::Internals&); // Node.cpp
+// ARIAMixin on Element, and ariaNotify on Document (Aria.cpp).
+void install_aria_mixin(Realm::Internals&, js::Object& element);
+void install_document_aria_notify(Realm::Internals&, js::Object& document);
 // The mixins an interface includes get members of their own on each
 // prototype (WebIDL §2.11): a member answers for its own interface's
 // objects, so one native cannot be put on two prototypes. ParentNode (DOM
