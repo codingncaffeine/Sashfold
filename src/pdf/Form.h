@@ -13,8 +13,11 @@
 
 #include <array>
 #include <cstdint>
+#include <functional>
 #include <map>
+#include <memory>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -93,18 +96,65 @@ std::optional<FormField> widget_field(Document const& doc, Dict const& annotatio
 // Whether the file asks viewers to make every field's appearance themselves.
 bool need_appearances(Document const& doc);
 
+class SystemFace;
+
+// The fonts appearances are written with beside the fields' own: when
+// the font a field's /DA names cannot show a character of its value, a
+// system face that can (several for mixed scripts), embedded as a subset
+// (FontEmbed.h). One collector serves every appearance of a save, so each
+// face is written once with every glyph any of them shows, under one
+// resource name that the AcroForm's /DR gets too, for later editors.
+class FormFonts {
+public:
+    // Fonts used in place: each appearance's resources carry the font
+    // objects themselves (what the renderer draws from).
+    explicit FormFonts(Document const& doc);
+    // Fonts for a file being written: each gets a reference from
+    // `allocate` when first used, and `finish` gives the objects.
+    FormFonts(Document const& doc, std::function<Ref()> allocate);
+    ~FormFonts();
+    FormFonts(FormFonts const&) = delete;
+    FormFonts& operator=(FormFonts const&) = delete;
+
+    struct Face {
+        std::shared_ptr<SystemFace const> face;
+        std::string resource; // its name in the resources
+        Ref ref; // written to a file: its reference
+        std::map<std::uint16_t, std::u32string> glyphs; // the glyphs shown, with their text
+    };
+    // The face to write a character with, for a field set in a font of the
+    // generic family ("sans-serif", "serif", "monospace"); null for none.
+    Face* face_for(char32_t character, std::string const& family);
+    // What a resource dictionary's /Font entry names the face by: the
+    // reference, or the font itself built from the glyphs shown so far.
+    Object font_object(Face& face);
+    // Written to a file, once every appearance is made: the objects of
+    // every face used, and the (name, reference) pairs for /DR.
+    std::vector<std::pair<Ref, Object>> finish();
+    std::vector<std::pair<std::string, Ref>> resource_entries() const;
+
+private:
+    Document const& m_doc;
+    std::function<Ref()> m_allocate;
+    std::vector<std::unique_ptr<Face>> m_faces;
+    std::map<std::string, Face*> m_by_key; // the system face's key
+    std::map<std::pair<char32_t, std::string>, Face*> m_by_character;
+    std::set<std::string> m_taken; // resource names the form already uses
+};
+
 // The appearance a viewer draws for a widget: a content stream in the
 // widget's own space (its rectangle's size from the origin, /MK /R
 // applied by the matrix), the resources it uses, and the box and matrix a
 // form XObject of it carries. `value` is the viewer's, or the file's when
-// nullopt.
+// nullopt. `fonts`: where the system faces it needs are collected (a
+// save's); none: the appearance carries them itself.
 struct Appearance {
     std::string content;
     Dict resources;
     Box bbox;
     std::array<double, 6> matrix { 1, 0, 0, 1, 0, 0 };
 };
-Appearance widget_appearance(Document const& doc, FormField const& field, FormValue const* value);
+Appearance widget_appearance(Document const& doc, FormField const& field, FormValue const* value, FormFonts* fonts = nullptr);
 
 // The appearance state a widget shows for a value (its on-state or Off).
 std::string widget_state(FormField const& field, FormValue const* value);

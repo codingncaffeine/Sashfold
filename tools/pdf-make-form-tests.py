@@ -182,4 +182,42 @@ need = {
     11: (b'<< /Type /XObject /Subtype /Form /BBox [0 0 260 40] /Resources << /Font << /Helv 5 0 R >> >> >>', b'1 0 0 rg 0 0 260 40 re f'),
 }
 pdf('forms-need', need)
-print('wrote forms, forms-xrefstream, forms-rc4, forms-need into', out_dir)
+
+
+def utf16(text):
+    return b'<' + ('﻿' + text).encode('utf-16-be').hex().upper().encode() + b'>'
+
+
+# Text beyond WinAnsi: fields whose /DA names Helvetica (which cannot show
+# Greek, CJK, ...: a viewer embeds a font that can), one whose font's
+# /Differences gives it s-comma-below and o-double-acute (by their Adobe
+# Glyph List names), and one whose
+# font is a composite one over a predefined Unicode CMap (UniGB-UCS2-H:
+# the code is the text). Values are typed by the tests.
+intl = {
+    1: b'<< /Type /Catalog /Pages 2 0 R /AcroForm << /Fields [10 0 R 11 0 R 12 0 R 13 0 R 14 0 R 15 0 R 16 0 R] '
+       b'/DR << /Font << /Helv 5 0 R /HelvX 6 0 R /Song 7 0 R >> >> /DA (/Helv 0 Tf 0 g) >> >>',
+    2: b'<< /Type /Pages /Kids [3 0 R] /Count 1 >>',
+    3: b'<< /Type /Page /Parent 2 0 R /MediaBox [0 0 400 400] /Resources << /Font << /Helv 5 0 R >> >> /Contents 4 0 R '
+       b'/Annots [10 0 R 11 0 R 12 0 R 13 0 R 14 0 R 15 0 R 16 0 R] >>',
+    4: (b'<< >>', b'1 g 0 0 400 400 re f'),
+    5: b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>',
+    6: b'<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding << /BaseEncoding /WinAnsiEncoding '
+       b'/Differences [128 /scommaaccent /ohungarumlaut] >> >>',
+    7: b'<< /Type /Font /Subtype /Type0 /BaseFont /STSong-Light /Encoding /UniGB-UCS2-H /DescendantFonts [8 0 R] >>',
+    8: b'<< /Type /Font /Subtype /CIDFontType0 /BaseFont /STSong-Light /CIDSystemInfo << /Registry (Adobe) /Ordering (GB1) /Supplement 4 >> '
+       b'/FontDescriptor 9 0 R /DW 1000 >>',
+    9: b'<< /Type /FontDescriptor /FontName /STSong-Light /Flags 6 /FontBBox [-25 -254 1000 880] /ItalicAngle 0 /Ascent 880 /Descent -120 '
+       b'/CapHeight 880 /StemV 93 >>',
+    10: b'<< /Type /Annot /Subtype /Widget /FT /Tx /T (line) /Rect [20 340 380 370] /F 4 /MK << /BC [0 0 0] >> /DA (/Helv 14 Tf 0 g) >>',
+    11: b'<< /Type /Annot /Subtype /Widget /FT /Tx /T (para) /Ff 4096 /Rect [20 230 380 330] /F 4 /MK << /BC [0 0 0] >> /DA (/Helv 12 Tf 0 g) >>',
+    12: b'<< /Type /Annot /Subtype /Widget /FT /Tx /T (cells) /Ff 16777216 /MaxLen 8 /Rect [20 190 260 220] /F 4 /MK << /BC [0 0 0] >> '
+        b'/DA (/Helv 0 Tf 0 g) >>',
+    13: b'<< /Type /Annot /Subtype /Widget /FT /Ch /Ff 131072 /T (pick) /Opt [[(el) ' + utf16('Ελληνικά') + b'] [(ja) ' + utf16('日本語')
+        + b'] [(ar) ' + utf16('العربية') + b']] /Rect [20 150 260 180] /F 4 /MK << /BC [0 0 0] >> /DA (/Helv 12 Tf 0 g) >>',
+    14: b'<< /Type /Annot /Subtype /Widget /FT /Tx /T (diff) /Rect [20 110 260 140] /F 4 /MK << /BC [0 0 0] >> /DA (/HelvX 12 Tf 0 g) >>',
+    15: b'<< /Type /Annot /Subtype /Widget /FT /Tx /T (song) /Rect [20 70 260 100] /F 4 /MK << /BC [0 0 0] >> /DA (/Song 12 Tf 0 g) >>',
+    16: b'<< /Type /Annot /Subtype /Widget /FT /Tx /T (rtl) /Q 2 /Rect [20 30 380 60] /F 4 /MK << /BC [0 0 0] >> /DA (/Helv 12 Tf 0 g) >>',
+}
+pdf('forms-intl', intl)
+print('wrote forms, forms-xrefstream, forms-rc4, forms-need, forms-intl into', out_dir)

@@ -15,6 +15,7 @@
 #include <functional>
 #include <memory>
 #include <mutex>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <thread>
@@ -244,6 +245,14 @@ public:
     // The same among the colour faces alone — the bitmap and layered
     // fonts: what draws a smiling face as a picture.
     Face const* color_face_for(char32_t code_point);
+    // The catalogue entry of a face to write a code point with into a
+    // document that carries the font along (a PDF form's appearance): one
+    // with outlines for it, never a colour face (other readers draw no
+    // pictures from an embedded font), upright, of normal width and of
+    // regular weight where the machine has one. The families named are
+    // asked first, then the fallback chain's, then any face. nullopt when
+    // none has the code point.
+    std::optional<FaceInfo> embeddable_face_for(char32_t code_point, std::vector<std::string> const& preferred_families);
 
     // One of the current page's fonts as the manager holds it.
     struct PageFace {
@@ -322,6 +331,7 @@ private:
     std::vector<std::unique_ptr<FontStack>> m_retired_stacks; // superseded, kept for the layouts holding them
     std::unordered_map<char32_t, Face const*> m_fallbacks;
     std::unordered_map<char32_t, Face const*> m_color_fallbacks;
+    std::unordered_map<std::string, std::optional<FaceInfo>> m_embeddable; // by code point and the families asked first
     std::unordered_map<std::string, std::unique_ptr<Face>> m_page_face_cache; // by family, weight, slant, bytes
     std::unordered_map<std::string, std::unique_ptr<Face>> m_ranged_faces; // a face kept to a unicode-range, by both
 };

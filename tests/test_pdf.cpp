@@ -14,6 +14,8 @@
 #include "pdf/Render.h"
 #include "pdf/Type1.h"
 #include "pdf/Writer.h"
+#include "core/Unicode.h"
+#include "text/FontManager.h"
 #include "text/TrueType.h"
 
 #include <atomic>
@@ -1080,6 +1082,192 @@ void test_forms(std::string const& fixtures)
     }
 }
 
+// The text the widgets' written appearances show, as our reader takes it
+// from their fonts (ToUnicode for an embedded one): each Tj's string
+// through the font the last Tf named, in content order.
+std::u32string shown_text(pdf::Document const& doc)
+{
+    std::u32string out;
+    for (pdf::Object const& ref : doc.resolve(doc.page(0).dict->get("Annots")).as_array()) {
+        pdf::Dict const annotation = doc.resolve(ref).as_dict();
+        pdf::Stream const* stream = doc.resolve(doc.resolve(annotation.get("AP")).as_dict().get("N")).as_stream();
+        if (!stream)
+            continue;
+        pdf::Dict const fonts = doc.resolve(doc.resolve(stream->dict.get("Resources")).as_dict().get("Font")).as_dict();
+        Bytes const content = doc.decode(*stream);
+        pdf::Lexer lexer(content);
+        pdf::Parser parser(lexer, false);
+        std::vector<pdf::Object> operands;
+        std::shared_ptr<pdf::Font const> font;
+        while (lexer.peek().kind != pdf::Token::Kind::Eof) {
+            std::string keyword;
+            pdf::Object const object = parser.parse(&keyword);
+            if (keyword.empty()) {
+                operands.push_back(object);
+                continue;
+            }
+            if (keyword == "Tf" && operands.size() >= 2 && operands[0].is_name())
+                font = doc.font(fonts.get(operands[0].as_name()));
+            else if (keyword == "Tj" && font && !operands.empty() && operands[0].is_string()) {
+                std::string const& bytes = operands[0].as_string();
+                std::size_t at = 0;
+                pdf::ShownGlyph glyph;
+                while (font->next(bytes, at, glyph))
+                    out += font->text(glyph);
+            }
+            operands.clear();
+        }
+    }
+    return out;
+}
+
+// The font resources of a widget's written appearance.
+pdf::Dict appearance_fonts(pdf::Document const& doc, pdf::Ref widget)
+{
+    pdf::Dict const annotation = doc.resolve(pdf::Object::ref(widget)).as_dict();
+    pdf::Object const normal = doc.resolve(doc.resolve(annotation.get("AP")).as_dict().get("N"));
+    pdf::Stream const* stream = normal.as_stream();
+    if (!stream)
+        return {};
+    return doc.resolve(doc.resolve(stream->dict.get("Resources")).as_dict().get("Font")).as_dict();
+}
+
+// Values beyond WinAnsi (forms-intl.pdf): written in the field's own font
+// where it can show them (a /Differences encoding, a Unicode CMap), else
+// in an embedded subset of a system face, whose ToUnicode gives the text
+// back; the faces join the AcroForm's /DR.
+void test_forms_intl(std::string const& fixtures)
+{
+    pdf::Document::Status status {};
+    Bytes const file = read_file(fixtures + "/forms/forms-intl.pdf");
+    auto const doc = pdf::Document::open(file, "", status);
+    CHECK(doc && status == pdf::Document::Status::Ok);
+    if (!doc)
+        return;
+    std::vector<pdf::FormField> const fields = pdf::page_fields(*doc, 0);
+    CHECK_EQ(fields.size(), std::size_t { 7 });
+    if (fields.size() != 7)
+        return;
+    std::string const greek = "\xCE\x95\xCE\xBB\xCE\xBB\xCE\xB7\xCE\xBD\xCE\xB9\xCE\xBA\xCE\xAC"; // Ελληνικά
+    std::string const han = "\xE4\xB8\xAD\xE6\x96\x87"; // 中文
+    std::string const odbl_scomma = "\xC5\x91 \xC8\x99"; // ő ș
+    std::string const arabic = "\xD9\x85\xD8\xB1\xD8\xAD\xD8\xA8\xD8\xA7"; // مرحبا
+    std::string const emoji = "\xF0\x9F\x98\x80";
+    pdf::FormValues values;
+    values[fields[0].field].text = greek + " " + han + " " + emoji;
+    values[fields[2].field].text = "A" + han + emoji;
+    values[fields[4].field].text = odbl_scomma;
+    values[fields[5].field].text = han;
+    values[fields[6].field].text = arabic;
+    Bytes const saved = pdf::save_with_form_values(*doc, values);
+    auto const reopened = pdf::Document::open(saved, "", status);
+    CHECK(reopened && status == pdf::Document::Status::Ok);
+    if (!reopened)
+        return;
+
+    // The field's own fonts first: the /Differences font shows ő and ș,
+    // the Unicode CMap font the Han characters (when the system has the
+    // predefined CMap), with nothing embedded for them.
+    pdf::Dict const diff_fonts = appearance_fonts(*reopened, fields[4].widget);
+    CHECK(diff_fonts.has("HelvX") && diff_fonts.size() == 1);
+    if (pdf::CMap::predefined("UniGB-UCS2-H")) {
+        pdf::Dict const song_fonts = appearance_fonts(*reopened, fields[5].widget);
+        CHECK(song_fonts.has("Song") && song_fonts.size() == 1);
+    }
+
+    auto& manager = text::FontManager::instance();
+    bool const has_faces = manager.embeddable_face_for(U'Ε', {}).has_value() && manager.embeddable_face_for(U'中', {}).has_value();
+    if (!has_faces) {
+        std::puts("forms-intl: no system faces for Greek and Han, embedding not checked");
+        return;
+    }
+    // The line: Helvetica for the spaces, embedded faces for the rest,
+    // each a Type 0 font over Identity-H with a ToUnicode map.
+    pdf::Dict const line_fonts = appearance_fonts(*reopened, fields[0].widget);
+    CHECK(line_fonts.size() >= 2);
+    bool cff_seen = false;
+    for (auto const& [name, object] : line_fonts.entries()) {
+        if (name == "Helv")
+            continue;
+        pdf::Dict const font = reopened->resolve(object).as_dict();
+        CHECK(reopened->resolve(font.get("Subtype")).is_name("Type0") && reopened->resolve(font.get("Encoding")).is_name("Identity-H"));
+        CHECK(reopened->resolve(font.get("ToUnicode")).as_stream() != nullptr);
+        pdf::Dict const cid = reopened->resolve(reopened->resolve(font.get("DescendantFonts")).as_array().at(0)).as_dict();
+        pdf::Dict const descriptor = reopened->resolve(cid.get("FontDescriptor")).as_dict();
+        std::string const subtype = reopened->resolve(cid.get("Subtype")).as_name();
+        CHECK(subtype == "CIDFontType2" || subtype == "CIDFontType0");
+        if (subtype == "CIDFontType0") {
+            cff_seen = true;
+            pdf::Stream const* program = reopened->resolve(descriptor.get("FontFile3")).as_stream();
+            CHECK(program && reopened->resolve(program->dict.get("Subtype")).is_name("CIDFontType0C"));
+        } else {
+            CHECK(reopened->resolve(descriptor.get("FontFile2")).as_stream() != nullptr);
+        }
+        CHECK(reopened->resolve(cid.get("W")).is_array() && descriptor.has("FontBBox") && descriptor.has("StemV") && descriptor.has("CapHeight"));
+        std::string const base = reopened->resolve(font.get("BaseFont")).as_name();
+        CHECK(base.size() > 7 && base[6] == '+');
+    }
+    (void)cff_seen;
+    // /DR holds the embedded faces under the names the appearances use.
+    pdf::Dict const acroform = reopened->resolve(reopened->catalog().get("AcroForm")).as_dict();
+    pdf::Dict const dr_fonts = reopened->resolve(reopened->resolve(acroform.get("DR")).as_dict().get("Font")).as_dict();
+    for (auto const& [name, object] : line_fonts.entries())
+        CHECK(dr_fonts.has(name));
+    CHECK(dr_fonts.has("Helv") && dr_fonts.has("HelvX") && dr_fonts.has("Song"));
+
+    // Our reader takes the typed text back from the written fonts.
+    std::string const text = to_utf8(shown_text(*reopened));
+    CHECK(text.find(greek) != std::string::npos);
+    CHECK(text.find(han) != std::string::npos);
+    CHECK(text.find(emoji) != std::string::npos);
+    CHECK(text.find("A" + han + emoji) != std::string::npos); // the comb, a glyph a cell
+    // Arabic as presentation forms in visual order, each glyph's text the
+    // letter it was made from: the letters come back, right to left.
+    std::u32string const letters = decode_utf8(arabic);
+    CHECK(text.find(to_utf8(std::u32string(letters.rbegin(), letters.rend()))) != std::string::npos);
+    std::optional<Bitmap> const drawn = pdf::render_page(*reopened, 0, {});
+    CHECK(has_dark(drawn, 24, 32, 200, 58)); // the line drawn from its appearance
+
+    // Saved again with more text: the faces of the first save stay in /DR
+    // and the new ones take names of their own.
+    pdf::FormValues more;
+    std::vector<pdf::FormField> const fields2 = pdf::page_fields(*reopened, 0);
+    more[fields2[1].field].text = "\xD0\x9A\xD0\xB8\xD1\x80\xD0\xB8\xD0\xBB\xD0\xBB\xD0\xB8\xD1\x86\xD0\xB0"; // Кириллица
+    Bytes const twice = pdf::save_with_form_values(*reopened, more);
+    auto const third = pdf::Document::open(twice, "", status);
+    CHECK(third && status == pdf::Document::Status::Ok);
+    if (third) {
+        CHECK(to_utf8(shown_text(*third)).find("\xD0\x9A\xD0\xB8\xD1\x80") != std::string::npos);
+        pdf::Dict const acroform3 = third->resolve(third->catalog().get("AcroForm")).as_dict();
+        pdf::Dict const dr3 = third->resolve(third->resolve(acroform3.get("DR")).as_dict().get("Font")).as_dict();
+        CHECK(dr3.size() > dr_fonts.size());
+    }
+
+    // An encrypted file drawn with the viewer's values: the faces used in
+    // place (not written) are drawn too.
+    Bytes const rc4 = read_file(fixtures + "/forms/forms-rc4.pdf");
+    auto const encrypted = pdf::Document::open(rc4, "", status);
+    CHECK(encrypted);
+    if (encrypted) {
+        pdf::FormValues typed;
+        typed[pdf::Ref { 10, 0 }].text = han + han;
+        pdf::RenderOptions options;
+        options.form_values = &typed;
+        std::optional<Bitmap> const picture = pdf::render_page(*encrypted, 0, options);
+        CHECK(has_dark(picture, 22, 35, 80, 58));
+        // The font in place reads back through the document's own handler
+        // (its streams marked as not encrypted): its ToUnicode gives 中.
+        std::vector<pdf::FormField> const rc4_fields = pdf::page_fields(*encrypted, 0);
+        pdf::Appearance const made = pdf::widget_appearance(*encrypted, rc4_fields.at(0), &typed[pdf::Ref { 10, 0 }]);
+        pdf::Dict const fonts = made.resources.get("Font").as_dict();
+        CHECK(fonts.has("SfF1"));
+        if (fonts.has("SfF1")) {
+            auto const font = encrypted->font(fonts.get("SfF1"));
+            CHECK(font && font->kind() == pdf::Font::Kind::Composite && font->encode(U'中').has_value());
+        }
+    }
+}
+
 // JBIG2 made by our own encoder (tools/pdf-make-jbig2-tests.py --fixtures),
 // every file of which jbig2dec decodes to the picture it was given: a
 // small picture in each coding of the standard (generic region templates,
@@ -1226,6 +1414,7 @@ int main(int argc, char** argv)
         test_jbig2(argv[1]);
         test_annotations(argv[1]);
         test_forms(argv[1]);
+        test_forms_intl(argv[1]);
         test_jpx(argv[1]);
         test_std14_widths(std::string(argv[1]) + "/../../shell/pdf-viewer.pdf");
     }

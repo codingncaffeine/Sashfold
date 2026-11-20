@@ -33,6 +33,8 @@ public:
     // A ToUnicode CMap's text for a code; empty when it has none.
     std::u32string unicode(std::uint32_t code, int length) const;
     bool has_unicode() const { return !m_unicode.empty() || !m_unicode_ranges.empty(); }
+    // The codes (with their lengths) a ToUnicode CMap gives this text for.
+    std::vector<std::pair<std::uint32_t, int>> codes_for_text(std::u32string_view text) const;
     bool vertical() const { return m_vertical; }
     bool is_identity() const { return m_identity; }
     std::string const& name() const { return m_name; }

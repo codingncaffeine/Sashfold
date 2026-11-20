@@ -257,6 +257,31 @@ Object value_object(FormField const& field, FormValue const& value)
     }
 }
 
+// The AcroForm's default resources (§12.7.3) with fonts added: the
+// AcroForm written again where it is an object of its own, else the
+// catalog that holds it.
+void add_form_resources(Document const& doc, Update& update, std::vector<std::pair<std::string, Ref>> const& added)
+{
+    Object const root = doc.trailer().get("Root");
+    if (!root.is_ref())
+        return;
+    Dict catalog = doc.resolve(root).as_dict();
+    Object const acroform_entry = catalog.get("AcroForm");
+    Dict acroform = doc.resolve(acroform_entry).as_dict();
+    Dict dr = doc.resolve(acroform.get("DR")).as_dict();
+    Dict fonts = doc.resolve(dr.get("Font")).as_dict();
+    for (auto const& [name, ref] : added)
+        fonts.set(name, Object::ref(ref));
+    dr.set("Font", Object::dict(std::move(fonts)));
+    acroform.set("DR", Object::dict(std::move(dr)));
+    if (acroform_entry.is_ref()) {
+        update.write(acroform_entry.as_ref(), Object::dict(std::move(acroform)));
+    } else {
+        catalog.set("AcroForm", Object::dict(std::move(acroform)));
+        update.write(root.as_ref(), Object::dict(std::move(catalog)));
+    }
+}
+
 } // namespace
 
 std::string serialize_object(Object const& object)
@@ -271,6 +296,7 @@ Bytes save_with_form_values(Document const& doc, FormValues const& values)
     if (values.empty())
         return doc.bytes();
     Update update(doc);
+    FormFonts fonts(doc, [&] { return update.allocate(); });
     // Every widget on every page, grouped by its field: the field's
     // dictionary gets the value, each widget its appearance (a new stream,
     // or the state its value picks).
@@ -299,7 +325,7 @@ Bytes save_with_form_values(Document const& doc, FormValues const& values)
             if (buttons) {
                 widget_dict.set("AS", Object::name(widget_state(widget, &value)));
             } else {
-                Appearance const made = widget_appearance(doc, widget, &value);
+                Appearance const made = widget_appearance(doc, widget, &value, &fonts);
                 Dict form;
                 form.set("Type", Object::name("XObject"));
                 form.set("Subtype", Object::name("Form"));
@@ -324,6 +350,12 @@ Bytes save_with_form_values(Document const& doc, FormValues const& values)
         }
         update.write(field_ref, Object::dict(std::move(field_dict)));
     }
+    // The system faces the appearances were written with, and their names
+    // in the AcroForm's /DR, so an editor after us can set text in them.
+    for (auto& [ref, object] : fonts.finish())
+        update.write(ref, std::move(object));
+    if (std::vector<std::pair<std::string, Ref>> const added = fonts.resource_entries(); !added.empty())
+        add_form_resources(doc, update, added);
     if (update.empty())
         return doc.bytes();
     return update.finish();

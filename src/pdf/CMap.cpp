@@ -353,6 +353,33 @@ std::u32string CMap::unicode(std::uint32_t code, int length) const
     return {};
 }
 
+std::vector<std::pair<std::uint32_t, int>> CMap::codes_for_text(std::u32string_view text) const
+{
+    // The other direction of unicode(): every code whose text this is,
+    // the single entries first, then the ranges, the ones written last
+    // (which unicode() prefers) first among them.
+    std::vector<std::pair<std::uint32_t, int>> out;
+    if (text.empty())
+        return out;
+    for (auto const& [key, value] : m_unicode) {
+        if (value == text)
+            out.emplace_back(key.second, key.first);
+    }
+    for (auto r = m_unicode_ranges.rbegin(); r != m_unicode_ranges.rend(); ++r) {
+        if (!r->list.empty()) {
+            for (std::size_t i = 0; i < r->list.size() && r->low + i <= r->high; ++i) {
+                if (r->list[i] == text)
+                    out.emplace_back(r->low + static_cast<std::uint32_t>(i), r->length);
+            }
+        } else if (r->start.size() == text.size() && !text.empty()
+            && std::equal(text.begin(), text.end() - 1, r->start.begin()) && text.back() >= r->start.back()
+            && text.back() - r->start.back() <= r->high - r->low) {
+            out.emplace_back(r->low + static_cast<std::uint32_t>(text.back() - r->start.back()), r->length);
+        }
+    }
+    return out;
+}
+
 std::shared_ptr<std::vector<char32_t> const> cid_to_unicode_table(std::string const& collection)
 {
     if (!safe_name(collection))

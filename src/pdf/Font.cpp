@@ -1,5 +1,6 @@
 #include "pdf/Font.h"
 
+#include "core/Unicode.h"
 #include "pdf/Encoding.h"
 #include "pdf/Type1.h"
 #include "text/Cff.h"
@@ -814,6 +815,75 @@ std::u32string Font::text(ShownGlyph const& glyph) const
     if (m_encoding_cmap && m_encoding_cmap->name().rfind("Uni", 0) == 0 && glyph.length == 2)
         return std::u32string(1, static_cast<char32_t>(glyph.code));
     return {};
+}
+
+std::optional<std::string> Font::encode(char32_t character) const
+{
+    if (m_kind == Kind::Type3)
+        return std::nullopt;
+    {
+        std::lock_guard const lock(m_mutex);
+        if (auto const it = m_encoded.find(character); it != m_encoded.end())
+            return it->second;
+    }
+    std::u32string const wanted(1, character);
+    bool const blank = character == U' ' || character == 0xA0;
+    // A code shows the character when the font gives it that text and has
+    // a glyph for it — an embedded subset may name glyphs it lacks.
+    auto const shows = [&](std::string const& bytes) {
+        std::size_t at = 0;
+        ShownGlyph glyph;
+        if (!next(bytes, at, glyph) || at != bytes.size() || text(glyph) != wanted)
+            return false;
+        if (blank)
+            return glyph.width > 0;
+        return outline(glyph) != nullptr;
+    };
+    std::optional<std::string> found;
+    if (m_kind == Kind::Simple) {
+        for (int i = 32; i < 256 + 32 && !found; ++i) {
+            std::string const bytes(1, static_cast<char>(i & 0xFF));
+            if (shows(bytes))
+                found = bytes;
+        }
+    } else {
+        std::vector<std::pair<std::uint32_t, int>> candidates;
+        if (m_to_unicode)
+            candidates = m_to_unicode->codes_for_text(wanted);
+        std::string const& cmap = m_encoding_cmap ? m_encoding_cmap->name() : std::string();
+        if (candidates.empty() && cmap.rfind("Uni", 0) == 0) {
+            // A predefined Unicode CMap (§9.7.5.2): the code is the text in
+            // the form its name says.
+            if (cmap.find("UTF8") != std::string::npos) {
+                std::string const utf8 = to_utf8(wanted);
+                std::uint32_t code = 0;
+                for (char const c : utf8)
+                    code = (code << 8) | static_cast<unsigned char>(c);
+                candidates.emplace_back(code, static_cast<int>(utf8.size()));
+            } else if (cmap.find("UTF32") != std::string::npos) {
+                candidates.emplace_back(static_cast<std::uint32_t>(character), 4);
+            } else if (character < 0x10000) {
+                candidates.emplace_back(static_cast<std::uint32_t>(character), 2);
+            } else {
+                std::uint32_t const v = character - 0x10000;
+                candidates.emplace_back(((0xD800 + (v >> 10)) << 16) | (0xDC00 + (v & 0x3FF)), 4);
+            }
+        }
+        for (auto const& [code, length] : candidates) {
+            if (length < 1 || length > 4)
+                continue;
+            std::string bytes;
+            for (int k = length - 1; k >= 0; --k)
+                bytes.push_back(static_cast<char>((code >> (8 * k)) & 0xFF));
+            if (shows(bytes)) {
+                found = bytes;
+                break;
+            }
+        }
+    }
+    std::lock_guard const lock(m_mutex);
+    m_encoded.emplace(character, found);
+    return found;
 }
 
 Stream const* Font::type3_procedure(ShownGlyph const& glyph) const

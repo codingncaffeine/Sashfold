@@ -1,14 +1,20 @@
 #include "pdf/Form.h"
 
+#include "core/Bidi.h"
 #include "core/Unicode.h"
+#include "pdf/ArabicFormsData.h"
 #include "pdf/Encoding.h"
 #include "pdf/Font.h"
+#include "pdf/FontEmbed.h"
 #include "pdf/Parser.h"
+#include "text/FontManager.h"
 
 #include <algorithm>
 #include <array>
 #include <cmath>
 #include <cstdio>
+#include <functional>
+#include <iterator>
 #include <map>
 
 namespace sashfold::pdf {
@@ -100,35 +106,119 @@ std::string literal_string(std::string const& bytes)
     return out + ")";
 }
 
-// Unicode to a WinAnsi code, built once from the encoding's glyph names.
-std::map<char32_t, int> const& win_ansi_codes()
+std::string hex_string(std::string const& bytes)
 {
-    static std::map<char32_t, int> const codes = [] {
-        std::map<char32_t, int> out;
-        std::array<char const*, 256> const& names = base_encoding(BaseEncoding::WinAnsi);
-        for (int code = 255; code >= 32; --code) {
-            if (!names[static_cast<std::size_t>(code)])
-                continue;
-            std::u32string const text = glyph_name_unicode(names[static_cast<std::size_t>(code)]);
-            if (text.size() == 1)
-                out[text[0]] = code;
-        }
-        out[U' '] = 32;
-        return out;
-    }();
-    return codes;
+    static constexpr char digits[] = "0123456789ABCDEF";
+    std::string out = "<";
+    for (char const c : bytes) {
+        auto const u = static_cast<unsigned char>(c);
+        out.push_back(digits[u >> 4]);
+        out.push_back(digits[u & 15]);
+    }
+    return out + ">";
 }
 
-// A value's text as the bytes a WinAnsi-encoded simple font shows: what
-// the encoding lacks becomes a bullet, so the field is seen to hold
-// something rather than nothing.
-std::string win_ansi_bytes(std::u32string const& text)
+// A character as written, and the text it stands for: itself, or for a
+// presentation form the letters it was made from.
+struct Shaped {
+    char32_t shown;
+    std::u32string source;
+};
+
+// Arabic cursive joining (Unicode §9.2) written through the presentation
+// forms (Arabic Presentation Forms-A and -B): each letter takes the form
+// its neighbors call for — joined on the side of a letter that joins
+// toward it — and lam before alef becomes their ligature. Marks are
+// stepped over. `drawable` says whether a form can be written; a letter
+// whose form cannot keeps its nominal character. A text shaper with the
+// font's own substitutions does better (and is what other scripts that
+// join need); this is what the forms the standard encodes allow.
+std::vector<Shaped> shape_arabic(std::u32string_view text, std::function<bool(char32_t)> const& drawable)
 {
-    std::string out;
-    std::map<char32_t, int> const& codes = win_ansi_codes();
-    for (char32_t const c : text) {
-        auto const it = codes.find(c);
-        out.push_back(static_cast<char>(it != codes.end() ? it->second : 0x95));
+    enum class Joining { None, Right, Dual, Causing, Transparent };
+    auto const forms_of = [](char32_t c) -> ArabicLetterForms const* {
+        auto const it = std::lower_bound(std::begin(arabic_letter_forms), std::end(arabic_letter_forms), c,
+            [](ArabicLetterForms const& f, char32_t v) { return f.letter < v; });
+        return it != std::end(arabic_letter_forms) && it->letter == c ? &*it : nullptr;
+    };
+    auto const joining = [&](char32_t c) {
+        if (c == 0x200D || c == 0x0640)
+            return Joining::Causing; // zero width joiner, tatweel
+        for (ArabicMarkRange const& r : arabic_transparent) {
+            if (c >= r.first && c <= r.last)
+                return Joining::Transparent;
+        }
+        if (ArabicLetterForms const* f = forms_of(c)) {
+            if (f->initial || f->medial)
+                return Joining::Dual;
+            if (f->final)
+                return Joining::Right;
+        }
+        return Joining::None;
+    };
+    std::vector<Shaped> out;
+    out.reserve(text.size());
+    bool any = false;
+    for (char32_t const c : text)
+        any = any || (c >= 0x0600 && c <= 0x08FF);
+    if (!any) {
+        for (char32_t const c : text)
+            out.push_back({ c, std::u32string(1, c) });
+        return out;
+    }
+    std::vector<Joining> types;
+    for (char32_t const c : text)
+        types.push_back(joining(c));
+    auto const neighbor = [&](std::size_t i, int step) -> std::optional<std::size_t> {
+        for (std::ptrdiff_t k = static_cast<std::ptrdiff_t>(i) + step; k >= 0 && k < static_cast<std::ptrdiff_t>(text.size()); k += step) {
+            if (types[static_cast<std::size_t>(k)] != Joining::Transparent)
+                return static_cast<std::size_t>(k);
+        }
+        return std::nullopt;
+    };
+    for (std::size_t i = 0; i < text.size(); ++i) {
+        char32_t const c = text[i];
+        ArabicLetterForms const* f = forms_of(c);
+        if (!f || (types[i] != Joining::Dual && types[i] != Joining::Right)) {
+            out.push_back({ c, std::u32string(1, c) });
+            continue;
+        }
+        std::optional<std::size_t> const before = neighbor(i, -1), after = neighbor(i, 1);
+        // The letter before joins toward this one when it joins on both
+        // sides (or causes joining); the one after when it joins at all.
+        bool const joined_before = before && (types[*before] == Joining::Dual || types[*before] == Joining::Causing);
+        if (c == 0x0644 && after) {
+            bool ligated = false;
+            for (ArabicLamAlef const& ligature : arabic_lam_alef) {
+                if (ligature.alef != text[*after])
+                    continue;
+                char32_t const form = joined_before ? ligature.final : ligature.isolated;
+                if (form && drawable(form)) {
+                    std::u32string source(1, c);
+                    // The marks between them go with the ligature's text.
+                    for (std::size_t k = i + 1; k <= *after; ++k)
+                        source.push_back(text[k]);
+                    out.push_back({ form, source });
+                    i = *after;
+                    ligated = true;
+                }
+                break;
+            }
+            if (ligated)
+                continue;
+        }
+        bool const joined_after = types[i] == Joining::Dual && after
+            && (types[*after] == Joining::Dual || types[*after] == Joining::Right || types[*after] == Joining::Causing);
+        char32_t form = 0;
+        if (joined_before && joined_after)
+            form = f->medial;
+        else if (joined_before)
+            form = f->final;
+        else if (joined_after)
+            form = f->initial;
+        else
+            form = f->isolated;
+        out.push_back({ form && drawable(form) ? form : c, std::u32string(1, c) });
     }
     return out;
 }
@@ -152,10 +242,10 @@ Object zapf_dict()
     return Object::dict(std::move(font));
 }
 
-// The font a default appearance names in the form's resources, or
-// Helvetica in its place when there is none or it is one a value's text
-// cannot be encoded for (a composite font): the object to put under the
-// resource name, and the loaded font for measuring.
+// The font a default appearance names in the form's resources (a simple
+// or a composite font), or Helvetica in its place when there is none: the
+// object to put under the resource name, and the loaded font for
+// measuring and encoding.
 struct ChosenFont {
     Object object;
     std::shared_ptr<Font const> font;
@@ -170,7 +260,7 @@ ChosenFont choose_font(Document const& doc, std::string const& name)
     Dict const fonts = doc.resolve(dr.get("Font")).as_dict();
     if (Object const* entry = fonts.find(name)) {
         std::shared_ptr<Font const> font = doc.font(*entry);
-        if (font && font->kind() == Font::Kind::Simple) {
+        if (font && font->kind() != Font::Kind::Type3) {
             chosen.object = *entry;
             chosen.font = font;
             return chosen;
@@ -193,14 +283,197 @@ double measure(Font const& font, std::string const& bytes)
     return width;
 }
 
+// One glyph of a line as written: which font shows it (0, the field's
+// own; n, the n-th system face used), its code's bytes and its width per
+// unit of font size.
+struct SetGlyph {
+    std::size_t slot = 0;
+    std::string bytes;
+    double width = 0;
+};
+
+std::vector<std::string> preferred_families(std::string const& generic)
+{
+    if (generic == "serif")
+        return { "Noto Serif", "DejaVu Serif", "Liberation Serif", "Times New Roman" };
+    if (generic == "monospace")
+        return { "Noto Sans Mono", "DejaVu Sans Mono", "Liberation Mono", "Courier New" };
+    return { "Noto Sans", "DejaVu Sans", "Liberation Sans", "Arial" };
+}
+
+// Sets a field's text: each character in the field's own font when that
+// font can show it (its real encoding, or its CMap for a composite font),
+// else in a system face that can, embedded through FormFonts; Arabic
+// through its presentation forms, a line's runs in visual order (UAX #9).
+// Measuring, wrapping, comb cells and quadding all use these widths,
+// which are the widths the written fonts carry.
+class TextSetter {
+public:
+    TextSetter(Document const& doc, std::string const& font_name, std::string const& family, FormFonts& fonts)
+        : m_family(family)
+        , m_fonts(fonts)
+    {
+        ChosenFont chosen = choose_font(doc, font_name);
+        m_font = chosen.font;
+        m_font_object = chosen.object;
+        m_name = chosen.substituted || font_name.empty() ? "Helv" : font_name;
+    }
+
+    bool ok() const { return m_font != nullptr; }
+    Font const& font() const { return *m_font; }
+
+    double width(std::u32string const& text)
+    {
+        double w = 0;
+        for (SetGlyph const& g : logical(text))
+            w += g.width;
+        return w;
+    }
+
+    // A line's glyphs in the order they are drawn, left to right; the
+    // paragraph's level from its first strong character.
+    std::vector<SetGlyph> visual(std::u32string const& text, std::uint8_t paragraph_level)
+    {
+        std::vector<Shaped> const shaped = shape(text);
+        std::vector<SetGlyph> glyphs = encode(shaped);
+        std::u32string shown;
+        for (Shaped const& s : shaped)
+            shown.push_back(s.shown);
+        BidiParagraph const paragraph = bidi_resolve(shown, paragraph_level);
+        std::vector<SetGlyph> out;
+        for (std::size_t const i : bidi_visual_order(paragraph)) {
+            if (i >= glyphs.size())
+                continue;
+            if (paragraph.levels[i] & 1) {
+                // L4: a mirrored character (a parenthesis) in its mirrored form.
+                char32_t const mirrored = bidi_mirrored(shown[i]);
+                if (mirrored != shown[i]) {
+                    SetGlyph g = glyph_for(mirrored, shaped[i].source, glyphs[i].slot);
+                    if (!g.bytes.empty()) {
+                        out.push_back(std::move(g));
+                        continue;
+                    }
+                }
+            }
+            out.push_back(glyphs[i]);
+        }
+        return out;
+    }
+
+    // The operators that show glyphs from the current point: a font
+    // change where the font does, each run one string.
+    std::string show(std::vector<SetGlyph> const& glyphs, double size, std::size_t& current_slot)
+    {
+        std::string out;
+        std::string run;
+        std::size_t run_slot = current_slot;
+        auto const flush = [&] {
+            if (run.empty())
+                return;
+            if (run_slot != current_slot) {
+                out += "/" + resource_name(run_slot) + " " + number(size) + " Tf ";
+                current_slot = run_slot;
+            }
+            bool const single_bytes = run_slot == 0 && m_font->kind() == Font::Kind::Simple;
+            out += (single_bytes ? literal_string(run) : hex_string(run)) + " Tj\n";
+            run.clear();
+        };
+        for (SetGlyph const& g : glyphs) {
+            if (g.slot != run_slot) {
+                flush();
+                run_slot = g.slot;
+            }
+            run += g.bytes;
+        }
+        flush();
+        return out;
+    }
+
+    std::string const& field_font_name() const { return m_name; }
+
+    // The fonts the text was set in, into a resource dictionary's /Font.
+    void add_resources(Dict& fonts) const
+    {
+        fonts.set(m_name, m_font_object);
+        for (FormFonts::Face* face : m_faces)
+            fonts.set(face->resource, m_fonts.font_object(*face));
+    }
+
+private:
+    std::string resource_name(std::size_t slot) const { return slot == 0 ? m_name : m_faces[slot - 1]->resource; }
+
+    std::vector<Shaped> shape(std::u32string const& text)
+    {
+        return shape_arabic(text, [&](char32_t form) { return m_font->encode(form) || m_fonts.face_for(form, m_family); });
+    }
+
+    std::vector<SetGlyph> logical(std::u32string const& text) { return encode(shape(text)); }
+
+    std::vector<SetGlyph> encode(std::vector<Shaped> const& shaped)
+    {
+        std::vector<SetGlyph> out;
+        std::size_t previous = 0;
+        for (Shaped const& s : shaped) {
+            SetGlyph g = glyph_for(s.shown, s.source, previous);
+            previous = g.slot;
+            out.push_back(std::move(g));
+        }
+        return out;
+    }
+
+    // A character's glyph: the field's font where it shows it — but a
+    // space, digit or punctuation mark between characters of a system
+    // face stays in that face — else the system face of the character
+    // before when it has it, else the one the font manager finds; else
+    // the field's font's '?' (nothing on the machine shows it).
+    SetGlyph glyph_for(char32_t c, std::u32string const& source, std::size_t previous)
+    {
+        bool const neutral = strong_direction(c) == StrongDirection::None;
+        if (!(neutral && previous != 0 && m_faces[previous - 1]->face->glyph(c))) {
+            if (std::optional<std::string> const bytes = m_font->encode(c))
+                return { 0, *bytes, measure(*m_font, *bytes) };
+        }
+        FormFonts::Face* face = nullptr;
+        if (previous != 0 && m_faces[previous - 1]->face->glyph(c))
+            face = m_faces[previous - 1];
+        else
+            face = m_fonts.face_for(c, m_family);
+        if (face) {
+            std::uint16_t const gid = face->face->glyph(c);
+            face->glyphs.emplace(gid, source);
+            std::size_t slot = 0;
+            for (std::size_t i = 0; i < m_faces.size(); ++i) {
+                if (m_faces[i] == face)
+                    slot = i + 1;
+            }
+            if (slot == 0) {
+                m_faces.push_back(face);
+                slot = m_faces.size();
+            }
+            std::string bytes { static_cast<char>(gid >> 8), static_cast<char>(gid & 0xFF) };
+            return { slot, bytes, face->face->advance(gid) / 1000.0 };
+        }
+        if (std::optional<std::string> const bytes = m_font->encode(U'?'))
+            return { 0, *bytes, measure(*m_font, *bytes) };
+        return { 0, "", 0 };
+    }
+
+    std::string m_family;
+    FormFonts& m_fonts;
+    std::shared_ptr<Font const> m_font;
+    Object m_font_object;
+    std::string m_name;
+    std::vector<FormFonts::Face*> m_faces; // slot n is m_faces[n - 1]
+};
+
 // Lines of a text as a field shows them: one line, or wrapped at a width
 // (in text space at the font size) by words, a word too long for a line
 // broken where it must be.
-std::vector<std::u32string> wrap_lines(Font const& font, std::u32string const& text, double size, double width, bool multiline)
+std::vector<std::u32string> wrap_lines(TextSetter& setter, std::u32string const& text, double size, double width, bool multiline)
 {
     std::vector<std::u32string> lines;
     std::u32string current;
-    auto const width_of = [&](std::u32string const& s) { return measure(font, win_ansi_bytes(s)) * size; };
+    auto const width_of = [&](std::u32string const& s) { return setter.width(s) * size; };
     std::vector<std::u32string> paragraphs;
     if (!multiline) {
         std::u32string one;
@@ -363,35 +636,40 @@ std::array<double, 6> rotation_matrix(FormField const& field)
 
 // Text shown in a box: the lines placed by the quadding, from the top
 // for several lines, centered on the box's height for one.
-std::string show_lines(Font const& font, std::string const& font_name, double size, std::string const& color, std::vector<std::u32string> const& lines,
+std::string show_lines(TextSetter& setter, std::u32string const& whole_text, double size, std::string const& color, std::vector<std::u32string> const& lines,
     double x0, double y_top, double box_width, double box_height, int quadding, bool one_line, bool comb, int comb_cells)
 {
-    std::string out = "BT /" + font_name + " " + number(size) + " Tf " + color + "\n";
+    std::string out = "BT /" + setter.field_font_name() + " " + number(size) + " Tf " + color + "\n";
+    std::size_t current_slot = 0;
+    Font const& font = setter.font();
     double const ascent = font.ascent() > 0 ? font.ascent() : 0.8;
     double const descent = font.descent() < 0 ? font.descent() : -0.2;
     double const leading = size * k_line_factor;
+    // Every line of the value at the paragraph level its first strong
+    // character gives (UAX #9 P2, P3).
+    std::uint8_t const level = first_strong_is_rtl(whole_text) ? 1 : 0;
     double y = one_line ? y_top - box_height / 2 - (ascent + descent) * size / 2 : y_top - ascent * size;
     for (std::u32string const& line : lines) {
+        std::vector<SetGlyph> const glyphs = setter.visual(line, level);
         if (comb && comb_cells > 0) {
+            // A character a cell, centered in it, the cells left to right
+            // in the order the characters are drawn.
             double const cell = box_width / comb_cells;
-            std::size_t i = 0;
-            for (char32_t const c : line) {
-                if (static_cast<int>(i) >= comb_cells)
-                    break;
-                std::string const bytes = win_ansi_bytes(std::u32string(1, c));
-                double const w = measure(font, bytes) * size;
-                out += "1 0 0 1 " + number(x0 + cell * static_cast<double>(i) + (cell - w) / 2) + " " + number(y) + " Tm " + literal_string(bytes) + " Tj\n";
-                ++i;
+            for (std::size_t i = 0; i < glyphs.size() && static_cast<int>(i) < comb_cells; ++i) {
+                double const w = glyphs[i].width * size;
+                out += "1 0 0 1 " + number(x0 + cell * static_cast<double>(i) + (cell - w) / 2) + " " + number(y) + " Tm "
+                    + setter.show({ glyphs[i] }, size, current_slot);
             }
         } else {
-            std::string const bytes = win_ansi_bytes(line);
-            double const w = measure(font, bytes) * size;
+            double w = 0;
+            for (SetGlyph const& g : glyphs)
+                w += g.width * size;
             double x = x0;
             if (quadding == 1)
                 x = x0 + (box_width - w) / 2;
             else if (quadding == 2)
                 x = x0 + box_width - w;
-            out += "1 0 0 1 " + number(x) + " " + number(y) + " Tm " + literal_string(bytes) + " Tj\n";
+            out += "1 0 0 1 " + number(x) + " " + number(y) + " Tm " + setter.show(glyphs, size, current_slot);
         }
         y -= leading;
         if (y < -leading)
@@ -406,6 +684,106 @@ std::u32string stars(std::size_t n)
 }
 
 } // namespace
+
+FormFonts::FormFonts(Document const& doc)
+    : m_doc(doc)
+{
+}
+
+FormFonts::FormFonts(Document const& doc, std::function<Ref()> allocate)
+    : m_doc(doc)
+    , m_allocate(std::move(allocate))
+{
+    // The names the form's resources already use are not taken again.
+    Dict const acroform = doc.resolve(doc.catalog().get("AcroForm")).as_dict();
+    Dict const dr = doc.resolve(acroform.get("DR")).as_dict();
+    for (auto const& [name, font] : doc.resolve(dr.get("Font")).as_dict().entries())
+        m_taken.insert(name);
+}
+
+FormFonts::~FormFonts() = default;
+
+FormFonts::Face* FormFonts::face_for(char32_t character, std::string const& family)
+{
+    std::pair<char32_t, std::string> const key { character, family };
+    if (auto const it = m_by_character.find(key); it != m_by_character.end())
+        return it->second;
+    Face* found = nullptr;
+    // A face already in use that has it first, so the text keeps to as
+    // few fonts as it can.
+    for (std::unique_ptr<Face> const& face : m_faces) {
+        if (face->face->glyph(character)) {
+            found = face.get();
+            break;
+        }
+    }
+    if (!found) {
+        if (std::optional<text::FaceInfo> const info = text::FontManager::instance().embeddable_face_for(character, preferred_families(family))) {
+            if (std::shared_ptr<SystemFace const> face = SystemFace::load(info->path, info->face_index); face && face->glyph(character)) {
+                if (auto const it = m_by_key.find(face->key()); it != m_by_key.end()) {
+                    found = it->second;
+                } else {
+                    auto made = std::make_unique<Face>();
+                    made->face = face;
+                    for (int n = 1;; ++n) {
+                        std::string const name = "SfF" + std::to_string(n);
+                        bool used = m_taken.contains(name);
+                        for (std::unique_ptr<Face> const& other : m_faces)
+                            used = used || other->resource == name;
+                        if (!used) {
+                            made->resource = name;
+                            break;
+                        }
+                    }
+                    found = made.get();
+                    m_by_key.emplace(face->key(), found);
+                    m_faces.push_back(std::move(made));
+                }
+            }
+        }
+    }
+    m_by_character.emplace(key, found);
+    return found;
+}
+
+Object FormFonts::font_object(Face& face)
+{
+    if (m_allocate) {
+        // Numbered when an appearance first names it.
+        if (face.ref.num == 0)
+            face.ref = m_allocate();
+        return Object::ref(face.ref);
+    }
+    return embed_type0_font(*face.face, face.glyphs, [](Object o) { return o; }, m_doc.security() != nullptr);
+}
+
+std::vector<std::pair<Ref, Object>> FormFonts::finish()
+{
+    std::vector<std::pair<Ref, Object>> objects;
+    if (!m_allocate)
+        return objects;
+    for (std::unique_ptr<Face> const& face : m_faces) {
+        if (face->ref.num == 0)
+            continue;
+        Object type0 = embed_type0_font(*face->face, face->glyphs, [&](Object o) {
+            Ref const ref = m_allocate();
+            objects.emplace_back(ref, std::move(o));
+            return Object::ref(ref);
+        });
+        objects.emplace_back(face->ref, std::move(type0));
+    }
+    return objects;
+}
+
+std::vector<std::pair<std::string, Ref>> FormFonts::resource_entries() const
+{
+    std::vector<std::pair<std::string, Ref>> out;
+    for (std::unique_ptr<Face> const& face : m_faces) {
+        if (face->ref.num != 0)
+            out.emplace_back(face->resource, face->ref);
+    }
+    return out;
+}
 
 bool FormField::comb() const
 {
@@ -656,7 +1034,7 @@ std::string widget_state(FormField const& field, FormValue const* value)
     return "";
 }
 
-Appearance widget_appearance(Document const& doc, FormField const& field, FormValue const* value_in)
+Appearance widget_appearance(Document const& doc, FormField const& field, FormValue const* value_in, FormFonts* fonts_in)
 {
     Appearance out;
     FormValue const& value = value_in ? *value_in : field.value;
@@ -668,15 +1046,12 @@ Appearance widget_appearance(Document const& doc, FormField const& field, FormVa
     Dict fonts;
     double const inner_w = std::max(0.0, frame.width - 2 * frame.inset);
     double const inner_h = std::max(0.0, frame.height - 2 * frame.inset);
-
-    auto const text_font = [&](std::string& resource_name) {
-        ChosenFont chosen = choose_font(doc, field.da.font_name);
-        resource_name = chosen.substituted ? "Helv" : field.da.font_name;
-        if (resource_name.empty())
-            resource_name = "Helv";
-        fonts.set(resource_name, chosen.object);
-        return chosen.font;
-    };
+    std::optional<FormFonts> own_fonts;
+    if (!fonts_in)
+        own_fonts.emplace(doc);
+    FormFonts& embedded = fonts_in ? *fonts_in : *own_fonts;
+    TextSetter setter(doc, field.da.font_name, field.font_family, embedded);
+    bool text_set = false;
 
     switch (field.kind) {
     case FormField::Kind::Text:
@@ -696,12 +1071,9 @@ Appearance widget_appearance(Document const& doc, FormField const& field, FormVa
             text.resize(static_cast<std::size_t>(field.max_len));
         if (field.password())
             text = stars(text.size());
-        if (text.empty())
+        if (text.empty() || !setter.ok())
             break;
-        std::string font_name;
-        std::shared_ptr<Font const> const font = text_font(font_name);
-        if (!font)
-            break;
+        text_set = true;
         bool const multiline = field.multiline();
         double size = field.da.font_size;
         if (size <= 0) {
@@ -709,34 +1081,34 @@ Appearance widget_appearance(Document const& doc, FormField const& field, FormVa
                 // Twelve points, smaller when the lines do not fit.
                 size = 12;
                 while (size > 4) {
-                    std::vector<std::u32string> const lines = wrap_lines(*font, text, size, inner_w, true);
+                    std::vector<std::u32string> const lines = wrap_lines(setter, text, size, inner_w, true);
                     if (static_cast<double>(lines.size()) * size * k_line_factor <= inner_h)
                         break;
                     size -= 1;
                 }
             } else {
                 size = inner_h / k_line_factor;
-                double const w = measure(*font, win_ansi_bytes(text));
+                double const w = setter.width(text);
                 if (w > 0 && !field.comb())
                     size = std::min(size, inner_w / w);
                 size = std::max(1.0, std::floor(size * 100) / 100);
             }
         }
-        std::vector<std::u32string> const lines = wrap_lines(*font, text, size, inner_w, multiline);
+        std::vector<std::u32string> const lines = wrap_lines(setter, text, size, inner_w, multiline);
         content += "/Tx BMC q " + number(frame.inset) + " " + number(frame.inset) + " " + number(inner_w) + " " + number(inner_h) + " re W n\n";
-        content += show_lines(*font, font_name, size, field.da.color_operators, lines, frame.inset, frame.height - frame.inset, inner_w, inner_h,
+        content += show_lines(setter, text, size, field.da.color_operators, lines, frame.inset, frame.height - frame.inset, inner_w, inner_h,
             field.quadding, !multiline, field.comb(), field.max_len);
         content += "Q EMC\n";
         break;
     }
     case FormField::Kind::ListBox: {
-        std::string font_name;
-        std::shared_ptr<Font const> const font = text_font(font_name);
-        if (!font || field.options.empty())
+        if (!setter.ok() || field.options.empty())
             break;
+        text_set = true;
         double const size = field.da.font_size > 0 ? field.da.font_size : 12;
         double const leading = size * k_line_factor;
-        double const ascent = font->ascent() > 0 ? font->ascent() : 0.8;
+        double const ascent = setter.font().ascent() > 0 ? setter.font().ascent() : 0.8;
+        std::size_t current_slot = 0;
         content += "/Tx BMC q " + number(frame.inset) + " " + number(frame.inset) + " " + number(inner_w) + " " + number(inner_h) + " re W n\n";
         double y_top = frame.height - frame.inset;
         std::string text_ops;
@@ -750,11 +1122,12 @@ Appearance widget_appearance(Document const& doc, FormField const& field, FormVa
                 // Acrobat's and pdf.js's selection blue behind the row.
                 content += "0.6 0.7569 0.8549 rg " + number(frame.inset) + " " + number(y_top - leading) + " " + number(inner_w) + " " + number(leading) + " re f\n";
             }
-            std::string const bytes = win_ansi_bytes(decode_utf8(display));
-            text_ops += "1 0 0 1 " + number(frame.inset + 1) + " " + number(y_top - ascent * size) + " Tm " + literal_string(bytes) + " Tj\n";
+            std::u32string const row = decode_utf8(display);
+            std::vector<SetGlyph> const glyphs = setter.visual(row, first_strong_is_rtl(row) ? 1 : 0);
+            text_ops += "1 0 0 1 " + number(frame.inset + 1) + " " + number(y_top - ascent * size) + " Tm " + setter.show(glyphs, size, current_slot);
             y_top -= leading;
         }
-        content += "BT /" + font_name + " " + number(size) + " Tf " + field.da.color_operators + "\n" + text_ops + "ET\nQ EMC\n";
+        content += "BT /" + setter.field_font_name() + " " + number(size) + " Tf " + field.da.color_operators + "\n" + text_ops + "ET\nQ EMC\n";
         break;
     }
     case FormField::Kind::CheckBox:
@@ -797,23 +1170,24 @@ Appearance widget_appearance(Document const& doc, FormField const& field, FormVa
         std::string const caption = field.caption;
         if (caption.empty())
             break;
-        std::string font_name;
-        std::shared_ptr<Font const> const font = text_font(font_name);
-        if (!font)
+        if (!setter.ok())
             break;
+        text_set = true;
         double size = field.da.font_size > 0 ? field.da.font_size : std::max(1.0, std::min(inner_h / k_line_factor, 12.0));
         std::u32string const text = decode_utf8(caption);
-        double const w = measure(*font, win_ansi_bytes(text));
+        double const w = setter.width(text);
         if (w > 0 && w * size > inner_w)
             size = std::max(1.0, inner_w / w);
         content += "q " + number(frame.inset) + " " + number(frame.inset) + " " + number(inner_w) + " " + number(inner_h) + " re W n\n";
-        content += show_lines(*font, font_name, size, field.da.color_operators, { text }, frame.inset, frame.height - frame.inset, inner_w, inner_h, 1, true, false, 0);
+        content += show_lines(setter, text, size, field.da.color_operators, { text }, frame.inset, frame.height - frame.inset, inner_w, inner_h, 1, true, false, 0);
         content += "Q\n";
         break;
     }
     default:
         break;
     }
+    if (text_set)
+        setter.add_resources(fonts);
     out.content = std::move(content);
     if (!fonts.empty())
         out.resources.set("Font", Object::dict(std::move(fonts)));
@@ -825,13 +1199,10 @@ std::string free_text_appearance(Document const& doc, Dict const& annotation, Bo
     std::string const contents = text_string_to_utf8(doc.resolve(annotation.get("Contents")).as_string());
     Object const da_object = doc.resolve(annotation.get("DA"));
     DefaultAppearance const da = parse_default_appearance(da_object.is_string() ? da_object.as_string() : std::string("/Helv 12 Tf 0 g"));
-    ChosenFont chosen = choose_font(doc, da.font_name);
-    if (!chosen.font)
+    FormFonts embedded(doc);
+    TextSetter setter(doc, da.font_name, family_of(doc, da.font_name), embedded);
+    if (!setter.ok())
         return "";
-    std::string const font_name = chosen.substituted || da.font_name.empty() ? "Helv" : da.font_name;
-    Dict fonts;
-    fonts.set(font_name, chosen.object);
-    resources.set("Font", Object::dict(std::move(fonts)));
     // The border: /BS width (one by default) in the text's color, and a
     // background where /C gives one.
     Dict const bs = doc.resolve(annotation.get("BS")).as_dict();
@@ -851,10 +1222,13 @@ std::string free_text_appearance(Document const& doc, Dict const& annotation, Bo
     double const inner_h = std::max(0.0, rect.height() - 2 * inset);
     double size = da.font_size > 0 ? da.font_size : 12;
     std::u32string const text = decode_utf8(contents);
-    std::vector<std::u32string> const lines = wrap_lines(*chosen.font, text, size, inner_w, true);
+    std::vector<std::u32string> const lines = wrap_lines(setter, text, size, inner_w, true);
     int const quadding = static_cast<int>(std::clamp<std::int64_t>(doc.resolve(annotation.get("Q")).as_int(0), 0, 2));
     out += "q " + number(rect.x0 + inset) + " " + number(rect.y0 + inset) + " " + number(inner_w) + " " + number(inner_h) + " re W n\n";
-    out += show_lines(*chosen.font, font_name, size, da.color_operators, lines, rect.x0 + inset, rect.y1 - inset, inner_w, inner_h, quadding, false, false, 0);
+    out += show_lines(setter, text, size, da.color_operators, lines, rect.x0 + inset, rect.y1 - inset, inner_w, inner_h, quadding, false, false, 0);
+    Dict fonts;
+    setter.add_resources(fonts);
+    resources.set("Font", Object::dict(std::move(fonts)));
     return out + "Q\n";
 }
 

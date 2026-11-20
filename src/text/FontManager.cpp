@@ -962,6 +962,61 @@ Face const* FontManager::fallback_for(char32_t code_point)
     return found;
 }
 
+std::optional<FaceInfo> FontManager::embeddable_face_for(char32_t code_point, std::vector<std::string> const& preferred_families)
+{
+    std::lock_guard<std::recursive_mutex> const lock(m_mutex);
+    // The machine's faces whether or not text on screen is set in them:
+    // what a document carries is the document's, not the screen's.
+    scan();
+    std::string key = std::to_string(static_cast<std::uint32_t>(code_point));
+    for (std::string const& family : preferred_families)
+        key += "|" + lowercased(family);
+    if (auto const it = m_embeddable.find(key); it != m_embeddable.end())
+        return it->second;
+    // Three rounds: a regular face of normal width, then one up to medium,
+    // then any upright one.
+    auto const fits = [&](std::size_t index, int round) {
+        FaceInfo const& info = m_catalogue[index];
+        if (info.color || info.italic || !info.has_outlines || info.weight_class > 500)
+            return false;
+        if (round == 0 && (info.stretch != 100 || info.weight_class != 400))
+            return false;
+        if (round == 1 && (info.stretch != 100 || info.weight_class < 400))
+            return false;
+        if (!(info.claims(code_point) || info.claims_nothing()))
+            return false;
+        Face const* face = load(index);
+        return face && face->glyph_index(code_point) != 0;
+    };
+    std::optional<FaceInfo> const chosen = [&]() -> std::optional<FaceInfo> {
+        for (int const round : { 0, 1, 2 }) {
+            auto const in_families = [&](auto const& families) -> std::optional<FaceInfo> {
+                for (auto const& family : families) {
+                    auto const it = m_by_family.find(lowercased(family));
+                    if (it == m_by_family.end())
+                        continue;
+                    for (std::size_t const index : it->second) {
+                        if (fits(index, round))
+                            return m_catalogue[index];
+                    }
+                }
+                return std::nullopt;
+            };
+            if (std::optional<FaceInfo> preferred = in_families(preferred_families))
+                return preferred;
+            if (std::optional<FaceInfo> fallback = in_families(fallback_families))
+                return fallback;
+            for (std::size_t index = 0; index < m_catalogue.size(); ++index) {
+                if (fits(index, round))
+                    return m_catalogue[index];
+            }
+        }
+        return std::nullopt;
+    }();
+    m_embeddable.emplace(std::move(key), chosen);
+    return chosen;
+}
+
 Face const* FontManager::color_face_for(char32_t code_point)
 {
     std::lock_guard<std::recursive_mutex> const lock(m_mutex);

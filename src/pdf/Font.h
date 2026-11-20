@@ -70,6 +70,12 @@ public:
     std::shared_ptr<svg::Path const> outline(ShownGlyph const& glyph) const;
     // The text a glyph stands for: ToUnicode, else its glyph name, else the CID collection's table.
     std::u32string text(ShownGlyph const& glyph) const;
+    // The other direction, for writing: the bytes of a code that shows the
+    // character — its text is the character and the font has a glyph for
+    // it — through a simple font's encoding (base, /Differences, the
+    // program's own) or a composite font's ToUnicode or Unicode CMap;
+    // nullopt when the font cannot show it (and for Type 3).
+    std::optional<std::string> encode(char32_t character) const;
 
     // Type 3: the glyph's content stream, the font matrix and resources.
     Stream const* type3_procedure(ShownGlyph const& glyph) const;
@@ -140,6 +146,7 @@ private:
 
     mutable std::mutex m_mutex;
     mutable std::map<std::uint32_t, std::shared_ptr<svg::Path const>> m_outlines; // by glyph (or code for Type 1 names)
+    mutable std::map<char32_t, std::optional<std::string>> m_encoded; // encode()'s answers
 };
 
 }
