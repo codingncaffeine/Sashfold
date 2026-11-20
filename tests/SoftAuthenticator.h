@@ -168,6 +168,17 @@ public:
         m_touch = plan;
     }
     void set_uv_succeeds(bool succeeds) { m_uv_succeeds = succeeds; }
+    // Unplugged and plugged back in: the state that lasts only until power
+    // is lost goes (§6.5.2: the PIN mismatch run, the key agreement key,
+    // the token).
+    void power_cycle()
+    {
+        std::lock_guard lock(m_mutex);
+        m_consecutive_mismatches = 0;
+        m_power_cycle_needed = false;
+        regenerate_key_agreement();
+        reset_token();
+    }
     void unplug() { m_link->unplug(); }
 
     std::vector<Credential> credentials()
@@ -882,9 +893,11 @@ private:
                 if (s != Status::Ok)
                     return status_only(m_pin_hash && s != Status::UvBlocked ? Status::PuatRequired : s);
                 uv_done = true;
-            } else if (m_options.always_uv || rk || !m_options.make_cred_uv_not_rqd || !is_21()) {
+            } else if (is_21() ? (m_options.always_uv || rk || !m_options.make_cred_uv_not_rqd) : m_pin_hash.has_value()) {
                 // §6.1.2 step 6: without makeCredUvNotRqd (or for a
-                // discoverable credential) a protected key wants UV.
+                // discoverable credential) a protected key wants UV. CTAP
+                // 2.0 asked for it only when a PIN was set
+                // (CTAP2_ERR_PIN_REQUIRED, the same code).
                 return status_only(m_pin_hash ? Status::PuatRequired : Status::OperationDenied);
             }
         }

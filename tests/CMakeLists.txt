@@ -167,6 +167,8 @@ sashfold_test(test_crypto)
 # software authenticator of tests/SoftAuthenticator.h.
 sashfold_test(test_auth_cbor)
 sashfold_test(test_auth_hid)
+sashfold_test(test_auth_vectors)
+sashfold_test(test_auth_ctap2)
 sashfold_test(test_bindings)
 sashfold_test(test_realm_lazy)
 sashfold_test(test_canvas)
