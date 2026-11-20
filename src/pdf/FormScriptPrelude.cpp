@@ -1140,7 +1140,7 @@ function fieldFor(request) {
   return fd;
 }
 function widgetActions(fd, request, key) {
-  const w = fd.widgets[request.widget | 0];
+  const w = (request.widgetRef && fd.widgets.find((x) => x.ref === request.widgetRef)) || fd.widgets[request.widget | 0];
   return (w && w.actions[key]) || [];
 }
 function dispatch(json) {

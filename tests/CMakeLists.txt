@@ -311,6 +311,10 @@ add_test(NAME shell_pdf_form
 # puts it, never scrolled, the character past MaxLen refused.
 add_test(NAME shell_pdf_comb
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pdf-comb.script)
+# A form's scripts: open action, calculations in /CO order with formats,
+# keystroke filters, a refused range's alert, show/hide, reset, download.
+add_test(NAME shell_pdf_scripts
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pdf-scripts.script)
 # A PDF in an iframe, an embed and an object: the viewer in each, drawn.
 add_test(NAME shell_pdf_frames
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/pdf-frames.script)

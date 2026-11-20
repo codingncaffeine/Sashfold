@@ -98,6 +98,12 @@ body.side-open #pages { padding-left: 216px; }
 #toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--bar); color: var(--ink);
   padding: 10px 18px; border-radius: 6px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5); font-size: 14px; display: none; }
 #toast.on { display: block; }
+/* A document's alerts: the viewer's own boxes, which wait for nobody. */
+#alerts { position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 20; display: flex; flex-direction: column; gap: 8px; }
+#alerts .alert { background: var(--bar); color: var(--ink); padding: 16px 20px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
+  display: flex; flex-direction: column; gap: 12px; min-width: 280px; max-width: 480px; white-space: pre-wrap; }
+#alerts button.wide { width: auto; height: 32px; border-radius: 4px; background: var(--accent); color: #202124; padding: 0 16px;
+  align-self: flex-end; font: inherit; font-weight: 600; }
 #notice form, #notice div.box { background: var(--bar); padding: 20px 24px; border-radius: 8px; box-shadow: 0 4px 16px rgba(0, 0, 0, 0.5);
   display: flex; flex-direction: column; gap: 12px; min-width: 280px; }
 #notice input { background: var(--field); color: var(--ink); border: 1px solid #5f6368; border-radius: 4px; padding: 8px; font: inherit; }
@@ -321,31 +327,41 @@ function sendField(field, kind, value) {
 function buildFields(p) {
   const layer = p.fields;
   layer.textContent = "";
+  for (const c of p.controls || []) {
+    const list = byName.get(c.item.name);
+    if (list)
+      byName.set(c.item.name, list.filter((x) => x !== c));
+  }
   p.controls = [];
   const timers = new Map();
   for (const item of p.fieldItems) {
     let el = null;
+    const triggers = new Set(item.actions || []);
     if (item.kind === "text") {
       el = document.createElement(item.multiline ? "textarea" : "input");
       if (!item.multiline)
         el.type = item.password ? "password" : "text";
-      el.value = item.value;
+      el.value = item.display !== undefined ? item.display : item.value;
       if (item.maxLen > 0)
         el.maxLength = item.maxLen;
       if (item.readOnly)
         el.readOnly = true;
       el.spellcheck = item.spellCheck;
       el.autocomplete = "off";
-      const send = () => {
-        clearTimeout(timers.get(el));
-        timers.delete(el);
-        sendField(item.field, "text", el.value);
-      };
-      el.addEventListener("input", () => {
-        clearTimeout(timers.get(el));
-        timers.set(el, setTimeout(send, 250));
-      });
-      el.addEventListener("blur", () => { if (timers.has(el)) send(); });
+      if (info.scripts) {
+        scriptedText(el, item, triggers);
+      } else {
+        const send = () => {
+          clearTimeout(timers.get(el));
+          timers.delete(el);
+          sendField(item.field, "text", el.value);
+        };
+        el.addEventListener("input", () => {
+          clearTimeout(timers.get(el));
+          timers.set(el, setTimeout(send, 250));
+        });
+        el.addEventListener("blur", () => { if (timers.has(el)) send(); });
+      }
     } else if (item.kind === "checkbox" || item.kind === "radio") {
       el = document.createElement("input");
       el.type = item.kind;
@@ -356,29 +372,46 @@ function buildFields(p) {
         el.disabled = true;
       el.addEventListener("change", async () => {
         const state = el.checked ? (item.on || "Yes") : "Off";
-        await sendField(item.field, "state", state);
+        if (info.scripts) {
+          // The value, the calculations after it, then the button's Mouse Up action.
+          await ask({ type: "mouse", field: item.name, widgetRef: item.widget, action: "U", value: state });
+        } else {
+          await sendField(item.field, "state", state);
+        }
         redraw(p);
       });
     } else if (item.kind === "combo" && !item.editable) {
       el = document.createElement("select");
-      for (const [value, label] of item.options) {
-        const option = document.createElement("option");
-        option.value = value;
-        option.textContent = label;
-        el.appendChild(option);
-      }
+      fillOptions(el, item.options);
       el.value = item.value;
       if (item.readOnly)
         el.disabled = true;
-      el.addEventListener("change", () => sendField(item.field, "text", el.value));
+      el.addEventListener("change", () => {
+        if (info.scripts)
+          ask({ type: "commit", field: item.name, value: el.value, commitKey: 1 });
+        else
+          sendField(item.field, "text", el.value);
+      });
     } else if (item.kind === "combo") {
       el = document.createElement("input");
       el.type = "text";
       const shown = item.options.find((o) => o[0] === item.value);
-      el.value = shown ? shown[1] : item.value;
+      el.value = item.display !== undefined ? item.display : shown ? shown[1] : item.value;
       if (item.readOnly)
         el.readOnly = true;
-      el.addEventListener("change", () => sendField(item.field, "text", el.value));
+      if (info.scripts)
+        scriptedText(el, item, triggers);
+      else
+        el.addEventListener("change", () => sendField(item.field, "text", el.value));
+    } else if (item.kind === "button" && info.scripts && (triggers.has("U") || triggers.has("D") || triggers.has("A"))) {
+      // A push button with actions: pressed here, drawn by the page.
+      el = document.createElement("button");
+      el.type = "button";
+      el.className = "toggle";
+      el.setAttribute("aria-label", item.name);
+      if (triggers.has("D"))
+        el.addEventListener("mousedown", () => ask({ type: "mouse", field: item.name, widgetRef: item.widget, action: "D" }));
+      el.addEventListener("click", () => ask({ type: "mouse", field: item.name, widgetRef: item.widget, action: "U" }));
     } else if (item.kind === "list") {
       // A list box of rows, as the page draws it: a press chooses a row,
       // Ctrl+press adds one where several may be chosen, the arrow keys move.
@@ -387,7 +420,13 @@ function buildFields(p) {
       el.tabIndex = item.readOnly ? -1 : 0;
       const chosen = new Set(item.selections.length ? item.selections : (item.value ? [item.value] : []));
       const rows = [];
-      const send = () => sendField(item.field, "selections", rows.filter((r) => r.classList.contains("on")).map((r) => r.dataset.value).join("\n"));
+      const send = () => {
+        const values = rows.filter((r) => r.classList.contains("on")).map((r) => r.dataset.value);
+        if (info.scripts)
+          ask({ type: "commit", field: item.name, value: values.length > 1 ? values : values.length ? values[0] : "", commitKey: 1 });
+        else
+          sendField(item.field, "selections", values.join("\n"));
+      };
       const choose = (row, add) => {
         if (add)
           row.classList.toggle("on");
@@ -424,7 +463,19 @@ function buildFields(p) {
           choose(rows[next], false);
       });
     } else {
-      continue; // push buttons and signatures: drawn by the page, no action here
+      continue; // signatures and buttons without actions: drawn by the page, no action here
+    }
+    if (info.scripts) {
+      if (triggers.has("E"))
+        el.addEventListener("mouseenter", () => ask({ type: "mouse", field: item.name, widgetRef: item.widget, action: "E" }));
+      if (triggers.has("X"))
+        el.addEventListener("mouseleave", () => ask({ type: "mouse", field: item.name, widgetRef: item.widget, action: "X" }));
+      if (item.kind !== "text" && item.kind !== "combo") {
+        if (triggers.has("Fo"))
+          el.addEventListener("focus", () => ask({ type: "focus", field: item.name, widgetRef: item.widget }));
+        if (triggers.has("Bl"))
+          el.addEventListener("blur", () => ask({ type: "blur", field: item.name, widgetRef: item.widget }));
+      }
     }
     el.classList.add("f");
     el.id = "field-" + item.widget;
@@ -443,9 +494,264 @@ function buildFields(p) {
     } else {
       layer.appendChild(el);
     }
-    p.controls.push({ el, item, box });
+    const control = { el, item, box, p };
+    p.controls.push(control);
+    if (!byName.has(item.name))
+      byName.set(item.name, []);
+    byName.get(item.name).push(control);
+    if (item.hidden)
+      (box || el).style.display = "none";
+    if (item.textColor)
+      el.dataset.color = item.textColor;
   }
   placeFields(p);
+  // What the scripts have said of these fields since the document opened.
+  for (const c of p.controls) {
+    const state = fieldState.get(c.item.name);
+    if (state)
+      applyState(c, state);
+  }
+}
+
+// --- The form's scripts (pdf/FormScript.h), asked one event at a time ---
+
+const byName = new Map(); // a field's full name -> its controls
+const fieldState = new Map(); // a field's name -> what the scripts last said of it
+let scriptChain = Promise.resolve();
+let scriptsDead = false;
+let scriptTimer = 0;
+
+function ask(request) {
+  if (!info || !info.scripts || scriptsDead)
+    return Promise.resolve(null);
+  const run = scriptChain
+    .then(() => fetch(BASE + "js", { method: "POST", body: JSON.stringify(request) }))
+    .then((response) => response.json())
+    .catch(() => null)
+    .then((answer) => {
+      applyAnswer(answer);
+      return answer;
+    });
+  scriptChain = run.catch(() => {});
+  return run;
+}
+
+function shownValue(state, item) {
+  if (state && state.display !== undefined)
+    return state.display;
+  const value = state && "value" in state ? state.value : item.value;
+  return Array.isArray(value) ? value.join(",") : String(value);
+}
+
+function rawValue(item) {
+  const state = fieldState.get(item.name);
+  const value = state && "value" in state ? state.value : item.value;
+  return Array.isArray(value) ? value.join(",") : String(value);
+}
+
+function fillOptions(select, options) {
+  select.textContent = "";
+  for (const [value, label] of options) {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = label;
+    select.appendChild(option);
+  }
+}
+
+// A control shown as the scripts left its field: value (the formatted
+// text where the field is not being typed into), visibility, colors.
+function applyState(c, state) {
+  const { el, item, box } = c;
+  if (state.items && el.tagName === "SELECT") {
+    item.options = state.items;
+    fillOptions(el, state.items);
+  }
+  if ("value" in state || "display" in state) {
+    if (item.kind === "checkbox" || item.kind === "radio") {
+      el.checked = state.value === item.on;
+    } else if (el.tagName === "SELECT") {
+      el.value = Array.isArray(state.value) ? state.value[0] : state.value;
+    } else if (item.kind === "list") {
+      const values = new Set(Array.isArray(state.value) ? state.value : [state.value]);
+      for (const row of el.children)
+        row.classList.toggle("on", values.has(row.dataset.value));
+    } else if (document.activeElement !== el) {
+      el.value = shownValue(state, item);
+    }
+  }
+  if ("hidden" in state)
+    (box || el).style.display = state.hidden ? "none" : "";
+  if ("readonly" in state) {
+    if (el.tagName === "INPUT" && el.type !== "checkbox" && el.type !== "radio" || el.tagName === "TEXTAREA")
+      el.readOnly = state.readonly;
+    else
+      el.disabled = state.readonly;
+  }
+  if ("textColor" in state) {
+    el.dataset.color = state.textColor;
+    el.style.color = state.textColor || item.color || "#000";
+  }
+  if ("fillColor" in state)
+    (box || el).style.background = state.fillColor || "";
+}
+
+function applyAnswer(answer) {
+  if (!answer)
+    return;
+  for (const line of answer.console || [])
+    console.log("PDF: " + line);
+  for (const line of answer.engineConsole || [])
+    console.error("PDF: " + line);
+  if (answer.terminated)
+    console.warn("PDF: a script of this document ran too long and was stopped");
+  if (answer.dead) {
+    scriptsDead = true;
+    console.warn("PDF: this document's scripts used too much memory and were stopped");
+  }
+  const drawn = new Set();
+  for (const name of Object.keys(answer.changes || {})) {
+    const change = answer.changes[name];
+    const state = Object.assign(fieldState.get(name) || {}, change);
+    fieldState.set(name, state);
+    for (const c of byName.get(name) || []) {
+      applyState(c, change);
+      if (c.item.kind === "checkbox" || c.item.kind === "radio" || c.item.kind === "button" || c.item.readOnly)
+        drawn.add(c.p);
+    }
+  }
+  for (const p of drawn)
+    redraw(p);
+  for (const text of answer.alerts || [])
+    showAlert(text);
+  if (answer.print)
+    printDocument();
+  if (typeof answer.page === "number")
+    goTo(answer.page);
+  if (answer.named === "NextPage" || answer.named === "PrevPage" || answer.named === "FirstPage" || answer.named === "LastPage") {
+    const at = current();
+    goTo({ NextPage: at + 1, PrevPage: at - 1, FirstPage: 0, LastPage: pages.length - 1 }[answer.named]);
+  }
+  if (answer.focus) {
+    const c = (byName.get(answer.focus) || [])[0];
+    if (c)
+      c.el.focus();
+  }
+  if ("timer" in answer) {
+    clearTimeout(scriptTimer);
+    if (typeof answer.timer === "number")
+      scriptTimer = setTimeout(() => ask({ type: "timer" }), answer.timer);
+  }
+}
+
+// An alert of the document's: a box of the viewer's own that waits for
+// nobody (the script has gone on), closed by its button.
+function showAlert(text) {
+  let stack = $("alerts");
+  if (!stack) {
+    stack = document.createElement("div");
+    stack.id = "alerts";
+    document.body.appendChild(stack);
+  }
+  const box = document.createElement("div");
+  box.className = "alert";
+  box.setAttribute("role", "alertdialog");
+  const message = document.createElement("div");
+  message.textContent = text;
+  const ok = document.createElement("button");
+  ok.className = "wide";
+  ok.textContent = "OK";
+  ok.addEventListener("click", () => box.remove());
+  box.append(message, ok);
+  stack.appendChild(box);
+  ok.focus();
+}
+
+// A text field whose document has scripts: the value shown unformatted
+// while it is typed into, each change put to the field's keystroke
+// action (which may refuse or change it), and the value committed on
+// Enter, Tab or leaving the field — keystroke, validate, calculations
+// and formats run there — then shown formatted.
+function scriptedText(el, item, triggers) {
+  let before = el.value;
+  let committed = null;
+  let edits = null;
+  el.addEventListener("focus", () => {
+    el.value = rawValue(item);
+    before = el.value;
+    committed = el.value;
+    if (triggers.has("Fo"))
+      ask({ type: "focus", field: item.name, widgetRef: item.widget });
+  });
+  if (triggers.has("K")) {
+    // Each edit is held back and put to the keystroke action first, in the
+    // order typed; it is made (as the action may have changed it) only
+    // when the action lets it, against the field as the edits before it
+    // left it.
+    edits = Promise.resolve();
+    el.addEventListener("beforeinput", (event) => {
+      const kind = event.inputType;
+      let change = null;
+      if (kind === "insertText" || kind === "insertReplacementText" || kind === "insertCompositionText")
+        change = event.data || "";
+      else if (kind === "insertLineBreak")
+        change = "\n";
+      else if (kind === "insertFromPaste" || kind === "insertFromDrop")
+        change = event.dataTransfer ? event.dataTransfer.getData("text/plain") : event.data || "";
+      else if (kind === "deleteContentBackward" || kind === "deleteContentForward" || kind === "deleteByCut")
+        change = "";
+      if (change === null)
+        return;
+      event.preventDefault();
+      edits = edits.then(async () => {
+        const was = el.value;
+        let start = el.selectionStart, end = el.selectionEnd;
+        if (start === end && kind === "deleteContentBackward")
+          start = Math.max(0, start - 1);
+        else if (start === end && kind === "deleteContentForward")
+          end = Math.min(was.length, end + 1);
+        if (item.maxLen > 0 && change)
+          change = change.slice(0, Math.max(0, item.maxLen - (was.length - (end - start))));
+        const answer = await ask({ type: "keystroke", field: item.name, value: was, change, selStart: start, selEnd: end });
+        if (answer && answer.rc === false)
+          return;
+        const made = answer && typeof answer.change === "string" ? answer.change : change;
+        el.value = was.slice(0, start) + made + was.slice(end);
+        before = el.value;
+        el.setSelectionRange(start + made.length, start + made.length);
+      });
+    });
+  }
+  const commit = async (key) => {
+    const since = committed; // the value as the field was entered or last committed
+    if (edits)
+      await edits; // the edits typed before Enter or leaving the field first
+    const value = el.value;
+    if (since === null || value === since)
+      return null;
+    committed = value;
+    return ask({ type: "commit", field: item.name, value, commitKey: key }).then((answer) => {
+      if (answer && answer.rc === false) {
+        committed = rawValue(item);
+        el.value = document.activeElement === el ? committed : shownValue(fieldState.get(item.name), item);
+        before = el.value;
+      }
+      return answer;
+    });
+  };
+  el.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && el.tagName !== "TEXTAREA")
+      commit(2);
+  });
+  el.addEventListener("blur", () => {
+    commit(3).then(() => {
+      if (document.activeElement !== el)
+        el.value = shownValue(fieldState.get(item.name), item);
+    });
+    committed = null;
+    if (triggers.has("Bl"))
+      ask({ type: "blur", field: item.name, widgetRef: item.widget });
+  });
 }
 
 function placeFields(p) {
@@ -470,7 +776,7 @@ function placeFields(p) {
       outer.style.borderBottom = bw + "px solid " + item.bc;
     if (item.bg)
       outer.style.background = item.bg;
-    el.style.color = item.color || "#000";
+    el.style.color = el.dataset.color || item.color || "#000";
     el.style.fontFamily = item.family;
     let size = item.size;
     if (!size)
@@ -775,6 +1081,9 @@ function toast(text) {
 // The system's print dialog, through the shell; its outcome is asked for
 // until it has one.
 async function printDocument() {
+  // The document's own will-print action first (its values go into the copy printed).
+  if (info && info.scripts)
+    await ask({ type: "docEvent", name: "WillPrint" });
   const answer = await json("print", { method: "POST", body: "" });
   if (!answer.ok) {
     toast("Printing is not available on this system.");
@@ -855,6 +1164,9 @@ async function start() {
     return;
   }
   build();
+  // The document's scripts and open action, and every format shown.
+  if (info.scripts)
+    ask({ type: "open" });
 }
 
 $("toggle-side").addEventListener("click", () => {

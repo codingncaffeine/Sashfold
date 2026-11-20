@@ -23,6 +23,7 @@
 #include <memory>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace sashfold::pdf {
 
@@ -40,6 +41,10 @@ bool has_form_scripts(Document const& doc);
 // (the /Names /JavaScript tree in name order), its open action and its
 // /AA, the document information.
 std::string form_script_model(Document const& doc, FormValues const& values, std::string const& file_name);
+
+// The triggers a widget has actions for, of K, F, V, C (its field's) and
+// D, U, E, X, Fo, Bl, A (its own): what the viewer must ask the scripts.
+std::vector<std::string> widget_triggers(Document const& doc, FormField const& widget);
 
 // What an answer changed, applied to the viewer's values: a value, the
 // text shown, hidden or shown, the text color. Fields by their full name.

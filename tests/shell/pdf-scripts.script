@@ -1,0 +1,64 @@
+# A PDF form's scripts in the viewer (pdf-scripts.pdf is forms-js.pdf of
+# tools/pdf-make-form-tests.py): the document script and open action run
+# at open, formats shown; an order typed in, its line totals, subtotal,
+# tax and total calculated in /CO order and shown formatted; a keystroke
+# filter refusing a letter, another upper-casing what is typed; a range
+# refused with the document's alert in a box of the viewer's own; a check
+# box showing a hidden field; a reset button; the download with the
+# calculated values in it. The page is 400 x 500 at zoom 1.25: a point
+# (x, y) of it is at (200 + 1.25 x, 142 + 1.25 (500 - y)).
+downloads-folder
+resize 900 700
+open pdf-scripts.pdf
+advance 600 8
+assert-value field-32-0 opened yes
+assert-value field-17-0 8.0%
+click 262 192
+type 3
+click 375 192
+type 19.99
+click 262 229
+type 2
+click 375 229
+type 5
+click 450 592
+advance 600 8
+assert-value field-12-0 $59.97
+assert-value field-15-0 $10.00
+assert-value field-16-0 $69.97
+assert-value field-18-0 5,60 €
+assert-value field-19-0 $75.57
+# Digits only; upper case.
+click 300 442
+type 1a2
+advance 300 4
+click 450 442
+type abc
+advance 300 4
+assert-value field-23-0 12
+assert-value field-24-0 ABC
+# Out of range: refused, the alert shown, the field as it was.
+click 600 442
+type 150
+click 450 592
+advance 400 5
+assert-text Invalid value: must be greater than or equal to 0
+assert-value field-25-0 
+assert-text less than or equal to 100.
+# The check box shows the hidden field (its tint where the page was white).
+assert-pixel 400 480 #ffffff
+click 237 492
+advance 500 6
+assert-pixel 400 480 #dee5ff
+# Reset: the digits, the upper-case field and the first quantity emptied,
+# the totals after them calculated again.
+click 600 492
+advance 500 6
+assert-value field-23-0 
+assert-value field-24-0 
+assert-value field-12-0 $0.00
+assert-value field-19-0 $10.80
+# The download carries the values (pdftotext shows the formatted totals).
+click 832 99
+advance 400 5
+assert-download pdf-scripts.pdf 5000 %%EOF

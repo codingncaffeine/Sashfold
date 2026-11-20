@@ -259,7 +259,8 @@ std::string fields_json(pdf::Document const& document, std::size_t index, pdf::F
     std::string out = "[";
     bool first = true;
     for (pdf::FormField const& field : pdf::page_fields(document, index)) {
-        if (field.hidden() || (field.annotation_flags & 32))
+        // A hidden field is listed hidden: a script may show it.
+        if (field.annotation_flags & 32)
             continue;
         char const* kind = "text";
         switch (field.kind) {
@@ -306,6 +307,17 @@ std::string fields_json(pdf::Document const& document, std::size_t index, pdf::F
         out += ",\"family\":" + json_string(field.font_family);
         out += ",\"bg\":" + json_string(css_color(field.background_color)) + ",\"bc\":" + json_string(css_color(field.border_color));
         out += ",\"bw\":" + number(field.border_width) + ",\"style\":" + json_string(field.border_style) + ",\"rotation\":" + std::to_string(field.rotation);
+        // What the field's scripts made of it, and the triggers they have.
+        out += ",\"hidden\":" + std::string((value->hidden ? *value->hidden : field.hidden()) ? "true" : "false");
+        if (value->formatted)
+            out += ",\"display\":" + json_string(*value->formatted);
+        if (value->text_color)
+            out += ",\"textColor\":" + json_string(css_color(*value->text_color));
+        out += ",\"actions\":[";
+        std::vector<std::string> const triggers = pdf::widget_triggers(document, field);
+        for (std::size_t i = 0; i < triggers.size(); ++i)
+            out += (i ? "," : "") + json_string(triggers[i]);
+        out += "]";
         out += "}";
     }
     return out + "]";
@@ -329,6 +341,7 @@ bool apply_field_post(std::vector<std::uint8_t> const& body, pdf::FormValues& va
     if (kind == "text") {
         value.text = rest;
         value.selections.clear();
+        value.formatted.reset();
     } else if (kind == "state") {
         value.state = rest.empty() ? "Off" : rest;
     } else if (kind == "selections") {
@@ -521,6 +534,7 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
         if (opened) {
             std::lock_guard const lock(handle->mutex);
             handle->document = opened;
+            handle->scripts.reset();
             handle->status = opened_status;
         }
         return answer_text(url, "application/json", opened ? "{\"ok\":true}" : "{\"ok\":false}");
@@ -555,6 +569,29 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
         }
         return answer_text(url, "application/json", ok ? "{\"ok\":true}" : "{\"ok\":false}");
     }
+    if (path.size() == 1 && path[0] == "js" && method == "POST") {
+        // One event for the form's scripts (pdf/FormScript.h): its answer,
+        // and what it changed put into the document's values. The sandbox
+        // is asked with the handle's lock let go, so the page's pictures
+        // are served while a script runs.
+        std::shared_ptr<pdf::FormSandbox> sandbox;
+        {
+            std::lock_guard const lock(handle->mutex);
+            if (!document || !pdf::has_form_scripts(*document))
+                return answer_text(url, "application/json", "{\"none\":true}");
+            if (!handle->scripts)
+                handle->scripts = std::make_shared<pdf::FormSandbox>(pdf::form_script_model(*document, handle->form_values, handle->file_name),
+                    pdf::FormSandbox::Limits {});
+            sandbox = handle->scripts;
+        }
+        std::string const answer = sandbox->request(std::string(body.begin(), body.end()));
+        {
+            std::lock_guard const lock(handle->mutex);
+            if (handle->document == document)
+                pdf::apply_script_changes(*document, answer, handle->form_values);
+        }
+        return answer_text(url, "application/json", answer);
+    }
     if (path.size() == 1 && path[0] == "print-status") {
         std::lock_guard const lock(handle->mutex);
         char const* status_name = "none";
@@ -578,6 +615,7 @@ std::optional<net::FetchResult> serve_pdf_resource(net::Url const& url, net::Url
             return answer_text(url, "application/json", out);
         }
         out += ",\"title\":" + json_string(document->title());
+        out += ",\"scripts\":" + std::string(pdf::has_form_scripts(*document) ? "true" : "false");
         out += ",\"pages\":[";
         for (std::size_t i = 0; i < document->page_count(); ++i) {
             pdf::Page const& page = document->page(i);

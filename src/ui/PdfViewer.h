@@ -15,6 +15,7 @@
 #include "net/Url.h"
 #include "pdf/Document.h"
 #include "pdf/Form.h"
+#include "pdf/FormScript.h"
 #include "platform/Print.h"
 
 #include <cstdint>
@@ -43,6 +44,9 @@ struct PdfHandle {
     // over the file's values, and written into the copy they download or
     // print (an incremental update; the file itself is never changed).
     pdf::FormValues form_values;
+    // The form's scripts, in a sandbox of their own (pdf/FormScript.h),
+    // made at the viewer's first request for them.
+    std::shared_ptr<pdf::FormSandbox> scripts;
 };
 
 // The document's bytes with the reader's form values in them (the file's

@@ -6,6 +6,7 @@
 #include "platform/ScriptThread.h"
 
 #include <algorithm>
+#include <atomic>
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
@@ -249,6 +250,26 @@ std::vector<ModelField> model_fields(Document const& doc)
 
 } // namespace
 
+std::vector<std::string> widget_triggers(Document const& doc, FormField const& widget)
+{
+    std::vector<std::string> out;
+    Dict const terminal = doc.resolve(Object::ref(widget.field)).as_dict();
+    Dict const annotation = doc.resolve(Object::ref(widget.widget)).as_dict();
+    Dict const field_aa = doc.resolve(terminal.get("AA")).as_dict();
+    Dict const widget_aa = doc.resolve(annotation.get("AA")).as_dict();
+    for (char const* key : { "K", "F", "V", "C" }) {
+        if (Object const* action = field_aa.find(key); action && actions_json(doc, *action) != "[]")
+            out.emplace_back(key);
+    }
+    for (char const* key : { "D", "U", "E", "X", "Fo", "Bl" }) {
+        if (Object const* action = widget_aa.find(key); action && actions_json(doc, *action) != "[]")
+            out.emplace_back(key);
+    }
+    if (actions_json(doc, annotation.get("A")) != "[]")
+        out.emplace_back("A");
+    return out;
+}
+
 bool has_form_scripts(Document const& doc)
 {
     Dict const& catalog = doc.catalog();
@@ -273,7 +294,9 @@ bool has_form_scripts(Document const& doc)
                     break;
                 current = parent.as_dict();
             }
-            if (actions_json(doc, annotation.get("A")).find("\"js\"") != std::string::npos)
+            // A JavaScript action, or one of the form actions the realm
+            // carries out (ResetForm, Hide, Named).
+            if (actions_json(doc, annotation.get("A")) != "[]")
                 return true;
         }
     }
@@ -410,7 +433,8 @@ std::string form_script_model(Document const& doc, FormValues const& values, std
             if (activation != "[]")
                 triggers += (triggers.empty() ? "" : ",") + std::string("\"A\":") + activation;
             // The rectangle as the API gives it: upper left, lower right.
-            out += (w ? "," : "") + std::string("{\"page\":") + std::to_string(fields[i].pages[w]) + ",\"rect\":[" + json_number(widget.rect.x0) + ","
+            out += (w ? "," : "") + std::string("{\"ref\":\"") + std::to_string(widget.widget.num) + "-" + std::to_string(widget.widget.gen)
+                + "\",\"page\":" + std::to_string(fields[i].pages[w]) + ",\"rect\":[" + json_number(widget.rect.x0) + ","
                 + json_number(widget.rect.y1) + "," + json_number(widget.rect.x1) + "," + json_number(widget.rect.y0) + "]";
             out += ",\"exportValue\":" + json_string(widget.on_state.empty() ? "Yes" : widget.on_state);
             out += ",\"actions\":{" + triggers + "}}";
@@ -506,6 +530,7 @@ struct FormSandbox::State {
     };
     std::deque<Job> jobs;
     bool stopping = false;
+    std::atomic<bool> closing { false }; // the viewer is gone: a running script stops at its next check
     std::unique_ptr<platform::ScriptThread> thread;
 
     void run()
@@ -514,7 +539,7 @@ struct FormSandbox::State {
         interpreter.set_stack_budget(platform::js_stack_budget_for(platform::current_thread_stack_bytes()));
         interpreter.heap().set_limit(limits.heap_bytes);
         std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::time_point::max();
-        interpreter.set_interrupt([&deadline] { return std::chrono::steady_clock::now() > deadline; }, 1000);
+        interpreter.set_interrupt([this, &deadline] { return closing.load() || std::chrono::steady_clock::now() > deadline; }, 1000);
         std::vector<std::string> console;
         interpreter.on_console = [&console](std::string_view level, std::string_view message) {
             if (console.size() < 1000)
@@ -616,6 +641,7 @@ FormSandbox::~FormSandbox()
     {
         std::lock_guard const lock(m_state->mutex);
         m_state->stopping = true;
+        m_state->closing = true;
     }
     m_state->wake.notify_all();
     m_state->thread->join();
