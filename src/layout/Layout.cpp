@@ -247,17 +247,56 @@ bool is_bidi_control(char32_t c)
 // text for the line breaker's sake and the bidi algorithm's, and come out
 // here; a preserved tab stays a tab for the bidi algorithm, which reads it
 // as a segment separator, and is 8 spaces here — short of a real tab stop.
-std::u32string drawn_text(std::u32string_view text)
+// `keep_joiner` keeps the zero width joiner, for text that is shaped: it
+// asks for the joined forms of the letters around it and joins emoji into
+// one picture, and the shaper draws nothing for it (the built-in face
+// alone would give it a whole advance).
+std::u32string drawn_text(std::u32string_view text, bool keep_joiner = false)
 {
     std::u32string out;
     out.reserve(text.size());
     for (char32_t const c : text) {
         if (c == U'\t')
             out.append(8, U' ');
+        else if (keep_joiner && c == 0x200D)
+            out.push_back(c);
         else if (!is_break_control(c) && !is_bidi_control(c))
             out.push_back(c);
     }
     return out;
+}
+
+// The text around a word in its paragraph, for a word whose letters may
+// join (a script that joins starts at U+0600): what the words and spaces
+// next to it end and start with, across the edges of inline boxes, up to an
+// atomic box, a break or a float — the context its letters take their
+// forms from (text/ShapedText.h).
+void word_context_of(std::vector<InlineItem> const& items, std::size_t index, std::u32string_view word,
+    std::u32string& before, std::u32string& after)
+{
+    constexpr std::size_t reach = 8;
+    if (std::none_of(word.begin(), word.end(), [](char32_t c) { return c >= 0x0600; }))
+        return;
+    auto const text_of = [](InlineItem const& item) -> bool {
+        return item.kind == InlineItem::Kind::Word || item.kind == InlineItem::Kind::Space;
+    };
+    auto const passes = [](InlineItem const& item) {
+        return item.kind == InlineItem::Kind::BoxStart || item.kind == InlineItem::Kind::BoxEnd;
+    };
+    for (std::size_t k = index; k-- > 0 && before.size() < reach;) {
+        if (passes(items[k]))
+            continue;
+        if (!text_of(items[k]))
+            break;
+        before.insert(0, drawn_text(items[k].text, true));
+    }
+    for (std::size_t k = index + 1; k < items.size() && after.size() < reach; ++k) {
+        if (passes(items[k]))
+            continue;
+        if (!text_of(items[k]))
+            break;
+        after += drawn_text(items[k].text, true);
+    }
 }
 
 // Whether text in this style hyphenates at all: not under `hyphens: none`,
@@ -3619,9 +3658,28 @@ struct Layouter {
             if (overrides)
                 text.insert(text.begin(), block_level == 1 ? char32_t { 0x202E } : char32_t { 0x202D });
             BidiParagraph const resolved = bidi_resolve(text, base);
+            // A boundary neutral rule X9 removed (a joiner, a soft hyphen,
+            // not a bidi control, whose level places its box) takes the
+            // level of the character before it, or after it at the start,
+            // so it never cuts a run in two (UAX #9 §5.2): a zero width
+            // joiner inside a word stays in the word.
+            auto const level_at = [&](std::size_t c) {
+                if (c >= resolved.removed.size() || !resolved.removed[c] || is_bidi_control(text[c]))
+                    return resolved.levels[c];
+                for (std::size_t k = c; k-- > lead;) {
+                    if (!resolved.removed[k])
+                        return resolved.levels[k];
+                }
+                for (std::size_t k = c + 1; k < text.size(); ++k) {
+                    if (!resolved.removed[k])
+                        return resolved.levels[k];
+                }
+                return resolved.levels[c];
+            };
             for (std::size_t c = lead; c < text.size(); ++c) {
-                per_character[owner[c - lead]].push_back(resolved.levels[c]);
-                mixed = mixed || resolved.levels[c] != block_level;
+                std::uint8_t const level = level_at(c);
+                per_character[owner[c - lead]].push_back(level);
+                mixed = mixed || level != block_level;
             }
         };
         std::size_t paragraph_first = 0;
@@ -4701,30 +4759,77 @@ struct Layouter {
         // and spaces next to it end and start with, across the edges of
         // inline boxes, up to an atomic box, a break or a float.
         auto const word_context = [&](std::size_t index, std::u32string_view word, std::u32string& before,
-                                      std::u32string& after) {
-            constexpr std::size_t reach = 8;
-            if (std::none_of(word.begin(), word.end(), [](char32_t c) { return c >= 0x0600; }))
-                return;
-            auto const text_of = [](InlineItem const& item) -> bool {
-                return item.kind == InlineItem::Kind::Word || item.kind == InlineItem::Kind::Space;
+                                      std::u32string& after) { word_context_of(items, index, word, before, after); };
+        // A word split by inline boxes that change nothing of how it is
+        // shaped — the same faces, size and spacing, the same level and
+        // vertical alignment, no margin, border or padding at the boxes'
+        // edges, and no place to break between — is shaped whole and drawn
+        // a part per box (css-text-3 §7.3): "of<span>f</span>ice" keeps its
+        // ligature, an Arabic lam and alef in two spans their ligature. The
+        // part `index` takes of it, or null for a word that is whole.
+        auto const shaped_across_boxes = [&](std::size_t index, std::uint8_t level)
+            -> std::shared_ptr<text::ShapedText const> {
+            InlineItem const& item = items[index];
+            text::FontStack const& stack = fonts_for(*item.style);
+            if (stack.builtin_alone())
+                return nullptr;
+            auto const level_of = [&](std::size_t k) {
+                return k < item_levels.size() ? item_levels[k] : std::uint8_t { 0 };
             };
-            auto const passes = [](InlineItem const& item) {
-                return item.kind == InlineItem::Kind::BoxStart || item.kind == InlineItem::Kind::BoxEnd;
+            auto const same = [&](InlineItem const& other, std::size_t k) {
+                ComputedStyle const& a = *item.style;
+                ComputedStyle const& b = *other.style;
+                return other.kind == InlineItem::Kind::Word && &fonts_for(b) == &stack && a.font_size == b.font_size
+                    && a.letter_spacing == b.letter_spacing && a.word_spacing == b.word_spacing
+                    && a.font_kerning == b.font_kerning && other.aligned == item.aligned && level_of(k) == level;
             };
-            for (std::size_t k = index; k-- > 0 && before.size() < reach;) {
+            auto const passes = [&](InlineItem const& edge) {
+                if (edge.kind != InlineItem::Kind::BoxStart && edge.kind != InlineItem::Kind::BoxEnd)
+                    return false;
+                // Only the edge the box opens or closes with counts.
+                InlineEdges const edges = inline_edges(*edge.style, content_width);
+                bool const opens = edge.kind == InlineItem::Kind::BoxStart;
+                bool const left_side = opens != (edge.style->direction == css::Direction::Rtl);
+                return left_side ? edges.margin_left == 0 && edges.left == 0 : edges.right == 0 && edges.margin_right == 0;
+            };
+            // The words of the group, from `first` to `last`.
+            std::size_t first = index;
+            for (std::size_t k = index; k-- > 0;) {
                 if (passes(items[k]))
                     continue;
-                if (!text_of(items[k]))
+                if (!same(items[k], k) || items[first].break_before)
                     break;
-                before.insert(0, drawn_text(items[k].text));
+                first = k;
             }
-            for (std::size_t k = index + 1; k < items.size() && after.size() < reach; ++k) {
+            std::size_t last = index;
+            for (std::size_t k = index + 1; k < items.size(); ++k) {
                 if (passes(items[k]))
                     continue;
-                if (!text_of(items[k]))
+                if (!same(items[k], k) || items[k].break_before)
                     break;
-                after += drawn_text(items[k].text);
+                last = k;
             }
+            if (first == last)
+                return nullptr;
+            std::u32string whole;
+            std::size_t from = 0;
+            std::size_t to = 0;
+            for (std::size_t k = first; k <= last; ++k) {
+                if (items[k].kind != InlineItem::Kind::Word)
+                    continue;
+                if (k == index)
+                    from = whole.size();
+                whole += drawn_text(items[k].text, true);
+                if (k == index)
+                    to = whole.size();
+            }
+            std::u32string before;
+            std::u32string after;
+            std::u32string unused;
+            word_context(first, whole, before, unused);
+            word_context(last, whole, unused, after);
+            std::shared_ptr<text::ShapedText const> const shaped = shaped_word(*item.style, whole, level, before, after);
+            return text::part_of(*shaped, from, to);
         };
         auto const hyphen_overflows = [&](std::size_t index) {
             InlineItem const* const word = soft_hyphen_before(index);
@@ -5071,7 +5176,8 @@ struct Layouter {
                 line_width += width;
                 continue;
             }
-            std::u32string word = drawn_text(item.text);
+            bool const shapes = !fonts_for(*item.style).builtin_alone();
+            std::u32string word = drawn_text(item.text, shapes);
             // How far into the item's text the slices placed so far reached.
             std::uint32_t consumed = 0;
             // Measured as it is drawn: shaped in its level's direction (the
@@ -5083,8 +5189,9 @@ struct Layouter {
             std::u32string context_before;
             std::u32string context_after;
             word_context(index, word, context_before, context_after);
-            std::shared_ptr<text::ShapedText const> shaped
-                = shaped_word(*item.style, word, current_level, context_before, context_after);
+            std::shared_ptr<text::ShapedText const> shaped = shaped_across_boxes(index, current_level);
+            if (!shaped || shaped->length != word.size())
+                shaped = shaped_word(*item.style, word, current_level, context_before, context_after);
             float width = shaped->width;
             // The spaces the word ends with (see is_trailing_space): where
             // they begin, what they measure, and how much of that hangs past
@@ -5120,7 +5227,7 @@ struct Layouter {
                         if (remaining[shy] != 0x00AD)
                             continue;
                         float const before_width
-                            = measure(*item.style, drawn_text(std::u32string_view(remaining).substr(0, shy)));
+                            = measure(*item.style, drawn_text(std::u32string_view(remaining).substr(0, shy), shapes));
                         bool const fits = !past_line_end(before_width + hyphen_width);
                         if (chosen != std::u32string::npos && !fits)
                             break;
@@ -5130,7 +5237,7 @@ struct Layouter {
                     }
                     if (chosen == std::u32string::npos)
                         break;
-                    std::u32string const hyphenated = drawn_text(std::u32string_view(remaining).substr(0, chosen));
+                    std::u32string const hyphenated = drawn_text(std::u32string_view(remaining).substr(0, chosen), shapes);
                     float hyphenated_width = measure(*item.style, hyphenated) + hyphen_width;
                     // The hyphen shaped with the text before it, as drawn.
                     std::shared_ptr<text::ShapedText const> sliced;
@@ -5148,7 +5255,7 @@ struct Layouter {
                     flush_line();
                     consumed += static_cast<std::uint32_t>(chosen + 1);
                     remaining.erase(0, chosen + 1);
-                    word = drawn_text(remaining);
+                    word = drawn_text(remaining, shapes);
                     context_before.clear();
                     shaped = shaped_word(*item.style, word, current_level, {}, context_after);
                     width = shaped->width;
@@ -6710,8 +6817,18 @@ struct Layouter {
         for (InlineItem const& item : items) {
             switch (item.kind) {
             case InlineItem::Kind::Word: {
-                std::u32string const word = drawn_text(item.text);
-                float const width = measure(*item.style, word);
+                bool const shapes = !fonts_for(*item.style).builtin_alone();
+                std::u32string const word = drawn_text(item.text, shapes);
+                float width = 0;
+                if (shapes) {
+                    // With the letters around it, as a line shapes it.
+                    std::u32string before;
+                    std::u32string after;
+                    word_context_of(items, static_cast<std::size_t>(&item - items.data()), word, before, after);
+                    width = fonts_for(*item.style).shape(word, shaping_for(*item.style, false, true), before, after)->width;
+                } else {
+                    width = measure(*item.style, word);
+                }
                 // The spaces a word ends with hang past a line's end, so
                 // they do not hold the narrowest line open — but under
                 // break-spaces, where they take their room.

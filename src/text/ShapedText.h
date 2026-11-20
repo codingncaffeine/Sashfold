@@ -105,4 +105,11 @@ struct ShapedText {
 // and what justification stretches.
 bool is_word_separator(char32_t);
 
+// The part of a text shaped whole that its characters [from, to) take: the
+// glyphs whose clusters start among them, at their places from the part's
+// own left edge. A word split by inline boxes that change nothing of its
+// formatting is shaped whole (css-text-3 §7.3) and drawn a part per box:
+// a ligature over a box's edge goes with the box its cluster starts in.
+std::shared_ptr<ShapedText const> part_of(ShapedText const& whole, std::size_t from, std::size_t to);
+
 }

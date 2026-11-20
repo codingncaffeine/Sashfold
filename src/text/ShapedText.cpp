@@ -101,6 +101,40 @@ void ShapedText::character_edges(std::vector<float>& left, std::vector<float>& r
     }
 }
 
+std::shared_ptr<ShapedText const> part_of(ShapedText const& whole, std::size_t from, std::size_t to)
+{
+    auto part = std::make_shared<ShapedText>();
+    to = std::min<std::size_t>(to, whole.length);
+    from = std::min(from, to);
+    part->length = static_cast<std::uint32_t>(to - from);
+    bool placed = false;
+    float origin = 0;
+    float x = 0;
+    for (PlacedGlyph const& g : whole.glyphs) {
+        if (g.cluster < from || g.cluster >= to)
+            continue;
+        if (!placed) {
+            origin = g.x;
+            placed = true;
+        }
+        PlacedGlyph moved = g;
+        moved.cluster -= static_cast<std::uint32_t>(from);
+        moved.x = g.x - origin;
+        x = moved.x + moved.advance + moved.word_space;
+        part->glyphs.push_back(moved);
+    }
+    part->width = x;
+    part->pen_end = x;
+    for (std::uint32_t const start : whole.cluster_starts) {
+        if (start >= from && start < to)
+            part->cluster_starts.push_back(static_cast<std::uint32_t>(start - from));
+    }
+    if (!whole.right_to_left.empty())
+        part->right_to_left.assign(whole.right_to_left.begin() + static_cast<std::ptrdiff_t>(from),
+            whole.right_to_left.begin() + static_cast<std::ptrdiff_t>(to));
+    return part;
+}
+
 namespace {
 
 // Whether a character stays in one cluster with the one before it, and so
