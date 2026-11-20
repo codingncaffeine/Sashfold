@@ -1833,8 +1833,8 @@ std::string Tree::dump(bool with_bounds)
                 out << (i ? "," : "") << platform_role_name(m_impl->nodes[targets[i]].role);
         }
         if (with_bounds && data.bounds)
-            out << " (" << number_text(data.bounds->x) << "," << number_text(data.bounds->y) << " " << number_text(data.bounds->width) << "x"
-                << number_text(data.bounds->height) << ")";
+            out << " (" << number_text(static_cast<double>(data.bounds->x)) << "," << number_text(static_cast<double>(data.bounds->y)) << " "
+                << number_text(static_cast<double>(data.bounds->width)) << "x" << number_text(static_cast<double>(data.bounds->height)) << ")";
         out << "\n";
         for (NodeId child : data.children)
             self(self, child, depth + 1);
