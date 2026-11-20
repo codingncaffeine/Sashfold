@@ -73,6 +73,16 @@ assert-no-text Inner link here
 assert-text Outer text
 assert-title Frames
 
+# The link pressed took the focus, and went with the frame's document:
+# nothing of that document is focused afterwards, and Tab goes on from the
+# frame, not from the top of the page.
+open data:text/html,<title>Gone</title><a id=before href=about:blank>before</a><iframe srcdoc="<a id=inner href='data:text/html,<p>Arrived again</p>'>inner</a>"></iframe><a id=after href=about:blank>after</a>
+click-text inner
+assert-text Arrived again
+assert-focused-id none
+key tab
+assert-focused-id after
+
 # A frame's intersection and resize observers run with the page's (HTML's
 # rendering update is for every document of the event loop): they once
 # never fired in a frame.

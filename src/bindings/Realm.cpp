@@ -3206,6 +3206,28 @@ void Realm::Internals::close_frame(dom::Element const& iframe, bool keep_window_
     // ends when the host's last entry into the agent has returned, and its
     // window and its frames' windows are closed from now on.
     trace("frame closed: " + (it->source.empty() ? std::string("about:blank") : it->source));
+    // The host keeps pointers into the documents of the page's frames (the
+    // focused element, what it drew them from): it hears which ones go while
+    // they are still here. A frame's realm has no hook of its own for it.
+    Internals* top = this;
+    while (top->parent_realm)
+        top = top->parent_realm;
+    if (top->hooks.documents_closing) {
+        std::vector<dom::Document const*> documents;
+        std::vector<Internals const*> pending { &it->realm->internals() };
+        while (!pending.empty()) {
+            Internals const* const at = pending.back();
+            pending.pop_back();
+            documents.push_back(at->document);
+            for (std::unique_ptr<dom::Document> const& extra : at->extra_documents)
+                documents.push_back(extra.get());
+            for (ChildFrame const& listed : at->child_frames) {
+                if (listed.realm)
+                    pending.push_back(&listed.realm->internals());
+            }
+        }
+        top->hooks.documents_closing(iframe, documents);
+    }
     discard_windows(it->realm->internals());
     erase_loop_work(it->realm->internals());
     agent.closing.push_back(std::move(*it));

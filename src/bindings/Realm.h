@@ -290,6 +290,13 @@ struct HostHooks {
     // Focus: element.focus(), element.blur() (null), document.activeElement.
     std::function<void(dom::Element const*)> focus;
     std::function<dom::Element const*()> focused;
+    // A frame is closing, and these documents with it: its own, the ones
+    // its window showed before, and its frames' likewise. They are alive
+    // during the call and freed some time after it, so the host lets go
+    // here of every pointer it keeps into them. The page's host hears it
+    // for a frame at any depth; `container` is the element that held the
+    // frame, in a document that stays.
+    std::function<void(dom::Element const& container, std::vector<dom::Document const*> const& documents)> documents_closing;
     // An image's decoded size in CSS px, for naturalWidth and naturalHeight.
     std::function<std::optional<std::pair<int, int>>(dom::Element const&)> image_size;
     // Where an image element's picture stands, for `complete`: false while

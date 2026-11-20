@@ -684,6 +684,10 @@ struct Browser::Impl {
         std::vector<Bitmap const*> shown_apart;
         layout::BackgroundImages backgrounds; // the pictures its styles name as backgrounds
         DrawnFrames frames; // its frames' pictures as last drawn, by element
+        // The views of frames whose documents have closed since the last
+        // layout: out of `frames`, so nothing finds them, and kept until
+        // the next layout, as a replaced view is, for a caller that holds one.
+        std::vector<std::shared_ptr<FrameView>> closed_views;
         layout::ControlStates controls; // what the user typed and toggled in the page's forms
         layout::LayoutResult layout;
         // The viewport those styles and that layout were made for: the content
@@ -4007,6 +4011,7 @@ struct Browser::Impl {
                 draw_frames(entry->final_url, tab.layout, frame_fetcher(tab), scale, tab.policy.get(), &tab.frames, tab.realm.get(),
                     &tab.controls);
             }
+            tab.closed_views.clear();
             text::FontManager::instance().set_page_fonts(tab.fonts);
         }
         tab.scroll_y = std::clamp(tab.scroll_y, 0, max_scroll(tab));
@@ -5482,6 +5487,10 @@ struct Browser::Impl {
             Tab* const owner = tab_of(document);
             return owner ? owner->controls.focused : nullptr;
         };
+        hooks.documents_closing = [this, document](dom::Element const& closing_frame, std::vector<dom::Document const*> const& closing_documents) {
+            if (Tab* const owner = tab_of(document))
+                forget_documents(*owner, closing_frame, closing_documents);
+        };
         hooks.image_size = [this, document](dom::Element const& element) -> std::optional<std::pair<int, int>> {
             Tab* const owner = tab_of(document);
             if (!owner)
@@ -5823,9 +5832,12 @@ struct Browser::Impl {
         tab.console.clear();
         if (!entry) {
             tab.document.reset();
+            tab.controls = {};
             tab.scrolls.clear();
             tab.applied.clear();
             tab.scroller = nullptr;
+            tab.inspected = nullptr;
+            forget_page(tab);
             tab.frames.clear();
             return;
         }
@@ -5856,6 +5868,7 @@ struct Browser::Impl {
         tab.applied.clear();
         tab.scroller = nullptr;
         tab.inspected = nullptr;
+        forget_page(tab);
         tab.tree_scroll = 0;
         tab.images.clear();
         tab.image_sources.clear();
@@ -13955,6 +13968,97 @@ struct Browser::Impl {
             return false;
         };
         return in_frames(in_frames, tab.frames);
+    }
+
+    // The tab's document has been replaced, and the one before it freed with
+    // its frames' documents: the places the tab remembered in them are
+    // dropped, so that none outlives the nodes it named. (A selection is
+    // dropped by every layout; here it goes before the new document's
+    // frames open.)
+    void forget_page(Tab& tab)
+    {
+        tab.focus_start = nullptr;
+        tab.focus_frame = nullptr;
+        tab.scroller_frame = nullptr;
+        tab.editor_misspelled.clear();
+        tab.editor_spelled_host = nullptr;
+        tab.selection.reset();
+        tab.selection_frame = nullptr;
+        tab.selection_view.reset();
+    }
+
+    // A frame of the tab is closing, and these documents with it; they are
+    // alive for this call and freed after it, so everything the tab keeps
+    // into them is let go here and nothing reads a freed document later.
+    // The focus that was inside falls to the viewport, each container up
+    // the chain no longer its document's focused element, and Tab goes on
+    // from the frame's container (HTML §6.6.3: the starting point moves up
+    // when its node is removed). A view drawn from one of the documents
+    // leaves the frames drawn, so no lookup finds it.
+    void forget_documents(Tab& tab, dom::Element const& container, std::vector<dom::Document const*> const& gone)
+    {
+        auto const closing = [&gone](dom::Document const* document) {
+            return std::find(gone.begin(), gone.end(), document) != gone.end();
+        };
+        auto const going = [&closing](dom::Node const* node) { return node && closing(&node->document()); };
+        if (going(tab.focus_start))
+            tab.focus_start = nullptr;
+        if (going(tab.controls.focused)) {
+            for (dom::Element const* at = frame_holding_in(tab.frames, tab.controls.focused->document()); at;
+                 at = frame_holding_in(tab.frames, at->document())) {
+                if (!going(at))
+                    at->document().set_focused(nullptr, false);
+            }
+            tab.controls.focused = nullptr;
+            if (!going(&container))
+                tab.focus_start = &container;
+        }
+        if (going(tab.controls.edited)) {
+            tab.controls.edited = nullptr;
+            tab.controls.value_before_edits.clear();
+        }
+        if (going(tab.controls.preedit_owner)) {
+            tab.controls.preedit_owner = nullptr;
+            tab.controls.preedit.clear();
+        }
+        std::erase_if(tab.controls.states, [&going](auto const& entry) { return going(entry.first); });
+        if (going(tab.scroller))
+            tab.scroller = nullptr;
+        if (going(tab.inspected))
+            tab.inspected = nullptr;
+        if (going(tab.focus_frame))
+            tab.focus_frame = nullptr;
+        if (going(tab.scroller_frame))
+            tab.scroller_frame = nullptr;
+        if (going(tab.editor_spelled_host)) {
+            tab.editor_misspelled.clear();
+            tab.editor_spelled_host = nullptr;
+        }
+        // A selection in a frame indexes its view's runs.
+        if (tab.selection_frame) {
+            std::shared_ptr<FrameView> const view = tab.selection_view.lock();
+            if (going(tab.selection_frame) || (view && closing(view->document))) {
+                tab.selection.reset();
+                tab.selection_frame = nullptr;
+                tab.selection_view.reset();
+                selecting = false;
+                dirty = true;
+            }
+        }
+        auto const detach = [&](auto const& self, DrawnFrames& frames) -> void {
+            for (auto& [element, drawn] : frames) {
+                if (!drawn.view)
+                    continue;
+                if (closing(drawn.view->document)) {
+                    tab.closed_views.push_back(std::move(drawn.view));
+                    drawn.view.reset();
+                    drawn.stale = true;
+                } else {
+                    self(self, drawn.view->frames);
+                }
+            }
+        };
+        detach(detach, tab.frames);
     }
 
     // Where Tab goes on from: the starting point while it is in the page
