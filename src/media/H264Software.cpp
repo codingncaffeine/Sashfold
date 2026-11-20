@@ -44,6 +44,7 @@ void Picture::allocate(int mb_w, int mb_h)
         ref_pic[static_cast<std::size_t>(l)].assign(blocks, -1);
     }
     mb_intra.assign(static_cast<std::size_t>(mb_w) * static_cast<std::size_t>(mb_h), 1);
+    mb_field.assign(static_cast<std::size_t>(mb_w) * static_cast<std::size_t>(mb_h), 0);
 }
 
 }
@@ -224,9 +225,9 @@ class WavefrontSink final : public MacroblockSink {
 public:
     WavefrontSink(Frame& frame, int ring_rows)
         : m_frame(frame)
-        , m_width(frame.picture->mb_width)
-        , m_height(frame.picture->mb_height)
-        , m_ring_rows(std::min(ring_rows, frame.picture->mb_height))
+        , m_width(frame.mb_width)
+        , m_height(frame.mb_height)
+        , m_ring_rows(std::min(ring_rows, frame.mb_height))
         , m_ring(static_cast<std::size_t>(m_ring_rows) * static_cast<std::size_t>(m_width))
         , m_slice_of(static_cast<std::size_t>(m_width) * static_cast<std::size_t>(m_height), nullptr)
         , m_parsed(std::make_unique<Counter[]>(static_cast<std::size_t>(m_height)))
@@ -376,27 +377,45 @@ public:
             return false;
         H264Sps const& sps = *info.sps;
         H264Pps const& pps = *info.pps;
-        // What is written here: frames, 4:2:0, 8 bits, one slice group.
-        if (!sps.frame_mbs_only || sps.chroma_format_idc != 1 || sps.bit_depth_luma != 8 || sps.bit_depth_chroma != 8
-            || pps.num_slice_groups != 1 || sps.pic_width_in_mbs <= 0 || sps.pic_height_in_map_units <= 0
+        // What is written here: frames, fields and MBAFF frames, 4:2:0, 8 bits, one slice group.
+        if (sps.chroma_format_idc != 1 || sps.bit_depth_luma != 8 || sps.bit_depth_chroma != 8 || pps.num_slice_groups != 1
+            || sps.pic_width_in_mbs <= 0 || sps.pic_height_in_map_units <= 0
             || static_cast<long long>(sps.pic_width_in_mbs) * sps.frame_height_in_mbs() > m_max_macroblocks)
             return false;
-        int const mb_w = sps.pic_width_in_mbs, mb_h = sps.frame_height_in_mbs();
+        bool const field = info.field_pic;
+        bool const mbaff = !field && sps.mb_adaptive_frame_field;
+        if (mbaff)
+            return false;
+        int const structure = field ? (info.bottom_field ? 2 : 1) : 0;
+        int const mb_w = sps.pic_width_in_mbs, frame_mb_h = sps.frame_height_in_mbs();
         Picture& pic = m_pictures[static_cast<std::size_t>(info.slot)];
-        if (pic.mb_width != mb_w || pic.mb_height != mb_h)
-            pic.allocate(mb_w, mb_h);
-        pic.serial = ++m_serial;
-        pic.poc = std::min(info.poc_top, info.poc_bottom);
+        bool const second = field && info.second_field && pic.valid && pic.coding == Coding::Fields && pic.mb_width == mb_w && pic.mb_height == frame_mb_h;
+        if (pic.mb_width != mb_w || pic.mb_height != frame_mb_h)
+            pic.allocate(mb_w, frame_mb_h);
+        if (!second) {
+            pic.serial = ++m_serial;
+            // A lone field's other field is taken to count as it does.
+            pic.poc_top = field ? (structure == 1 ? info.poc_top : info.poc_bottom) : info.poc_top;
+            pic.poc_bottom = field ? pic.poc_top : info.poc_bottom;
+            std::fill(pic.mb_intra.begin(), pic.mb_intra.end(), std::uint8_t { 1 });
+            std::fill(pic.mb_field.begin(), pic.mb_field.end(), static_cast<std::uint8_t>(field ? 1 : 0));
+        }
+        if (structure == 1)
+            pic.poc_top = info.poc_top;
+        else if (structure == 2)
+            pic.poc_bottom = info.poc_bottom;
+        pic.coding = field ? Coding::Fields : (mbaff ? Coding::Mbaff : Coding::Frame);
         pic.valid = true;
-        // what read() shows: the sequence's cropping (7.4.2.1.1, frames, 4:2:0)
+        // what read() shows: the sequence's cropping (7.4.2.1.1, 4:2:0; in
+        // rows of two frame lines where fields may be coded)
         pic.crop_x = sps.frame_cropping ? sps.crop_left * 2 : 0;
-        pic.crop_y = sps.frame_cropping ? sps.crop_top * 2 : 0;
+        pic.crop_y = sps.frame_cropping ? sps.crop_top * 2 * (sps.frame_mbs_only ? 1 : 2) : 0;
         pic.shown_width = sps.width();
         pic.shown_height = sps.height();
-        std::fill(pic.mb_intra.begin(), pic.mb_intra.end(), std::uint8_t { 1 });
 
         Frame frame;
-        frame.picture = &pic;
+        frame.set_view(pic, structure, mbaff);
+        int const mb_h = frame.mb_height;
         frame.slice_alpha.assign(info.slices.size(), 0);
         frame.slice_beta.assign(info.slices.size(), 0);
         frame.slice_disable.assign(info.slices.size(), 0);
@@ -407,7 +426,8 @@ public:
         LevelScales const& scales = scales_for(pps);
         int const max_frame_num = 1 << sps.log2_max_frame_num;
         std::vector<H264ListPicture> const references = h264_list_pictures(info, max_frame_num);
-        int const current_poc = std::min(info.poc_top, info.poc_bottom);
+        // PicOrderCnt( CurrPic ): a frame's is its fields' least (8.2.1).
+        int const current_poc = structure == 1 ? info.poc_top : (structure == 2 ? info.poc_bottom : std::min(info.poc_top, info.poc_bottom));
 
         // Threads where the picture has rows enough and its slices come in raster order.
         bool in_order = true;
@@ -415,7 +435,7 @@ public:
             in_order = in_order && info.headers[i].first_mb_in_slice > info.headers[i - 1].first_mb_in_slice;
         std::optional<WavefrontSink> wavefront;
         std::optional<DirectSink> direct;
-        if (m_thread_count > 1 && in_order && mb_h >= 4) {
+        if (m_thread_count > 1 && in_order && mb_h >= 4 && !mbaff) {
             if (!m_pool)
                 m_pool = std::make_unique<WorkerPool>(m_thread_count - 1);
             wavefront.emplace(frame, m_thread_count + 2);
@@ -442,15 +462,22 @@ public:
                 continue; // the Extended profile's switching slices are not written
             slice.qp = std::clamp(pps.pic_init_qp + h.slice_qp_delta, 0, 51); // 7.4.3's range, held for a broken stream
             slice.current_poc = current_poc;
+            slice.poc_top = pic.poc_top;
+            slice.poc_bottom = pic.poc_bottom;
+            slice.structure = structure;
+            slice.mbaff = mbaff;
             slice.scales = &scales;
             bool const is_b = slice.type == H264SliceType::B;
             if (slice.type != H264SliceType::I) {
                 for (std::size_t list = 0; list < (is_b ? 2u : 1u); ++list) {
                     for (H264ListPicture const& e : h264_reference_list(references, h, list, is_b, current_poc, max_frame_num, info.frame_num)) {
                         RefEntry r;
-                        if (e.slot >= 0 && e.slot < slot_count && e.slot != info.slot && m_pictures[static_cast<std::size_t>(e.slot)].valid
-                            && m_pictures[static_cast<std::size_t>(e.slot)].mb_width == mb_w && m_pictures[static_cast<std::size_t>(e.slot)].mb_height == mb_h)
+                        // The current frame is a reference only as the first field of the second.
+                        bool const usable = e.slot >= 0 && e.slot < slot_count && (e.slot != info.slot || (field && e.structure != 0 && e.structure != structure));
+                        if (usable && m_pictures[static_cast<std::size_t>(e.slot)].valid && m_pictures[static_cast<std::size_t>(e.slot)].mb_width == mb_w
+                            && m_pictures[static_cast<std::size_t>(e.slot)].mb_height == frame_mb_h)
                             r.picture = &m_pictures[static_cast<std::size_t>(e.slot)];
+                        r.structure = e.structure;
                         r.long_term = e.long_term;
                         r.poc = e.poc;
                         slice.list[list].push_back(r);

@@ -1195,5 +1195,7 @@ std::uint8_t const cbp_inter[48] = { 0, 16, 1, 2, 4, 8, 32, 3, 5, 10, 12, 15, 47
 // Table 9-43: ctxIdxInc of significant_coeff_flag (frame coded) and last_significant_coeff_flag by levelListIdx, 8x8 blocks.
 std::uint8_t const significant_8x8_frame[63] = { 0, 1, 2, 3, 4, 5, 5, 4, 4, 3, 3, 4, 4, 4, 5, 5, 4, 4, 4, 4, 3, 3, 6, 7, 7, 7, 8, 9, 10, 9, 8, 7, 7, 6, 11, 12, 13, 11, 6, 7, 8, 9, 14, 10, 9, 8, 6, 11, 12, 13, 11, 6, 9, 14, 10, 9, 11, 12, 13, 11, 14, 10, 12 };
 std::uint8_t const last_significant_8x8[63] = { 0, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 2, 3, 3, 3, 3, 3, 3, 3, 3, 4, 4, 4, 4, 4, 4, 4, 4, 5, 5, 5, 5, 6, 6, 6, 6, 7, 7, 7, 7, 8, 8, 8 };
+// Table 9-43: ctxIdxInc of significant_coeff_flag (field coded) by levelListIdx, 8x8 blocks.
+std::uint8_t const significant_8x8_field[63] = { 0, 1, 1, 2, 2, 3, 3, 4, 5, 6, 7, 7, 7, 8, 4, 5, 6, 9, 10, 10, 8, 11, 12, 11, 9, 9, 10, 10, 8, 11, 12, 11, 9, 9, 10, 10, 8, 11, 12, 11, 9, 9, 10, 10, 8, 13, 13, 9, 9, 10, 10, 8, 13, 13, 9, 9, 10, 10, 14, 14, 14, 14, 14 };
 
 }

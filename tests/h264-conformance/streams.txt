@@ -1,8 +1,9 @@
 # ITU-T H.264.1 conformance bitstreams the software decoder holds exact,
 # every picture matching the reconstruction the stream ships with
 # (tests/h264_conformance.cpp; fetched by tools/h264-conformance-fetch.sh).
-# Progressive, frame-coded, Baseline / Main / High profile streams; the
-# field, MBAFF, FMO/ASO and SP/SI streams are not decoded yet.
+# Baseline / Main / High profile streams, 8-bit 4:2:0: frame-coded ones,
+# then those coded in fields, then the MBAFF ones; the FMO/ASO, SP/SI and
+# Extended profile streams are not decoded.
 BA_MW_D           # Baseline, CAVLC, I and P
 BA1_FT_C          # several slices a picture
 BA3_SVA_C         # Baseline, CAVLC
@@ -53,3 +54,30 @@ SVA_CL1_E         # Baseline
 SVA_NL2_E         # Baseline
 HCBP2_HHI_A       # hierarchical B pictures
 HCMP1_HHI_A       # hierarchical B, Main
+# Field pictures (field_pic_flag), and frames and fields chosen picture by
+# picture (PAFF): the frames given once both their fields are decoded.
+CVFI1_Sony_D      # fields, CAVLC, I and P, five references
+CVFI1_SVA_C       # fields, CAVLC, I and P
+CVFI2_Sony_H      # fields, CAVLC, B with temporal direct
+CVFI2_SVA_C       # fields, CAVLC, B with spatial direct, order count type 1
+CVNLFI1_Sony_C    # fields, CAVLC, no deblocking
+CVNLFI2_Sony_H    # fields, CAVLC, B, no deblocking
+FI1_Sony_E        # fields, I only
+CVPA1_TOSHIBA_B   # frames and fields (PAFF), CAVLC
+CAPA1_TOSHIBA_B   # frames and fields (PAFF), CABAC
+CAFI1_SVA_C       # fields, CABAC, B with spatial direct
+cabac_mot_fld0_full      # fields, CABAC, B with temporal direct
+cabac_mot_picaff0_full   # PAFF, CABAC
+cavlc_mot_fld0_full_B    # fields, CAVLC, B
+cavlc_mot_picaff0_full_B # PAFF, CAVLC
+CVMP_MOT_FLD_L30_B       # fields, CAVLC, B, level 3
+CVMP_MOT_FRM_L31_B       # fields, CAVLC, B, level 3.1
+Sharp_MP_Field_1_B       # fields, CAVLC, I and P, order count type 1
+Sharp_MP_Field_2_B       # fields, CAVLC, I and P, order count type 1
+Sharp_MP_Field_3_B       # fields, CAVLC, I and P, order count type 1
+Sharp_MP_PAFF_1r2        # PAFF, CAVLC, order count type 1
+Sharp_MP_PAFF_2r         # PAFF, CABAC, order count type 1
+brcm_freh4        # High, fields, CABAC, 8x8 transform, spatial direct
+brcm_freh6        # High, fields, CAVLC, 8x8 transform, B
+brcm_freh10       # High, fields, CABAC, temporal direct
+brcm_freh11       # High, fields, CABAC, B

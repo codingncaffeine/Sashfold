@@ -374,17 +374,17 @@ if None in cbp_intra or sorted(cbp_intra) != list(range(48)) or sorted(cbp_inter
     fail('Table 9-4 (a) incomplete or not a permutation')
 
 # Table 9-43: levelListIdx to ctxIdxInc of significant_coeff_flag (frame
-# coded) and last_significant_coeff_flag, for the 8x8 blocks.
-sig8, last8 = [None] * 63, [None] * 63
+# coded and field coded) and last_significant_coeff_flag, for the 8x8 blocks.
+sig8, sig8_field, last8 = [None] * 63, [None] * 63, [None] * 63
 page = find_page('Table 9-43 –')
 for p in (page, page + 1, page + 2):
     for line in layout(p).splitlines():
         t = line.split()
         if t and all(x.isdigit() for x in t) and len(t) in (4, 8):
             for g in range(0, len(t), 4):
-                i, sig, _field, last = map(int, t[g:g + 4])
+                i, sig, field, last = map(int, t[g:g + 4])
                 if i < 63 and sig8[i] is None:
-                    sig8[i], last8[i] = sig, last
+                    sig8[i], sig8_field[i], last8[i] = sig, field, last
 if None in sig8:
     fail('Table 9-43 incomplete: %s' % [i for i in range(63) if sig8[i] is None])
 
@@ -458,6 +458,8 @@ o.append('')
 o.append('// Table 9-43: ctxIdxInc of significant_coeff_flag (frame coded) and last_significant_coeff_flag by levelListIdx, 8x8 blocks.')
 o.append('std::uint8_t const significant_8x8_frame[63] = { %s };' % ', '.join(map(str, sig8)))
 o.append('std::uint8_t const last_significant_8x8[63] = { %s };' % ', '.join(map(str, last8)))
+o.append('// Table 9-43: ctxIdxInc of significant_coeff_flag (field coded) by levelListIdx, 8x8 blocks.')
+o.append('std::uint8_t const significant_8x8_field[63] = { %s };' % ', '.join(map(str, sig8_field)))
 o.append('')
 o.append('}')
 open(out_path, 'w').write('\n'.join(o) + '\n')

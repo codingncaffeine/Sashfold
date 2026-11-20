@@ -28,6 +28,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <memory>
 #include <set>
 #include <optional>
@@ -133,7 +134,8 @@ struct Result {
 };
 
 // The stream as playback hands it to a frame decoder: an avcC record of
-// its first parameter sets, and each access unit with four-byte lengths.
+// its first parameter sets, and each access unit with four-byte lengths —
+// the two fields of a frame in one sample, as MP4 and Matroska store them.
 struct Track {
     Bytes avcc;
     std::vector<Bytes> samples;
@@ -143,19 +145,55 @@ Track as_track(std::vector<Bytes> const& units)
 {
     Track t;
     Bytes sps, pps;
+    std::map<int, media::H264Sps> sets_sps;
+    std::map<int, media::H264Pps> sets_pps;
+    // The sample holding a first field alone: its frame_num and parity.
+    std::optional<std::pair<int, bool>> open_field;
     for (Bytes const& unit : units) {
         Bytes sample;
+        std::optional<media::H264SliceHeader> first;
         for (media::H264Nal const& nal : media::split_h264_annex_b(unit)) {
             if (nal.type == 7 && sps.empty())
                 sps.assign(nal.bytes.begin(), nal.bytes.end());
             if (nal.type == 8 && pps.empty())
                 pps.assign(nal.bytes.begin(), nal.bytes.end());
+            if (nal.type == 7) {
+                if (std::optional<media::H264Sps> s = media::parse_h264_sps(nal.bytes))
+                    sets_sps[s->id] = *s;
+            }
+            if (nal.type == 8) {
+                std::optional<media::H264Pps> p = media::parse_h264_pps(nal.bytes, nullptr);
+                if (p && sets_sps.contains(p->sps_id))
+                    p = media::parse_h264_pps(nal.bytes, &sets_sps[p->sps_id]);
+                if (p)
+                    sets_pps[p->id] = *p;
+            }
+            if ((nal.type == 1 || nal.type == 5) && !first) {
+                for (auto const& [id, p] : sets_pps) {
+                    auto const s = sets_sps.find(p.sps_id);
+                    if (s == sets_sps.end())
+                        continue;
+                    if (std::optional<media::H264SliceHeader> h = media::parse_h264_slice_header(nal.bytes, s->second, p); h && h->pps_id == id) {
+                        first = h;
+                        break;
+                    }
+                }
+            }
             auto const n = static_cast<std::uint32_t>(nal.bytes.size());
             std::uint8_t const length[4] = { static_cast<std::uint8_t>(n >> 24), static_cast<std::uint8_t>(n >> 16), static_cast<std::uint8_t>(n >> 8),
                 static_cast<std::uint8_t>(n) };
             sample.insert(sample.end(), length, length + 4);
             sample.insert(sample.end(), nal.bytes.begin(), nal.bytes.end());
         }
+        bool const field = first && first->field_pic;
+        if (field && open_field && open_field->first == first->frame_num && open_field->second != first->bottom_field && !t.samples.empty()) {
+            t.samples.back().insert(t.samples.back().end(), sample.begin(), sample.end());
+            open_field.reset();
+            continue;
+        }
+        open_field.reset();
+        if (field)
+            open_field = std::pair { first->frame_num, first->bottom_field };
         t.samples.push_back(std::move(sample));
     }
     if (sps.size() < 4 || pps.empty())
@@ -170,6 +208,10 @@ Track as_track(std::vector<Bytes> const& units)
 Result check(std::filesystem::path const& folder, media::VideoApi api, bool playback)
 {
     Result r;
+    if (!std::filesystem::is_directory(folder)) {
+        r.note = "not fetched (tools/h264-conformance-fetch.sh)";
+        return r;
+    }
     auto const bitstream = find(folder, { ".264", ".jsv", ".26l", ".avc", ".h264", ".jvt", ".bit" });
     // The cropped output where a stream ships it beside the coded size
     // ("_nogray"), the decoder's reconstruction ("rec") over other files.

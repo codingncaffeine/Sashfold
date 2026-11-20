@@ -9,7 +9,8 @@
 //   H264SoftwareResidual.cpp scaling and the inverse transforms (8.5)
 //   H264SoftwareDeblock.cpp  the deblocking filter (8.7)
 //   H264Software.cpp         a picture's slices, and the accelerator around them
-// Frames only, 8 bits, 4:2:0 — what the profiles the web serves carry.
+// Frames and fields, 8 bits, 4:2:0 — what the profiles the web serves
+// carry. A field is decoded into every other row of its frame.
 
 #include "media/H264.h"
 #include "media/H264Accelerator.h"
@@ -201,22 +202,36 @@ struct Mv {
     bool operator==(Mv const&) const = default;
 };
 
-// A decoded picture: its planes at the coded size, and per 4x4 luma block
+// How a frame was coded (Table 8-7's PicCodingStruct): as a frame, as a
+// frame of macroblock pairs (MBAFF), or as two fields.
+enum class Coding : std::uint8_t {
+    Frame,
+    Mbaff,
+    Fields,
+};
+
+// A decoded frame: its planes at the coded size, and per 4x4 luma block
 // the motion of each list (for the direct prediction of the pictures that
 // take it as their colocated one, 8.4.1.2) with the picture each
-// reference index named.
+// reference index named. The motion is kept in frame macroblock rows: a
+// frame macroblock's in its own row, a field macroblock's — of a field
+// picture, or of an MBAFF pair — in row 2 * (its row in the field) +
+// (0 top, 1 bottom), which is where Table 8-8 looks for it.
 struct Picture {
     int width = 0; // coded, in luma samples
     int height = 0;
     int mb_width = 0;
     int mb_height = 0;
     std::vector<std::uint8_t> y, cb, cr;
-    std::array<std::vector<Mv>, 2> mv; // [list][block], block = (mb_y * 4 + y4) * (mb_width * 4) + mb_x * 4 + x4
+    std::array<std::vector<Mv>, 2> mv; // [list][block], block = (mb_row * 4 + y4) * (mb_width * 4) + mb_x * 4 + x4
     std::array<std::vector<std::int8_t>, 2> ref_idx; // -1: the list not used
-    std::array<std::vector<std::int32_t>, 2> ref_pic; // the serial of the picture the block's reference index named
-    std::vector<std::uint8_t> mb_intra; // per macroblock
-    std::int32_t serial = 0; // unique per decoded picture
-    int poc = 0;
+    std::array<std::vector<std::int32_t>, 2> ref_pic; // the picture the block's reference index named (RefEntry::id)
+    std::vector<std::uint8_t> mb_intra; // per macroblock (in the rows above)
+    std::vector<std::uint8_t> mb_field; // per macroblock: a field macroblock
+    std::int32_t serial = 0; // unique per decoded frame (both its fields share it)
+    int poc_top = 0;
+    int poc_bottom = 0;
+    Coding coding = Coding::Frame;
     bool valid = false;
     int crop_x = 0; // the shown rectangle, luma samples
     int crop_y = 0;
@@ -229,11 +244,22 @@ struct Picture {
     int block_index(int x4, int y4) const { return y4 * mb_width * 4 + x4; }
 };
 
-// A reference in a slice's list, as the decoding needs it.
+// A reference in a slice's list, as the decoding needs it: a frame, or
+// one field of it.
 struct RefEntry {
     Picture const* picture = nullptr;
+    int structure = 0; // 0 the frame, 1 its top field, 2 its bottom field
     bool long_term = false;
     int poc = 0;
+    // What the deblocking and the colocated motion compare: the frame and
+    // the field told apart.
+    std::int32_t id() const { return picture ? picture->serial * 4 + structure : -1; }
+    // The samples: a field is every other row of its frame.
+    std::uint8_t const* luma() const { return picture->y.data() + (structure == 2 ? picture->width : 0); }
+    std::uint8_t const* chroma(int c) const { return (c == 0 ? picture->cb : picture->cr).data() + (structure == 2 ? picture->width / 2 : 0); }
+    int luma_stride() const { return picture->width << (structure != 0 ? 1 : 0); }
+    int chroma_stride() const { return (picture->width / 2) << (structure != 0 ? 1 : 0); }
+    int luma_height() const { return picture->height >> (structure != 0 ? 1 : 0); }
 };
 
 enum class MbKind : std::uint8_t {
@@ -270,6 +296,7 @@ struct MbState {
     MbKind kind = MbKind::PSkip;
     bool intra = false;
     bool skip = false;
+    bool field = false; // a field macroblock (of a field picture, or of an MBAFF field pair)
     bool transform_8x8 = false;
     bool direct_16x16 = false; // B_Skip and B_Direct_16x16 (their CABAC context)
     int qp = 0; // QPY
@@ -300,7 +327,16 @@ struct Slice {
     // 8.4.2.3: implicit weights, [ref0][ref1] (logWD 5).
     std::vector<std::array<int, 2>> implicit; // index ref0 * 32 + ref1: { w0, w1 }
     int weighted_mode = 0; // 0 default, 1 explicit, 2 implicit
-    int current_poc = 0;
+    int current_poc = 0; // PicOrderCnt( CurrPic ): the frame's, or the field's
+    int poc_top = 0; // the current frame's fields' counts
+    int poc_bottom = 0;
+    int structure = 0; // the current picture: 0 a frame, 1 a top field, 2 a bottom field
+    bool mbaff = false; // MbaffFrameFlag
+    // MBAFF: a field macroblock's lists, [0 top, 1 bottom macroblock][list]
+    // (8.4.2.1: entry 2i the same-parity field of frame entry i, 2i + 1
+    // the other), and their implicit weights (8.4.3, field counts).
+    std::array<std::array<std::vector<RefEntry>, 2>, 2> field_list;
+    std::array<std::vector<std::array<int, 2>>, 2> field_implicit;
     LevelScales const* scales = nullptr;
 };
 
@@ -349,15 +385,76 @@ public:
     virtual void end(Slice const& slice, int mb_addr) = 0;
 };
 
-// The picture's state while its slices decode.
+// The picture's state while its slices decode: the frame it is (or the
+// field of it), seen as the picture's own rows of macroblocks.
 struct Frame {
     Picture* picture = nullptr;
     MacroblockSink* sink = nullptr;
-    std::vector<MbState> mbs;
+    std::vector<MbState> mbs; // per macroblock address of the picture
     std::vector<int> slice_alpha; // per slice number: FilterOffsetA, FilterOffsetB, disable_deblocking_filter_idc
     std::vector<int> slice_beta;
     std::vector<int> slice_disable;
     int chroma_qp_offset[2] = { 0, 0 };
+    int structure = 0; // 0 a frame, 1 its top field, 2 its bottom field
+    bool mbaff = false;
+    int mb_width = 0; // the picture's, in macroblocks (a field: half the frame's rows)
+    int mb_height = 0;
+    // The picture's samples: the frame's planes, or every other row of them.
+    std::uint8_t* luma = nullptr;
+    std::uint8_t* chroma[2] = { nullptr, nullptr };
+    int luma_stride = 0;
+    int chroma_stride = 0;
+
+    void set_view(Picture& pic, int structure_, bool mbaff_)
+    {
+        picture = &pic;
+        structure = structure_;
+        mbaff = mbaff_;
+        int const field = structure != 0 ? 1 : 0;
+        mb_width = pic.mb_width;
+        mb_height = pic.mb_height >> field;
+        luma = pic.y.data() + (structure == 2 ? pic.width : 0);
+        chroma[0] = pic.cb.data() + (structure == 2 ? pic.width / 2 : 0);
+        chroma[1] = pic.cr.data() + (structure == 2 ? pic.width / 2 : 0);
+        luma_stride = pic.width << field;
+        chroma_stride = (pic.width / 2) << field;
+    }
+    // The macroblock's row among the picture's motion rows (Picture says how).
+    int storage_row(int addr) const
+    {
+        if (mbaff)
+            return ((addr >> 1) / mb_width) * 2 + (addr & 1);
+        int const row = addr / mb_width;
+        return structure == 0 ? row : row * 2 + (structure - 1);
+    }
+    int mb_column(int addr) const { return mbaff ? (addr >> 1) % mb_width : addr % mb_width; }
+    // Index of the macroblock in the picture's per-macroblock arrays, and of its first 4x4 block in the motion arrays.
+    int storage_mb(int addr) const { return storage_row(addr) * mb_width + mb_column(addr); }
+    int block_base(int addr) const { return storage_row(addr) * 4 * (mb_width * 4) + mb_column(addr) * 4; }
+    int block_stride() const { return mb_width * 4; }
+
+    // Where a macroblock's samples are: its upper-left luma sample among
+    // the rows it is made of — the frame's (structure 0) or one field's (1
+    // top, 2 bottom): a field picture's, or an MBAFF field macroblock's.
+    struct Place {
+        int x = 0;
+        int y = 0;
+        int structure = 0;
+    };
+    Place place(int addr) const
+    {
+        if (!mbaff)
+            return { (addr % mb_width) * 16, (addr / mb_width) * 16, structure };
+        int const pair = addr >> 1, bottom = addr & 1;
+        if (mbs[static_cast<std::size_t>(addr)].field)
+            return { (pair % mb_width) * 16, (pair / mb_width) * 16, 1 + bottom };
+        return { (pair % mb_width) * 16, (pair / mb_width) * 32 + bottom * 16, 0 };
+    }
+    // The rows of a structure: the frame's, or every other one of them.
+    std::uint8_t* luma_rows(int s) const { return picture->y.data() + (s == 2 ? picture->width : 0); }
+    std::uint8_t* chroma_rows(int c, int s) const { return (c == 0 ? picture->cb : picture->cr).data() + (s == 2 ? picture->width / 2 : 0); }
+    int luma_rows_stride(int s) const { return picture->width << (s != 0 ? 1 : 0); }
+    int chroma_rows_stride(int s) const { return (picture->width / 2) << (s != 0 ? 1 : 0); }
 };
 
 // The decoding of one slice's macroblocks, from its data's first bit.

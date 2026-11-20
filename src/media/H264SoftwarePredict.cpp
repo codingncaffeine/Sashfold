@@ -33,6 +33,13 @@ struct Neighbor {
     std::int32_t pic = -1;
 };
 
+// How a co-located motion vector's vertical component is scaled (8.4.1.2.1).
+enum class VertMvScale : std::uint8_t {
+    OneToOne,
+    FrmToFld,
+    FldToFrm,
+};
+
 class MotionContext {
 public:
     MotionContext(Frame& frame, Slice const& slice, int addr)
@@ -40,9 +47,11 @@ public:
         , m_slice(slice)
         , m_pic(*frame.picture)
         , m_addr(addr)
-        , m_w(frame.picture->mb_width)
-        , m_x(addr % frame.picture->mb_width)
-        , m_y(addr / frame.picture->mb_width)
+        , m_w(frame.mb_width)
+        , m_x(addr % frame.mb_width)
+        , m_y(addr / frame.mb_width)
+        , m_bw(frame.block_stride())
+        , m_base(frame.block_base(addr))
     {
     }
 
@@ -76,7 +85,7 @@ public:
             if (!((m_done >> (by * 4 + bx)) & 1))
                 return n;
             n.available = true;
-            int const i = m_pic.block_index(m_x * 4 + bx, m_y * 4 + by);
+            int const i = m_base + by * m_bw + bx;
             n.ref = m_pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
             if (n.ref >= 0) {
                 n.mv = m_pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
@@ -87,11 +96,10 @@ public:
         if (!mb_available(mx, my))
             return n;
         n.available = true;
-        if (m_frame.mbs[static_cast<std::size_t>(my * m_w + mx)].intra)
+        int const neighbor = my * m_w + mx;
+        if (m_frame.mbs[static_cast<std::size_t>(neighbor)].intra)
             return n;
-        int const gx = mx * 4 + ((bx + 4) & 3);
-        int const gy = my * 4 + ((by + 4) & 3);
-        int const i = m_pic.block_index(gx, gy);
+        int const i = m_frame.block_base(neighbor) + ((by + 4) & 3) * m_bw + ((bx + 4) & 3);
         n.ref = m_pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
         if (n.ref >= 0)
             n.mv = m_pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
@@ -138,13 +146,11 @@ public:
     void store(int x4, int y4, int w4, int h4, int list, int ref, Mv mv)
     {
         std::int32_t pic = -1;
-        if (ref >= 0 && static_cast<std::size_t>(ref) < m_slice.list[static_cast<std::size_t>(list)].size()) {
-            RefEntry const& e = m_slice.list[static_cast<std::size_t>(list)][static_cast<std::size_t>(ref)];
-            pic = e.picture ? e.picture->serial : -1;
-        }
+        if (ref >= 0 && static_cast<std::size_t>(ref) < m_slice.list[static_cast<std::size_t>(list)].size())
+            pic = m_slice.list[static_cast<std::size_t>(list)][static_cast<std::size_t>(ref)].id();
         for (int y = y4; y < y4 + h4; ++y)
             for (int x = x4; x < x4 + w4; ++x) {
-                int const i = m_pic.block_index(m_x * 4 + x, m_y * 4 + y);
+                int const i = m_base + y * m_bw + x;
                 m_pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)] = static_cast<std::int8_t>(ref);
                 m_pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)] = ref >= 0 ? mv : Mv {};
                 m_pic.ref_pic[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)] = pic;
@@ -157,32 +163,127 @@ public:
                 m_done |= 1u << (y * 4 + x);
     }
 
-    // 8.4.1.2.1: the colocated block's motion.
+    // 8.4.1.2.1: the co-located block's motion — in the frame or field
+    // Table 8-6 picks, at the macroblock and row Table 8-8 gives.
     struct Col {
         Mv mv;
         int ref = -1;
-        std::int32_t pic = -1;
+        std::int32_t pic = -1; // the picture its reference index named (RefEntry::id)
+        VertMvScale scale = VertMvScale::OneToOne;
     };
     Col colocated(int bx, int by) const
     {
         Col c;
         if (m_slice.list[1].empty() || !m_slice.list[1][0].picture)
             return c;
-        Picture const& col = *m_slice.list[1][0].picture;
+        RefEntry const& first = m_slice.list[1][0];
+        Picture const& col = *first.picture;
         if (col.mb_width != m_pic.mb_width || col.mb_height != m_pic.mb_height)
             return c;
         if (m_slice.sps->direct_8x8_inference) {
             bx = (bx >> 1) * 3;
             by = (by >> 1) * 3;
         }
-        if (col.mb_intra[static_cast<std::size_t>(m_addr)])
+        int const x_col = bx * 4, y_col = by * 4;
+        int const curr = m_addr, w = m_w;
+        bool const field_mb = m_frame.mbs[static_cast<std::size_t>(curr)].field;
+        // Table 8-6: a field of a decoded frame is taken with its frame; a
+        // frame's field pair gives up the field nearer in order (frame
+        // macroblocks) or of the macroblock's parity (field ones).
+        bool col_is_fields = col.coding == Coding::Fields;
+        int col_parity = 0; // of a field colPic: 0 top, 1 bottom
+        if (m_slice.structure != 0) {
+            col_parity = first.structure == 2 ? 1 : 0;
+        } else if (col_is_fields) {
+            int const top_diff = std::abs(col.poc_top - m_slice.current_poc);
+            int const bottom_diff = std::abs(col.poc_bottom - m_slice.current_poc);
+            col_parity = field_mb ? (curr & 1) : (top_diff < bottom_diff ? 0 : 1);
+        }
+        // The co-located macroblock's motion row and column (Picture), and yM.
+        int row = 0, column = 0, y_m = y_col;
+        auto frame_mb = [&](int a) { row = a / w; column = a % w; };
+        auto field_mb_of = [&](int a, int parity) { row = (a / w) * 2 + parity; column = a % w; };
+        auto mbaff_mb = [&](int a) { row = ((a >> 1) / w) * 2 + (a & 1); column = (a >> 1) % w; };
+        auto is_field_at = [&](int a) { return col.mb_field[static_cast<std::size_t>((((a >> 1) / w) * 2 + (a & 1)) * w + (a >> 1) % w)] != 0; };
+        if (m_slice.structure != 0) { // FLD
+            if (col_is_fields) {
+                field_mb_of(curr, col_parity);
+            } else if (col.coding == Coding::Frame) {
+                frame_mb(2 * w * (curr / w) + (curr % w) + w * (y_col / 8)); // (8-177)
+                y_m = (2 * y_col) % 16;
+                c.scale = VertMvScale::FrmToFld;
+            } else if (!is_field_at(2 * curr)) {
+                mbaff_mb(2 * curr + y_col / 8); // (8-178)
+                y_m = (2 * y_col) % 16;
+                c.scale = VertMvScale::FrmToFld;
+            } else {
+                mbaff_mb(2 * curr + (m_slice.structure == 2 ? 1 : 0)); // (8-179)
+            }
+        } else if (!m_slice.mbaff) { // FRM
+            if (col_is_fields) {
+                field_mb_of(w * (curr / (2 * w)) + (curr % w), col_parity); // (8-180)
+                y_m = 8 * ((curr / w) % 2) + 4 * (y_col / 8);
+                c.scale = VertMvScale::FldToFrm;
+            } else {
+                frame_mb(curr);
+            }
+        } else if (col_is_fields) { // AFRM, the co-located a field
+            field_mb_of(curr / 2, col_parity); // (8-181)
+            if (!field_mb) {
+                y_m = 8 * (curr % 2) + 4 * (y_col / 8);
+                c.scale = VertMvScale::FldToFrm;
+            }
+        } else { // AFRM, the co-located an MBAFF frame
+            bool const x_field = is_field_at(curr);
+            if (!field_mb && !x_field) {
+                mbaff_mb(curr);
+            } else if (!field_mb) {
+                int const top_diff = std::abs(col.poc_top - m_slice.current_poc);
+                int const bottom_diff = std::abs(col.poc_bottom - m_slice.current_poc);
+                mbaff_mb(2 * (curr / 2) + (top_diff < bottom_diff ? 0 : 1)); // (8-182)
+                y_m = 8 * (curr % 2) + 4 * (y_col / 8);
+                c.scale = VertMvScale::FldToFrm;
+            } else if (!x_field) {
+                mbaff_mb(2 * (curr / 2) + y_col / 8); // (8-183)
+                y_m = (2 * y_col) % 16;
+                c.scale = VertMvScale::FrmToFld;
+            } else {
+                mbaff_mb(curr);
+            }
+        }
+        if (row < 0 || row >= col.mb_height || column < 0 || column >= col.mb_width)
             return c;
-        int const i = col.block_index(m_x * 4 + bx, m_y * 4 + by);
+        if (col.mb_intra[static_cast<std::size_t>(row * w + column)])
+            return c;
+        int const i = (row * 4 + y_m / 4) * m_bw + column * 4 + x_col / 4;
         int const list = col.ref_idx[0][static_cast<std::size_t>(i)] < 0 ? 1 : 0;
         c.ref = col.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
         c.mv = col.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
         c.pic = col.ref_pic[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
         return c;
+    }
+
+    // 8.4.1.2.3: MapColToList0, the lowest index of list 0 naming the
+    // picture the co-located block referred to (or its frame, or its field
+    // of the current parity, as vertMvScale has it).
+    int map_col_to_list0(Col const& c) const
+    {
+        auto const& l0 = m_slice.list[0];
+        std::int32_t const serial = c.pic >> 2;
+        for (std::size_t k = 0; k < l0.size(); ++k) {
+            if (!l0[k].picture)
+                continue;
+            bool match;
+            if (c.scale == VertMvScale::OneToOne)
+                match = l0[k].id() == c.pic;
+            else if (c.scale == VertMvScale::FrmToFld)
+                match = l0[k].picture->serial == serial && l0[k].structure == m_slice.structure;
+            else
+                match = l0[k].picture->serial == serial && l0[k].structure == 0;
+            if (match)
+                return static_cast<int>(k);
+        }
+        return 0;
     }
 
     // 8.4.1.2.2 (the macroblock-level part) and 8.4.1.2.3, for the 4x4
@@ -241,17 +342,13 @@ public:
         // Temporal.
         for (int y = y4; y < y4 + h4; ++y)
             for (int x = x4; x < x4 + w4; ++x) {
-                Col const c = colocated(x, y);
-                int ref0 = 0;
-                if (c.ref >= 0) {
-                    auto const& l0 = m_slice.list[0];
-                    for (std::size_t k = 0; k < l0.size(); ++k) {
-                        if (l0[k].picture && l0[k].picture->serial == c.pic) {
-                            ref0 = static_cast<int>(k);
-                            break;
-                        }
-                    }
-                }
+                Col c = colocated(x, y);
+                int const ref0 = c.ref >= 0 ? map_col_to_list0(c) : 0;
+                // (8-193), (8-194): the co-located vector in the current macroblock's units.
+                if (c.scale == VertMvScale::FrmToFld)
+                    c.mv.y = static_cast<std::int16_t>(c.mv.y / 2);
+                else if (c.scale == VertMvScale::FldToFrm)
+                    c.mv.y = static_cast<std::int16_t>(c.mv.y * 2);
                 Mv mv0, mv1;
                 if (static_cast<std::size_t>(ref0) < m_slice.list[0].size() && !m_slice.list[1].empty()) {
                     RefEntry const& p0 = m_slice.list[0][static_cast<std::size_t>(ref0)];
@@ -284,6 +381,8 @@ private:
     int m_w;
     int m_x;
     int m_y;
+    int m_bw; // motion blocks per row
+    int m_base; // the macroblock's first motion block
     std::uint32_t m_done = 0;
     bool m_spatial_ready = false;
     bool m_direct_zero = false;
@@ -298,7 +397,7 @@ bool uses_list(Pred p, int list) { return p != PredNone && p != PredDirect && (p
 void derive_motion(Frame& frame, Slice const& slice, int addr, MbSyntax const& mb)
 {
     MotionContext ctx(frame, slice, addr);
-    frame.picture->mb_intra[static_cast<std::size_t>(addr)] = 0;
+    frame.picture->mb_intra[static_cast<std::size_t>(frame.storage_mb(addr))] = 0;
     auto add = [](Mv a, Mv d) { return Mv { static_cast<std::int16_t>(a.x + d.x), static_cast<std::int16_t>(a.y + d.y) }; };
     switch (mb.kind) {
     case MbKind::PSkip: {
@@ -392,18 +491,19 @@ struct EdgeWindow {
 };
 
 // `src` for a block at (x, y) of w x h whose filter reads `before` samples
-// above and left of it and `after` below and right: the plane itself, or
-// `window` filled from it.
-std::uint8_t const* mc_source(std::uint8_t const* data, int width, int height, int x, int y, int w, int h, int before, int after,
+// above and left of it and `after` below and right: the plane itself (a
+// frame's, or a field's every other row: `pitch` apart), or `window`
+// filled from it.
+std::uint8_t const* mc_source(std::uint8_t const* data, int pitch, int width, int height, int x, int y, int w, int h, int before, int after,
     EdgeWindow& window, int& stride)
 {
     if (x - before >= 0 && y - before >= 0 && x + w + after <= width && y + h + after <= height) {
-        stride = width;
-        return data + static_cast<std::ptrdiff_t>(y) * width + x;
+        stride = pitch;
+        return data + static_cast<std::ptrdiff_t>(y) * pitch + x;
     }
     int const rows = h + before + after, cols = w + before + after;
     for (int r = 0; r < rows; ++r) {
-        std::uint8_t const* row = data + static_cast<std::ptrdiff_t>(std::clamp(y - before + r, 0, height - 1)) * width;
+        std::uint8_t const* row = data + static_cast<std::ptrdiff_t>(std::clamp(y - before + r, 0, height - 1)) * pitch;
         std::uint8_t* out = window.samples + r * EdgeWindow::pitch;
         for (int c = 0; c < cols; ++c)
             out[c] = row[std::clamp(x - before + c, 0, width - 1)];
@@ -460,17 +560,17 @@ void average(std::uint8_t* dst, std::uint8_t const* a, int a_stride, std::uint8_
 // 8.4.2.2.1 for a w x h block at (x, y) with fraction (fx, fy), into `out`
 // (rows of mc_stride).
 template<int W>
-void luma_partition(std::uint8_t const* data, int width, int height, int x, int y, int fx, int fy, int h, std::uint8_t* out)
+void luma_partition(std::uint8_t const* data, int pitch, int width, int height, int x, int y, int fx, int fy, int h, std::uint8_t* out)
 {
     EdgeWindow window;
     int stride = 0;
     if (fx == 0 && fy == 0) {
-        std::uint8_t const* src = mc_source(data, width, height, x, y, W, h, 0, 0, window, stride);
+        std::uint8_t const* src = mc_source(data, pitch, width, height, x, y, W, h, 0, 0, window, stride);
         for (int r = 0; r < h; ++r)
             std::memcpy(out + r * mc_stride, src + r * stride, W);
         return;
     }
-    std::uint8_t const* g = mc_source(data, width, height, x, y, W, h, 2, 3, window, stride);
+    std::uint8_t const* g = mc_source(data, pitch, width, height, x, y, W, h, 2, 3, window, stride);
     std::uint8_t b[mc_stride * 17], hv[mc_stride * 16], j[mc_stride * 16];
     switch (fy * 4 + fx) {
     case 1: // a
@@ -522,22 +622,22 @@ void luma_partition(std::uint8_t const* data, int width, int height, int x, int 
     }
 }
 
-void luma_partition(std::uint8_t const* data, int width, int height, int x, int y, int fx, int fy, int w, int h, std::uint8_t* out)
+void luma_partition(std::uint8_t const* data, int pitch, int width, int height, int x, int y, int fx, int fy, int w, int h, std::uint8_t* out)
 {
     if (w == 16)
-        luma_partition<16>(data, width, height, x, y, fx, fy, h, out);
+        luma_partition<16>(data, pitch, width, height, x, y, fx, fy, h, out);
     else if (w == 8)
-        luma_partition<8>(data, width, height, x, y, fx, fy, h, out);
+        luma_partition<8>(data, pitch, width, height, x, y, fx, fy, h, out);
     else
-        luma_partition<4>(data, width, height, x, y, fx, fy, h, out);
+        luma_partition<4>(data, pitch, width, height, x, y, fx, fy, h, out);
 }
 
 // 8.4.2.2.2 for a w x h chroma block at (x, y) with fraction (fx, fy).
-void chroma_partition(std::uint8_t const* data, int width, int height, int x, int y, int fx, int fy, int w, int h, std::uint8_t* out)
+void chroma_partition(std::uint8_t const* data, int pitch, int width, int height, int x, int y, int fx, int fy, int w, int h, std::uint8_t* out)
 {
     EdgeWindow window;
     int stride = 0;
-    std::uint8_t const* s = mc_source(data, width, height, x, y, w, h, 0, 1, window, stride);
+    std::uint8_t const* s = mc_source(data, pitch, width, height, x, y, w, h, 0, 1, window, stride);
     int const a = (8 - fx) * (8 - fy), b = fx * (8 - fy), c = (8 - fx) * fy, d = fx * fy;
     for (int r = 0; r < h; ++r, s += stride, out += mc_stride)
         for (int i = 0; i < w; ++i)
@@ -550,7 +650,9 @@ struct Weights {
     int w0 = 1, w1 = 1, o0 = 0, o1 = 0;
 };
 
-Weights weights_for(Slice const& slice, int ref0, int ref1, bool l0, bool l1, int component)
+// 8.4.3. `mbaff_parity`: an MBAFF field macroblock's (0 top, 1 bottom),
+// whose reference indices count fields; -1 for any other.
+Weights weights_for(Slice const& slice, int ref0, int ref1, bool l0, bool l1, int component, int mbaff_parity)
 {
     Weights w;
     w.mode = slice.weighted_mode;
@@ -559,7 +661,10 @@ Weights weights_for(Slice const& slice, int ref0, int ref1, bool l0, bool l1, in
             w.mode = 0;
             return w;
         }
-        std::array<int, 2> const iw = slice.implicit[static_cast<std::size_t>(ref0 * 32 + ref1)];
+        std::vector<std::array<int, 2>> const& table = mbaff_parity >= 0 ? slice.field_implicit[static_cast<std::size_t>(mbaff_parity)] : slice.implicit;
+        std::size_t const at = static_cast<std::size_t>(ref0 * 64 + ref1);
+        std::array<int, 2> const iw = mbaff_parity >= 0 ? (at < table.size() ? table[at] : std::array<int, 2> { 32, 32 })
+                                                        : slice.implicit[static_cast<std::size_t>(ref0 * 32 + ref1)];
         w.log_wd = 5;
         w.w0 = iw[0];
         w.w1 = iw[1];
@@ -568,6 +673,10 @@ Weights weights_for(Slice const& slice, int ref0, int ref1, bool l0, bool l1, in
     if (w.mode == 1) {
         H264PredWeights const& pw = slice.header->weights;
         w.log_wd = component == 0 ? pw.luma_log2_denom : pw.chroma_log2_denom;
+        if (mbaff_parity >= 0) { // (8-284), (8-285)
+            ref0 >>= 1;
+            ref1 >>= 1;
+        }
         auto entry = [&](int list, int ref, int& wt, int& o) {
             H264PredWeights::Entry const& e = pw.list[static_cast<std::size_t>(list)][static_cast<std::size_t>(std::clamp(ref, 0, 31))];
             if (component == 0) {
@@ -615,99 +724,138 @@ void weigh_block(std::uint8_t* dst, int stride, std::uint8_t const* p0, std::uin
     }
 }
 
+// The macroblock being predicted: where its motion and its samples are.
+struct InterTarget {
+    InterTarget(Picture& p, Slice const& s)
+        : pic(p)
+        , slice(s)
+        , lists(s.list.data())
+    {
+    }
+    Picture& pic;
+    Slice const& slice;
+    std::vector<RefEntry> const* lists; // [2]: the slice's, or an MBAFF field macroblock's fields
+    int base = 0; // its first motion block
+    int bw = 0; // motion blocks per row
+    Frame::Place place;
+    int mbaff_parity = -1; // an MBAFF field macroblock's parity
+    std::uint8_t* luma = nullptr; // the rows it is made of
+    std::uint8_t* chroma[2] = { nullptr, nullptr };
+    int luma_stride = 0;
+    int chroma_stride = 0;
+};
+
 // Whether the 4x4 blocks of a w4 x h4 rectangle at (x4, y4) of the
 // macroblock share their motion.
-bool same_motion(Picture const& pic, int mx, int my, int x4, int y4, int w4, int h4)
+bool same_motion(InterTarget const& t, int x4, int y4, int w4, int h4)
 {
-    int const first = pic.block_index(mx * 4 + x4, my * 4 + y4);
+    int const first = t.base + y4 * t.bw + x4;
     for (int y = y4; y < y4 + h4; ++y)
         for (int x = x4; x < x4 + w4; ++x) {
-            int const i = pic.block_index(mx * 4 + x, my * 4 + y);
+            int const i = t.base + y * t.bw + x;
             for (std::size_t list = 0; list < 2; ++list)
-                if (pic.ref_idx[list][static_cast<std::size_t>(i)] != pic.ref_idx[list][static_cast<std::size_t>(first)]
-                    || !(pic.mv[list][static_cast<std::size_t>(i)] == pic.mv[list][static_cast<std::size_t>(first)]))
+                if (t.pic.ref_idx[list][static_cast<std::size_t>(i)] != t.pic.ref_idx[list][static_cast<std::size_t>(first)]
+                    || !(t.pic.mv[list][static_cast<std::size_t>(i)] == t.pic.mv[list][static_cast<std::size_t>(first)]))
                     return false;
         }
     return true;
 }
 
 // One rectangle of the macroblock with one motion: (x4, y4) and its size in 4x4 blocks.
-void predict_rectangle(Picture& pic, Slice const& slice, int mx, int my, int x4, int y4, int w4, int h4)
+void predict_rectangle(InterTarget const& t, int x4, int y4, int w4, int h4)
 {
-    int const i = pic.block_index(mx * 4 + x4, my * 4 + y4);
+    Picture const& pic = t.pic;
+    int const i = t.base + y4 * t.bw + x4;
     int refs[2];
     Mv mvs[2];
-    Picture const* ref_pics[2] = { nullptr, nullptr };
+    RefEntry const* ref_pics[2] = { nullptr, nullptr };
     bool use[2];
     for (int list = 0; list < 2; ++list) {
+        std::vector<RefEntry> const& l = t.lists[list];
         refs[list] = pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
         mvs[list] = pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)];
-        use[list] = refs[list] >= 0 && static_cast<std::size_t>(refs[list]) < slice.list[static_cast<std::size_t>(list)].size()
-            && slice.list[static_cast<std::size_t>(list)][static_cast<std::size_t>(refs[list])].picture;
+        use[list] = refs[list] >= 0 && static_cast<std::size_t>(refs[list]) < l.size() && l[static_cast<std::size_t>(refs[list])].picture;
         if (use[list])
-            ref_pics[list] = slice.list[static_cast<std::size_t>(list)][static_cast<std::size_t>(refs[list])].picture;
+            ref_pics[list] = &l[static_cast<std::size_t>(refs[list])];
     }
     if (!use[0] && !use[1]) {
         // A reference the buffer does not hold: the block stays as it was (grey on a fresh picture).
         return;
     }
     int const w = w4 * 4, h = h4 * 4;
-    int const x0 = mx * 16 + x4 * 4, y0 = my * 16 + y4 * 4;
+    int const x0 = t.place.x + x4 * 4, y0 = t.place.y + y4 * 4;
     alignas(16) std::uint8_t pl[2][mc_stride * 16];
     for (int list = 0; list < 2; ++list)
         if (use[list])
-            luma_partition(ref_pics[list]->y.data(), ref_pics[list]->width, ref_pics[list]->height, x0 + (mvs[list].x >> 2), y0 + (mvs[list].y >> 2),
-                mvs[list].x & 3, mvs[list].y & 3, w, h, pl[list]);
-    weigh_block(&pic.y[static_cast<std::size_t>(y0 * pic.width + x0)], pic.width, pl[0], pl[1], use[0], use[1],
-        weights_for(slice, refs[0], refs[1], use[0], use[1], 0), w, h);
-    int const cw = pic.width / 2, ch = pic.height / 2;
+            luma_partition(ref_pics[list]->luma(), ref_pics[list]->luma_stride(), pic.width, ref_pics[list]->luma_height(), x0 + (mvs[list].x >> 2),
+                y0 + (mvs[list].y >> 2), mvs[list].x & 3, mvs[list].y & 3, w, h, pl[list]);
+    weigh_block(t.luma + static_cast<std::ptrdiff_t>(y0) * t.luma_stride + x0, t.luma_stride, pl[0], pl[1], use[0], use[1],
+        weights_for(t.slice, refs[0], refs[1], use[0], use[1], 0, t.mbaff_parity), w, h);
     int const cx0 = x0 / 2, cy0 = y0 / 2;
     for (int c = 0; c < 2; ++c) {
         for (int list = 0; list < 2; ++list) {
             if (!use[list])
                 continue;
-            std::vector<std::uint8_t> const& rp = c == 0 ? ref_pics[list]->cb : ref_pics[list]->cr;
-            chroma_partition(rp.data(), cw, ch, cx0 + (mvs[list].x >> 3), cy0 + (mvs[list].y >> 3), mvs[list].x & 7, mvs[list].y & 7, w / 2, h / 2, pl[list]);
+            RefEntry const& r = *ref_pics[list];
+            // Table 8-10: between fields of opposite parity, the chroma
+            // vector moves a quarter of a chroma row.
+            int mvc_y = mvs[list].y;
+            if (t.place.structure == 2 && r.structure == 1)
+                mvc_y += 2;
+            else if (t.place.structure == 1 && r.structure == 2)
+                mvc_y -= 2;
+            chroma_partition(r.chroma(c), r.chroma_stride(), pic.width / 2, r.luma_height() / 2, cx0 + (mvs[list].x >> 3), cy0 + (mvc_y >> 3),
+                mvs[list].x & 7, mvc_y & 7, w / 2, h / 2, pl[list]);
         }
-        std::vector<std::uint8_t>& plane = c == 0 ? pic.cb : pic.cr;
-        weigh_block(&plane[static_cast<std::size_t>(cy0 * cw + cx0)], cw, pl[0], pl[1], use[0], use[1],
-            weights_for(slice, refs[0], refs[1], use[0], use[1], 1 + c), w / 2, h / 2);
+        weigh_block(t.chroma[c] + static_cast<std::ptrdiff_t>(cy0) * t.chroma_stride + cx0, t.chroma_stride, pl[0], pl[1], use[0], use[1],
+            weights_for(t.slice, refs[0], refs[1], use[0], use[1], 1 + c, t.mbaff_parity), w / 2, h / 2);
     }
 }
 
 // An 8x8 quadrant: whole, two halves either way, or four 4x4 blocks.
-void predict_quadrant(Picture& pic, Slice const& slice, int mx, int my, int x4, int y4)
+void predict_quadrant(InterTarget const& t, int x4, int y4)
 {
-    if (same_motion(pic, mx, my, x4, y4, 2, 2)) {
-        predict_rectangle(pic, slice, mx, my, x4, y4, 2, 2);
-    } else if (same_motion(pic, mx, my, x4, y4, 2, 1) && same_motion(pic, mx, my, x4, y4 + 1, 2, 1)) {
-        predict_rectangle(pic, slice, mx, my, x4, y4, 2, 1);
-        predict_rectangle(pic, slice, mx, my, x4, y4 + 1, 2, 1);
-    } else if (same_motion(pic, mx, my, x4, y4, 1, 2) && same_motion(pic, mx, my, x4 + 1, y4, 1, 2)) {
-        predict_rectangle(pic, slice, mx, my, x4, y4, 1, 2);
-        predict_rectangle(pic, slice, mx, my, x4 + 1, y4, 1, 2);
+    if (same_motion(t, x4, y4, 2, 2)) {
+        predict_rectangle(t, x4, y4, 2, 2);
+    } else if (same_motion(t, x4, y4, 2, 1) && same_motion(t, x4, y4 + 1, 2, 1)) {
+        predict_rectangle(t, x4, y4, 2, 1);
+        predict_rectangle(t, x4, y4 + 1, 2, 1);
+    } else if (same_motion(t, x4, y4, 1, 2) && same_motion(t, x4 + 1, y4, 1, 2)) {
+        predict_rectangle(t, x4, y4, 1, 2);
+        predict_rectangle(t, x4 + 1, y4, 1, 2);
     } else {
         for (int y = 0; y < 2; ++y)
             for (int x = 0; x < 2; ++x)
-                predict_rectangle(pic, slice, mx, my, x4 + x, y4 + y, 1, 1);
+                predict_rectangle(t, x4 + x, y4 + y, 1, 1);
     }
 }
 
 void inter_predict(Frame& frame, Slice const& slice, int addr)
 {
-    Picture& pic = *frame.picture;
-    int const mx = addr % pic.mb_width, my = addr / pic.mb_width;
-    if (same_motion(pic, mx, my, 0, 0, 4, 4)) {
-        predict_rectangle(pic, slice, mx, my, 0, 0, 4, 4);
-    } else if (same_motion(pic, mx, my, 0, 0, 4, 2) && same_motion(pic, mx, my, 0, 2, 4, 2)) {
-        predict_rectangle(pic, slice, mx, my, 0, 0, 4, 2);
-        predict_rectangle(pic, slice, mx, my, 0, 2, 4, 2);
-    } else if (same_motion(pic, mx, my, 0, 0, 2, 4) && same_motion(pic, mx, my, 2, 0, 2, 4)) {
-        predict_rectangle(pic, slice, mx, my, 0, 0, 2, 4);
-        predict_rectangle(pic, slice, mx, my, 2, 0, 2, 4);
+    InterTarget t(*frame.picture, slice);
+    t.base = frame.block_base(addr);
+    t.bw = frame.block_stride();
+    t.place = frame.place(addr);
+    if (frame.mbaff && t.place.structure != 0) {
+        t.mbaff_parity = t.place.structure - 1;
+        t.lists = slice.field_list[static_cast<std::size_t>(t.mbaff_parity)].data();
+    }
+    t.luma = frame.luma_rows(t.place.structure);
+    t.luma_stride = frame.luma_rows_stride(t.place.structure);
+    for (int c = 0; c < 2; ++c)
+        t.chroma[c] = frame.chroma_rows(c, t.place.structure);
+    t.chroma_stride = frame.chroma_rows_stride(t.place.structure);
+    if (same_motion(t, 0, 0, 4, 4)) {
+        predict_rectangle(t, 0, 0, 4, 4);
+    } else if (same_motion(t, 0, 0, 4, 2) && same_motion(t, 0, 2, 4, 2)) {
+        predict_rectangle(t, 0, 0, 4, 2);
+        predict_rectangle(t, 0, 2, 4, 2);
+    } else if (same_motion(t, 0, 0, 2, 4) && same_motion(t, 2, 0, 2, 4)) {
+        predict_rectangle(t, 0, 0, 2, 4);
+        predict_rectangle(t, 2, 0, 2, 4);
     } else {
         for (int q = 0; q < 4; ++q)
-            predict_quadrant(pic, slice, mx, my, (q & 1) * 2, (q >> 1) * 2);
+            predict_quadrant(t, (q & 1) * 2, (q >> 1) * 2);
     }
 }
 
@@ -720,16 +868,21 @@ public:
     IntraContext(Frame& frame, Slice const& slice, int addr)
         : m_frame(frame)
         , m_slice(slice)
-        , m_pic(*frame.picture)
-        , m_x(addr % frame.picture->mb_width)
-        , m_y(addr / frame.picture->mb_width)
+        , m_x(addr % frame.mb_width)
+        , m_y(addr / frame.mb_width)
     {
+        Frame::Place const p = frame.place(addr);
+        m_stride = frame.luma_rows_stride(p.structure);
+        m_cstride = frame.chroma_rows_stride(p.structure);
+        m_luma = frame.luma_rows(p.structure) + static_cast<std::ptrdiff_t>(p.y) * m_stride + p.x;
+        for (int c = 0; c < 2; ++c)
+            m_chroma[c] = frame.chroma_rows(c, p.structure) + static_cast<std::ptrdiff_t>(p.y / 2) * m_cstride + p.x / 2;
     }
     bool mb_ok(int mx, int my) const
     {
-        if (mx < 0 || my < 0 || mx >= m_pic.mb_width || my >= m_pic.mb_height)
+        if (mx < 0 || my < 0 || mx >= m_frame.mb_width || my >= m_frame.mb_height)
             return false;
-        MbState const& s = m_frame.mbs[static_cast<std::size_t>(my * m_pic.mb_width + mx)];
+        MbState const& s = m_frame.mbs[static_cast<std::size_t>(my * m_frame.mb_width + mx)];
         if (s.slice != m_slice.number)
             return false;
         if (!s.intra && m_slice.pps->constrained_intra_pred)
@@ -747,34 +900,32 @@ public:
         int const my = m_y + (y < 0 ? -1 : 0);
         return mb_ok(mx, my);
     }
-    int luma(int x, int y) const { return m_pic.y[static_cast<std::size_t>((m_y * 16 + y) * m_pic.width + m_x * 16 + x)]; }
+    int luma(int x, int y) const { return m_luma[static_cast<std::ptrdiff_t>(y) * m_stride + x]; }
     bool chroma_left() const { return mb_ok(m_x - 1, m_y); }
     bool chroma_top() const { return mb_ok(m_x, m_y - 1); }
     bool chroma_corner() const { return mb_ok(m_x - 1, m_y - 1); }
-    int chroma(int c, int x, int y) const
-    {
-        std::vector<std::uint8_t> const& p = c == 0 ? m_pic.cb : m_pic.cr;
-        return p[static_cast<std::size_t>((m_y * 8 + y) * (m_pic.width / 2) + m_x * 8 + x)];
-    }
+    int chroma(int c, int x, int y) const { return m_chroma[c][static_cast<std::ptrdiff_t>(y) * m_cstride + x]; }
     void done(int x4, int y4, int w4, int h4)
     {
         for (int y = y4; y < y4 + h4; ++y)
             for (int x = x4; x < x4 + w4; ++x)
                 m_done |= 1u << (y * 4 + x);
     }
-    std::uint8_t* luma_ptr(int x, int y) { return &m_pic.y[static_cast<std::size_t>((m_y * 16 + y) * m_pic.width + m_x * 16 + x)]; }
-    std::uint8_t* chroma_ptr(int c, int x, int y)
-    {
-        std::vector<std::uint8_t>& p = c == 0 ? m_pic.cb : m_pic.cr;
-        return &p[static_cast<std::size_t>((m_y * 8 + y) * (m_pic.width / 2) + m_x * 8 + x)];
-    }
+    // The macroblock's own samples, and the distance between its rows.
+    std::uint8_t* luma_origin() const { return m_luma; }
+    std::uint8_t* chroma_origin(int c) const { return m_chroma[c]; }
+    int luma_stride() const { return m_stride; }
+    int chroma_stride() const { return m_cstride; }
 
 private:
     Frame& m_frame;
     Slice const& m_slice;
-    Picture& m_pic;
     int m_x;
     int m_y;
+    std::uint8_t* m_luma = nullptr;
+    std::uint8_t* m_chroma[2] = { nullptr, nullptr };
+    int m_stride = 0;
+    int m_cstride = 0;
     std::uint32_t m_done = 0;
 };
 
@@ -1145,11 +1296,11 @@ bool any_nonzero(std::int32_t const* c, int n)
 void clear_intra_motion(Frame& frame, int addr)
 {
     Picture& pic = *frame.picture;
-    int const mx = addr % pic.mb_width, my = addr / pic.mb_width;
-    pic.mb_intra[static_cast<std::size_t>(addr)] = 1;
+    pic.mb_intra[static_cast<std::size_t>(frame.storage_mb(addr))] = 1;
+    int const base = frame.block_base(addr), bw = frame.block_stride();
     for (int by = 0; by < 4; ++by)
         for (int bx = 0; bx < 4; ++bx) {
-            int const i = pic.block_index(mx * 4 + bx, my * 4 + by);
+            int const i = base + by * bw + bx;
             for (int list = 0; list < 2; ++list) {
                 pic.ref_idx[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)] = -1;
                 pic.mv[static_cast<std::size_t>(list)][static_cast<std::size_t>(i)] = {};
@@ -1160,12 +1311,11 @@ void clear_intra_motion(Frame& frame, int addr)
 
 void reconstruct_macroblock(Frame& frame, Slice const& slice, int addr, MbSyntax const& mb)
 {
-    Picture& pic = *frame.picture;
     MbState& s = frame.mbs[static_cast<std::size_t>(addr)];
-    int const mx = addr % pic.mb_width, my = addr / pic.mb_width;
-    int const stride = pic.width;
-    int const cstride = pic.width / 2;
-    std::uint8_t* const y0 = &pic.y[static_cast<std::size_t>(my * 16 * stride + mx * 16)];
+    IntraContext ic(frame, slice, addr);
+    int const stride = ic.luma_stride();
+    int const cstride = ic.chroma_stride();
+    std::uint8_t* const y0 = ic.luma_origin();
     s.qpc[0] = chroma_qp(s.qp, frame.chroma_qp_offset[0]);
     s.qpc[1] = chroma_qp(s.qp, frame.chroma_qp_offset[1]);
     if (mb.kind == MbKind::IPCM) {
@@ -1173,10 +1323,10 @@ void reconstruct_macroblock(Frame& frame, Slice const& slice, int addr, MbSyntax
             for (int x = 0; x < 16; ++x)
                 y0[y * stride + x] = mb.pcm_luma[static_cast<std::size_t>(y * 16 + x)];
         for (int c = 0; c < 2; ++c) {
-            std::vector<std::uint8_t>& plane = c == 0 ? pic.cb : pic.cr;
+            std::uint8_t* const c0 = ic.chroma_origin(c);
             for (int y = 0; y < 8; ++y)
                 for (int x = 0; x < 8; ++x)
-                    plane[static_cast<std::size_t>((my * 8 + y) * cstride + mx * 8 + x)] = mb.pcm_chroma[static_cast<std::size_t>(c * 64 + y * 8 + x)];
+                    c0[y * cstride + x] = mb.pcm_chroma[static_cast<std::size_t>(c * 64 + y * 8 + x)];
         }
         return;
     }
@@ -1184,7 +1334,6 @@ void reconstruct_macroblock(Frame& frame, Slice const& slice, int addr, MbSyntax
     bool const inter = !s.intra;
     int const qp = s.qp;
     std::array<std::int32_t, 64> d {};
-    IntraContext ic(frame, slice, addr);
     std::array<int, 256> pred {};
     if (inter)
         inter_predict(frame, slice, addr);
@@ -1256,7 +1405,7 @@ void reconstruct_macroblock(Frame& frame, Slice const& slice, int addr, MbSyntax
     // Chroma.
     int const cbp_chroma = mb.cbp >> 4;
     for (int comp = 0; comp < 2; ++comp) {
-        std::uint8_t* const c0 = &(comp == 0 ? pic.cb : pic.cr)[static_cast<std::size_t>(my * 8 * cstride + mx * 8)];
+        std::uint8_t* const c0 = ic.chroma_origin(comp);
         if (!inter) {
             predict_chroma(ic, comp, mb.chroma_mode, pred.data());
             write_block(c0, cstride, pred.data(), 8);

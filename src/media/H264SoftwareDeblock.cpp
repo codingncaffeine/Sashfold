@@ -29,14 +29,18 @@ constexpr std::uint8_t tc0_table[3][52] = {
 
 std::uint8_t clip1(int v) { return static_cast<std::uint8_t>(std::clamp(v, 0, 255)); }
 
-// 8.7.2.1: bS between two 4x4 luma blocks (global block indices).
-// lp, lq: the blocks' raster indices inside their macroblocks.
-int strength(Frame const& f, int mb_p, int mb_q, int bp, int bq, int lp, int lq, bool mb_edge)
+// 8.7.2.1: bS between two 4x4 luma blocks (indices in the picture's
+// motion arrays). lp, lq: the blocks' raster indices inside their
+// macroblocks. An intra macroblock edge is 4 between frame macroblocks and
+// across a vertical edge, 3 across a horizontal one between field
+// macroblocks; motion differs at a quarter frame sample apart, which
+// vertically is half that for field macroblocks (`mvy_limit` 2).
+int strength(Frame const& f, int mb_p, int mb_q, int bp, int bq, int lp, int lq, bool mb_edge, bool vertical_edge, int mvy_limit)
 {
     MbState const& p = f.mbs[static_cast<std::size_t>(mb_p)];
     MbState const& q = f.mbs[static_cast<std::size_t>(mb_q)];
     if (p.intra || q.intra)
-        return mb_edge ? 4 : 3;
+        return mb_edge && (vertical_edge || (!p.field && !q.field)) ? 4 : 3;
     Picture const& pic = *f.picture;
     if (((p.nonzero >> lp) & 1) || ((q.nonzero >> lq) & 1))
         return 2;
@@ -48,7 +52,7 @@ int strength(Frame const& f, int mb_p, int mb_q, int bp, int bq, int lp, int lq,
     auto far = [&](int lp_, int lq_) {
         Mv const a = pic.mv[static_cast<std::size_t>(lp_)][static_cast<std::size_t>(bp)];
         Mv const b = pic.mv[static_cast<std::size_t>(lq_)][static_cast<std::size_t>(bq)];
-        return std::abs(a.x - b.x) >= 4 || std::abs(a.y - b.y) >= 4;
+        return std::abs(a.x - b.x) >= 4 || std::abs(a.y - b.y) >= mvy_limit;
     };
     if (np == 1) {
         int const listp = p0 != -2 ? 0 : 1, listq = q0 != -2 ? 0 : 1;
@@ -129,11 +133,11 @@ void filter_line(std::uint8_t* pos, int step, int bs, int alpha, int beta, int i
 
 void deblock_macroblock(Frame& frame, int mx, int my)
 {
-    Picture& pic = *frame.picture;
-    int const w = pic.mb_width;
-    int const stride = pic.width, cstride = pic.width / 2;
-    int const bw = w * 4;
+    int const w = frame.mb_width;
+    int const stride = frame.luma_stride, cstride = frame.chroma_stride;
+    int const bw = frame.block_stride();
     int const addr = my * w + mx;
+    int const mvy_limit = frame.structure != 0 ? 2 : 4;
     MbState const& q = frame.mbs[static_cast<std::size_t>(addr)];
     if (q.slice < 0)
         return;
@@ -157,10 +161,12 @@ void deblock_macroblock(Frame& frame, int mx, int my)
             if (!mb_edge && q.transform_8x8 && (e & 1))
                 continue;
             int const mb_p = mb_edge ? (dir == 0 ? addr - 1 : addr - w) : addr;
+            int const base_q = frame.block_base(addr), base_p = frame.block_base(mb_p);
             for (int k = 0; k < 4; ++k) {
-                int const qx = mx * 4 + (dir == 0 ? e : k), qy = my * 4 + (dir == 0 ? k : e);
-                int const px = dir == 0 ? qx - 1 : qx, py = dir == 0 ? qy : qy - 1;
-                bs[e][k] = strength(frame, mb_p, addr, py * bw + px, qy * bw + qx, (py & 3) * 4 + (px & 3), (qy & 3) * 4 + (qx & 3), mb_edge);
+                // Blocks within their macroblocks: q's, and p's across the edge.
+                int const qx = dir == 0 ? e : k, qy = dir == 0 ? k : e;
+                int const px = dir == 0 ? (qx + 3) & 3 : qx, py = dir == 0 ? qy : (qy + 3) & 3;
+                bs[e][k] = strength(frame, mb_p, addr, base_p + py * bw + px, base_q + qy * bw + qx, py * 4 + px, qy * 4 + qx, mb_edge, dir == 0, mvy_limit);
             }
         }
         // Luma.
@@ -180,14 +186,14 @@ void deblock_macroblock(Frame& frame, int mx, int my)
                 int const b = bs[e][i >> 2];
                 if (b == 0)
                     continue;
-                std::uint8_t* pos = dir == 0 ? &pic.y[static_cast<std::size_t>((my * 16 + i) * stride + mx * 16 + e * 4)]
-                                             : &pic.y[static_cast<std::size_t>((my * 16 + e * 4) * stride + mx * 16 + i)];
+                std::uint8_t* pos = dir == 0 ? frame.luma + static_cast<std::ptrdiff_t>(my * 16 + i) * stride + mx * 16 + e * 4
+                                             : frame.luma + static_cast<std::ptrdiff_t>(my * 16 + e * 4) * stride + mx * 16 + i;
                 filter_line(pos, dir == 0 ? 1 : stride, b, alpha, beta, index_a, false);
             }
         }
         // Chroma: edges 0 and 4 of each 8x8, their bS from luma edges 0 and 2.
         for (int c = 0; c < 2; ++c) {
-            std::vector<std::uint8_t>& plane = c == 0 ? pic.cb : pic.cr;
+            std::uint8_t* const plane = frame.chroma[c];
             for (int ce = 0; ce < 2; ++ce) {
                 int const e = ce * 2;
                 bool const mb_edge = e == 0;
@@ -204,8 +210,8 @@ void deblock_macroblock(Frame& frame, int mx, int my)
                     int const b = bs[e][i >> 1];
                     if (b == 0)
                         continue;
-                    std::uint8_t* pos = dir == 0 ? &plane[static_cast<std::size_t>((my * 8 + i) * cstride + mx * 8 + ce * 4)]
-                                                 : &plane[static_cast<std::size_t>((my * 8 + ce * 4) * cstride + mx * 8 + i)];
+                    std::uint8_t* pos = dir == 0 ? plane + static_cast<std::ptrdiff_t>(my * 8 + i) * cstride + mx * 8 + ce * 4
+                                                 : plane + static_cast<std::ptrdiff_t>(my * 8 + ce * 4) * cstride + mx * 8 + i;
                     filter_line(pos, dir == 0 ? 1 : cstride, b, alpha, beta, index_a, true);
                 }
             }
@@ -215,8 +221,8 @@ void deblock_macroblock(Frame& frame, int mx, int my)
 
 void deblock_picture(Frame& frame)
 {
-    for (int my = 0; my < frame.picture->mb_height; ++my)
-        for (int mx = 0; mx < frame.picture->mb_width; ++mx)
+    for (int my = 0; my < frame.mb_height; ++my)
+        for (int mx = 0; mx < frame.mb_width; ++mx)
             deblock_macroblock(frame, mx, my);
 }
 }

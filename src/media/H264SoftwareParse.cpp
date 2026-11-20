@@ -133,6 +133,13 @@ constexpr std::uint8_t zigzag4x4[16] = { 0, 1, 4, 8, 5, 2, 3, 6, 9, 12, 13, 10, 
 constexpr std::uint8_t zigzag8x8[64] = { 0, 1, 8, 16, 9, 2, 3, 10, 17, 24, 32, 25, 18, 11, 4, 5, 12, 19, 26, 33, 40, 48,
     41, 34, 27, 20, 13, 6, 7, 14, 21, 28, 35, 42, 49, 56, 57, 50, 43, 36, 29, 22, 15, 23, 30, 37, 44, 51, 58, 59, 52, 45,
     38, 31, 39, 46, 53, 60, 61, 54, 47, 55, 62, 63 };
+// Tables 8-13 and 8-14: the field scans, for field macroblocks (down the
+// columns before across, as a field's samples are twice as far apart
+// vertically as horizontally).
+constexpr std::uint8_t field4x4[16] = { 0, 4, 1, 8, 12, 5, 9, 13, 2, 6, 10, 14, 3, 7, 11, 15 };
+constexpr std::uint8_t field8x8[64] = { 0, 8, 16, 1, 9, 24, 32, 17, 2, 25, 40, 48, 56, 33, 10, 3, 18, 41, 49, 57, 26, 11,
+    4, 19, 34, 42, 50, 58, 27, 12, 5, 20, 35, 43, 51, 59, 28, 13, 6, 21, 36, 44, 52, 60, 29, 14, 22, 37, 45, 53, 61, 30,
+    7, 15, 38, 46, 54, 62, 23, 31, 39, 47, 55, 63 };
 
 // luma4x4BlkIdx (6.4.3) to the raster index of its 4x4 block in the macroblock.
 constexpr std::uint8_t blk_to_raster[16] = { 0, 1, 4, 5, 2, 3, 6, 7, 8, 9, 12, 13, 10, 11, 14, 15 };
@@ -219,7 +226,8 @@ private:
     int nc_chroma(int c, int x2, int y2) const;
     // CABAC.
     bool cabac_block(std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc, bool& coded);
-    static bool cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc, bool& coded);
+    static bool cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc,
+        bool field, bool& coded);
     int cbf_inc_luma(int cat, int x4, int y4) const;
     int cbf_inc_dc(int cat, int c) const;
     int cbf_inc_chroma_ac(int c, int x2, int y2) const;
@@ -247,6 +255,17 @@ private:
     int m_prev_addr = -1; // the previous macroblock in decoding order, in this slice
     bool m_prev_qp_delta_nonzero = false;
     bool m_p8x8ref0 = false; // CAVLC's P_8x8ref0: every reference index 0, none coded
+    // The current macroblock is a field macroblock: its coefficients come
+    // in the field scans (8.5.6, 8.5.7) with the field-coded contexts.
+    bool m_field_mb = false;
+    std::uint8_t const* m_scan4 = zigzag4x4;
+    std::uint8_t const* m_scan8 = zigzag8x8;
+    void set_field_mb(bool field)
+    {
+        m_field_mb = field;
+        m_scan4 = field ? field4x4 : zigzag4x4;
+        m_scan8 = field ? field8x8 : zigzag8x8;
+    }
 };
 
 // Static VLC tables built once from the generated data.
@@ -509,12 +528,13 @@ bool Parser::cabac_block(std::int32_t* levels, int start, int end, int max_coeff
     // stores below could otherwise alias its fields), given back at the end.
     CabacEngine engine = m_cabac.engine();
     std::uint8_t* const contexts = m_cabac.contexts();
-    bool const ok = cabac_block(engine, contexts, levels, start, end, max_coeff, cat, cbf_inc, coded);
+    bool const ok = cabac_block(engine, contexts, levels, start, end, max_coeff, cat, cbf_inc, m_field_mb, coded);
     m_cabac.engine() = engine;
     return ok;
 }
 
-bool Parser::cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc, bool& coded)
+bool Parser::cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc,
+    bool field, bool& coded)
 {
     for (int i = start; i <= end; ++i)
         levels[i] = 0;
@@ -529,18 +549,22 @@ bool Parser::cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32
     } else {
         coded = true;
     }
+    // Table 9-34: the significance map's contexts, frame or field coded.
+    int const sig_base = cat == 5 ? (field ? 436 : 402) : (field ? 277 : 105) + sig_off[cat];
+    int const last_base = cat == 5 ? (field ? 451 : 417) : (field ? 338 : 166) + sig_off[cat];
+    std::uint8_t const* const sig_8x8 = field ? significant_8x8_field : significant_8x8_frame;
     int const count = end - start + 1;
     std::array<bool, 64> significant {};
     int num = count;
     for (int i = 0; i < num - 1; ++i) {
         int sig_ctx, last_ctx;
         if (cat == 5) {
-            sig_ctx = 402 + significant_8x8_frame[i];
-            last_ctx = 417 + last_significant_8x8[i];
+            sig_ctx = sig_base + sig_8x8[i];
+            last_ctx = last_base + last_significant_8x8[i];
         } else {
             int const inc = cat == 3 ? std::min(i, 2) : i;
-            sig_ctx = 105 + sig_off[cat] + inc;
-            last_ctx = 166 + sig_off[cat] + inc;
+            sig_ctx = sig_base + inc;
+            last_ctx = last_base + inc;
         }
         if (engine.decision(contexts[sig_ctx])) {
             significant[static_cast<std::size_t>(i)] = true;
@@ -665,7 +689,7 @@ int Parser::cabac_unary_mb_qp_delta()
 void Parser::put4x4(std::int32_t* out, std::int32_t const* list, int start, int count)
 {
     for (int i = 0; i < count; ++i)
-        out[zigzag4x4[start + i]] = list[i];
+        out[m_scan4[start + i]] = list[i];
 }
 
 void Parser::set_mb_type(MbSyntax& mb, int raw, H264SliceType as)
@@ -825,6 +849,7 @@ bool Parser::decode_mb_type(MbSyntax& mb, int& raw)
 bool Parser::run()
 {
     m_qp = m_slice.qp;
+    set_field_mb(m_slice.structure != 0);
     if (m_cabac_mode && (m_header.cabac_init_idc < 0 || m_header.cabac_init_idc > 2))
         return false; // 7.4.3: 0 to 2
     if (m_cabac_mode) {
@@ -894,6 +919,7 @@ void Parser::skip_macroblock()
     MbState& s = current();
     s = MbState {};
     s.slice = m_slice.number;
+    s.field = m_field_mb;
     s.skip = true;
     bool const b = m_slice.type == H264SliceType::B;
     s.kind = b ? MbKind::BSkip : MbKind::PSkip;
@@ -1183,7 +1209,7 @@ bool Parser::residual(MbSyntax& mb)
             std::int32_t* out = mb.luma.data() + i8 * 64;
             bool any = false;
             for (int i = 0; i < 64; ++i) {
-                out[zigzag8x8[i]] = list[static_cast<std::size_t>(i)];
+                out[m_scan8[i]] = list[static_cast<std::size_t>(i)];
                 any |= list[static_cast<std::size_t>(i)] != 0;
             }
             int const bx = (i8 & 1) * 2, by = (i8 >> 1) * 2;
@@ -1245,7 +1271,7 @@ bool Parser::residual(MbSyntax& mb)
         if (mb.transform_8x8 && !m_cabac_mode && (cbp_luma & (1 << i8))) {
             std::int32_t* out = mb.luma.data() + i8 * 64;
             for (int i = 0; i < 64; ++i)
-                out[zigzag8x8[i]] = eight[static_cast<std::size_t>(i)];
+                out[m_scan8[i]] = eight[static_cast<std::size_t>(i)];
             if (any8) {
                 int const bx = (i8 & 1) * 2, by = (i8 >> 1) * 2;
                 for (int dy = 0; dy < 2; ++dy)
@@ -1298,6 +1324,7 @@ bool Parser::macroblock_layer()
     MbState& s = current();
     s = MbState {};
     s.slice = m_slice.number;
+    s.field = m_field_mb;
     s.intra4x4_modes.fill(2);
     m_p8x8ref0 = false;
     MbSyntax& mb = m_frame.sink->begin(m_addr);

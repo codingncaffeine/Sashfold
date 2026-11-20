@@ -38,5 +38,6 @@ extern std::uint8_t const cbp_inter[48];
 
 extern std::uint8_t const significant_8x8_frame[63];
 extern std::uint8_t const last_significant_8x8[63];
+extern std::uint8_t const significant_8x8_field[63];
 
 }
