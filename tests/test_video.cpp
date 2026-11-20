@@ -64,6 +64,83 @@ bool near(std::array<int, 3> got, std::array<int, 3> want, int within)
     return true;
 }
 
+// A planar picture (Nv12Picture::Planar) of one colour at a depth and chroma format.
+Nv12Picture flat_planar(int width, int height, int depth, int format, int y, int cb, int cr)
+{
+    Nv12Picture picture;
+    picture.width = width;
+    picture.height = height;
+    Nv12Picture::Planar p;
+    p.bit_depth_luma = p.bit_depth_chroma = depth;
+    p.chroma_format = format;
+    p.chroma_width = format == 0 ? 0 : (format == 3 ? width : (width + 1) / 2);
+    p.chroma_height = format == 0 ? 0 : (format == 1 ? (height + 1) / 2 : height);
+    p.y.assign(static_cast<std::size_t>(width * height), static_cast<std::uint16_t>(y));
+    p.cb.assign(static_cast<std::size_t>(p.chroma_width * p.chroma_height), static_cast<std::uint16_t>(cb));
+    p.cr.assign(static_cast<std::size_t>(p.chroma_width * p.chroma_height), static_cast<std::uint16_t>(cr));
+    picture.planar = std::move(p);
+    return picture;
+}
+
+// Pictures beyond 8-bit 4:2:0: deeper samples (dithered to the 8-bit
+// surface), 4:2:2, 4:4:4, monochrome and the identity matrix (G, B, R).
+void test_planar_conversion()
+{
+    YuvColour const bt709 { YuvMatrix::Bt709, false };
+    // 10 bits: studio black at 64, white at 940; BT.709's red at 252/408/960.
+    CHECK(near(rgb_of(flat_planar(2, 2, 10, 1, 64, 512, 512), bt709), { 0, 0, 0 }, 0));
+    CHECK(near(rgb_of(flat_planar(2, 2, 10, 1, 940, 512, 512), bt709), { 255, 255, 255 }, 0));
+    CHECK(near(rgb_of(flat_planar(2, 2, 10, 2, 252, 408, 960), bt709), { 255, 0, 0 }, 2));
+    CHECK(near(rgb_of(flat_planar(2, 2, 12, 3, 1008, 1632, 3840), bt709), { 255, 0, 0 }, 2));
+    // At 8 bits a planar 4:2:0 picture is the NV12 one, pixel for pixel.
+    Nv12Picture const nv12 = flat(4, 4, 81, 90, 240);
+    Nv12Picture const planar = flat_planar(4, 4, 8, 1, 81, 90, 240);
+    Bytes a(4 * 4 * 4), b(4 * 4 * 4);
+    media::nv12_to_rgba(nv12, bt709, a);
+    media::nv12_to_rgba(planar, bt709, b);
+    CHECK(a == b);
+    // A level between two 8-bit ones (10-bit grey half way between 8-bit
+    // 125 and 126, full range) is dithered: an 8x8 block averages to it.
+    YuvColour const full { YuvMatrix::Bt709, true };
+    Nv12Picture const between = flat_planar(8, 8, 10, 3, 502, 512, 512);
+    Bytes grey(8 * 8 * 4);
+    media::nv12_to_rgba(between, full, grey);
+    int low = 0, high = 0;
+    for (std::size_t i = 0; i < grey.size(); i += 4) {
+        low += grey[i] == 125 ? 1 : 0;
+        high += grey[i] == 126 ? 1 : 0;
+    }
+    CHECK_EQ(low, 32);
+    CHECK_EQ(high, 32);
+    // 4:2:2: a colour difference covers two pixels of one row, not the row under it.
+    Nv12Picture tall = flat_planar(2, 2, 8, 2, 126, 128, 128);
+    tall.planar->cr[1] = 240; // the second row's
+    Bytes rgba(2 * 2 * 4);
+    media::nv12_to_rgba(tall, YuvColour { YuvMatrix::Bt601, false }, rgba);
+    CHECK(rgba[0] < 140 && rgba[4] < 140 && rgba[8] > 200 && rgba[12] > 200);
+    // Monochrome: grey whatever the matrix.
+    CHECK(near(rgb_of(flat_planar(2, 2, 8, 0, 126, 0, 0), bt709), { 128, 128, 128 }, 1));
+    // The identity matrix (4:4:4 RGB): G, B, R planes, studio range.
+    CHECK(near(rgb_of(flat_planar(2, 2, 8, 3, 16, 235, 16), YuvColour { YuvMatrix::Identity, false }), { 0, 0, 255 }, 0));
+    CHECK(near(rgb_of(flat_planar(2, 2, 10, 3, 940, 64, 940), YuvColour { YuvMatrix::Identity, false }), { 255, 255, 0 }, 0));
+    // A large one split among the converter's threads comes out as one thread makes it.
+    Nv12Picture large = flat_planar(1920, 1080, 10, 2, 0, 0, 0);
+    for (std::size_t i = 0; i < large.planar->y.size(); ++i)
+        large.planar->y[i] = static_cast<std::uint16_t>(64 + (i * 7) % 877);
+    for (std::size_t i = 0; i < large.planar->cb.size(); ++i) {
+        large.planar->cb[i] = static_cast<std::uint16_t>(64 + (i * 13) % 897);
+        large.planar->cr[i] = static_cast<std::uint16_t>(64 + (i * 5) % 897);
+    }
+    Bytes one(1920 * 1080 * 4), split(1920 * 1080 * 4);
+    media::nv12_to_rgba(large, bt709, one);
+    media::Nv12Converter converter(4);
+    converter.convert(large, bt709, split);
+    CHECK(one == split);
+    CHECK(media::h264_colour(true, 0, false, 1080).matrix == YuvMatrix::Identity);
+    // The range is the video signal type's, colour description or not.
+    CHECK(media::h264_colour(false, 2, true, 1080).full_range);
+}
+
 void test_colour_conversion()
 {
     YuvColour const bt709 { YuvMatrix::Bt709, false };
@@ -236,6 +313,7 @@ void test_pipeline()
 
 int main()
 {
+    test_planar_conversion();
     test_colour_conversion();
     test_pipeline();
     return test::report("test_video");

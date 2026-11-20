@@ -86,7 +86,7 @@ public:
         if (std::optional<H264DecoderConfiguration> const config = parse_avcc(avcc); config && !config->sps.empty()) {
             if (std::optional<H264Sps> const sps = parse_h264_sps(config->sps[0]))
                 m_colour = h264_colour(sps->vui.present && sps->vui.colour_description_present, sps->vui.matrix_coefficients,
-                    sps->vui.video_full_range, sps->height());
+                    sps->vui.present && sps->vui.video_signal_type_present && sps->vui.video_full_range, sps->height());
         }
     }
 

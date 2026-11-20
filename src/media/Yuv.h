@@ -7,6 +7,12 @@
 // and BT.601 when not, as players do. The colour differences, coded at half
 // the size each way, are taken for the four pixels they cover.
 //
+// A planar picture (Nv12Picture::Planar: 4:2:2, 4:4:4, monochrome, or
+// deeper than 8 bits) is converted the same way, its colour differences
+// taken for the pixels they cover; one deeper than 8 bits is dithered to
+// the 8-bit surface (an 8x8 ordered dither of what lies below the eighth
+// bit) rather than rounded, so its gradients do not band.
+//
 // This is the path until the compositor (plan 7.5.4) does the same in a
 // shader on the GPU, with the picture where the decoder left it.
 
@@ -25,6 +31,7 @@ enum class YuvMatrix : std::uint8_t {
     Bt709,
     Smpte240,
     Bt2020,
+    Identity, // H.273's 0: the planes are G, B and R (4:4:4 alone)
 };
 
 struct YuvColour {
@@ -36,9 +43,10 @@ struct YuvColour {
 // 4 SMPTE 240, 5 BT.2020, 7 sRGB) and color_range, for a picture this tall.
 YuvColour vp9_colour(int color_space, bool color_range, int height);
 // H.264's VUI (E.2.1): matrix_coefficients as ITU-T H.273 numbers them
-// (1 BT.709, 5 and 6 BT.601, 7 SMPTE 240, 9 BT.2020; 2 unspecified) and
-// video_full_range_flag, for a picture this tall; `present` false when
-// the stream says nothing.
+// (0 identity, 1 BT.709, 5 and 6 BT.601, 7 SMPTE 240, 9 BT.2020; 2
+// unspecified) and video_full_range_flag, for a picture this tall;
+// `present` false when the stream gives no colour description (the range
+// is the video signal type's, said or not apart from it).
 YuvColour h264_colour(bool present, int matrix_coefficients, bool full_range, int height);
 
 // Converts the picture into `rgba`, which holds width * height * 4 bytes,

@@ -549,10 +549,13 @@ int type_support(std::string_view type, bool codecs_required = false)
             std::string_view const codec = trimmed(list.substr(0, comma));
             list = comma == std::string_view::npos ? std::string_view {} : list.substr(comma + 1);
             // H.264 as "avc1.PPCCLL" and "avc3.PPCCLL" (RFC 6381): the
-            // profiles every decoder here reads, hardware or software —
-            // Baseline (and Constrained Baseline), Main and High, 8 bits,
-            // 4:2:0 — and the bare names; not High 10, 4:2:2, 4:4:4 or
-            // Extended (its switching slices).
+            // profiles decoded here — Baseline (and Constrained Baseline),
+            // Main and High by every decoder, and the professional ones by
+            // the processor's (High 10, High 4:2:2, High 4:4:4 Predictive
+            // and, with constraint_set3_flag, their Intra profiles; CAVLC
+            // 4:4:4 Intra), whatever their constraint flags — and the bare
+            // names; not Extended (its switching slices) nor the scalable
+            // and multiview ones.
             auto const h264_profile_ours = [](std::string_view c) {
                 if (c.size() == 4)
                     return true;
@@ -563,7 +566,7 @@ int type_support(std::string_view type, bool codecs_required = false)
                 if (hi < 0 || lo < 0)
                     return false;
                 int const profile = hi * 16 + lo;
-                return profile == 66 || profile == 77 || profile == 100;
+                return profile == 66 || profile == 77 || profile == 100 || profile == 110 || profile == 122 || profile == 244 || profile == 44;
             };
             bool const h264 = mp4 && video && (codec.starts_with("avc1") || codec.starts_with("avc3")) && h264_profile_ours(codec);
             // AAC-LC ("mp4a.40.2"), and the HE-AAC profiles ("mp4a.40.5",

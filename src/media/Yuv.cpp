@@ -1,10 +1,12 @@
 #include "media/Yuv.h"
 
 #include <algorithm>
+#include <array>
 #include <atomic>
 #include <cmath>
 #include <condition_variable>
 #include <cstddef>
+#include <cstdint>
 #include <mutex>
 
 namespace sashfold::media {
@@ -26,6 +28,7 @@ struct Coefficients {
     int cb_g;
     int cr_g;
     int cb_b;
+    bool identity; // G, B, R planes: each scaled as luma is (H.273's 0)
 };
 
 Coefficients coefficients(YuvColour colour)
@@ -37,6 +40,7 @@ Coefficients coefficients(YuvColour colour)
     case YuvMatrix::Bt709: break;
     case YuvMatrix::Smpte240: kr = 0.212, kb = 0.087; break;
     case YuvMatrix::Bt2020: kr = 0.2627, kb = 0.0593; break;
+    case YuvMatrix::Identity: break; // (4:2:0 has none: BT.709's numbers where a stream claims it)
     }
     double const kg = 1.0 - kr - kb;
     double const luma = colour.full_range ? 1.0 : 255.0 / 219.0;
@@ -49,6 +53,7 @@ Coefficients coefficients(YuvColour colour)
         fixed(2 * kb * (1 - kb) / kg * chroma),
         fixed(2 * kr * (1 - kr) / kg * chroma),
         fixed(2 * (1 - kb) * chroma),
+        colour.matrix == YuvMatrix::Identity,
     };
 }
 
@@ -82,8 +87,11 @@ YuvColour vp9_colour(int color_space, bool color_range, int height)
 YuvColour h264_colour(bool present, int matrix_coefficients, bool full_range, int height)
 {
     YuvColour colour;
-    colour.full_range = present && full_range;
+    colour.full_range = full_range;
     switch (present ? matrix_coefficients : 2) {
+    case 0:
+        colour.matrix = YuvMatrix::Identity;
+        break;
     case 1:
         colour.matrix = YuvMatrix::Bt709;
         break;
@@ -168,8 +176,81 @@ void convert_baseline(Nv12Picture const& picture, Coefficients const& k, std::ui
     convert(picture, k, rgba, first, end);
 }
 
+// The 8x8 ordered dither's thresholds (the recursive index matrix
+// M(2n) = [4M + 0, 4M + 2; 4M + 3, 4M + 1]), as fractions of a level in
+// 16-bit fixed point: (index + 0.5) / 64.
+struct DitherMatrix {
+    std::array<std::array<int, 8>, 8> threshold {};
+    constexpr DitherMatrix()
+    {
+        for (int y = 0; y < 8; ++y)
+            for (int x = 0; x < 8; ++x) {
+                int index = 0;
+                for (int bit = 0; bit < 3; ++bit) {
+                    int const xb = (x >> bit) & 1, yb = (y >> bit) & 1;
+                    // Each level's 2x2 pattern: 0 top left, 2 top right, 3 bottom left, 1 bottom right.
+                    int const quad = yb ? (xb ? 1 : 3) : (xb ? 2 : 0);
+                    index += quad << (2 * (2 - bit));
+                }
+                threshold[static_cast<std::size_t>(y)][static_cast<std::size_t>(x)] = ((2 * index + 1) << 16) / 128;
+            }
+    }
+};
+constexpr DitherMatrix dither_matrix;
+
+// Rows first to end of a planar picture: each sample at its depth taken
+// to the 8-bit scale with 16 bits below it (64-bit arithmetic: 14-bit
+// samples times the coefficients pass 31 bits), then rounded — or, deeper
+// than 8 bits, dithered.
+void convert_planar_rows(Nv12Picture const& picture, Coefficients const& k, std::uint8_t* rgba, int first, int end)
+{
+    Nv12Picture::Planar const& p = *picture.planar;
+    int const dl = p.bit_depth_luma - 8, dc = p.bit_depth_chroma - 8;
+    int const sx = p.chroma_format == 1 || p.chroma_format == 2 ? 1 : 0, sy = p.chroma_format == 1 ? 1 : 0;
+    bool const dither = dl > 0 || dc > 0;
+    bool const mono = p.chroma_format == 0;
+    std::int64_t const y_offset = static_cast<std::int64_t>(k.y_offset) << dl;
+    std::int64_t const c_offset = k.identity ? static_cast<std::int64_t>(k.y_offset) << dc : std::int64_t { 128 } << dc;
+    auto const width = static_cast<std::size_t>(picture.width);
+    auto const chroma_width = static_cast<std::size_t>(p.chroma_width);
+    for (int y = first; y < end; ++y) {
+        std::uint16_t const* luma = p.y.data() + static_cast<std::size_t>(y) * width;
+        std::size_t const crow = static_cast<std::size_t>(y >> sy) * chroma_width;
+        std::uint8_t* out = rgba + static_cast<std::size_t>(y) * width * 4;
+        std::array<int, 8> const& thresholds = dither_matrix.threshold[static_cast<std::size_t>(y & 7)];
+        for (std::size_t x = 0; x < width; ++x, out += 4) {
+            std::int64_t const l = ((luma[x] - y_offset) * k.y_scale) >> dl;
+            std::int64_t cb = 0, cr = 0;
+            if (!mono) {
+                cb = p.cb[crow + (x >> sx)] - c_offset;
+                cr = p.cr[crow + (x >> sx)] - c_offset;
+            }
+            std::int64_t red, green, blue;
+            if (k.identity) {
+                // Y' is G, Cb is B, Cr is R, each on the luma's scale.
+                green = l;
+                blue = (cb * k.y_scale) >> dc;
+                red = (cr * k.y_scale) >> dc;
+            } else {
+                red = l + ((k.cr_r * cr) >> dc);
+                green = l - ((k.cb_g * cb + k.cr_g * cr) >> dc);
+                blue = l + ((k.cb_b * cb) >> dc);
+            }
+            int const t = dither ? thresholds[x & 7] : 1 << 15;
+            out[0] = static_cast<std::uint8_t>(std::clamp<std::int64_t>((red + t) >> 16, 0, 255));
+            out[1] = static_cast<std::uint8_t>(std::clamp<std::int64_t>((green + t) >> 16, 0, 255));
+            out[2] = static_cast<std::uint8_t>(std::clamp<std::int64_t>((blue + t) >> 16, 0, 255));
+            out[3] = 255;
+        }
+    }
+}
+
 void convert_rows(Nv12Picture const& picture, Coefficients const& k, std::uint8_t* rgba, int first, int end)
 {
+    if (picture.planar) {
+        convert_planar_rows(picture, k, rgba, first, end);
+        return;
+    }
 #if (defined(__x86_64__) || defined(__i386__)) && (defined(__GNUC__) || defined(__clang__))
     if (has_avx2()) {
         convert_avx2(picture, k, rgba, first, end);
@@ -183,6 +264,16 @@ bool fits(Nv12Picture const& picture, std::span<std::uint8_t> rgba)
 {
     auto const width = static_cast<std::size_t>(picture.width);
     auto const height = static_cast<std::size_t>(picture.height);
+    if (picture.planar) {
+        Nv12Picture::Planar const& p = *picture.planar;
+        int const sx = p.chroma_format == 1 || p.chroma_format == 2 ? 1 : 0, sy = p.chroma_format == 1 ? 1 : 0;
+        auto const chroma = static_cast<std::size_t>(p.chroma_width) * static_cast<std::size_t>(p.chroma_height);
+        bool const chroma_fits = p.chroma_format == 0
+            || (p.chroma_width >= (picture.width + (1 << sx) - 1) >> sx && p.chroma_height >= (picture.height + (1 << sy) - 1) >> sy && p.cb.size() >= chroma
+                && p.cr.size() >= chroma);
+        return rgba.size() >= width * height * 4 && p.y.size() >= width * height && chroma_fits && p.bit_depth_luma >= 8 && p.bit_depth_luma <= 16
+            && p.bit_depth_chroma >= 8 && p.bit_depth_chroma <= 16;
+    }
     std::size_t const chroma_row = static_cast<std::size_t>(picture.chroma_width()) * 2;
     return rgba.size() >= width * height * 4 && picture.luma.size() >= width * height
         && picture.chroma.size() >= chroma_row * static_cast<std::size_t>(picture.chroma_height());
