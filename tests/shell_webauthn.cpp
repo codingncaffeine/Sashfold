@@ -177,7 +177,11 @@ int main(int argc, char** argv)
     // sound server to reach.
     text::FontManager::instance().set_system_fonts(false);
     platform::use_process_clipboard(true);
+#ifdef _WIN32
+    _putenv_s("PULSE_SERVER", "unix:/nonexistent/sashfold-headless");
+#else
     setenv("PULSE_SERVER", "unix:/nonexistent/sashfold-headless", 1);
+#endif
     ui::Theme theme;
     if (!theme_path.empty()) {
         std::vector<std::string> problems;
