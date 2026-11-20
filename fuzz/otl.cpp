@@ -40,6 +40,15 @@ extern "C" int LLVMFuzzerTestOneInput(std::uint8_t const* data, std::size_t size
             { U"ܐܒܐܕܐ̈", scripts::syriac, TextDirection::RightToLeft, "" },
             { U"ᠠ᠋ᠡ ᠢ", scripts::mongolian, TextDirection::LeftToRight, "" },
             { U"ᾀἆ abc", scripts::greek, TextDirection::RightToLeft, "" },
+            // The Indic shaper: reph, half forms with joiners, pre-base
+            // matras, broken clusters, a prohibited vowel sequence.
+            { U"कर्मक्षत्रिय र्‍क क्‌ष ि◌ं अा ्ि", script_code('D', 'e', 'v', 'a'), TextDirection::LeftToRight, "hi" },
+            { U"নির্বাচিত ক্যৌ ৼি", script_code('B', 'e', 'n', 'g'), TextDirection::LeftToRight, "bn" },
+            { U"ਕਂੀ ਪ੍ਰੇ", script_code('G', 'u', 'r', 'u'), TextDirection::LeftToRight, "pa" },
+            { U"ಕ್ರೋ ರ್‍ಜ ಕೊ", script_code('K', 'n', 'd', 'a'), TextDirection::LeftToRight, "kn" },
+            { U"ക്രൈ ൎക ൺ", script_code('M', 'l', 'y', 'm'), TextDirection::LeftToRight, "ml" },
+            { U"ర్‍క ై్ౖ", script_code('T', 'e', 'l', 'u'), TextDirection::LeftToRight, "te" },
+            { U"ශ්‍රී ෙකා", script_code('S', 'i', 'n', 'h'), TextDirection::LeftToRight, "si" },
         };
         FeatureSetting const features[] = {
             { feature_tag('s', 'm', 'c', 'p'), 1, 2, 6 },

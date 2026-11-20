@@ -157,7 +157,6 @@ constexpr ScriptCode taml = script_code('T', 'a', 'm', 'l');
 constexpr ScriptCode telu = script_code('T', 'e', 'l', 'u');
 constexpr ScriptCode knda = script_code('K', 'n', 'd', 'a');
 constexpr ScriptCode mlym = script_code('M', 'l', 'y', 'm');
-constexpr ScriptCode sinh = script_code('S', 'i', 'n', 'h');
 
 enum Feature : std::size_t {
     Nukt,
