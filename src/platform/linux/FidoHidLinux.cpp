@@ -129,11 +129,11 @@ public:
     {
         // The report number first, 0 for a device that does not number
         // its reports (the kernel's hidraw interface wants it either way).
-        std::vector<std::uint8_t> buffer;
-        buffer.reserve(m_layout.output_bytes + 1);
-        buffer.push_back(m_layout.output_report_id);
-        buffer.insert(buffer.end(), report.begin(), report.end());
-        buffer.resize(m_layout.output_bytes + 1, 0);
+        // Then the report, held to the device's report length: zeros after
+        // a shorter one.
+        std::vector<std::uint8_t> buffer(m_layout.output_bytes + 1, 0);
+        buffer[0] = m_layout.output_report_id;
+        std::copy_n(report.begin(), std::min(report.size(), buffer.size() - 1), buffer.begin() + 1);
         while (true) {
             long const n = m_write_by_request ? ioctl(m_fd, HIDIOCSOUTPUT(buffer.size()), buffer.data())
                                               : static_cast<long>(write(m_fd, buffer.data(), buffer.size()));

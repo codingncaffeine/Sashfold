@@ -2,28 +2,33 @@
 
 #include "net/tls/Der.h"
 
+#include <algorithm>
 #include <charconv>
 
 namespace sashfold::auth::der {
 
 std::vector<std::uint8_t> element(std::uint8_t tag, std::span<std::uint8_t const> content)
 {
-    std::vector<std::uint8_t> out;
-    out.reserve(content.size() + 6);
-    out.push_back(tag);
+    // The tag and the length octets first, in an array of their own: the
+    // result is then made at its final size and never grows.
+    std::uint8_t header[2 + sizeof(std::size_t)];
+    std::size_t used = 0;
+    header[used++] = tag;
     std::size_t const length = content.size();
     if (length < 0x80) {
-        out.push_back(static_cast<std::uint8_t>(length));
+        header[used++] = static_cast<std::uint8_t>(length);
     } else {
         std::uint8_t length_bytes[sizeof(std::size_t)];
         std::size_t count = 0;
         for (std::size_t value = length; value != 0; value >>= 8)
             length_bytes[count++] = static_cast<std::uint8_t>(value);
-        out.push_back(static_cast<std::uint8_t>(0x80 | count));
+        header[used++] = static_cast<std::uint8_t>(0x80 | count);
         while (count > 0)
-            out.push_back(length_bytes[--count]);
+            header[used++] = length_bytes[--count];
     }
-    out.insert(out.end(), content.begin(), content.end());
+    std::vector<std::uint8_t> out(used + length);
+    std::copy_n(header, used, out.begin());
+    std::copy(content.begin(), content.end(), out.begin() + static_cast<std::ptrdiff_t>(used));
     return out;
 }
 
@@ -101,10 +106,9 @@ std::vector<std::uint8_t> null() { return { 0x05, 0x00 }; }
 
 std::vector<std::uint8_t> bit_string(std::span<std::uint8_t const> bytes)
 {
-    std::vector<std::uint8_t> content;
-    content.reserve(bytes.size() + 1);
-    content.push_back(0);
-    content.insert(content.end(), bytes.begin(), bytes.end());
+    // The first octet counts the unused bits of the last one: none.
+    std::vector<std::uint8_t> content(bytes.size() + 1);
+    std::copy(bytes.begin(), bytes.end(), content.begin() + 1);
     return element(0x03, content);
 }
 

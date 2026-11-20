@@ -686,7 +686,7 @@ Native update_session(js::Interpreter& interp, js::Value const& this_value, Args
         std::vector<std::pair<Bytes, std::string>> statuses = session.statuses->entries;
         for (auto const& [id, key] : license->keys) {
             session.store->add(session.number, id, key);
-            auto const known = std::find_if(statuses.begin(), statuses.end(), [&id = id](auto const& status) { return status.first == id; });
+            auto const known = std::find_if(statuses.begin(), statuses.end(), [&wanted = id](auto const& status) { return status.first == wanted; });
             if (known != statuses.end())
                 known->second = "usable";
             else
