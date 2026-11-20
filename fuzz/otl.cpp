@@ -49,6 +49,13 @@ extern "C" int LLVMFuzzerTestOneInput(std::uint8_t const* data, std::size_t size
             { U"ക്രൈ ൎക ൺ", script_code('M', 'l', 'y', 'm'), TextDirection::LeftToRight, "ml" },
             { U"ర్‍క ై్ౖ", script_code('T', 'e', 'l', 'u'), TextDirection::LeftToRight, "te" },
             { U"ශ්‍රී ෙකා", script_code('S', 'i', 'n', 'h'), TextDirection::LeftToRight, "si" },
+            { U"ꦏꦺꦴꦤ꧀ꦠꦿ ‌ꦺ ꦏ꧀‍ꦏ", script_code('J', 'a', 'v', 'a'), TextDirection::LeftToRight, "jv" },
+            { U"ᬓᬾᬲ᭄ᬭ᭫ ᭡᭫ ᬵᬶ", script_code('B', 'a', 'l', 'i'), TextDirection::LeftToRight, "ban" },
+            { U"བསྒྲུབས་ ༿ཀ ྐ", script_code('T', 'i', 'b', 't'), TextDirection::LeftToRight, "bo" },
+            { U"ក្រោម ៉ិ ក៉៉៉ ្", script_code('K', 'h', 'm', 'r'), TextDirection::LeftToRight, "km" },
+            { U"င်္ကြွေို့ ေ ၼꧤ", script_code('M', 'y', 'm', 'r'), TextDirection::LeftToRight, "my" },
+            { U"ߒߞߏ ߫ ߊ߲", script_code('N', 'k', 'o', 'o'), TextDirection::RightToLeft, "nqo" },
+            { U"ᨣᩮᨶ᩠ᨴ ᩰ", script_code('L', 'a', 'n', 'a'), TextDirection::LeftToRight, "" },
         };
         FeatureSetting const features[] = {
             { feature_tag('s', 'm', 'c', 'p'), 1, 2, 6 },

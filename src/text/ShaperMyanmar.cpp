@@ -295,7 +295,10 @@ void reorder_syllable(MyanmarPlan const& myanmar, Buffer& b, std::size_t start, 
         kinzi = true;
         base = start + 3;
     }
-    if (base >= end)
+    // A syllable a font's composition features multiplied past the bound
+    // syllables are found with is left in its order: the sort below is
+    // quadratic in its length.
+    if (base >= end || end - start > max_syllable_length)
         return;
     for (std::size_t i = start; i < end; ++i) {
         Position p = PosAfter;

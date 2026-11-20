@@ -427,14 +427,41 @@ void reorder_syllable(Buffer& b, std::size_t start, std::size_t end)
             }
         }
     }
-    std::size_t j = start;
-    for (std::size_t i = start; i < end; ++i) {
-        if (is_halant(info[i])) {
-            j = i + 1;
-        } else if (is_one_of(info[i], flag(VPre) | flag(VMPre)) && otl::lig_comp(info[i]) == 0 && j < i) {
-            b.merge_clusters(j, i + 1);
-            move_glyph(info, i, j);
+    // Each pre-base glyph goes to the front of its stretch (the stretch
+    // starting after an explicit virama), the later ones before the
+    // earlier: done a stretch at a time in one pass, so that a font that
+    // multiplies the glyphs of a syllable cannot make this quadratic.
+    thread_local std::vector<GlyphInfo> moved;
+    thread_local std::vector<GlyphInfo> kept;
+    auto is_pre = [](GlyphInfo const& g) {
+        return is_one_of(g, flag(VPre) | flag(VMPre)) && otl::lig_comp(g) == 0;
+    };
+    for (std::size_t j = start; j < end;) {
+        std::size_t stretch_end = j;
+        while (stretch_end < end && !is_halant(info[stretch_end]))
+            ++stretch_end;
+        std::size_t last = j;
+        for (std::size_t i = j + 1; i < stretch_end; ++i) {
+            if (is_pre(info[i]))
+                last = i;
         }
+        if (last > j) {
+            b.merge_clusters(j, last + 1);
+            moved.clear();
+            kept.clear();
+            for (std::size_t i = j; i <= last; ++i) {
+                if (i > j && is_pre(info[i]))
+                    moved.push_back(info[i]);
+                else
+                    kept.push_back(info[i]);
+            }
+            std::size_t at = j;
+            for (auto it = moved.rbegin(); it != moved.rend(); ++it)
+                info[at++] = *it;
+            for (GlyphInfo const& g : kept)
+                info[at++] = g;
+        }
+        j = stretch_end + 1;
     }
 }
 
