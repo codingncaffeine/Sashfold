@@ -586,5 +586,8 @@ void derive_motion(Frame& frame, Slice const& slice, int mb_addr, MbSyntax const
 // after its left and top neighbors, and after the top one's right one).
 void deblock_picture(Frame& frame);
 void deblock_macroblock(Frame& frame, int mb_x, int mb_y);
+// An MBAFF frame's macroblock pair (both its macroblocks, top first), in
+// raster order of the pairs.
+void deblock_pair(Frame& frame, int pair);
 
 }

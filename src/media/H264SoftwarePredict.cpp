@@ -934,7 +934,7 @@ public:
         m_luma = frame.luma_rows(p.structure) + static_cast<std::ptrdiff_t>(p.y) * m_stride + p.x;
         for (int c = 0; c < 2; ++c)
             m_chroma[c] = frame.chroma_rows(c, p.structure) + static_cast<std::ptrdiff_t>(p.y / 2) * m_cstride + p.x / 2;
-        if (frame.mbaff)
+        if (frame.mbaff && frame.mbs[static_cast<std::size_t>(addr)].intra)
             gather_mbaff_neighbors(addr);
     }
     bool mb_ok(int mx, int my) const

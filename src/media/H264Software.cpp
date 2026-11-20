@@ -221,15 +221,21 @@ private:
 // upper macroblock's and its right neighbor's left edge). A row is
 // filtered only once the row under it is reconstructed, so no prediction
 // reads a filtered sample. Slices must come in raster order.
+//
+// In an MBAFF frame the unit is the macroblock pair, a row a row of pairs
+// (32 lines): a pair's macroblocks predict from the pairs left, above-left,
+// above and above-right as a macroblock does from its neighbors, and the
+// filtering of a pair reaches no further up than the row of pairs above.
 class WavefrontSink final : public MacroblockSink {
 public:
     WavefrontSink(Frame& frame, int ring_rows)
         : m_frame(frame)
+        , m_per(frame.mbaff ? 2 : 1)
         , m_width(frame.mb_width)
-        , m_height(frame.mb_height)
-        , m_ring_rows(std::min(ring_rows, frame.mb_height))
-        , m_ring(static_cast<std::size_t>(m_ring_rows) * static_cast<std::size_t>(m_width))
-        , m_slice_of(static_cast<std::size_t>(m_width) * static_cast<std::size_t>(m_height), nullptr)
+        , m_height(frame.mb_height / m_per)
+        , m_ring_rows(std::min(ring_rows, m_height))
+        , m_ring(static_cast<std::size_t>(m_ring_rows) * static_cast<std::size_t>(m_width * m_per))
+        , m_slice_of(static_cast<std::size_t>(m_width) * static_cast<std::size_t>(m_height * m_per), nullptr)
         , m_parsed(std::make_unique<Counter[]>(static_cast<std::size_t>(m_height)))
         , m_reconstructed(std::make_unique<Counter[]>(static_cast<std::size_t>(m_height)))
         , m_deblocked(std::make_unique<Counter[]>(static_cast<std::size_t>(m_height)))
@@ -246,9 +252,9 @@ public:
         }
         m_dropping = false;
         if (mb_addr > m_next)
-            parsed_up_to(mb_addr); // a gap: the macroblocks skipped are as they will stay
+            parsed_up_to(mb_addr / m_per); // a gap: the units skipped are as they will stay
         m_next = mb_addr + 1;
-        int const row = mb_addr / m_width;
+        int const row = (mb_addr / m_per) / m_width;
         if (row >= m_ring_rows)
             m_progress.wait_at_least(m_reconstructed[static_cast<std::size_t>(row - m_ring_rows)], m_width);
         MbSyntax& mb = slot(mb_addr);
@@ -261,11 +267,14 @@ public:
         if (m_dropping)
             return;
         m_slice_of[static_cast<std::size_t>(mb_addr)] = &slice;
-        // Said eight macroblocks at a time and at each row's end: the
-        // parsing is the slowest stage, and every word of it may wake the
-        // thread waiting on it.
-        if ((mb_addr + 1) % 8 == 0 || (mb_addr + 1) % m_width == 0)
-            parsed_up_to(mb_addr + 1);
+        // A unit (a pair's bottom macroblock ends it) said eight at a time
+        // and at each row's end: the parsing is the slowest stage, and
+        // every word of it may wake the thread waiting on it.
+        if ((mb_addr + 1) % m_per != 0)
+            return;
+        int const units = (mb_addr + 1) / m_per;
+        if (units % 8 == 0 || units % m_width == 0)
+            parsed_up_to(units);
     }
 
     // After the last slice: what was not parsed never will be.
@@ -290,17 +299,18 @@ public:
 private:
     MbSyntax& slot(int mb_addr)
     {
-        int const row = mb_addr / m_width, x = mb_addr % m_width;
-        return m_ring[static_cast<std::size_t>((row % m_ring_rows) * m_width + x)];
+        int const unit = mb_addr / m_per;
+        int const row = unit / m_width, x = unit % m_width;
+        return m_ring[static_cast<std::size_t>(((row % m_ring_rows) * m_width + x) * m_per + mb_addr % m_per)];
     }
 
     // Each row's parsing said on its own counter, so a store wakes only
-    // the thread on that row.
-    void parsed_up_to(int mb_addr)
+    // the thread on that row. In units.
+    void parsed_up_to(int units)
     {
-        while (m_said < mb_addr) {
+        while (m_said < units) {
             int const row = m_said / m_width;
-            int const upto = std::min(mb_addr, (row + 1) * m_width);
+            int const upto = std::min(units, (row + 1) * m_width);
             m_progress.publish(m_parsed[static_cast<std::size_t>(row)], upto - row * m_width);
             m_said = upto;
         }
@@ -309,12 +319,14 @@ private:
     void reconstruct_row(int row)
     {
         for (int x = 0; x < m_width; ++x) {
-            int const addr = row * m_width + x;
             if (row > 0)
                 m_progress.wait_at_least(m_reconstructed[static_cast<std::size_t>(row - 1)], std::min(x + 2, m_width));
             m_progress.wait_at_least(m_parsed[static_cast<std::size_t>(row)], x + 1);
-            if (Slice const* const slice = m_slice_of[static_cast<std::size_t>(addr)])
-                reconstruct_macroblock(m_frame, *slice, addr, slot(addr));
+            for (int k = 0; k < m_per; ++k) {
+                int const addr = (row * m_width + x) * m_per + k;
+                if (Slice const* const slice = m_slice_of[static_cast<std::size_t>(addr)])
+                    reconstruct_macroblock(m_frame, *slice, addr, slot(addr));
+            }
             m_progress.publish(m_reconstructed[static_cast<std::size_t>(row)], x + 1);
         }
     }
@@ -324,14 +336,18 @@ private:
         for (int x = 0; x < m_width; ++x) {
             if (row > 0)
                 m_progress.wait_at_least(m_deblocked[static_cast<std::size_t>(row - 1)], std::min(x + 2, m_width));
-            deblock_macroblock(m_frame, x, row);
+            if (m_per == 2)
+                deblock_pair(m_frame, row * m_width + x);
+            else
+                deblock_macroblock(m_frame, x, row);
             m_progress.publish(m_deblocked[static_cast<std::size_t>(row)], x + 1);
         }
     }
 
     Frame& m_frame;
-    int m_width;
-    int m_height;
+    int m_per; // macroblocks per unit: 2, the pairs of an MBAFF frame
+    int m_width; // units per row
+    int m_height; // rows
     int m_ring_rows;
     std::vector<MbSyntax> m_ring;
     std::vector<Slice const*> m_slice_of; // per macroblock: its slice once parsed whole
@@ -433,7 +449,7 @@ public:
             in_order = in_order && info.headers[i].first_mb_in_slice > info.headers[i - 1].first_mb_in_slice;
         std::optional<WavefrontSink> wavefront;
         std::optional<DirectSink> direct;
-        if (m_thread_count > 1 && in_order && mb_h >= 4 && !mbaff) {
+        if (m_thread_count > 1 && in_order && mb_h / (mbaff ? 2 : 1) >= 4) {
             if (!m_pool)
                 m_pool = std::make_unique<WorkerPool>(m_thread_count - 1);
             wavefront.emplace(frame, m_thread_count + 2);

@@ -376,6 +376,12 @@ void deblock_mbaff(Frame& frame, int addr)
 
 }
 
+void deblock_pair(Frame& frame, int pair)
+{
+    deblock_mbaff(frame, 2 * pair);
+    deblock_mbaff(frame, 2 * pair + 1);
+}
+
 void deblock_picture(Frame& frame)
 {
     if (frame.mbaff) {
