@@ -166,6 +166,7 @@ sashfold_test(test_crypto)
 # Security keys (src/auth): CBOR and COSE, CTAPHID, CTAP2 and U2F against the
 # software authenticator of tests/SoftAuthenticator.h.
 sashfold_test(test_auth_cbor)
+sashfold_test(test_auth_hid)
 sashfold_test(test_bindings)
 sashfold_test(test_realm_lazy)
 sashfold_test(test_canvas)

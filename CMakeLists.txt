@@ -67,7 +67,10 @@ endif()
 add_library(sashfold_core STATIC
   src/auth/Cbor.cpp
   src/auth/Cose.cpp
+  src/auth/Ctap2.cpp
+  src/auth/CtapHid.cpp
   src/auth/DerWriter.cpp
+  src/auth/PinProtocol.cpp
   src/bindings/Binary.cpp
   src/bindings/Canvas.cpp
   src/bindings/Cssom.cpp

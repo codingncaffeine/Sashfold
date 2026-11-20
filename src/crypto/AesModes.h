@@ -18,6 +18,12 @@ namespace sashfold::crypto {
 std::vector<std::uint8_t> aes_cbc_encrypt(Aes const& aes, AesBlock const& iv, std::span<std::uint8_t const> plaintext);
 std::optional<std::vector<std::uint8_t>> aes_cbc_decrypt(Aes const& aes, AesBlock const& iv, std::span<std::uint8_t const> ciphertext);
 
+// CBC with no padding at all, for data that is a whole number of blocks
+// already: the PIN/UV auth protocols of CTAP 2.1 §6.5.6 and §6.5.7 encrypt
+// that way. Nullopt for any other length.
+std::optional<std::vector<std::uint8_t>> aes_cbc_encrypt_unpadded(Aes const& aes, AesBlock const& iv, std::span<std::uint8_t const> plaintext);
+std::optional<std::vector<std::uint8_t>> aes_cbc_decrypt_unpadded(Aes const& aes, AesBlock const& iv, std::span<std::uint8_t const> ciphertext);
+
 // CTR (§6.5) as Web Crypto runs it: the rightmost `counter_bits` bits of the
 // block (1 to 128) count up and wrap, the rest stay. Nullopt when the data
 // needs more blocks than the counter has values, which would reuse one.

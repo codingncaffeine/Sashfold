@@ -48,6 +48,39 @@ std::optional<std::vector<std::uint8_t>> aes_cbc_decrypt(Aes const& aes, AesBloc
     return out;
 }
 
+std::optional<std::vector<std::uint8_t>> aes_cbc_encrypt_unpadded(Aes const& aes, AesBlock const& iv, std::span<std::uint8_t const> plaintext)
+{
+    if (plaintext.size() % 16 != 0)
+        return std::nullopt;
+    std::vector<std::uint8_t> out(plaintext.begin(), plaintext.end());
+    AesBlock chain = iv;
+    for (std::size_t offset = 0; offset < out.size(); offset += 16) {
+        AesBlock block {};
+        for (std::size_t i = 0; i < 16; ++i)
+            block[i] = static_cast<std::uint8_t>(out[offset + i] ^ chain[i]);
+        chain = aes.encrypt(block);
+        std::memcpy(out.data() + offset, chain.data(), 16);
+    }
+    return out;
+}
+
+std::optional<std::vector<std::uint8_t>> aes_cbc_decrypt_unpadded(Aes const& aes, AesBlock const& iv, std::span<std::uint8_t const> ciphertext)
+{
+    if (ciphertext.size() % 16 != 0)
+        return std::nullopt;
+    std::vector<std::uint8_t> out(ciphertext.size());
+    AesBlock chain = iv;
+    for (std::size_t offset = 0; offset < ciphertext.size(); offset += 16) {
+        AesBlock block {};
+        std::memcpy(block.data(), ciphertext.data() + offset, 16);
+        AesBlock const plain = aes.decrypt(block);
+        for (std::size_t i = 0; i < 16; ++i)
+            out[offset + i] = static_cast<std::uint8_t>(plain[i] ^ chain[i]);
+        chain = block;
+    }
+    return out;
+}
+
 std::optional<std::vector<std::uint8_t>> aes_ctr(Aes const& aes, AesBlock const& counter, std::size_t counter_bits,
     std::span<std::uint8_t const> data)
 {
