@@ -44,6 +44,14 @@ enum Id : std::uint32_t {
     Block = 0xA1,
     BlockDuration = 0x9B,
     ReferenceBlock = 0xFB,
+    ContentEncodings = 0x6D80,
+    ContentEncoding = 0x6240,
+    ContentEncodingType = 0x5033,
+    ContentEncryption = 0x5035,
+    ContentEncAlgo = 0x47E1,
+    ContentEncKeyID = 0x47E2,
+    ContentEncAESSettings = 0x47E7,
+    AESSettingsCipherMode = 0x47E8,
     // The other children of a Segment, which end a Cluster of unknown size.
     SeekHead = 0x114D9B74,
     Cues = 0x1C53BB6B,
@@ -148,6 +156,69 @@ bool each_child(std::span<std::uint8_t const> body, Visit visit)
             return false;
         body = body.subspan(header.length + static_cast<std::size_t>(header.size));
     }
+    return true;
+}
+
+// A frame of an encrypted track (the WebM Encryption specification, "Block
+// Structure"): a signal byte whose bit 0 says encrypted and bit 1
+// partitioned; an encrypted frame then has an 8-byte IV, and a partitioned
+// one a count and that many 32-bit offsets into the data after them, which
+// cut it into clear and encrypted partitions in turn, the first clear.
+bool read_encrypted_frame(std::span<std::uint8_t const> in, std::vector<std::uint8_t> const& key_id, WebmFrame& frame)
+{
+    if (in.empty())
+        return false;
+    std::uint8_t const signal = in[0];
+    in = in.subspan(1);
+    bool const encrypted = signal & 0x01;
+    bool const partitioned = signal & 0x02;
+    if (!encrypted) {
+        if (partitioned)
+            return false;
+        frame.data.assign(in.begin(), in.end());
+        return true;
+    }
+    if (in.size() < 8)
+        return false;
+    SampleEncryption made;
+    made.scheme = scheme_cenc;
+    made.key_id = key_id;
+    made.iv.assign(in.begin(), in.begin() + 8);
+    in = in.subspan(8);
+    if (partitioned) {
+        if (in.empty())
+            return false;
+        std::size_t const count = in[0];
+        in = in.subspan(1);
+        if (in.size() < count * 4)
+            return false;
+        std::vector<std::uint32_t> offsets;
+        for (std::size_t i = 0; i < count; ++i)
+            offsets.push_back((std::uint32_t(in[i * 4]) << 24) | (std::uint32_t(in[i * 4 + 1]) << 16) | (std::uint32_t(in[i * 4 + 2]) << 8) | in[i * 4 + 3]);
+        in = in.subspan(count * 4);
+        // The offsets rise and stay inside the data; the stretch after the
+        // last runs to the end.
+        offsets.push_back(static_cast<std::uint32_t>(in.size()));
+        std::uint32_t previous = 0;
+        Subsample entry;
+        for (std::size_t i = 0; i < offsets.size(); ++i) {
+            if (offsets[i] < previous || offsets[i] > in.size())
+                return false;
+            std::uint32_t const length = offsets[i] - previous;
+            if (i % 2 == 0) {
+                entry.clear_bytes = length;
+            } else {
+                entry.protected_bytes = length;
+                made.subsamples.push_back(entry);
+                entry = {};
+            }
+            previous = offsets[i];
+        }
+        if (offsets.size() % 2 == 1)
+            made.subsamples.push_back(entry); // ends on a clear partition
+    }
+    frame.data.assign(in.begin(), in.end());
+    frame.encryption = std::move(made);
     return true;
 }
 
@@ -418,6 +489,47 @@ bool WebmParser::parse_tracks(std::span<std::uint8_t const> body)
                         return number(value, track.height);
                     return true;
                 });
+            case ContentEncodings:
+                // Matroska's ContentEncoding of type 1 (encryption) whose
+                // algorithm is AES (5) in CTR mode (1, the default): the
+                // WebM Encryption specification's only form.
+                return each_child(child, [&](std::uint32_t inner, std::span<std::uint8_t const> encoding) {
+                    if (inner != ContentEncoding)
+                        return true;
+                    std::uint64_t type = 0;
+                    std::uint64_t algorithm = 0;
+                    std::uint64_t mode = 1;
+                    std::vector<std::uint8_t> key_id;
+                    bool const read = each_child(encoding, [&](std::uint32_t part, std::span<std::uint8_t const> value) {
+                        if (part == ContentEncodingType)
+                            return number(value, type);
+                        if (part != ContentEncryption)
+                            return true;
+                        return each_child(value, [&](std::uint32_t setting, std::span<std::uint8_t const> setting_value) {
+                            if (setting == ContentEncAlgo)
+                                return number(setting_value, algorithm);
+                            if (setting == ContentEncKeyID)
+                                key_id.assign(setting_value.begin(), setting_value.end());
+                            else if (setting == ContentEncAESSettings) {
+                                return each_child(setting_value, [&](std::uint32_t aes, std::span<std::uint8_t const> v) {
+                                    return aes != AESSettingsCipherMode || number(v, mode);
+                                });
+                            }
+                            return true;
+                        });
+                    });
+                    if (!read)
+                        return false;
+                    if (type == 1) {
+                        // An encryption this reader cannot take apart:
+                        // the track's frames cannot be read at all.
+                        if (algorithm != 5 || mode != 1 || key_id.empty())
+                            return false;
+                        track.encrypted = true;
+                        track.key_id = std::move(key_id);
+                    }
+                    return true;
+                });
             case Audio:
                 return each_child(child, [&](std::uint32_t inner, std::span<std::uint8_t const> value) {
                     if (inner == SamplingFrequency) {
@@ -561,7 +673,13 @@ bool WebmParser::parse_block(std::span<std::uint8_t const> body, bool simple, st
         frame.time_ns = time_ns + static_cast<std::int64_t>(i * duration_ns.value_or(0));
         frame.duration_ns = duration_ns;
         frame.key = key;
-        frame.data.assign(payload.begin() + static_cast<std::ptrdiff_t>(offset), payload.begin() + static_cast<std::ptrdiff_t>(offset + sizes[i]));
+        std::span<std::uint8_t const> const data = payload.subspan(offset, sizes[i]);
+        if (track->encrypted) {
+            if (!read_encrypted_frame(data, track->key_id, frame))
+                return false;
+        } else {
+            frame.data.assign(data.begin(), data.end());
+        }
         m_frames.push_back(std::move(frame));
         offset += sizes[i];
     }

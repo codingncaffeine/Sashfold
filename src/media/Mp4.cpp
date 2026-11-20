@@ -478,7 +478,7 @@ bool read_sample_encryption(std::span<std::uint8_t const> parent, Mp4Track const
             continue;
         SampleEncryption made;
         made.scheme = protection.scheme;
-        made.key_id = fields[i].key_id;
+        made.key_id.assign(fields[i].key_id.begin(), fields[i].key_id.end());
         made.iv = fields[i].per_sample_iv_size > 0 ? std::move(ivs[i]) : fields[i].constant_iv;
         made.subsamples = std::move(maps[i]);
         // The pattern is the pattern schemes' alone ('cenc' and 'cbc1'

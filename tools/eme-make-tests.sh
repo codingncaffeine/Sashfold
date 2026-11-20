@@ -47,6 +47,13 @@ copy -an "${fragmented[@]}" "$out/v-clear-frag.mp4"
 copy -an "${fragmented[@]}" "${encrypt[@]}" "$out/v-cenc-frag.mp4"
 python3 -I "$here/cenc-to-cbcs.py" "$out/v-cenc-frag.mp4" "$out/v-clear-frag.mp4" "$key" "$iv" "$out/v-cbcs-frag.mp4"
 
+# WebM: VP9 and Opus, encrypted by tools/webm-encrypt.py (openssl again):
+# whole frames, partitioned ones and frames left clear.
+ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=64x48:rate=10:duration=1" \
+    -f lavfi -i "sine=frequency=440:sample_rate=48000:duration=1" \
+    -c:v libvpx-vp9 -b:v 20k -g 5 -c:a libopus -b:a 16k "$out/vp9-opus-clear.webm"
+python3 -I "$here/webm-encrypt.py" "$out/vp9-opus-clear.webm" "$key" "$kid" "$out/vp9-opus-enc.webm"
+
 packets() {
     ffprobe -hide_banner -loglevel error "$@" -show_packets -show_data_hash sha256 -of compact=p=0:nk=1 \
         -show_entries packet=stream_index,size,data_hash | awk -F'|' '{ sub("SHA256:", "", $3); print $1, $2, $3 }'
@@ -54,6 +61,7 @@ packets() {
 for name in av-clear-frag av-clear-plain a-clear-frag v-clear-frag; do
     packets "$out/$name.mp4" > "$out/$name.packets"
 done
+packets "$out/vp9-opus-clear.webm" > "$out/vp9-opus-clear.packets"
 same() {
     if ! cmp -s <(packets -decryption_key "$key" "$out/$1.mp4") "$out/$2.packets"; then
         echo "ffmpeg does not decrypt $1.mp4 to $2's packets" >&2

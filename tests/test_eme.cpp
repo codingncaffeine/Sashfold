@@ -5,8 +5,10 @@
 #include "crypto/Sha2.h"
 #include "media/Cenc.h"
 #include "media/Mp4.h"
+#include "media/WebM.h"
 
 #include <algorithm>
+#include <array>
 #include <cstdint>
 #include <cstdio>
 #include <fstream>
@@ -375,6 +377,80 @@ void test_pssh(std::string const& folder)
     CHECK_EQ(decrypted, read_packets(folder + "/av-clear-frag.packets").size());
 }
 
+// --- WebM: the signal byte, IV and partitions ---------------------------------------------
+
+// Each frame of the encrypted WebM file, decrypted with `key`, against
+// ffmpeg's packets of the clear one: how many differ. `kinds` counts the
+// frames encrypted whole, partitioned and left clear.
+std::size_t compare_webm(std::string const& folder, Bytes const& key, std::size_t piece, std::array<std::size_t, 3>& kinds)
+{
+    Bytes const file = read_file(folder + "/vp9-opus-enc.webm");
+    std::vector<Packet> const packets = read_packets(folder + "/vp9-opus-clear.packets");
+    CHECK(!file.empty() && !packets.empty());
+    media::WebmParser parser;
+    std::vector<media::WebmFrame> frames;
+    for (std::size_t at = 0; at < file.size(); at += piece) {
+        CHECK(parser.append(std::span<std::uint8_t const>(file.data() + at, std::min(piece, file.size() - at))));
+        for (media::WebmFrame& frame : parser.take_frames())
+            frames.push_back(std::move(frame));
+    }
+    auto const& tracks = parser.init().tracks;
+    CHECK_EQ(tracks.size(), std::size_t(2));
+    for (media::WebmTrack const& track : tracks) {
+        CHECK(track.encrypted);
+        CHECK_EQ(hex_of(track.key_id), std::string(fixture_kid));
+    }
+    std::vector<std::vector<media::WebmFrame const*>> by_track(tracks.size());
+    for (media::WebmFrame const& frame : frames) {
+        for (std::size_t i = 0; i < tracks.size(); ++i) {
+            if (tracks[i].number == frame.track)
+                by_track[i].push_back(&frame);
+        }
+    }
+    std::vector<std::size_t> next(tracks.size(), 0);
+    std::size_t differ = 0;
+    kinds = {};
+    for (Packet const& p : packets) {
+        auto const stream = static_cast<std::size_t>(p.stream);
+        if (stream >= tracks.size() || next[stream] >= by_track[stream].size()) {
+            ++differ;
+            continue;
+        }
+        media::WebmFrame const& frame = *by_track[stream][next[stream]++];
+        Bytes data = frame.data;
+        if (frame.encryption) {
+            ++kinds[frame.encryption->subsamples.empty() ? 0 : 1];
+            CHECK_EQ(hex_of(frame.encryption->key_id), std::string(fixture_kid));
+            if (!media::decrypt_sample(*frame.encryption, key, data))
+                ++differ;
+        } else {
+            ++kinds[2];
+        }
+        if (data.size() != p.size || hex_of(crypto::Sha256::hash(data)) != p.sha256)
+            ++differ;
+    }
+    for (std::size_t i = 0; i < tracks.size(); ++i) {
+        if (next[i] != by_track[i].size())
+            ++differ;
+    }
+    return differ;
+}
+
+void test_webm_against_ffmpeg(std::string const& folder)
+{
+    Bytes const key = hex(fixture_key);
+    std::array<std::size_t, 3> kinds {};
+    for (std::size_t const piece : { std::size_t(1) << 20, std::size_t(61) }) {
+        CHECK_EQ(compare_webm(folder, key, piece, kinds), std::size_t(0));
+        CHECK(kinds[0] > 0 && kinds[1] > 0 && kinds[2] > 0);
+    }
+    // The control: with a wrong key only the frames left clear come back.
+    Bytes wrong = key;
+    wrong[15] ^= 0x80;
+    std::size_t const total = read_packets(folder + "/vp9-opus-clear.packets").size();
+    CHECK_EQ(compare_webm(folder, wrong, 1 << 20, kinds), total - kinds[2]);
+}
+
 }
 
 int main(int argc, char** argv)
@@ -387,6 +463,7 @@ int main(int argc, char** argv)
     else {
         test_mp4_against_ffmpeg(argv[1]);
         test_pssh(argv[1]);
+        test_webm_against_ffmpeg(argv[1]);
     }
     return test::report("test_eme");
 }

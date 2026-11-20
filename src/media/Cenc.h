@@ -44,7 +44,8 @@ struct Subsample {
 
 struct SampleEncryption {
     std::uint32_t scheme = scheme_cenc;
-    KeyId key_id {};
+    // Sixteen bytes in MP4; a WebM track's ContentEncKeyID may be longer.
+    std::vector<std::uint8_t> key_id;
     // 8 or 16 bytes: the sample's own IV, or the track's constant one.
     std::vector<std::uint8_t> iv;
     // Empty: the whole sample is one protected range.

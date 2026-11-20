@@ -8,6 +8,8 @@
 // cannot finish yet and gives out every frame the moment its block is whole.
 // A file read from its first byte to its last is the same stream.
 
+#include "media/Cenc.h"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -32,6 +34,12 @@ struct WebmTrack {
     std::uint64_t default_duration_ns = 0; // 0: not given
     std::uint64_t codec_delay_ns = 0;
     std::uint64_t seek_preroll_ns = 0;
+    // An encrypted track (the WebM Encryption specification: a
+    // ContentEncoding of type 1 whose ContentEncryption is AES in CTR mode)
+    // and the key ID it names — the "webm" initialization data of
+    // Encrypted Media Extensions.
+    bool encrypted = false;
+    std::vector<std::uint8_t> key_id;
 };
 
 struct WebmInit {
@@ -52,6 +60,13 @@ struct WebmFrame {
     std::optional<std::uint64_t> duration_ns;
     bool key = false;
     std::vector<std::uint8_t> data;
+    // For a frame of an encrypted track that its signal byte marks
+    // encrypted: the IV and partitions as a Common Encryption 'cenc'
+    // description (the counter block is the IV and eight zero bytes, the
+    // odd partitions one keystream), `data` the frame after the signal
+    // byte, IV and partition offsets. A frame marked clear is given with
+    // those taken off and no description.
+    std::optional<SampleEncryption> encryption;
 };
 
 class WebmParser {
