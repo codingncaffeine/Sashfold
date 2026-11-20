@@ -219,6 +219,8 @@ iframe { border: 2px inset }
 video { object-fit: contain }
 frameset, frame { display: block }
 noframes { display: none }
+dialog:not([open]) { display: none }
+datalist { display: none }
 :focus-visible { outline: auto 1px }
 )CSS";
 
