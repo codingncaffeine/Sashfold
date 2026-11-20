@@ -244,6 +244,9 @@ private:
     {
         if (!s.claim(m_slot.id))
             return;
+        // A command that failed because the key left says so.
+        if (error.reason == Reason::DeviceError && m_hid && m_hid->gone())
+            error.reason = Reason::DeviceGone;
         if (state)
             show(*state);
         s.fail(error);
