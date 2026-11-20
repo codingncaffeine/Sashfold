@@ -2,9 +2,11 @@
 
 #include "core/Bidi.h"
 #include "css/ComputedStyle.h"
+#include "css/FontFeatures.h"
 #include "text/FontManager.h"
 
 #include <algorithm>
+#include <cstdint>
 
 namespace sashfold::layout {
 
@@ -22,10 +24,28 @@ text::TextShaping shaping_for(css::ComputedStyle const& style, bool right_to_lef
     case css::FontKerning::Normal: css.kerning = text::CssFontFeatures::Kerning::Normal; break;
     case css::FontKerning::None: css.kerning = text::CssFontFeatures::Kerning::None; break;
     }
+    // font-variant-ligatures (css-fonts-4 §6.4): none turns off every
+    // ligature and contextual form the property covers.
+    using V = css::FontVariant;
+    std::uint16_t const ligatures = style.font_variant.ligatures;
+    bool const none = (ligatures & V::ligatures_none) != 0;
+    css.common_ligatures = !none && !(ligatures & V::no_common_ligatures);
+    css.discretionary_ligatures = !none && (ligatures & V::discretionary_ligatures);
+    css.historical_ligatures = !none && (ligatures & V::historical_ligatures);
+    css.contextual_alternates = !none && !(ligatures & V::no_contextual);
     css.letter_spacing = style.letter_spacing != 0;
     text::shaping_features_for_css(css, shaping.features);
+    // The other longhands of font-variant (§6.5 to §6.10), then
     // font-feature-settings last, over everything the other properties
-    // asked for (css-fonts-4 §7.2): a later setting of a tag wins.
+    // asked for (§7.2): a later setting of a tag wins.
+    css::FontVariant const& asked = style.font_variant;
+    if (asked.caps != css::FontVariantCaps::Normal || asked.numeric != 0 || asked.east_asian != 0
+        || asked.position != css::FontVariantPosition::Normal || asked.historical_forms) {
+        std::vector<css::FontFeature> variant;
+        css::append_font_variant_features(asked, variant);
+        for (css::FontFeature const& feature : variant)
+            shaping.features.push_back(text::FeatureSetting { feature.tag, feature.value });
+    }
     if (style.font_feature_settings) {
         for (css::FontFeature const& feature : *style.font_feature_settings)
             shaping.features.push_back(text::FeatureSetting { feature.tag, feature.value });
@@ -37,7 +57,7 @@ bool same_font_features(css::ComputedStyle const& a, css::ComputedStyle const& b
 {
     bool const same_settings = a.font_feature_settings == b.font_feature_settings
         || (a.font_feature_settings && b.font_feature_settings && *a.font_feature_settings == *b.font_feature_settings);
-    return a.font_kerning == b.font_kerning && same_settings;
+    return a.font_kerning == b.font_kerning && same_settings && a.font_variant == b.font_variant;
 }
 
 std::u32string logical_text_of(TextRun const& run)

@@ -784,6 +784,71 @@ struct FontFeature {
     bool operator==(FontFeature const&) const = default;
 };
 
+// font-variant-caps (css-fonts-4 §6.6), in the grammar's order.
+enum class FontVariantCaps : std::uint8_t {
+    Normal,
+    SmallCaps,
+    AllSmallCaps,
+    PetiteCaps,
+    AllPetiteCaps,
+    Unicase,
+    TitlingCaps,
+};
+
+// font-variant-position (css-fonts-4 §6.5).
+enum class FontVariantPosition : std::uint8_t {
+    Normal,
+    Sub,
+    Super,
+};
+
+// The longhands of font-variant (css-fonts-4 §6.4 to §6.11) as computed:
+// each a set of the keywords written, 0 (no bit) for `normal`.
+struct FontVariant {
+    // font-variant-ligatures (§6.4).
+    static constexpr std::uint16_t ligatures_none = 1 << 0;
+    static constexpr std::uint16_t common_ligatures = 1 << 1;
+    static constexpr std::uint16_t no_common_ligatures = 1 << 2;
+    static constexpr std::uint16_t discretionary_ligatures = 1 << 3;
+    static constexpr std::uint16_t no_discretionary_ligatures = 1 << 4;
+    static constexpr std::uint16_t historical_ligatures = 1 << 5;
+    static constexpr std::uint16_t no_historical_ligatures = 1 << 6;
+    static constexpr std::uint16_t contextual = 1 << 7;
+    static constexpr std::uint16_t no_contextual = 1 << 8;
+    // font-variant-numeric (§6.7).
+    static constexpr std::uint8_t lining_nums = 1 << 0;
+    static constexpr std::uint8_t oldstyle_nums = 1 << 1;
+    static constexpr std::uint8_t proportional_nums = 1 << 2;
+    static constexpr std::uint8_t tabular_nums = 1 << 3;
+    static constexpr std::uint8_t diagonal_fractions = 1 << 4;
+    static constexpr std::uint8_t stacked_fractions = 1 << 5;
+    static constexpr std::uint8_t ordinal = 1 << 6;
+    static constexpr std::uint8_t slashed_zero = 1 << 7;
+    // font-variant-east-asian (§6.10).
+    static constexpr std::uint16_t jis78 = 1 << 0;
+    static constexpr std::uint16_t jis83 = 1 << 1;
+    static constexpr std::uint16_t jis90 = 1 << 2;
+    static constexpr std::uint16_t jis04 = 1 << 3;
+    static constexpr std::uint16_t simplified = 1 << 4;
+    static constexpr std::uint16_t traditional = 1 << 5;
+    static constexpr std::uint16_t full_width = 1 << 6;
+    static constexpr std::uint16_t proportional_width = 1 << 7;
+    static constexpr std::uint16_t ruby = 1 << 8;
+
+    std::uint16_t ligatures = 0;
+    FontVariantCaps caps = FontVariantCaps::Normal;
+    std::uint8_t numeric = 0;
+    std::uint16_t east_asian = 0;
+    FontVariantPosition position = FontVariantPosition::Normal;
+    // font-variant-alternates (§6.8): its value in the grammar's order
+    // (empty for normal), and whether historical-forms is in it. The
+    // functional values name @font-feature-values entries.
+    std::string alternates;
+    bool historical_forms = false;
+
+    bool operator==(FontVariant const&) const = default;
+};
+
 // overflow-wrap (css-text-3 §5.5): whether a word too wide for a line is
 // sliced where it must be — break-word and anywhere — or left to overflow
 // (normal). Only anywhere's slices count toward a min-content width.
@@ -1422,6 +1487,9 @@ struct ComputedStyle {
     // the last setting of each kept, in ascending order; null for normal.
     // Inherited.
     std::shared_ptr<std::vector<FontFeature> const> font_feature_settings;
+    // font-variant and its longhands (css-fonts-4 §6.4 to §6.11).
+    // Inherited.
+    FontVariant font_variant;
     TextTransform text_transform = TextTransform::None;
     // css-text-decor-4 §7: the shadows the text casts (inherited); null for
     // none.

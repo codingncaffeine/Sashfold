@@ -954,6 +954,10 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
     }
     if (name == "font-feature-settings")
         return css::font_feature_settings_text(style.font_feature_settings);
+    if (name == "font-variant")
+        return css::font_variant_text(style.font_variant);
+    if (css::is_font_variant_longhand(name))
+        return css::font_variant_longhand_text(name, style.font_variant);
     if (name == "font-synthesis-weight")
         return style.font_synthesis_weight ? "auto" : "none";
     if (name == "font-synthesis-small-caps")
@@ -1372,7 +1376,9 @@ constexpr std::string_view computed_longhands[] = { "align-content", "align-item
     "border-top-style", "border-top-width", "bottom", "box-shadow", "box-sizing", "clear", "clip-path", "color", "column-gap", "contain", "content",
     "cursor", "direction", "display", "filter", "flex-basis", "flex-direction", "flex-grow", "flex-shrink", "flex-wrap", "float",
     "font-family", "font-feature-settings", "font-kerning", "font-size", "font-stretch", "font-style", "font-synthesis-position",
-    "font-synthesis-small-caps", "font-synthesis-style", "font-synthesis-weight", "font-weight", "grid-auto-columns",
+    "font-synthesis-small-caps", "font-synthesis-style", "font-synthesis-weight", "font-variant-alternates",
+    "font-variant-caps", "font-variant-east-asian", "font-variant-ligatures", "font-variant-numeric",
+    "font-variant-position", "font-weight", "grid-auto-columns",
     "grid-auto-flow", "grid-auto-rows", "grid-column-end", "grid-column-start", "grid-row-end", "grid-row-start",
     "grid-template-areas", "grid-template-columns", "grid-template-rows", "height", "hyphenate-character", "hyphens",
     "interactivity", "isolation", "justify-content", "justify-items", "justify-self", "left", "letter-spacing", "line-break", "line-height", "margin-bottom",

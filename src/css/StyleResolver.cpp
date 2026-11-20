@@ -4967,7 +4967,7 @@ struct Resolver {
         &ComputedStyle::hyphens, &ComputedStyle::hyphenate_character, &ComputedStyle::line_break,
         &ComputedStyle::overflow_wrap, &ComputedStyle::font_kerning, &ComputedStyle::font_synthesis_weight,
         &ComputedStyle::font_synthesis_style, &ComputedStyle::font_synthesis_small_caps,
-        &ComputedStyle::font_synthesis_position, &ComputedStyle::font_feature_settings, &ComputedStyle::text_transform, &ComputedStyle::text_shadow, &ComputedStyle::list_style_type,
+        &ComputedStyle::font_synthesis_position, &ComputedStyle::font_feature_settings, &ComputedStyle::font_variant, &ComputedStyle::text_transform, &ComputedStyle::text_shadow, &ComputedStyle::list_style_type,
         &ComputedStyle::list_style_position, &ComputedStyle::quotes, &ComputedStyle::custom, &ComputedStyle::visibility,
         &ComputedStyle::pointer_events, &ComputedStyle::cursor, &ComputedStyle::inert, &ComputedStyle::border_collapse, &ComputedStyle::border_spacing_horizontal,
         &ComputedStyle::border_spacing_vertical, &ComputedStyle::caption_side, &ComputedStyle::empty_cells,
@@ -5499,7 +5499,10 @@ struct Resolver {
                     to.font_style = from.font_style;
                     to.font_family = from.font_family;
                     to.line_height = from.line_height;
+                    to.font_stretch = from.font_stretch;
+                    to.font_variant = from.font_variant;
                     to.font_feature_settings = from.font_feature_settings;
+                    to.font_kerning = from.font_kerning;
                 },
                 0 },
             { "vertical-align", false, [](S& to, S const& from) { to.vertical_align = from.vertical_align; }, 0 },
@@ -5548,6 +5551,22 @@ struct Resolver {
                 0 },
             { "font-feature-settings", true,
                 [](S& to, S const& from) { to.font_feature_settings = from.font_feature_settings; }, 0 },
+            { "font-variant", true, [](S& to, S const& from) { to.font_variant = from.font_variant; }, 0 },
+            { "font-variant-ligatures", true,
+                [](S& to, S const& from) { to.font_variant.ligatures = from.font_variant.ligatures; }, 0 },
+            { "font-variant-caps", true, [](S& to, S const& from) { to.font_variant.caps = from.font_variant.caps; }, 0 },
+            { "font-variant-numeric", true,
+                [](S& to, S const& from) { to.font_variant.numeric = from.font_variant.numeric; }, 0 },
+            { "font-variant-east-asian", true,
+                [](S& to, S const& from) { to.font_variant.east_asian = from.font_variant.east_asian; }, 0 },
+            { "font-variant-position", true,
+                [](S& to, S const& from) { to.font_variant.position = from.font_variant.position; }, 0 },
+            { "font-variant-alternates", true,
+                [](S& to, S const& from) {
+                    to.font_variant.alternates = from.font_variant.alternates;
+                    to.font_variant.historical_forms = from.font_variant.historical_forms;
+                },
+                0 },
             { "text-transform", true,
                 [](S& to, S const& from) { to.text_transform = from.text_transform; }, 0 },
             { "list-style-type", true, [](S& to, S const& from) { to.list_style_type = from.list_style_type; }, 0 },
@@ -8707,8 +8726,16 @@ struct Resolver {
                 return;
             FontStyle font_style = FontStyle::Normal;
             int weight = 400;
+            int stretch = 100;
+            bool small_caps = false;
             for (ComponentValue const* value : parts->before) {
-                if (is_ident(value, "italic"))
+                if (is_ident(value, "small-caps"))
+                    small_caps = true;
+                else if (std::optional<int> const percent = value->is_token(Token::Type::Ident)
+                             ? css::font_stretch_percent_of(*value)
+                             : std::nullopt)
+                    stretch = *percent; // <font-width-css3>: the keywords only
+                else if (is_ident(value, "italic"))
                     font_style = FontStyle::Italic;
                 else if (is_ident(value, "oblique"))
                     font_style = FontStyle::Oblique;
@@ -8721,7 +8748,7 @@ struct Resolver {
                 else if (value->is_token(Token::Type::Number)
                     && value->token().numeric_value >= 1 && value->token().numeric_value <= 1000)
                     weight = static_cast<int>(value->token().numeric_value);
-                else if (!is_ident(value, "normal") && !is_ident(value, "small-caps"))
+                else if (!is_ident(value, "normal"))
                     return;
             }
             LineHeight line_height;
@@ -8746,8 +8773,15 @@ struct Resolver {
             style.font_weight = weight;
             style.line_height = line_height;
             style.font_family = std::move(families);
-            // What the shorthand cannot set it resets (css-fonts-4 §2.7).
+            style.font_stretch = stretch;
+            // Of font-variant, only CSS 2's small-caps can be written in the
+            // shorthand; the rest of it, and what the shorthand cannot set,
+            // it resets (css-fonts-4 §2.7).
+            style.font_variant = FontVariant {};
+            if (small_caps)
+                style.font_variant.caps = FontVariantCaps::SmallCaps;
             style.font_feature_settings = nullptr;
+            style.font_kerning = FontKerning::Auto;
             return;
         }
         if (name == "font-family") {
@@ -9018,6 +9052,14 @@ struct Resolver {
         }
         if (name == "font-feature-settings") {
             parse_font_feature_settings(values, style.font_feature_settings);
+            return;
+        }
+        if (name == "font-variant") {
+            parse_font_variant(values, style.font_variant);
+            return;
+        }
+        if (is_font_variant_longhand(name)) {
+            parse_font_variant_longhand(name, values, style.font_variant);
             return;
         }
         if (name == "font-kerning") {
@@ -10960,7 +11002,8 @@ ComputedStyle const& perturbed_style_baseline()
                  "stroke-miterlimit: 7; stroke-dasharray: 1 2; stroke-dashoffset: 3; fill-rule: evenodd; "
                  "stop-color: rgb(10, 11, 12); stop-opacity: 0.5; border-spacing: 2px; translate: 1px; "
                  "aspect-ratio: 2; grid-auto-flow: column; border-color: rgb(13, 14, 15); "
-                 "font-variant: small-caps; font-feature-settings: \"zero\" 3; font-family: monospace; quotes: none; counter-reset: x; "
+                 "font-variant: no-common-ligatures small-caps historical-forms oldstyle-nums jis78 super; "
+                 "font-feature-settings: \"zero\" 3; font-family: monospace; quotes: none; counter-reset: x; "
                  "counter-increment: x; background-repeat: no-repeat; background-clip: content-box; "
                  "background-origin: content-box; background-size: cover; background-position: 1px 2px; "
                  "background-image: linear-gradient(red, blue);"))
