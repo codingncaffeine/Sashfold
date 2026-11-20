@@ -296,6 +296,7 @@ add_library(sashfold_core STATIC
   src/text/ShaperHangul.cpp
   src/text/ShaperHebrew.cpp
   src/text/ShaperIndic.cpp
+  src/text/ShaperKhmer.cpp
   src/text/ShaperSyllabic.cpp
   src/text/ShaperThai.cpp
   src/text/ShaperUse.cpp

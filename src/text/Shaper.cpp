@@ -631,6 +631,8 @@ ScriptShaper const& choose_shaper(ScriptCode script, std::uint32_t chosen_gsub_s
         if (chosen_gsub_script == tag_dflt_script || chosen_gsub_script == tag_latn)
             return default_shaper;
         return indic_shaper;
+    case script_code('K', 'h', 'm', 'r'):
+        return khmer_shaper;
     default:
         // The Universal Shaping Engine's scripts, when the font knows the
         // script (as for the Indic scripts above).
