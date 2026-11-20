@@ -35,8 +35,8 @@ What is still short of the bar is listed, not hidden: [Not written yet](https://
 | WPT URL parsing | **893 / 893** (100%) |
 | Unicode bidi | **91,707 / 91,707** and **770,241 / 770,241** (100%) |
 | Unicode line breaking | **16,672 / 16,672** (100%) |
-| WPT CSS reference tests | **11095 / 16471 (67.4%)** — [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
-| WPT testharness tests | **331162 / 403041 (82.2%)** — [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
+| WPT CSS reference tests | **11128 / 16471 (67.6%)** — [sashfold.com/wpt.html](https://sashfold.com/wpt.html) |
+| WPT testharness tests | **331523 / 403124 (82.2%)** — [sashfold.com/wpt-harness.html](https://sashfold.com/wpt-harness.html) |
 | test262 | **41845 / 45367 (92.2%)** — [sashfold.com/test262.html](https://sashfold.com/test262.html) |
 | The Sashfold 100 | [sashfold.com/sashfold100](https://sashfold.com/sashfold100/) · [the Linux render](https://sashfold.com/sashfold100/linux/) |
 
