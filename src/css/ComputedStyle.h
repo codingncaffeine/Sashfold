@@ -567,6 +567,53 @@ enum class Visibility : std::uint8_t {
     Hidden, // the box keeps its room and paints nothing (collapse counts as hidden)
 };
 
+// cursor (CSS UI 4 §8.1.1): the keywords, in the specification's order.
+// `cursor_keywords` names them in the same order.
+enum class Cursor : std::uint8_t {
+    Auto,
+    Default,
+    None,
+    ContextMenu,
+    Help,
+    Pointer,
+    Progress,
+    Wait,
+    Cell,
+    Crosshair,
+    Text,
+    VerticalText,
+    Alias,
+    Copy,
+    Move,
+    NoDrop,
+    NotAllowed,
+    Grab,
+    Grabbing,
+    EResize,
+    NResize,
+    NeResize,
+    NwResize,
+    SResize,
+    SeResize,
+    SwResize,
+    WResize,
+    EwResize,
+    NsResize,
+    NeswResize,
+    NwseResize,
+    ColResize,
+    RowResize,
+    AllScroll,
+    ZoomIn,
+    ZoomOut,
+};
+inline constexpr std::string_view cursor_keywords[] = {
+    "auto", "default", "none", "context-menu", "help", "pointer", "progress", "wait", "cell", "crosshair", "text",
+    "vertical-text", "alias", "copy", "move", "no-drop", "not-allowed", "grab", "grabbing", "e-resize", "n-resize",
+    "ne-resize", "nw-resize", "s-resize", "se-resize", "sw-resize", "w-resize", "ew-resize", "ns-resize", "nesw-resize",
+    "nwse-resize", "col-resize", "row-resize", "all-scroll", "zoom-in", "zoom-out",
+};
+
 // font-style: an oblique asks for the same slanted faces an italic does,
 // and is told apart only where font-synthesis-style: oblique-only cares.
 enum class FontStyle : std::uint8_t {
@@ -1140,6 +1187,12 @@ struct ComputedStyle {
     // back. The values SVG adds for its own shapes all mean the pointer is
     // heard, as `auto` does on a box.
     bool pointer_events = true;
+    // cursor (CSS UI 4 §8.1.1): the pointer's shape over the box, by
+    // keyword. `auto` leaves it to what is under the pointer: an I-beam
+    // over text, a hand over a link, an arrow elsewhere. An image in the
+    // list is passed over for the keyword that must end the list.
+    // Inherited.
+    Cursor cursor = Cursor::Auto;
     // interactivity (CSS UI 4; HTML's `inert` is `[inert] { interactivity:
     // inert }` in the UA sheet): an inert box is out of the reader's reach —
     // not under the pointer, not focused, not found by find in page, not

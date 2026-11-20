@@ -1,0 +1,74 @@
+# The pointer's shape over a page (CSS UI 4 §8.1.1, `cursor`): the keyword
+# the page gives the box under the pointer, inherited by what is inside it;
+# with `auto`, an I-beam over words and in a text field, a hand over a link
+# and the arrow elsewhere. An image in the list is passed over for the
+# keyword that must end it; a list no engine takes changes nothing.
+#
+# The content area starts 76 px down. Each row of cursor.html is 20 px tall
+# and 300 px wide, its words 10 px a letter from the left edge: x = 30 is on
+# the words, x = 280 past their end.
+resize 800 600
+open cursor.html
+advance 50 2
+# The computed values: inherited, the keyword after images, the last valid
+# declaration, the prefixed spelling, and two lists that are not taken.
+assert-title grab wait pointer zoom-in auto auto
+
+# auto: an I-beam over the words, the arrow beside them.
+move 30 86
+assert-cursor text
+move 280 86
+assert-cursor default
+
+# The page's keyword, on the words and beside them alike.
+move 30 106
+assert-cursor pointer
+move 280 106
+assert-cursor pointer
+
+# A link is a hand without being told.
+move 30 126
+assert-cursor pointer
+
+# Words the page calls `default` do not show the I-beam.
+move 30 146
+assert-cursor default
+
+# Inherited by the span inside.
+move 30 166
+assert-cursor grab
+
+# The keyword after the images.
+move 30 186
+assert-cursor wait
+
+# An unknown keyword leaves the declaration before it standing.
+move 30 206
+assert-cursor pointer
+
+move 30 226
+assert-cursor none
+
+move 30 246
+assert-cursor zoom-in
+
+# The page's word outranks what a link would show.
+move 30 266
+assert-cursor text
+
+# A list with no keyword at its end is not taken: auto, over words.
+move 30 286
+assert-cursor text
+
+move 30 306
+assert-cursor col-resize
+
+# A text field and a button, as before.
+move 30 326
+assert-cursor text
+move 20 356
+assert-cursor default
+
+# An image with one coordinate is not an image entry: auto.
+move 30 386
+assert-cursor text

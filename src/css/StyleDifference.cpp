@@ -356,6 +356,7 @@ std::optional<std::string_view> first_style_difference(ComputedStyle const& a, C
     field("visibility", a.visibility, b.visibility);
     field("opacity", a.opacity, b.opacity);
     field("pointer_events", a.pointer_events, b.pointer_events);
+    field("cursor", a.cursor, b.cursor);
     field("inert", a.inert, b.inert);
     field("transforms", a.transforms, b.transforms);
     field("isolate", a.isolate, b.isolate);

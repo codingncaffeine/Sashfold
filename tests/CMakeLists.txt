@@ -419,6 +419,10 @@ set_tests_properties(shell_fonts_on_demand PROPERTIES ENVIRONMENT "SASHFOLD_LAZY
 add_test(NAME shell_resize_band
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/resize-band.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)
+# The pointer's shape over a page: the cursor property, and auto by what is there.
+add_test(NAME shell_cursor
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/cursor.script
+    --downloads ${CMAKE_BINARY_DIR}/test-downloads)
 add_test(NAME shell_selection
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/selection.script
     --downloads ${CMAKE_BINARY_DIR}/test-downloads)

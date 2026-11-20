@@ -135,6 +135,7 @@ namespace zwp_text_input_v3 {
     constexpr std::uint32_t content_purpose_normal = 0;
 }
 namespace wl_pointer {
+    constexpr std::uint16_t set_cursor = 0;
     constexpr std::uint16_t event_enter = 0;
     constexpr std::uint16_t event_leave = 1;
     constexpr std::uint16_t event_motion = 2;
@@ -244,17 +245,42 @@ namespace wp_cursor_shape_manager_v1 {
 }
 namespace wp_cursor_shape_device_v1 {
     constexpr std::uint16_t set_shape = 1;
+    // The protocol's shapes are CSS's cursor keywords, numbered from 1 in
+    // this order.
     constexpr std::uint32_t shape_default = 1;
+    constexpr std::uint32_t shape_context_menu = 2;
+    constexpr std::uint32_t shape_help = 3;
     constexpr std::uint32_t shape_pointer = 4;
+    constexpr std::uint32_t shape_progress = 5;
+    constexpr std::uint32_t shape_wait = 6;
+    constexpr std::uint32_t shape_cell = 7;
+    constexpr std::uint32_t shape_crosshair = 8;
     constexpr std::uint32_t shape_text = 9;
+    constexpr std::uint32_t shape_vertical_text = 10;
     constexpr std::uint32_t shape_alias = 11;
     constexpr std::uint32_t shape_copy = 12;
     constexpr std::uint32_t shape_move = 13;
     constexpr std::uint32_t shape_no_drop = 14;
+    constexpr std::uint32_t shape_not_allowed = 15;
+    constexpr std::uint32_t shape_grab = 16;
+    constexpr std::uint32_t shape_grabbing = 17;
+    constexpr std::uint32_t shape_e_resize = 18;
+    constexpr std::uint32_t shape_n_resize = 19;
+    constexpr std::uint32_t shape_ne_resize = 20;
+    constexpr std::uint32_t shape_nw_resize = 21;
+    constexpr std::uint32_t shape_s_resize = 22;
+    constexpr std::uint32_t shape_se_resize = 23;
+    constexpr std::uint32_t shape_sw_resize = 24;
+    constexpr std::uint32_t shape_w_resize = 25;
     constexpr std::uint32_t shape_ew_resize = 26;
     constexpr std::uint32_t shape_ns_resize = 27;
     constexpr std::uint32_t shape_nesw_resize = 28;
     constexpr std::uint32_t shape_nwse_resize = 29;
+    constexpr std::uint32_t shape_col_resize = 30;
+    constexpr std::uint32_t shape_row_resize = 31;
+    constexpr std::uint32_t shape_all_scroll = 32;
+    constexpr std::uint32_t shape_zoom_in = 33;
+    constexpr std::uint32_t shape_zoom_out = 34;
 }
 namespace xdg_activation_v1 {
     constexpr std::uint16_t get_activation_token = 1;
@@ -2473,6 +2499,37 @@ void WaylandWindow::apply_cursor()
     case Cursor::DragMove: shape = wp_cursor_shape_device_v1::shape_move; break;
     case Cursor::DragLink: shape = wp_cursor_shape_device_v1::shape_alias; break;
     case Cursor::NoDrop: shape = wp_cursor_shape_device_v1::shape_no_drop; break;
+    case Cursor::ContextMenu: shape = wp_cursor_shape_device_v1::shape_context_menu; break;
+    case Cursor::Help: shape = wp_cursor_shape_device_v1::shape_help; break;
+    case Cursor::Progress: shape = wp_cursor_shape_device_v1::shape_progress; break;
+    case Cursor::Wait: shape = wp_cursor_shape_device_v1::shape_wait; break;
+    case Cursor::Cell: shape = wp_cursor_shape_device_v1::shape_cell; break;
+    case Cursor::Crosshair: shape = wp_cursor_shape_device_v1::shape_crosshair; break;
+    case Cursor::VerticalText: shape = wp_cursor_shape_device_v1::shape_vertical_text; break;
+    case Cursor::NotAllowed: shape = wp_cursor_shape_device_v1::shape_not_allowed; break;
+    case Cursor::Grab: shape = wp_cursor_shape_device_v1::shape_grab; break;
+    case Cursor::Grabbing: shape = wp_cursor_shape_device_v1::shape_grabbing; break;
+    case Cursor::ResizeEast: shape = wp_cursor_shape_device_v1::shape_e_resize; break;
+    case Cursor::ResizeNorth: shape = wp_cursor_shape_device_v1::shape_n_resize; break;
+    case Cursor::ResizeNorthEast: shape = wp_cursor_shape_device_v1::shape_ne_resize; break;
+    case Cursor::ResizeNorthWest: shape = wp_cursor_shape_device_v1::shape_nw_resize; break;
+    case Cursor::ResizeSouth: shape = wp_cursor_shape_device_v1::shape_s_resize; break;
+    case Cursor::ResizeSouthEast: shape = wp_cursor_shape_device_v1::shape_se_resize; break;
+    case Cursor::ResizeSouthWest: shape = wp_cursor_shape_device_v1::shape_sw_resize; break;
+    case Cursor::ResizeWest: shape = wp_cursor_shape_device_v1::shape_w_resize; break;
+    case Cursor::ResizeColumn: shape = wp_cursor_shape_device_v1::shape_col_resize; break;
+    case Cursor::ResizeRow: shape = wp_cursor_shape_device_v1::shape_row_resize; break;
+    case Cursor::AllScroll: shape = wp_cursor_shape_device_v1::shape_all_scroll; break;
+    case Cursor::ZoomIn: shape = wp_cursor_shape_device_v1::shape_zoom_in; break;
+    case Cursor::ZoomOut: shape = wp_cursor_shape_device_v1::shape_zoom_out; break;
+    case Cursor::None: {
+        // No shape names "nothing": the pointer is given no surface at all
+        // (wl_pointer.set_cursor with a null surface hides it).
+        Request hide(m_pointer, wl_pointer::set_cursor);
+        hide.uint(m_pointer_enter_serial).object(0).uint(0).uint(0);
+        send(hide);
+        return;
+    }
     case Cursor::Arrow: break;
     }
     Request set_shape(m_cursor_device, wp_cursor_shape_device_v1::set_shape);

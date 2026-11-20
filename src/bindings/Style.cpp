@@ -1328,7 +1328,7 @@ std::string computed_property(Realm::Internals& in, dom::Element& element, css::
         return out;
     }
     if (name == "cursor")
-        return "auto";
+        return std::string(css::cursor_keywords[static_cast<std::size_t>(style.cursor)]);
     if (name == "content")
         return "normal";
     if (name.starts_with("animation") || name.starts_with("transition"))

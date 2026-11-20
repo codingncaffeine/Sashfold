@@ -1,0 +1,28 @@
+<!doctype html>
+<title>loading</title>
+<style>
+body { margin: 0; font-family: "Sashfold Mono"; font-size: 16px; line-height: 20px }
+p, div, a { position: absolute; left: 0; width: 300px; height: 20px; margin: 0 }
+input, button { position: absolute; left: 0 }
+</style>
+<p style="top: 0">Plain words here</p>
+<div style="top: 20px; cursor: pointer">acts as a button</div>
+<a href="about:blank" style="top: 40px">a link</a>
+<div style="top: 60px; cursor: default">a caption</div>
+<div id="outer" style="top: 80px; cursor: grab"><span id="inherits">drag me</span></div>
+<div id="images" style="top: 100px; cursor: url(one.png) 4 4, url(two.cur), wait">images first</div>
+<div id="invalid" style="top: 120px; cursor: pointer; cursor: fist">an unknown keyword</div>
+<div style="top: 140px; cursor: none">no pointer</div>
+<div id="prefixed" style="top: 160px; cursor: -webkit-zoom-in">closer</div>
+<a href="about:blank" style="top: 180px; cursor: text">a link shown as text</a>
+<div id="unended" style="top: 200px; cursor: url(one.png)">no keyword ends it</div>
+<div style="top: 220px; cursor: col-resize">a column's edge</div>
+<input style="top: 240px" value="typed">
+<button style="top: 270px">Press</button>
+<div id="misplaced" style="top: 300px; cursor: url(one.png) 4, help">one coordinate</div>
+<script>
+addEventListener('load', () => {
+    const of = id => getComputedStyle(document.getElementById(id)).cursor;
+    document.title = ['inherits', 'images', 'invalid', 'prefixed', 'unended', 'misplaced'].map(of).join(' ');
+});
+</script>

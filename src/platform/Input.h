@@ -65,6 +65,33 @@ enum class Cursor {
     DragMove,
     DragLink,
     NoDrop,
+    // The other shapes a page may ask for by name (CSS UI 4 `cursor`; its
+    // copy, move, alias and no-drop are the four above, its two-headed
+    // arrows the four before them).
+    None, // no pointer is drawn
+    ContextMenu,
+    Help,
+    Progress,
+    Wait,
+    Cell,
+    Crosshair,
+    VerticalText,
+    NotAllowed,
+    Grab,
+    Grabbing,
+    ResizeEast,
+    ResizeNorth,
+    ResizeNorthEast,
+    ResizeNorthWest,
+    ResizeSouth,
+    ResizeSouthEast,
+    ResizeSouthWest,
+    ResizeWest,
+    ResizeColumn,
+    ResizeRow,
+    AllScroll,
+    ZoomIn,
+    ZoomOut,
 };
 
 }

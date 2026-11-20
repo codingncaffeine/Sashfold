@@ -637,9 +637,35 @@ private:
         case Cursor::ResizeHorizontal: return LoadCursorW(nullptr, resource_id(idc_sizewe));
         case Cursor::ResizeDiagonalDown: return LoadCursorW(nullptr, resource_id(idc_sizenwse));
         case Cursor::ResizeDiagonalUp: return LoadCursorW(nullptr, resource_id(idc_sizenesw));
-        case Cursor::NoDrop: return LoadCursorW(nullptr, resource_id(32648)); // IDC_NO
-        case Cursor::DragCopy:
+        case Cursor::NoDrop:
+        case Cursor::NotAllowed: return LoadCursorW(nullptr, resource_id(32648)); // IDC_NO
+        // The system's own set has these of the shapes a page may name; the
+        // rest show the arrow, as they do in every browser's fallback.
+        case Cursor::None: return nullptr; // SetCursor(nullptr) draws none
+        case Cursor::Help: return LoadCursorW(nullptr, resource_id(32651)); // IDC_HELP
+        case Cursor::Progress: return LoadCursorW(nullptr, resource_id(32650)); // IDC_APPSTARTING
+        case Cursor::Wait: return LoadCursorW(nullptr, resource_id(32514)); // IDC_WAIT
+        case Cursor::Cell:
+        case Cursor::Crosshair: return LoadCursorW(nullptr, resource_id(32515)); // IDC_CROSS
+        case Cursor::VerticalText: return LoadCursorW(nullptr, resource_id(idc_ibeam));
         case Cursor::DragMove:
+        case Cursor::AllScroll: return LoadCursorW(nullptr, resource_id(32646)); // IDC_SIZEALL
+        case Cursor::Grab:
+        case Cursor::Grabbing: return LoadCursorW(nullptr, resource_id(idc_hand));
+        case Cursor::ResizeEast:
+        case Cursor::ResizeWest:
+        case Cursor::ResizeColumn: return LoadCursorW(nullptr, resource_id(idc_sizewe));
+        case Cursor::ResizeNorth:
+        case Cursor::ResizeSouth:
+        case Cursor::ResizeRow: return LoadCursorW(nullptr, resource_id(idc_sizens));
+        case Cursor::ResizeNorthEast:
+        case Cursor::ResizeSouthWest: return LoadCursorW(nullptr, resource_id(idc_sizenesw));
+        case Cursor::ResizeNorthWest:
+        case Cursor::ResizeSouthEast: return LoadCursorW(nullptr, resource_id(idc_sizenwse));
+        case Cursor::ContextMenu:
+        case Cursor::ZoomIn:
+        case Cursor::ZoomOut:
+        case Cursor::DragCopy:
         case Cursor::DragLink:
         case Cursor::Arrow: break;
         }

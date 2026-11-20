@@ -7683,6 +7683,51 @@ struct Browser::Impl {
         return nullptr;
     }
 
+    // What the page asks the pointer to look like at a window point (CSS UI
+    // 4 `cursor`): the computed keyword of what is uppermost there, a
+    // frame's document answering for a point inside it, and whether that
+    // is a line's words, which `auto` shows an I-beam over.
+    struct CursorAsk {
+        css::Cursor keyword = css::Cursor::Auto;
+        bool over_words = false;
+    };
+    CursorAsk cursor_ask_at(int x, int y)
+    {
+        Tab* const tab = active_tab();
+        std::optional<std::pair<float, float>> const point = page_point(x, y);
+        if (!tab || !tab->document || !point)
+            return {};
+        std::vector<FrameStep> const chain = frames_at(*tab, point->first, point->second);
+        layout::Fragment const& root = chain.empty() ? tab->layout.root : chain.back().view->layout.root;
+        css::StyleMap const& styles = chain.empty() ? tab->styles : chain.back().view->styles;
+        std::optional<paint::PointHit> const hit = paint::hit_test(root, chain.empty() ? point->first : chain.back().x,
+            chain.empty() ? point->second : chain.back().y, [&styles](dom::Element const& element) -> css::ComputedStyle const* {
+                auto const it = styles.find(&element);
+                return it == styles.end() ? nullptr : &it->second;
+            });
+        CursorAsk ask;
+        if (!hit || !hit->element)
+            return ask;
+        if (auto const it = styles.find(hit->element); it != styles.end())
+            ask.keyword = it->second.cursor;
+        ask.over_words = hit->part == paint::PointHit::Part::Words;
+        return ask;
+    }
+
+    // The window's shape for a keyword other than auto.
+    static platform::Cursor shape_of(css::Cursor keyword)
+    {
+        using P = platform::Cursor;
+        // In the order of css::Cursor.
+        static constexpr P shapes[] = { P::Arrow, P::Arrow, P::None, P::ContextMenu, P::Help, P::Hand, P::Progress, P::Wait,
+            P::Cell, P::Crosshair, P::Text, P::VerticalText, P::DragLink, P::DragCopy, P::DragMove, P::NoDrop, P::NotAllowed,
+            P::Grab, P::Grabbing, P::ResizeEast, P::ResizeNorth, P::ResizeNorthEast, P::ResizeNorthWest, P::ResizeSouth,
+            P::ResizeSouthEast, P::ResizeSouthWest, P::ResizeWest, P::ResizeHorizontal, P::ResizeVertical,
+            P::ResizeDiagonalUp, P::ResizeDiagonalDown, P::ResizeColumn, P::ResizeRow, P::AllScroll, P::ZoomIn, P::ZoomOut };
+        static_assert(std::size(shapes) == std::size(css::cursor_keywords));
+        return shapes[static_cast<std::size_t>(keyword)];
+    }
+
     // A link under a window point: its URL, resolved against the document it
     // is in; the frame that document is shown in, when it is a frame's; and
     // its target attribute.
@@ -17489,11 +17534,19 @@ platform::Cursor Browser::cursor() const
         return Cursor::Arrow;
     }
     if (m_impl->hover == Impl::Hover::Content) {
+        // The page's own word first (CSS UI 4 `cursor`); `auto` is by what
+        // is there, as in every engine: an I-beam in a text field and over
+        // words that can be selected, a hand over a link, else the arrow.
+        Impl::CursorAsk const ask = m_impl->cursor_ask_at(m_impl->mouse_x, m_impl->mouse_y);
+        if (ask.keyword != css::Cursor::Auto)
+            return Impl::shape_of(ask.keyword);
         if (dom::Element const* const control = m_impl->control_at(m_impl->mouse_x, m_impl->mouse_y))
             return layout::is_text_kind(layout::control_kind(*control)) ? Cursor::Text
                                                                           : Cursor::Arrow;
         if (m_impl->hover_link)
             return Cursor::Hand;
+        if (ask.over_words)
+            return Cursor::Text;
     }
     if (m_impl->hover == Impl::Hover::Address)
         return Cursor::Text;

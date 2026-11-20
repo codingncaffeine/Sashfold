@@ -4968,7 +4968,7 @@ struct Resolver {
         &ComputedStyle::font_synthesis_style, &ComputedStyle::font_synthesis_small_caps,
         &ComputedStyle::font_synthesis_position, &ComputedStyle::text_transform, &ComputedStyle::text_shadow, &ComputedStyle::list_style_type,
         &ComputedStyle::list_style_position, &ComputedStyle::quotes, &ComputedStyle::custom, &ComputedStyle::visibility,
-        &ComputedStyle::pointer_events, &ComputedStyle::inert, &ComputedStyle::border_collapse, &ComputedStyle::border_spacing_horizontal,
+        &ComputedStyle::pointer_events, &ComputedStyle::cursor, &ComputedStyle::inert, &ComputedStyle::border_collapse, &ComputedStyle::border_spacing_horizontal,
         &ComputedStyle::border_spacing_vertical, &ComputedStyle::caption_side, &ComputedStyle::empty_cells,
         &ComputedStyle::fill, &ComputedStyle::stroke, &ComputedStyle::fill_opacity, &ComputedStyle::stroke_opacity,
         &ComputedStyle::stroke_width, &ComputedStyle::fill_rule, &ComputedStyle::stroke_linecap,
@@ -5184,6 +5184,7 @@ struct Resolver {
             { "z-index", false, [](S& to, S const& from) { to.z_index = from.z_index; }, 0 },
             { "visibility", true, [](S& to, S const& from) { to.visibility = from.visibility; }, 0 },
             { "pointer-events", true, [](S& to, S const& from) { to.pointer_events = from.pointer_events; }, 0 },
+            { "cursor", true, [](S& to, S const& from) { to.cursor = from.cursor; }, 0 },
             { "interactivity", true, [](S& to, S const& from) { to.inert = from.inert; }, 0 },
             { "opacity", false, [](S& to, S const& from) { to.opacity = from.opacity; }, 0 },
             { "filter", false, [](S& to, S const& from) { to.filter = from.filter; }, 0 },
@@ -7192,6 +7193,43 @@ struct Resolver {
                     if (ascii_ci_equals(keyword, value))
                         style.pointer_events = true;
                 }
+            }
+            return;
+        }
+        if (name == "cursor") {
+            // [ <image> [ <x> <y> ]? , ]* <keyword> (CSS UI 4 §8.1.1): the
+            // keyword that ends the list is what the pointer shows; the
+            // images before it are passed over, each held to its shape (an
+            // image, then nothing or two numbers) so that a list no engine
+            // would take is not taken here. The -webkit- spellings are the
+            // ones pages still write for four of the keywords.
+            std::size_t at = 0;
+            while (at < values.size()) {
+                std::size_t end = at;
+                while (end < values.size() && !values[end]->is_token(Token::Type::Comma))
+                    ++end;
+                if (end == values.size())
+                    break; // the last item: the keyword
+                bool const image = values[at]->is_token(Token::Type::Url)
+                    || (values[at]->is_function() && !values[at]->function().name.empty());
+                std::size_t const coordinates = end - at - 1;
+                bool numbers = coordinates == 0 || coordinates == 2;
+                for (std::size_t i = at + 1; i < end; ++i)
+                    numbers = numbers && values[i]->is_token(Token::Type::Number);
+                if (!image || !numbers)
+                    return;
+                at = end + 1;
+            }
+            if (values.size() - at != 1 || !values[at]->is_token(Token::Type::Ident))
+                return;
+            std::string_view keyword = values[at]->token().value;
+            for (std::string_view const prefixed : { "-webkit-grab", "-webkit-grabbing", "-webkit-zoom-in", "-webkit-zoom-out" }) {
+                if (ascii_ci_equals(keyword, prefixed))
+                    keyword = prefixed.substr(8);
+            }
+            for (std::size_t i = 0; i < std::size(cursor_keywords); ++i) {
+                if (ascii_ci_equals(keyword, cursor_keywords[i]))
+                    style.cursor = static_cast<Cursor>(i);
             }
             return;
         }
