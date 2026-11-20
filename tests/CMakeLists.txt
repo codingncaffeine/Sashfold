@@ -740,3 +740,12 @@ if(EXISTS ${CMAKE_SOURCE_DIR}/sbr-conformance)
     COMMAND bash ${CMAKE_SOURCE_DIR}/tools/sbr-conformance.sh $<TARGET_FILE:media_probe> ${CMAKE_SOURCE_DIR}/sbr-conformance)
   set_tests_properties(sbr_conformance PROPERTIES TIMEOUT 900)
 endif()
+
+# No test can make a sound: every test run by ctest is told of a sound
+# server that is not there, so one that reaches for the machine's speakers
+# (instead of the silent device its page should have been given) finds none.
+# Kept last, so that it covers every test above.
+get_property(sashfold_all_tests DIRECTORY PROPERTY TESTS)
+foreach(sashfold_one_test IN LISTS sashfold_all_tests)
+  set_property(TEST ${sashfold_one_test} APPEND PROPERTY ENVIRONMENT "PULSE_SERVER=unix:/nonexistent/sashfold-tests")
+endforeach()

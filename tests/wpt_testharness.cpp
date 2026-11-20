@@ -5,6 +5,7 @@
 #include "html/TreeBuilder.h"
 #include "net/DataUrl.h"
 #include "net/Url.h"
+#include "platform/Audio.h"
 #include "text/FontManager.h"
 #include "ui/Frames.h"
 #include "ui/PageImages.h"
@@ -955,6 +956,12 @@ TestResult run_test(Server const& server, std::string const& id)
         return { std::move(response), "" };
     };
     hooks.now = [&clock] { return clock; };
+    // A test makes no sound: a page's media plays into a device that hears
+    // on the test's own clock, as a headless render's does. Without it a
+    // media test with a sound track opened the machine's speakers.
+    hooks.open_audio = [&clock](platform::AudioFormat const& format, std::string&) {
+        return platform::open_virtual_audio(format, [&clock] { return clock; });
+    };
     hooks.should_stop = [&] {
         if (std::chrono::steady_clock::now() - started > deadline)
             stopped = true;
