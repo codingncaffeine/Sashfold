@@ -185,7 +185,8 @@ target_link_libraries(test_mp4 PRIVATE sashfold_core sashfold_warnings sashfold_
 add_test(NAME test_mp4 COMMAND test_mp4 ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/media/mp4)
 add_executable(test_eme test_eme.cpp)
 target_link_libraries(test_eme PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
-add_test(NAME test_eme COMMAND test_eme ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/media/eme)
+# The second folder is the web-platform-tests' encrypted content, compared when it is checked out.
+add_test(NAME test_eme COMMAND test_eme ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/media/eme ${CMAKE_SOURCE_DIR}/wpt/encrypted-media/content)
 sashfold_test(test_eme_playback)
 add_executable(test_aac test_aac.cpp)
 target_link_libraries(test_aac PRIVATE sashfold_core sashfold_warnings sashfold_test_support)

@@ -4,6 +4,7 @@
 #include "crypto/AesModes.h"
 #include "crypto/Sha2.h"
 #include "media/Cenc.h"
+#include "media/ClearKey.h"
 #include "media/Mp4.h"
 #include "media/WebM.h"
 
@@ -11,7 +12,9 @@
 #include <array>
 #include <cstdint>
 #include <cstdio>
+#include <filesystem>
 #include <fstream>
+#include <iostream>
 #include <iterator>
 #include <optional>
 #include <span>
@@ -377,6 +380,127 @@ void test_pssh(std::string const& folder)
     CHECK_EQ(decrypted, read_packets(folder + "/av-clear-frag.packets").size());
 }
 
+// The web-platform-tests' own encrypted content (a packager's, not
+// ffmpeg's: senc, saiz and saio in every moof, keys for sound and picture
+// apart), when the checkout is there: each sample decrypted with the key
+// its key ID names must be the clear file's — ffmpeg decrypts the video
+// to exactly that file's packets. How many differ, or nothing without it.
+std::optional<std::size_t> compare_wpt(std::filesystem::path const& folder, std::string const& encrypted, std::string const& clear)
+{
+    Bytes const enc = read_file((folder / encrypted).string());
+    Bytes const plain = read_file((folder / clear).string());
+    if (enc.empty() || plain.empty())
+        return std::nullopt;
+    std::vector<std::pair<std::string, Bytes>> const keys = {
+        { "ad13f9ea2be698b875f504a8e3ccea64", hex("be7df8a3667a6a8fd564d0ed81339a95") },
+        { "558ee541b90ab2f3950d00ade3760d45", hex("91039263016da635770d57db92f98bd0") },
+    };
+    Demuxed const a = demux(enc, 1 << 20);
+    Demuxed const b = demux(plain, 1 << 20);
+    std::size_t differ = a.frames.size() == b.frames.size() ? 0 : 1;
+    for (std::size_t i = 0; i < a.frames.size() && i < b.frames.size(); ++i) {
+        Bytes data = a.frames[i].data;
+        if (a.frames[i].encryption) {
+            Bytes key;
+            for (auto const& [id, value] : keys) {
+                if (hex_of(a.frames[i].encryption->key_id) == id)
+                    key = value;
+            }
+            if (key.empty() || !media::decrypt_sample(*a.frames[i].encryption, key, data))
+                ++differ;
+        }
+        if (data != b.frames[i].data)
+            ++differ;
+    }
+    return differ;
+}
+
+void test_wpt_content(std::filesystem::path const& folder)
+{
+    std::optional<std::size_t> const video = compare_wpt(folder, "video_512x288_h264-360k_enc_dashinit.mp4", "video_512x288_h264-360k_clear_dashinit.mp4");
+    std::optional<std::size_t> const audio = compare_wpt(folder, "audio_aac-lc_128k_enc_dashinit.mp4", "audio_aac-lc_128k_dashinit.mp4");
+    if (!video || !audio) {
+        std::cerr << "test_eme: no web-platform-tests checkout at " << folder.string() << "; its encrypted content is not compared\n";
+        return;
+    }
+    CHECK_EQ(*video, std::size_t(0));
+    CHECK_EQ(*audio, std::size_t(0));
+}
+
+// --- Clear Key's formats (EME §9.1, the Initialization Data Format Registry) ------------------
+
+void test_clear_key_formats()
+{
+    // base64url without padding (RFC 4648 §5 and §10's vectors).
+    CHECK_EQ(media::base64url_encode(Bytes { 'f', 'o', 'o', 'b', 'a' }), std::string("Zm9vYmE"));
+    CHECK_EQ(media::base64url_encode(Bytes { 0xfb, 0xff }), std::string("-_8"));
+    CHECK(media::base64url_decode("Zm9vYmFy") == (Bytes { 'f', 'o', 'o', 'b', 'a', 'r' }));
+    CHECK(!media::base64url_decode("Zm9vYg==")); // padding
+    CHECK(!media::base64url_decode("+/8")); // the other alphabet
+    CHECK(!media::base64url_decode("Zm9vYh")); // bits left over that are not zero
+
+    // "keyids": a JSON object of base64url key IDs, each 1 to 512 bytes.
+    auto const ids = [](std::string_view type, std::string_view text) {
+        return media::key_ids_from_init_data(type, std::span(reinterpret_cast<std::uint8_t const*>(text.data()), text.size()));
+    };
+    std::optional<std::vector<Bytes>> const keyids = ids("keyids", R"({"kids":["Dx4tPEtaaXiHlqW0w9Lh8A","AAEC"]})");
+    CHECK(keyids && keyids->size() == 2 && hex_of((*keyids)[0]) == fixture_kid && hex_of((*keyids)[1]) == "000102");
+    CHECK(!ids("keyids", R"({"kids":[]})"));
+    CHECK(!ids("keyids", R"({"kids":[""]})"));
+    CHECK(!ids("keyids", R"({"kid":["AAEC"]})"));
+    CHECK(!ids("keyids", "not json"));
+    // "webm": the bytes are one key ID.
+    CHECK(ids("webm", "0123456789012345") && ids("webm", "0123456789012345")->size() == 1);
+    CHECK(!ids("webm", std::string(513, 'x')));
+    // "cenc": whole pssh boxes; the common system ID's version 1 boxes carry
+    // the key IDs, another system's box is passed over, a box that does not
+    // add up is refused.
+    Bytes const common = hex("0000003470737368010000001077efecc0b24d02ace33c1e52e2fb4b00000001" + std::string(fixture_kid) + "00000000");
+    Bytes const other = hex("00000024707373680000000000112233445566778899aabbccddeeff00000004deadbeef");
+    Bytes both = other;
+    both.insert(both.end(), common.begin(), common.end());
+    std::optional<std::vector<Bytes>> const cenc = media::key_ids_from_init_data("cenc", both);
+    CHECK(cenc && cenc->size() == 1 && hex_of(cenc->front()) == fixture_kid);
+    std::optional<std::vector<Bytes>> const none = media::key_ids_from_init_data("cenc", other);
+    CHECK(none && none->empty());
+    Bytes cut = common;
+    cut.pop_back();
+    CHECK(!media::key_ids_from_init_data("cenc", cut));
+    CHECK(!media::key_ids_from_init_data("cenc", Bytes(70000)));
+    CHECK(!media::key_ids_from_init_data("mp4", common));
+
+    // The license request, and a license: a JSON Web Key Set of "oct" keys.
+    CHECK_EQ(media::license_request({ hex(fixture_kid) }, "temporary"), std::string(R"({"kids":["Dx4tPEtaaXiHlqW0w9Lh8A"],"type":"temporary"})"));
+    auto const license = [](std::string_view text) {
+        return media::parse_license(std::span(reinterpret_cast<std::uint8_t const*>(text.data()), text.size()));
+    };
+    std::optional<media::License> const good = license(R"({"keys":[{"kty":"oct","k":"Oi9bTG1-j5AaKzxNXm9wgQ","kid":"Dx4tPEtaaXiHlqW0w9Lh8A"}],"type":"temporary"})");
+    CHECK(good && good->keys.size() == 1);
+    if (good && good->keys.size() == 1) {
+        CHECK_EQ(hex_of(good->keys[0].first), std::string(fixture_kid));
+        CHECK_EQ(hex_of(good->keys[0].second), std::string(fixture_key));
+    }
+    CHECK(!license(R"({"keys":[{"kty":"RSA","k":"Oi9bTG1-j5AaKzxNXm9wgQ","kid":"Dx4tPEtaaXiHlqW0w9Lh8A"}]})"));
+    CHECK(!license(R"({"keys":[{"kty":"oct","k":"AAEC","kid":"Dx4tPEtaaXiHlqW0w9Lh8A"}]})")); // not 16 bytes
+    CHECK(!license(R"({"keys":[]})"));
+    CHECK(!license("{\"keys\":[{\"kty\":\"oct\",\"k\":\"Oi9bTG1-j5AaKzxNXm9wgQ\",\"kid\":\"\xc3\xa9\"}]}")); // not ASCII
+    CHECK(!license(std::string("\x00\x11\x22\x33", 4)));
+
+    // The key table: a session's keys go with it; the newest stands.
+    media::KeyStore store;
+    media::ContentKey first {};
+    first[0] = 1;
+    media::ContentKey second {};
+    second[0] = 2;
+    store.add(1, hex(fixture_kid), first);
+    store.add(2, hex(fixture_kid), second);
+    CHECK(store.find(hex(fixture_kid)) == second);
+    store.remove_session(2);
+    CHECK(store.find(hex(fixture_kid)) == first);
+    store.remove_session(1);
+    CHECK(!store.find(hex(fixture_kid)));
+}
+
 // --- WebM: the signal byte, IV and partitions ---------------------------------------------
 
 // Each frame of the encrypted WebM file, decrypted with `key`, against
@@ -458,6 +582,7 @@ int main(int argc, char** argv)
     test_cbc_known_answers();
     test_ctr_known_answers();
     test_sample_layouts();
+    test_clear_key_formats();
     if (argc < 2)
         CHECK(!"the fixtures folder is the first argument");
     else {
@@ -465,5 +590,7 @@ int main(int argc, char** argv)
         test_pssh(argv[1]);
         test_webm_against_ffmpeg(argv[1]);
     }
+    if (argc >= 3)
+        test_wpt_content(argv[2]);
     return test::report("test_eme");
 }
