@@ -200,7 +200,7 @@ assert-title Menus
 # theme chosen is put on, and a second press on the button closes it.
 main-menu
 assert-menus 1
-assert-menu New tab | New container tab > | - | Find in page | Reader mode | Bookmarks > | - | Themes > | Command palette | - | Developer tools | View page source | - | About Sashfold | Quit
+assert-menu New tab | New container tab > | - | Find in page | Reader mode | Bookmarks > | - | Themes > | *Hardware video decoding | Command palette | - | Developer tools | View page source | - | About Sashfold | Quit
 main-menu
 assert-menus 0
 main-menu
@@ -217,8 +217,26 @@ assert-theme Sashfold
 main-menu
 menu Developer tools
 main-menu
-assert-menu New tab | New container tab > | - | Find in page | Reader mode | Bookmarks > | - | Themes > | Command palette | - | *Developer tools | View page source | - | About Sashfold | Quit
+assert-menu New tab | New container tab > | - | Find in page | Reader mode | Bookmarks > | - | Themes > | *Hardware video decoding | Command palette | - | *Developer tools | View page source | - | About Sashfold | Quit
 menu Developer tools
+
+# The hardware video decoding switch is on at the start. Turned off, a page
+# is told VP9 (which only the graphics driver decodes) does not play, while
+# H.264, which our own decoder reads, still does; turned on again, both do.
+open data:text/html,<script>var v = document.createElement('video'); document.title = 'vp9 ' + v.canPlayType('video/webm; codecs="vp9"') + ', h264 ' + v.canPlayType('video/mp4; codecs="avc1.42E01E"')</script>
+assert-title vp9 probably, h264 probably
+main-menu
+menu Hardware video decoding
+main-menu
+assert-menu New tab | New container tab > | - | Find in page | Reader mode | Bookmarks > | - | Themes > | Hardware video decoding | Command palette | - | Developer tools | View page source | - | About Sashfold | Quit
+main-menu
+reload
+assert-title vp9 , h264 probably
+main-menu
+menu Hardware video decoding
+reload
+assert-title vp9 probably, h264 probably
+back
 main-menu
 menu New container tab
 menu Banking

@@ -4,6 +4,7 @@
 #include "media/H264Software.h"
 #include "media/Vp9.h"
 
+#include <atomic>
 #include <cstdlib>
 #include <memory>
 #include <optional>
@@ -171,6 +172,13 @@ private:
 
 } // namespace
 
+namespace {
+std::atomic<bool> g_hardware_decoding { true };
+}
+
+void set_hardware_video_decoding(bool on) { g_hardware_decoding.store(on); }
+bool hardware_video_decoding() { return g_hardware_decoding.load(); }
+
 std::unique_ptr<FrameDecoder> vp9_frame_decoder(std::unique_ptr<Vp9Accelerator> accelerator)
 {
     return std::make_unique<Vp9FrameDecoder>(std::move(accelerator));
@@ -179,6 +187,10 @@ std::unique_ptr<FrameDecoder> vp9_frame_decoder(std::unique_ptr<Vp9Accelerator> 
 std::unique_ptr<FrameDecoder> open_frame_decoder(std::string const& codec_id, std::span<std::uint8_t const> codec_private, std::string& error)
 {
     if (codec_id == "V_VP9") {
+        if (!hardware_video_decoding()) {
+            error = "hardware video decoding is switched off, and VP9 has no other decoder here";
+            return nullptr;
+        }
         std::unique_ptr<Vp9Accelerator> accelerator = Vp9Accelerator::open(error);
         return accelerator ? vp9_frame_decoder(std::move(accelerator)) : nullptr;
     }
@@ -193,6 +205,8 @@ std::unique_ptr<FrameDecoder> open_frame_decoder(std::string const& codec_id, st
             if (std::optional<H264Sps> const sps = parse_h264_sps(config->sps[0]); sps && sps->profile_idc == 66 && !(sps->constraint_set_flags & 0x40))
                 api = VideoApi::Software;
         }
+        if (!hardware_video_decoding())
+            api = VideoApi::Software;
         if (char const* const way = std::getenv("SASHFOLD_VIDEO_DECODE")) {
             std::string_view const w = way;
             api = w == "software" ? VideoApi::Software : (w == "vulkan" ? VideoApi::Vulkan : (w == "vaapi" ? VideoApi::Vaapi : api));

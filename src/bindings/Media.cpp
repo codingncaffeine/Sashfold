@@ -6,6 +6,7 @@
 #include "core/Bitmap.h"
 #include "core/TraceClock.h"
 #include "media/AudioDecoder.h"
+#include "media/FrameDecoder.h"
 #include "media/StreamBuffer.h"
 #include "media/VideoPipeline.h"
 #include "media/Wav.h"
@@ -547,7 +548,10 @@ int type_support(std::string_view type, bool codecs_required = false)
             // AAC-LC ("mp4a.40.2"), and the HE-AAC profiles ("mp4a.40.5",
             // "mp4a.40.29") whose LC core plays while SBR is owed.
             bool const aac = mp4 && (codec == "mp4a.40.2" || codec == "mp4a.40.02" || codec == "mp4a.40.5" || codec == "mp4a.40.05" || codec == "mp4a.40.29");
-            bool const ours = codec == "opus" || h264 || aac || (video && (codec == "vp9" || vp9_string_ours(codec)));
+            // VP9 is decoded by the graphics driver only: not ours while the
+            // reader has hardware decoding switched off.
+            bool const vp9 = video && media::hardware_video_decoding() && (codec == "vp9" || vp9_string_ours(codec));
+            bool const ours = codec == "opus" || h264 || aac || vp9;
             if (!ours)
                 return 0;
         }

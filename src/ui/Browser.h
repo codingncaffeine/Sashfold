@@ -733,6 +733,15 @@ public:
     void set_theme_presets(std::vector<ThemePreset> presets);
     std::optional<std::string> take_theme_request();
 
+    // Hardware video decoding, a switch in the main menu: on, pictures are
+    // decoded by the graphics driver where it can; off, by the processor
+    // (media/FrameDecoder.h says what that means for each codec). The host
+    // says what the profile holds at the start, and takes the reader's
+    // change to keep it there: true once after each.
+    void set_hardware_video_decoding(bool on);
+    bool hardware_video_decoding() const;
+    bool take_hardware_video_decoding_change();
+
     // --- Menus --------------------------------------------------------------
     // A right click, the Menu key or Shift+F10 opens a menu for what is
     // under the pointer — a link, a picture, a selection, a field, the

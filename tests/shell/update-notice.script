@@ -7,7 +7,7 @@ assert-text Version
 assert-no-text is out
 assert-text The daily check for a newer version is off.
 main-menu
-assert-menu New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
+assert-menu New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | *Hardware video decoding | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
 main-menu
 assert-menus 0
 
@@ -17,14 +17,14 @@ reload
 assert-no-text is out
 assert-text Once a day Sashfold asks its releases page
 main-menu
-assert-menu New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
+assert-menu New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | *Hardware video decoding | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
 main-menu
 
 # It was told of one: the menu's first row, set off from the rest, and a
 # box on the page with the way to it.
 newer-release 0.9.9
 main-menu
-assert-menu Sashfold 0.9.9 is out | - | New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
+assert-menu Sashfold 0.9.9 is out | - | New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | *Hardware video decoding | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
 assert-golden goldens/update-notice-menu.png
 main-menu
 reload
@@ -37,7 +37,7 @@ assert-golden goldens/update-notice-about.png
 # says what will happen, and not that nothing is fetched.
 newer-release 0.9.9 installs
 main-menu
-assert-menu Sashfold 0.9.9 is out | - | New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
+assert-menu Sashfold 0.9.9 is out | - | New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | *Hardware video decoding | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
 main-menu
 reload
 assert-text Sashfold 0.9.9 is out.
@@ -49,7 +49,7 @@ assert-no-text downloaded or replaced on its own.
 # that instead.
 newer-release 0.9.9 waits
 main-menu
-assert-menu Sashfold 0.9.9 installs at the next start | - | New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
+assert-menu Sashfold 0.9.9 installs at the next start | - | New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | *Hardware video decoding | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
 main-menu
 reload
 assert-text Sashfold 0.9.9 is ready.
@@ -61,4 +61,4 @@ newer-release
 reload
 assert-no-text is out
 main-menu
-assert-menu New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit
+assert-menu New tab | New container tab > | - | Find in page | (Reader mode) | Bookmarks > | - | Themes > | *Hardware video decoding | Command palette | - | Developer tools | (View page source) | - | About Sashfold | Quit

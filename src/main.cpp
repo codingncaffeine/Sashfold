@@ -2173,23 +2173,38 @@ int run_window(std::string const& start_url, std::string const& theme_path,
     // The theme: the file the reader last chose from the palette, kept in
     // the profile's settings.json, else the shipped one; the palette's
     // presets are the files beside the shipped one either way.
+    // The same file keeps the main menu's hardware video decoding switch.
     std::error_code error;
     std::string theme_file = theme_path;
+    bool hardware_video = true;
     if (!profile_path.empty()) {
         if (std::optional<std::string> const settings = read_text_file(profile_path / "settings.json")) {
             if (std::optional<JsonValue> const parsed = JsonValue::parse(*settings); parsed && parsed->is_object()) {
                 if (JsonValue const* const chosen = parsed->get("theme");
                     chosen && chosen->is_string() && std::filesystem::is_regular_file(chosen->as_string(), error))
                     theme_file = chosen->as_string();
+                if (JsonValue const* const decoding = parsed->get("hardware-video-decoding"); decoding && decoding->is_bool())
+                    hardware_video = decoding->as_bool();
             }
         }
     }
+    // What the profile's settings.json holds, whole: every key is written
+    // each time, so that keeping one never loses another. The theme is
+    // there only once the reader chose one, so that a profile which never
+    // did follows the shipped theme wherever a later version keeps it.
+    auto const settings_text = [&theme_file, &theme_path, &hardware_video] {
+        std::string text = "{\n";
+        if (theme_file != theme_path)
+            text += "  \"theme\": " + json_string(theme_file) + ",\n";
+        return text + "  \"hardware-video-decoding\": " + (hardware_video ? "true" : "false") + "\n}\n";
+    };
     // What runs beside the window's thread says when it has something for
     // it: a fetch that has its answer, a worker with a word for its page. The
     // window and the loader outlive the threads; the browser does not.
     platform::Window* const waker = window.get();
     bindings::WorkerThreads worker_threads;
     ui::Browser browser(loader, load_theme(theme_file), window->width(), window->height());
+    browser.set_hardware_video_decoding(hardware_video);
     if (engines != Engines::Off) {
         // Each tab's page in an engine on a thread of its own: this thread
         // keeps the chrome, hands the pages what the reader does, and is
@@ -2874,7 +2889,13 @@ int run_window(std::string const& start_url, std::string const& theme_path,
             theme_file = *chosen;
             theme_stamp = std::filesystem::last_write_time(theme_file, error);
             if (!profile_path.empty())
-                writer.write(profile_path / "settings.json", "{\n  \"theme\": " + json_string(theme_file) + "\n}\n");
+                writer.write(profile_path / "settings.json", settings_text());
+        }
+        // The menu's hardware video decoding switch is kept the same way.
+        if (browser.take_hardware_video_decoding_change()) {
+            hardware_video = browser.hardware_video_decoding();
+            if (!profile_path.empty())
+                writer.write(profile_path / "settings.json", settings_text());
         }
         // Themes are data: edit the file and the window follows.
         if (!theme_file.empty()) {

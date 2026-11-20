@@ -41,6 +41,16 @@ public:
     virtual void reset() = 0;
 };
 
+// Whether pictures may be decoded by the graphics driver (so at the
+// start) or by the processor only: the reader's switch for a driver that
+// misbehaves, as other browsers have one. Off, H.264 goes to our own
+// decoder and VP9, which has none yet, is not played and not claimed
+// (bindings/Media.cpp answers canPlayType and isTypeSupported by it, so a
+// site serves what does play). It holds for decoders opened afterwards;
+// any thread may ask or say.
+void set_hardware_video_decoding(bool on);
+bool hardware_video_decoding();
+
 // A decoder for a track by its codec id ("V_VP9", "V_H264") and
 // configuration record (H.264's avcC); null with why where the machine
 // has no way to decode it.

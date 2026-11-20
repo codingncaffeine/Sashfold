@@ -24,6 +24,7 @@
 #include "js/Interpreter.h"
 #include "js/ScriptPreparer.h"
 #include "layout/Layout.h"
+#include "media/FrameDecoder.h"
 #include "paint/Painter.h"
 #include "platform/CaretBlink.h"
 #include "platform/Clipboard.h"
@@ -1428,6 +1429,7 @@ struct Browser::Impl {
     static constexpr std::size_t palette_rows_shown = 8;
     std::vector<Browser::ThemePreset> theme_presets;
     std::optional<std::string> theme_request; // a preset's file the reader chose, until the host takes it
+    bool hardware_video_changed = false; // the reader turned the menu's switch, until the host takes it
 
     // Menus: the one a right click, the Menu key or the toolbar's button
     // opened, and the submenus open from it, outermost first. An item
@@ -9471,6 +9473,16 @@ struct Browser::Impl {
             }
             items.push_back(std::move(notifications));
         }
+        // The switch for a graphics driver that decodes video badly: videos
+        // opened after it is turned are decoded the other way.
+        {
+            MenuItem hardware = menu_item("Hardware video decoding", {}, [this] {
+                media::set_hardware_video_decoding(!media::hardware_video_decoding());
+                hardware_video_changed = true;
+            });
+            hardware.checked = media::hardware_video_decoding();
+            items.push_back(std::move(hardware));
+        }
         items.push_back(menu_item("Command palette", "Ctrl+Shift+P", [this] { open_palette({}); }));
         items.push_back({});
         MenuItem devtools = menu_item("Developer tools", "F12", [this] { toggle_devtools(); });
@@ -15975,6 +15987,15 @@ std::optional<std::string> Browser::take_theme_request()
     std::optional<std::string> request = std::move(m_impl->theme_request);
     m_impl->theme_request.reset();
     return request;
+}
+
+void Browser::set_hardware_video_decoding(bool on) { media::set_hardware_video_decoding(on); }
+bool Browser::hardware_video_decoding() const { return media::hardware_video_decoding(); }
+bool Browser::take_hardware_video_decoding_change()
+{
+    bool const changed = m_impl->hardware_video_changed;
+    m_impl->hardware_video_changed = false;
+    return changed;
 }
 
 Theme const& Browser::theme() const { return m_impl->theme; }
