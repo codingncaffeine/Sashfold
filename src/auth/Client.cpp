@@ -1,5 +1,6 @@
 #include "auth/Client.h"
 
+#include "auth/ClientPin.h"
 #include "auth/CtapHid.h"
 #include "auth/PinProtocol.h"
 #include "auth/U2f.h"
@@ -332,58 +333,20 @@ private:
         bool uv_option = false; // CTAP 2.0 built-in UV: the command carries "uv": true instead
     };
 
-    std::optional<pin::Protocol> protocol() const
+    std::optional<pin::Protocol> protocol() const { return client_pin::preferred_protocol(*m_info); }
+
+    // The clientPIN exchanges (auth/ClientPin.h) on this key.
+    client_pin::Call caller()
     {
-        for (std::uint8_t const p : m_info->pin_uv_auth_protocols) {
-            if (auto const protocol = pin::protocol_from_number(p))
-                return protocol;
-        }
-        // A CTAP 2.0 key that names no protocol speaks protocol one.
-        if (m_info->pin_uv_auth_protocols.empty() && !ctap21())
-            return pin::Protocol::One;
-        return std::nullopt;
+        return [this](std::uint8_t command, cbor::Value const* params) { return call(command, params); };
     }
 
-    std::optional<pin::Encapsulation> key_agreement(pin::Protocol protocol)
-    {
-        ClientPinParams params;
-        params.protocol = static_cast<std::uint8_t>(protocol);
-        params.subcommand = ctap2::pin_get_key_agreement;
-        auto const encoded = encode_client_pin(params);
-        auto const reply = call(ctap2::cmd_client_pin, &encoded);
-        if (!reply.ok())
-            return std::nullopt;
-        auto const response = parse_client_pin_response(reply.body);
-        if (!response || !response->key_agreement)
-            return std::nullopt;
-        return pin::encapsulate(protocol, *response->key_agreement, platform::fill_random);
-    }
+    std::optional<pin::Encapsulation> key_agreement(pin::Protocol protocol) { return client_pin::key_agreement(caller(), protocol); }
 
     std::optional<std::uint64_t> retries(std::uint8_t subcommand)
     {
-        ClientPinParams params;
-        params.protocol = static_cast<std::uint8_t>(protocol().value_or(pin::Protocol::One));
-        params.subcommand = subcommand;
-        auto const encoded = encode_client_pin(params);
-        auto const reply = call(ctap2::cmd_client_pin, &encoded);
-        if (!reply.ok())
-            return std::nullopt;
-        auto const response = parse_client_pin_response(reply.body);
-        if (!response)
-            return std::nullopt;
-        return subcommand == ctap2::pin_get_uv_retries ? response->uv_retries : response->pin_retries;
-    }
-
-    // The token from a decrypted getPinToken answer.
-    std::optional<Token> token_from(pin::Protocol protocol, pin::Encapsulation const& shared, Ctap2Reply const& reply)
-    {
-        auto const response = parse_client_pin_response(reply.body);
-        if (!response || !response->pin_uv_auth_token)
-            return std::nullopt;
-        auto token = pin::decrypt(protocol, shared.shared_secret, *response->pin_uv_auth_token);
-        if (!token || (token->size() != 32 && !(protocol == pin::Protocol::One && token->size() == 16)))
-            return std::nullopt;
-        return Token { protocol, std::move(*token), false };
+        auto const answer = client_pin::retries(caller(), protocol().value_or(pin::Protocol::One), subcommand);
+        return answer ? answer->left : std::nullopt;
     }
 
     // Built-in UV through getPinUvAuthTokenUsingUvWithPermissions (§6.5.5.7.3).
@@ -393,19 +356,14 @@ private:
         std::size_t const attempts = std::max<std::size_t>(1, m_info->preferred_platform_uv_attempts.value_or(3));
         for (std::size_t attempt = 0; attempt < attempts && !stopped(); ++attempt) {
             show(PromptState::VerifyFingerprint);
-            auto const shared = key_agreement(protocol);
-            if (!shared)
-                break;
-            ClientPinParams params;
-            params.protocol = static_cast<std::uint8_t>(protocol);
-            params.subcommand = ctap2::pin_get_token_using_uv;
-            params.key_agreement = shared->platform_key;
-            params.permissions = permissions;
-            params.rp_id = m_request.rp_id;
-            auto const encoded = encode_client_pin(params);
-            auto const reply = call(ctap2::cmd_client_pin, &encoded);
-            if (reply.ok())
-                return token_from(protocol, *shared, reply);
+            auto const asked = client_pin::token_using_uv(caller(), protocol, permissions, m_request.rp_id);
+            auto const& reply = asked.answer;
+            if (asked.token)
+                return Token { asked.token->protocol, asked.token->token, false };
+            if (reply.failure == HidFailure::Malformed && !stopped()) {
+                fail_chosen(not_allowed(Reason::DeviceError));
+                return std::nullopt;
+            }
             if (reply.failure != HidFailure::None || reply.status == std::uint8_t(Status::KeepaliveCancel))
                 return std::nullopt;
             if (reply.status == std::uint8_t(Status::UvInvalid)) {
@@ -429,52 +387,14 @@ private:
         return std::nullopt;
     }
 
-    bool set_pin(pin::Protocol protocol, std::string const& new_pin)
-    {
-        auto const padded = pin::padded_pin(new_pin);
-        auto const shared = key_agreement(protocol);
-        if (!padded || !shared)
-            return false;
-        auto const encrypted = pin::encrypt(protocol, shared->shared_secret, *padded, platform::fill_random);
-        if (!encrypted)
-            return false;
-        ClientPinParams params;
-        params.protocol = static_cast<std::uint8_t>(protocol);
-        params.subcommand = ctap2::pin_set;
-        params.key_agreement = shared->platform_key;
-        params.new_pin_enc = *encrypted;
-        params.pin_uv_auth_param = pin::authenticate(protocol, shared->shared_secret, *encrypted);
-        auto const encoded = encode_client_pin(params);
-        return call(ctap2::cmd_client_pin, &encoded).ok();
-    }
+    bool set_pin(pin::Protocol protocol, std::string const& new_pin) { return client_pin::set_pin(caller(), protocol, new_pin).ok(); }
 
     Status change_pin(pin::Protocol protocol, std::string const& current, std::string const& new_pin)
     {
-        auto const padded = pin::padded_pin(new_pin);
-        if (!padded)
-            return Status::PinPolicyViolation;
-        auto const shared = key_agreement(protocol);
-        if (!shared)
+        auto const answer = client_pin::change_pin(caller(), protocol, current, new_pin);
+        if (answer.failure != HidFailure::None)
             return Status::Other;
-        auto const new_pin_enc = pin::encrypt(protocol, shared->shared_secret, *padded, platform::fill_random);
-        auto const hash = pin::pin_hash(current);
-        auto const pin_hash_enc = pin::encrypt(protocol, shared->shared_secret, hash, platform::fill_random);
-        if (!new_pin_enc || !pin_hash_enc)
-            return Status::Other;
-        ClientPinParams params;
-        params.protocol = static_cast<std::uint8_t>(protocol);
-        params.subcommand = ctap2::pin_change;
-        params.key_agreement = shared->platform_key;
-        params.new_pin_enc = *new_pin_enc;
-        params.pin_hash_enc = *pin_hash_enc;
-        std::vector<std::uint8_t> message = *new_pin_enc;
-        message.insert(message.end(), pin_hash_enc->begin(), pin_hash_enc->end());
-        params.pin_uv_auth_param = pin::authenticate(protocol, shared->shared_secret, message);
-        auto const encoded = encode_client_pin(params);
-        auto const reply = call(ctap2::cmd_client_pin, &encoded);
-        if (reply.failure != HidFailure::None)
-            return Status::Other;
-        return static_cast<Status>(reply.status);
+        return static_cast<Status>(answer.status);
     }
 
     // The PIN flow of §6.5.5.7: ask, send the hash encrypted, read the
@@ -542,28 +462,10 @@ private:
             }
             if (!answer)
                 return std::nullopt;
-            auto const shared = key_agreement(protocol);
-            if (!shared)
-                break;
-            auto const hash = pin::pin_hash(answer->pin);
-            auto const pin_hash_enc = pin::encrypt(protocol, shared->shared_secret, hash, platform::fill_random);
-            if (!pin_hash_enc)
-                break;
-            ClientPinParams params;
-            params.protocol = static_cast<std::uint8_t>(protocol);
-            params.key_agreement = shared->platform_key;
-            params.pin_hash_enc = *pin_hash_enc;
-            if (ctap21() && m_info->option_true("pinUvAuthToken")) {
-                params.subcommand = ctap2::pin_get_token_using_pin;
-                params.permissions = permissions;
-                params.rp_id = m_request.rp_id;
-            } else {
-                params.subcommand = ctap2::pin_get_token;
-            }
-            auto const encoded = encode_client_pin(params);
-            auto const reply = call(ctap2::cmd_client_pin, &encoded);
-            if (reply.ok())
-                return token_from(protocol, *shared, reply);
+            auto const asked = client_pin::token_using_pin(caller(), *m_info, protocol, answer->pin, permissions, m_request.rp_id);
+            auto const& reply = asked.answer;
+            if (asked.token)
+                return Token { asked.token->protocol, asked.token->token, false };
             if (reply.failure != HidFailure::None)
                 break;
             switch (static_cast<Status>(reply.status)) {

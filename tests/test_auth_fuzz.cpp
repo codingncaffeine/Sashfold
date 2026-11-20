@@ -12,9 +12,11 @@
 #include "auth/Attestation.h"
 #include "auth/Cbor.h"
 #include "auth/Cose.h"
+#include "auth/CredentialManagement.h"
 #include "auth/Ctap2.h"
 #include "auth/CtapHid.h"
 #include "auth/HidDescriptor.h"
+#include "auth/KeyManagement.h"
 #include "auth/U2f.h"
 
 #include <thread>
@@ -82,6 +84,7 @@ std::size_t parse_everything(std::vector<std::uint8_t> const& bytes)
             parse_make_credential_response(*value);
             parse_get_assertion_response(*value);
             parse_client_pin_response(*value);
+            cred_mgmt::parse_response(*value);
             descriptor_from_cbor(*value);
             user_from_cbor(*value);
             if (auto const key = cose_key_from_cbor(*value)) {
@@ -266,6 +269,22 @@ void hostile_device()
         auto const outcome = test::run_ceremony(std::make_shared<OneDevice>(link), request, std::make_shared<test::ScriptedPrompt>());
         CHECK(outcome.error.has_value());
         CHECK(std::chrono::steady_clock::now() - start < std::chrono::seconds(3));
+        // The key settings on the same device (auth/KeyManagement.h): its
+        // garbage may even pass for a touch; nothing may crash, and a
+        // cancel ends the session.
+        {
+            KeyManagement management(std::make_shared<OneDevice>(link), {});
+            management.start();
+            std::this_thread::sleep_for(std::chrono::milliseconds(300));
+            management.unlock(std::string("1234"));
+            management.refresh();
+            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            management.cancel();
+            auto const cancelled_at = std::chrono::steady_clock::now();
+            while (!management.finished() && std::chrono::steady_clock::now() - cancelled_at < std::chrono::seconds(60))
+                std::this_thread::sleep_for(std::chrono::milliseconds(5));
+            CHECK(management.finished());
+        }
         stop = true;
         link->unplug();
         device.join();

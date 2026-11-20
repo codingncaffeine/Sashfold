@@ -75,6 +75,7 @@ struct SoftOptions {
     bool uv_enrolled = true;
     bool client_pin = true; // the clientPin feature (set or not)
     std::optional<std::string> pin; // set at start
+    int pin_retries = 8; // the tries left at start
     std::vector<std::uint8_t> pin_protocols { 2, 1 };
     bool always_uv = false;
     bool make_cred_uv_not_rqd = true;
@@ -93,6 +94,13 @@ struct SoftOptions {
     std::vector<std::int64_t> algorithms { auth::cose::alg_es256, auth::cose::alg_eddsa };
     bool self_attestation = false; // otherwise packed with the test certificate
     bool wink = true;
+    // authenticatorCredentialManagement (§6.8): Full is the CTAP 2.1
+    // command (0x0a, "credMgmt"; only on a CTAP 2.1 key); Preview is the
+    // pre-release's prototype (0x41, "credentialMgmtPreview", with
+    // "FIDO_2_1_PRE" among the versions; authorized by any token).
+    enum class CredentialManagement : std::uint8_t { None, Preview, Full };
+    CredentialManagement credential_management = CredentialManagement::Full;
+    std::size_t discoverable_capacity = 25;
     std::array<std::uint8_t, 16> aaguid { 0x5e, 0x1f, 0x70, 0x0a, 0x7e, 0x57, 0x4b, 0x00, 0x9a, 0x11, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01 };
     int keepalive_ms = 100;
     int processing_ms = 0; // a slow key: this long of PROCESSING keepalives first
@@ -139,6 +147,7 @@ public:
     {
         if (m_options.pin)
             m_pin_hash = auth::pin::pin_hash(*m_options.pin);
+        m_pin_retries = m_options.pin_retries;
         m_force_pin_change = m_options.force_pin_change;
         regenerate_key_agreement();
         reset_token();
@@ -595,6 +604,14 @@ private:
                 return status_only(Status::UserActionTimeout);
             return status_only(Status::Ok);
         }
+        case 0x0a: // authenticatorCredentialManagement
+            if (!full_management())
+                return status_only(Status::InvalidCommand);
+            return params ? credential_management(*params, false) : status_only(Status::MissingParameter);
+        case 0x41: // its prototype
+            if (!preview_management())
+                return status_only(Status::InvalidCommand);
+            return params ? credential_management(*params, true) : status_only(Status::MissingParameter);
         case auth::ctap2::cmd_reset: {
             auto const presence = unlocked_presence(cid, lock);
             if (presence == Presence::Cancelled)
@@ -620,6 +637,11 @@ private:
     }
 
     bool is_21() const { return m_options.protocol == SoftOptions::Protocol::Ctap21; }
+    bool full_management() const { return is_21() && m_options.credential_management == SoftOptions::CredentialManagement::Full; }
+    bool preview_management() const
+    {
+        return m_options.protocol != SoftOptions::Protocol::U2fOnly && m_options.credential_management == SoftOptions::CredentialManagement::Preview;
+    }
     bool uv_configured() const { return m_options.built_in_uv && m_options.uv_enrolled; }
     bool uv_protected() const { return m_pin_hash.has_value() || uv_configured(); }
 
@@ -631,6 +653,8 @@ private:
         if (speaks_u2f())
             versions.push_back(Value::text("U2F_V2"));
         versions.push_back(Value::text("FIDO_2_0"));
+        if (preview_management())
+            versions.push_back(Value::text("FIDO_2_1_PRE"));
         if (is_21())
             versions.push_back(Value::text("FIDO_2_1"));
         map.set(0x01, Value::array(std::move(versions)));
@@ -660,7 +684,11 @@ private:
             options.set("makeCredUvNotRqd", Value::boolean(m_options.make_cred_uv_not_rqd));
             if (m_options.always_uv)
                 options.set("alwaysUv", Value::boolean(true));
+            if (full_management())
+                options.set("credMgmt", Value::boolean(true));
         }
+        if (preview_management())
+            options.set("credentialMgmtPreview", Value::boolean(true));
         map.set(0x04, std::move(options));
         map.set(0x05, Value::unsigned_integer(m_options.max_msg_size));
         if (m_options.client_pin || m_options.built_in_uv) {
@@ -686,7 +714,7 @@ private:
             map.set(0x0e, Value::unsigned_integer(0x010203));
             if (m_options.cred_blob)
                 map.set(0x0f, Value::unsigned_integer(m_options.max_cred_blob_length));
-            map.set(0x14, Value::unsigned_integer(25 - std::min<std::size_t>(25, discoverable_count())));
+            map.set(0x14, Value::unsigned_integer(m_options.discoverable_capacity - std::min(m_options.discoverable_capacity, discoverable_count())));
         }
         return map;
     }
@@ -1501,6 +1529,200 @@ private:
         return status_only(Status::InvalidSubcommand);
     }
 
+    // ---------- authenticatorCredentialManagement (§6.8) ----------
+
+    // The discoverable credentials' relying parties, in the order their
+    // first credential was made, and one party's credentials.
+    std::vector<std::size_t> party_firsts() const
+    {
+        std::vector<std::size_t> firsts;
+        for (std::size_t i = 0; i < m_credentials.size(); ++i) {
+            if (!m_credentials[i].discoverable)
+                continue;
+            bool seen = false;
+            for (std::size_t const j : firsts)
+                seen = seen || m_credentials[j].rp_id_hash == m_credentials[i].rp_id_hash;
+            if (!seen)
+                firsts.push_back(i);
+        }
+        return firsts;
+    }
+
+    auth::cbor::Value party_answer(Credential const& c) const
+    {
+        using auth::cbor::Value;
+        Value response = Value::map();
+        Value rp = Value::map();
+        rp.set("id", Value::text(c.rp_id));
+        response.set(0x03, std::move(rp));
+        response.set(0x04, Value::bytes(c.rp_id_hash));
+        return response;
+    }
+
+    auth::cbor::Value credential_answer(Credential const& c) const
+    {
+        using auth::cbor::Value;
+        Value response = Value::map();
+        response.set(0x06, auth::user_to_cbor(c.user));
+        response.set(0x07, auth::descriptor_to_cbor({ c.id, {} }));
+        response.set(0x08, auth::cose_key_to_cbor(public_key_of(c)));
+        response.set(0x0a, Value::unsigned_integer(static_cast<std::uint64_t>(c.cred_protect)));
+        if (c.large_blob_key)
+            response.set(0x0b, Value::bytes(*c.large_blob_key));
+        return response;
+    }
+
+    std::vector<std::uint8_t> credential_management(auth::cbor::Value const& params, bool preview)
+    {
+        using auth::cbor::Value;
+        Value const* const sub_value = params.find(0x01);
+        Value const* const sub_params = params.find(0x02);
+        Value const* const protocol_value = params.find(0x03);
+        Value const* const auth_param = params.find(0x04);
+        if (sub_value == nullptr || !sub_value->is_unsigned())
+            return status_only(Status::MissingParameter);
+        std::uint64_t const sub = sub_value->raw_number();
+        if (sub < 0x01 || sub > 0x07)
+            return status_only(Status::InvalidSubcommand);
+        if (sub_params != nullptr && !sub_params->is_map())
+            return status_only(Status::CborUnexpectedType);
+        bool const next = sub == 0x03 || sub == 0x05;
+        if (!next) {
+            // The enumerations' state lasts only until another subcommand.
+            m_rp_walk.reset();
+            m_credential_walk.reset();
+            // §6.8.2 and the like: the token, its permission, its RP ID.
+            if (auth_param == nullptr || !auth_param->is_bytes())
+                return status_only(Status::PuatRequired);
+            if (protocol_value == nullptr)
+                return status_only(Status::MissingParameter);
+            auto const protocol = supported_protocol(protocol_value);
+            if (!protocol)
+                return status_only(Status::InvalidParameter);
+            std::vector<std::uint8_t> message { static_cast<std::uint8_t>(sub) };
+            if (sub_params != nullptr)
+                auth::cbor::encode_into(*sub_params, message);
+            if (!m_token_in_use || !m_token_user_verified || !auth::pin::verify(*protocol, m_token, message, auth_param->as_bytes()))
+                return status_only(Status::PinAuthInvalid);
+            if (!preview && (m_token_permissions & auth::ctap2::permission_credential_management) == 0)
+                return status_only(Status::PinAuthInvalid);
+        }
+        auto const token_rp_allows = [&](std::array<std::uint8_t, 32> const& rp_id_hash) {
+            return preview || !m_token_rp_id || sha256(*m_token_rp_id) == rp_id_hash;
+        };
+        auto const credential_named = [&]() -> Credential* {
+            Value const* const descriptor = sub_params != nullptr ? sub_params->find(0x02) : nullptr;
+            Value const* const id = descriptor != nullptr ? descriptor->find("id") : nullptr;
+            if (id == nullptr || !id->is_bytes())
+                return nullptr;
+            for (auto& c : m_credentials) {
+                if (c.discoverable && std::ranges::equal(c.id, id->as_bytes()))
+                    return &c;
+            }
+            return nullptr;
+        };
+        auto const names_credential = [&] {
+            Value const* const descriptor = sub_params != nullptr ? sub_params->find(0x02) : nullptr;
+            return descriptor != nullptr && descriptor->is_map() && descriptor->find("id") != nullptr;
+        };
+
+        switch (sub) {
+        case 0x01: { // getCredsMetadata
+            if (!preview && m_token_rp_id)
+                return status_only(Status::PinAuthInvalid);
+            Value response = Value::map();
+            std::size_t const existing = discoverable_count();
+            response.set(0x01, Value::unsigned_integer(existing));
+            response.set(0x02, Value::unsigned_integer(m_options.discoverable_capacity - std::min(existing, m_options.discoverable_capacity)));
+            return ok_with(response);
+        }
+        case 0x02: { // enumerateRPsBegin
+            if (!preview && m_token_rp_id)
+                return status_only(Status::PinAuthInvalid);
+            auto const firsts = party_firsts();
+            if (firsts.empty())
+                return status_only(Status::NoCredentials);
+            Value response = party_answer(m_credentials[firsts.front()]);
+            response.set(0x05, Value::unsigned_integer(firsts.size()));
+            m_rp_walk = Walk { firsts, 1 };
+            return ok_with(response);
+        }
+        case 0x03: { // enumerateRPsGetNextRP
+            if (!m_rp_walk || m_rp_walk->next >= m_rp_walk->items.size())
+                return status_only(Status::NotAllowed);
+            std::size_t const index = m_rp_walk->items[m_rp_walk->next++];
+            if (index >= m_credentials.size())
+                return status_only(Status::NotAllowed);
+            return ok_with(party_answer(m_credentials[index]));
+        }
+        case 0x04: { // enumerateCredentialsBegin
+            Value const* const hash = sub_params != nullptr ? sub_params->find(0x01) : nullptr;
+            if (hash == nullptr || !hash->is_bytes())
+                return status_only(Status::MissingParameter);
+            if (hash->as_bytes().size() != 32)
+                return status_only(Status::InvalidParameter);
+            std::array<std::uint8_t, 32> rp_id_hash {};
+            std::ranges::copy(hash->as_bytes(), rp_id_hash.begin());
+            if (!token_rp_allows(rp_id_hash))
+                return status_only(Status::PinAuthInvalid);
+            std::vector<std::size_t> found;
+            for (std::size_t i = 0; i < m_credentials.size(); ++i) {
+                if (m_credentials[i].discoverable && m_credentials[i].rp_id_hash == rp_id_hash)
+                    found.push_back(i);
+            }
+            if (found.empty())
+                return status_only(Status::NoCredentials);
+            Value response = credential_answer(m_credentials[found.front()]);
+            response.set(0x09, Value::unsigned_integer(found.size()));
+            m_credential_walk = Walk { found, 1 };
+            return ok_with(response);
+        }
+        case 0x05: { // enumerateCredentialsGetNextCredential
+            if (!m_credential_walk || m_credential_walk->next >= m_credential_walk->items.size())
+                return status_only(Status::NotAllowed);
+            std::size_t const index = m_credential_walk->items[m_credential_walk->next++];
+            if (index >= m_credentials.size())
+                return status_only(Status::NotAllowed);
+            return ok_with(credential_answer(m_credentials[index]));
+        }
+        case 0x06: { // deleteCredential
+            if (!names_credential())
+                return status_only(Status::MissingParameter);
+            Credential* const c = credential_named();
+            if (c == nullptr)
+                return status_only(Status::NoCredentials);
+            if (!token_rp_allows(c->rp_id_hash))
+                return status_only(Status::PinAuthInvalid);
+            std::vector<std::uint8_t> const id = c->id;
+            std::erase_if(m_credentials, [&](Credential const& other) { return other.id == id; });
+            return status_only(Status::Ok);
+        }
+        case 0x07: { // updateUserInformation
+            Value const* const user_value = sub_params != nullptr ? sub_params->find(0x03) : nullptr;
+            if (!names_credential() || user_value == nullptr)
+                return status_only(Status::MissingParameter);
+            auto const user = auth::user_from_cbor(*user_value);
+            if (!user)
+                return status_only(Status::InvalidParameter);
+            Credential* const c = credential_named();
+            if (c == nullptr)
+                return status_only(Status::NoCredentials);
+            if (!token_rp_allows(c->rp_id_hash))
+                return status_only(Status::PinAuthInvalid);
+            if (user->id != c->user.id)
+                return status_only(Status::InvalidParameter);
+            // §6.8.6: the names given replace the stored ones; one absent or
+            // empty is removed.
+            c->user.name = user->has_name ? user->name : std::string();
+            c->user.has_name = user->has_name && !user->name.empty();
+            c->user.display_name = user->has_display_name ? user->display_name : std::string();
+            c->user.has_display_name = user->has_display_name && !user->display_name.empty();
+            return status_only(Status::Ok);
+        }
+        }
+        return status_only(Status::InvalidSubcommand);
+    }
+
     // ---------- U2F raw messages (FIDO U2F Raw Message Formats v1.2) ----------
 
     static std::vector<std::uint8_t> sw(std::uint16_t word) { return { static_cast<std::uint8_t>(word >> 8), static_cast<std::uint8_t>(word) }; }
@@ -1703,6 +1925,12 @@ private:
     bool m_token_user_present = false;
     bool m_token_user_verified = false;
     std::optional<AssertionState> m_assertion_state;
+    struct Walk {
+        std::vector<std::size_t> items;
+        std::size_t next = 0;
+    };
+    std::optional<Walk> m_rp_walk; // enumerateRPs
+    std::optional<Walk> m_credential_walk; // enumerateCredentials
     std::array<std::uint8_t, 32> m_attestation_scalar {};
     crypto::EcPoint m_attestation_point;
     std::vector<std::uint8_t> m_attestation_cert;

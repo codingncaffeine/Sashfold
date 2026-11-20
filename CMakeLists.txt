@@ -69,11 +69,14 @@ add_library(sashfold_core STATIC
   src/auth/Cbor.cpp
   src/auth/Client.cpp
   src/auth/ClientData.cpp
+  src/auth/ClientPin.cpp
   src/auth/Cose.cpp
+  src/auth/CredentialManagement.cpp
   src/auth/Ctap2.cpp
   src/auth/CtapHid.cpp
   src/auth/DerWriter.cpp
   src/auth/HidDescriptor.cpp
+  src/auth/KeyManagement.cpp
   src/auth/PinProtocol.cpp
   src/auth/U2f.cpp
   src/bindings/Binary.cpp
