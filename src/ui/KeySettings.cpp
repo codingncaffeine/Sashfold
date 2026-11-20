@@ -537,7 +537,9 @@ void KeySettings::paint(Bitmap& target) const
     }
 
     std::vector<Focusable> const order = focusables();
-    std::optional<Focusable> const focused = m_focus < order.size() ? std::optional<Focusable>(order[m_focus]) : std::nullopt;
+    // (A pointer into `order`, which outlives it: GCC 13 reports an optional
+    // made by a conditional as maybe uninitialized.)
+    Focusable const* const focused = m_focus < order.size() ? &order[m_focus] : nullptr;
     auto const ring = [&](Rect const& box, int corner) {
         int const gap = px(2);
         target.fill_round_box(Rect { box.x - gap, box.y - gap, box.width + 2 * gap, box.height + 2 * gap }, corner + gap, px(2), look.accent,
@@ -769,7 +771,9 @@ bool KeySettings::key(platform::KeyEvent const& key)
     if (key.ctrl || key.alt)
         return false;
     std::vector<Focusable> const order = focusables();
-    std::optional<Focusable> const focused = m_focus < order.size() ? std::optional<Focusable>(order[m_focus]) : std::nullopt;
+    // (A pointer into `order`, which outlives it: GCC 13 reports an optional
+    // made by a conditional as maybe uninitialized.)
+    Focusable const* const focused = m_focus < order.size() ? &order[m_focus] : nullptr;
     switch (key.key) {
     case Key::Escape: close(); return true;
     case Key::Tab: move_focus(key.shift ? -1 : 1); return true;
