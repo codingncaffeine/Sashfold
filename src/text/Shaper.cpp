@@ -624,7 +624,12 @@ ScriptShaper const& choose_shaper(ScriptCode script, std::uint32_t chosen_gsub_s
     case script_code('T', 'e', 'l', 'u'):
     case script_code('K', 'n', 'd', 'a'):
     case script_code('M', 'l', 'y', 'm'):
-        // The Indic model of the script development specifications.
+        // The Indic model of the script development specifications, when
+        // the font knows the script: one whose substitutions were made
+        // for the default script (or put under 'latn') gets none of the
+        // Indic features.
+        if (chosen_gsub_script == tag_dflt_script || chosen_gsub_script == tag_latn)
+            return default_shaper;
         return indic_shaper;
     case script_code('S', 'i', 'n', 'h'):
         return sinhala_shaper;

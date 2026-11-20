@@ -1881,7 +1881,9 @@ bool would_substitute(LayoutTables const& tables, std::size_t lookup_index, std:
         GlyphInfo g;
         g.glyph = glyph;
         g.mask = ~0u;
-        g.props = tables.gdef.has_glyph_classes() ? tables.gdef.props_of(glyph) : glyph_props::base_glyph;
+        // The question is whether the lookup takes these glyphs as they
+        // are given: no lookup flag steps over one of them.
+        g.props = glyph_props::base_glyph;
         b.info.push_back(g);
     }
     b.clear_output();
