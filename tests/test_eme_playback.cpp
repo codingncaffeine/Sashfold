@@ -294,8 +294,18 @@ void test_clear_key_playback()
     CHECK_EQ(seen.pictures.size(), expected.pictures.size());
     for (std::size_t i = 0; i < seen.pictures.size() && i < expected.pictures.size(); ++i) {
         CHECK(seen.pictures[i].has_value());
-        if (seen.pictures[i] && expected.pictures[i])
+        if (seen.pictures[i] && expected.pictures[i]) {
             CHECK(*seen.pictures[i] == *expected.pictures[i]);
+            if (*seen.pictures[i] != *expected.pictures[i]) {
+                // Which picture, and whether it is another time's.
+                std::cerr << "picture " << i << " (at " << times[i] << " s) differs from the clear clip's";
+                for (std::size_t j = 0; j < expected.pictures.size(); ++j) {
+                    if (expected.pictures[j] && *seen.pictures[i] == *expected.pictures[j])
+                        std::cerr << "; it is the clear clip's picture " << j;
+                }
+                std::cerr << "\n";
+            }
+        }
     }
     std::size_t const compared = std::min(seen.heard.size(), expected.heard.size());
     CHECK(compared > 48000u * 2u / 4u);

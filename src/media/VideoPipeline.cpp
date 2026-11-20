@@ -12,6 +12,10 @@ namespace {
 // Pictures made and not yet taken: a frame or two ahead of the tick, and
 // few enough that a 4K stream's hold no more than a hundred megabytes.
 constexpr std::size_t ready_limit = 3;
+// How far past a frame, in decoding order, one that is shown before it can
+// stand: no codec here reorders across more than its 16 reference frames,
+// each of which may be two fields.
+constexpr std::size_t reorder_window = 32;
 
 }
 
@@ -115,6 +119,7 @@ void VideoPipeline::flush()
         m_generation++;
         m_made_since_flush = 0;
         m_decoded_to_ns.reset();
+        m_taken_ns.reset();
         m_shown_at = {};
         waker = m_waker;
     }
@@ -143,8 +148,14 @@ std::optional<VideoPicture> VideoPipeline::take(std::int64_t now_ns)
                 m_spare.push_back(std::move(chosen->rgba));
             chosen = std::move(m_ready.front());
             m_ready.pop_front();
+            // Never back to a picture older than the one handed out last.
+            if (m_taken_ns && chosen->time_ns < *m_taken_ns) {
+                m_spare.push_back(std::move(chosen->rgba));
+                chosen.reset();
+            }
         }
         if (chosen) {
+            m_taken_ns = chosen->time_ns;
             m_counts.shown++;
             note_shown_locked();
         }
@@ -204,8 +215,14 @@ std::shared_ptr<ShownPicture const> VideoPipeline::show()
                 m_spare.push_back(std::move(chosen->rgba));
             chosen = std::move(m_ready.front());
             m_ready.pop_front();
+            // Never back to a picture older than the one shown last.
+            if (m_taken_ns && chosen->time_ns < *m_taken_ns) {
+                m_spare.push_back(std::move(chosen->rgba));
+                chosen.reset();
+            }
         }
         if (chosen) {
+            m_taken_ns = chosen->time_ns;
             // The picture shown until now gives its buffer back, unless
             // someone is still showing it.
             if (m_shown && m_shown.use_count() == 1 && m_spare.size() <= ready_limit)
@@ -295,7 +312,19 @@ void VideoPipeline::release_preroll_locked(bool all_made)
 bool VideoPipeline::caught_up(std::int64_t now_ns) const
 {
     std::lock_guard const lock(m_mutex);
-    return !m_busy && (m_queue.empty() || m_queue.front().time_ns > now_ns);
+    if (m_busy)
+        return false;
+    // Frames wait in decoding order: one due by now may stand behind a
+    // later one (a B picture behind the P picture it leans on), so the
+    // head alone does not say that everything due has been decoded.
+    std::size_t looked = 0;
+    for (Coded const& waiting : m_queue) {
+        if (waiting.time_ns <= now_ns)
+            return false;
+        if (++looked == reorder_window)
+            break;
+    }
+    return true;
 }
 
 void VideoPipeline::run()
@@ -333,7 +362,32 @@ void VideoPipeline::run()
         m_decoded_to_ns = coded.time_ns;
         m_busy = true;
         // A later frame already due would be shown in this one's place.
-        bool const wanted = m_queue.empty() || m_queue.front().time_ns > now_locked();
+        // Frames wait in decoding order, which a stream with B pictures
+        // does not keep in step with their times: the one that would take
+        // this frame's place is looked for among the next few, not at the
+        // head alone. (Judged by the head, the picture at a paused position
+        // was made or not by whether the next frame had been queued yet.)
+        bool wanted = true;
+        {
+            std::int64_t const now = now_locked();
+            std::size_t looked = 0;
+            for (Coded const& later : m_queue) {
+                if (later.time_ns > coded.time_ns && later.time_ns <= now) {
+                    wanted = false;
+                    break;
+                }
+                if (++looked == reorder_window)
+                    break;
+            }
+            // Or one decoded before it: a picture later than this one that
+            // has been handed out, or waits and is due.
+            if (m_taken_ns && *m_taken_ns > coded.time_ns)
+                wanted = false;
+            for (VideoPicture const& made : m_ready) {
+                if (made.time_ns > coded.time_ns && made.time_ns <= now)
+                    wanted = false;
+            }
+        }
         std::vector<std::uint8_t> buffer;
         if (!m_spare.empty()) {
             buffer = std::move(m_spare.back());

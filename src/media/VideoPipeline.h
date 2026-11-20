@@ -165,6 +165,10 @@ private:
     std::int64_t m_now_ns = 0;
     std::int64_t m_until_ns = 0;
     std::optional<std::int64_t> m_decoded_to_ns; // the time of the last frame taken to be decoded, since the last flush
+    // The time of the picture last handed out since the last flush: one
+    // older than it is never shown after it (a B picture is decoded after
+    // the later picture it leans on).
+    std::optional<std::int64_t> m_taken_ns;
     std::shared_ptr<PlaybackClock const> m_clock; // set once, by follow()
     std::int64_t m_ahead_ns = 0;
     std::shared_ptr<ShownPicture> m_shown;

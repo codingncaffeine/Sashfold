@@ -1535,6 +1535,13 @@ void present_video(Realm::Internals& in, MediaStateObject& state)
         if (it == track->frames.end() || !it->second.key)
             return; // nothing buffered to begin from yet
         state.video->flush();
+        // The pipeline chooses the frames to make pictures of by the
+        // position it was last told. It hears the new one before the first
+        // frame from here is queued: its thread starts on them at once, and
+        // by the position before a seek back it took the frame sought for
+        // one already passed and made no picture of it.
+        if (!state.clock)
+            state.video->set_clock(position_ns, position_ns + pictures_ahead_ns);
         state.next_video_ns = it->first;
         state.next_video_decode_ns = it->second.decode_time_ns;
         state.video_needs_key = false;
