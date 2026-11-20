@@ -502,6 +502,12 @@ public:
     std::optional<Rect> key_sheet_account(std::size_t index);
     bool tab_has_key_request(std::size_t index) const;
     std::size_t security_key_requests() const;
+    // For scripts: the main menu's key settings (ui/KeySettings.h): what
+    // they show ("" when closed), where their keyboard is, a button's box by
+    // its name or a passkey's row by its index.
+    std::string key_settings_shows();
+    std::string key_settings_focus();
+    std::optional<Rect> key_settings_box(std::string_view name, std::optional<std::size_t> row = std::nullopt);
     // What the reader has said of each site's notifications, by its
     // origin: allowed (true) or blocked. The caller gives what the profile
     // holds and hears, through `changed`, when the reader says something

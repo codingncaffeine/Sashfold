@@ -1,0 +1,263 @@
+# The main menu's "Security keys": a plugged-in key's PIN set or changed, its
+# passkeys counted, listed by site and deleted, and every error a key can
+# give, with software keys the test program plugs into the window
+# (shell_webauthn.cpp says what key-plug and the rest do).
+open https://webauthn.test/webauthn.html
+assert-title Keys
+
+# No key plugged in: insert one. Escape closes the sheet, and Cancel does.
+main-menu
+menu Security keys
+assert-key-settings insert-key
+assert-key-settings-focus button cancel
+assert-golden goldens/keysettings-insert.png 0 0 1024 400
+key escape
+assert-key-settings
+main-menu
+menu Security keys
+assert-key-settings insert-key
+click-key-settings cancel
+assert-key-settings
+
+# A key without a PIN comes and waits for its touch; touched, it is read.
+key-plug touch=never min-pin=6
+main-menu
+menu Security keys
+assert-key-settings touch-key 1
+assert-golden goldens/keysettings-touch.png 0 0 1024 400
+key-touch
+assert-key-settings home | pin unset | passkeys full
+assert-key-settings-focus button set-pin
+assert-golden goldens/keysettings-home-no-pin.png 0 0 1024 400
+# A PIN, chosen with the key's own minimum: too short and two different
+# ones are said on the sheet and never sent.
+key enter
+assert-key-settings set-pin | min 6 | fields 0,0
+assert-key-settings-focus field 0
+type 12345
+key enter
+assert-key-settings-focus field 1
+type 12345
+key enter
+assert-key-settings set-pin | min 6 | fields 5,5 | The new PIN needs at least 6 characters.
+assert-key-settings-focus field 0
+click-key-settings cancel
+assert-key-settings home | pin unset | passkeys full
+click-key-settings set-pin
+type 123456
+key tab
+type 123465
+key enter
+assert-key-settings set-pin | min 6 | fields 6,6 | The two new PINs are not the same.
+assert-key-settings-focus field 1
+assert-golden goldens/keysettings-set-pin.png 0 0 1024 460
+key backspace
+key backspace
+type 56
+key enter
+assert-key-settings home | pin set | passkeys full | The PIN is set.
+assert-key-settings-focus button passkeys
+# Changed: a wrong current PIN costs a try, and says how many are left.
+click-key-settings change-pin
+assert-key-settings change-pin | min 6 | fields 0,0,0
+type 000000
+key enter
+type 654321
+key enter
+type 654321
+key enter
+assert-key-settings change-pin | min 6 | fields 0,0,0 | That PIN is not right. 7 tries left before the key locks.
+assert-key-pin-retries 7
+assert-golden goldens/keysettings-change-pin-wrong.png 0 0 1024 540
+type 123456
+key enter
+type 654321
+key enter
+type 654321
+key enter
+assert-key-settings home | pin set | passkeys full | The PIN is changed.
+assert-key-pin-retries 8
+# Its passkeys, behind the PIN: there are none, and room for 25.
+key enter
+assert-key-settings unlock | fields 0
+type 654321
+key enter
+assert-key-settings passkeys 0 of 25
+assert-key-settings-focus button back
+assert-golden goldens/keysettings-no-passkeys.png 0 0 1024 400
+click-key-settings back
+assert-key-settings home | pin set | passkeys full
+# Pulled out while the sheet is open: said, and Close.
+key-unplug
+assert-key-settings ended key-gone
+assert-key-settings-focus button close
+assert-golden goldens/keysettings-key-gone.png 0 0 1024 400
+key enter
+assert-key-settings
+
+# A key with passkeys of two sites, listed by site, then user name.
+key-plug pin=1234 touch=now passkey=example.org/bob/Bob passkey=example.com/carol/ passkey=example.org/alice/Alice
+main-menu
+menu Security keys
+assert-key-settings home | pin set | passkeys full
+key enter
+assert-key-settings unlock | fields 0
+type 9999
+key enter
+assert-key-settings unlock | fields 0 | That PIN is not right. 7 tries left before the key locks.
+type 1234
+key enter
+assert-key-settings passkeys 3 of 25 | example.com carol (), example.org alice (Alice), example.org bob (Bob) | selected 0
+assert-key-settings-focus passkey 0
+assert-golden goldens/keysettings-passkeys.png 0 0 1024 460
+# The keyboard: down the list, Delete asks first; Cancel (the default) keeps it.
+key down
+assert-key-settings-focus passkey 1
+key delete
+assert-key-settings confirm-delete example.org alice
+assert-key-settings-focus button cancel
+assert-golden goldens/keysettings-confirm.png 0 0 1024 400
+key enter
+assert-key-settings passkeys 3 of 25 | example.com carol (), example.org alice (Alice), example.org bob (Bob) | selected 1
+assert-key-credentials 3
+# Enter on the list asks too; Tab to Delete and it goes.
+key enter
+assert-key-settings confirm-delete example.org alice
+key tab
+assert-key-settings-focus button confirm-delete
+key enter
+assert-key-settings passkeys 2 of 25 | example.com carol (), example.org bob (Bob) | selected 1 | The passkey is deleted.
+assert-key-credentials 2
+# With the mouse.
+click-key-settings row 0
+assert-key-settings passkeys 2 of 25 | example.com carol (), example.org bob (Bob) | selected 0 | The passkey is deleted.
+click-key-settings delete
+assert-key-settings confirm-delete example.com carol
+click-key-settings confirm-delete
+assert-key-settings passkeys 1 of 25 | example.org bob (Bob) | selected 0 | The passkey is deleted.
+assert-key-credentials 1
+# The key stops taking the token (it lost power for a moment): the PIN is
+# asked again, and the deletion is done after it.
+key-power-cycle
+click-key-settings delete
+click-key-settings confirm-delete
+assert-key-settings unlock | fields 0 | Enter the PIN again to go on.
+assert-key-credentials 1
+type 1234
+key enter
+assert-key-settings passkeys 1 of 25 | example.org bob (Bob) | selected 0
+click-key-settings delete
+click-key-settings confirm-delete
+assert-key-settings passkeys 0 of 25 | The passkey is deleted.
+assert-key-credentials 0
+key escape
+assert-key-settings
+
+# Three wrong PINs in a row: remove the key and insert it again.
+key-unplug
+key-plug pin=1234 touch=now
+main-menu
+menu Security keys
+assert-key-settings home | pin set | passkeys full
+key enter
+type 1111
+key enter
+assert-key-settings unlock | fields 0 | That PIN is not right. 7 tries left before the key locks.
+type 2222
+key enter
+assert-key-settings unlock | fields 0 | That PIN is not right. 6 tries left before the key locks.
+type 3333
+key enter
+assert-key-settings ended pin-auth-blocked
+assert-golden goldens/keysettings-pin-auth-blocked.png 0 0 1024 400
+key escape
+
+# The last try used: the PIN is blocked for good (no reset is offered).
+key-unplug
+key-plug pin=1234 touch=now retries=1
+main-menu
+menu Security keys
+assert-key-settings home | pin set | passkeys full
+key enter
+type 4321
+key enter
+assert-key-settings ended pin-blocked
+assert-golden goldens/keysettings-pin-blocked.png 0 0 1024 400
+click-key-settings close
+assert-key-settings
+
+# A key without credential management: its PIN only. A U2F key: nothing.
+key-unplug
+key-plug pin=1234 touch=now cm=none
+main-menu
+menu Security keys
+assert-key-settings home | pin set | passkeys none
+assert-key-settings-focus button change-pin
+assert-golden goldens/keysettings-no-management.png 0 0 1024 400
+key escape
+key-unplug
+key-plug touch=now protocol=u2f
+main-menu
+menu Security keys
+assert-key-settings home | pin none | passkeys none
+assert-key-settings-focus button close
+key escape
+# A pre-release key: its prototype of the command lists and deletes.
+key-unplug
+key-plug pin=1234 touch=now protocol=ctap20 cm=preview passkey=example.net/dave/Dave
+main-menu
+menu Security keys
+assert-key-settings home | pin set | passkeys preview
+key enter
+type 1234
+key enter
+assert-key-settings passkeys 1 of 25 | example.net dave (Dave) | selected 0
+key delete
+key tab
+key enter
+assert-key-settings passkeys 0 of 25 | The passkey is deleted.
+assert-key-credentials 0
+key escape
+
+# A page's request needs the keys: the sheet ends, and the menu's entry
+# waits until the request is over. (The sheet keeps presses off the page,
+# so this page asks by itself, on its clock.)
+key-unplug
+key-plug touch=never
+open https://webauthn.test/keysettings.html
+assert-title Later
+main-menu
+menu Security keys
+assert-key-settings touch-key 1
+advance 1000
+assert-title Later asked
+assert-key-settings
+assert-key-sheet touch-key webauthn.test
+main-menu
+assert-menu New tab | - | Find in page | Reader mode | Bookmarks > | - | Themes > | *Hardware video decoding | (Security keys) | Command palette | - | Developer tools | View page source | - | About Sashfold | Quit
+key escape
+key escape
+assert-key-sheet
+wait-key-requests 0
+assert-title Later NotAllowedError
+
+# In the light theme.
+palette theme: sashfold light
+key Enter
+assert-theme Sashfold Light
+key-unplug
+key-plug pin=1234 touch=now passkey=example.org/alice/Alice passkey=example.org/bob/
+main-menu
+menu Security keys
+assert-key-settings home | pin set | passkeys full
+assert-golden goldens/keysettings-home-light.png 0 0 1024 400
+key enter
+type 1234
+key enter
+assert-key-settings passkeys 2 of 25 | example.org alice (Alice), example.org bob () | selected 0
+assert-golden goldens/keysettings-passkeys-light.png 0 0 1024 460
+key delete
+assert-key-settings confirm-delete example.org alice
+assert-golden goldens/keysettings-confirm-light.png 0 0 1024 400
+key escape
+assert-key-settings

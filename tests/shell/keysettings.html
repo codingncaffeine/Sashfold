@@ -1,0 +1,15 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Later</title>
+<p>This page asks for a security key half a second after it loads.</p>
+<script>
+setTimeout(function () {
+    document.title = 'Later asked';
+    navigator.credentials.create({ publicKey: {
+        rp: { name: 'Test' },
+        user: { id: new Uint8Array([1]), name: 'zed', displayName: 'Zed' },
+        challenge: new Uint8Array(16),
+        pubKeyCredParams: [{ type: 'public-key', alg: -7 }]
+    } }).then(function () { document.title = 'Later ok'; }, function (e) { document.title = 'Later ' + e.name; });
+}, 500);
+</script>

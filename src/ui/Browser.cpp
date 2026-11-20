@@ -46,6 +46,7 @@
 #include "ui/Downloads.h"
 #include "ui/Icons.h"
 #include "ui/InternalPages.h"
+#include "ui/KeySettings.h"
 #include "ui/KeySheet.h"
 #include "ui/PageAccessibility.h"
 #include "ui/Reader.h"
@@ -1279,14 +1280,35 @@ struct Browser::Impl {
         }
         dirty = true;
     }
-    // A request's sheet changed on a ceremony's thread: drawn again.
+    // A request's sheet changed on a ceremony's thread: drawn again. The
+    // key settings likewise; they end when a page's request comes, which
+    // needs the keys.
     bool hear_security_keys()
     {
+        bool settings = false;
+        if (key_settings.shown() && security_keys->active() > 0) {
+            key_settings.close();
+            settings = true;
+        }
+        settings = key_settings.hear() || settings;
+        if (settings)
+            dirty = true;
         std::uint64_t const now = security_keys->generation();
         if (now == key_sheet_seen)
-            return false;
+            return settings;
         key_sheet_seen = now;
         dirty = true;
+        return true;
+    }
+    // The window's key settings (ui/KeySettings.h), opened from the main
+    // menu; laid out under the toolbar at the menu button's edge.
+    KeySettings key_settings;
+    bool key_settings_up()
+    {
+        if (engine_self || !key_settings.shown())
+            return false;
+        ChromeLayout const c = layout_chrome();
+        key_settings.layout(c.content, c.menu_button.right(), key_sheet_look());
         return true;
     }
     std::map<std::string, bool> notification_sites;
@@ -9884,6 +9906,9 @@ struct Browser::Impl {
             hardware.checked = media::hardware_video_decoding();
             items.push_back(std::move(hardware));
         }
+        // A plugged-in security key's PIN and passkeys; not while a page's
+        // request has the keys.
+        items.push_back(menu_item("Security keys", {}, [this] { key_settings.open(); }, security_keys->active() == 0));
         items.push_back(menu_item("Command palette", "Ctrl+Shift+P", [this] { open_palette({}); }));
         items.push_back({});
         MenuItem devtools = menu_item("Developer tools", "F12", [this] { toggle_devtools(); });
@@ -10159,6 +10184,11 @@ struct Browser::Impl {
         }
         if (front_key_sheet() && (key_sheet.bounds().contains(x, y) || layout_chrome().content.contains(x, y))) {
             key_sheet.mouse_move(x, y);
+            dirty = true;
+            return;
+        }
+        if (key_settings_up() && (key_settings.bounds().contains(x, y) || layout_chrome().content.contains(x, y))) {
+            key_settings.mouse_move(x, y);
             dirty = true;
             return;
         }
@@ -14945,6 +14975,13 @@ struct Browser::Impl {
             dirty = true;
             return;
         }
+        // The key settings are modal to the window's content likewise.
+        if (key_settings_up() && (key_settings.bounds().contains(x, y) || layout_chrome().content.contains(x, y))) {
+            if (button == 1 && key_settings.bounds().contains(x, y))
+                key_settings.mouse_down(x, y);
+            dirty = true;
+            return;
+        }
         update_hover(x, y);
         // A press on a link opens a connection to its origin while the button
         // is still down, as Chromium and Firefox do: the navigation the
@@ -15376,6 +15413,10 @@ struct Browser::Impl {
                 act_on_key_sheet(action);
                 return;
             }
+        }
+        if (!address_focus && !find_focus && !palette_open && menus.empty() && key_settings_up() && key_settings.key(key)) {
+            dirty = true;
+            return;
         }
         // Escape lets go of a drag: nothing is dropped.
         if (drag_op && key.key == Key::Escape && !pages_in_engines) {
@@ -15926,6 +15967,11 @@ struct Browser::Impl {
             dirty = true;
             return;
         }
+        if (!address_focus && !find_focus && !palette_open && menus.empty() && key_settings_up()) {
+            key_settings.text(code_point);
+            dirty = true;
+            return;
+        }
         if (code_point < 0x20 || code_point == 0x7F || hints_active)
             return; // a hint's letters are keys, not text
         // Text while a rich editor composes: the method's commit, one code
@@ -16032,7 +16078,7 @@ struct Browser::Impl {
         // changed: the page's picture is put into the frame again, which the
         // engine has counted, and no paint of the window's is.
         // A security key's sheet over the page is painted with the window.
-        bool const sheet_over_page = front_key_sheet();
+        bool const sheet_over_page = front_key_sheet() || key_settings_up();
         bool const video_only = pages_in_engines && content_dirty && !content_whole && !dirty && !header_dirty && !sheet_over_page;
         // The page's picture is new, the chrome is as it was painted, and
         // nothing of the shell's lies over the page: the picture goes into
@@ -16718,6 +16764,8 @@ struct Browser::Impl {
         // A security key's sheet, under the toolbar over its tab's page.
         if (front_key_sheet())
             key_sheet.paint(frame);
+        if (key_settings_up())
+            key_settings.paint(frame);
         paint_menus(c);
         // The window's own file chooser, over everything (it is modal).
         if (builtin_chooser) {
@@ -17136,6 +17184,7 @@ bool Browser::builtin_chooser_reading() const
 
 void Browser::set_security_key_transport(std::shared_ptr<auth::Transport> transport, std::function<void()> wake)
 {
+    m_impl->key_settings.set_transport(transport, wake);
     m_impl->security_keys->set_transport(std::move(transport));
     m_impl->security_keys->set_wake(std::move(wake));
 }
@@ -17160,6 +17209,17 @@ bool Browser::tab_has_key_request(std::size_t index) const
 }
 
 std::size_t Browser::security_key_requests() const { return m_impl->security_keys->active(); }
+
+std::string Browser::key_settings_shows() { return m_impl->key_settings_up() ? m_impl->key_settings.shows() : std::string(); }
+
+std::string Browser::key_settings_focus() { return m_impl->key_settings_up() ? m_impl->key_settings.focus_name() : std::string("none"); }
+
+std::optional<Rect> Browser::key_settings_box(std::string_view name, std::optional<std::size_t> row)
+{
+    if (!m_impl->key_settings_up())
+        return std::nullopt;
+    return row ? m_impl->key_settings.row(*row) : m_impl->key_settings.button(name);
+}
 
 void Browser::set_builtin_chooser_folder(std::string folder)
 {

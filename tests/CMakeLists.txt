@@ -293,6 +293,10 @@ add_executable(shell_webauthn shell_webauthn.cpp)
 target_link_libraries(shell_webauthn PRIVATE sashfold_core sashfold_warnings sashfold_test_support)
 add_test(NAME shell_webauthn
   COMMAND shell_webauthn --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/webauthn.script --theme ${CMAKE_SOURCE_DIR}/themes/default.json)
+# The main menu's key settings, by the same program: PIN set and changed,
+# passkeys listed and deleted, every error a key gives.
+add_test(NAME shell_keysettings
+  COMMAND shell_webauthn --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/keysettings.script --theme ${CMAKE_SOURCE_DIR}/themes/default.json)
 # Typing into rich text: the caret placed by a click, keys made edits the
 # page hears and may cancel, paragraphs split and joined, the arrows,
 # Shift, Ctrl+A, and the page's getSelection() following the reader's.
