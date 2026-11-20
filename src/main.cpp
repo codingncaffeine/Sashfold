@@ -3532,7 +3532,7 @@ int main(int argc, char** argv)
     };
     // The window also keeps the security keys plugged in now writable
     // (platform/linux/FidoHidLinux.h says how a later one is reached).
-    auto const keep_writes = [&](bool security_keys) {
+    auto const keep_writes = [&]([[maybe_unused]] bool security_keys) {
         // The instruments named in the environment write where they say.
         for (char const* const name : { "SASHFOLD_JIT_DUMP", "SASHFOLD_EVAL_TRACE_DIR", "SASHFOLD_NET_TRACE_DIR" }) {
             if (char const* const folder = std::getenv(name); folder != nullptr && *folder)
