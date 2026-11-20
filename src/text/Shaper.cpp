@@ -630,6 +630,10 @@ ScriptShaper const& choose_shaper(ScriptCode script, std::uint32_t chosen_gsub_s
         // Indic features.
         if (chosen_gsub_script == tag_dflt_script || chosen_gsub_script == tag_latn)
             return default_shaper;
+        // A font made under the third version's tag ('dev3') is for the
+        // Universal Shaping Engine.
+        if ((chosen_gsub_script & 0xFF) == '3')
+            return use_shaper;
         return indic_shaper;
     case script_code('K', 'h', 'm', 'r'):
         return khmer_shaper;

@@ -432,8 +432,11 @@ void itemization_tests()
     CHECK(joining_type(0x0710) == JoiningType::Alaph);
     CHECK(joining_type(0x064E) == JoiningType::Transparent);
     OpenTypeScriptTags const deva = opentype_script_tags(script_code('D', 'e', 'v', 'a'));
-    CHECK_EQ(deva.count, 2u);
-    CHECK(deva.tags[0] == tag_of("dev2"));
+    CHECK_EQ(deva.count, 3u);
+    CHECK(deva.tags[0] == tag_of("dev3"));
+    CHECK(deva.tags[1] == tag_of("dev2"));
+    CHECK(deva.tags[2] == tag_of("deva"));
+    CHECK_EQ(opentype_script_tags(script_code('M', 'y', 'm', 'r')).count, 2u);
     CHECK(opentype_script_tags(scripts::lao).tags[0] == tag_of("lao "));
     CHECK(opentype_script_tags(scripts::arabic).tags[0] == tag_of("arab"));
     CHECK(opentype_language_tag("fa-IR") == tag_of("FAR "));

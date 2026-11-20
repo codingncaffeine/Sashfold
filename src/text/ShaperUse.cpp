@@ -180,8 +180,24 @@ void find_use_syllables(Buffer& b)
 
 // --- The plan -----------------------------------------------------------------------------
 
+// §Topographical features, in the order of their forms below.
+constexpr std::array<std::uint32_t, 4> topographical_tags {
+    make_tag('i', 's', 'o', 'l'),
+    make_tag('i', 'n', 'i', 't'),
+    make_tag('m', 'e', 'd', 'i'),
+    make_tag('f', 'i', 'n', 'a'),
+};
+enum Form : std::uint8_t {
+    Isol,
+    Init,
+    Medi,
+    Fina,
+    NoForm,
+};
+
 struct UsePlan {
     std::uint32_t rphf_mask = 0;
+    std::array<std::uint32_t, 4> form_mask {};
 };
 
 UsePlan const& use_plan(Plan const& plan) { return *static_cast<UsePlan const*>(plan.shaper_data.get()); }
@@ -219,6 +235,11 @@ void collect_features(PlanBuilder& p)
              make_tag('c', 'j', 'c', 't') })
         p.enable_feature(tag, per_syllable);
     p.add_gsub_pause(reorder);
+    // §Topographical features: a cluster's form by its place in the word
+    // (the clusters around it that join it); one stage.
+    for (std::uint32_t tag : topographical_tags)
+        p.add_feature(tag);
+    p.add_gsub_pause(nullptr);
     // §Standard typographic presentation: the whole run.
     for (std::uint32_t tag : { make_tag('a', 'b', 'v', 's'), make_tag('b', 'l', 'w', 's'), make_tag('h', 'a', 'l', 'n'),
              make_tag('p', 'r', 'e', 's'), make_tag('p', 's', 't', 's') })
@@ -229,14 +250,53 @@ void init_plan(Plan& plan)
 {
     auto data = std::make_shared<UsePlan>();
     data->rphf_mask = plan.mask(make_tag('r', 'p', 'h', 'f'));
+    for (std::size_t k = 0; k < topographical_tags.size(); ++k)
+        data->form_mask[k] = plan.mask(topographical_tags[k]);
     plan.shaper_data = std::move(data);
 }
 
-void setup_masks(Plan const&, ShapeFont const&, Buffer& b, std::u32string_view, std::u32string_view)
+// The topographical forms of the clusters: a run of clusters that are not
+// independent, symbol or hieroglyph clusters is a word, its first cluster
+// initial, its last final, one alone isolated (as engines in browsers form
+// them for the scripts that do not join by their letters' joining types).
+void setup_topographical_masks(UsePlan const& use, Buffer& b)
+{
+    std::uint32_t all = 0;
+    for (std::uint32_t m : use.form_mask)
+        all |= m;
+    if (!all)
+        return;
+    Form last_form = NoForm;
+    std::size_t last_start = 0;
+    std::size_t last_end = 0;
+    auto set = [&](std::size_t from, std::size_t to, Form f) {
+        for (std::size_t k = from; k < to; ++k)
+            b.info[k].mask = (b.info[k].mask & ~all) | use.form_mask[f];
+    };
+    for (std::size_t start = 0; start < b.len();) {
+        std::size_t const end = syllable_end(b, start);
+        unsigned const type = syllable_type(b.info[start]);
+        if (type == IndependentCluster || type == SymbolCluster || type == HieroglyphCluster) {
+            last_form = NoForm;
+        } else {
+            bool const join = last_form == Fina || last_form == Isol;
+            if (join)
+                set(last_start, last_end, last_form == Fina ? Medi : Init);
+            last_form = join ? Fina : Isol;
+            set(start, end, last_form);
+            last_start = start;
+            last_end = end;
+        }
+        start = end;
+    }
+}
+
+void setup_masks(Plan const& plan, ShapeFont const&, Buffer& b, std::u32string_view, std::u32string_view)
 {
     for (GlyphInfo& g : b.info)
         g.shaper = use_category(g.codepoint);
     find_use_syllables(b);
+    setup_topographical_masks(use_plan(plan), b);
 }
 
 // --- The pauses ---------------------------------------------------------------------------

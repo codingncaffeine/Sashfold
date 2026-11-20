@@ -296,6 +296,12 @@ OpenTypeScriptTags opentype_script_tags(ScriptCode script)
     };
     for (Versioned const& v : versioned) {
         if (v.script == script) {
+            // The Indic scripts' third version ('dev3'), whose fonts are made
+            // for the Universal Shaping Engine, before the second.
+            if (script != script_code('M', 'y', 'm', 'r')) {
+                char v3[5] = { v.v2[0], v.v2[1], v.v2[2], '3', 0 };
+                push(tag(v3));
+            }
             push(tag(v.v2));
             push(tag(v.v1));
             return out;
