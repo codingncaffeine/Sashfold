@@ -60,6 +60,13 @@ struct Context {
     bool document_shown = true; // the document is the tab in front
     bool has_text = false; // it offers the Text interface
     bool editable_text = false;
+    // A page's node with no box: not rendered (an option of a closed
+    // select), so neither visible nor showing.
+    bool unrendered = false;
+    // Its parent's and grandparent's roles (an option in a combobox maps
+    // otherwise than one in a listbox).
+    a11y::Role parent_role = a11y::Role::Unknown;
+    a11y::Role grandparent_role = a11y::Role::Unknown;
 };
 
 // The node's AT-SPI role (Core-AAM's and HTML-AAM's mapping).

@@ -108,10 +108,13 @@ std::uint32_t role_of(NodeData const& node, Context const& context)
     case Role::Image: return role::image;
     case Role::Link: return role::link;
     case Role::List: return role::list;
-    case Role::ListBox: return role::list_box;
-    case Role::ListItem:
+    // In a combobox (a select's popup, an ARIA combobox's listbox) the
+    // list is a menu and its options menu items (role-map-listbox-in-
+    // combobox, role-map-option-in-combobox).
+    case Role::ListBox: return context.parent_role == Role::Combobox ? role::menu : role::list_box;
     case Role::Option:
-        return role::list_item;
+        return context.parent_role == Role::Combobox || context.grandparent_role == Role::Combobox ? role::menu_item : role::list_item;
+    case Role::ListItem: return role::list_item;
     case Role::Log: return role::log;
     case Role::Mark: return role::mark;
     case Role::Marquee: return role::marquee;
@@ -280,7 +283,7 @@ StateSet states_of(NodeData const& node, Context const& context)
         set |= bit(state::supports_autocompletion);
     // Visible: rendered (visibility: hidden content is kept but is not);
     // showing: visible and on the screen, in the tab in front.
-    if (!has(node, State::Invisible)) {
+    if (!has(node, State::Invisible) && !context.unrendered) {
         set |= bit(state::visible);
         if (!has(node, State::Offscreen) && context.document_shown)
             set |= bit(state::showing);

@@ -899,6 +899,10 @@ public:
     bool can_go_forward() const;
     std::string const& address_text() const;
     bool address_focused() const;
+    // The address bar's selection, from and to in bytes of address_text()
+    // (both the caret when nothing is selected): what the accessibility
+    // bridge says of it.
+    std::pair<std::size_t, std::size_t> address_selection() const;
     // The toolbar stop the keyboard is on: "back", "forward", "reload",
     // "address", "star", "reader", "menu", or "" while the page has it.
     std::string chrome_focus_name() const;

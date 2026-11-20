@@ -47,6 +47,7 @@
 #include "ui/Icons.h"
 #include "ui/InternalPages.h"
 #include "ui/KeySheet.h"
+#include "ui/PageAccessibility.h"
 #include "ui/Reader.h"
 #include "ui/SecurityKeys.h"
 #include "ui/SourceSet.h"
@@ -605,6 +606,12 @@ struct Browser::Impl {
         Profile page_profile;
         Browser::EngineAccount page_account;
         bool page_loading = false;
+        // The page's accessibility tree, while an assistive tool is there
+        // (serve_accessibility). It reads the document, so it goes first:
+        // declared ahead of the realm and the document, so that the
+        // move-assignment that closes a tab ends it before them; ended by
+        // the destructor below and by render before a document is replaced.
+        std::unique_ptr<PageAccessibility> accessibility;
         // The page's scripts and the page. The realm's wrappers point into
         // the document, so on every path that ends a tab the realm must go
         // first. Move-assignment runs the members forward — closing a tab
@@ -778,7 +785,12 @@ struct Browser::Impl {
         Tab() = default;
         Tab(Tab&&) = default;
         Tab& operator=(Tab&&) = default;
-        ~Tab() { realm.reset(); } // before the document, whatever the member order says
+        ~Tab()
+        {
+            // Before the document, whatever the member order says.
+            accessibility.reset();
+            realm.reset();
+        }
 
         HistoryEntry const* current() const
         {
@@ -4574,6 +4586,201 @@ struct Browser::Impl {
         }
     }
 
+    // --- Accessibility (ui/PageAccessibility.h) ------------------------------------
+    //
+    // What an assistive tool asks of a page, as the reader's own input does
+    // it: collected while the tree serves the tool's queries, and done once
+    // the tree is let go of, since an action may navigate (which ends the
+    // tree) or open a tab (which moves the tabs).
+    struct AccessibilityAction {
+        enum class Kind : std::uint8_t { Click, Focus, SetValue, ScrollIntoView, SetSelection } kind = Kind::Click;
+        dom::Element* element = nullptr;
+        std::string value;
+        std::uint32_t start = 0;
+        std::uint32_t end = 0;
+    };
+    struct AccessibilitySink final : a11y::ActionSink {
+        std::vector<AccessibilityAction>* into = nullptr;
+        void click(dom::Element& e) override { into->push_back({ AccessibilityAction::Kind::Click, &e, {}, 0, 0 }); }
+        void focus(dom::Element& e) override { into->push_back({ AccessibilityAction::Kind::Focus, &e, {}, 0, 0 }); }
+        void set_value(dom::Element& e, std::string const& value) override
+        {
+            into->push_back({ AccessibilityAction::Kind::SetValue, &e, value, 0, 0 });
+        }
+        void scroll_into_view(dom::Element& e) override { into->push_back({ AccessibilityAction::Kind::ScrollIntoView, &e, {}, 0, 0 }); }
+        void set_text_selection(dom::Element& e, std::uint32_t start, std::uint32_t end) override
+        {
+            into->push_back({ AccessibilityAction::Kind::SetSelection, &e, {}, start, end });
+        }
+    };
+
+    // Whether the element is in the tab's page still: its document, the
+    // shadow trees in it, its frames' documents. Searched for, never
+    // dereferenced to find out.
+    static bool holds_anywhere(dom::Node const& root, dom::Element const* wanted)
+    {
+        if (&root == wanted)
+            return true;
+        if (root.is_element()) {
+            if (dom::ShadowRoot const* const shadow = static_cast<dom::Element const&>(root).shadow_root(); shadow && holds_anywhere(*shadow, wanted))
+                return true;
+        }
+        for (dom::Node const* child : root.children()) {
+            if (holds_anywhere(*child, wanted))
+                return true;
+        }
+        return false;
+    }
+
+    // Every turn of the thread the pages are on: each tab's tree brought up
+    // to date for the bridge while a tool is there (one atomic read while
+    // none is), then what the tool asked done. A tab whose styles and
+    // layout are behind its scripts (one not shown) keeps the tree it had.
+    void serve_accessibility()
+    {
+        if (!PageAccessibility::wanted()) {
+            for (Tab& tab : tabs)
+                tab.accessibility.reset();
+            return;
+        }
+        std::function<void()> wake;
+        if (engine_self && engine_self->threaded) {
+            wake = [engine = engine_self] {
+                {
+                    std::lock_guard<std::mutex> const lock(engine->mutex);
+                    engine->poked = true;
+                }
+                engine->wake.notify_one();
+            };
+        } else {
+            wake = [] { platform::wake_accessibility_window(); };
+        }
+        Tab const* const shown = shown_tab();
+        std::vector<std::pair<std::size_t, AccessibilityAction>> actions;
+        for (std::size_t i = 0; i < tabs.size(); ++i) {
+            Tab& tab = tabs[i];
+            if (!tab.document || (tab.realm && tab.page_mutations != tab.realm->tree_mutation_count()))
+                continue;
+            if (!tab.accessibility)
+                tab.accessibility = std::make_unique<PageAccessibility>();
+            PageAccessibility::Turn turn;
+            turn.document = tab.document.get();
+            turn.styles = &tab.styles;
+            turn.root = &tab.layout.root;
+            turn.controls = &tab.controls;
+            // The fragments carry the reader's scrolling (settle_scrolls):
+            // the boxes are read again when it moves, and are where the
+            // content is drawn, so the view's own scroll is none.
+            turn.layout_generation = profile.relayouts * 1000003u + profile.restyles * 7919u + static_cast<std::uint64_t>(tab.scroll_y);
+            HistoryEntry const* const entry = tab.current();
+            bool const loading = tab.navigating.has_value()
+                || std::any_of(pending.begin(), pending.end(), [i](Pending const& load) { return load.tab == i; });
+            turn.view.shown = &tab == shown;
+            turn.view.loading = loading;
+            turn.view.url = entry ? entry->final_url.serialize() : std::string();
+            turn.view.title = entry ? entry->title : std::string();
+            if (entry && !entry->content_type.empty())
+                turn.view.mime_type = entry->content_type.substr(0, entry->content_type.find(';'));
+            turn.loaded = !loading;
+            std::vector<AccessibilityAction> asked;
+            AccessibilitySink sink;
+            sink.into = &asked;
+            tab.accessibility->turn(turn, &sink, wake);
+            for (AccessibilityAction& action : asked)
+                actions.emplace_back(i, std::move(action));
+        }
+        // An action may open or close tabs: each is done only where its
+        // element is still in the page of the tab at that place.
+        for (auto& [index, action] : actions) {
+            if (index >= tabs.size() || !tabs[index].document || !holds_anywhere(*tabs[index].document, action.element))
+                continue;
+            do_accessibility_action(tabs[index], action);
+        }
+    }
+
+    void do_accessibility_action(Tab& tab, AccessibilityAction const& action)
+    {
+        dom::Element& element = *action.element;
+        using Kind = AccessibilityAction::Kind;
+        switch (action.kind) {
+        case Kind::Focus:
+            focus_by_keyboard(tab, element);
+            break;
+        case Kind::Click:
+            if (layout::is_control(element)) {
+                layout::ControlKind const kind = layout::control_kind(element);
+                if (kind == layout::ControlKind::Checkbox || kind == layout::ControlKind::Radio) {
+                    // As Space on it: the state set ahead of the click, back
+                    // if the page cancels it, input and change after.
+                    std::optional<PreActivation> const pre = pre_activate(tab, element);
+                    bindings::Realm* const realm = realm_for(tab, element);
+                    bool const proceed = !realm || realm->dispatch_event(&element, "click", bindings::Realm::EventInit { true, true, true });
+                    if (pre && !proceed)
+                        undo_pre_activation(tab, *pre);
+                    else if (pre && pre->changed)
+                        fire_input_and_change(tab, element);
+                    relayout(tab);
+                    dirty = true;
+                    break;
+                }
+                if (kind == layout::ControlKind::File) {
+                    choose_files(tab, element);
+                    break;
+                }
+                if (layout::is_text_kind(kind)) {
+                    focus_by_keyboard(tab, element);
+                    break;
+                }
+            }
+            // A link followed, a button pressed, a summary toggled: as Enter
+            // on it, its click and then what it does.
+            {
+                KeyEvent enter;
+                enter.key = Key::Enter;
+                keyboard_activate(tab, element, enter);
+            }
+            break;
+        case Kind::SetValue:
+            if (layout::is_control(element) && layout::is_text_kind(layout::control_kind(element))) {
+                // Typed over what is there: beforeinput, the value, input;
+                // then committed, as leaving the field commits it: change.
+                focus_control(tab, &element, true);
+                std::size_t const length = field_text(tab, element).size();
+                field_edit(tab, element, "insertReplacementText", 0, length, decode_utf8(action.value));
+                commit_text_change(tab);
+            } else if (layout::is_control(element)) {
+                layout::ControlState& state = state_of(tab, element);
+                state.value = action.value;
+                restyle_value(tab, element);
+                relayout(tab);
+                dirty = true;
+                fire_input_and_change(tab, element);
+            }
+            break;
+        case Kind::ScrollIntoView:
+            if (layout::Fragment const* const box = fragment_for(tab.layout.root, &element)) {
+                ChromeLayout const c = layout_chrome();
+                float const top = box->y;
+                if (top < 0 || top + box->height > static_cast<float>(c.content.height))
+                    set_scroll(tab, tab.scroll_y + static_cast<int>(top));
+            }
+            break;
+        case Kind::SetSelection:
+            if (layout::is_control(element) && layout::is_text_kind(layout::control_kind(element))) {
+                std::size_t const length = field_text(tab, element).size();
+                dom::forms::TextSelection selection;
+                selection.start = std::min<std::size_t>(action.start, length);
+                selection.end = std::clamp<std::size_t>(action.end, selection.start, length);
+                selection.direction = dom::forms::TextSelection::Direction::Forward;
+                focus_control(tab, &element, true);
+                state_of(tab, element).selection = selection;
+                relayout(tab);
+                dirty = true;
+            }
+            break;
+        }
+    }
+
     // Asks the loader for one of a page's resources AHEAD of the page's own
     // asking, so that what a page names is fetched together and not one
     // after another — for a page of the web, and only what its policy would
@@ -5913,7 +6120,9 @@ struct Browser::Impl {
             return;
         }
         HistoryEntry* const entry = tab.current();
-        // The realm goes before the document its wrappers point into.
+        // The accessibility tree and the realm go before the document they
+        // point into.
+        tab.accessibility.reset();
         tab.realm.reset();
         tab.console.clear();
         if (!entry) {
@@ -17484,6 +17693,7 @@ bool Browser::run_scripts()
         if (&tab != shown)
             impl.keep_title(tab);
     }
+    impl.serve_accessibility();
     // The shell's own clockwork rides the same wake: a theme's pictures
     // that move.
     if (impl.advance_clockwork())
@@ -17740,6 +17950,14 @@ bool Browser::can_go_back() const { return m_impl->can_go(-1); }
 bool Browser::can_go_forward() const { return m_impl->can_go(+1); }
 std::string const& Browser::address_text() const { return m_impl->address; }
 bool Browser::address_focused() const { return m_impl->address_focus; }
+
+std::pair<std::size_t, std::size_t> Browser::address_selection() const
+{
+    if (m_impl->select_all)
+        return { 0, m_impl->address.size() };
+    std::size_t const caret = std::min(m_impl->caret, m_impl->address.size());
+    return { caret, caret };
+}
 
 std::string Browser::chrome_focus_name() const
 {

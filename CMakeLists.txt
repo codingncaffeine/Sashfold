@@ -306,6 +306,7 @@ add_library(sashfold_core STATIC
   src/ui/BookmarksPage.cpp
   src/ui/Browser.cpp
   src/ui/BuiltinChooser.cpp
+  src/ui/ChromeAccessibility.cpp
   src/ui/FieldEdit.cpp
   src/ui/SpellService.cpp
   src/ui/Cosmetic.cpp
@@ -316,6 +317,7 @@ add_library(sashfold_core STATIC
   src/ui/KeySheet.cpp
   src/ui/SecurityKeys.cpp
   src/ui/Frames.cpp
+  src/ui/PageAccessibility.cpp
   src/ui/PageCompositor.cpp
   src/ui/PageImages.cpp
   src/ui/PdfViewer.cpp

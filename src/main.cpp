@@ -41,6 +41,7 @@
 #include "ui/BookmarkSources.h"
 #include "ui/Bookmarks.h"
 #include "ui/Browser.h"
+#include "ui/ChromeAccessibility.h"
 #include "ui/PdfViewer.h"
 #include "ui/SpellService.h"
 #include "ui/Cosmetic.h"
@@ -2244,6 +2245,15 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         wake_pages();
         waker->wake();
     });
+    // The desktop's assistive technology: the system's bridge, reached on
+    // a thread of its own, which wakes the window and the pages when a tool
+    // asks something of them. Gone before the browser, and out of the
+    // pages' reach before it goes.
+    ui::WindowAccessibility accessibility;
+    accessibility.open("Sashfold", [waker, wake_pages] {
+        wake_pages();
+        waker->wake();
+    });
     // The desktop's notifications, for the pages of sites the reader
     // allows: reached in the background, and gone before the browser is.
     std::unique_ptr<platform::Notifier> const notifier = platform::open_notifier("Sashfold", [waker] { waker->wake(); });
@@ -2831,6 +2841,7 @@ int run_window(std::string const& start_url, std::string const& theme_path,
         }
         auto const load_done = clock::now();
         browser.run_scripts(); // the pages' timers that came due
+        accessibility.turn(browser, browser.window_active()); // the chrome, while a tool is there
         auto const scripts_done = clock::now();
         std::size_t const presents_before = present_ms.size();
         if (browser.needs_paint())

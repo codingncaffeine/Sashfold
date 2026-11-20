@@ -109,6 +109,9 @@ public:
     virtual std::vector<WindowAction> take_window_actions() = 0;
     // Any thread, never blocking: something changed, the bridge looks.
     virtual void wake() = 0;
+    // Any thread, never blocking: the window's thread is woken (the
+    // function open_accessibility was given).
+    virtual void wake_window() = 0;
 };
 
 // The bridge of this system: nothing where there is none, where the
@@ -118,9 +121,24 @@ public:
 // has actions to take.
 std::unique_ptr<Accessibility> open_accessibility(std::string const& application_name, std::function<void()> wake_window);
 
-// The process's bridge, for the page threads to find: set by whoever
-// opened it (the window), cleared before it goes.
+// The process's bridge, for the page threads to reach: set by whoever
+// opened it (the window), cleared (nullptr) before it goes. The page
+// threads never hold the bridge itself: they reach it only through the
+// calls below, which take the lock set_accessibility takes, so that once
+// set_accessibility(nullptr) has returned nothing reaches the old bridge.
 void set_accessibility(Accessibility* accessibility);
-Accessibility* accessibility();
+// Whether a tool is there: one atomic read where no bridge is set.
+bool accessibility_wanted();
+// Calls `use` with the bridge, under that lock (it must not block); false
+// when there is none.
+bool with_accessibility(std::function<void(Accessibility&)> const& use);
+// A number that moves each time another bridge is set: a page whose tree
+// was made for one bridge makes it again for the next.
+std::uint64_t accessibility_generation();
+// Wakes the bridge's thread (a page's tree has events), or the window's
+// (what only it can do is waiting: a query to a page whose thread is the
+// window's, or a chrome action). Never blocks; nothing without a bridge.
+void wake_accessibility();
+void wake_accessibility_window();
 
 }

@@ -85,6 +85,19 @@ std::optional<NodeId> id_of_path(std::string_view path)
 
 bool has(NodeData const& node, State s) { return (node.states & a11y::state_bit(s)) != 0; }
 
+// The node's actions as the Action interface lists them: what activating
+// it does. Focusing and scrolling into view are Component's (GrabFocus,
+// ScrollTo), and no browser lists them as actions.
+std::vector<std::string> exposed_actions(NodeData const& node)
+{
+    std::vector<std::string> actions;
+    for (std::string const& action : node.actions) {
+        if (action != "focus" && action != "scroll-into-view")
+            actions.push_back(action);
+    }
+    return actions;
+}
+
 // A run of text in a page that is no object of its own: its text joins its
 // parent's.
 bool text_like(NodeData const& node)
@@ -188,6 +201,11 @@ public:
     void set_window(WindowState state) override;
     std::vector<WindowAction> take_window_actions() override;
     void wake() override;
+    void wake_window() override
+    {
+        if (m_wake_window)
+            m_wake_window();
+    }
 
 private:
     // --- What the bridge's thread reads the tree through ------------------
@@ -658,6 +676,14 @@ atspi::Context AtspiBridge::context_of(Ref const& ref) const
     context.document_shown = !ref.doc || ref.doc->view.shown;
     context.has_text = offers_text(ref);
     context.editable_text = ref.node && has(*ref.node, State::Editable) && ref.node->role != Role::RootWebArea;
+    if (ref.doc && ref.node) {
+        context.unrendered = !ref.node->bounds && ref.node->role != Role::RootWebArea;
+        if (NodeData const* const parent = ref.doc->snapshot->find(ref.node->parent)) {
+            context.parent_role = parent->role;
+            if (NodeData const* const grandparent = ref.doc->snapshot->find(parent->parent))
+                context.grandparent_role = grandparent->role;
+        }
+    }
     return context;
 }
 
@@ -707,7 +733,7 @@ std::vector<std::string> AtspiBridge::interfaces_of(Ref const& ref) const
     }
     NodeData const& node = *ref.node;
     add("Component");
-    if (!node.actions.empty())
+    if (!exposed_actions(node).empty())
         add("Action");
     if (offers_text(ref)) {
         add("Text");
@@ -743,6 +769,10 @@ std::optional<a11y::Rect> AtspiBridge::window_bounds(Ref const& ref) const
         return std::nullopt;
     if (ref.frame(m_window))
         return a11y::Rect { 0, 0, static_cast<float>(m_window.width), static_cast<float>(m_window.height) };
+    // A document's own box is the content area it is shown in (its
+    // viewport), as every browser answers for its document object.
+    if (ref.doc && ref.node->role == Role::RootWebArea && ref.node->parent == 0)
+        return a11y::Rect { m_window.content_x, m_window.content_y, m_window.content_width, m_window.content_height };
     if (!ref.node->bounds)
         return std::nullopt;
     a11y::Rect rect = *ref.node->bounds;
@@ -1332,7 +1362,7 @@ void AtspiBridge::export_interfaces()
                 return dbus::Value::uint32(1);
             Ref const ref = find(id_of_path(path).value_or(0));
             if (name == "NActions" && ref.node)
-                return dbus::Value::int32(static_cast<std::int32_t>(ref.node->actions.size()));
+                return dbus::Value::int32(static_cast<std::int32_t>(exposed_actions(*ref.node).size()));
             return std::nullopt;
         };
         m_action = std::move(action);
@@ -1759,7 +1789,7 @@ std::optional<dbus::Reply> AtspiBridge::action(dbus::Message const& call)
     Ref const ref = find(id_of_path(call.path).value_or(0));
     if (!ref.node)
         return dbus::Reply::failure(std::string(dbus::error_unknown_object), "gone");
-    std::vector<std::string> const& actions = ref.node->actions;
+    std::vector<std::string> const actions = exposed_actions(*ref.node);
     if (call.member == "GetActions") {
         dbus::Reply reply = returns("a(sss)");
         reply.body.array(8, [&] {

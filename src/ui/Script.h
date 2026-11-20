@@ -60,6 +60,10 @@
 //   wait-key-requests <n>      until that many requests have not yet
 //                        been told to their pages, then the pages hear
 //   assert-tab-key-request <tab> yes|no   the tab has a request
+//   accessibility-serve <ms> [<file>]   open the platform's accessibility
+//                        bridge (on the bus the environment names) and run
+//                        the window's loop for real time, until the time is
+//                        up or the file exists: a tool reads the tree meanwhile
 //   echo <text>
 
 #include "ui/Browser.h"

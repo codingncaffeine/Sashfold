@@ -1,4 +1,5 @@
 #include "ui/Script.h"
+#include "ui/ChromeAccessibility.h"
 #include "ui/SpellService.h"
 
 #include "core/Ascii.h"
@@ -15,10 +16,14 @@
 #include <algorithm>
 #include <charconv>
 #include <chrono>
+#include <condition_variable>
 #include <cstdio>
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
+#include <mutex>
+#include <optional>
 #include <ostream>
 #include <sstream>
 #include <thread>
@@ -250,6 +255,46 @@ struct Runner {
     std::vector<std::pair<std::string, std::string>> os_drag_offer {};
     std::shared_ptr<std::string> os_drag_answer = std::make_shared<std::string>("none");
     ScriptExtension extension {}; // the test program's own commands
+    // The platform's accessibility bridge, once `accessibility-serve` opened
+    // it, and how its thread wakes this one.
+    std::unique_ptr<WindowAccessibility> accessibility {};
+    struct Wake {
+        std::mutex lock;
+        std::condition_variable woken;
+        bool pending = false;
+    };
+    std::shared_ptr<Wake> accessibility_wake = std::make_shared<Wake>();
+
+    // `accessibility-serve <ms> [<file>]`: the window's loop, run for real
+    // time with the bridge open (on the bus the environment names), until
+    // the time is up or the file is there — what lets a tool on an isolated
+    // bus read the window and act on it with no window on a display.
+    void serve_accessibility(int ms, std::optional<std::filesystem::path> const& until)
+    {
+        if (!accessibility) {
+            accessibility = std::make_unique<WindowAccessibility>();
+            accessibility->open("Sashfold", [wake = accessibility_wake] {
+                {
+                    std::lock_guard<std::mutex> const hold(wake->lock);
+                    wake->pending = true;
+                }
+                wake->woken.notify_one();
+            });
+        }
+        auto const deadline = std::chrono::steady_clock::now() + std::chrono::milliseconds(ms);
+        while (std::chrono::steady_clock::now() < deadline) {
+            std::error_code error;
+            if (until && std::filesystem::exists(*until, error))
+                break;
+            while (browser.load_ready())
+                browser.tick();
+            browser.run_scripts();
+            accessibility->turn(browser, browser.window_active());
+            std::unique_lock<std::mutex> hold(accessibility_wake->lock);
+            accessibility_wake->woken.wait_for(hold, std::chrono::milliseconds(20), [this] { return accessibility_wake->pending; });
+            accessibility_wake->pending = false;
+        }
+    }
 
     // Loads, then the scripts they set going, then the loads those queued.
     void settle()
@@ -1378,6 +1423,16 @@ struct Runner {
                 fail("assert-console: \"" + argument + "\" not found in:\n" + browser.console_text());
         } else if (command == "echo") {
             out << argument << "\n";
+        } else if (command == "accessibility-serve") {
+            std::optional<int> const ms = int_arg(0);
+            if (!ms || *ms < 0) {
+                fail("accessibility-serve <ms> [<file>]");
+                return;
+            }
+            std::optional<std::filesystem::path> until;
+            if (args.size() > 1)
+                until = resolve(args[1]);
+            serve_accessibility(*ms, until);
         } else if (command == "print-pixel") {
             // `print-pixel <x> <y>`: what the frame holds there, said and
             // never judged — for whoever is writing a test, to read a
@@ -1521,6 +1576,7 @@ ScriptResult run_script(Browser& browser, std::string const& path, bool update_g
     else
         out << "FAILED " << std::filesystem::path(path).filename().string() << ": "
             << runner.result.failures << " failure(s) in " << runner.result.commands << " commands\n";
+    runner.accessibility.reset(); // the bridge, out of the pages' reach first
     browser.set_notifier(nullptr); // the script's notifier ends with it
     browser.set_on_raise_window(nullptr);
     browser.set_file_chooser(nullptr);
