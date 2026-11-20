@@ -227,10 +227,13 @@ int main()
         CHECK(census.values_described >= 150);
         CHECK_EQ(census.values_made, std::uint64_t { 0 });
         CHECK(census.script_functions <= 2);
-        // The whole realm, in cells: 3,012 on 2026-10-11 (2,650 when this was
-        // first written; 9,985 before the members were described).
+        // The whole realm, in cells: 3,102 on 2026-11-20, with Encrypted Media
+        // Extensions, ARIA reflection and the focus interfaces described
+        // (3,012 on 2026-10-11; 2,650 when this was first written; 9,985
+        // before the members were described). What was added is names: the
+        // checks above hold that no value or function of theirs was made.
         heap.collect();
-        CHECK(heap.cell_count() <= 3100);
+        CHECK(heap.cell_count() <= 3200);
 
         // A member is made when it is first used, and is then one function.
         std::uint64_t const made = census.natives_made_later;
