@@ -17,8 +17,11 @@
 #include <optional>
 #include <poll.h>
 #include <string>
+#include <csignal>
+#include <cstdio>
 #include <sys/socket.h>
 #include <sys/un.h>
+#include <sys/wait.h>
 #include <thread>
 #include <unistd.h>
 #include <vector>
@@ -893,6 +896,409 @@ void test_print_portal()
 
 #endif
 
+#if defined(__linux__)
+namespace {
+
+// --- Every type, against the specification's examples ----------------------
+
+void test_types()
+{
+    using namespace std::string_view_literals;
+    // "Marshaling (Wire Format)", STRING: 'foo', '+' and 'bar' in sequence
+    // from a multiple of eight, little-endian.
+    {
+        dbus::Writer writer;
+        writer.string("foo");
+        writer.string("+");
+        writer.string("bar");
+        CHECK(writer.bytes() == bytes_of("\x03\x00\x00\x00" "foo\x00" "\x01\x00\x00\x00" "+\x00" "\x00\x00" "\x03\x00\x00\x00" "bar\x00"sv));
+        dbus::Reader reader(writer.bytes());
+        std::optional<std::vector<dbus::Value>> const read = reader.values("sss");
+        CHECK(read && read->size() == 3 && (*read)[1].text == "+" && (*read)[2].text == "bar");
+        CHECK(reader.at_end());
+    }
+    // ARRAY: an array holding the 64-bit integer 5, from a multiple of
+    // eight: the length 8, four bytes of padding to the element's
+    // alignment (not counted), then the element. The specification writes
+    // it big-endian; this is the same little-endian.
+    Bytes const array_of_five = bytes_of("\x08\x00\x00\x00" "\x00\x00\x00\x00" "\x05\x00\x00\x00\x00\x00\x00\x00"sv);
+    {
+        dbus::Writer writer;
+        CHECK(writer.value(dbus::Value::array("x", { dbus::Value::int64(5) })));
+        CHECK(writer.bytes() == array_of_five);
+        dbus::Reader reader(array_of_five);
+        std::optional<dbus::Value> const read = reader.value("ax");
+        CHECK(read && read->items.size() == 1 && read->items[0].as_int() == 5);
+        // An empty array keeps the padding before its first element.
+        dbus::Writer empty;
+        CHECK(empty.value(dbus::Value::array("x", {})));
+        CHECK(empty.bytes() == bytes_of("\x00\x00\x00\x00\x00\x00\x00\x00"sv));
+    }
+    // VARIANT: a variant holding the 64-bit integer 5: its signature "t",
+    // padding to eight, the value.
+    {
+        dbus::Writer writer;
+        CHECK(writer.variant(dbus::Value::uint64(5)));
+        CHECK(writer.bytes() == bytes_of("\x01t\x00" "\x00\x00\x00\x00\x00" "\x05\x00\x00\x00\x00\x00\x00\x00"sv));
+        dbus::Reader reader(writer.bytes());
+        std::optional<dbus::Value> const read = reader.value("v");
+        CHECK(read && read->items.size() == 1 && read->items[0].type == "t" && read->items[0].number == 5);
+    }
+    // Every basic type round trips, at its own alignment.
+    {
+        dbus::Value const all = dbus::Value::structure({ dbus::Value::byte(0xfe), dbus::Value::boolean(true), dbus::Value::int16(-2),
+            dbus::Value::uint16(65000), dbus::Value::int32(-70000), dbus::Value::uint32(4000000000u), dbus::Value::int64(-5000000000LL),
+            dbus::Value::uint64(18000000000000000000ULL), dbus::Value::float64(-1.25), dbus::Value::string("na\xc3\xafve"),
+            dbus::Value::object_path("/org/a11y/atspi/accessible/root"), dbus::Value::signature("a{sv}") });
+        CHECK_EQ(all.type, std::string("(ybnqiuxtdsog)"));
+        dbus::Writer writer;
+        writer.byte(1); // off the struct's alignment, which must pad to eight
+        CHECK(writer.value(all));
+        // 1 and 7 of padding; y 1, 3 of padding, b 4, n 2, q 2, i 4, u 4,
+        // 4 of padding, x 8, t 8, d 8, s 4+6+1, 1 of padding, o 4+31+1, g 1+5+1.
+        CHECK_EQ(writer.bytes().size(), std::size_t(111));
+        dbus::Reader reader(writer.bytes());
+        reader.byte();
+        std::optional<dbus::Value> const read = reader.value(all.type);
+        CHECK(read.has_value());
+        if (read) {
+            CHECK_EQ(read->items[0].number, std::uint64_t(0xfe));
+            CHECK_EQ(read->items[2].as_int(), std::int64_t(-2));
+            CHECK_EQ(read->items[3].number, std::uint64_t(65000));
+            CHECK_EQ(read->items[4].as_int(), std::int64_t(-70000));
+            CHECK_EQ(read->items[6].as_int(), std::int64_t(-5000000000LL));
+            CHECK_EQ(read->items[7].number, std::uint64_t(18000000000000000000ULL));
+            CHECK_EQ(read->items[8].real, -1.25);
+            CHECK_EQ(read->items[9].text, std::string("na\xc3\xafve"));
+            CHECK_EQ(read->items[10].text, std::string("/org/a11y/atspi/accessible/root"));
+            CHECK_EQ(read->items[11].text, std::string("a{sv}"));
+        }
+        CHECK(reader.at_end());
+    }
+    // Containers: a dictionary of variants, an array of structs, nested.
+    {
+        dbus::Value const dict = dbus::Value::array("{sv}", {
+            dbus::Value::dict_entry(dbus::Value::string("level"), dbus::Value::variant(dbus::Value::int32(2))),
+            dbus::Value::dict_entry(dbus::Value::string("tags"), dbus::Value::variant(dbus::Value::array("s", { dbus::Value::string("a"), dbus::Value::string("b") }))),
+        });
+        dbus::Writer writer;
+        CHECK(writer.value(dict));
+        dbus::Reader reader(writer.bytes());
+        std::optional<dbus::Value> const read = reader.value("a{sv}");
+        CHECK(read && read->find("level") && read->find("level")->items[0].as_int() == 2);
+        CHECK(read && read->find("tags") && read->find("tags")->items[0].items.size() == 2);
+        // A value whose items do not match its type is refused.
+        dbus::Writer wrong;
+        CHECK(!wrong.value(dbus::Value::array("s", { dbus::Value::int32(1) })));
+    }
+    // Signatures (§ "Valid Signatures").
+    CHECK(dbus::valid_signature(""));
+    CHECK(dbus::valid_signature("a((so)(so)(so)iiassusau)"));
+    CHECK(dbus::valid_signature("a{sv}a{s(ii)}"));
+    CHECK(!dbus::valid_signature("a{vs}")); // a dict's key is basic
+    CHECK(!dbus::valid_signature("{ss}")); // a dict entry only in an array
+    CHECK(!dbus::valid_signature("a{sss}"));
+    CHECK(!dbus::valid_signature("()"));
+    CHECK(!dbus::valid_signature("(i"));
+    CHECK(!dbus::valid_signature("a"));
+    CHECK(!dbus::valid_signature("r"));
+    CHECK(dbus::valid_signature(std::string(32, 'a') + "i"));
+    CHECK(!dbus::valid_signature(std::string(33, 'a') + "i")); // 32 arrays at most
+    CHECK(dbus::valid_signature(std::string(32, '(') + "i" + std::string(32, ')')));
+    CHECK(!dbus::valid_signature(std::string(33, '(') + "i" + std::string(33, ')'))); // 32 structs at most
+    CHECK(!dbus::valid_signature(std::string(256, 'i'))); // 255 bytes at most
+    CHECK(dbus::single_complete_type("a(so)"));
+    CHECK(!dbus::single_complete_type("ii"));
+    CHECK(dbus::valid_object_path("/"));
+    CHECK(dbus::valid_object_path("/org/a11y/atspi/accessible/12"));
+    CHECK(!dbus::valid_object_path("/org/"));
+    CHECK(!dbus::valid_object_path("/org//a"));
+    CHECK(!dbus::valid_object_path("org"));
+    CHECK(!dbus::valid_object_path("/org/a-b"));
+    CHECK(dbus::valid_interface_name("org.a11y.atspi.Accessible"));
+    CHECK(!dbus::valid_interface_name("org"));
+    CHECK(!dbus::valid_interface_name("org.1a"));
+    CHECK(dbus::valid_bus_name(":1.42"));
+    CHECK(dbus::valid_bus_name("org.a11y-bus.Test"));
+    CHECK(!dbus::valid_member_name("2Go"));
+    CHECK(dbus::valid_utf8("caf\xc3\xa9"));
+    CHECK(!dbus::valid_utf8("\xc0\x80")); // an overlong NUL
+    CHECK(!dbus::valid_utf8("\xed\xa0\x80")); // a surrogate
+    CHECK(!dbus::valid_utf8(std::string_view("a\0b", 3)));
+    // Bounds: every read past the end, or of a bad value, fails and stays failed.
+    {
+        Bytes const truncated = bytes_of("\x10\x00\x00\x00" "abc"sv);
+        dbus::Reader reader(truncated);
+        CHECK(!reader.string());
+        CHECK(reader.failed());
+        CHECK(!reader.byte());
+        Bytes const no_nul = bytes_of("\x03\x00\x00\x00" "abcd"sv);
+        CHECK(!dbus::Reader(no_nul).string());
+        Bytes const bad_boolean = bytes_of("\x02\x00\x00\x00"sv);
+        CHECK(!dbus::Reader(bad_boolean).boolean());
+        Bytes const bad_path = bytes_of("\x03\x00\x00\x00" "a/b\x00"sv);
+        CHECK(!dbus::Reader(bad_path).object_path());
+        // An array whose last element runs past its length.
+        Bytes const overrun = bytes_of("\x06\x00\x00\x00" "\x01\x00\x00\x00" "\x02\x00\x00\x00"sv);
+        CHECK(!dbus::Reader(overrun).value("au"));
+        // An array claiming more than 2^26 bytes.
+        Bytes const huge = bytes_of("\x01\x00\x00\x04"sv);
+        CHECK(!dbus::Reader(huge).value("ay"));
+        // A variant whose signature holds two types.
+        Bytes const two = bytes_of("\x02ii\x00" "\x01\x00\x00\x00" "\x02\x00\x00\x00"sv);
+        CHECK(!dbus::Reader(two).value("v"));
+    }
+    // Variants nested past the total depth of 64 are refused; 64 are read.
+    {
+        auto const nested = [](int depth) {
+            Bytes bytes;
+            for (int i = 0; i < depth; ++i) {
+                bytes.push_back(1);
+                bytes.push_back('v');
+                bytes.push_back(0);
+            }
+            bytes.push_back(1);
+            bytes.push_back('y');
+            bytes.push_back(0);
+            bytes.push_back(7);
+            return bytes;
+        };
+        Bytes const deep = nested(63); // with the outer one, 64 variants
+        CHECK(dbus::Reader(deep).value("v").has_value());
+        Bytes const deeper = nested(64);
+        CHECK(!dbus::Reader(deeper).value("v").has_value());
+    }
+    // A header field of a kind no field has yet is passed over.
+    {
+        dbus::Message message;
+        message.type = dbus::MessageType::Signal;
+        message.path = "/a";
+        message.interface = "a.b";
+        message.member = "C";
+        message.serial = 3;
+        Bytes bytes = dbus::encode(message);
+        std::size_t used = 0;
+        bool malformed = false;
+        std::optional<dbus::Message> const back = dbus::decode(bytes, used, malformed);
+        CHECK(back && back->member == "C" && back->type == dbus::MessageType::Signal && used == bytes.size());
+    }
+}
+
+// --- The service side, against a real bus ------------------------------------
+
+// A dbus-daemon of this test's own, on an abstract socket named for this
+// process (a path under the build folder is longer than a socket's name
+// may be) and with a configuration of its own (no service is activated,
+// nothing of the desktop's is reached); `busctl` is the other side. The
+// daemon is the one process this test starts and stops.
+struct OwnBus {
+    pid_t pid = -1;
+    bool reachable = false;
+    std::string address;
+    std::string folder;
+    OwnBus()
+    {
+        std::error_code error;
+        folder = std::filesystem::absolute("dbus-scratch/own-bus").string();
+        std::filesystem::remove_all(folder, error);
+        std::filesystem::create_directories(folder, error);
+        address = "unix:abstract=sashfold-test-dbus-" + std::to_string(getpid());
+        std::string const config = folder + "/bus.conf";
+        {
+            FILE* const file = std::fopen(config.c_str(), "w");
+            if (!file)
+                return;
+            std::fputs("<!DOCTYPE busconfig PUBLIC \"-//freedesktop//DTD D-Bus Bus Configuration 1.0//EN\"\n"
+                       " \"http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd\">\n"
+                       "<busconfig><type>session</type>",
+                file);
+            std::fputs(("<listen>" + address + "</listen>").c_str(), file);
+            std::fputs("<auth>EXTERNAL</auth><policy context=\"default\"><allow send_destination=\"*\" eavesdrop=\"true\"/>"
+                       "<allow eavesdrop=\"true\"/><allow own=\"*\"/></policy></busconfig>\n",
+                file);
+            std::fclose(file);
+        }
+        if (access("/usr/bin/dbus-daemon", X_OK) != 0)
+            return;
+        pid = fork();
+        if (pid == 0) {
+            std::string const config_arg = "--config-file=" + config;
+            execl("/usr/bin/dbus-daemon", "dbus-daemon", config_arg.c_str(), "--nofork", "--nopidfile", static_cast<char*>(nullptr));
+            _exit(127);
+        }
+        std::optional<dbus::SocketAddress> const where = dbus::parse_address(address);
+        for (int waited = 0; waited < 500 && where && !reachable; ++waited) {
+            reachable = dbus::Connection::open(*where) != nullptr;
+            if (!reachable)
+                std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+    }
+    ~OwnBus()
+    {
+        if (pid > 0) {
+            kill(pid, SIGTERM);
+            int status = 0;
+            waitpid(pid, &status, 0);
+        }
+    }
+    bool up() const { return pid > 0 && reachable; }
+    // What busctl printed for these arguments, against this bus only.
+    std::string busctl(std::string const& arguments) const
+    {
+        std::string const command = "busctl --address=" + address + " " + arguments + " 2>&1";
+        FILE* const pipe = popen(command.c_str(), "r");
+        if (!pipe)
+            return {};
+        std::string out;
+        char buffer[512];
+        while (std::fgets(buffer, sizeof buffer, pipe))
+            out += buffer;
+        pclose(pipe);
+        while (!out.empty() && (out.back() == '\n' || out.back() == ' '))
+            out.pop_back();
+        return out;
+    }
+};
+
+void test_service_on_a_real_bus()
+{
+    if (access("/usr/bin/dbus-daemon", X_OK) != 0 || access("/usr/bin/busctl", X_OK) != 0) {
+        std::cerr << "test_dbus: no dbus-daemon or busctl here; the service's round trip is not run\n";
+        return;
+    }
+    OwnBus bus;
+    CHECK(bus.up());
+    if (!bus.up())
+        return;
+    std::optional<dbus::SocketAddress> const address = dbus::parse_address(bus.address);
+    std::string why;
+    std::unique_ptr<dbus::Connection> connection = address ? dbus::Connection::open(*address, &why) : nullptr;
+    CHECK(connection != nullptr);
+    if (!connection)
+        return;
+    dbus::Service service(*connection);
+    CHECK(service.request_name("org.sashfold.Test"));
+
+    // One interface: methods of every kind of argument, two properties, one
+    // of them writable.
+    auto interface = std::make_shared<dbus::Interface>();
+    interface->name = "org.sashfold.Test";
+    interface->introspection = "  <interface name=\"org.sashfold.Test\">\n"
+                               "    <method name=\"Add\"><arg type=\"i\" direction=\"in\"/><arg type=\"i\" direction=\"in\"/><arg type=\"i\" direction=\"out\"/></method>\n"
+                               "    <method name=\"Echo\"><arg type=\"v\" direction=\"in\"/><arg type=\"v\" direction=\"out\"/></method>\n"
+                               "    <method name=\"Fail\"/>\n"
+                               "    <property name=\"Name\" type=\"s\" access=\"read\"/>\n"
+                               "    <property name=\"Count\" type=\"i\" access=\"readwrite\"/>\n"
+                               "  </interface>\n";
+    interface->properties = { { "Name", "s", false }, { "Count", "i", true } };
+    auto count = std::make_shared<std::int32_t>(7);
+    interface->call = [](dbus::Message const& call) -> std::optional<dbus::Reply> {
+        dbus::Reader body(call.body);
+        if (call.member == "Add" && call.signature == "ii") {
+            std::optional<std::int32_t> const a = body.int32();
+            std::optional<std::int32_t> const b = body.int32();
+            dbus::Reply reply;
+            reply.signature = "i";
+            reply.body.int32(*a + *b);
+            return reply;
+        }
+        if (call.member == "Echo" && call.signature == "v") {
+            std::optional<dbus::Value> const value = body.value("v");
+            dbus::Reply reply;
+            reply.signature = "v";
+            reply.body.value(*value);
+            return reply;
+        }
+        if (call.member == "Fail")
+            return dbus::Reply::failure("org.sashfold.Error.Asked", "as asked");
+        return std::nullopt;
+    };
+    interface->get = [count](std::string const&, std::string_view property) -> std::optional<dbus::Value> {
+        if (property == "Name")
+            return dbus::Value::string("tested");
+        if (property == "Count")
+            return dbus::Value::int32(*count);
+        return std::nullopt;
+    };
+    interface->set = [count](std::string const&, std::string_view, dbus::Value const& value) -> std::optional<dbus::Reply> {
+        *count = static_cast<std::int32_t>(value.as_int());
+        return std::nullopt;
+    };
+    service.add_object("/org/sashfold/Test", { interface });
+    service.add_subtree("/org/sashfold/Items/", [interface](std::string_view path) -> std::optional<std::vector<std::shared_ptr<dbus::Interface const>>> {
+        if (path == "/org/sashfold/Items/1")
+            return std::vector<std::shared_ptr<dbus::Interface const>> { interface };
+        return std::nullopt;
+    });
+
+    // The service answers on a thread of its own while busctl asks.
+    std::atomic<bool> stop { false };
+    std::thread serving([&] {
+        while (!stop.load()) {
+            if (std::optional<dbus::Message> const message = service.next(50))
+                service.dispatch(*message);
+        }
+    });
+    CHECK_EQ(bus.busctl("call org.sashfold.Test /org/sashfold/Test org.sashfold.Test Add ii 40 2"), std::string("i 42"));
+    CHECK_EQ(bus.busctl("call org.sashfold.Test /org/sashfold/Test org.sashfold.Test Echo v as 2 a b"), std::string("v as 2 \"a\" \"b\""));
+    CHECK_EQ(bus.busctl("call -- org.sashfold.Test /org/sashfold/Test org.sashfold.Test Echo v a{sv} 1 k x -5"), std::string("v a{sv} 1 \"k\" x -5"));
+    CHECK_EQ(bus.busctl("call -- org.sashfold.Test /org/sashfold/Test org.sashfold.Test Echo v '(ydnq)' 3 2.5 -3 9"), std::string("v (ydnq) 3 2.5 -3 9"));
+    CHECK_EQ(bus.busctl("call org.sashfold.Test /org/sashfold/Items/1 org.sashfold.Test Add ii 1 2"), std::string("i 3"));
+    CHECK(bus.busctl("call org.sashfold.Test /org/sashfold/Test org.sashfold.Test Fail").find("as asked") != std::string::npos);
+    CHECK(bus.busctl("call org.sashfold.Test /org/sashfold/Test org.sashfold.Test Missing").find("Unknown method") != std::string::npos
+        || bus.busctl("call org.sashfold.Test /org/sashfold/Test org.sashfold.Test Missing").find("has no method") != std::string::npos);
+    CHECK(bus.busctl("call org.sashfold.Test /org/sashfold/Nothing org.sashfold.Test Add ii 1 2").find("No object") != std::string::npos);
+    CHECK_EQ(bus.busctl("get-property org.sashfold.Test /org/sashfold/Test org.sashfold.Test Name"), std::string("s \"tested\""));
+    CHECK_EQ(bus.busctl("set-property org.sashfold.Test /org/sashfold/Test org.sashfold.Test Count i 12"), std::string());
+    CHECK_EQ(bus.busctl("get-property org.sashfold.Test /org/sashfold/Test org.sashfold.Test Count"), std::string("i 12"));
+    CHECK(bus.busctl("set-property org.sashfold.Test /org/sashfold/Test org.sashfold.Test Name s other").find("cannot be set") != std::string::npos);
+    CHECK_EQ(bus.busctl("call org.sashfold.Test /org/sashfold/Test org.freedesktop.DBus.Properties GetAll s org.sashfold.Test"),
+        std::string("a{sv} 2 \"Name\" s \"tested\" \"Count\" i 12"));
+    CHECK_EQ(bus.busctl("call org.sashfold.Test /org/sashfold/Test org.freedesktop.DBus.Peer Ping"), std::string());
+    CHECK_EQ(bus.busctl("call org.sashfold.Test /org/sashfold/Test org.freedesktop.DBus.Peer GetMachineId").size(), std::size_t(36));
+    // busctl reads our introspection: the interface's members, typed.
+    std::string const introspected = bus.busctl("introspect --no-pager org.sashfold.Test /org/sashfold/Test org.sashfold.Test");
+    CHECK(introspected.find(".Add") != std::string::npos && introspected.find("method") != std::string::npos);
+    CHECK(introspected.find(".Count") != std::string::npos && introspected.find("writable") != std::string::npos);
+    // The tree from the root, with the object's path among its nodes.
+    CHECK(bus.busctl("tree --list org.sashfold.Test").find("/org/sashfold/Test") != std::string::npos);
+
+    // A second connection of ours hears the first one's signal through a
+    // match rule, and calls it.
+    std::unique_ptr<dbus::Connection> second = dbus::Connection::open(*address, &why);
+    CHECK(second != nullptr);
+    if (second) {
+        dbus::Service listener(*second);
+        CHECK(listener.add_match("type='signal',interface='org.sashfold.Test',member='Changed'"));
+        dbus::Writer body;
+        body.string("now");
+        body.value(dbus::Value::array("{sv}", { dbus::Value::dict_entry(dbus::Value::string("k"), dbus::Value::variant(dbus::Value::uint32(5))) }));
+        service.emit("/org/sashfold/Test", "org.sashfold.Test", "Changed", "sa{sv}", std::move(body));
+        std::optional<dbus::Message> heard;
+        for (int tries = 0; tries < 40 && !heard; ++tries) {
+            std::optional<dbus::Message> message = listener.next(50);
+            if (message && message->type == dbus::MessageType::Signal && message->member == "Changed")
+                heard = std::move(message);
+        }
+        CHECK(heard.has_value());
+        if (heard) {
+            dbus::Reader reader(heard->body);
+            std::optional<std::vector<dbus::Value>> const values = reader.values(heard->signature);
+            CHECK(values && (*values)[0].text == "now" && (*values)[1].find("k") && (*values)[1].find("k")->items[0].number == 5);
+        }
+        dbus::Writer args;
+        args.int32(5);
+        args.int32(6);
+        std::optional<dbus::Message> const sum = listener.call(dbus::Service::method_call("org.sashfold.Test", "/org/sashfold/Test", "org.sashfold.Test", "Add", "ii", std::move(args)), 2000);
+        CHECK(sum && sum->type == dbus::MessageType::MethodReturn && dbus::Reader(sum->body).int32() == 11);
+    }
+    stop = true;
+    serving.join();
+}
+
+}
+#endif
+
 int main()
 {
     CHECK_EQ(platform::escape_notice_markup("a < b && <a href=\"x\">c</a>"), std::string("a &lt; b &amp;&amp; &lt;a href=\"x\"&gt;c&lt;/a&gt;"));
@@ -923,6 +1329,8 @@ int main()
     test_notifier();
     test_notifier_without_markup_or_service();
     test_print_portal();
+    test_types();
+    test_service_on_a_real_bus();
     std::error_code error;
     std::filesystem::remove_all("dbus-scratch", error);
 #elif defined(_WIN32)

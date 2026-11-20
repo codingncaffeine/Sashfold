@@ -1,8 +1,11 @@
 #include "platform/linux/DBus.h"
 
+#include <bit>
 #include <cerrno>
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <fstream>
 #include <mutex>
 #include <poll.h>
 #include <sys/socket.h>
@@ -40,7 +43,7 @@ std::uint32_t get32(std::span<std::uint8_t const> bytes, std::size_t at)
 // The header's fields, by the numbers the specification gives them.
 enum Field : std::uint8_t {
     Path = 1,
-    Interface = 2,
+    InterfaceField = 2, // named apart from dbus::Interface, the service's
     Member = 3,
     ErrorName = 4,
     ReplySerial = 5,
@@ -54,11 +57,343 @@ enum Field : std::uint8_t {
 constexpr std::size_t longest_message = 1u << 27;
 constexpr std::size_t longest_array = 1u << 26;
 
+// The nesting the specification allows ("Valid Signatures"): 32 arrays and
+// 32 structs (a dict entry counts as a struct), 64 containers in all once
+// variants are counted.
+constexpr int deepest_arrays = 32;
+constexpr int deepest_structs = 32;
+constexpr int deepest_total = 64;
+constexpr std::size_t longest_signature = 255;
+
+bool basic_type(char code) { return code != 0 && std::strchr("ybnqiuxtdsogh", code) != nullptr; }
+
+constexpr std::size_t no_type = static_cast<std::size_t>(-1);
+
+// The end of the complete type at `at`, or no_type when none is there or
+// it nests too deep.
+std::size_t parse_complete(std::string_view signature, std::size_t at, int arrays, int structs)
+{
+    if (at >= signature.size())
+        return no_type;
+    char const code = signature[at];
+    if (basic_type(code) || code == 'v')
+        return at + 1;
+    if (code == 'a') {
+        if (arrays + 1 > deepest_arrays)
+            return no_type;
+        if (at + 1 < signature.size() && signature[at + 1] == '{') {
+            if (structs + 1 > deepest_structs)
+                return no_type;
+            std::size_t const key = at + 2;
+            if (key >= signature.size() || !basic_type(signature[key]))
+                return no_type;
+            std::size_t const value_end = parse_complete(signature, key + 1, arrays + 1, structs + 1);
+            if (value_end == no_type || value_end >= signature.size() || signature[value_end] != '}')
+                return no_type;
+            return value_end + 1;
+        }
+        return parse_complete(signature, at + 1, arrays + 1, structs);
+    }
+    if (code == '(') {
+        if (structs + 1 > deepest_structs)
+            return no_type;
+        std::size_t next = at + 1;
+        if (next < signature.size() && signature[next] == ')')
+            return no_type; // a struct has at least one field
+        while (next < signature.size() && signature[next] != ')') {
+            next = parse_complete(signature, next, arrays, structs + 1);
+            if (next == no_type)
+                return no_type;
+        }
+        return next < signature.size() ? next + 1 : no_type;
+    }
+    return no_type;
 }
+
+// A path element, an interface's or a bus name's element: [A-Za-z0-9_],
+// and '-' too in a bus name.
+bool name_character(char c, bool dash)
+{
+    return (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') || c == '_' || (dash && c == '-');
+}
+
+}
+
+bool valid_signature(std::string_view signature)
+{
+    if (signature.size() > longest_signature)
+        return false;
+    std::size_t at = 0;
+    while (at < signature.size()) {
+        at = parse_complete(signature, at, 0, 0);
+        if (at == no_type)
+            return false;
+    }
+    return true;
+}
+
+bool single_complete_type(std::string_view signature)
+{
+    return !signature.empty() && signature.size() <= longest_signature && parse_complete(signature, 0, 0, 0) == signature.size();
+}
+
+std::size_t complete_type_length(std::string_view signature, std::size_t at)
+{
+    std::size_t const end = parse_complete(signature, at, 0, 0);
+    return end == no_type ? 0 : end - at;
+}
+
+std::size_t alignment_of(char code)
+{
+    switch (code) {
+    case 'y':
+    case 'g':
+    case 'v':
+        return 1;
+    case 'n':
+    case 'q':
+        return 2;
+    case 'x':
+    case 't':
+    case 'd':
+    case '(':
+    case '{':
+        return 8;
+    default:
+        return 4; // b i u h s o a
+    }
+}
+
+bool valid_object_path(std::string_view path)
+{
+    if (path.empty() || path[0] != '/')
+        return false;
+    if (path.size() == 1)
+        return true;
+    if (path.back() == '/')
+        return false;
+    bool element_empty = true;
+    for (std::size_t i = 1; i < path.size(); ++i) {
+        if (path[i] == '/') {
+            if (element_empty)
+                return false;
+            element_empty = true;
+        } else if (!name_character(path[i], false)) {
+            return false;
+        } else {
+            element_empty = false;
+        }
+    }
+    return true;
+}
+
+namespace {
+
+// Dotted elements, each of name characters and not starting with a digit
+// (`digits_lead` lets a unique bus name's do).
+bool dotted_name(std::string_view name, bool dash, bool digits_lead, std::size_t least_elements)
+{
+    if (name.empty() || name.size() > 255)
+        return false;
+    std::size_t elements = 0;
+    std::size_t start = 0;
+    while (start <= name.size()) {
+        std::size_t end = name.find('.', start);
+        if (end == std::string_view::npos)
+            end = name.size();
+        std::string_view const element = name.substr(start, end - start);
+        if (element.empty() || (!digits_lead && element[0] >= '0' && element[0] <= '9'))
+            return false;
+        for (char const c : element) {
+            if (!name_character(c, dash))
+                return false;
+        }
+        ++elements;
+        start = end + 1;
+    }
+    return elements >= least_elements;
+}
+
+}
+
+bool valid_interface_name(std::string_view name) { return dotted_name(name, false, false, 2); }
+
+bool valid_member_name(std::string_view name)
+{
+    if (name.empty() || name.size() > 255 || (name[0] >= '0' && name[0] <= '9'))
+        return false;
+    for (char const c : name) {
+        if (!name_character(c, false))
+            return false;
+    }
+    return true;
+}
+
+bool valid_bus_name(std::string_view name)
+{
+    if (name.starts_with(':'))
+        return dotted_name(name.substr(1), true, true, 2);
+    return dotted_name(name, true, false, 2);
+}
+
+bool valid_utf8(std::string_view text)
+{
+    std::size_t i = 0;
+    while (i < text.size()) {
+        auto const byte = static_cast<unsigned char>(text[i]);
+        if (byte == 0)
+            return false;
+        if (byte < 0x80) {
+            ++i;
+            continue;
+        }
+        std::size_t length = 0;
+        std::uint32_t code = 0;
+        if ((byte & 0xe0) == 0xc0) {
+            length = 2;
+            code = byte & 0x1f;
+        } else if ((byte & 0xf0) == 0xe0) {
+            length = 3;
+            code = byte & 0x0f;
+        } else if ((byte & 0xf8) == 0xf0) {
+            length = 4;
+            code = byte & 0x07;
+        } else {
+            return false;
+        }
+        if (i + length > text.size())
+            return false;
+        for (std::size_t k = 1; k < length; ++k) {
+            auto const next = static_cast<unsigned char>(text[i + k]);
+            if ((next & 0xc0) != 0x80)
+                return false;
+            code = (code << 6) | (next & 0x3f);
+        }
+        // The shortest form only, no surrogate, nothing past U+10FFFF.
+        if ((length == 2 && code < 0x80) || (length == 3 && code < 0x800) || (length == 4 && code < 0x10000)
+            || (code >= 0xd800 && code <= 0xdfff) || code > 0x10ffff)
+            return false;
+        i += length;
+    }
+    return true;
+}
+
+// --- Values ---------------------------------------------------------------------------
+
+namespace {
+
+Value number_value(char const* type, std::uint64_t bits)
+{
+    Value value;
+    value.type = type;
+    value.number = bits;
+    return value;
+}
+
+}
+
+Value Value::byte(std::uint8_t v) { return number_value("y", v); }
+Value Value::boolean(bool v) { return number_value("b", v ? 1 : 0); }
+Value Value::int16(std::int16_t v) { return number_value("n", static_cast<std::uint64_t>(static_cast<std::int64_t>(v))); }
+Value Value::uint16(std::uint16_t v) { return number_value("q", v); }
+Value Value::int32(std::int32_t v) { return number_value("i", static_cast<std::uint64_t>(static_cast<std::int64_t>(v))); }
+Value Value::uint32(std::uint32_t v) { return number_value("u", v); }
+Value Value::int64(std::int64_t v) { return number_value("x", static_cast<std::uint64_t>(v)); }
+Value Value::uint64(std::uint64_t v) { return number_value("t", v); }
+
+Value Value::float64(double v)
+{
+    Value value;
+    value.type = "d";
+    value.real = v;
+    return value;
+}
+
+Value Value::string(std::string v)
+{
+    Value value;
+    value.type = "s";
+    value.text = std::move(v);
+    return value;
+}
+
+Value Value::object_path(std::string v)
+{
+    Value value;
+    value.type = "o";
+    value.text = std::move(v);
+    return value;
+}
+
+Value Value::signature(std::string v)
+{
+    Value value;
+    value.type = "g";
+    value.text = std::move(v);
+    return value;
+}
+
+Value Value::variant(Value inner)
+{
+    Value value;
+    value.type = "v";
+    value.items.push_back(std::move(inner));
+    return value;
+}
+
+Value Value::array(std::string element_type, std::vector<Value> elements)
+{
+    Value value;
+    value.type = "a" + element_type;
+    value.items = std::move(elements);
+    return value;
+}
+
+Value Value::structure(std::vector<Value> fields)
+{
+    Value value;
+    value.type = "(";
+    for (Value const& field : fields)
+        value.type += field.type;
+    value.type += ")";
+    value.items = std::move(fields);
+    return value;
+}
+
+Value Value::dict_entry(Value key, Value value_of)
+{
+    Value value;
+    value.type = "{" + key.type + value_of.type + "}";
+    value.items.push_back(std::move(key));
+    value.items.push_back(std::move(value_of));
+    return value;
+}
+
+Value const* Value::find(std::string_view key) const
+{
+    if (!type.starts_with("a{"))
+        return nullptr;
+    for (Value const& entry : items) {
+        if (entry.items.size() == 2 && entry.items[0].text == key)
+            return &entry.items[1];
+    }
+    return nullptr;
+}
+
+// --- Writing --------------------------------------------------------------------------
 
 void Writer::byte(std::uint8_t value) { m_bytes.push_back(value); }
 
 void Writer::boolean(bool value) { uint32(value ? 1 : 0); }
+
+void Writer::int16(std::int16_t value) { uint16(static_cast<std::uint16_t>(value)); }
+
+void Writer::uint16(std::uint16_t value)
+{
+    pad(m_bytes, 2);
+    m_bytes.push_back(static_cast<std::uint8_t>(value));
+    m_bytes.push_back(static_cast<std::uint8_t>(value >> 8));
+}
 
 void Writer::int32(std::int32_t value) { uint32(static_cast<std::uint32_t>(value)); }
 
@@ -66,6 +401,78 @@ void Writer::uint32(std::uint32_t value)
 {
     pad(m_bytes, 4);
     put32(m_bytes, value);
+}
+
+void Writer::int64(std::int64_t value) { uint64(static_cast<std::uint64_t>(value)); }
+
+void Writer::uint64(std::uint64_t value)
+{
+    pad(m_bytes, 8);
+    for (int shift = 0; shift < 64; shift += 8)
+        m_bytes.push_back(static_cast<std::uint8_t>(value >> shift));
+}
+
+void Writer::float64(double value) { uint64(std::bit_cast<std::uint64_t>(value)); }
+
+void Writer::reference(std::string_view bus_name, std::string_view path)
+{
+    align(8);
+    string(bus_name);
+    string(path);
+}
+
+bool Writer::variant(Value const& value)
+{
+    if (!single_complete_type(value.type))
+        return false;
+    signature(value.type);
+    return this->value(value);
+}
+
+bool Writer::value(Value const& value)
+{
+    if (value.type.empty())
+        return false;
+    switch (value.type[0]) {
+    case 'y': byte(static_cast<std::uint8_t>(value.number)); return value.type.size() == 1;
+    case 'b': boolean(value.number != 0); return value.type.size() == 1;
+    case 'n': int16(static_cast<std::int16_t>(value.number)); return value.type.size() == 1;
+    case 'q': uint16(static_cast<std::uint16_t>(value.number)); return value.type.size() == 1;
+    case 'i': int32(static_cast<std::int32_t>(value.number)); return value.type.size() == 1;
+    case 'u':
+    case 'h': uint32(static_cast<std::uint32_t>(value.number)); return value.type.size() == 1;
+    case 'x': int64(static_cast<std::int64_t>(value.number)); return value.type.size() == 1;
+    case 't': uint64(value.number); return value.type.size() == 1;
+    case 'd': float64(value.real); return value.type.size() == 1;
+    case 's': string(value.text); return value.type.size() == 1;
+    case 'o': string(value.text); return value.type.size() == 1 && valid_object_path(value.text);
+    case 'g': signature(value.text); return value.type.size() == 1 && valid_signature(value.text);
+    case 'v': return value.type.size() == 1 && value.items.size() == 1 && variant(value.items[0]);
+    case 'a': {
+        std::string_view const element = std::string_view(value.type).substr(1);
+        if (!single_complete_type(value.type))
+            return false;
+        bool fine = true;
+        array(alignment_of(element[0]), [&] {
+            for (Value const& item : value.items)
+                fine = item.type == element && this->value(item) && fine;
+        });
+        return fine;
+    }
+    case '(':
+    case '{': {
+        align(8);
+        std::string inner;
+        bool fine = true;
+        for (Value const& item : value.items) {
+            inner += item.type;
+            fine = this->value(item) && fine;
+        }
+        return fine && value.type.size() == inner.size() + 2 && std::string_view(value.type).substr(1, inner.size()) == inner;
+    }
+    default:
+        return false;
+    }
 }
 
 void Writer::string(std::string_view text)
@@ -172,28 +579,243 @@ std::optional<std::uint32_t> Reader::uint32()
     return value;
 }
 
+template <typename T>
+std::optional<T> Reader::fixed(std::size_t size)
+{
+    if (m_failed || !align(size) || m_bytes.size() - m_at < size) {
+        m_failed = true;
+        return std::nullopt;
+    }
+    std::uint64_t bits = 0;
+    for (std::size_t i = 0; i < size; ++i)
+        bits |= static_cast<std::uint64_t>(m_bytes[m_at + i]) << (8 * i);
+    m_at += size;
+    return static_cast<T>(bits);
+}
+
+std::optional<bool> Reader::boolean()
+{
+    std::optional<std::uint32_t> const value = uint32();
+    if (!value || *value > 1) {
+        m_failed = true;
+        return std::nullopt;
+    }
+    return *value == 1;
+}
+
+std::optional<std::int16_t> Reader::int16() { return fixed<std::int16_t>(2); }
+std::optional<std::uint16_t> Reader::uint16() { return fixed<std::uint16_t>(2); }
+std::optional<std::int32_t> Reader::int32() { return fixed<std::int32_t>(4); }
+std::optional<std::int64_t> Reader::int64() { return fixed<std::int64_t>(8); }
+std::optional<std::uint64_t> Reader::uint64() { return fixed<std::uint64_t>(8); }
+
+std::optional<double> Reader::float64()
+{
+    std::optional<std::uint64_t> const bits = uint64();
+    if (!bits)
+        return std::nullopt;
+    return std::bit_cast<double>(*bits);
+}
+
 std::optional<std::string> Reader::string()
 {
     std::optional<std::uint32_t> const length = uint32();
-    if (!length || *length >= m_bytes.size() - m_at) { // its bytes and the NUL after them
+    // Its bytes and the NUL after them, which must be one.
+    if (!length || *length >= m_bytes.size() - m_at || m_bytes[m_at + *length] != 0) {
         m_failed = true;
         return std::nullopt;
     }
     std::string text(reinterpret_cast<char const*>(m_bytes.data() + m_at), *length);
+    if (!valid_utf8(text)) {
+        m_failed = true;
+        return std::nullopt;
+    }
     m_at += *length + 1;
     return text;
+}
+
+std::optional<std::string> Reader::object_path()
+{
+    std::optional<std::string> path = string();
+    if (path && !valid_object_path(*path)) {
+        m_failed = true;
+        return std::nullopt;
+    }
+    return path;
 }
 
 std::optional<std::string> Reader::signature()
 {
     std::optional<std::uint8_t> const length = byte();
-    if (!length || *length >= m_bytes.size() - m_at) {
+    if (!length || *length >= m_bytes.size() - m_at || m_bytes[m_at + *length] != 0) {
         m_failed = true;
         return std::nullopt;
     }
     std::string text(reinterpret_cast<char const*>(m_bytes.data() + m_at), *length);
+    if (!valid_signature(text)) {
+        m_failed = true;
+        return std::nullopt;
+    }
     m_at += static_cast<std::size_t>(*length) + 1;
     return text;
+}
+
+std::optional<Value> Reader::value(std::string_view type)
+{
+    if (!single_complete_type(type)) {
+        m_failed = true;
+        return std::nullopt;
+    }
+    return value_at(type, 0, 0, 0);
+}
+
+std::optional<std::vector<Value>> Reader::values(std::string_view signature)
+{
+    if (!valid_signature(signature)) {
+        m_failed = true;
+        return std::nullopt;
+    }
+    std::vector<Value> values;
+    std::size_t at = 0;
+    while (at < signature.size()) {
+        std::size_t const length = complete_type_length(signature, at);
+        std::optional<Value> one = value_at(signature.substr(at, length), 0, 0, 0);
+        if (!one)
+            return std::nullopt;
+        values.push_back(std::move(*one));
+        at += length;
+    }
+    return values;
+}
+
+std::optional<Value> Reader::value_at(std::string_view type, int arrays, int structs, int depth)
+{
+    auto const fail = [this]() -> std::optional<Value> {
+        m_failed = true;
+        return std::nullopt;
+    };
+    if (m_failed || type.empty())
+        return fail();
+    Value value;
+    value.type = std::string(type);
+    switch (type[0]) {
+    case 'y': {
+        std::optional<std::uint8_t> const v = byte();
+        if (!v)
+            return fail();
+        value.number = *v;
+        return value;
+    }
+    case 'b': {
+        std::optional<bool> const v = boolean();
+        if (!v)
+            return fail();
+        value.number = *v ? 1 : 0;
+        return value;
+    }
+    case 'n': {
+        std::optional<std::int16_t> const v = int16();
+        if (!v)
+            return fail();
+        value.number = static_cast<std::uint64_t>(static_cast<std::int64_t>(*v));
+        return value;
+    }
+    case 'q': {
+        std::optional<std::uint16_t> const v = uint16();
+        if (!v)
+            return fail();
+        value.number = *v;
+        return value;
+    }
+    case 'i': {
+        std::optional<std::int32_t> const v = int32();
+        if (!v)
+            return fail();
+        value.number = static_cast<std::uint64_t>(static_cast<std::int64_t>(*v));
+        return value;
+    }
+    case 'u':
+    case 'h': {
+        std::optional<std::uint32_t> const v = uint32();
+        if (!v)
+            return fail();
+        value.number = *v;
+        return value;
+    }
+    case 'x':
+    case 't': {
+        std::optional<std::uint64_t> const v = uint64();
+        if (!v)
+            return fail();
+        value.number = *v;
+        return value;
+    }
+    case 'd': {
+        std::optional<double> const v = float64();
+        if (!v)
+            return fail();
+        value.real = *v;
+        return value;
+    }
+    case 's':
+    case 'o':
+    case 'g': {
+        std::optional<std::string> v = type[0] == 's' ? string() : type[0] == 'o' ? object_path() : signature();
+        if (!v)
+            return fail();
+        value.text = std::move(*v);
+        return value;
+    }
+    case 'v': {
+        if (depth + 1 > deepest_total)
+            return fail();
+        std::optional<std::string> const inner = signature();
+        if (!inner || !single_complete_type(*inner))
+            return fail();
+        std::optional<Value> held = value_at(*inner, arrays, structs, depth + 1);
+        if (!held)
+            return fail();
+        value.items.push_back(std::move(*held));
+        return value;
+    }
+    case 'a': {
+        if (arrays + 1 > deepest_arrays || depth + 1 > deepest_total)
+            return fail();
+        std::optional<std::uint32_t> const length = uint32();
+        std::string_view const element = type.substr(1);
+        // The padding before the first element is there even when the
+        // array is empty, and is not counted in its length.
+        if (!length || *length > longest_array || !align(alignment_of(element[0])) || *length > m_bytes.size() - m_at)
+            return fail();
+        std::size_t const end = m_at + *length;
+        while (m_at < end) {
+            std::optional<Value> item = value_at(element, arrays + 1, structs, depth + 1);
+            if (!item || m_at > end)
+                return fail();
+            value.items.push_back(std::move(*item));
+        }
+        return value;
+    }
+    case '(':
+    case '{': {
+        if (structs + 1 > deepest_structs || depth + 1 > deepest_total || !align(8))
+            return fail();
+        std::size_t at = 1;
+        while (at < type.size() - 1) {
+            std::size_t const length = complete_type_length(type, at);
+            if (length == 0)
+                return fail();
+            std::optional<Value> field = value_at(type.substr(at, length), arrays, structs + 1, depth + 1);
+            if (!field)
+                return fail();
+            value.items.push_back(std::move(*field));
+            at += length;
+        }
+        return value;
+    }
+    default:
+        return fail();
+    }
 }
 
 std::optional<std::vector<std::string>> Reader::string_array()
@@ -238,7 +860,7 @@ std::vector<std::uint8_t> encode(Message const& message)
                 header.string(value);
         };
         text_field(Path, "o", message.path);
-        text_field(Interface, "s", message.interface);
+        text_field(InterfaceField, "s", message.interface);
         text_field(Member, "s", message.member);
         text_field(ErrorName, "s", message.error_name);
         if (message.reply_serial != 0) {
@@ -319,7 +941,7 @@ std::optional<Message> decode(std::span<std::uint8_t const> bytes, std::size_t& 
                 return std::nullopt;
             switch (*field) {
             case Path: message.path = std::move(*value); break;
-            case Interface: message.interface = std::move(*value); break;
+            case InterfaceField: message.interface = std::move(*value); break;
             case Member: message.member = std::move(*value); break;
             case ErrorName: message.error_name = std::move(*value); break;
             case Destination: message.destination = std::move(*value); break;
@@ -338,9 +960,9 @@ std::optional<Message> decode(std::span<std::uint8_t const> bytes, std::size_t& 
                 return std::nullopt;
             if (*field == ReplySerial)
                 message.reply_serial = *value;
-        } else {
-            // A field of a kind no header field has: the header cannot be
-            // walked past it.
+        } else if (!single_complete_type(*kind) || !fields.value(*kind)) {
+            // A field of another kind (one a later version may add) is
+            // passed over; one that does not parse ends the header.
             return std::nullopt;
         }
     }
@@ -628,6 +1250,360 @@ std::optional<Message> Connection::receive(int timeout_ms, int also_fd)
         }
         m_pending.insert(m_pending.end(), buffer, buffer + got);
     }
+}
+
+// --- Being a service --------------------------------------------------------------
+
+Reply Reply::failure(std::string name, std::string text)
+{
+    Reply reply;
+    reply.error = std::move(name);
+    reply.error_text = std::move(text);
+    return reply;
+}
+
+namespace {
+
+constexpr std::string_view properties_interface = "org.freedesktop.DBus.Properties";
+constexpr std::string_view introspectable_interface = "org.freedesktop.DBus.Introspectable";
+constexpr std::string_view peer_interface = "org.freedesktop.DBus.Peer";
+
+// The standard interfaces' own introspection ("Standard Interfaces").
+constexpr std::string_view standard_introspection
+    = "  <interface name=\"org.freedesktop.DBus.Introspectable\">\n"
+      "    <method name=\"Introspect\"><arg name=\"xml_data\" type=\"s\" direction=\"out\"/></method>\n"
+      "  </interface>\n"
+      "  <interface name=\"org.freedesktop.DBus.Peer\">\n"
+      "    <method name=\"Ping\"/>\n"
+      "    <method name=\"GetMachineId\"><arg name=\"machine_uuid\" type=\"s\" direction=\"out\"/></method>\n"
+      "  </interface>\n"
+      "  <interface name=\"org.freedesktop.DBus.Properties\">\n"
+      "    <method name=\"Get\"><arg name=\"interface_name\" type=\"s\" direction=\"in\"/>"
+      "<arg name=\"property_name\" type=\"s\" direction=\"in\"/><arg name=\"value\" type=\"v\" direction=\"out\"/></method>\n"
+      "    <method name=\"GetAll\"><arg name=\"interface_name\" type=\"s\" direction=\"in\"/>"
+      "<arg name=\"props\" type=\"a{sv}\" direction=\"out\"/></method>\n"
+      "    <method name=\"Set\"><arg name=\"interface_name\" type=\"s\" direction=\"in\"/>"
+      "<arg name=\"property_name\" type=\"s\" direction=\"in\"/><arg name=\"value\" type=\"v\" direction=\"in\"/></method>\n"
+      "    <signal name=\"PropertiesChanged\"><arg name=\"interface_name\" type=\"s\"/>"
+      "<arg name=\"changed_properties\" type=\"a{sv}\"/><arg name=\"invalidated_properties\" type=\"as\"/></signal>\n"
+      "  </interface>\n";
+
+// The machine's id, as the bus has it (Peer.GetMachineId).
+std::string machine_id()
+{
+    for (char const* const path : { "/etc/machine-id", "/var/lib/dbus/machine-id" }) {
+        std::ifstream in(path);
+        std::string id;
+        if (in && std::getline(in, id) && id.size() == 32)
+            return id;
+    }
+    return std::string(32, '0');
+}
+
+}
+
+Service::Service(Connection& connection)
+    : m_connection(&connection)
+{
+}
+
+void Service::add_object(std::string path, std::vector<std::shared_ptr<Interface const>> interfaces)
+{
+    m_objects[std::move(path)] = std::move(interfaces);
+}
+
+void Service::add_subtree(std::string prefix, ObjectResolver resolver)
+{
+    m_subtrees.emplace_back(std::move(prefix), std::move(resolver));
+}
+
+void Service::remove_object(std::string const& path) { m_objects.erase(path); }
+
+std::optional<std::vector<std::shared_ptr<Interface const>>> Service::interfaces_at(std::string_view path) const
+{
+    if (auto const found = m_objects.find(path); found != m_objects.end())
+        return found->second;
+    for (auto const& [prefix, resolver] : m_subtrees) {
+        if (path.starts_with(prefix) && path.size() > prefix.size())
+            return resolver(path);
+    }
+    return std::nullopt;
+}
+
+std::string Service::introspect(std::string const& path) const
+{
+    std::string xml = "<!DOCTYPE node PUBLIC \"-//freedesktop//DTD D-BUS Object Introspection 1.0//EN\"\n"
+                      "\"http://www.freedesktop.org/standards/dbus/1.0/introspect.dtd\">\n<node>\n";
+    xml += standard_introspection;
+    if (std::optional<std::vector<std::shared_ptr<Interface const>>> const interfaces = interfaces_at(path)) {
+        for (std::shared_ptr<Interface const> const& interface : *interfaces)
+            xml += interface->introspection;
+    }
+    // The objects below this one, by the next element of their paths.
+    std::string const below = path == "/" ? "/" : path + "/";
+    std::string last;
+    for (auto const& [object, interfaces] : m_objects) {
+        if (!object.starts_with(below) || object.size() == below.size())
+            continue;
+        std::string const child = object.substr(below.size(), object.find('/', below.size()) - below.size());
+        if (child != last)
+            xml += "  <node name=\"" + child + "\"/>\n";
+        last = child;
+    }
+    return xml + "</node>\n";
+}
+
+void Service::answer(Message const& call, Reply reply)
+{
+    if (call.no_reply_expected)
+        return;
+    Message message;
+    message.reply_serial = call.serial;
+    message.destination = call.sender;
+    if (!reply.error.empty()) {
+        message.type = MessageType::Error;
+        message.error_name = std::move(reply.error);
+        message.signature = "s";
+        Writer body;
+        body.string(reply.error_text);
+        message.body = body.take();
+    } else {
+        message.type = MessageType::MethodReturn;
+        message.signature = std::move(reply.signature);
+        message.body = reply.body.take();
+    }
+    m_connection->send(std::move(message));
+}
+
+bool Service::dispatch(Message const& call)
+{
+    if (call.type != MessageType::MethodCall)
+        return false;
+    std::string const& path = call.path;
+    if (call.interface == peer_interface || (call.interface.empty() && (call.member == "Ping" || call.member == "GetMachineId"))) {
+        Reply reply;
+        if (call.member == "GetMachineId") {
+            reply.signature = "s";
+            reply.body.string(machine_id());
+        } else if (call.member != "Ping") {
+            reply = Reply::failure(std::string(error_unknown_method), "Peer has no method " + call.member);
+        }
+        answer(call, std::move(reply));
+        return true;
+    }
+    if (call.interface == introspectable_interface || (call.interface.empty() && call.member == "Introspect")) {
+        Reply reply;
+        if (call.member == "Introspect") {
+            reply.signature = "s";
+            reply.body.string(introspect(path));
+        } else {
+            reply = Reply::failure(std::string(error_unknown_method), "Introspectable has no method " + call.member);
+        }
+        answer(call, std::move(reply));
+        return true;
+    }
+    std::optional<std::vector<std::shared_ptr<Interface const>>> const interfaces = interfaces_at(path);
+    if (!interfaces) {
+        answer(call, Reply::failure(std::string(error_unknown_object), "No object at " + path));
+        return true;
+    }
+    auto const interface_named = [&](std::string_view name) -> Interface const* {
+        for (std::shared_ptr<Interface const> const& interface : *interfaces) {
+            if (interface->name == name)
+                return interface.get();
+        }
+        return nullptr;
+    };
+    if (call.interface == properties_interface) {
+        Reader body(call.body);
+        std::optional<std::vector<Value>> const args = body.values(call.signature);
+        bool const get = call.member == "Get" && call.signature == "ss";
+        bool const get_all = call.member == "GetAll" && call.signature == "s";
+        bool const set = call.member == "Set" && call.signature == "ssv";
+        if (!get && !get_all && !set) {
+            answer(call, Reply::failure(std::string(call.member == "Get" || call.member == "GetAll" || call.member == "Set" ? error_invalid_args : error_unknown_method),
+                             "Properties." + call.member + " with arguments (" + call.signature + ")"));
+            return true;
+        }
+        if (!args) {
+            answer(call, Reply::failure(std::string(error_invalid_args), "The arguments do not parse"));
+            return true;
+        }
+        Interface const* const interface = interface_named((*args)[0].text);
+        if (!interface) {
+            answer(call, Reply::failure(std::string(error_unknown_interface), "No interface " + (*args)[0].text + " at " + path));
+            return true;
+        }
+        Reply reply;
+        if (get_all) {
+            reply.signature = "a{sv}";
+            reply.body.array(8, [&] {
+                for (Interface::Property const& property : interface->properties) {
+                    std::optional<Value> const value = interface->get ? interface->get(path, property.name) : std::nullopt;
+                    if (!value)
+                        continue;
+                    reply.body.align(8);
+                    reply.body.string(property.name);
+                    reply.body.variant(*value);
+                }
+            });
+            answer(call, std::move(reply));
+            return true;
+        }
+        std::string const& name = (*args)[1].text;
+        Interface::Property const* property = nullptr;
+        for (Interface::Property const& candidate : interface->properties) {
+            if (candidate.name == name)
+                property = &candidate;
+        }
+        if (!property) {
+            answer(call, Reply::failure(std::string(error_unknown_property), "No property " + name + " in " + interface->name));
+            return true;
+        }
+        if (get) {
+            std::optional<Value> const value = interface->get ? interface->get(path, name) : std::nullopt;
+            if (!value) {
+                answer(call, Reply::failure(std::string(error_unknown_property), "No property " + name + " here"));
+                return true;
+            }
+            reply.signature = "v";
+            reply.body.variant(*value);
+            answer(call, std::move(reply));
+            return true;
+        }
+        if (!property->writable || !interface->set) {
+            answer(call, Reply::failure(std::string(error_property_read_only), name + " cannot be set"));
+            return true;
+        }
+        Value const& given = (*args)[2].items.front();
+        if (given.type != property->signature) {
+            answer(call, Reply::failure(std::string(error_invalid_args), name + " is of type " + property->signature));
+            return true;
+        }
+        if (std::optional<Reply> refused = interface->set(path, name, given)) {
+            answer(call, std::move(*refused));
+            return true;
+        }
+        answer(call, Reply {});
+        return true;
+    }
+    if (!call.interface.empty()) {
+        Interface const* const interface = interface_named(call.interface);
+        if (!interface) {
+            answer(call, Reply::failure(std::string(error_unknown_interface), "No interface " + call.interface + " at " + path));
+            return true;
+        }
+        std::optional<Reply> reply = interface->call ? interface->call(call) : std::nullopt;
+        if (!reply)
+            reply = Reply::failure(std::string(error_unknown_method), call.interface + " has no method " + call.member + "(" + call.signature + ")");
+        answer(call, std::move(*reply));
+        return true;
+    }
+    // No interface named: the first that has the member answers.
+    for (std::shared_ptr<Interface const> const& interface : *interfaces) {
+        if (std::optional<Reply> reply = interface->call ? interface->call(call) : std::nullopt) {
+            answer(call, std::move(*reply));
+            return true;
+        }
+    }
+    answer(call, Reply::failure(std::string(error_unknown_method), "No method " + call.member + " at " + path));
+    return true;
+}
+
+std::optional<Message> Service::call(Message message, int timeout_ms)
+{
+    std::uint32_t const serial = m_connection->send(std::move(message));
+    if (serial == 0)
+        return std::nullopt;
+    auto const until = std::chrono::steady_clock::now() + std::chrono::milliseconds(timeout_ms);
+    for (;;) {
+        auto const left = std::chrono::duration_cast<std::chrono::milliseconds>(until - std::chrono::steady_clock::now()).count();
+        if (left <= 0)
+            return std::nullopt;
+        std::optional<Message> got = m_connection->receive(static_cast<int>(left));
+        if (!got) {
+            if (m_connection->closed())
+                return std::nullopt;
+            continue;
+        }
+        if (got->reply_serial == serial && (got->type == MessageType::MethodReturn || got->type == MessageType::Error))
+            return got;
+        m_kept.push_back(std::move(*got));
+    }
+}
+
+std::optional<Message> Service::next(int timeout_ms, int also_fd)
+{
+    if (!m_kept.empty()) {
+        Message message = std::move(m_kept.front());
+        m_kept.pop_front();
+        return message;
+    }
+    return m_connection->receive(timeout_ms, also_fd);
+}
+
+std::uint32_t Service::emit(std::string path, std::string interface, std::string member, std::string signature, Writer body,
+    std::string destination)
+{
+    Message message;
+    message.type = MessageType::Signal;
+    message.no_reply_expected = true;
+    message.path = std::move(path);
+    message.interface = std::move(interface);
+    message.member = std::move(member);
+    message.signature = std::move(signature);
+    message.destination = std::move(destination);
+    message.body = body.take();
+    return m_connection->send(std::move(message));
+}
+
+Message Service::method_call(std::string destination, std::string path, std::string interface, std::string member,
+    std::string signature, Writer body)
+{
+    Message message;
+    message.destination = std::move(destination);
+    message.path = std::move(path);
+    message.interface = std::move(interface);
+    message.member = std::move(member);
+    message.signature = std::move(signature);
+    message.body = body.take();
+    return message;
+}
+
+namespace {
+
+constexpr char const* bus_name = "org.freedesktop.DBus";
+constexpr char const* bus_path = "/org/freedesktop/DBus";
+
+}
+
+bool Service::request_name(std::string const& name, std::uint32_t flags, int timeout_ms)
+{
+    Writer body;
+    body.string(name);
+    body.uint32(flags);
+    std::optional<Message> const reply = call(method_call(bus_name, bus_path, bus_name, "RequestName", "su", std::move(body)), timeout_ms);
+    if (!reply || reply->type != MessageType::MethodReturn)
+        return false;
+    Reader answer(reply->body);
+    std::optional<std::uint32_t> const result = answer.uint32();
+    return result && (*result == 1 || *result == 4); // the primary owner now, or already
+}
+
+bool Service::add_match(std::string const& rule, int timeout_ms)
+{
+    Writer body;
+    body.string(rule);
+    std::optional<Message> const reply = call(method_call(bus_name, bus_path, bus_name, "AddMatch", "s", std::move(body)), timeout_ms);
+    return reply && reply->type == MessageType::MethodReturn;
+}
+
+bool Service::remove_match(std::string const& rule, int timeout_ms)
+{
+    Writer body;
+    body.string(rule);
+    std::optional<Message> const reply = call(method_call(bus_name, bus_path, bus_name, "RemoveMatch", "s", std::move(body)), timeout_ms);
+    return reply && reply->type == MessageType::MethodReturn;
 }
 
 }
