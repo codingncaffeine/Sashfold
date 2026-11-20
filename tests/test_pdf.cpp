@@ -1413,8 +1413,10 @@ void test_jbig2(std::string const& fixtures)
 // against OpenJPEG's own decoding: lossless 5/3 exactly, lossy 9/7 within
 // a level (its floating point rounds a little differently), and one with
 // tiles, RPCL, precincts, SOP/EPH and every code-block mode but
-// terminate-all. The full set (29 variants, a 2480 x 3508 page) is
-// checked by the same tool against opj_decompress: all within 1.
+// terminate-all; precincts on tiles off the precinct grid in a
+// position-major order; a signed component (shown plus half its range).
+// The full set (29 variants, a 2480 x 3508 page) is checked by the same
+// tool against opj_decompress: all within 1.
 void test_jpx(std::string const& fixtures)
 {
     struct Case {
@@ -1422,7 +1424,7 @@ void test_jpx(std::string const& fixtures)
         int width, height, components, tolerance;
     };
     for (Case const& c : { Case { "jpx-lossless.jp2", 45, 31, 3, 0 }, Case { "jpx-lossy.j2k", 40, 33, 1, 1 },
-             Case { "jpx-modes.jp2", 52, 37, 3, 0 } }) {
+             Case { "jpx-modes.jp2", 52, 37, 3, 0 }, Case { "jpx-pcrl-offset.j2k", 41, 33, 3, 0 }, Case { "jpx-signed.j2k", 33, 21, 1, 0 } }) {
         std::string const name(c.file);
         Bytes const data = read_file(fixtures + "/jpx/" + name);
         Bytes const truth = read_file(fixtures + "/jpx/" + name.substr(0, name.rfind('.')) + ".raw");

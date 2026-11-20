@@ -159,6 +159,8 @@ bool read_header_markers(Reader& r, Codestream& cs, Defaults& d, bool main)
             r.at -= 2;
             return true;
         }
+        if (marker >= 0xFF30 && marker <= 0xFF3F) // markers without a segment (A.1.4)
+            continue;
         std::uint32_t const length = r.u16();
         if (length < 2 || !r.has(length - 2))
             return false;
@@ -669,11 +671,16 @@ bool read_packets(std::span<std::uint8_t const> data, Defaults const& d, std::ve
             for (int p = 0; p < static_cast<int>(res.precincts.size()); ++p) {
                 int const px = p % res.precincts_w;
                 int const py = p / res.precincts_w;
-                // The precinct's top-left on the image grid.
-                std::int64_t const rx = std::max<std::int64_t>(res.x0, ((res.x0 >> res.pw) + px) << res.pw);
-                std::int64_t const ry = std::max<std::int64_t>(res.y0, ((res.y0 >> res.ph) + py) << res.ph);
-                std::int64_t const gx = std::max<std::int64_t>(tile_x0, (rx << down) * ic.dx);
-                std::int64_t const gy = std::max<std::int64_t>(tile_y0, (ry << down) * ic.dy);
+                // Where the loop over the tile's grid reaches the precinct
+                // (B.12.1.3-5): at its corner on the reference grid, or at
+                // the tile's origin for a precinct that begins before the
+                // resolution does (x = tx0 when trx0 is not on a precinct
+                // boundary). One that begins exactly where the resolution
+                // does is reached at its corner, which may lie past tx0.
+                std::int64_t const sx = static_cast<std::int64_t>((res.x0 >> res.pw) + px) << res.pw;
+                std::int64_t const sy = static_cast<std::int64_t>((res.y0 >> res.ph) + py) << res.ph;
+                std::int64_t const gx = sx < res.x0 ? tile_x0 : std::max<std::int64_t>(tile_x0, (sx << down) * ic.dx);
+                std::int64_t const gy = sy < res.y0 ? tile_y0 : std::max<std::int64_t>(tile_y0, (sy << down) * ic.dy);
                 visits.push_back({ c, r, p, gy, gx });
             }
         }
@@ -1186,9 +1193,12 @@ std::optional<CodecPicture> decode_jpx(std::vector<std::uint8_t> const& data, st
         int depth;
     };
     std::vector<Channel> channels;
-    auto const full = [&](std::size_t c) {
-        // A subsampled component stretched to the image grid.
+    auto const full = [&](std::size_t c, bool as_sample) {
+        // A subsampled component stretched to the image grid. A signed
+        // component's samples are made unsigned by adding half their range,
+        // as PDF readers show them (its palette indices are left alone).
         Component const& ic = cs->components[c];
+        float const offset = as_sample && ic.is_signed ? static_cast<float>(1 << (ic.depth - 1)) : 0.0f;
         std::vector<float> out(static_cast<std::size_t>(width) * static_cast<std::size_t>(height));
         int const gw = grid[c][2] - grid[c][0];
         int const gh = grid[c][3] - grid[c][1];
@@ -1196,7 +1206,7 @@ std::optional<CodecPicture> decode_jpx(std::vector<std::uint8_t> const& data, st
             int const gy = std::clamp((cs->y0 + y) / ic.dy - grid[c][1], 0, gh - 1);
             for (int x = 0; x < width; ++x) {
                 int const gx = std::clamp((cs->x0 + x) / ic.dx - grid[c][0], 0, gw - 1);
-                out[static_cast<std::size_t>(y * width + x)] = image[c][static_cast<std::size_t>(gy * gw + gx)];
+                out[static_cast<std::size_t>(y * width + x)] = image[c][static_cast<std::size_t>(gy * gw + gx)] + offset;
             }
         }
         return out;
@@ -1205,7 +1215,7 @@ std::optional<CodecPicture> decode_jpx(std::vector<std::uint8_t> const& data, st
         for (auto const& [component, column] : jp2->mapping) {
             if (component < 0 || static_cast<std::size_t>(component) >= nc)
                 return std::nullopt;
-            std::vector<float> source = full(static_cast<std::size_t>(component));
+            std::vector<float> source = full(static_cast<std::size_t>(component), column < 0);
             if (column < 0) {
                 channels.push_back({ std::move(source), cs->components[static_cast<std::size_t>(component)].depth });
                 continue;
@@ -1221,7 +1231,7 @@ std::optional<CodecPicture> decode_jpx(std::vector<std::uint8_t> const& data, st
         }
     } else {
         for (std::size_t c = 0; c < nc; ++c)
-            channels.push_back({ full(c), cs->components[c].depth });
+            channels.push_back({ full(c, true), cs->components[c].depth });
     }
     // cdef: which channel is opacity.
     int alpha = -1;

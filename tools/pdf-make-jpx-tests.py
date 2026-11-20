@@ -12,7 +12,7 @@
 #   pdf-make-jpx-tests.py <out-folder>
 #   pdf-make-jpx-tests.py --fixtures <folder>   (test_pdf's: small files
 #       and OpenJPEG's decoding of each as raw 8-bit samples, <name>.raw)
-import os, random, subprocess, sys
+import os, random, struct, subprocess, sys
 from PIL import Image, ImageDraw
 
 fixtures = sys.argv[1] == '--fixtures'
@@ -94,10 +94,33 @@ def fixture(name, mode, size, options, ext):
     open(os.path.join(out_dir, name + '.raw'), 'wb').write(Image.open(truth).convert(mode).tobytes())
 
 
+def signed_fixture(name, size):
+    # Signed gray: a PDF reader shows a sample plus half the range. The
+    # truth is OpenJPEG's decoding (as PGX, at the depth it coded), so mapped.
+    gray = picture('L', size[0], size[1], len(name))
+    source = os.path.join(work, name + '.pgx')
+    with open(source, 'wb') as f:
+        f.write(b'PG ML - 8 %d %d\n' % size)
+        f.write(bytes((v - 128) & 0xFF for v in gray.tobytes()))
+    coded = os.path.join(out_dir, name + '.j2k')
+    subprocess.run(['opj_compress', '-i', source, '-o', coded, '-n', '3'], check=True, stdout=subprocess.DEVNULL)
+    decoded = os.path.join(work, name + '-out.pgx')
+    subprocess.run(['opj_decompress', '-i', coded, '-o', decoded], check=True, stdout=subprocess.DEVNULL)
+    data = open(decoded[:-4] + '_0.pgx', 'rb').read() # one file a component
+    head = data[:data.index(b'\n') + 1].split()
+    depth = int(head[-3])
+    top = (1 << depth) - 1
+    values = struct.unpack('>%db' % (size[0] * size[1]), data[len(b' '.join(head)) + 1:])
+    open(os.path.join(out_dir, name + '.raw'), 'wb').write(bytes(round(min(max(v + (1 << (depth - 1)), 0), top) * 255 / top) for v in values))
+
+
 if fixtures:
     fixture('jpx-lossless', 'RGB', (45, 31), ['-n', '3'], 'jp2')
     fixture('jpx-lossy', 'L', (40, 33), ['-n', '4', '-I', '-r', '12'], 'j2k')
     fixture('jpx-modes', 'RGB', (52, 37), ['-n', '3', '-M', '59', '-p', 'RPCL', '-c', '[16,16]', '-t', '30,20', '-SOP', '-EPH'], 'jp2')
+    # Precincts on a tile grid that starts off the precinct grid, position-major.
+    fixture('jpx-pcrl-offset', 'RGB', (41, 33), ['-n', '3', '-p', 'PCRL', '-c', '[8,8]', '-d', '5,3', '-T', '1,1', '-t', '13,11'], 'j2k')
+    signed_fixture('jpx-signed', (33, 21))
     import shutil
     shutil.rmtree(work)
     sys.exit(0)
