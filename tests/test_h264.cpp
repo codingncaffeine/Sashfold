@@ -322,6 +322,10 @@ int main(int argc, char** argv)
     std::initializer_list<char const*> const tools = { "cavlc-baseline", "cavlc-high", "temporal-direct", "temporal-direct-cavlc", "partitions-all",
         "partitions-all-8x8", "slices", "scaling-matrix", "deblock-offsets", "no-deblock", "constrained-intra", "cropped", "intra-only", "edges",
         "low-qp" };
+    // Interlaced (MBAFF) clips: the processor's decoder's alone, the
+    // hardware paths being handed frames only.
+    std::initializer_list<char const*> const interlaced = { "mbaff-cabac", "mbaff-cavlc", "mbaff-slices", "mbaff-temporal", "mbaff-8x8-cavlc",
+        "mbaff-partitions", "mbaff-bottom-first" };
     for (auto const& [api, api_name] : { std::pair { media::VideoApi::Vulkan, "vulkan" }, std::pair { media::VideoApi::Vaapi, "vaapi" },
              std::pair { media::VideoApi::Software, "software" } }) {
         for (char const* name : clips)
@@ -337,6 +341,23 @@ int main(int argc, char** argv)
             check_decoder(folder, name, media::open_software_h264(media::h264_max_frame_macroblocks, threads), api_name);
         for (char const* name : tools)
             check_decoder(folder + "/../h264", name, media::open_software_h264(media::h264_max_frame_macroblocks, threads), api_name);
+        for (char const* name : interlaced)
+            check_decoder(folder + "/../h264", name, media::open_software_h264(media::h264_max_frame_macroblocks, threads), api_name);
+    }
+    // An interlaced track goes to the processor's decoder, whatever
+    // hardware there is.
+    {
+        Bytes const file = read_file(folder + "/../h264/mbaff-cabac.mp4");
+        media::Mp4Parser parser;
+        CHECK(parser.append(file));
+        Bytes avcc;
+        for (media::Mp4Track const& t : parser.init().tracks) {
+            if (t.kind == media::Mp4Track::Kind::Video)
+                avcc = t.codec_private;
+        }
+        std::string why;
+        std::unique_ptr<media::FrameDecoder> const decoder = media::open_frame_decoder("V_H264", avcc, why);
+        CHECK(decoder && decoder->device().starts_with("software"));
     }
     // Plain Baseline (no constraint_set1_flag) goes to the processor's
     // decoder, whatever hardware there is: the Constrained Baseline

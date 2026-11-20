@@ -18,7 +18,9 @@ command -v ffmpeg >/dev/null || { echo "ffmpeg is needed" >&2; exit 2; }
 make() {
     local name="$1" size="$2"; shift 2
     local w="${size%x*}" h="${size#*x}"
-    ffmpeg -hide_banner -loglevel error -y -f lavfi -i "testsrc2=size=$size:rate=24:duration=1" "$@" -an -pix_fmt yuv420p "$out/$name.mp4"
+    # INPUT: the source; interlaced clips weave two moments into each frame.
+    local input="${INPUT:-testsrc2=size=$size:rate=24:duration=1}"
+    ffmpeg -hide_banner -loglevel error -y -f lavfi -i "$input" "$@" -an -pix_fmt yuv420p "$out/$name.mp4"
     ffmpeg -hide_banner -loglevel error -i "$out/$name.mp4" -an -fps_mode passthrough -f rawvideo -pix_fmt yuv420p - \
         | python3 -I -c '
 import hashlib, sys
@@ -46,4 +48,16 @@ make cropped 170x98 "${x264[@]}" -bf 2
 make intra-only 176x96 -c:v libx264 -crf 24 -g 1 -x264-params "keyint=1"
 make edges 176x96 "${x264[@]}" -bf 2 -vf "scroll=h=0.05:v=0.03" -x264-params "me=umh:merange=32"
 make low-qp 176x96 -c:v libx264 -crf 6 -g 12 -bf 2
+# Interlaced: MBAFF frames (x264 codes no field pictures), each macroblock
+# pair frame or field as x264 chooses. The source is woven from 48 pictures
+# a second (each frame's fields a moment apart, as a camera's are), else
+# x264 finds every pair best coded as frames.
+woven() { INPUT="testsrc2=size=$2:rate=48:duration=1" make "$@" -vf "interlace=scan=${field_order:-tff}"; }
+woven mbaff-cabac 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1"
+woven mbaff-cavlc 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1:cabac=0"
+woven mbaff-slices 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1:slices=4"
+woven mbaff-temporal 176x96 "${x264[@]}" -bf 3 -x264-params "interlaced=1:tff=1:direct=temporal:b-pyramid=none:ref=2"
+woven mbaff-8x8-cavlc 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1:cabac=0:8x8dct=1:partitions=all:ref=3"
+woven mbaff-partitions 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1:partitions=all:subme=7:ref=3:direct=auto"
+field_order=bff woven mbaff-bottom-first 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:bff=1"
 ls -la "$out"

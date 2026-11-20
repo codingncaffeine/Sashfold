@@ -200,9 +200,13 @@ std::unique_ptr<FrameDecoder> open_frame_decoder(std::string const& codec_id, st
         VideoApi api = VideoApi::Any;
         // Baseline that is not Constrained Baseline (no constraint_set1_flag)
         // may use tools hardware decoders do not implement: the processor's
-        // decoder takes it, as ffmpeg keeps such streams off VA-API.
+        // decoder takes it, as ffmpeg keeps such streams off VA-API. So does
+        // an interlaced stream (frame_mbs_only_flag 0: field pictures or
+        // MBAFF frames), which the hardware paths are not handed; one whose
+        // sets come in-band only falls back to it at its first picture.
         if (std::optional<H264DecoderConfiguration> const config = parse_avcc(codec_private); config && !config->sps.empty()) {
-            if (std::optional<H264Sps> const sps = parse_h264_sps(config->sps[0]); sps && sps->profile_idc == 66 && !(sps->constraint_set_flags & 0x40))
+            if (std::optional<H264Sps> const sps = parse_h264_sps(config->sps[0]);
+                sps && ((sps->profile_idc == 66 && !(sps->constraint_set_flags & 0x40)) || !sps->frame_mbs_only))
                 api = VideoApi::Software;
         }
         if (!hardware_video_decoding())
