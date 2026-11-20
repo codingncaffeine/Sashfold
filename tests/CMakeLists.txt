@@ -352,6 +352,9 @@ add_test(NAME shell_focus_events
 # of its own), summaries, a submit button; arrows in a focused scroll box.
 add_test(NAME shell_focus_activation
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/focus-activation.script)
+# The focus ring's look: the accent and a white edge, from the keyboard only.
+add_test(NAME shell_focus_ring
+  COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/focus-ring.script)
 # The keys a page hears: letters, digits, punctuation (key, code, keyCode).
 add_test(NAME shell_key_events
   COMMAND sashfold --script ${CMAKE_CURRENT_SOURCE_DIR}/shell/key-events.script)

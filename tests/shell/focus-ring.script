@@ -1,0 +1,22 @@
+# The focus ring (the UA's :focus-visible { outline: auto }): Tab to a link
+# on a dark page shows two CSS px of the accent around its box and one of
+# white outside that, so it is seen on any background; a press on it gives
+# it the focus without the ring. The link's box is at window x 20..80,
+# y 96..116 (78 px of chrome above the page).
+resize 400 300
+open data:text/html,<style>body{margin:0;background:%23202020}a{display:inline-block;margin:20px;width:60px;height:20px}</style><a id=l href=%23></a>
+assert-pixel 19 108 #202020
+key tab
+assert-focused-id l
+assert-pixel 18 108 #0060df
+assert-pixel 19 108 #0060df
+assert-pixel 17 108 #ffffff
+assert-pixel 16 108 #202020
+assert-pixel 50 95 #0060df
+assert-pixel 50 93 #ffffff
+click 300 250
+assert-focused-id none
+assert-pixel 19 108 #202020
+click 50 108
+assert-focused-id l
+assert-pixel 19 108 #202020

@@ -2588,8 +2588,12 @@ struct Layouter {
             return border.width > 0 && border.style != css::BorderStyle::None
                 && border.style != css::BorderStyle::Hidden;
         };
+        // An outline too — a focused link's focus ring among them — drawn
+        // around each line's piece of the box (css-ui-4 §3.1).
+        bool const outlined = style.outline.automatic
+            || (style.outline.style != css::BorderStyle::None && style.outline.width > 0);
         return style.background_color.a != 0 || style.background_images || draws(style.border_top)
-            || draws(style.border_right) || draws(style.border_bottom) || draws(style.border_left);
+            || draws(style.border_right) || draws(style.border_bottom) || draws(style.border_left) || outlined;
     }
 
     // Whether an inline box has to be painted as a unit of its own rather

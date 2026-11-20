@@ -1472,9 +1472,12 @@ void paint_stacking_context(Context& context, Fragment const& root, bool is_canv
 void paint_flow(Context& context, Fragment const& fragment, bool is_canvas_background_owner);
 
 // css-ui-4 §3: a box's outline, around its border box and `outline-offset`
-// outside it, taking no room. `auto` is the platform's focus ring: two
-// device pixels of the accent the chrome uses. Every style is drawn solid,
-// as the borders are.
+// outside it, taking no room, its corners following the box's border-radius
+// (as both engines draw every outline now). An inline box's outline is drawn
+// around each line's piece of it. `auto` is the platform's focus ring, two
+// toned so that it shows on any page, light or dark: two CSS px of the
+// accent the chrome uses, and one of white outside it. Every other style is
+// drawn solid, as the borders are.
 void paint_outline(Context& context, Fragment const& fragment)
 {
     ComputedStyle const* style = fragment.style;
@@ -1487,23 +1490,27 @@ void paint_outline(Context& context, Fragment const& fragment)
         return;
     if (outline.width <= 0 && !outline.automatic)
         return;
-    float const width = outline.automatic ? 2.0f / context.device_scale : outline.width;
+    float const scale = context.device_scale > 0 ? context.device_scale : 1.0f;
+    float const width = outline.automatic ? 2 * scale : outline.width;
     Color const color = outline.automatic ? Color::rgb(0x00, 0x60, 0xdf) : outline.color;
     if (color.a == 0)
         return;
-    float const left = fragment.x + context.dx - outline.offset - width;
-    float const top = fragment.y + context.dy - outline.offset - width;
-    float const outer_width = fragment.width + 2 * (outline.offset + width);
-    float const outer_height = fragment.height + 2 * (outline.offset + width);
-    if (outer_width <= 0 || outer_height <= 0)
+    RoundedRect const border = rounded_box(context, fragment);
+    RoundedRect const inside = spread_shape(border, 0, 0, outline.offset);
+    RoundedRect const ring = spread_shape(border, 0, 0, outline.offset + width);
+    if (ring.width <= 0 || ring.height <= 0)
         return;
-    auto const ring = [&](float x, float y, float w, float h, float thickness) {
-        context.target.fill_rect(snap(x, y, w, thickness), color);
-        context.target.fill_rect(snap(x, y + h - thickness, w, thickness), color);
-        context.target.fill_rect(snap(x, y + thickness, thickness, h - 2 * thickness), color);
-        context.target.fill_rect(snap(x + w - thickness, y + thickness, thickness, h - 2 * thickness), color);
+    auto const solid = [](Color fill) {
+        return [fill](float, float, Color& out) {
+            out = fill;
+            return true;
+        };
     };
-    ring(left, top, outer_width, outer_height, width);
+    context.target.fill_ring(ring, inside, solid(color));
+    if (outline.automatic) {
+        RoundedRect const halo = spread_shape(border, 0, 0, outline.offset + width + scale);
+        context.target.fill_ring(halo, ring, solid(Color::rgb(0xff, 0xff, 0xff)));
+    }
 }
 
 std::optional<Rect> clip_within(Context const& context, Fragment const& fragment, std::optional<Rect> const& current);
@@ -2242,6 +2249,11 @@ void ink_bounds(Fragment const& box, float& left, float& top, float& right, floa
         if (style.outline.style != css::BorderStyle::None) {
             float const reach = std::max(0.0f, style.outline.width + std::max(0.0f, style.outline.offset)) + 1;
             out_left = out_top = out_right = out_bottom = reach;
+        }
+        // The focus ring: three CSS px at any scale up to four, generously.
+        if (style.outline.automatic) {
+            float const reach = std::max(0.0f, style.outline.offset) + 13;
+            out_left = out_top = out_right = out_bottom = std::max(out_left, reach);
         }
         if (style.box_shadow) {
             for (css::Shadow const& shadow : *style.box_shadow) {
