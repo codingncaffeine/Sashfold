@@ -35,6 +35,21 @@ struct Nv12Picture {
     std::vector<std::uint8_t> chroma; // chroma_width() * 2 * chroma_height()
     int chroma_width() const { return (width + 1) / 2; }
     int chroma_height() const { return (height + 1) / 2; }
+    // A picture that is not 8 bits 4:2:0 (H.264's High 10, High 4:2:2 and
+    // High 4:4:4 profiles, which the processor's decoder reads) comes as
+    // its planes at its own depth and chroma size instead, `luma` and
+    // `chroma` left empty.
+    struct Planar {
+        int bit_depth_luma = 8;
+        int bit_depth_chroma = 8;
+        int chroma_format = 1; // chroma_format_idc: 0 4:0:0 (no chroma planes), 1 4:2:0, 2 4:2:2, 3 4:4:4
+        int chroma_width = 0;
+        int chroma_height = 0;
+        std::vector<std::uint16_t> y; // width * height
+        std::vector<std::uint16_t> cb; // chroma_width * chroma_height
+        std::vector<std::uint16_t> cr;
+    };
+    std::optional<Planar> planar;
 };
 
 // The ways to the hardware, for a caller that wants one in particular.

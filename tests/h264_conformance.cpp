@@ -55,8 +55,40 @@ std::uint64_t digest(std::uint8_t const* data, std::size_t size)
     return h;
 }
 
+// The bytes of a picture's planes as the reconstruction files hold them:
+// 8-bit samples as bytes, deeper ones as 16-bit little-endian words, the
+// chroma planes at their format's size (a 4:0:0 picture's as 4:2:0 planes
+// of mid grey, as the reference decoder writes them).
+std::vector<std::uint8_t> planar_bytes(media::Nv12Picture const& p)
+{
+    media::Nv12Picture::Planar const& q = *p.planar;
+    std::vector<std::uint8_t> out;
+    auto put = [&](std::vector<std::uint16_t> const& plane, int depth) {
+        for (std::uint16_t const v : plane) {
+            out.push_back(static_cast<std::uint8_t>(v));
+            if (depth > 8)
+                out.push_back(static_cast<std::uint8_t>(v >> 8));
+        }
+    };
+    put(q.y, q.bit_depth_luma);
+    if (q.chroma_format == 0) {
+        std::vector<std::uint16_t> const grey(static_cast<std::size_t>(p.chroma_width()) * static_cast<std::size_t>(p.chroma_height()),
+            static_cast<std::uint16_t>(1 << (q.bit_depth_chroma - 1)));
+        put(grey, q.bit_depth_chroma);
+        put(grey, q.bit_depth_chroma);
+    } else {
+        put(q.cb, q.bit_depth_chroma);
+        put(q.cr, q.bit_depth_chroma);
+    }
+    return out;
+}
+
 std::uint64_t digest(media::Nv12Picture const& p)
 {
+    if (p.planar) {
+        std::vector<std::uint8_t> const bytes = planar_bytes(p);
+        return digest(bytes.data(), bytes.size());
+    }
     std::vector<std::uint8_t> planar(p.luma);
     int const cw = p.chroma_width(), ch = p.chroma_height();
     for (int c = 0; c < 2; ++c)
@@ -223,10 +255,12 @@ Result check(std::filesystem::path const& folder, media::VideoApi api, bool play
     std::string why;
     std::vector<std::uint64_t> ours;
     int width = 0, height = 0;
+    std::size_t picture_bytes = 0;
     auto take = [&](media::Nv12Picture const& picture) {
         ours.push_back(digest(picture));
         width = picture.width;
         height = picture.height;
+        picture_bytes = picture.planar ? planar_bytes(picture).size() : 0;
     };
     if (playback) {
         // The way <video> decodes: the best decoder there is, with its
@@ -259,21 +293,33 @@ Result check(std::filesystem::path const& folder, media::VideoApi api, bool play
         r.note = "nothing decoded";
         return r;
     }
-    Bytes const reference = read_file(*yuv);
-    std::size_t const size = static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
-        + 2 * static_cast<std::size_t>((width + 1) / 2) * static_cast<std::size_t>((height + 1) / 2);
+    std::size_t const size = picture_bytes ? picture_bytes
+                                           : static_cast<std::size_t>(width) * static_cast<std::size_t>(height)
+            + 2 * static_cast<std::size_t>((width + 1) / 2) * static_cast<std::size_t>((height + 1) / 2);
+    // The reconstruction a picture at a time (some run to gigabytes).
     std::multiset<std::uint64_t> want;
-    for (std::size_t at = 0; at + size <= reference.size(); at += size)
-        want.insert(digest(reference.data() + at, size));
+    std::ifstream reference(*yuv, std::ios::binary);
+    Bytes picture(size);
+    std::size_t total = 0;
+    while (reference.read(reinterpret_cast<char*>(picture.data()), static_cast<std::streamsize>(size))) {
+        want.insert(digest(picture.data(), size));
+        total += size;
+    }
+    total += static_cast<std::size_t>(reference.gcount());
     r.reference = want.size();
-    for (std::uint64_t const d : ours) {
-        auto const it = want.find(d);
+    std::optional<std::size_t> first_unmatched;
+    for (std::size_t i = 0; i < ours.size(); ++i) {
+        auto const it = want.find(ours[i]);
         if (it != want.end()) {
             want.erase(it);
             ++r.matched;
+        } else if (!first_unmatched) {
+            first_unmatched = i;
         }
     }
-    if (reference.size() % size)
+    if (first_unmatched)
+        r.note = "first picture matching none: " + std::to_string(*first_unmatched) + " in decoding order";
+    if (total % size)
         r.note = "reconstruction size is not a whole number of " + std::to_string(width) + "x" + std::to_string(height) + " pictures";
     return r;
 }

@@ -8,6 +8,7 @@
 #include <cstdint>
 #include <cstdlib>
 #include <cstring>
+#include <type_traits>
 #include <vector>
 
 namespace sashfold::media::h264sw {
@@ -16,15 +17,13 @@ namespace {
 
 constexpr std::uint8_t blk_to_raster[16] = { 0, 1, 4, 5, 2, 3, 6, 7, 8, 9, 12, 13, 10, 11, 14, 15 };
 
-// Table 8-15.
-int chroma_qp(int qp_y, int offset)
+// 8.5.8 and Table 8-15: QPC of a chroma component (without QpBdOffsetC).
+int chroma_qp(int qp_y, int offset, int qp_bd_offset_chroma)
 {
     static constexpr std::uint8_t table[22] = { 29, 30, 31, 32, 32, 33, 34, 34, 35, 35, 36, 36, 37, 37, 37, 38, 38, 38, 39, 39, 39, 39 };
-    int const qpi = std::clamp(qp_y + offset, 0, 51);
+    int const qpi = std::clamp(qp_y + offset, -qp_bd_offset_chroma, 51);
     return qpi < 30 ? qpi : table[qpi - 30];
 }
-
-std::uint8_t clip1(int v) { return static_cast<std::uint8_t>(std::clamp(v, 0, 255)); }
 
 struct Neighbor {
     bool available = false;
@@ -574,17 +573,18 @@ constexpr int mc_stride = 16;
 
 // A reference window with its edges repeated: rows y - top .. y + h + bottom
 // and columns x - left .. x + w + right of `data`, at `pitch`.
+template<typename P>
 struct EdgeWindow {
     static constexpr int pitch = 32;
-    std::uint8_t samples[pitch * (16 + 6)];
+    P samples[pitch * (16 + 6)];
 };
 
 // `src` for a block at (x, y) of w x h whose filter reads `before` samples
 // above and left of it and `after` below and right: the plane itself (a
 // frame's, or a field's every other row: `pitch` apart), or `window`
 // filled from it.
-std::uint8_t const* mc_source(std::uint8_t const* data, int pitch, int width, int height, int x, int y, int w, int h, int before, int after,
-    EdgeWindow& window, int& stride)
+template<typename P>
+P const* mc_source(P const* data, int pitch, int width, int height, int x, int y, int w, int h, int before, int after, EdgeWindow<P>& window, int& stride)
 {
     if (x - before >= 0 && y - before >= 0 && x + w + after <= width && y + h + after <= height) {
         stride = pitch;
@@ -592,96 +592,99 @@ std::uint8_t const* mc_source(std::uint8_t const* data, int pitch, int width, in
     }
     int const rows = h + before + after, cols = w + before + after;
     for (int r = 0; r < rows; ++r) {
-        std::uint8_t const* row = data + static_cast<std::ptrdiff_t>(std::clamp(y - before + r, 0, height - 1)) * pitch;
-        std::uint8_t* out = window.samples + r * EdgeWindow::pitch;
+        P const* row = data + static_cast<std::ptrdiff_t>(std::clamp(y - before + r, 0, height - 1)) * pitch;
+        P* out = window.samples + r * EdgeWindow<P>::pitch;
         for (int c = 0; c < cols; ++c)
             out[c] = row[std::clamp(x - before + c, 0, width - 1)];
     }
-    stride = EdgeWindow::pitch;
-    return window.samples + before * EdgeWindow::pitch + before;
+    stride = EdgeWindow<P>::pitch;
+    return window.samples + before * EdgeWindow<P>::pitch + before;
 }
 
 inline int six_tap(int a, int b, int c, int d, int e, int f) { return a - 5 * b + 20 * c + 20 * d - 5 * e + f; }
 
 // b (8-241): the horizontal half samples of the block's rows.
-template<int W>
-void half_h(std::uint8_t* dst, std::uint8_t const* src, int stride, int h)
+template<int W, typename P>
+void half_h(P* dst, P const* src, int stride, int h, int max)
 {
     for (int r = 0; r < h; ++r, src += stride, dst += mc_stride)
         for (int c = 0; c < W; ++c)
-            dst[c] = clip1((six_tap(src[c - 2], src[c - 1], src[c], src[c + 1], src[c + 2], src[c + 3]) + 16) >> 5);
+            dst[c] = static_cast<P>(clip_sample<P>((six_tap(src[c - 2], src[c - 1], src[c], src[c + 1], src[c + 2], src[c + 3]) + 16) >> 5, max));
 }
 
 // h (8-242): the vertical half samples.
-template<int W>
-void half_v(std::uint8_t* dst, std::uint8_t const* src, int stride, int h)
+template<int W, typename P>
+void half_v(P* dst, P const* src, int stride, int h, int max)
 {
     for (int r = 0; r < h; ++r, src += stride, dst += mc_stride)
         for (int c = 0; c < W; ++c)
-            dst[c] = clip1((six_tap(src[c - 2 * stride], src[c - stride], src[c], src[c + stride], src[c + 2 * stride], src[c + 3 * stride]) + 16) >> 5);
+            dst[c] = static_cast<P>(clip_sample<P>(
+                (six_tap(src[c - 2 * stride], src[c - stride], src[c], src[c + stride], src[c + 2 * stride], src[c + 3 * stride]) + 16) >> 5, max));
 }
 
 // j (8-243, 8-244): the centre half samples, from the unclipped horizontal
-// intermediates of rows -2 .. h + 2.
-template<int W>
-void half_hv(std::uint8_t* dst, std::uint8_t const* src, int stride, int h)
+// intermediates of rows -2 .. h + 2 (16 bits hold them at 8 bits a sample;
+// 32 deeper).
+template<int W, typename P>
+void half_hv(P* dst, P const* src, int stride, int h, int max)
 {
-    std::int16_t mid[(16 + 5) * 16];
-    std::uint8_t const* s = src - 2 * stride;
+    using Mid = std::conditional_t<sizeof(P) == 1, std::int16_t, std::int32_t>;
+    Mid mid[(16 + 5) * 16];
+    P const* s = src - 2 * stride;
     for (int r = 0; r < h + 5; ++r, s += stride)
         for (int c = 0; c < W; ++c)
-            mid[r * 16 + c] = static_cast<std::int16_t>(six_tap(s[c - 2], s[c - 1], s[c], s[c + 1], s[c + 2], s[c + 3]));
+            mid[r * 16 + c] = static_cast<Mid>(six_tap(s[c - 2], s[c - 1], s[c], s[c + 1], s[c + 2], s[c + 3]));
     for (int r = 0; r < h; ++r, dst += mc_stride)
         for (int c = 0; c < W; ++c) {
-            std::int16_t const* m = mid + r * 16 + c;
-            dst[c] = clip1((six_tap(m[0], m[16], m[32], m[48], m[64], m[80]) + 512) >> 10);
+            Mid const* m = mid + r * 16 + c;
+            dst[c] = static_cast<P>(clip_sample<P>((six_tap(m[0], m[16], m[32], m[48], m[64], m[80]) + 512) >> 10, max));
         }
 }
 
-template<int W>
-void average(std::uint8_t* dst, std::uint8_t const* a, int a_stride, std::uint8_t const* b, int b_stride, int h)
+template<int W, typename P>
+void average(P* dst, P const* a, int a_stride, P const* b, int b_stride, int h)
 {
     for (int r = 0; r < h; ++r, dst += mc_stride, a += a_stride, b += b_stride)
         for (int c = 0; c < W; ++c)
-            dst[c] = static_cast<std::uint8_t>((a[c] + b[c] + 1) >> 1);
+            dst[c] = static_cast<P>((a[c] + b[c] + 1) >> 1);
 }
 
 // 8.4.2.2.1 for a w x h block at (x, y) with fraction (fx, fy), into `out`
 // (rows of mc_stride).
-template<int W>
-void luma_partition(std::uint8_t const* data, int pitch, int width, int height, int x, int y, int fx, int fy, int h, std::uint8_t* out)
+template<int W, typename P>
+void luma_partition(P const* data, int pitch, int width, int height, int x, int y, int fx, int fy, int h, P* out, int max)
 {
-    EdgeWindow window;
+    EdgeWindow<P> window;
     int stride = 0;
     if (fx == 0 && fy == 0) {
-        std::uint8_t const* src = mc_source(data, pitch, width, height, x, y, W, h, 0, 0, window, stride);
+        P const* src = mc_source(data, pitch, width, height, x, y, W, h, 0, 0, window, stride);
         for (int r = 0; r < h; ++r)
-            std::memcpy(out + r * mc_stride, src + r * stride, W);
+            std::memcpy(out + r * mc_stride, src + r * stride, W * sizeof(P));
         return;
     }
-    std::uint8_t const* g = mc_source(data, pitch, width, height, x, y, W, h, 2, 3, window, stride);
-    std::uint8_t b[mc_stride * 17], hv[mc_stride * 16], j[mc_stride * 16];
+    P const* g = mc_source(data, pitch, width, height, x, y, W, h, 2, 3, window, stride);
+    P b[mc_stride * 17], hv[mc_stride * 16], j[mc_stride * 16];
     switch (fy * 4 + fx) {
     case 1: // a
-        half_h<W>(b, g, stride, h);
+        half_h<W>(b, g, stride, h, max);
         average<W>(out, g, stride, b, mc_stride, h);
         break;
     case 2: // b
-        half_h<W>(out, g, stride, h);
+        half_h<W>(out, g, stride, h, max);
         break;
     case 3: // c
-        half_h<W>(b, g, stride, h);
+        half_h<W>(b, g, stride, h, max);
         average<W>(out, g + 1, stride, b, mc_stride, h);
         break;
     case 4: // d
-        half_v<W>(hv, g, stride, h);
+        half_v<W>(hv, g, stride, h, max);
         average<W>(out, g, stride, hv, mc_stride, h);
         break;
     case 8: // h
-        half_v<W>(out, g, stride, h);
+        half_v<W>(out, g, stride, h, max);
         break;
     case 12: // n
-        half_v<W>(hv, g, stride, h);
+        half_v<W>(hv, g, stride, h, max);
         average<W>(out, g + stride, stride, hv, mc_stride, h);
         break;
     case 5: // e
@@ -689,48 +692,51 @@ void luma_partition(std::uint8_t const* data, int pitch, int width, int height, 
     case 13: // p
     case 15: // r
         // b of the block's rows (one row down for p and r), h of its columns (one right for g and r)
-        half_h<W>(b, g + (fy == 3 ? stride : 0), stride, h);
-        half_v<W>(hv, g + (fx == 3 ? 1 : 0), stride, h);
+        half_h<W>(b, g + (fy == 3 ? stride : 0), stride, h, max);
+        half_v<W>(hv, g + (fx == 3 ? 1 : 0), stride, h, max);
         average<W>(out, b, mc_stride, hv, mc_stride, h);
         break;
     case 6: // f
     case 14: // q
-        half_hv<W>(j, g, stride, h);
-        half_h<W>(b, g + (fy == 3 ? stride : 0), stride, h);
+        half_hv<W>(j, g, stride, h, max);
+        half_h<W>(b, g + (fy == 3 ? stride : 0), stride, h, max);
         average<W>(out, j, mc_stride, b, mc_stride, h);
         break;
     case 9: // i
     case 11: // k
-        half_hv<W>(j, g, stride, h);
-        half_v<W>(hv, g + (fx == 3 ? 1 : 0), stride, h);
+        half_hv<W>(j, g, stride, h, max);
+        half_v<W>(hv, g + (fx == 3 ? 1 : 0), stride, h, max);
         average<W>(out, j, mc_stride, hv, mc_stride, h);
         break;
     default: // 10, j
-        half_hv<W>(out, g, stride, h);
+        half_hv<W>(out, g, stride, h, max);
         break;
     }
 }
 
-void luma_partition(std::uint8_t const* data, int pitch, int width, int height, int x, int y, int fx, int fy, int w, int h, std::uint8_t* out)
+template<typename P>
+void luma_partition(P const* data, int pitch, int width, int height, int x, int y, int fx, int fy, int w, int h, P* out, int max)
 {
     if (w == 16)
-        luma_partition<16>(data, pitch, width, height, x, y, fx, fy, h, out);
+        luma_partition<16>(data, pitch, width, height, x, y, fx, fy, h, out, max);
     else if (w == 8)
-        luma_partition<8>(data, pitch, width, height, x, y, fx, fy, h, out);
+        luma_partition<8>(data, pitch, width, height, x, y, fx, fy, h, out, max);
     else
-        luma_partition<4>(data, pitch, width, height, x, y, fx, fy, h, out);
+        luma_partition<4>(data, pitch, width, height, x, y, fx, fy, h, out, max);
 }
 
-// 8.4.2.2.2 for a w x h chroma block at (x, y) with fraction (fx, fy).
-void chroma_partition(std::uint8_t const* data, int pitch, int width, int height, int x, int y, int fx, int fy, int w, int h, std::uint8_t* out)
+// 8.4.2.2.2 for a w x h chroma block at (x, y) with fraction (fx, fy)
+// in eighths of a chroma sample.
+template<typename P>
+void chroma_partition(P const* data, int pitch, int width, int height, int x, int y, int fx, int fy, int w, int h, P* out)
 {
-    EdgeWindow window;
+    EdgeWindow<P> window;
     int stride = 0;
-    std::uint8_t const* s = mc_source(data, pitch, width, height, x, y, w, h, 0, 1, window, stride);
+    P const* s = mc_source(data, pitch, width, height, x, y, w, h, 0, 1, window, stride);
     int const a = (8 - fx) * (8 - fy), b = fx * (8 - fy), c = (8 - fx) * fy, d = fx * fy;
     for (int r = 0; r < h; ++r, s += stride, out += mc_stride)
         for (int i = 0; i < w; ++i)
-            out[i] = static_cast<std::uint8_t>((a * s[i] + b * s[i + 1] + c * s[i + stride] + d * s[i + stride + 1] + 32) >> 6);
+            out[i] = static_cast<P>((a * s[i] + b * s[i + 1] + c * s[i + stride] + d * s[i + stride + 1] + 32) >> 6);
 }
 
 struct Weights {
@@ -785,42 +791,48 @@ Weights weights_for(Slice const& slice, int ref0, int ref1, bool l0, bool l1, in
 }
 
 // 8.4.2.3 over a w x h block: the list predictions into the picture
-// (8-270 to 8-273: default, then explicit or implicit with two lists, then one).
-void weigh_block(std::uint8_t* dst, int stride, std::uint8_t const* p0, std::uint8_t const* p1, bool l0, bool l1, Weights const& w, int bw, int bh)
+// (8-270 to 8-273: default, then explicit or implicit with two lists, then
+// one). The explicit offsets are in the samples' own scale already
+// (8-294 to 8-296: times 2^(bitDepth - 8)).
+template<typename P>
+void weigh_block(P* dst, int stride, P const* p0, P const* p1, bool l0, bool l1, Weights const& w, int bw, int bh, int max)
 {
     for (int r = 0; r < bh; ++r, dst += stride, p0 += mc_stride, p1 += mc_stride) {
         if (l0 && l1 && w.mode == 0) {
             for (int c = 0; c < bw; ++c)
-                dst[c] = static_cast<std::uint8_t>((p0[c] + p1[c] + 1) >> 1);
+                dst[c] = static_cast<P>((p0[c] + p1[c] + 1) >> 1);
         } else if (!(l0 && l1) && w.mode != 1) {
-            std::memcpy(dst, l0 ? p0 : p1, static_cast<std::size_t>(bw));
+            std::memcpy(dst, l0 ? p0 : p1, static_cast<std::size_t>(bw) * sizeof(P));
         } else if (l0 && l1) {
             int const round = 1 << w.log_wd, shift = w.log_wd + 1, o = (w.o0 + w.o1 + 1) >> 1;
             for (int c = 0; c < bw; ++c)
-                dst[c] = clip1(((p0[c] * w.w0 + p1[c] * w.w1 + round) >> shift) + o);
+                dst[c] = static_cast<P>(clip_sample<P>(((p0[c] * w.w0 + p1[c] * w.w1 + round) >> shift) + o, max));
         } else {
-            std::uint8_t const* p = l0 ? p0 : p1;
+            P const* p = l0 ? p0 : p1;
             int const wt = l0 ? w.w0 : w.w1, o = l0 ? w.o0 : w.o1;
             if (w.log_wd >= 1) {
                 int const round = 1 << (w.log_wd - 1);
                 for (int c = 0; c < bw; ++c)
-                    dst[c] = clip1(((p[c] * wt + round) >> w.log_wd) + o);
+                    dst[c] = static_cast<P>(clip_sample<P>(((p[c] * wt + round) >> w.log_wd) + o, max));
             } else {
                 for (int c = 0; c < bw; ++c)
-                    dst[c] = clip1(p[c] * wt + o);
+                    dst[c] = static_cast<P>(clip_sample<P>(p[c] * wt + o, max));
             }
         }
     }
 }
 
 // The macroblock being predicted: where its motion and its samples are.
+template<typename P>
 struct InterTarget {
-    InterTarget(Picture& p, Slice const& s)
-        : pic(p)
+    InterTarget(Frame const& f, Slice const& s)
+        : frame(f)
+        , pic(*f.picture)
         , slice(s)
         , lists(s.list.data())
     {
     }
+    Frame const& frame;
     Picture& pic;
     Slice const& slice;
     std::vector<RefEntry> const* lists; // [2]: the slice's, or an MBAFF field macroblock's fields
@@ -828,15 +840,16 @@ struct InterTarget {
     int bw = 0; // motion blocks per row
     Frame::Place place;
     int mbaff_parity = -1; // an MBAFF field macroblock's parity
-    std::uint8_t* luma = nullptr; // the rows it is made of
-    std::uint8_t* chroma[2] = { nullptr, nullptr };
+    P* luma = nullptr; // the rows it is made of
+    P* chroma[2] = { nullptr, nullptr };
     int luma_stride = 0;
     int chroma_stride = 0;
 };
 
 // Whether the 4x4 blocks of a w4 x h4 rectangle at (x4, y4) of the
 // macroblock share their motion.
-bool same_motion(InterTarget const& t, int x4, int y4, int w4, int h4)
+template<typename P>
+bool same_motion(InterTarget<P> const& t, int x4, int y4, int w4, int h4)
 {
     int const first = t.base + y4 * t.bw + x4;
     for (int y = y4; y < y4 + h4; ++y)
@@ -851,7 +864,8 @@ bool same_motion(InterTarget const& t, int x4, int y4, int w4, int h4)
 }
 
 // One rectangle of the macroblock with one motion: (x4, y4) and its size in 4x4 blocks.
-void predict_rectangle(InterTarget const& t, int x4, int y4, int w4, int h4)
+template<typename P>
+void predict_rectangle(InterTarget<P> const& t, int x4, int y4, int w4, int h4)
 {
     Picture const& pic = t.pic;
     int const i = t.base + y4 * t.bw + x4;
@@ -873,36 +887,65 @@ void predict_rectangle(InterTarget const& t, int x4, int y4, int w4, int h4)
     }
     int const w = w4 * 4, h = h4 * 4;
     int const x0 = t.place.x + x4 * 4, y0 = t.place.y + y4 * 4;
-    alignas(16) std::uint8_t pl[2][mc_stride * 16];
+    Frame const& f = t.frame;
+    // The explicit weights' offsets in the samples' scale (8-294 to 8-296).
+    auto weights = [&](int component) {
+        Weights wt = weights_for(t.slice, refs[0], refs[1], use[0], use[1], component, t.mbaff_parity);
+        if constexpr (sizeof(P) == 2) {
+            int const shift = (component == 0 ? f.bit_depth_luma : f.bit_depth_chroma) - 8;
+            wt.o0 *= 1 << shift;
+            wt.o1 *= 1 << shift;
+        }
+        return wt;
+    };
+    alignas(16) P pl[2][mc_stride * 16];
     for (int list = 0; list < 2; ++list)
         if (use[list])
-            luma_partition(ref_pics[list]->luma(), ref_pics[list]->luma_stride(), pic.width, ref_pics[list]->luma_height(), x0 + (mvs[list].x >> 2),
-                y0 + (mvs[list].y >> 2), mvs[list].x & 3, mvs[list].y & 3, w, h, pl[list]);
-    weigh_block(t.luma + static_cast<std::ptrdiff_t>(y0) * t.luma_stride + x0, t.luma_stride, pl[0], pl[1], use[0], use[1],
-        weights_for(t.slice, refs[0], refs[1], use[0], use[1], 0, t.mbaff_parity), w, h);
-    int const cx0 = x0 / 2, cy0 = y0 / 2;
+            luma_partition(ref_pics[list]->template luma<P>(), ref_pics[list]->luma_stride(), pic.width, ref_pics[list]->luma_height(), x0 + (mvs[list].x >> 2),
+                y0 + (mvs[list].y >> 2), mvs[list].x & 3, mvs[list].y & 3, w, h, pl[list], f.luma_max);
+    weigh_block(t.luma + static_cast<std::ptrdiff_t>(y0) * t.luma_stride + x0, t.luma_stride, pl[0], pl[1], use[0], use[1], weights(0), w, h, f.luma_max);
+    if (f.chroma_format == 0)
+        return;
+    // 8.4.2.2.2: 4:2:0 and 4:2:2 chroma in eighths of a sample across,
+    // eighths (4:2:0) or quarters (4:2:2) down; 4:4:4's as luma's (8-235, 8-236).
+    int const cx0 = x0 >> f.chroma_shift_x, cy0 = y0 >> f.chroma_shift_y;
+    int const cw = w >> f.chroma_shift_x, ch = h >> f.chroma_shift_y;
     for (int c = 0; c < 2; ++c) {
         for (int list = 0; list < 2; ++list) {
             if (!use[list])
                 continue;
             RefEntry const& r = *ref_pics[list];
-            // Table 8-10: between fields of opposite parity, the chroma
-            // vector moves a quarter of a chroma row.
+            if (f.chroma_format == 3) {
+                luma_partition(r.template chroma<P>(c), r.chroma_stride(), pic.chroma_width, r.chroma_height(), x0 + (mvs[list].x >> 2), y0 + (mvs[list].y >> 2),
+                    mvs[list].x & 3, mvs[list].y & 3, w, h, pl[list], f.chroma_max);
+                continue;
+            }
             int mvc_y = mvs[list].y;
-            if (t.place.structure == 2 && r.structure == 1)
-                mvc_y += 2;
-            else if (t.place.structure == 1 && r.structure == 2)
-                mvc_y -= 2;
-            chroma_partition(r.chroma(c), r.chroma_stride(), pic.width / 2, r.luma_height() / 2, cx0 + (mvs[list].x >> 3), cy0 + (mvc_y >> 3),
-                mvs[list].x & 7, mvc_y & 7, w / 2, h / 2, pl[list]);
+            int y_int, y_frac;
+            if (f.chroma_format == 1) {
+                // Table 8-10: between fields of opposite parity, the
+                // chroma vector moves a quarter of a chroma row.
+                if (t.place.structure == 2 && r.structure == 1)
+                    mvc_y += 2;
+                else if (t.place.structure == 1 && r.structure == 2)
+                    mvc_y -= 2;
+                y_int = cy0 + (mvc_y >> 3);
+                y_frac = mvc_y & 7;
+            } else {
+                y_int = cy0 + (mvc_y >> 2);
+                y_frac = (mvc_y & 3) << 1;
+            }
+            chroma_partition(r.template chroma<P>(c), r.chroma_stride(), pic.chroma_width, r.chroma_height(), cx0 + (mvs[list].x >> 3), y_int, mvs[list].x & 7,
+                y_frac, cw, ch, pl[list]);
         }
-        weigh_block(t.chroma[c] + static_cast<std::ptrdiff_t>(cy0) * t.chroma_stride + cx0, t.chroma_stride, pl[0], pl[1], use[0], use[1],
-            weights_for(t.slice, refs[0], refs[1], use[0], use[1], 1 + c, t.mbaff_parity), w / 2, h / 2);
+        weigh_block(t.chroma[c] + static_cast<std::ptrdiff_t>(cy0) * t.chroma_stride + cx0, t.chroma_stride, pl[0], pl[1], use[0], use[1], weights(1 + c), cw, ch,
+            f.chroma_max);
     }
 }
 
 // An 8x8 quadrant: whole, two halves either way, or four 4x4 blocks.
-void predict_quadrant(InterTarget const& t, int x4, int y4)
+template<typename P>
+void predict_quadrant(InterTarget<P> const& t, int x4, int y4)
 {
     if (same_motion(t, x4, y4, 2, 2)) {
         predict_rectangle(t, x4, y4, 2, 2);
@@ -919,9 +962,10 @@ void predict_quadrant(InterTarget const& t, int x4, int y4)
     }
 }
 
+template<typename P>
 void inter_predict(Frame& frame, Slice const& slice, int addr)
 {
-    InterTarget t(*frame.picture, slice);
+    InterTarget<P> t(frame, slice);
     if (frame.mbaff) {
         t.base = frame.block_base(addr);
         t.place = frame.place(addr);
@@ -935,10 +979,10 @@ void inter_predict(Frame& frame, Slice const& slice, int addr)
         t.mbaff_parity = t.place.structure - 1;
         t.lists = slice.field_list[static_cast<std::size_t>(t.mbaff_parity)].data();
     }
-    t.luma = frame.luma_rows(t.place.structure);
+    t.luma = frame.luma_rows<P>(t.place.structure);
     t.luma_stride = frame.luma_rows_stride(t.place.structure);
     for (int c = 0; c < 2; ++c)
-        t.chroma[c] = frame.chroma_rows(c, t.place.structure);
+        t.chroma[c] = frame.chroma_rows<P>(c, t.place.structure);
     t.chroma_stride = frame.chroma_rows_stride(t.place.structure);
     if (same_motion(t, 0, 0, 4, 4)) {
         predict_rectangle(t, 0, 0, 4, 4);
@@ -958,23 +1002,34 @@ void inter_predict(Frame& frame, Slice const& slice, int addr)
 // 8.3.4): available when their macroblock is (in the slice, and not
 // inter under constrained_intra_pred) and, inside the current macroblock,
 // already constructed.
+//
+// `plane` is the component predicted as luma is: 0 for Y, and 1 (Cb) or 2
+// (Cr) in 4:4:4, whose chroma takes the luma's tools (8.3.4.5).
+template<typename P>
 class IntraContext {
 public:
-    IntraContext(Frame& frame, Slice const& slice, int addr)
+    IntraContext(Frame& frame, Slice const& slice, int addr, int plane = 0)
         : m_frame(frame)
         , m_slice(slice)
         , m_x(addr % frame.mb_width)
         , m_y(addr / frame.mb_width)
+        , m_plane(plane)
+        , m_chroma_rows(frame.mb_chroma_height)
     {
         Frame::Place const p = frame.mbaff ? frame.place(addr) : frame.place_at(m_x, m_y);
         m_stride = frame.luma_rows_stride(p.structure);
         m_cstride = frame.chroma_rows_stride(p.structure);
-        m_luma = frame.luma_rows(p.structure) + static_cast<std::ptrdiff_t>(p.y) * m_stride + p.x;
-        for (int c = 0; c < 2; ++c)
-            m_chroma[c] = frame.chroma_rows(c, p.structure) + static_cast<std::ptrdiff_t>(p.y / 2) * m_cstride + p.x / 2;
+        P* const rows = plane == 0 ? frame.luma_rows<P>(p.structure) : frame.chroma_rows<P>(plane - 1, p.structure);
+        m_luma = rows + static_cast<std::ptrdiff_t>(p.y) * m_stride + p.x;
+        if (frame.chroma_format != 0) {
+            for (int c = 0; c < 2; ++c)
+                m_chroma[c] = frame.chroma_rows<P>(c, p.structure) + static_cast<std::ptrdiff_t>(p.y >> frame.chroma_shift_y) * m_cstride
+                    + (p.x >> frame.chroma_shift_x);
+        }
         if (frame.mbaff && frame.mbs[static_cast<std::size_t>(addr)].intra)
             gather_mbaff_neighbors(addr);
     }
+    int chroma_rows() const { return m_chroma_rows; }
     bool mb_ok(int mx, int my) const
     {
         if (mx < 0 || my < 0 || mx >= m_frame.mb_width || my >= m_frame.mb_height)
@@ -1017,7 +1072,7 @@ public:
             return x < 0 ? (y < 0 ? m_corner : m_left[y]) : m_top[x];
         return m_luma[static_cast<std::ptrdiff_t>(y) * m_stride + x];
     }
-    bool chroma_left() const { return m_mbaff ? chroma_left_rows(0, 8) : mb_ok(m_x - 1, m_y); }
+    bool chroma_left() const { return m_mbaff ? chroma_left_rows(0, m_chroma_rows) : mb_ok(m_x - 1, m_y); }
     bool chroma_left_rows(int yo, int n) const
     {
         if (!m_mbaff)
@@ -1043,8 +1098,8 @@ public:
                 m_done |= 1u << (y * 4 + x);
     }
     // The macroblock's own samples, and the distance between its rows.
-    std::uint8_t* luma_origin() const { return m_luma; }
-    std::uint8_t* chroma_origin(int c) const { return m_chroma[c]; }
+    P* luma_origin() const { return m_luma; }
+    P* chroma_origin(int c) const { return m_chroma[c]; }
     int luma_stride() const { return m_stride; }
     int chroma_stride() const { return m_cstride; }
 
@@ -1061,17 +1116,20 @@ private:
                 return false;
             return m_frame.mbs[static_cast<std::size_t>(n.addr)].intra || !m_slice.pps->constrained_intra_pred;
         };
+        int const sx = m_frame.chroma_shift_x, sy = m_frame.chroma_shift_y;
         auto luma_at = [&](Frame::Location const& n) {
             Frame::Place const p = m_frame.place(n.addr);
-            return static_cast<int>(m_frame.luma_rows(p.structure)[static_cast<std::ptrdiff_t>(p.y + n.y) * m_frame.luma_rows_stride(p.structure) + p.x + n.x]);
+            P const* const rows = m_plane == 0 ? m_frame.luma_rows<P>(p.structure) : m_frame.chroma_rows<P>(m_plane - 1, p.structure);
+            return static_cast<int>(rows[static_cast<std::ptrdiff_t>(p.y + n.y) * m_frame.luma_rows_stride(p.structure) + p.x + n.x]);
         };
         auto chroma_at = [&](int c, Frame::Location const& n) {
             Frame::Place const p = m_frame.place(n.addr);
-            return static_cast<int>(
-                m_frame.chroma_rows(c, p.structure)[static_cast<std::ptrdiff_t>(p.y / 2 + n.y) * m_frame.chroma_rows_stride(p.structure) + p.x / 2 + n.x]);
+            return static_cast<int>(m_frame.chroma_rows<P>(c, p.structure)[static_cast<std::ptrdiff_t>((p.y >> sy) + n.y) * m_frame.chroma_rows_stride(p.structure)
+                + (p.x >> sx) + n.x]);
         };
         auto luma_location = [&](int x, int y) { return m_frame.neighbor(addr, x, y, 16, 16, m_slice.number); };
-        auto chroma_location = [&](int x, int y) { return m_frame.neighbor(addr, x, y, 8, 8, m_slice.number); };
+        int const cw = m_frame.mb_chroma_width, chh = m_frame.mb_chroma_height;
+        auto chroma_location = [&](int x, int y) { return m_frame.neighbor(addr, x, y, cw, chh, m_slice.number); };
         for (int y = 0; y < 16; ++y) {
             Frame::Location const n = luma_location(-1, y);
             m_left_ok[y] = usable(n);
@@ -1085,18 +1143,23 @@ private:
         Frame::Location const corner = luma_location(-1, -1);
         m_corner_ok = usable(corner);
         m_corner = m_corner_ok ? luma_at(corner) : 0;
+        // The chroma's own neighbors where it has its own prediction (8.3.4).
+        if (m_plane != 0 || m_frame.chroma_format == 0 || m_frame.chroma_format == 3)
+            return;
         Frame::Location const chroma_corner = chroma_location(-1, -1);
         m_chroma_corner_ok = usable(chroma_corner);
         m_chroma_top_ok = true;
-        for (int k = 0; k < 8; ++k) {
-            Frame::Location const left = chroma_location(-1, k);
+        for (int k = 0; k < cw; ++k) {
             Frame::Location const above = chroma_location(k, -1);
-            m_chroma_left_ok[k] = usable(left);
             m_chroma_top_ok = m_chroma_top_ok && usable(above);
-            for (int c = 0; c < 2; ++c) {
-                m_chroma_left[c][k] = m_chroma_left_ok[k] ? chroma_at(c, left) : 0;
+            for (int c = 0; c < 2; ++c)
                 m_chroma_top[c][k] = usable(above) ? chroma_at(c, above) : 0;
-            }
+        }
+        for (int k = 0; k < chh; ++k) {
+            Frame::Location const left = chroma_location(-1, k);
+            m_chroma_left_ok[k] = usable(left);
+            for (int c = 0; c < 2; ++c)
+                m_chroma_left[c][k] = m_chroma_left_ok[k] ? chroma_at(c, left) : 0;
         }
         for (int c = 0; c < 2; ++c)
             m_chroma_corner[c] = m_chroma_corner_ok ? chroma_at(c, chroma_corner) : 0;
@@ -1106,8 +1169,10 @@ private:
     Slice const& m_slice;
     int m_x;
     int m_y;
-    std::uint8_t* m_luma = nullptr;
-    std::uint8_t* m_chroma[2] = { nullptr, nullptr };
+    int m_plane;
+    int m_chroma_rows; // MbHeightC
+    P* m_luma = nullptr;
+    P* m_chroma[2] = { nullptr, nullptr };
     int m_stride = 0;
     int m_cstride = 0;
     std::uint32_t m_done = 0;
@@ -1119,16 +1184,18 @@ private:
     std::array<bool, 16> m_left_ok {};
     std::array<bool, 24> m_top_ok {};
     bool m_corner_ok = false;
-    std::array<std::array<int, 8>, 2> m_chroma_left {};
+    std::array<std::array<int, 16>, 2> m_chroma_left {};
     std::array<std::array<int, 8>, 2> m_chroma_top {};
     std::array<int, 2> m_chroma_corner {};
-    std::array<bool, 8> m_chroma_left_ok {};
+    std::array<bool, 16> m_chroma_left_ok {};
     bool m_chroma_top_ok = false;
     bool m_chroma_corner_ok = false;
 };
 
-// 8.3.1.2: a 4x4 block's prediction into `out` (raster 4x4).
-void predict_4x4(IntraContext const& ic, int xo, int yo, int mode, int* out)
+// 8.3.1.2: a 4x4 block's prediction into `out` (raster 4x4). `mid`:
+// 1 << (BitDepth - 1), DC's value with no neighbors.
+template<typename IC>
+void predict_4x4(IC const& ic, int xo, int yo, int mode, int* out, int mid)
 {
     int top[8] = {}, left[4] = {}, corner = 0;
     bool const has_top = ic.luma_available(xo, yo - 1);
@@ -1155,7 +1222,7 @@ void predict_4x4(IntraContext const& ic, int xo, int yo, int mode, int* out)
     };
     for (int y = 0; y < 4; ++y)
         for (int x = 0; x < 4; ++x) {
-            int v = 128;
+            int v = mid;
             switch (mode) {
             case 0:
                 v = top[x];
@@ -1171,7 +1238,7 @@ void predict_4x4(IntraContext const& ic, int xo, int yo, int mode, int* out)
                 else if (has_top)
                     v = (top[0] + top[1] + top[2] + top[3] + 2) >> 2;
                 else
-                    v = 128;
+                    v = mid;
                 break;
             case 3: // diagonal down left
                 if (x == 3 && y == 3)
@@ -1235,7 +1302,8 @@ void predict_4x4(IntraContext const& ic, int xo, int yo, int mode, int* out)
 }
 
 // 8.3.2.2: an 8x8 block's prediction, its references filtered first.
-void predict_8x8(IntraContext const& ic, int xo, int yo, int mode, int* out)
+template<typename IC>
+void predict_8x8(IC const& ic, int xo, int yo, int mode, int* out, int mid)
 {
     bool const has_top = ic.luma_available(xo, yo - 1);
     bool const has_left = ic.left_available(xo, yo, 8);
@@ -1286,7 +1354,7 @@ void predict_8x8(IntraContext const& ic, int xo, int yo, int mode, int* out)
     };
     for (int y = 0; y < 8; ++y)
         for (int x = 0; x < 8; ++x) {
-            int v = 128;
+            int v = mid;
             switch (mode) {
             case 0:
                 v = t[x];
@@ -1374,7 +1442,8 @@ void predict_8x8(IntraContext const& ic, int xo, int yo, int mode, int* out)
 }
 
 // 8.3.3.
-void predict_16x16(IntraContext const& ic, int mode, int* out)
+template<typename P>
+void predict_16x16(IntraContext<P> const& ic, int mode, int* out, int mid, int max)
 {
     bool const has_top = ic.luma_available(0, -1);
     bool const has_left = ic.left_available(0, 0, 16);
@@ -1402,7 +1471,7 @@ void predict_16x16(IntraContext const& ic, int mode, int* out)
             st += top[k];
             sl += left[k];
         }
-        int v = 128;
+        int v = mid;
         if (has_top && has_left)
             v = (st + sl + 16) >> 5;
         else if (has_left)
@@ -1425,28 +1494,32 @@ void predict_16x16(IntraContext const& ic, int mode, int* out)
     int const c = (5 * vv + 32) >> 6;
     for (int y = 0; y < 16; ++y)
         for (int x = 0; x < 16; ++x)
-            out[y * 16 + x] = clip1((a + b * (x - 7) + c * (y - 7) + 16) >> 5);
+            out[y * 16 + x] = clip_sample<P>((a + b * (x - 7) + c * (y - 7) + 16) >> 5, max);
 }
 
-// 8.3.4 for 4:2:0.
-void predict_chroma(IntraContext const& ic, int comp, int mode, int* out)
+// 8.3.4 for 4:2:0 and 4:2:2 (8 samples wide, 8 or 16 high: `Rows`).
+template<int Rows, typename P>
+void predict_chroma(IntraContext<P> const& ic, int comp, int mode, int* out, int mid, int max)
 {
+    constexpr int rows = Rows;
     bool const has_top = ic.chroma_top();
     bool const left_all = ic.chroma_left();
     if ((mode == 1 && !left_all) || (mode == 2 && !has_top) || (mode == 3 && !(has_top && left_all && ic.chroma_corner())))
         mode = 0;
     // The neighbors read once; each mode's terms computed once.
-    int top[8] = {}, left[8] = {};
+    int top[8] = {}, left[16] = {};
     for (int k = 0; k < 8; ++k) {
         if (has_top)
             top[k] = ic.chroma(comp, k, -1);
+    }
+    for (int k = 0; k < rows; ++k) {
         if (ic.chroma_left_rows(k & ~3, 4))
             left[k] = ic.chroma(comp, -1, k);
     }
     if (mode == 0) {
-        // 8.3.4.1: a DC per 4x4 block, from its own top and left samples
-        // (each side all there or not).
-        for (int yo = 0; yo < 8; yo += 4)
+        // 8.3.4.1 to 8.3.4.3: a DC per 4x4 block, from its own top and
+        // left samples (each side all there or not).
+        for (int yo = 0; yo < rows; yo += 4)
             for (int xo = 0; xo < 8; xo += 4) {
                 bool const has_left = ic.chroma_left_rows(yo, 4);
                 int st = 0, sl = 0;
@@ -1454,7 +1527,7 @@ void predict_chroma(IntraContext const& ic, int comp, int mode, int* out)
                     st += top[xo + k];
                     sl += left[yo + k];
                 }
-                int v = 128;
+                int v = mid;
                 if ((xo == 0 && yo == 0) || (xo > 0 && yo > 0)) {
                     if (has_top && has_left)
                         v = (st + sl + 4) >> 3;
@@ -1480,32 +1553,41 @@ void predict_chroma(IntraContext const& ic, int comp, int mode, int* out)
         return;
     }
     if (mode == 1 || mode == 2) {
-        for (int y = 0; y < 8; ++y)
+        for (int y = 0; y < rows; ++y)
             for (int x = 0; x < 8; ++x)
                 out[y * 8 + x] = mode == 1 ? left[y] : top[x];
         return;
     }
+    // 8.3.4.4: yCF 4 for 4:2:2, whose c weighs V by 5 (8-142 to 8-145).
+    constexpr int ycf = rows == 16 ? 4 : 0;
     int const corner = ic.chroma(comp, -1, -1);
     auto top_at = [&](int x) { return x < 0 ? corner : top[x]; };
     auto left_at = [&](int y) { return y < 0 ? corner : left[y]; };
     int h = 0, vv = 0;
-    for (int k = 0; k < 4; ++k) {
+    for (int k = 0; k < 4; ++k)
         h += (k + 1) * (top_at(4 + k) - top_at(2 - k));
-        vv += (k + 1) * (left_at(4 + k) - left_at(2 - k));
-    }
-    int const a = 16 * (left[7] + top[7]);
+    for (int k = 0; k < 4 + ycf; ++k)
+        vv += (k + 1) * (left_at(4 + ycf + k) - left_at(2 + ycf - k));
+    int const a = 16 * (left[rows - 1] + top[7]);
     int const b = (34 * h + 32) >> 6;
-    int const c = (34 * vv + 32) >> 6;
-    for (int y = 0; y < 8; ++y)
+    int const c = ((ycf ? 5 : 34) * vv + 32) >> 6;
+    for (int y = 0; y < rows; ++y)
         for (int x = 0; x < 8; ++x)
-            out[y * 8 + x] = clip1((a + b * (x - 3) + c * (y - 3) + 16) >> 5);
+            out[y * 8 + x] = clip_sample<P>((a + b * (x - 3) + c * (y - 3 - ycf) + 16) >> 5, max);
 }
 
-void write_block(std::uint8_t* dst, int stride, int const* pred, int size)
+template<typename P>
+void write_block(P* dst, int stride, int const* pred, int w, int h)
 {
-    for (int y = 0; y < size; ++y)
-        for (int x = 0; x < size; ++x)
-            dst[y * stride + x] = static_cast<std::uint8_t>(pred[y * size + x]);
+    for (int y = 0; y < h; ++y)
+        for (int x = 0; x < w; ++x)
+            dst[y * stride + x] = static_cast<P>(pred[y * w + x]);
+}
+
+template<typename P>
+void write_block(P* dst, int stride, int const* pred, int size)
+{
+    write_block(dst, stride, pred, size, size);
 }
 
 bool any_nonzero(std::int32_t const* c, int n)
@@ -1535,125 +1617,235 @@ void clear_intra_motion(Frame& frame, int addr)
         }
 }
 
-void reconstruct_macroblock(Frame& frame, Slice const& slice, int addr, MbSyntax const& mb)
+namespace {
+
+// 8.5.1 to 8.5.3, and 8.5.5's Cb and Cr of 4:4:4 the same way: component
+// k (0 Y, 1 Cb, 2 Cr) coded as luma is — predicted when intra (from the
+// luma's modes), and its residual added. `qp`: the component's QP'.
+template<typename P>
+void luma_component(IntraContext<P>& ic, MbState const& s, MbSyntax const& mb, int k, std::int32_t const* coeffs, std::int32_t const* dc_levels, int qp,
+    LevelScales const& ls, int max, int mid, bool bypass)
 {
-    MbState& s = frame.mbs[static_cast<std::size_t>(addr)];
-    IntraContext ic(frame, slice, addr);
+    constexpr bool wide = sizeof(P) == 2;
     int const stride = ic.luma_stride();
-    int const cstride = ic.chroma_stride();
-    std::uint8_t* const y0 = ic.luma_origin();
-    s.qpc[0] = chroma_qp(s.qp, frame.chroma_qp_offset[0]);
-    s.qpc[1] = chroma_qp(s.qp, frame.chroma_qp_offset[1]);
-    if (mb.kind == MbKind::IPCM) {
-        for (int y = 0; y < 16; ++y)
-            for (int x = 0; x < 16; ++x)
-                y0[y * stride + x] = mb.pcm_luma[static_cast<std::size_t>(y * 16 + x)];
-        for (int c = 0; c < 2; ++c) {
-            std::uint8_t* const c0 = ic.chroma_origin(c);
-            for (int y = 0; y < 8; ++y)
-                for (int x = 0; x < 8; ++x)
-                    c0[y * cstride + x] = mb.pcm_chroma[static_cast<std::size_t>(c * 64 + y * 8 + x)];
-        }
-        return;
-    }
-    LevelScales const& ls = *slice.scales;
-    bool const inter = !s.intra;
-    int const qp = s.qp;
+    P* const y0 = ic.luma_origin();
     std::array<std::int32_t, 64> d {};
     std::array<int, 256> pred {};
-    if (inter)
-        inter_predict(frame, slice, addr);
     int const cbp_luma = mb.cbp & 15;
-    // Luma.
+    std::size_t const q = static_cast<std::size_t>(qp % 6);
+    std::size_t const intra4 = static_cast<std::size_t>(k), inter4 = static_cast<std::size_t>(3 + k);
+    std::size_t const intra8 = static_cast<std::size_t>(2 * k), inter8 = static_cast<std::size_t>(2 * k + 1);
+    // 8.5.15: a vertically or horizontally predicted intra block's residual, summed.
+    auto hor_pred = [](int mode) { return mode < 2 ? mode : -1; };
     if (mb.kind == MbKind::I4x4) {
         for (int blk = 0; blk < 16; ++blk) {
             int const r = blk_to_raster[blk];
             int const bx = r & 3, by = r >> 2;
-            predict_4x4(ic, bx * 4, by * 4, s.intra4x4_modes[static_cast<std::size_t>(r)], pred.data());
-            std::uint8_t* const dst = y0 + by * 4 * stride + bx * 4;
+            int const mode = s.intra4x4_modes[static_cast<std::size_t>(r)];
+            predict_4x4(ic, bx * 4, by * 4, mode, pred.data(), mid);
+            P* const dst = y0 + by * 4 * stride + bx * 4;
             write_block(dst, stride, pred.data(), 4);
-            std::int32_t const* c = mb.luma.data() + r * 16;
+            std::int32_t const* c = coeffs + r * 16;
             if ((cbp_luma >> (blk >> 2)) & 1 && any_nonzero(c, 16)) {
-                scale_4x4(d.data(), c, ls.scale4[0][static_cast<std::size_t>(qp % 6)].data(), qp, false);
-                idct4x4_add(dst, stride, d.data());
+                if (bypass) {
+                    bypass_add(dst, stride, c, 4, 4, hor_pred(mode), max);
+                } else {
+                    scale_4x4<wide>(d.data(), c, ls.scale4[intra4][q].data(), qp, false);
+                    idct4x4_add(dst, stride, d.data(), max);
+                }
             }
             ic.done(bx, by, 1, 1);
         }
     } else if (mb.kind == MbKind::I8x8) {
         for (int b8 = 0; b8 < 4; ++b8) {
             int const bx = (b8 & 1) * 2, by = (b8 >> 1) * 2;
-            predict_8x8(ic, bx * 4, by * 4, s.intra4x4_modes[static_cast<std::size_t>(by * 4 + bx)], pred.data());
-            std::uint8_t* const dst = y0 + by * 4 * stride + bx * 4;
+            int const mode = s.intra4x4_modes[static_cast<std::size_t>(by * 4 + bx)];
+            predict_8x8(ic, bx * 4, by * 4, mode, pred.data(), mid);
+            P* const dst = y0 + by * 4 * stride + bx * 4;
             write_block(dst, stride, pred.data(), 8);
-            std::int32_t const* c = mb.luma.data() + b8 * 64;
+            std::int32_t const* c = coeffs + b8 * 64;
             if ((cbp_luma >> b8) & 1 && any_nonzero(c, 64)) {
-                scale_8x8(d.data(), c, ls.scale8[0][static_cast<std::size_t>(qp % 6)].data(), qp);
-                idct8x8_add(dst, stride, d.data());
+                if (bypass) {
+                    bypass_add(dst, stride, c, 8, 8, hor_pred(mode), max);
+                } else {
+                    scale_8x8<wide>(d.data(), c, ls.scale8[intra8][q].data(), qp);
+                    idct8x8_add(dst, stride, d.data(), max);
+                }
             }
             ic.done(bx, by, 2, 2);
         }
-    } else {
-        if (mb.kind == MbKind::I16x16) {
-            predict_16x16(ic, mb.i16_mode, pred.data());
-            write_block(y0, stride, pred.data(), 16);
-            std::array<std::int32_t, 16> dc {};
-            luma_dc(dc.data(), mb.luma_dc.data(), ls.scale4[0][static_cast<std::size_t>(qp % 6)][0], qp);
-            for (int r = 0; r < 16; ++r) {
-                std::array<std::int32_t, 16> c {};
-                std::copy_n(mb.luma.data() + r * 16, 16, c.data());
-                c[0] = dc[static_cast<std::size_t>(r)];
-                if (!any_nonzero(c.data(), 16))
-                    continue;
-                scale_4x4(d.data(), c.data(), ls.scale4[0][static_cast<std::size_t>(qp % 6)].data(), qp, true);
-                idct4x4_add(y0 + (r >> 2) * 4 * stride + (r & 3) * 4, stride, d.data());
-            }
-        } else if (cbp_luma) {
-            if (mb.transform_8x8) {
-                for (int b8 = 0; b8 < 4; ++b8) {
-                    std::int32_t const* c = mb.luma.data() + b8 * 64;
-                    if (!((cbp_luma >> b8) & 1) || !any_nonzero(c, 64))
-                        continue;
-                    scale_8x8(d.data(), c, ls.scale8[1][static_cast<std::size_t>(qp % 6)].data(), qp);
-                    idct8x8_add(y0 + (b8 >> 1) * 8 * stride + (b8 & 1) * 8, stride, d.data());
-                }
-            } else {
-                for (int r = 0; r < 16; ++r) {
-                    int const b8 = (r >> 3) * 2 + ((r & 3) >> 1);
-                    std::int32_t const* c = mb.luma.data() + r * 16;
-                    if (!((cbp_luma >> b8) & 1) || !any_nonzero(c, 16))
-                        continue;
-                    scale_4x4(d.data(), c, ls.scale4[3][static_cast<std::size_t>(qp % 6)].data(), qp, false);
-                    idct4x4_add(y0 + (r >> 2) * 4 * stride + (r & 3) * 4, stride, d.data());
-                }
-            }
+    } else if (mb.kind == MbKind::I16x16) {
+        predict_16x16(ic, mb.i16_mode, pred.data(), mid, max);
+        write_block(y0, stride, pred.data(), 16);
+        if (bypass) {
+            // 8.5.10's dcY = c; the macroblock's residual as one 16x16 array (8.5.15).
+            std::array<std::int32_t, 256> whole {};
+            for (int r = 0; r < 16; ++r)
+                for (int i = 0; i < 16; ++i)
+                    whole[static_cast<std::size_t>(((r >> 2) * 4 + (i >> 2)) * 16 + (r & 3) * 4 + (i & 3))] = i == 0 ? dc_levels[r] : coeffs[r * 16 + i];
+            bypass_add(y0, stride, whole.data(), 16, 16, hor_pred(mb.i16_mode), max);
+            return;
         }
-    }
-    // Chroma.
-    int const cbp_chroma = mb.cbp >> 4;
-    for (int comp = 0; comp < 2; ++comp) {
-        std::uint8_t* const c0 = ic.chroma_origin(comp);
-        if (!inter) {
-            predict_chroma(ic, comp, mb.chroma_mode, pred.data());
-            write_block(c0, cstride, pred.data(), 8);
-        }
-        if (cbp_chroma == 0)
-            continue;
-        int const qpc = s.qpc[static_cast<std::size_t>(comp)];
-        int const list = (inter ? 3 : 0) + 1 + comp;
-        int const* scale = ls.scale4[static_cast<std::size_t>(list)][static_cast<std::size_t>(qpc % 6)].data();
-        std::array<std::int32_t, 4> dc {};
-        chroma_dc(dc.data(), mb.chroma_dc[static_cast<std::size_t>(comp)].data(), scale[0], qpc);
-        for (int b4 = 0; b4 < 4; ++b4) {
+        std::array<std::int32_t, 16> dc {};
+        luma_dc<wide>(dc.data(), dc_levels, ls.scale4[intra4][q][0], qp);
+        for (int r = 0; r < 16; ++r) {
             std::array<std::int32_t, 16> c {};
-            if (cbp_chroma == 2)
-                std::copy_n(mb.chroma_ac[static_cast<std::size_t>(comp)].data() + b4 * 16, 16, c.data());
-            c[0] = dc[static_cast<std::size_t>(b4)];
+            std::copy_n(coeffs + r * 16, 16, c.data());
+            c[0] = dc[static_cast<std::size_t>(r)];
             if (!any_nonzero(c.data(), 16))
                 continue;
-            scale_4x4(d.data(), c.data(), scale, qpc, true);
-            idct4x4_add(c0 + (b4 >> 1) * 4 * cstride + (b4 & 1) * 4, cstride, d.data());
+            scale_4x4<wide>(d.data(), c.data(), ls.scale4[intra4][q].data(), qp, true);
+            idct4x4_add(y0 + (r >> 2) * 4 * stride + (r & 3) * 4, stride, d.data(), max);
+        }
+    } else if (cbp_luma) {
+        if (mb.transform_8x8) {
+            for (int b8 = 0; b8 < 4; ++b8) {
+                std::int32_t const* c = coeffs + b8 * 64;
+                if (!((cbp_luma >> b8) & 1) || !any_nonzero(c, 64))
+                    continue;
+                P* const dst = y0 + (b8 >> 1) * 8 * stride + (b8 & 1) * 8;
+                if (bypass) {
+                    bypass_add(dst, stride, c, 8, 8, -1, max);
+                } else {
+                    scale_8x8<wide>(d.data(), c, ls.scale8[inter8][q].data(), qp);
+                    idct8x8_add(dst, stride, d.data(), max);
+                }
+            }
+        } else {
+            for (int r = 0; r < 16; ++r) {
+                int const b8 = (r >> 3) * 2 + ((r & 3) >> 1);
+                std::int32_t const* c = coeffs + r * 16;
+                if (!((cbp_luma >> b8) & 1) || !any_nonzero(c, 16))
+                    continue;
+                P* const dst = y0 + (r >> 2) * 4 * stride + (r & 3) * 4;
+                if (bypass) {
+                    bypass_add(dst, stride, c, 4, 4, -1, max);
+                } else {
+                    scale_4x4<wide>(d.data(), c, ls.scale4[inter4][q].data(), qp, false);
+                    idct4x4_add(dst, stride, d.data(), max);
+                }
+            }
         }
     }
+}
+
+// 8.5.4 for 4:2:0 and 4:2:2: a chroma component predicted (intra, 8.3.4),
+// its DC transformed (2x2 or 2x4) and its 4x4 blocks added.
+template<typename P>
+void chroma_component(Frame const& frame, IntraContext<P>& ic, MbState const& s, MbSyntax const& mb, int comp, LevelScales const& ls, bool bypass)
+{
+    constexpr bool wide = sizeof(P) == 2;
+    bool const inter = !s.intra;
+    int const rows = frame.mb_chroma_height, cstride = ic.chroma_stride();
+    int const max = frame.chroma_max, mid = 1 << (frame.bit_depth_chroma - 1);
+    bool const f422 = frame.chroma_format == 2;
+    int const blocks = f422 ? 8 : 4;
+    P* const c0 = ic.chroma_origin(comp);
+    std::array<int, 128> pred; // written whole by the prediction before it is read
+    if (!inter) {
+        if (f422)
+            predict_chroma<16>(ic, comp, mb.chroma_mode, pred.data(), mid, max);
+        else
+            predict_chroma<8>(ic, comp, mb.chroma_mode, pred.data(), mid, max);
+        write_block(c0, cstride, pred.data(), 8, rows);
+    }
+    int const cbp_chroma = mb.cbp >> 4;
+    if (cbp_chroma == 0)
+        return;
+    std::size_t const sc = static_cast<std::size_t>(comp);
+    int const qpc = s.qpc[sc] + frame.qp_offset_chroma; // QP'C
+    std::size_t const list = static_cast<std::size_t>((inter ? 3 : 0) + 1 + comp);
+    int const* scale = ls.scale4[list][static_cast<std::size_t>(qpc % 6)].data();
+    std::int32_t const* dc_levels = f422 ? mb.chroma_dc_wide[sc].data() : mb.chroma_dc[sc].data();
+    std::int32_t const* ac = f422 ? mb.chroma_wide[sc].data() : mb.chroma_ac[sc].data();
+    std::array<std::int32_t, 8> dc {};
+    if (bypass) {
+        // 8-323: dcC = c, laid out as 8-304 and 8-305 place the levels.
+        static constexpr std::uint8_t order_422[8] = { 0, 2, 1, 5, 3, 6, 4, 7 };
+        for (int b = 0; b < blocks; ++b)
+            dc[static_cast<std::size_t>(b)] = dc_levels[f422 ? order_422[b] : b];
+    } else if (f422) {
+        int const qpdc = qpc + 3; // 8-327
+        chroma_dc_422(dc.data(), dc_levels, ls.scale4[list][static_cast<std::size_t>(qpdc % 6)][0], qpdc);
+    } else {
+        chroma_dc<wide>(dc.data(), dc_levels, scale[0], qpc);
+    }
+    if (bypass) {
+        // The residual as one 8 x rows array, summed by 8.5.15 (horPredFlag
+        // 2 - intra_chroma_pred_mode) for modes 1 and 2.
+        std::array<std::int32_t, 16 * 8> whole {};
+        for (int b = 0; b < blocks; ++b)
+            for (int i = 0; i < 16; ++i)
+                whole[static_cast<std::size_t>(((b >> 1) * 4 + (i >> 2)) * 8 + (b & 1) * 4 + (i & 3))]
+                    = i == 0 ? dc[static_cast<std::size_t>(b)] : (cbp_chroma == 2 ? ac[b * 16 + i] : 0);
+        int const hor = !inter && (mb.chroma_mode == 1 || mb.chroma_mode == 2) ? 2 - mb.chroma_mode : -1;
+        bypass_add(c0, cstride, whole.data(), 8, rows, hor, max);
+        return;
+    }
+    std::array<std::int32_t, 64> d; // written by the scaling before the transform reads it
+    for (int b = 0; b < blocks; ++b) {
+        std::array<std::int32_t, 16> c {};
+        if (cbp_chroma == 2)
+            std::copy_n(ac + b * 16, 16, c.data());
+        c[0] = dc[static_cast<std::size_t>(b)];
+        if (!any_nonzero(c.data(), 16))
+            continue;
+        scale_4x4<wide>(d.data(), c.data(), scale, qpc, true);
+        idct4x4_add(c0 + (b >> 1) * 4 * cstride + (b & 1) * 4, cstride, d.data(), max);
+    }
+}
+
+template<typename P>
+void reconstruct(Frame& frame, Slice const& slice, int addr, MbSyntax const& mb)
+{
+    MbState& s = frame.mbs[static_cast<std::size_t>(addr)];
+    IntraContext<P> ic(frame, slice, addr);
+    int const stride = ic.luma_stride();
+    int const cstride = ic.chroma_stride();
+    P* const y0 = ic.luma_origin();
+    s.qpc[0] = chroma_qp(s.qp, frame.chroma_qp_offset[0], frame.qp_offset_chroma);
+    s.qpc[1] = chroma_qp(s.qp, frame.chroma_qp_offset[1], frame.qp_offset_chroma);
+    int const cw = frame.mb_chroma_width, ch = frame.mb_chroma_height;
+    if (mb.kind == MbKind::IPCM) {
+        for (int y = 0; y < 16; ++y)
+            for (int x = 0; x < 16; ++x)
+                y0[y * stride + x] = static_cast<P>(mb.pcm[static_cast<std::size_t>(y * 16 + x)]);
+        for (int c = 0; c < 2 && cw > 0; ++c) {
+            P* const c0 = ic.chroma_origin(c);
+            for (int y = 0; y < ch; ++y)
+                for (int x = 0; x < cw; ++x)
+                    c0[y * cstride + x] = static_cast<P>(mb.pcm[static_cast<std::size_t>(256 + c * cw * ch + y * cw + x)]);
+        }
+        return;
+    }
+    LevelScales const& ls = *slice.scales;
+    int const qp = s.qp + frame.qp_offset_luma; // QP'Y
+    // TransformBypassModeFlag (7.4.2.1.1): lossless macroblocks.
+    bool const bypass = frame.transform_bypass && qp == 0;
+    if (!s.intra)
+        inter_predict<P>(frame, slice, addr);
+    luma_component(ic, s, mb, 0, mb.luma.data(), mb.luma_dc.data(), qp, ls, frame.luma_max, 1 << (frame.bit_depth_luma - 1), bypass);
+    if (frame.chroma_format == 3) {
+        for (int c = 0; c < 2; ++c) {
+            IntraContext<P> icc(frame, slice, addr, 1 + c);
+            std::size_t const sc = static_cast<std::size_t>(c);
+            luma_component(icc, s, mb, 1 + c, mb.chroma_wide[sc].data(), mb.chroma_dc_wide[sc].data(), s.qpc[sc] + frame.qp_offset_chroma, ls,
+                frame.chroma_max, 1 << (frame.bit_depth_chroma - 1), bypass);
+        }
+    } else if (frame.chroma_format != 0) {
+        for (int c = 0; c < 2; ++c)
+            chroma_component(frame, ic, s, mb, c, ls, bypass);
+    }
+}
+
+}
+
+void reconstruct_macroblock(Frame& frame, Slice const& slice, int addr, MbSyntax const& mb)
+{
+    if (frame.wide)
+        reconstruct<std::uint16_t>(frame, slice, addr, mb);
+    else
+        reconstruct<std::uint8_t>(frame, slice, addr, mb);
 }
 
 }

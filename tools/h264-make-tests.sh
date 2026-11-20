@@ -20,16 +20,27 @@ make() {
     local w="${size%x*}" h="${size#*x}"
     # INPUT: the source; interlaced clips weave two moments into each frame.
     local input="${INPUT:-testsrc2=size=$size:rate=24:duration=1}"
-    ffmpeg -hide_banner -loglevel error -y -f lavfi -i "$input" "$@" -an -pix_fmt yuv420p "$out/$name.mp4"
-    ffmpeg -hide_banner -loglevel error -i "$out/$name.mp4" -an -fps_mode passthrough -f rawvideo -pix_fmt yuv420p - \
+    # PIX: the pixel format coded and compared (yuv420p unless said).
+    local pix="${PIX:-yuv420p}"
+    ffmpeg -hide_banner -loglevel error -y -f lavfi -i "$input" "$@" -an -pix_fmt "$pix" "$out/$name.mp4"
+    ffmpeg -hide_banner -loglevel error -i "$out/$name.mp4" -an -fps_mode passthrough -f rawvideo -pix_fmt "$pix" - \
         | python3 -I -c '
 import hashlib, sys
-w, h = int(sys.argv[1]), int(sys.argv[2])
-size = w * h + 2 * ((w + 1) // 2) * ((h + 1) // 2)
+w, h, pix = int(sys.argv[1]), int(sys.argv[2]), sys.argv[3]
+sample = 2 if pix.endswith("le") else 1
+if pix.startswith("gray"):
+    chroma = 0
+elif pix.startswith("yuv444"):
+    chroma = w * h
+elif pix.startswith("yuv422"):
+    chroma = ((w + 1) // 2) * h
+else:
+    chroma = ((w + 1) // 2) * ((h + 1) // 2)
+size = (w * h + 2 * chroma) * sample
 data = sys.stdin.buffer.read()
 for i in range(len(data) // size):
     print(hashlib.sha256(data[i * size:(i + 1) * size]).hexdigest())
-' "$w" "$h" > "$out/$name.pictures"
+' "$w" "$h" "$pix" > "$out/$name.pictures"
 }
 
 x264=(-c:v libx264 -crf 30 -g 12)
@@ -60,4 +71,11 @@ woven mbaff-temporal 176x96 "${x264[@]}" -bf 3 -x264-params "interlaced=1:tff=1:
 woven mbaff-8x8-cavlc 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1:cabac=0:8x8dct=1:partitions=all:ref=3"
 woven mbaff-partitions 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1:partitions=all:subme=7:ref=3:direct=auto"
 field_order=bff woven mbaff-bottom-first 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:bff=1"
+# High 10: 10-bit samples through every stage, with each coder, the 8x8
+# transform on and off, B pictures, explicit weights (a fade) and MBAFF.
+PIX=yuv420p10le make hi10-cabac 176x96 "${x264[@]}" -bf 2 -x264-params "8x8dct=1:ref=2"
+PIX=yuv420p10le make hi10-cavlc 176x96 "${x264[@]}" -bf 2 -x264-params "cabac=0:8x8dct=0:partitions=all:subme=7"
+PIX=yuv420p10le make hi10-weighted 176x96 "${x264[@]}" -bf 2 -vf "fade=in:0:20" -x264-params "weightp=2:weightb=1:ref=3"
+PIX=yuv420p10le make hi10-low-qp 176x96 -c:v libx264 -crf 2 -g 12 -bf 2 -x264-params "deblock=-2,-1"
+PIX=yuv420p10le woven hi10-mbaff 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1"
 ls -la "$out"

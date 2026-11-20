@@ -9,14 +9,21 @@
 //   H264SoftwareResidual.cpp scaling and the inverse transforms (8.5)
 //   H264SoftwareDeblock.cpp  the deblocking filter (8.7)
 //   H264Software.cpp         a picture's slices, and the accelerator around them
-// Frames, fields and MBAFF frames, 8 bits, 4:2:0 — what the profiles the
-// web serves carry. A field is decoded into every other row of its frame,
-// and so is an MBAFF field macroblock into its pair's.
+// Frames, fields and MBAFF frames, at 8 bits and deeper (to 14), 4:2:0
+// and the other chroma formats of the High 10, High 4:2:2 and High 4:4:4
+// profiles. A field is decoded into every other row of its frame, and so
+// is an MBAFF field macroblock into its pair's.
+//
+// The samples of a picture whose bit depths are both 8 are bytes; those
+// of a deeper one are 16-bit words. Every stage that touches samples is a
+// template on the sample type P (std::uint8_t or std::uint16_t), chosen
+// once per macroblock, so the 8-bit path is the one it always was.
 
 #include "media/H264.h"
 #include "media/H264Accelerator.h"
 #include "media/H264SoftwareResidual.h"
 
+#include <algorithm>
 #include <array>
 #include <bit>
 #include <cstddef>
@@ -223,7 +230,15 @@ struct Picture {
     int height = 0;
     int mb_width = 0;
     int mb_height = 0;
-    std::vector<std::uint8_t> y, cb, cr;
+    // The chroma planes' size (0 for 4:0:0), and the format's shifts
+    // (SubWidthC and SubHeightC as powers of two).
+    int chroma_width = 0;
+    int chroma_height = 0;
+    int chroma_format = 1; // chroma_format_idc: 0 4:0:0, 1 4:2:0, 2 4:2:2, 3 4:4:4
+    int bit_depth_luma = 8;
+    int bit_depth_chroma = 8;
+    std::vector<std::uint8_t> y, cb, cr; // both bit depths 8
+    std::vector<std::uint16_t> y16, cb16, cr16; // otherwise
     std::array<std::vector<Mv>, 2> mv; // [list][block], block = (mb_row * 4 + y4) * (mb_width * 4) + mb_x * 4 + x4
     std::array<std::vector<std::int8_t>, 2> ref_idx; // -1: the list not used
     std::array<std::vector<std::int32_t>, 2> ref_pic; // the picture the block's reference index named (RefEntry::id)
@@ -239,11 +254,41 @@ struct Picture {
     int shown_width = 0;
     int shown_height = 0;
 
-    void allocate(int mb_w, int mb_h);
+    void allocate(int mb_w, int mb_h, int chroma_format_idc, int depth_luma, int depth_chroma);
+    bool fits(int mb_w, int mb_h, int chroma_format_idc, int depth_luma, int depth_chroma) const
+    {
+        return mb_width == mb_w && mb_height == mb_h && chroma_format == chroma_format_idc && bit_depth_luma == depth_luma && bit_depth_chroma == depth_chroma;
+    }
+    bool wide() const { return bit_depth_luma > 8 || bit_depth_chroma > 8; }
     int stride() const { return width; }
-    int chroma_stride() const { return width / 2; }
+    int chroma_stride() const { return chroma_width; }
     int block_index(int x4, int y4) const { return y4 * mb_width * 4 + x4; }
+    // Plane c (0 Y, 1 Cb, 2 Cr) as samples of type P, which must be the
+    // picture's (std::uint16_t where wide()).
+    template<typename P>
+    P* plane(int c)
+    {
+        if constexpr (sizeof(P) == 1)
+            return (c == 0 ? y : (c == 1 ? cb : cr)).data();
+        else
+            return (c == 0 ? y16 : (c == 1 ? cb16 : cr16)).data();
+    }
+    template<typename P>
+    P const* plane(int c) const { return const_cast<Picture*>(this)->plane<P>(c); }
 };
+
+// The largest sample of a component at its bit depth, as a compile-time 255
+// where the samples are bytes (so the 8-bit path clips as it always did).
+template<typename P>
+inline int clip_sample(int v, int max)
+{
+    if constexpr (sizeof(P) == 1) {
+        (void)max;
+        return std::clamp(v, 0, 255);
+    } else {
+        return std::clamp(v, 0, max);
+    }
+}
 
 // A reference in a slice's list, as the decoding needs it: a frame, or
 // one field of it.
@@ -258,11 +303,14 @@ struct RefEntry {
     // the field told apart.
     std::int32_t id() const { return picture ? picture->serial * 4 + structure : -1; }
     // The samples: a field is every other row of its frame.
-    std::uint8_t const* luma() const { return picture->y.data() + (structure == 2 ? picture->width : 0); }
-    std::uint8_t const* chroma(int c) const { return (c == 0 ? picture->cb : picture->cr).data() + (structure == 2 ? picture->width / 2 : 0); }
+    template<typename P>
+    P const* luma() const { return picture->plane<P>(0) + (structure == 2 ? picture->width : 0); }
+    template<typename P>
+    P const* chroma(int c) const { return picture->plane<P>(1 + c) + (structure == 2 ? picture->chroma_width : 0); }
     int luma_stride() const { return picture->width << (structure != 0 ? 1 : 0); }
-    int chroma_stride() const { return (picture->width / 2) << (structure != 0 ? 1 : 0); }
+    int chroma_stride() const { return picture->chroma_width << (structure != 0 ? 1 : 0); }
     int luma_height() const { return picture->height >> (structure != 0 ? 1 : 0); }
+    int chroma_height() const { return picture->chroma_height >> (structure != 0 ? 1 : 0); }
 };
 
 enum class MbKind : std::uint8_t {
@@ -308,11 +356,13 @@ struct MbState {
     int intra_chroma_pred_mode = 0;
     int qp_delta = 0; // mb_qp_delta, for the next macroblock's context
     std::array<std::int8_t, 16> intra4x4_modes {}; // per 4x4 block (an 8x8 mode in each of its four); 2 (DC) when not intra NxN
-    std::array<std::uint8_t, 16 + 8> total_coeff {}; // CAVLC's nC: luma 4x4 blocks, then Cb, Cr AC
+    // CAVLC's nC: luma 4x4 blocks, then Cb's and Cr's (4:2:0 and 4:2:2 AC
+    // blocks, 4:4:4's 4x4 blocks), 16 each.
+    std::array<std::uint8_t, 48> total_coeff {};
     std::uint32_t nonzero = 0; // bit per luma 4x4 block with coefficients (8x8: all four), for the deblocking
-    // CABAC's coded_block_flag of each block: bit 0..15 luma 4x4, 16..19 Cb AC, 20..23 Cr AC,
-    // 24 luma DC, 25 Cb DC, 26 Cr DC.
-    std::uint32_t cbf = 0;
+    // CABAC's coded_block_flag of each block: bits 0..15 luma 4x4 (8x8:
+    // all four), 16..31 Cb's, 32..47 Cr's, 48 luma DC, 49 Cb DC, 50 Cr DC.
+    std::uint64_t cbf = 0;
     std::array<std::array<Mv, 16>, 2> mvd {}; // absolute mvd per 4x4 block, CABAC's context
     std::array<std::array<std::int8_t, 4>, 2> ref_idx {}; // per 8x8, for CABAC's ref_idx context
     std::array<std::uint8_t, 4> sub_direct {}; // a B_8x8 sub-macroblock predicted directly
@@ -364,8 +414,45 @@ struct MbSyntax {
     std::array<std::int32_t, 16> luma_dc {};
     std::array<std::array<std::int32_t, 4>, 2> chroma_dc {};
     std::array<std::array<std::int32_t, 64>, 2> chroma_ac {}; // [cb/cr][block * 16 + i]
-    std::array<std::uint8_t, 256> pcm_luma {};
-    std::array<std::uint8_t, 128> pcm_chroma {};
+    // Chroma formats other than 4:2:0, cleared only for them (reset()):
+    // 4:2:2's eight DC levels (ChromaDCLevel's order) and the AC of its
+    // eight blocks; 4:4:4's Cb and Cr coded as luma is (DC of Intra_16x16,
+    // and 4x4 or 8x8 blocks as `luma` holds them).
+    std::array<std::array<std::int32_t, 16>, 2> chroma_dc_wide {};
+    // I_PCM's samples, Y then Cb then Cr, each read whole (never cleared),
+    // where an I_PCM macroblock has no coefficients: the macroblocks of a
+    // picture's rows in flight stay a few kilobytes each.
+    union {
+        std::array<std::array<std::int32_t, 256>, 2> chroma_wide {};
+        std::array<std::uint16_t, 256 * 3> pcm;
+    };
+
+    // Cleared for the next macroblock, as a fresh one is, the PCM samples
+    // left (and the wide chroma arrays where the stream has no use for them).
+    void reset(bool wide_chroma)
+    {
+        kind = MbKind::PSkip;
+        i16_mode = 0;
+        cbp = 0;
+        transform_8x8 = false;
+        prev_flag = {};
+        rem_mode = {};
+        chroma_mode = 0;
+        qp_delta = 0;
+        partitions = 1;
+        part_pred = {};
+        sub_type = {};
+        ref_idx = {};
+        mvd = {};
+        luma = {};
+        luma_dc = {};
+        chroma_dc = {};
+        chroma_ac = {};
+        if (wide_chroma) {
+            chroma_dc_wide = {};
+            chroma_wide = {};
+        }
+    }
 };
 
 // Partition shape of the sub_mb_type of a P or B slice (Tables 7-17, 7-18).
@@ -402,11 +489,34 @@ struct Frame {
     bool mbaff = false;
     int mb_width = 0; // the picture's, in macroblocks (a field: half the frame's rows)
     int mb_height = 0;
-    // The picture's samples: the frame's planes, or every other row of them.
+    // The picture's samples: the frame's planes, or every other row of them
+    // (as bytes; luma_at<P>() and chroma_at<P>() give them as samples).
     std::uint8_t* luma = nullptr;
     std::uint8_t* chroma[2] = { nullptr, nullptr };
-    int luma_stride = 0;
+    int luma_stride = 0; // in samples
     int chroma_stride = 0;
+    // 7.4.2.1.1: the bit depths, the largest sample of each, QpBdOffsetY
+    // and QpBdOffsetC; the chroma format (ChromaArrayType's
+    // chroma_format_idc), its shifts (SubWidthC, SubHeightC as powers of
+    // two) and a macroblock's chroma size (MbWidthC, MbHeightC).
+    bool wide = false; // samples are 16-bit words
+    int bit_depth_luma = 8;
+    int bit_depth_chroma = 8;
+    int luma_max = 255;
+    int chroma_max = 255;
+    int qp_offset_luma = 0;
+    int qp_offset_chroma = 0;
+    int chroma_format = 1;
+    int chroma_shift_x = 1;
+    int chroma_shift_y = 1;
+    int mb_chroma_width = 8;
+    int mb_chroma_height = 8;
+    bool transform_bypass = false; // qpprime_y_zero_transform_bypass_flag
+
+    template<typename P>
+    P* luma_at() const { return reinterpret_cast<P*>(luma); }
+    template<typename P>
+    P* chroma_at(int c) const { return reinterpret_cast<P*>(chroma[c]); }
 
     void set_view(Picture& pic, int structure_, bool mbaff_)
     {
@@ -416,11 +526,27 @@ struct Frame {
         int const field = structure != 0 ? 1 : 0;
         mb_width = pic.mb_width;
         mb_height = pic.mb_height >> field;
-        luma = pic.y.data() + (structure == 2 ? pic.width : 0);
-        chroma[0] = pic.cb.data() + (structure == 2 ? pic.width / 2 : 0);
-        chroma[1] = pic.cr.data() + (structure == 2 ? pic.width / 2 : 0);
+        wide = pic.wide();
+        bit_depth_luma = pic.bit_depth_luma;
+        bit_depth_chroma = pic.bit_depth_chroma;
+        luma_max = (1 << bit_depth_luma) - 1;
+        chroma_max = (1 << bit_depth_chroma) - 1;
+        qp_offset_luma = 6 * (bit_depth_luma - 8);
+        qp_offset_chroma = 6 * (bit_depth_chroma - 8);
+        chroma_format = pic.chroma_format;
+        chroma_shift_x = chroma_format == 1 || chroma_format == 2 ? 1 : 0;
+        chroma_shift_y = chroma_format == 1 ? 1 : 0;
+        mb_chroma_width = chroma_format == 0 ? 0 : 16 >> chroma_shift_x;
+        mb_chroma_height = chroma_format == 0 ? 0 : 16 >> chroma_shift_y;
+        std::size_t const size = wide ? 2 : 1;
+        luma = reinterpret_cast<std::uint8_t*>(wide ? static_cast<void*>(pic.y16.data()) : static_cast<void*>(pic.y.data()))
+            + (structure == 2 ? static_cast<std::size_t>(pic.width) * size : 0);
+        for (int c = 0; c < 2; ++c) {
+            void* const plane = wide ? static_cast<void*>(c == 0 ? pic.cb16.data() : pic.cr16.data()) : static_cast<void*>(c == 0 ? pic.cb.data() : pic.cr.data());
+            chroma[c] = reinterpret_cast<std::uint8_t*>(plane) + (structure == 2 ? static_cast<std::size_t>(pic.chroma_width) * size : 0);
+        }
         luma_stride = pic.width << field;
-        chroma_stride = (pic.width / 2) << field;
+        chroma_stride = pic.chroma_width << field;
     }
     // The macroblock's row among the picture's motion rows (Picture says how).
     int storage_row(int addr) const
@@ -570,10 +696,12 @@ struct Frame {
     }
 
     // The rows of a structure: the frame's, or every other one of them.
-    std::uint8_t* luma_rows(int s) const { return picture->y.data() + (s == 2 ? picture->width : 0); }
-    std::uint8_t* chroma_rows(int c, int s) const { return (c == 0 ? picture->cb : picture->cr).data() + (s == 2 ? picture->width / 2 : 0); }
+    template<typename P>
+    P* luma_rows(int s) const { return picture->plane<P>(0) + (s == 2 ? picture->width : 0); }
+    template<typename P>
+    P* chroma_rows(int c, int s) const { return picture->plane<P>(1 + c) + (s == 2 ? picture->chroma_width : 0); }
     int luma_rows_stride(int s) const { return picture->width << (s != 0 ? 1 : 0); }
-    int chroma_rows_stride(int s) const { return (picture->width / 2) << (s != 0 ? 1 : 0); }
+    int chroma_rows_stride(int s) const { return picture->chroma_width << (s != 0 ? 1 : 0); }
 };
 
 // The decoding of one slice's macroblocks, from its data's first bit.

@@ -7,6 +7,7 @@
 #include <array>
 #include <cstddef>
 #include <cstdint>
+#include <type_traits>
 
 namespace sashfold::media::h264sw {
 
@@ -52,7 +53,31 @@ int norm8(int m, int i, int j)
     return v8[m][5];
 }
 
-std::uint8_t clip1(int v) { return static_cast<std::uint8_t>(std::clamp(v, 0, 255)); }
+template<typename P>
+P clip(int v, int max)
+{
+    if constexpr (sizeof(P) == 1) {
+        (void)max;
+        return static_cast<P>(std::clamp(v, 0, 255));
+    } else {
+        return static_cast<P>(std::clamp(v, 0, max));
+    }
+}
+
+// A scaled value: in 32 bits where the levels are (8 bits: 7.4.5.3.3's
+// 2^15 holds the products well inside), in 64 bits and held to 2^24
+// otherwise.
+template<bool Wide>
+using Product = std::conditional_t<Wide, std::int64_t, int>;
+
+template<bool Wide>
+std::int32_t held(Product<Wide> v)
+{
+    if constexpr (Wide)
+        return static_cast<std::int32_t>(std::clamp<std::int64_t>(v, -(std::int64_t { 1 } << 24), (std::int64_t { 1 } << 24) - 1));
+    else
+        return v;
+}
 
 }
 
@@ -66,7 +91,7 @@ void LevelScales::build(H264ScalingLists const& lists)
             for (int p = 0; p < 16; ++p)
                 scale4[static_cast<std::size_t>(list)][static_cast<std::size_t>(m)][static_cast<std::size_t>(p)] = weight[static_cast<std::size_t>(p)] * norm4(m, p >> 2, p & 3);
     }
-    for (int list = 0; list < 2; ++list) {
+    for (int list = 0; list < 6; ++list) {
         std::array<int, 64> weight {};
         for (int k = 0; k < 64; ++k)
             weight[zigzag8x8[k]] = lists.present ? lists.list_8x8[static_cast<std::size_t>(list)][static_cast<std::size_t>(k)] : 16;
@@ -78,6 +103,7 @@ void LevelScales::build(H264ScalingLists const& lists)
 
 // 8.5.12.1: a 4x4 block's levels scaled; the DC left alone when it came
 // from a DC transform (Intra_16x16, chroma).
+template<bool Wide>
 void scale_4x4(std::int32_t* d, std::int32_t const* c, int const* scale, int qp, bool dc_separate)
 {
     int const q6 = qp / 6;
@@ -86,23 +112,25 @@ void scale_4x4(std::int32_t* d, std::int32_t const* c, int const* scale, int qp,
             d[0] = c[0];
             continue;
         }
-        int const v = c[p] * scale[p];
-        d[p] = qp >= 24 ? v * (1 << (q6 - 4)) : (v + (1 << (3 - q6))) >> (4 - q6);
+        Product<Wide> const v = Product<Wide> { c[p] } * scale[p];
+        d[p] = held<Wide>(qp >= 24 ? v * (1 << (q6 - 4)) : (v + (1 << (3 - q6))) >> (4 - q6));
     }
 }
 
 // 8.5.13.1.
+template<bool Wide>
 void scale_8x8(std::int32_t* d, std::int32_t const* c, int const* scale, int qp)
 {
     int const q6 = qp / 6;
     for (int p = 0; p < 64; ++p) {
-        int const v = c[p] * scale[p];
-        d[p] = qp >= 36 ? v * (1 << (q6 - 6)) : (v + (1 << (5 - q6))) >> (6 - q6);
+        Product<Wide> const v = Product<Wide> { c[p] } * scale[p];
+        d[p] = held<Wide>(qp >= 36 ? v * (1 << (q6 - 6)) : (v + (1 << (5 - q6))) >> (6 - q6));
     }
 }
 
 // 8.5.10: the luma DC of Intra_16x16, into each 4x4 block's position 0
 // (dc[blk] in raster block order).
+template<bool Wide>
 void luma_dc(std::int32_t* dc, std::int32_t const* c, int scale00, int qp)
 {
     std::array<int, 16> t {};
@@ -120,13 +148,14 @@ void luma_dc(std::int32_t* dc, std::int32_t const* c, int scale00, int qp)
         int const e = t[static_cast<std::size_t>(2 * 4 + j)], g = t[static_cast<std::size_t>(3 * 4 + j)];
         int const f[4] = { a + b + e + g, a + b - e - g, a - b - e + g, a - b + e - g };
         for (int i = 0; i < 4; ++i) {
-            int const v = f[i] * scale00;
-            dc[i * 4 + j] = qp >= 36 ? v * (1 << (q6 - 6)) : (v + (1 << (5 - q6))) >> (6 - q6);
+            Product<Wide> const v = Product<Wide> { f[i] } * scale00;
+            dc[i * 4 + j] = held<Wide>(qp >= 36 ? v * (1 << (q6 - 6)) : (v + (1 << (5 - q6))) >> (6 - q6));
         }
     }
 }
 
 // 8.5.11.2 for 4:2:0: the chroma DC 2x2.
+template<bool Wide>
 void chroma_dc(std::int32_t* dc, std::int32_t const* c, int scale00, int qp)
 {
     int const f0 = c[0] + c[1] + c[2] + c[3];
@@ -134,15 +163,39 @@ void chroma_dc(std::int32_t* dc, std::int32_t const* c, int scale00, int qp)
     int const f2 = c[0] + c[1] - c[2] - c[3];
     int const f3 = c[0] - c[1] - c[2] + c[3];
     int const q6 = qp / 6;
-    dc[0] = ((f0 * scale00) * (1 << q6)) >> 5;
-    dc[1] = ((f1 * scale00) * (1 << q6)) >> 5;
-    dc[2] = ((f2 * scale00) * (1 << q6)) >> 5;
-    dc[3] = ((f3 * scale00) * (1 << q6)) >> 5;
+    dc[0] = held<Wide>(((Product<Wide> { f0 } * scale00) * (1 << q6)) >> 5);
+    dc[1] = held<Wide>(((Product<Wide> { f1 } * scale00) * (1 << q6)) >> 5);
+    dc[2] = held<Wide>(((Product<Wide> { f2 } * scale00) * (1 << q6)) >> 5);
+    dc[3] = held<Wide>(((Product<Wide> { f3 } * scale00) * (1 << q6)) >> 5);
+}
+
+void chroma_dc_422(std::int32_t* dc, std::int32_t const* c, int scale00_dc, int qp_dc)
+{
+    // 8-305: the 2x4 array (two columns, four rows) from ChromaDCLevel.
+    std::int64_t const m[4][2] = { { c[0], c[2] }, { c[1], c[5] }, { c[3], c[6] }, { c[4], c[7] } };
+    // 8-325: f = A4 * c * A2, A4 the 4x4 matrix of 8-320, A2 the 2x2 of 8-324.
+    std::int64_t t[4][2];
+    for (int j = 0; j < 2; ++j) {
+        t[0][j] = m[0][j] + m[1][j] + m[2][j] + m[3][j];
+        t[1][j] = m[0][j] + m[1][j] - m[2][j] - m[3][j];
+        t[2][j] = m[0][j] - m[1][j] - m[2][j] + m[3][j];
+        t[3][j] = m[0][j] - m[1][j] + m[2][j] - m[3][j];
+    }
+    int const q6 = qp_dc / 6;
+    for (int i = 0; i < 4; ++i) {
+        std::int64_t const f[2] = { t[i][0] + t[i][1], t[i][0] - t[i][1] };
+        for (int j = 0; j < 2; ++j) {
+            // 8-328, 8-329.
+            std::int64_t const v = f[j] * scale00_dc;
+            dc[i * 2 + j] = held<true>(qp_dc >= 36 ? v * (1 << (q6 - 6)) : (v + (1 << (5 - q6))) >> (6 - q6));
+        }
+    }
 }
 
 // 8.5.12.2 and the construction of 8.5.14: d inverse transformed and
 // added to the prediction at `dst`.
-void idct4x4_add(std::uint8_t* dst, int stride, std::int32_t const* d)
+template<typename P>
+void idct4x4_add(P* dst, int stride, std::int32_t const* d, int max)
 {
     std::array<int, 16> g {};
     for (int i = 0; i < 4; ++i) {
@@ -162,8 +215,8 @@ void idct4x4_add(std::uint8_t* dst, int stride, std::int32_t const* d)
         int const f3 = g[static_cast<std::size_t>(1 * 4 + j)] + (g[static_cast<std::size_t>(3 * 4 + j)] >> 1);
         int const h[4] = { f0 + f3, f1 + f2, f1 - f2, f0 - f3 };
         for (int i = 0; i < 4; ++i) {
-            std::uint8_t& p = dst[i * stride + j];
-            p = clip1(p + ((h[i] + 32) >> 6));
+            P& p = dst[i * stride + j];
+            p = clip<P>(p + ((h[i] + 32) >> 6), max);
         }
     }
 }
@@ -203,7 +256,8 @@ void idct8_1d(int const* d, int step, int* out, int out_step)
 }
 
 // 8.5.13.2.
-void idct8x8_add(std::uint8_t* dst, int stride, std::int32_t const* d)
+template<typename P>
+void idct8x8_add(P* dst, int stride, std::int32_t const* d, int max)
 {
     std::array<int, 64> in {};
     for (int p = 0; p < 64; ++p)
@@ -216,9 +270,45 @@ void idct8x8_add(std::uint8_t* dst, int stride, std::int32_t const* d)
         idct8_1d(g.data() + j, 8, h.data() + j, 8);
     for (int i = 0; i < 8; ++i)
         for (int j = 0; j < 8; ++j) {
-            std::uint8_t& p = dst[i * stride + j];
-            p = clip1(p + ((h[static_cast<std::size_t>(i * 8 + j)] + 32) >> 6));
+            P& p = dst[i * stride + j];
+            p = clip<P>(p + ((h[static_cast<std::size_t>(i * 8 + j)] + 32) >> 6), max);
         }
 }
+
+template<typename P>
+void bypass_add(P* dst, int stride, std::int32_t const* levels, int w, int h, int hor_pred, int max)
+{
+    // 8-412 and 8-413: running sums down each column, or along each row.
+    for (int i = 0; i < h; ++i) {
+        int run = 0;
+        for (int j = 0; j < w; ++j) {
+            int r = levels[i * w + j];
+            if (hor_pred == 1) {
+                run += r;
+                r = run;
+            } else if (hor_pred == 0) {
+                for (int k = 0; k < i; ++k)
+                    r += levels[k * w + j];
+            }
+            P& p = dst[i * stride + j];
+            p = clip<P>(p + r, max);
+        }
+    }
+}
+
+template void scale_4x4<false>(std::int32_t*, std::int32_t const*, int const*, int, bool);
+template void scale_4x4<true>(std::int32_t*, std::int32_t const*, int const*, int, bool);
+template void scale_8x8<false>(std::int32_t*, std::int32_t const*, int const*, int);
+template void scale_8x8<true>(std::int32_t*, std::int32_t const*, int const*, int);
+template void luma_dc<false>(std::int32_t*, std::int32_t const*, int, int);
+template void luma_dc<true>(std::int32_t*, std::int32_t const*, int, int);
+template void chroma_dc<false>(std::int32_t*, std::int32_t const*, int, int);
+template void chroma_dc<true>(std::int32_t*, std::int32_t const*, int, int);
+template void idct4x4_add<std::uint8_t>(std::uint8_t*, int, std::int32_t const*, int);
+template void idct4x4_add<std::uint16_t>(std::uint16_t*, int, std::int32_t const*, int);
+template void idct8x8_add<std::uint8_t>(std::uint8_t*, int, std::int32_t const*, int);
+template void idct8x8_add<std::uint16_t>(std::uint16_t*, int, std::int32_t const*, int);
+template void bypass_add<std::uint8_t>(std::uint8_t*, int, std::int32_t const*, int, int, int, int);
+template void bypass_add<std::uint16_t>(std::uint16_t*, int, std::int32_t const*, int, int, int, int);
 
 }

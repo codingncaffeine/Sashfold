@@ -182,6 +182,7 @@ public:
         , m_header(*slice.header)
         , m_width(slice.sps->pic_width_in_mbs)
         , m_cabac_mode(slice.pps->entropy_coding_mode)
+        , m_level_depth(std::max(frame.bit_depth_luma, frame.bit_depth_chroma))
     {
     }
 
@@ -229,13 +230,14 @@ private:
         int const b = mb_b();
         return { b, 12 + x4 };
     }
-    // The same for a 4x4 chroma block (x2, y2) of 4:2:0: block index 0 to 3.
+    // The same for a 4x4 chroma block (x2, y2) of 4:2:0 or 4:2:2 (6.4.11.5):
+    // block index 0 to 3, or 0 to 7, two to a row.
     std::pair<int, int> left_chroma(int x2, int y2) const
     {
         if (x2 > 0)
             return { m_addr, y2 * 2 };
         if (m_mbaff) {
-            Frame::Location const n = neighbor(-1, y2 * 4, 8);
+            Frame::Location const n = m_frame.neighbor(m_addr, -1, y2 * 4, 8, m_frame.mb_chroma_height, m_slice.number);
             return { n.addr, (n.y >> 2) * 2 + (n.x >> 2) };
         }
         return { mb_a(), y2 * 2 + 1 };
@@ -243,12 +245,12 @@ private:
     std::pair<int, int> above_chroma(int x2, int y2) const
     {
         if (y2 > 0)
-            return { m_addr, x2 };
+            return { m_addr, (y2 - 1) * 2 + x2 };
         if (m_mbaff) {
-            Frame::Location const n = neighbor(x2 * 4, -1, 8);
+            Frame::Location const n = m_frame.neighbor(m_addr, x2 * 4, -1, 8, m_frame.mb_chroma_height, m_slice.number);
             return { n.addr, (n.y >> 2) * 2 + (n.x >> 2) };
         }
-        return { mb_b(), 2 + x2 };
+        return { mb_b(), (m_frame.mb_chroma_height / 4 - 1) * 2 + x2 };
     }
     // 7.4.5.1: how many reference indices list `list` offers the current
     // macroblock — twice the slice's for an MBAFF field macroblock, whose
@@ -278,21 +280,23 @@ private:
     bool mb_pred(MbSyntax& mb);
     bool sub_mb_pred(MbSyntax& mb);
     bool residual(MbSyntax& mb);
+    bool residual_luma(MbSyntax& mb, int k, std::int32_t* coeffs, std::int32_t* dc);
     bool decode_mb_type(MbSyntax& mb, int& raw);
     void set_mb_type(MbSyntax& mb, int raw, H264SliceType as);
 
     // CAVLC.
     int read_vlc(Vlc const& v, int& a, int& b);
     bool cavlc_block(std::int32_t* levels, int start, int end, int max_coeff, int nc, int& total);
-    int nc_luma(int x4, int y4) const;
+    int nc_luma(int k, int x4, int y4) const;
     int nc_chroma(int c, int x2, int y2) const;
     // CABAC.
     bool cabac_block(std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc, bool& coded);
     template<bool Field>
     static bool cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc,
-        bool& coded);
-    int cbf_inc_luma(int cat, int x4, int y4) const;
-    int cbf_inc_dc(int cat, int c) const;
+        bool& coded, int depth);
+    int cbf_inc_luma(int k, int x4, int y4) const;
+    int cbf_inc_8x8(int k, int b8) const;
+    int cbf_inc_dc(bool luma_like, int k) const;
     int cbf_inc_chroma_ac(int c, int x2, int y2) const;
     int cbf_cond(int addr, bool block_available, bool block_cbf) const;
     int cabac_ref_idx(int list, int x4, int y4);
@@ -310,6 +314,7 @@ private:
     H264SliceHeader const& m_header;
     int m_width;
     bool m_cabac_mode;
+    int m_level_depth; // the deeper bit depth: the levels' bound (7.4.5.3.3)
     Cabac m_cabac;
     int m_addr = 0;
     int m_x = 0;
@@ -339,6 +344,7 @@ struct VlcSet {
     Vlc coeff[6];
     Vlc tz4x4[15];
     Vlc tz2x2[3];
+    Vlc tz2x4[7];
     Vlc rb[7];
 
     VlcSet()
@@ -363,6 +369,11 @@ struct VlcSet {
             for (int z = 0; z < 4; ++z)
                 add(tz2x2[i], total_zeros_2x2[i][z], z, 0);
             sort(tz2x2[i]);
+        }
+        for (int i = 0; i < 7; ++i) {
+            for (int z = 0; z < 8; ++z)
+                add(tz2x4[i], total_zeros_2x4[i][z], z, 0);
+            sort(tz2x4[i]);
         }
         for (int i = 0; i < 7; ++i) {
             for (int r = 0; r < 15; ++r)
@@ -392,8 +403,9 @@ int Parser::read_vlc(Vlc const& v, int& a, int& b)
     return -1;
 }
 
-// 9.2.1: nC of a luma 4x4 block from its neighbors' total coefficients.
-int Parser::nc_luma(int x4, int y4) const
+// 9.2.1: nC of a 4x4 block of component k coded as luma (0 Y; 1 Cb, 2 Cr
+// of 4:4:4) from its neighbors' total coefficients of that component.
+int Parser::nc_luma(int k, int x4, int y4) const
 {
     auto n_of = [&](std::pair<int, int> n, bool& has) {
         has = n.first >= 0;
@@ -404,7 +416,7 @@ int Parser::nc_luma(int x4, int y4) const
             return 16;
         if (s.skip)
             return 0;
-        return static_cast<int>(s.total_coeff[static_cast<std::size_t>(n.second)]);
+        return static_cast<int>(s.total_coeff[static_cast<std::size_t>(16 * k + n.second)]);
     };
     bool ha = false, hb = false;
     int const na = n_of(left4(x4, y4), ha);
@@ -425,7 +437,7 @@ int Parser::nc_chroma(int c, int x2, int y2) const
             return 16;
         if (s.skip)
             return 0;
-        return static_cast<int>(s.total_coeff[static_cast<std::size_t>(16 + c * 4 + idx)]);
+        return static_cast<int>(s.total_coeff[static_cast<std::size_t>(16 + c * 16 + idx)]);
     };
     bool ha = false, hb = false;
     std::pair<int, int> const left = left_chroma(x2, y2), above = above_chroma(x2, y2);
@@ -491,7 +503,8 @@ bool Parser::cavlc_block(std::int32_t* levels, int start, int end, int max_coeff
             code += 2;
         // 7.4.5.3.3 bounds a level to -2^(7 + bitDepth) .. 2^(7 + bitDepth) - 1;
         // held there so a broken stream cannot overflow the scaling.
-        int const value = std::clamp((code % 2 == 0) ? (code + 2) >> 1 : (-code - 1) >> 1, -32768, 32767);
+        int const limit = 1 << (7 + m_level_depth);
+        int const value = std::clamp((code % 2 == 0) ? (code + 2) >> 1 : (-code - 1) >> 1, -limit, limit - 1);
         level[static_cast<std::size_t>(i)] = value;
         if (suffix_length == 0)
             suffix_length = 1;
@@ -503,6 +516,9 @@ bool Parser::cavlc_block(std::int32_t* levels, int start, int end, int max_coeff
         int z = 0, unused = 0;
         if (max_coeff == 4) {
             if (read_vlc(v.tz2x2[count - 1], z, unused) < 0)
+                return false;
+        } else if (max_coeff == 8) { // 4:2:2's chroma DC (Table 9-9 b)
+            if (read_vlc(v.tz2x4[count - 1], z, unused) < 0)
                 return false;
         } else {
             if (read_vlc(v.tz4x4[count - 1], z, unused) < 0)
@@ -547,7 +563,10 @@ int Parser::cbf_cond(int addr, bool block_available, bool block_cbf) const
     return block_cbf ? 1 : 0;
 }
 
-int Parser::cbf_inc_luma(int cat, int x4, int y4) const
+// cat 1, 2 and their Cb and Cr kin (7, 8, 11, 12): component k's 4x4
+// blocks; a neighbor coded with the 8x8 transform gives its 8x8 block's
+// flag, which its four 4x4 bits hold.
+int Parser::cbf_inc_luma(int k, int x4, int y4) const
 {
     auto cond = [&](std::pair<int, int> n) {
         if (n.first < 0)
@@ -555,20 +574,44 @@ int Parser::cbf_inc_luma(int cat, int x4, int y4) const
         MbState const& s = n.first == m_addr ? m_frame.mbs[static_cast<std::size_t>(m_addr)] : state(n.first);
         int const b8 = (n.second >> 3) * 2 + ((n.second & 3) >> 1);
         bool const has = s.kind != MbKind::IPCM && !s.skip && ((s.cbp >> b8) & 1);
-        (void)cat;
-        return cbf_cond(n.first, has, (s.cbf >> n.second) & 1);
+        return cbf_cond(n.first, has, (s.cbf >> (16 * k + n.second)) & 1);
     };
     return cond(left4(x4, y4)) + 2 * cond(above4(x4, y4));
 }
 
-int Parser::cbf_inc_dc(int cat, int c) const
+// cat 5, 9, 13 (4:4:4 alone has their flag): component k's 8x8 block b8,
+// beside 8x8 blocks of neighbors coded with the 8x8 transform (6.4.11.2).
+int Parser::cbf_inc_8x8(int k, int b8) const
 {
-    int const bit = cat == 0 ? 24 : 25 + c;
+    int const bx = b8 & 1, by = b8 >> 1;
+    auto cond = [&](int addr, int nb8) {
+        if (addr < 0)
+            return cbf_cond(-1, false, false);
+        MbState const& s = addr == m_addr ? m_frame.mbs[static_cast<std::size_t>(m_addr)] : state(addr);
+        bool const has = s.kind != MbKind::IPCM && !s.skip && ((s.cbp >> nb8) & 1) && s.transform_8x8;
+        return cbf_cond(addr, has, (s.cbf >> (16 * k + (nb8 >> 1) * 8 + (nb8 & 1) * 2)) & 1);
+    };
+    auto outside = [&](int x, int y, int non_mbaff_addr, int non_mbaff_b8) {
+        if (!m_mbaff)
+            return cond(non_mbaff_addr, non_mbaff_b8);
+        Frame::Location const n = neighbor(x, y);
+        return cond(n.addr, (n.y >> 3) * 2 + (n.x >> 3));
+    };
+    int const a = bx > 0 ? cond(m_addr, b8 - 1) : outside(-1, by * 8, mb_a(), b8 + 1);
+    int const b = by > 0 ? cond(m_addr, b8 - 2) : outside(bx * 8, -1, mb_b(), b8 + 2);
+    return a + 2 * b;
+}
+
+// cat 0, 6, 10 (`luma_like`: component k's Intra_16x16 DC) or cat 3 (the
+// chroma DC of 4:2:0 and 4:2:2, component k - 1).
+int Parser::cbf_inc_dc(bool luma_like, int k) const
+{
+    int const bit = 48 + k;
     auto cond = [&](int addr) {
         if (addr < 0)
             return cbf_cond(-1, false, false);
         MbState const& s = state(addr);
-        bool const has = cat == 0 ? s.kind == MbKind::I16x16 : (!s.skip && s.kind != MbKind::IPCM && (s.cbp >> 4) != 0);
+        bool const has = luma_like ? s.kind == MbKind::I16x16 : (!s.skip && s.kind != MbKind::IPCM && (s.cbp >> 4) != 0);
         return cbf_cond(addr, has, (s.cbf >> bit) & 1);
     };
     return cond(mb_a()) + 2 * cond(mb_b());
@@ -581,7 +624,7 @@ int Parser::cbf_inc_chroma_ac(int c, int x2, int y2) const
             return cbf_cond(-1, false, false);
         MbState const& s = addr == m_addr ? m_frame.mbs[static_cast<std::size_t>(m_addr)] : state(addr);
         bool const has = !s.skip && s.kind != MbKind::IPCM && (s.cbp >> 4) == 2;
-        return cbf_cond(addr, has, (s.cbf >> (16 + c * 4 + idx)) & 1);
+        return cbf_cond(addr, has, (s.cbf >> (16 + c * 16 + idx)) & 1);
     };
     std::pair<int, int> const left = left_chroma(x2, y2), above = above_chroma(x2, y2);
     return cond(left.first, left.second) + 2 * cond(above.first, above.second);
@@ -595,45 +638,54 @@ bool Parser::cabac_block(std::int32_t* levels, int start, int end, int max_coeff
     CabacEngine engine = m_cabac.engine();
     std::uint8_t* const contexts = m_cabac.contexts();
     // A field macroblock's significance map has contexts of its own (Table 9-34).
-    bool const ok = m_field_mb ? cabac_block<true>(engine, contexts, levels, start, end, max_coeff, cat, cbf_inc, coded)
-                               : cabac_block<false>(engine, contexts, levels, start, end, max_coeff, cat, cbf_inc, coded);
+    int const depth = m_level_depth;
+    bool const ok = m_field_mb ? cabac_block<true>(engine, contexts, levels, start, end, max_coeff, cat, cbf_inc, coded, depth)
+                               : cabac_block<false>(engine, contexts, levels, start, end, max_coeff, cat, cbf_inc, coded, depth);
     m_cabac.engine() = engine;
     return ok;
 }
 
 template<bool Field>
 bool Parser::cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32_t* levels, int start, int end, int max_coeff, int cat, int cbf_inc,
-    bool& coded)
+    bool& coded, int depth)
 {
     for (int i = start; i <= end; ++i)
         levels[i] = 0;
-    // Table 9-40: ctxIdxBlockCatOffset of cbf, significance and levels.
-    static constexpr int cbf_off[6] = { 0, 4, 8, 12, 16, 0 };
-    static constexpr int sig_off[6] = { 0, 15, 29, 44, 47, 0 };
-    static constexpr int abs_off[6] = { 0, 10, 20, 30, 39, 0 };
-    if (max_coeff != 64) {
-        coded = engine.decision(contexts[85 + cbf_off[cat] + cbf_inc]) != 0;
+    // Tables 9-34 and 9-40: per ctxBlockCat (0 to 4 luma and 4:2:0 / 4:2:2
+    // chroma, 5 luma 8x8, 6 to 9 and 10 to 13 the Cb and Cr of 4:4:4 coded
+    // as luma's 0, 1, 2 and 5 are), ctxIdxOffset + ctxIdxBlockCatOffset.
+    static constexpr int cbf_base[14] = { 85, 89, 93, 97, 101, 1012, 460, 464, 468, 1016, 472, 476, 480, 1020 };
+    static constexpr int sig_frame[14] = { 105, 120, 134, 149, 152, 402, 484, 499, 513, 660, 528, 543, 557, 718 };
+    static constexpr int sig_field[14] = { 277, 292, 306, 321, 324, 436, 776, 791, 805, 675, 820, 835, 849, 733 };
+    static constexpr int last_frame[14] = { 166, 181, 195, 210, 213, 417, 572, 587, 601, 690, 616, 631, 645, 748 };
+    static constexpr int last_field[14] = { 338, 353, 367, 382, 385, 451, 864, 879, 893, 699, 908, 923, 937, 757 };
+    static constexpr int abs_base[14] = { 227, 237, 247, 257, 266, 426, 952, 962, 972, 708, 982, 992, 1002, 766 };
+    // An 8x8 block has a coded_block_flag in 4:4:4 alone (7.3.5.3.3); cbf_inc -1 says it has none.
+    if (cbf_inc >= 0) {
+        coded = engine.decision(contexts[cbf_base[cat] + cbf_inc]) != 0;
         if (!coded)
             return true;
     } else {
         coded = true;
     }
-    // Table 9-34: the significance map's contexts, frame or field coded.
-    constexpr int sig_coded = Field ? 277 : 105, last_coded = Field ? 338 : 166;
-    constexpr int sig_8x8_base = Field ? 436 : 402, last_8x8_base = Field ? 451 : 417;
+    bool const eight = max_coeff == 64;
+    // 9.3.3.1.3: chroma DC's ctxIdxInc is Min( numDecodAbsLevel / NumC8x8, 2 ), NumC8x8 2 for 4:2:2's eight levels.
+    int const dc_shift = max_coeff == 8 ? 1 : 0;
+    int const sig_coded = Field ? sig_field[cat] : sig_frame[cat];
+    int const last_coded = Field ? last_field[cat] : last_frame[cat];
     constexpr std::uint8_t const* sig_8x8 = Field ? significant_8x8_field : significant_8x8_frame;
     int const count = end - start + 1;
     std::array<bool, 64> significant {};
     int num = count;
     for (int i = 0; i < num - 1; ++i) {
         int sig_ctx, last_ctx;
-        if (cat == 5) {
-            sig_ctx = sig_8x8_base + sig_8x8[i];
-            last_ctx = last_8x8_base + last_significant_8x8[i];
+        if (eight) {
+            sig_ctx = sig_coded + sig_8x8[i];
+            last_ctx = last_coded + last_significant_8x8[i];
         } else {
-            int const inc = cat == 3 ? std::min(i, 2) : i;
-            sig_ctx = sig_coded + sig_off[cat] + inc;
-            last_ctx = last_coded + sig_off[cat] + inc;
+            int const inc = cat == 3 ? std::min(i >> dc_shift, 2) : i;
+            sig_ctx = sig_coded + inc;
+            last_ctx = last_coded + inc;
         }
         if (engine.decision(contexts[sig_ctx])) {
             significant[static_cast<std::size_t>(i)] = true;
@@ -645,7 +697,7 @@ bool Parser::cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32
     }
     significant[static_cast<std::size_t>(num - 1)] = true;
     int eq1 = 0, gt1 = 0;
-    int const base = cat == 5 ? 426 : 227 + abs_off[cat];
+    int const base = abs_base[cat];
     for (int i = num - 1; i >= 0; --i) {
         if (!significant[static_cast<std::size_t>(i)])
             continue;
@@ -661,14 +713,15 @@ bool Parser::cabac_block(CabacEngine& engine, std::uint8_t* contexts, std::int32
                 int k = 0;
                 while (engine.bypass()) {
                     value += 1 << k;
-                    if (++k > 16) // past any level a stream may hold (7.4.5.3.3)
+                    if (++k > depth + 8) // past any level a stream may hold (7.4.5.3.3: 2^(7 + bitDepth))
                         return false;
                 }
                 while (k-- > 0)
                     value += engine.bypass() << k;
+                value = std::min(value, (1 << (7 + depth)) - 1);
             }
         }
-        int const level = std::min(value + 1, 32768);
+        int const level = value + 1;
         if (level == 1)
             ++eq1;
         else
@@ -1158,6 +1211,9 @@ bool Parser::mb_pred(MbSyntax& mb)
         }
     }
     if (mb.kind == MbKind::I4x4 || mb.kind == MbKind::I8x8 || mb.kind == MbKind::I16x16) {
+        // 7.3.5.1: intra_chroma_pred_mode where the chroma has its own prediction (4:2:0, 4:2:2).
+        if (m_frame.chroma_format != 1 && m_frame.chroma_format != 2)
+            return true;
         if (m_cabac_mode) {
             auto cond = [&](int addr) {
                 if (addr < 0)
@@ -1333,33 +1389,105 @@ bool Parser::sub_mb_pred(MbSyntax& mb)
     return true;
 }
 
+// 7.3.5.3: the macroblock's residual — luma, then the chroma of 4:2:0
+// and 4:2:2 (a DC block per component, then its AC blocks), or 4:4:4's Cb
+// and Cr coded as luma is.
 bool Parser::residual(MbSyntax& mb)
+{
+    if (!residual_luma(mb, 0, mb.luma.data(), mb.luma_dc.data()))
+        return false;
+    int const format = m_frame.chroma_format;
+    if (format == 3) {
+        for (int c = 0; c < 2; ++c) {
+            std::size_t const sc = static_cast<std::size_t>(c);
+            if (!residual_luma(mb, 1 + c, mb.chroma_wide[sc].data(), mb.chroma_dc_wide[sc].data()))
+                return false;
+        }
+        return true;
+    }
+    if (format == 0)
+        return true;
+    MbState& s = current();
+    int const cbp_chroma = mb.cbp >> 4;
+    // NumC8x8 (7.3.5.3): 1 for 4:2:0, 2 for 4:2:2's eight 4x4 blocks a component.
+    int const c8x8 = format == 2 ? 2 : 1;
+    int const dc_count = 4 * c8x8;
+    std::array<std::int32_t, 64> list {};
+    if (cbp_chroma & 3) {
+        for (int c = 0; c < 2; ++c) {
+            int total = 0;
+            bool coded = false;
+            if (m_cabac_mode) {
+                if (!cabac_block(list.data(), 0, dc_count - 1, dc_count, 3, cbf_inc_dc(false, 1 + c), coded))
+                    return false;
+                if (coded)
+                    s.cbf |= std::uint64_t { 1 } << (49 + c);
+            } else if (!cavlc_block(list.data(), 0, dc_count - 1, dc_count, c8x8 == 2 ? -2 : -1, total)) {
+                return false;
+            }
+            std::int32_t* const dc = format == 2 ? mb.chroma_dc_wide[static_cast<std::size_t>(c)].data() : mb.chroma_dc[static_cast<std::size_t>(c)].data();
+            for (int i = 0; i < dc_count; ++i)
+                dc[i] = list[static_cast<std::size_t>(i)];
+        }
+    }
+    if (cbp_chroma & 2) {
+        for (int c = 0; c < 2; ++c) {
+            std::int32_t* const ac = format == 2 ? mb.chroma_wide[static_cast<std::size_t>(c)].data() : mb.chroma_ac[static_cast<std::size_t>(c)].data();
+            for (int b4 = 0; b4 < dc_count; ++b4) {
+                int const x2 = b4 & 1, y2 = b4 >> 1;
+                int total = 0;
+                bool coded = false;
+                if (m_cabac_mode) {
+                    if (!cabac_block(list.data(), 0, 14, 15, 4, cbf_inc_chroma_ac(c, x2, y2), coded))
+                        return false;
+                    if (coded)
+                        s.cbf |= std::uint64_t { 1 } << (16 + c * 16 + b4);
+                    total = coded ? 1 : 0;
+                } else if (!cavlc_block(list.data(), 0, 14, 15, nc_chroma(c, x2, y2), total)) {
+                    return false;
+                }
+                s.total_coeff[static_cast<std::size_t>(16 + c * 16 + b4)] = static_cast<std::uint8_t>(total);
+                put4x4(ac + b4 * 16, list.data(), 1, 15);
+            }
+        }
+    }
+    return true;
+}
+
+// 7.3.5.3.1 residual_luma: component k (0 Y; 1 Cb and 2 Cr of 4:4:4,
+// with their own block categories, contexts and counts) into `coeffs`
+// (raster 4x4 blocks, or 8x8 blocks at [i8 * 64]) and `dc` (Intra_16x16's).
+bool Parser::residual_luma(MbSyntax& mb, int k, std::int32_t* coeffs, std::int32_t* dc)
 {
     MbState& s = current();
     int const cbp_luma = mb.cbp & 15;
-    int const cbp_chroma = mb.cbp >> 4;
+    // Table 9-42's ctxBlockCat of the component's DC, AC, 4x4 and 8x8 blocks.
+    static constexpr int cats[3][4] = { { 0, 1, 2, 5 }, { 6, 7, 8, 9 }, { 10, 11, 12, 13 } };
+    int const* const cat = cats[k];
+    int const bit0 = 16 * k; // its blocks' bits and counts
+    bool const chroma444 = m_frame.chroma_format == 3;
     std::array<std::int32_t, 64> list {};
     if (mb.kind == MbKind::I16x16) {
         int total = 0;
         bool coded = false;
         if (m_cabac_mode) {
-            if (!cabac_block(list.data(), 0, 15, 16, 0, cbf_inc_dc(0, 0), coded))
+            if (!cabac_block(list.data(), 0, 15, 16, cat[0], cbf_inc_dc(true, k), coded))
                 return false;
             if (coded)
-                s.cbf |= 1u << 24;
-        } else if (!cavlc_block(list.data(), 0, 15, 16, nc_luma(0, 0), total)) {
+                s.cbf |= std::uint64_t { 1 } << (48 + k);
+        } else if (!cavlc_block(list.data(), 0, 15, 16, nc_luma(k, 0, 0), total)) {
             return false;
         }
-        put4x4(mb.luma_dc.data(), list.data(), 0, 16);
+        put4x4(dc, list.data(), 0, 16);
     }
     for (int i8 = 0; i8 < 4; ++i8) {
         if (mb.transform_8x8 && m_cabac_mode) {
             if (!(cbp_luma & (1 << i8)))
                 continue;
             bool coded = false;
-            if (!cabac_block(list.data(), 0, 63, 64, 5, 0, coded))
+            if (!cabac_block(list.data(), 0, 63, 64, cat[3], chroma444 ? cbf_inc_8x8(k, i8) : -1, coded))
                 return false;
-            std::int32_t* out = mb.luma.data() + i8 * 64;
+            std::int32_t* out = coeffs + i8 * 64;
             bool any = false;
             for (int i = 0; i < 64; ++i) {
                 out[m_scan8[i]] = list[static_cast<std::size_t>(i)];
@@ -1369,10 +1497,11 @@ bool Parser::residual(MbSyntax& mb)
             for (int dy = 0; dy < 2; ++dy)
                 for (int dx = 0; dx < 2; ++dx) {
                     int const r = (by + dy) * 4 + bx + dx;
-                    s.cbf |= 1u << r;
-                    if (any)
+                    if (coded)
+                        s.cbf |= std::uint64_t { 1 } << (bit0 + r);
+                    if (any && k == 0)
                         s.nonzero |= 1u << r;
-                    s.total_coeff[static_cast<std::size_t>(r)] = any ? 1 : 0;
+                    s.total_coeff[static_cast<std::size_t>(bit0 + r)] = any ? 1 : 0;
                 }
             continue;
         }
@@ -1388,25 +1517,25 @@ bool Parser::residual(MbSyntax& mb)
             bool coded = false;
             if (mb.kind == MbKind::I16x16) {
                 if (m_cabac_mode) {
-                    if (!cabac_block(list.data(), 0, 14, 15, 1, cbf_inc_luma(1, x4, y4), coded))
+                    if (!cabac_block(list.data(), 0, 14, 15, cat[1], cbf_inc_luma(k, x4, y4), coded))
                         return false;
                     total = coded ? 1 : 0;
-                } else if (!cavlc_block(list.data(), 0, 14, 15, nc_luma(x4, y4), total)) {
+                } else if (!cavlc_block(list.data(), 0, 14, 15, nc_luma(k, x4, y4), total)) {
                     return false;
                 }
-                put4x4(mb.luma.data() + r * 16, list.data(), 1, 15);
+                put4x4(coeffs + r * 16, list.data(), 1, 15);
             } else if (!mb.transform_8x8) {
                 if (m_cabac_mode) {
-                    if (!cabac_block(list.data(), 0, 15, 16, 2, cbf_inc_luma(2, x4, y4), coded))
+                    if (!cabac_block(list.data(), 0, 15, 16, cat[2], cbf_inc_luma(k, x4, y4), coded))
                         return false;
                     total = coded ? 1 : 0;
-                } else if (!cavlc_block(list.data(), 0, 15, 16, nc_luma(x4, y4), total)) {
+                } else if (!cavlc_block(list.data(), 0, 15, 16, nc_luma(k, x4, y4), total)) {
                     return false;
                 }
-                put4x4(mb.luma.data() + r * 16, list.data(), 0, 16);
+                put4x4(coeffs + r * 16, list.data(), 0, 16);
             } else {
                 // CAVLC 8x8: four interleaved 4x4 lists.
-                if (!cavlc_block(list.data(), 0, 15, 16, nc_luma(x4, y4), total))
+                if (!cavlc_block(list.data(), 0, 15, 16, nc_luma(k, x4, y4), total))
                     return false;
                 for (int i = 0; i < 16; ++i)
                     eight[static_cast<std::size_t>(4 * i + i4)] = list[static_cast<std::size_t>(i)];
@@ -1415,57 +1544,21 @@ bool Parser::residual(MbSyntax& mb)
             for (int i = 0; i < (mb.kind == MbKind::I16x16 ? 15 : 16); ++i)
                 any |= list[static_cast<std::size_t>(i)] != 0;
             any8 |= any;
-            s.total_coeff[static_cast<std::size_t>(r)] = static_cast<std::uint8_t>(m_cabac_mode ? (any ? 1 : 0) : total);
+            s.total_coeff[static_cast<std::size_t>(bit0 + r)] = static_cast<std::uint8_t>(m_cabac_mode ? (any ? 1 : 0) : total);
             if (m_cabac_mode && coded)
-                s.cbf |= 1u << r;
-            if (any && !mb.transform_8x8)
+                s.cbf |= std::uint64_t { 1 } << (bit0 + r);
+            if (any && !mb.transform_8x8 && k == 0)
                 s.nonzero |= 1u << r;
         }
         if (mb.transform_8x8 && !m_cabac_mode && (cbp_luma & (1 << i8))) {
-            std::int32_t* out = mb.luma.data() + i8 * 64;
+            std::int32_t* out = coeffs + i8 * 64;
             for (int i = 0; i < 64; ++i)
                 out[m_scan8[i]] = eight[static_cast<std::size_t>(i)];
-            if (any8) {
+            if (any8 && k == 0) {
                 int const bx = (i8 & 1) * 2, by = (i8 >> 1) * 2;
                 for (int dy = 0; dy < 2; ++dy)
                     for (int dx = 0; dx < 2; ++dx)
                         s.nonzero |= 1u << ((by + dy) * 4 + bx + dx);
-            }
-        }
-    }
-    if (cbp_chroma & 3) {
-        for (int c = 0; c < 2; ++c) {
-            int total = 0;
-            bool coded = false;
-            if (m_cabac_mode) {
-                if (!cabac_block(list.data(), 0, 3, 4, 3, cbf_inc_dc(3, c), coded))
-                    return false;
-                if (coded)
-                    s.cbf |= 1u << (25 + c);
-            } else if (!cavlc_block(list.data(), 0, 3, 4, -1, total)) {
-                return false;
-            }
-            for (int i = 0; i < 4; ++i)
-                mb.chroma_dc[static_cast<std::size_t>(c)][static_cast<std::size_t>(i)] = list[static_cast<std::size_t>(i)];
-        }
-    }
-    if (cbp_chroma & 2) {
-        for (int c = 0; c < 2; ++c) {
-            for (int b4 = 0; b4 < 4; ++b4) {
-                int const x2 = b4 & 1, y2 = b4 >> 1;
-                int total = 0;
-                bool coded = false;
-                if (m_cabac_mode) {
-                    if (!cabac_block(list.data(), 0, 14, 15, 4, cbf_inc_chroma_ac(c, x2, y2), coded))
-                        return false;
-                    if (coded)
-                        s.cbf |= 1u << (16 + c * 4 + b4);
-                    total = coded ? 1 : 0;
-                } else if (!cavlc_block(list.data(), 0, 14, 15, nc_chroma(c, x2, y2), total)) {
-                    return false;
-                }
-                s.total_coeff[static_cast<std::size_t>(16 + c * 4 + b4)] = static_cast<std::uint8_t>(total);
-                put4x4(mb.chroma_ac[static_cast<std::size_t>(c)].data() + b4 * 16, list.data(), 1, 15);
             }
         }
     }
@@ -1498,17 +1591,20 @@ bool Parser::macroblock_layer()
             m_cabac.hand_back(m_reader);
         while (!m_reader.byte_aligned())
             m_reader.bit();
-        for (std::uint8_t& v : mb.pcm_luma)
-            v = static_cast<std::uint8_t>(m_reader.bits(8));
-        for (std::uint8_t& v : mb.pcm_chroma)
-            v = static_cast<std::uint8_t>(m_reader.bits(8));
+        // 7.3.5: pcm_sample_luma and pcm_sample_chroma at their bit depths.
+        int const luma_bits = m_frame.bit_depth_luma, chroma_bits = m_frame.bit_depth_chroma;
+        int const chroma_samples = 2 * m_frame.mb_chroma_width * m_frame.mb_chroma_height;
+        for (int i = 0; i < 256; ++i)
+            mb.pcm[static_cast<std::size_t>(i)] = static_cast<std::uint16_t>(m_reader.bits(luma_bits));
+        for (int i = 0; i < chroma_samples; ++i)
+            mb.pcm[static_cast<std::size_t>(256 + i)] = static_cast<std::uint16_t>(m_reader.bits(chroma_bits));
         if (m_cabac_mode)
             m_cabac.init_engine(m_reader);
         // The deblocking filter takes an I_PCM macroblock's QP as 0 (8.7.2.2);
         // the next macroblock's QPY,PRED is still the one before it.
         s.qp = 0;
         s.cbp = 0x2f;
-        s.cbf = 0x07ffffff;
+        s.cbf = ~std::uint64_t { 0 };
         s.total_coeff.fill(16);
         s.nonzero = 0xffff;
         m_prev_qp_delta_nonzero = false;
@@ -1550,6 +1646,7 @@ bool Parser::macroblock_layer()
             return false;
     }
     if (mb.kind != MbKind::I16x16) {
+        bool const has_chroma_dc = m_frame.chroma_format == 1 || m_frame.chroma_format == 2;
         int cbp;
         if (m_cabac_mode) {
             // 9.3.2.6 and 9.3.3.1.1.4: four luma bins, then up to two chroma.
@@ -1590,15 +1687,24 @@ bool Parser::macroblock_layer()
                 int const c = n.cbp >> 4;
                 return bin == 0 ? (c != 0 ? 1 : 0) : (c == 2 ? 1 : 0);
             };
+            // 9.3.2.6: no chroma bins where ChromaArrayType is 0 or 3.
             int chroma = 0;
-            if (m_cabac.decision(77 + ccond(mb_a(), 0) + 2 * ccond(mb_b(), 0)))
+            if (has_chroma_dc && m_cabac.decision(77 + ccond(mb_a(), 0) + 2 * ccond(mb_b(), 0)))
                 chroma = 1 + m_cabac.decision(77 + 4 + ccond(mb_a(), 1) + 2 * ccond(mb_b(), 1));
             cbp |= chroma << 4;
-        } else {
+        } else if (has_chroma_dc) {
             std::uint32_t const code = m_reader.ue();
             if (code > 47)
                 return false;
             cbp = s.intra ? cbp_intra[code] : cbp_inter[code];
+        } else {
+            // Table 9-4 (b), ChromaArrayType 0 or 3: luma only.
+            static constexpr std::uint8_t intra_luma[16] = { 15, 0, 7, 11, 13, 14, 3, 5, 10, 12, 1, 2, 4, 8, 6, 9 };
+            static constexpr std::uint8_t inter_luma[16] = { 0, 1, 2, 4, 8, 3, 5, 10, 12, 15, 7, 11, 13, 14, 6, 9 };
+            std::uint32_t const code = m_reader.ue();
+            if (code > 15)
+                return false;
+            cbp = s.intra ? intra_luma[code] : inter_luma[code];
         }
         mb.cbp = cbp;
         if ((cbp & 15) && m_pps.transform_8x8_mode && s.intra == false && no_sub_less_than_8x8
@@ -1622,10 +1728,12 @@ bool Parser::macroblock_layer()
             delta = cabac_unary_mb_qp_delta();
         else
             delta = m_reader.se();
-        if (delta < -26 || delta > 25)
+        // 7.4.5: mb_qp_delta's range, and QPY wrapping in -QpBdOffsetY..51 (7-37).
+        int const bd_offset = m_frame.qp_offset_luma;
+        if (delta < -(26 + bd_offset / 2) || delta > 25 + bd_offset / 2)
             return false;
         mb.qp_delta = delta;
-        m_qp = (m_qp + delta + 52) % 52;
+        m_qp = ((m_qp + delta + 52 + 2 * bd_offset) % (52 + bd_offset)) - bd_offset;
         m_prev_qp_delta_nonzero = delta != 0;
     } else {
         m_prev_qp_delta_nonzero = false;

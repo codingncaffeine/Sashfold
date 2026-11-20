@@ -393,10 +393,12 @@ std::optional<Nv12Picture> H264Decoder::decode_picture(Picture const& unit)
         if (header.slice_type != H264SliceType::I && header.slice_type != H264SliceType::SI)
             picture.intra = false;
     }
-    // Beyond 4:2:0 at 8 bits is not written; fields and MBAFF frames are
-    // the processor's decoder's alone (the hardware paths are handed
-    // frames only, so such a stream falls back to it).
-    if (sps->chroma_format_idc != 1 || sps->bit_depth_luma != 8 || (!sps->frame_mbs_only && !m_accelerator->is_software())) {
+    // Other chroma formats than 4:2:0, deeper samples than 8 bits, fields
+    // and MBAFF frames are the processor's decoder's alone (the hardware
+    // paths are handed 8-bit 4:2:0 frames only, so such a stream falls
+    // back to it).
+    bool const hardware_reads = sps->chroma_format_idc == 1 && sps->bit_depth_luma == 8 && sps->bit_depth_chroma == 8 && sps->frame_mbs_only;
+    if (!hardware_reads && !m_accelerator->is_software()) {
         m_counts.failed++;
         return std::nullopt;
     }

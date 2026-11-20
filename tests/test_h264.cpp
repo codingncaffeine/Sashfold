@@ -161,17 +161,37 @@ void check_stream(std::string const& folder, std::string const& name)
         CHECK(std::any_of(seen.begin(), seen.end(), [](Seen const& s) { return s.type == 'B' && s.reference; }));
 }
 
-// The planes of a picture, Y then Cb then Cr, as ffmpeg writes yuv420p.
+// The planes of a picture, Y then Cb then Cr, as ffmpeg writes yuv420p —
+// or, for a picture of another format or depth, as ffmpeg writes its own
+// planar format (16-bit little-endian samples past 8 bits; gray has Y alone).
 std::string planar_digest(media::Nv12Picture const& picture)
 {
     crypto::Sha256 hash;
-    hash.update(picture.luma);
-    std::size_t const samples = static_cast<std::size_t>(picture.chroma_width()) * static_cast<std::size_t>(picture.chroma_height());
-    Bytes plane(samples);
-    for (std::size_t offset : { std::size_t { 0 }, std::size_t { 1 } }) {
-        for (std::size_t i = 0; i < samples; ++i)
-            plane[i] = picture.chroma[2 * i + offset];
-        hash.update(plane);
+    if (picture.planar) {
+        media::Nv12Picture::Planar const& p = *picture.planar;
+        auto put = [&](std::vector<std::uint16_t> const& plane, int depth) {
+            Bytes bytes;
+            for (std::uint16_t const v : plane) {
+                bytes.push_back(static_cast<std::uint8_t>(v));
+                if (depth > 8)
+                    bytes.push_back(static_cast<std::uint8_t>(v >> 8));
+            }
+            hash.update(bytes);
+        };
+        put(p.y, p.bit_depth_luma);
+        if (p.chroma_format != 0) {
+            put(p.cb, p.bit_depth_chroma);
+            put(p.cr, p.bit_depth_chroma);
+        }
+    } else {
+        hash.update(picture.luma);
+        std::size_t const samples = static_cast<std::size_t>(picture.chroma_width()) * static_cast<std::size_t>(picture.chroma_height());
+        Bytes plane(samples);
+        for (std::size_t offset : { std::size_t { 0 }, std::size_t { 1 } }) {
+            for (std::size_t i = 0; i < samples; ++i)
+                plane[i] = picture.chroma[2 * i + offset];
+            hash.update(plane);
+        }
     }
     std::string hex;
     for (std::uint8_t const byte : hash.finish()) {
@@ -326,6 +346,9 @@ int main(int argc, char** argv)
     // hardware paths being handed frames only.
     std::initializer_list<char const*> const interlaced = { "mbaff-cabac", "mbaff-cavlc", "mbaff-slices", "mbaff-temporal", "mbaff-8x8-cavlc",
         "mbaff-partitions", "mbaff-bottom-first" };
+    // Beyond 8-bit 4:2:0 (the professional profiles): the processor's
+    // decoder's alone, the hardware paths being handed 8-bit 4:2:0 only.
+    std::initializer_list<char const*> const professional = { "hi10-cabac", "hi10-cavlc", "hi10-weighted", "hi10-low-qp", "hi10-mbaff" };
     for (auto const& [api, api_name] : { std::pair { media::VideoApi::Vulkan, "vulkan" }, std::pair { media::VideoApi::Vaapi, "vaapi" },
              std::pair { media::VideoApi::Software, "software" } }) {
         for (char const* name : clips)
@@ -343,11 +366,13 @@ int main(int argc, char** argv)
             check_decoder(folder + "/../h264", name, media::open_software_h264(media::h264_max_frame_macroblocks, threads), api_name);
         for (char const* name : interlaced)
             check_decoder(folder + "/../h264", name, media::open_software_h264(media::h264_max_frame_macroblocks, threads), api_name);
+        for (char const* name : professional)
+            check_decoder(folder + "/../h264", name, media::open_software_h264(media::h264_max_frame_macroblocks, threads), api_name);
     }
-    // An interlaced track goes to the processor's decoder, whatever
-    // hardware there is.
-    {
-        Bytes const file = read_file(folder + "/../h264/mbaff-cabac.mp4");
+    // An interlaced track, and one deeper than 8 bits, go to the
+    // processor's decoder, whatever hardware there is.
+    for (char const* name : { "mbaff-cabac", "hi10-cabac" }) {
+        Bytes const file = read_file(folder + "/../h264/" + name + ".mp4");
         media::Mp4Parser parser;
         CHECK(parser.append(file));
         Bytes avcc;

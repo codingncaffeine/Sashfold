@@ -30,7 +30,21 @@ constexpr std::uint8_t tc0_table[3][52] = {
         1, 2, 2, 2, 2, 3, 3, 3, 4, 4, 4, 5, 6, 6, 7, 8, 9, 10, 11, 13, 14, 16, 18, 20, 23, 25 },
 };
 
-std::uint8_t clip1(int v) { return static_cast<std::uint8_t>(std::clamp(v, 0, 255)); }
+// alpha and beta (8-456 to 8-459) for indexA and indexB at a component's
+// bit depth.
+struct Thresholds {
+    int alpha = 0;
+    int beta = 0;
+    int index_a = 0;
+};
+inline Thresholds thresholds_at(int qp_av, int off_a, int off_b, int bd_shift)
+{
+    Thresholds t;
+    t.index_a = std::clamp(qp_av + off_a, 0, 51);
+    t.alpha = alpha_table[t.index_a] * (1 << bd_shift);
+    t.beta = beta_table[std::clamp(qp_av + off_b, 0, 51)] * (1 << bd_shift);
+    return t;
+}
 
 // 8.7.2.1: bS between two 4x4 luma blocks (indices in the picture's
 // motion arrays). lp, lq: the blocks' raster indices inside their
@@ -80,14 +94,19 @@ std::uint8_t clip1(int v) { return static_cast<std::uint8_t>(std::clamp(v, 0, 25
 }
 
 // 8.7.2.3 and 8.7.2.4 on one line of samples across an edge: p[i] at
-// pos - (i + 1) * step, q[i] at pos + i * step.
-void filter_line(std::uint8_t* pos, int step, int bs, int alpha, int beta, int index_a, bool chroma)
+// pos - (i + 1) * step, q[i] at pos + i * step. `chroma`:
+// chromaStyleFilteringFlag (8-450); `bd_shift` and `max`: the component's
+// bit depth less 8, and its largest sample (both fixed for bytes).
+template<typename P>
+void filter_line(P* pos, int step, int bs, int alpha, int beta, int index_a, bool chroma, int bd_shift, int max)
 {
+    auto clip1 = [max](int v) { return static_cast<P>(clip_sample<P>(v, max)); };
     int const p0 = pos[-step], p1 = pos[-2 * step], q0 = pos[0], q1 = pos[step];
     if (!(std::abs(p0 - q0) < alpha && std::abs(p1 - p0) < beta && std::abs(q1 - q0) < beta))
         return;
     if (bs < 4) {
-        int const tc0 = tc0_table[bs - 1][index_a];
+        // 8-461, 8-462.
+        int const tc0 = sizeof(P) == 1 ? tc0_table[bs - 1][index_a] : tc0_table[bs - 1][index_a] * (1 << bd_shift);
         int tc;
         int ap = 0, aq = 0;
         int p2 = 0, q2 = 0;
@@ -105,15 +124,15 @@ void filter_line(std::uint8_t* pos, int step, int bs, int alpha, int beta, int i
         pos[0] = clip1(q0 - delta);
         if (!chroma) {
             if (ap < beta)
-                pos[-2 * step] = static_cast<std::uint8_t>(p1 + std::clamp((p2 + ((p0 + q0 + 1) >> 1) - (p1 * 2)) >> 1, -tc0, tc0));
+                pos[-2 * step] = static_cast<P>(p1 + std::clamp((p2 + ((p0 + q0 + 1) >> 1) - (p1 * 2)) >> 1, -tc0, tc0));
             if (aq < beta)
-                pos[step] = static_cast<std::uint8_t>(q1 + std::clamp((q2 + ((p0 + q0 + 1) >> 1) - (q1 * 2)) >> 1, -tc0, tc0));
+                pos[step] = static_cast<P>(q1 + std::clamp((q2 + ((p0 + q0 + 1) >> 1) - (q1 * 2)) >> 1, -tc0, tc0));
         }
         return;
     }
     if (chroma) {
-        pos[-step] = static_cast<std::uint8_t>((2 * p1 + p0 + q1 + 2) >> 2);
-        pos[0] = static_cast<std::uint8_t>((2 * q1 + q0 + p1 + 2) >> 2);
+        pos[-step] = static_cast<P>((2 * p1 + p0 + q1 + 2) >> 2);
+        pos[0] = static_cast<P>((2 * q1 + q0 + p1 + 2) >> 2);
         return;
     }
     int const p2 = pos[-3 * step], q2 = pos[2 * step];
@@ -121,27 +140,32 @@ void filter_line(std::uint8_t* pos, int step, int bs, int alpha, int beta, int i
     int const ap = std::abs(p2 - p0), aq = std::abs(q2 - q0);
     bool const strong = std::abs(p0 - q0) < ((alpha >> 2) + 2);
     if (ap < beta && strong) {
-        pos[-step] = static_cast<std::uint8_t>((p2 + 2 * p1 + 2 * p0 + 2 * q0 + q1 + 4) >> 3);
-        pos[-2 * step] = static_cast<std::uint8_t>((p2 + p1 + p0 + q0 + 2) >> 2);
-        pos[-3 * step] = static_cast<std::uint8_t>((2 * p3 + 3 * p2 + p1 + p0 + q0 + 4) >> 3);
+        pos[-step] = static_cast<P>((p2 + 2 * p1 + 2 * p0 + 2 * q0 + q1 + 4) >> 3);
+        pos[-2 * step] = static_cast<P>((p2 + p1 + p0 + q0 + 2) >> 2);
+        pos[-3 * step] = static_cast<P>((2 * p3 + 3 * p2 + p1 + p0 + q0 + 4) >> 3);
     } else {
-        pos[-step] = static_cast<std::uint8_t>((2 * p1 + p0 + q1 + 2) >> 2);
+        pos[-step] = static_cast<P>((2 * p1 + p0 + q1 + 2) >> 2);
     }
     if (aq < beta && strong) {
-        pos[0] = static_cast<std::uint8_t>((p1 + 2 * p0 + 2 * q0 + 2 * q1 + q2 + 4) >> 3);
-        pos[step] = static_cast<std::uint8_t>((p0 + q0 + q1 + q2 + 2) >> 2);
-        pos[2 * step] = static_cast<std::uint8_t>((2 * q3 + 3 * q2 + q1 + q0 + p0 + 4) >> 3);
+        pos[0] = static_cast<P>((p1 + 2 * p0 + 2 * q0 + 2 * q1 + q2 + 4) >> 3);
+        pos[step] = static_cast<P>((p0 + q0 + q1 + q2 + 2) >> 2);
+        pos[2 * step] = static_cast<P>((2 * q3 + 3 * q2 + q1 + q0 + p0 + 4) >> 3);
     } else {
-        pos[0] = static_cast<std::uint8_t>((2 * q1 + q0 + p1 + 2) >> 2);
+        pos[0] = static_cast<P>((2 * q1 + q0 + p1 + 2) >> 2);
     }
 }
 
-} // namespace
-
-void deblock_macroblock(Frame& frame, int mx, int my)
+template<typename P, int Format>
+void deblock_mb(Frame& frame, int mx, int my)
 {
     int const w = frame.mb_width;
     int const stride = frame.luma_stride, cstride = frame.chroma_stride;
+    int const shift_y = frame.bit_depth_luma - 8, shift_c = frame.bit_depth_chroma - 8;
+    // The chroma format's geometry, fixed per instantiation (Table 6-1).
+    constexpr int format = Format;
+    constexpr int chroma_shift_x = Format == 3 ? 0 : 1, chroma_shift_y = Format == 1 ? 1 : 0;
+    constexpr int cw = Format == 0 ? 0 : 16 >> chroma_shift_x, ch = Format == 0 ? 0 : 16 >> chroma_shift_y;
+    P* const luma = frame.luma_at<P>();
     int const bw = frame.block_stride();
     int const addr = my * w + mx;
     int const mvy_limit = frame.structure != 0 ? 2 : 4;
@@ -160,13 +184,16 @@ void deblock_macroblock(Frame& frame, int mx, int my)
     int const base_q = frame.block_base_at(mx, my);
     for (int dir = 0; dir < 2; ++dir) { // 0: vertical edges, 1: horizontal
         int bs[4][4]; // [edge][block along it]
+        // 4:2:2's horizontal chroma edges 4 and 12 take the strength of luma
+        // rows 4 and 12, filtered or not (8.7.2).
+        bool const all_edges = format == 2 && dir == 1;
         for (int e = 0; e < 4; ++e) {
             for (int k = 0; k < 4; ++k)
                 bs[e][k] = 0;
             bool const mb_edge = e == 0;
             if (mb_edge && !(dir == 0 ? left : top))
                 continue;
-            if (!mb_edge && q.transform_8x8 && (e & 1))
+            if (!mb_edge && q.transform_8x8 && (e & 1) && !all_edges)
                 continue;
             int const mb_p = mb_edge ? (dir == 0 ? addr - 1 : addr - w) : addr;
             int const base_p = mb_edge ? (dir == 0 ? base_q - 4 : base_q - frame.block_row_step()) : base_q;
@@ -182,49 +209,86 @@ void deblock_macroblock(Frame& frame, int mx, int my)
             bool const mb_edge = e == 0;
             if (mb_edge && !(dir == 0 ? left : top))
                 continue;
+            if (!mb_edge && q.transform_8x8 && (e & 1))
+                continue;
             MbState const& p = mb_edge ? frame.mbs[static_cast<std::size_t>(dir == 0 ? addr - 1 : addr - w)] : q;
-            int const qp_av = (p.qp + q.qp + 1) >> 1;
-            int const index_a = std::clamp(qp_av + off_a, 0, 51);
-            int const index_b = std::clamp(qp_av + off_b, 0, 51);
-            int const alpha = alpha_table[index_a], beta = beta_table[index_b];
+            Thresholds const t = thresholds_at((p.qp + q.qp + 1) >> 1, off_a, off_b, shift_y);
             // 8-460's test fails for every sample where alpha or beta is 0.
-            if (alpha == 0 || beta == 0 || (bs[e][0] | bs[e][1] | bs[e][2] | bs[e][3]) == 0)
+            if (t.alpha == 0 || t.beta == 0 || (bs[e][0] | bs[e][1] | bs[e][2] | bs[e][3]) == 0)
                 continue;
             for (int i = 0; i < 16; ++i) {
                 int const b = bs[e][i >> 2];
                 if (b == 0)
                     continue;
-                std::uint8_t* pos = dir == 0 ? frame.luma + static_cast<std::ptrdiff_t>(my * 16 + i) * stride + mx * 16 + e * 4
-                                             : frame.luma + static_cast<std::ptrdiff_t>(my * 16 + e * 4) * stride + mx * 16 + i;
-                filter_line(pos, dir == 0 ? 1 : stride, b, alpha, beta, index_a, false);
+                P* pos = dir == 0 ? luma + static_cast<std::ptrdiff_t>(my * 16 + i) * stride + mx * 16 + e * 4
+                                  : luma + static_cast<std::ptrdiff_t>(my * 16 + e * 4) * stride + mx * 16 + i;
+                filter_line(pos, dir == 0 ? 1 : stride, b, t.alpha, t.beta, t.index_a, false, shift_y, frame.luma_max);
             }
         }
-        // Chroma: edges 0 and 4 of each 8x8, their bS from luma edges 0 and 2.
+        if constexpr (format == 0)
+            continue;
+        // Chroma (8.7, step 3e): the edges of its 4x4 blocks (4:4:4: those
+        // of its transform, as luma's, filtered as luma is), each with the
+        // strength of the luma edge through its luma sample (SubWidthC * x,
+        // SubHeightC * y): 4:2:0 edges 0 and 4 from luma's 0 and 2, 4:2:2's
+        // vertical alike and its horizontal 0, 4, 8, 12 from luma's 0 to 3.
+        int const along = dir == 0 ? ch : cw; // samples along an edge
+        int const edges = (dir == 0 ? cw : ch) / 4;
         for (int c = 0; c < 2; ++c) {
-            std::uint8_t* const plane = frame.chroma[c];
-            for (int ce = 0; ce < 2; ++ce) {
-                int const e = ce * 2;
-                bool const mb_edge = e == 0;
+            P* const plane = frame.chroma_at<P>(c);
+            for (int ce = 0; ce < edges; ++ce) {
+                int const e = ce << (dir == 0 ? chroma_shift_x : chroma_shift_y);
+                bool const mb_edge = ce == 0;
                 if (mb_edge && !(dir == 0 ? left : top))
                     continue;
-                MbState const& p = mb_edge ? frame.mbs[static_cast<std::size_t>(dir == 0 ? addr - 1 : addr - w)] : q;
-                int const qp_av = (p.qpc[static_cast<std::size_t>(c)] + q.qpc[static_cast<std::size_t>(c)] + 1) >> 1;
-                int const index_a = std::clamp(qp_av + off_a, 0, 51);
-                int const index_b = std::clamp(qp_av + off_b, 0, 51);
-                int const alpha = alpha_table[index_a], beta = beta_table[index_b];
-                if (alpha == 0 || beta == 0 || (bs[e][0] | bs[e][1] | bs[e][2] | bs[e][3]) == 0)
+                if (format == 3 && !mb_edge && q.transform_8x8 && (ce & 1))
                     continue;
-                for (int i = 0; i < 8; ++i) {
-                    int const b = bs[e][i >> 1];
+                MbState const& p = mb_edge ? frame.mbs[static_cast<std::size_t>(dir == 0 ? addr - 1 : addr - w)] : q;
+                Thresholds const t = thresholds_at((p.qpc[static_cast<std::size_t>(c)] + q.qpc[static_cast<std::size_t>(c)] + 1) >> 1, off_a, off_b, shift_c);
+                if (t.alpha == 0 || t.beta == 0 || (bs[e][0] | bs[e][1] | bs[e][2] | bs[e][3]) == 0)
+                    continue;
+                // The luma block along the edge holding chroma sample i.
+                int const sub = dir == 0 ? chroma_shift_y : chroma_shift_x;
+                for (int i = 0; i < along; ++i) {
+                    int const b = bs[e][(i << sub) >> 2];
                     if (b == 0)
                         continue;
-                    std::uint8_t* pos = dir == 0 ? plane + static_cast<std::ptrdiff_t>(my * 8 + i) * cstride + mx * 8 + ce * 4
-                                                 : plane + static_cast<std::ptrdiff_t>(my * 8 + ce * 4) * cstride + mx * 8 + i;
-                    filter_line(pos, dir == 0 ? 1 : cstride, b, alpha, beta, index_a, true);
+                    P* pos = dir == 0 ? plane + static_cast<std::ptrdiff_t>(my * ch + i) * cstride + mx * cw + ce * 4
+                                      : plane + static_cast<std::ptrdiff_t>(my * ch + ce * 4) * cstride + mx * cw + i;
+                    filter_line(pos, dir == 0 ? 1 : cstride, b, t.alpha, t.beta, t.index_a, format != 3, shift_c, frame.chroma_max);
                 }
             }
         }
     }
+}
+
+template<typename P>
+void deblock_mb_of(Frame& frame, int mx, int my)
+{
+    switch (frame.chroma_format) {
+    case 0:
+        deblock_mb<P, 0>(frame, mx, my);
+        break;
+    case 2:
+        deblock_mb<P, 2>(frame, mx, my);
+        break;
+    case 3:
+        deblock_mb<P, 3>(frame, mx, my);
+        break;
+    default:
+        deblock_mb<P, 1>(frame, mx, my);
+        break;
+    }
+}
+
+} // namespace
+
+void deblock_macroblock(Frame& frame, int mx, int my)
+{
+    if (frame.wide)
+        deblock_mb_of<std::uint16_t>(frame, mx, my);
+    else
+        deblock_mb_of<std::uint8_t>(frame, mx, my);
 }
 
 namespace {
@@ -246,9 +310,12 @@ std::pair<int, int> mbaff_mb_at(Frame const& f, int px, int row, int rows)
 // row, so its strength is taken line by line (8.7.2.1, mixedModeEdgeFlag),
 // and a frame macroblock under a field pair filters its top edge twice,
 // once against each field (8.7, step 3c).
+template<typename P>
 void deblock_mbaff(Frame& frame, int addr)
 {
     Picture& pic = *frame.picture;
+    P* const luma = pic.plane<P>(0);
+    int const shift_y = frame.bit_depth_luma - 8, shift_c = frame.bit_depth_chroma - 8;
     MbState const& q = frame.mbs[static_cast<std::size_t>(addr)];
     if (q.slice < 0)
         return;
@@ -258,7 +325,7 @@ void deblock_mbaff(Frame& frame, int addr)
     int const off_a = frame.slice_alpha[static_cast<std::size_t>(q.slice)];
     int const off_b = frame.slice_beta[static_cast<std::size_t>(q.slice)];
     int const w = frame.mb_width, bw = frame.block_stride();
-    int const stride = pic.width, cstride = pic.width / 2;
+    int const stride = pic.width, cstride = pic.chroma_width;
     int const pair = addr >> 1, px = pair % w, py = pair / w, bottom = addr & 1;
     bool const field = q.field;
     int const dy = field ? 2 : 1;
@@ -271,10 +338,11 @@ void deblock_mbaff(Frame& frame, int addr)
     int const base_q = frame.block_base(addr);
     auto block_of = [&](int mb, int x4, int y4) { return frame.block_base(mb) + y4 * bw + x4; };
     auto mixed = [&](int mb_p) { return (mb_p >> 1) != pair && frame.mbs[static_cast<std::size_t>(mb_p)].field != field; };
-    auto thresholds = [&](int qp_av, int& alpha, int& beta, int& index_a) {
-        index_a = std::clamp(qp_av + off_a, 0, 51);
-        alpha = alpha_table[index_a];
-        beta = beta_table[std::clamp(qp_av + off_b, 0, 51)];
+    auto thresholds = [&](int qp_av, int& alpha, int& beta, int& index_a, bool chroma) {
+        Thresholds const t = thresholds_at(qp_av, off_a, off_b, chroma ? shift_c : shift_y);
+        index_a = t.index_a;
+        alpha = t.alpha;
+        beta = t.beta;
     };
 
     // Vertical edges: luma lines k = 0..15 each with its own p macroblock
@@ -301,14 +369,14 @@ void deblock_mbaff(Frame& frame, int addr)
                 continue;
             MbState const& p = frame.mbs[static_cast<std::size_t>(mb_p[static_cast<std::size_t>(k)])];
             int alpha, beta, index_a;
-            thresholds((p.qp + q.qp + 1) >> 1, alpha, beta, index_a);
+            thresholds((p.qp + q.qp + 1) >> 1, alpha, beta, index_a, false);
             if (alpha != 0 && beta != 0)
-                filter_line(&pic.y[static_cast<std::size_t>((y_i + dy * k) * stride + x_i + 4 * e)], 1, b, alpha, beta, index_a, false);
+                filter_line(&luma[static_cast<std::size_t>((y_i + dy * k) * stride + x_i + 4 * e)], 1, b, alpha, beta, index_a, false, shift_y, frame.luma_max);
         }
         if (e & 1)
             continue;
         for (int c = 0; c < 2; ++c) {
-            std::vector<std::uint8_t>& plane = c == 0 ? pic.cb : pic.cr;
+            P* const plane = pic.plane<P>(1 + c);
             for (int k = 0; k < 8; ++k) {
                 int const luma_line = field ? 2 * k : 4 * (k >> 1) + (k & 1);
                 int const b = bs[static_cast<std::size_t>(luma_line)];
@@ -318,9 +386,9 @@ void deblock_mbaff(Frame& frame, int addr)
                 int const p_mb = e == 0 ? mbaff_mb_at(frame, px - 1, row, 16).first : addr;
                 MbState const& p = frame.mbs[static_cast<std::size_t>(p_mb)];
                 int alpha, beta, index_a;
-                thresholds((p.qpc[static_cast<std::size_t>(c)] + q.qpc[static_cast<std::size_t>(c)] + 1) >> 1, alpha, beta, index_a);
+                thresholds((p.qpc[static_cast<std::size_t>(c)] + q.qpc[static_cast<std::size_t>(c)] + 1) >> 1, alpha, beta, index_a, true);
                 if (alpha != 0 && beta != 0)
-                    filter_line(&plane[static_cast<std::size_t>(row * cstride + x_i / 2 + 2 * e)], 1, b, alpha, beta, index_a, true);
+                    filter_line(&plane[static_cast<std::size_t>(row * cstride + x_i / 2 + 2 * e)], 1, b, alpha, beta, index_a, true, shift_c, frame.chroma_max);
             }
         }
     }
@@ -336,25 +404,26 @@ void deblock_mbaff(Frame& frame, int addr)
             return;
         MbState const& p = frame.mbs[static_cast<std::size_t>(mb_p)];
         int alpha, beta, index_a;
-        thresholds((p.qp + q.qp + 1) >> 1, alpha, beta, index_a);
+        thresholds((p.qp + q.qp + 1) >> 1, alpha, beta, index_a, false);
         if (alpha != 0 && beta != 0) {
             for (int i = 0; i < 16; ++i) {
                 int const b = bs[static_cast<std::size_t>(i >> 2)];
                 if (b != 0)
-                    filter_line(&pic.y[static_cast<std::size_t>(q_row * stride + x_i + i)], step * stride, b, alpha, beta, index_a, false);
+                    filter_line(&luma[static_cast<std::size_t>(q_row * stride + x_i + i)], step * stride, b, alpha, beta, index_a, false, shift_y, frame.luma_max);
             }
         }
         if (q_crow < 0)
             return;
         for (int c = 0; c < 2; ++c) {
-            std::vector<std::uint8_t>& plane = c == 0 ? pic.cb : pic.cr;
-            thresholds((p.qpc[static_cast<std::size_t>(c)] + q.qpc[static_cast<std::size_t>(c)] + 1) >> 1, alpha, beta, index_a);
+            P* const plane = pic.plane<P>(1 + c);
+            thresholds((p.qpc[static_cast<std::size_t>(c)] + q.qpc[static_cast<std::size_t>(c)] + 1) >> 1, alpha, beta, index_a, true);
             if (alpha == 0 || beta == 0)
                 continue;
             for (int i = 0; i < 8; ++i) {
                 int const b = bs[static_cast<std::size_t>(i >> 1)];
                 if (b != 0)
-                    filter_line(&plane[static_cast<std::size_t>(q_crow * cstride + x_i / 2 + i)], step * cstride, b, alpha, beta, index_a, true);
+                    filter_line(&plane[static_cast<std::size_t>(q_crow * cstride + x_i / 2 + i)], step * cstride, b, alpha, beta, index_a, true, shift_c,
+                        frame.chroma_max);
             }
         }
     };
@@ -380,15 +449,20 @@ void deblock_mbaff(Frame& frame, int addr)
 
 void deblock_pair(Frame& frame, int pair)
 {
-    deblock_mbaff(frame, 2 * pair);
-    deblock_mbaff(frame, 2 * pair + 1);
+    if (frame.wide) {
+        deblock_mbaff<std::uint16_t>(frame, 2 * pair);
+        deblock_mbaff<std::uint16_t>(frame, 2 * pair + 1);
+    } else {
+        deblock_mbaff<std::uint8_t>(frame, 2 * pair);
+        deblock_mbaff<std::uint8_t>(frame, 2 * pair + 1);
+    }
 }
 
 void deblock_picture(Frame& frame)
 {
     if (frame.mbaff) {
-        for (int addr = 0; addr < static_cast<int>(frame.mbs.size()); ++addr)
-            deblock_mbaff(frame, addr);
+        for (int pair = 0; pair < static_cast<int>(frame.mbs.size()) / 2; ++pair)
+            deblock_pair(frame, pair);
         return;
     }
     for (int my = 0; my < frame.mb_height; ++my)

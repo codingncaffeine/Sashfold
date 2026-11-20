@@ -202,11 +202,15 @@ std::unique_ptr<FrameDecoder> open_frame_decoder(std::string const& codec_id, st
         // may use tools hardware decoders do not implement: the processor's
         // decoder takes it, as ffmpeg keeps such streams off VA-API. So does
         // an interlaced stream (frame_mbs_only_flag 0: field pictures or
-        // MBAFF frames), which the hardware paths are not handed; one whose
-        // sets come in-band only falls back to it at its first picture.
+        // MBAFF frames), and one deeper than 8 bits or not 4:2:0 (the High
+        // 10, High 4:2:2 and High 4:4:4 profiles), which the hardware paths
+        // are not handed; one whose sets come in-band only falls back to it
+        // at its first picture.
         if (std::optional<H264DecoderConfiguration> const config = parse_avcc(codec_private); config && !config->sps.empty()) {
             if (std::optional<H264Sps> const sps = parse_h264_sps(config->sps[0]);
-                sps && ((sps->profile_idc == 66 && !(sps->constraint_set_flags & 0x40)) || !sps->frame_mbs_only))
+                sps
+                && ((sps->profile_idc == 66 && !(sps->constraint_set_flags & 0x40)) || !sps->frame_mbs_only || sps->chroma_format_idc != 1
+                    || sps->bit_depth_luma != 8 || sps->bit_depth_chroma != 8))
                 api = VideoApi::Software;
         }
         if (!hardware_video_decoding())
