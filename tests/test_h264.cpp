@@ -349,7 +349,8 @@ int main(int argc, char** argv)
     // Beyond 8-bit 4:2:0 (the professional profiles): the processor's
     // decoder's alone, the hardware paths being handed 8-bit 4:2:0 only.
     std::initializer_list<char const*> const professional = { "hi10-cabac", "hi10-cavlc", "hi10-weighted", "hi10-low-qp", "hi10-mbaff", "hi422-cabac",
-        "hi422-cavlc", "hi422-10-weighted", "hi422-10-intra", "hi422-10-mbaff", "hi422-mbaff-cavlc" };
+        "hi422-cavlc", "hi422-10-weighted", "hi422-10-intra", "hi422-10-mbaff", "hi422-mbaff-cavlc", "hi444-cabac", "hi444-cavlc", "hi444-10-weighted",
+        "hi444-intra-cavlc", "hi444-10-mbaff", "lossless-444", "lossless-444-cavlc", "lossless-420", "lossless-420-10" };
     for (auto const& [api, api_name] : { std::pair { media::VideoApi::Vulkan, "vulkan" }, std::pair { media::VideoApi::Vaapi, "vaapi" },
              std::pair { media::VideoApi::Software, "software" } }) {
         for (char const* name : clips)

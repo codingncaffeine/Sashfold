@@ -86,4 +86,19 @@ PIX=yuv422p10le make hi422-10-weighted 176x96 "${x264[@]}" -bf 2 -vf "fade=in:0:
 PIX=yuv422p10le make hi422-10-intra 176x96 -c:v libx264 -crf 12 -g 1 -x264-params "keyint=1:cabac=0"
 PIX=yuv422p10le woven hi422-10-mbaff 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1"
 PIX=yuv422p woven hi422-mbaff-cavlc 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1:cabac=0:8x8dct=1"
+# High 4:4:4 Predictive: Cb and Cr coded as luma is (CABAC's categories 6
+# to 13, the 8x8 transform on chroma, luma prediction and interpolation),
+# the lossless transform bypass (-qp 0, with its intra residual sums), in
+# 4:4:4, 4:2:0 and at 10 bits. (Monochrome is held to the conformance
+# streams HPCVMOLQ_BRCM_B and HPCAMOLQ_BRCM_B: libx264 through ffmpeg
+# codes no 4:0:0.)
+PIX=yuv444p make hi444-cabac 176x96 "${x264[@]}" -bf 2 -x264-params "8x8dct=1:ref=2"
+PIX=yuv444p make hi444-cavlc 176x96 "${x264[@]}" -bf 2 -x264-params "cabac=0:8x8dct=0:partitions=all:subme=7"
+PIX=yuv444p10le make hi444-10-weighted 176x96 "${x264[@]}" -bf 2 -vf "fade=in:0:20" -x264-params "weightp=2:ref=3:8x8dct=1"
+PIX=yuv444p make hi444-intra-cavlc 176x96 -c:v libx264 -crf 14 -g 1 -x264-params "keyint=1:cabac=0:8x8dct=1"
+PIX=yuv444p10le woven hi444-10-mbaff 176x96 "${x264[@]}" -bf 2 -x264-params "interlaced=1:tff=1"
+PIX=yuv444p make lossless-444 176x96 -c:v libx264 -qp 0 -g 12 -bf 2
+PIX=yuv444p make lossless-444-cavlc 176x96 -c:v libx264 -qp 0 -g 12 -bf 0 -x264-params "cabac=0:8x8dct=1"
+PIX=yuv420p make lossless-420 176x96 -c:v libx264 -qp 0 -g 12 -bf 2
+PIX=yuv420p10le make lossless-420-10 176x96 -c:v libx264 -qp 0 -g 12 -bf 2
 ls -la "$out"

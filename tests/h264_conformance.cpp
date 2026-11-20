@@ -140,10 +140,34 @@ std::vector<Bytes> access_units(Bytes const& stream)
         current.clear();
         has_slice = false;
     };
+    // The sets, for the colour_plane_id of a stream coded in separate
+    // colour planes: each plane's first slice has first_mb_in_slice 0.
+    std::map<int, media::H264Sps> sets_sps;
+    std::map<int, media::H264Pps> sets_pps;
+    auto later_plane = [&](media::H264Nal const& nal) {
+        for (auto const& [id, p] : sets_pps) {
+            auto const s = sets_sps.find(p.sps_id);
+            if (s == sets_sps.end() || !s->second.separate_colour_plane)
+                continue;
+            if (std::optional<media::H264SliceHeader> h = media::parse_h264_slice_header(nal.bytes, s->second, p); h && h->pps_id == id)
+                return h->colour_plane_id != 0;
+        }
+        return false;
+    };
     for (media::H264Nal const& nal : media::split_h264_annex_b(stream)) {
+        if (nal.type == 7) {
+            if (std::optional<media::H264Sps> s = media::parse_h264_sps(nal.bytes))
+                sets_sps[s->id] = *s;
+        } else if (nal.type == 8) {
+            std::optional<media::H264Pps> p = media::parse_h264_pps(nal.bytes, nullptr);
+            if (p && sets_sps.contains(p->sps_id))
+                p = media::parse_h264_pps(nal.bytes, &sets_sps[p->sps_id]);
+            if (p)
+                sets_pps[p->id] = *p;
+        }
         if (nal.type == 1 || nal.type == 5) {
             std::vector<std::uint8_t> const rbsp = media::h264_rbsp(nal.bytes);
-            bool const first = !rbsp.empty() && (rbsp[0] & 0x80); // ue(v) 0 is a lone one bit
+            bool const first = !rbsp.empty() && (rbsp[0] & 0x80) && !later_plane(nal); // ue(v) 0 is a lone one bit
             if (has_slice && first)
                 flush();
             has_slice = true;

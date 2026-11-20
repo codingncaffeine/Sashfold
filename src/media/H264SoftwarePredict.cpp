@@ -1824,7 +1824,7 @@ void reconstruct(Frame& frame, Slice const& slice, int addr, MbSyntax const& mb)
     bool const bypass = frame.transform_bypass && qp == 0;
     if (!s.intra)
         inter_predict<P>(frame, slice, addr);
-    luma_component(ic, s, mb, 0, mb.luma.data(), mb.luma_dc.data(), qp, ls, frame.luma_max, 1 << (frame.bit_depth_luma - 1), bypass);
+    luma_component(ic, s, mb, frame.list_component, mb.luma.data(), mb.luma_dc.data(), qp, ls, frame.luma_max, 1 << (frame.bit_depth_luma - 1), bypass);
     if (frame.chroma_format == 3) {
         for (int c = 0; c < 2; ++c) {
             IntraContext<P> icc(frame, slice, addr, 1 + c);

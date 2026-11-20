@@ -413,36 +413,56 @@ public:
             return false;
         H264Sps const& sps = *info.sps;
         H264Pps const& pps = *info.pps;
-        // What is written here: frames, fields and MBAFF frames, 4:2:0 and
-        // 4:2:2 at 8 to 14 bits (7.4.2.1.1's range), one slice group.
-        if ((sps.chroma_format_idc != 1 && sps.chroma_format_idc != 2) || sps.separate_colour_plane || sps.bit_depth_luma < 8 || sps.bit_depth_luma > 14
-            || sps.bit_depth_chroma < 8 || sps.bit_depth_chroma > 14 || pps.num_slice_groups != 1 || sps.pic_width_in_mbs <= 0
-            || sps.pic_height_in_map_units <= 0 || static_cast<long long>(sps.pic_width_in_mbs) * sps.frame_height_in_mbs() > m_max_macroblocks)
+        // What is written here: frames, fields and MBAFF frames, every
+        // chroma format at 8 to 14 bits (7.4.2.1.1's ranges), one slice group.
+        if (sps.chroma_format_idc < 0 || sps.chroma_format_idc > 3 || sps.bit_depth_luma < 8 || sps.bit_depth_luma > 14 || sps.bit_depth_chroma < 8
+            || sps.bit_depth_chroma > 14 || pps.num_slice_groups != 1 || sps.pic_width_in_mbs <= 0 || sps.pic_height_in_map_units <= 0
+            || static_cast<long long>(sps.pic_width_in_mbs) * sps.frame_height_in_mbs() > m_max_macroblocks)
             return false;
         bool const field = info.field_pic;
         bool const mbaff = !field && sps.mb_adaptive_frame_field;
         int const structure = field ? (info.bottom_field ? 2 : 1) : 0;
         int const mb_w = sps.pic_width_in_mbs, frame_mb_h = sps.frame_height_in_mbs();
-        int const format = sps.chroma_format_idc, depth_luma = sps.bit_depth_luma, depth_chroma = sps.bit_depth_chroma;
+        // separate_colour_plane_flag: three monochrome pictures (ChromaArrayType
+        // 0), each a luma in every respect (8.5.12's and 8.5.13's notes).
+        bool const separate = sps.chroma_format_idc == 3 && sps.separate_colour_plane;
+        int const format = separate ? 0 : sps.chroma_format_idc;
+        int const depth_luma = sps.bit_depth_luma, depth_chroma = separate ? sps.bit_depth_luma : sps.bit_depth_chroma;
         Picture& pic = m_pictures[static_cast<std::size_t>(info.slot)];
-        bool const fits = pic.fits(mb_w, frame_mb_h, format, depth_luma, depth_chroma);
+        bool const fits = pic.fits(mb_w, frame_mb_h, format, depth_luma, depth_chroma, separate);
         bool const second = field && info.second_field && pic.valid && pic.coding == Coding::Fields && fits;
-        if (!fits)
+        if (!fits) {
             pic.allocate(mb_w, frame_mb_h, format, depth_luma, depth_chroma);
-        if (!second) {
-            pic.serial = ++m_serial;
-            // A lone field's other field is taken to count as it does.
-            pic.poc_top = field ? (structure == 1 ? info.poc_top : info.poc_bottom) : info.poc_top;
-            pic.poc_bottom = field ? pic.poc_top : info.poc_bottom;
-            std::fill(pic.mb_intra.begin(), pic.mb_intra.end(), std::uint8_t { 1 });
-            std::fill(pic.mb_field.begin(), pic.mb_field.end(), static_cast<std::uint8_t>(field ? 1 : 0));
+            pic.colour_planes.clear();
+            if (separate) {
+                pic.colour_planes.resize(2);
+                for (Picture& p : pic.colour_planes)
+                    p.allocate(mb_w, frame_mb_h, 0, depth_luma, depth_luma);
+            }
         }
-        if (structure == 1)
-            pic.poc_top = info.poc_top;
-        else if (structure == 2)
-            pic.poc_bottom = info.poc_bottom;
+        if (!second)
+            pic.serial = ++m_serial;
         pic.coding = field ? Coding::Fields : (mbaff ? Coding::Mbaff : Coding::Frame);
         pic.valid = true;
+        auto begin_picture = [&](Picture& p) {
+            p.serial = pic.serial;
+            if (!second) {
+                // A lone field's other field is taken to count as it does.
+                p.poc_top = field ? (structure == 1 ? info.poc_top : info.poc_bottom) : info.poc_top;
+                p.poc_bottom = field ? p.poc_top : info.poc_bottom;
+                std::fill(p.mb_intra.begin(), p.mb_intra.end(), std::uint8_t { 1 });
+                std::fill(p.mb_field.begin(), p.mb_field.end(), static_cast<std::uint8_t>(field ? 1 : 0));
+            }
+            if (structure == 1)
+                p.poc_top = info.poc_top;
+            else if (structure == 2)
+                p.poc_bottom = info.poc_bottom;
+            p.coding = pic.coding;
+            p.valid = true;
+        };
+        begin_picture(pic);
+        for (Picture& p : pic.colour_planes)
+            begin_picture(p);
         // what read() shows: the sequence's cropping (7.4.2.1.1: in
         // CropUnitX and CropUnitY, rows of two frame lines where fields may be coded)
         int const crop_unit_x = format == 0 ? 1 : (format == 3 ? 1 : 2);
@@ -451,9 +471,43 @@ public:
         pic.crop_y = sps.frame_cropping ? sps.crop_top * crop_unit_y : 0;
         pic.shown_width = sps.width();
         pic.shown_height = sps.height();
+        if (!separate)
+            return decode_plane(info, pic, -1);
+        bool any = false;
+        for (int plane = 0; plane < 3; ++plane)
+            any = decode_plane(info, plane == 0 ? pic : pic.colour_planes[static_cast<std::size_t>(plane - 1)], plane) || any;
+        return any;
+    }
+
+    // The picture's slices into `target` — all of them, or (`plane` 0 to
+    // 2) those of one colour_plane_id, predicting from the same plane of
+    // the references.
+    bool decode_plane(H264PictureInfo const& info, Picture& target, int plane)
+    {
+        H264Sps const& sps = *info.sps;
+        H264Pps const& pps = *info.pps;
+        bool const field = info.field_pic;
+        bool const mbaff = !field && sps.mb_adaptive_frame_field;
+        int const structure = field ? (info.bottom_field ? 2 : 1) : 0;
+        int const mb_w = sps.pic_width_in_mbs;
+        int const depth_luma = sps.bit_depth_luma;
+        Picture& pic = target;
+        auto of_plane = [&](H264SliceHeader const& h) { return plane < 0 || h.colour_plane_id == plane; };
+        // A reference's picture of the plane decoded, where it holds one like the current.
+        auto reference = [&](int slot) -> Picture* {
+            Picture& r = m_pictures[static_cast<std::size_t>(slot)];
+            if (!r.valid)
+                return nullptr;
+            if (plane > 0)
+                return r.colour_planes.size() == 2 && r.colour_planes[static_cast<std::size_t>(plane - 1)].fits(pic.mb_width, pic.mb_height, 0, depth_luma, depth_luma)
+                    ? &r.colour_planes[static_cast<std::size_t>(plane - 1)]
+                    : nullptr;
+            return r.fits(pic.mb_width, pic.mb_height, pic.chroma_format, pic.bit_depth_luma, pic.bit_depth_chroma, plane == 0) ? &r : nullptr;
+        };
 
         Frame frame;
         frame.set_view(pic, structure, mbaff);
+        frame.list_component = plane > 0 ? plane : 0;
         int const mb_h = frame.mb_height;
         frame.slice_alpha.assign(info.slices.size(), 0);
         frame.slice_beta.assign(info.slices.size(), 0);
@@ -471,8 +525,13 @@ public:
 
         // Threads where the picture has rows enough and its slices come in raster order.
         bool in_order = true;
-        for (std::size_t i = 1; i < info.headers.size(); ++i)
-            in_order = in_order && info.headers[i].first_mb_in_slice > info.headers[i - 1].first_mb_in_slice;
+        int last_first = -1;
+        for (H264SliceHeader const& h : info.headers) {
+            if (!of_plane(h))
+                continue;
+            in_order = in_order && h.first_mb_in_slice > last_first;
+            last_first = h.first_mb_in_slice;
+        }
         std::optional<WavefrontSink> wavefront;
         std::optional<DirectSink> direct;
         if (m_thread_count > 1 && in_order && mb_h / (mbaff ? 2 : 1) >= 4) {
@@ -492,6 +551,8 @@ public:
         bool any = false;
         for (std::size_t i = 0; i < info.slices.size() && i < info.headers.size(); ++i) {
             H264SliceHeader const& h = info.headers[i];
+            if (!of_plane(h))
+                continue;
             Slice& slice = slices.emplace_back();
             slice.sps = &sps;
             slice.pps = &pps;
@@ -514,9 +575,8 @@ public:
                         RefEntry r;
                         // The current frame is a reference only as the first field of the second.
                         bool const usable = e.slot >= 0 && e.slot < slot_count && (e.slot != info.slot || (field && e.structure != 0 && e.structure != structure));
-                        if (usable && m_pictures[static_cast<std::size_t>(e.slot)].valid
-                            && m_pictures[static_cast<std::size_t>(e.slot)].fits(mb_w, frame_mb_h, format, depth_luma, depth_chroma))
-                            r.picture = &m_pictures[static_cast<std::size_t>(e.slot)];
+                        if (usable)
+                            r.picture = reference(e.slot);
                         r.structure = e.structure;
                         r.long_term = e.long_term;
                         r.poc = e.poc;
@@ -571,6 +631,29 @@ public:
         out.height = std::min(p.shown_height, p.height - crop_y);
         if (out.width <= 0 || out.height <= 0)
             return std::nullopt;
+        if (!p.colour_planes.empty()) {
+            // Three colour planes: 4:4:4 at the luma's depth.
+            Nv12Picture::Planar planar;
+            planar.bit_depth_luma = planar.bit_depth_chroma = p.bit_depth_luma;
+            planar.chroma_format = 3;
+            planar.chroma_width = out.width;
+            planar.chroma_height = out.height;
+            std::vector<std::uint16_t>* const to[3] = { &planar.y, &planar.cb, &planar.cr };
+            for (int c = 0; c < 3; ++c) {
+                Picture const& from = c == 0 ? p : p.colour_planes[static_cast<std::size_t>(c - 1)];
+                to[c]->resize(static_cast<std::size_t>(out.width) * static_cast<std::size_t>(out.height));
+                for (int y = 0; y < out.height; ++y) {
+                    std::size_t const at = static_cast<std::size_t>(y + crop_y) * static_cast<std::size_t>(p.width) + static_cast<std::size_t>(crop_x);
+                    std::uint16_t* const row = to[c]->data() + static_cast<std::size_t>(y) * static_cast<std::size_t>(out.width);
+                    if (from.wide())
+                        std::copy_n(from.plane<std::uint16_t>(0) + at, out.width, row);
+                    else
+                        std::copy_n(from.plane<std::uint8_t>(0) + at, out.width, row);
+                }
+            }
+            out.planar = std::move(planar);
+            return out;
+        }
         if (p.wide() || p.chroma_format != 1) {
             // Its planes as they are, cropped (the chroma by CropUnitX and
             // CropUnitY's chroma share: SubWidthC, SubHeightC).

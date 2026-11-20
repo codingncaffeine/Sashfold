@@ -135,3 +135,5 @@ Hi422FR12_SONY_A  # High 4:2:2, 8 bits, CABAC, I, P and B
 Hi422FR13_SONY_A  # High 4:2:2, 10 bits, CABAC, I
 Hi422FR14_SONY_A  # High 4:2:2, 10 bits, CABAC, I and P
 Hi422FR15_SONY_A  # High 4:2:2, 10 bits, CABAC, I, P and B
+HPCVMOLQ_BRCM_B   # High, monochrome (4:0:0), CAVLC, scaling matrices, temporal direct
+HPCAMOLQ_BRCM_B   # High, monochrome (4:0:0), CABAC, scaling matrices, temporal direct

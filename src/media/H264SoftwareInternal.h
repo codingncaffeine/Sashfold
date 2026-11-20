@@ -239,6 +239,10 @@ struct Picture {
     int bit_depth_chroma = 8;
     std::vector<std::uint8_t> y, cb, cr; // both bit depths 8
     std::vector<std::uint16_t> y16, cb16, cr16; // otherwise
+    // separate_colour_plane_flag: the picture is its Y plane, decoded as a
+    // monochrome picture, and these are its Cb and Cr planes, each decoded
+    // as one too, with motion of its own (8.1: three decoding processes).
+    std::vector<Picture> colour_planes;
     std::array<std::vector<Mv>, 2> mv; // [list][block], block = (mb_row * 4 + y4) * (mb_width * 4) + mb_x * 4 + x4
     std::array<std::vector<std::int8_t>, 2> ref_idx; // -1: the list not used
     std::array<std::vector<std::int32_t>, 2> ref_pic; // the picture the block's reference index named (RefEntry::id)
@@ -255,9 +259,10 @@ struct Picture {
     int shown_height = 0;
 
     void allocate(int mb_w, int mb_h, int chroma_format_idc, int depth_luma, int depth_chroma);
-    bool fits(int mb_w, int mb_h, int chroma_format_idc, int depth_luma, int depth_chroma) const
+    bool fits(int mb_w, int mb_h, int chroma_format_idc, int depth_luma, int depth_chroma, bool separate_planes = false) const
     {
-        return mb_width == mb_w && mb_height == mb_h && chroma_format == chroma_format_idc && bit_depth_luma == depth_luma && bit_depth_chroma == depth_chroma;
+        return mb_width == mb_w && mb_height == mb_h && chroma_format == chroma_format_idc && bit_depth_luma == depth_luma && bit_depth_chroma == depth_chroma
+            && colour_planes.empty() != separate_planes;
     }
     bool wide() const { return bit_depth_luma > 8 || bit_depth_chroma > 8; }
     int stride() const { return width; }
@@ -512,6 +517,9 @@ struct Frame {
     int mb_chroma_width = 8;
     int mb_chroma_height = 8;
     bool transform_bypass = false; // qpprime_y_zero_transform_bypass_flag
+    // The scaling lists the luma takes (8.5.9's iYCbCr): 0, or a separate
+    // colour plane's colour_plane_id.
+    int list_component = 0;
 
     template<typename P>
     P* luma_at() const { return reinterpret_cast<P*>(luma); }
