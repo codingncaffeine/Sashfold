@@ -1,4 +1,4 @@
-# WPT CSS reference tests passing (11088 of 16471) at WPT revision b1a7025f8bc16454e18604c9e195038aa5cf1d94,
+# WPT CSS reference tests passing (11086 of 16471) at WPT revision (unrecorded),
 # viewport 800x600. One test per line; a listed test that fails is a regression.
 # Re-bless with: wpt_reftest <checkout> <directories> <this file> --update
 css/CSS2/abspos/abspos-containing-block-initial-001.xht
@@ -7834,7 +7834,6 @@ css/css-overflow/text-overflow-change-color.html
 css/css-overflow/text-overflow-ellipsis-001.html
 css/css-overflow/text-overflow-ellipsis-003.html
 css/css-overflow/text-overflow-ellipsis-changing-scroll.html
-css/css-overflow/text-overflow-ellipsis-editable-div-with-caret.html
 css/css-overflow/text-overflow-ellipsis-editing-input.html
 css/css-overflow/text-overflow-ellipsis-indent-001.html
 css/css-overflow/text-overflow-ellipsis-rtl-001.html
@@ -7855,7 +7854,6 @@ css/css-position/hypothetical-box-scroll-viewport.html
 css/css-position/invalidate-opacity-negative-z-index.html
 css/css-position/overlay/author-overlay-top-layer-removal.html
 css/css-position/overlay/overlay-transition-backdrop-entry.html
-css/css-position/overlay/overlay-transition-dialog.html
 css/css-position/position-absolute-dynamic-auto-overflow.html
 css/css-position/position-absolute-dynamic-list-marker.html
 css/css-position/position-absolute-dynamic-overflow-001.html
