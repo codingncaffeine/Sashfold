@@ -267,7 +267,9 @@ std::optional<long> tabindex_value(Element const& element)
         return std::nullopt;
     long long value = 0;
     while (i < text.size() && is_ascii_digit(static_cast<unsigned char>(text[i]))) {
-        value = std::min<long long>(value * 10 + (text[i] - '0'), static_cast<long long>(LONG_MAX));
+        // Held at the largest long: more digits must not overflow the sum.
+        long long const digit = text[i] - '0';
+        value = value > (static_cast<long long>(LONG_MAX) - digit) / 10 ? static_cast<long long>(LONG_MAX) : value * 10 + digit;
         ++i;
     }
     return static_cast<long>(negative ? -value : value);

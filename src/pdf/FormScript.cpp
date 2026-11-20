@@ -645,6 +645,9 @@ FormSandbox::~FormSandbox()
     }
     m_state->wake.notify_all();
     m_state->thread->join();
+    // The thread's function holds the state that holds the thread: letting
+    // the thread go is what lets the state go.
+    m_state->thread.reset();
 }
 
 std::string FormSandbox::request(std::string const& json)
